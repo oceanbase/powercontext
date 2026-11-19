@@ -1,79 +1,287 @@
-name: Script installation
+# Copyright (c) 2026 OceanBase.
+# SPDX-License-Identifier: Apache-2.0
+name: Internal cache GitHub Actions acceptance
 
 on:
-  workflow_call:
-    inputs:
-      suites:
-        description: Scope already selected by the Main orchestrator
-        required: true
-        type: string
   workflow_dispatch:
 
 permissions:
-  actions: read
   contents: read
-
-concurrency:
-  group: installation-${{ github.event.pull_request.number || github.ref }}-${{ github.event_name }}
-  cancel-in-progress: true
+  actions: read
 
 jobs:
-  changes:
-    if: ${{ inputs.suites == '' }}
-    uses: ./.github/workflows/ci-changes.yml
-    with:
-      baseline-workflow: installation.yml
-
-  installation:
-    needs: changes
-    if: ${{ !cancelled() && ((inputs.suites == '' && needs.changes.result != 'success') || fromJSON(inputs.suites || needs.changes.outputs.suites || '{}').packaging) }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-    runs-on: ${{ matrix.os == 'ubuntu-latest' && 'powercontext-ci-light' || matrix.os }}
-    timeout-minutes: 20
+  writer:
+    name: Verify warm dependencies and publish smoke caches
+    runs-on: powercontext-ci-standard
+    timeout-minutes: 30
+    outputs:
+      runner-name: ${{ steps.identity.outputs.runner-name }}
+      post-key: ${{ steps.keys.outputs.post-key }}
+      explicit-key: ${{ steps.keys.outputs.explicit-key }}
+      post-sha256: ${{ steps.payloads.outputs.post-sha256 }}
+      explicit-sha256: ${{ steps.payloads.outputs.explicit-sha256 }}
     steps:
-      - name: Check out
+      - name: Check out the dispatched commit
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
+          ref: ${{ github.sha }}
           persist-credentials: false
 
-      - name: Set up the environment
+      - name: Verify isolated acceptance context and credential boundary
+        id: identity
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import os
+          import shutil
+          from pathlib import Path
+
+          assert os.environ['GITHUB_EVENT_NAME'] == 'workflow_dispatch'
+          assert os.environ['GITHUB_REF'] == 'refs/heads/codex/ci-internal-cache-acceptance-20261119'
+          assert os.environ['RUNNER_OS'] == 'Linux'
+          assert os.environ['RUNNER_ENVIRONMENT'] == 'self-hosted'
+          unexpected = sorted(name for name in os.environ if name.startswith('AWS_'))
+          assert not unexpected, f'Unexpected global AWS variable names: {unexpected}'
+          with Path(os.environ['GITHUB_OUTPUT']).open('a') as output:
+              output.write(f"runner-name={os.environ['RUNNER_NAME']}\n")
+          print(f"runner={os.environ['RUNNER_NAME']} sha={os.environ['GITHUB_SHA']}")
+          print(f"zstd={shutil.which('zstd') or 'not installed'}")
+          PY
+
+      - name: Select the real internal backend
+        id: backend
+        uses: ./.github/actions/cache-backend
+
+      - name: Assert S3 selection without global AWS credentials
+        shell: bash
+        env:
+          SELECTED_BACKEND: ${{ steps.backend.outputs.backend }}
+        run: |
+          python3 - <<'PY'
+          import os
+          assert os.environ['SELECTED_BACKEND'] == 's3'
+          unexpected = sorted(name for name in os.environ if name.startswith('AWS_'))
+          assert not unexpected, f'Unexpected global AWS variable names: {unexpected}'
+          print('backend=s3; global AWS variables absent')
+          PY
+
+      - name: Restore the prewarmed shared Python 3.12 cache
+        id: python
         uses: ./.github/actions/setup-python-env
         with:
-          shared-cache: ${{ matrix.os == 'ubuntu-latest' && 'true' || 'false' }}
+          python-version: '3.12'
+          shared-cache: 'true'
 
-      - name: Build the installation fixture
+      - name: Require an exact Python hit and install into a fresh venv offline
         shell: bash
         env:
-          # Qualify this commit using release-shaped metadata, without publishing it.
-          SETUPTOOLS_SCM_PRETEND_VERSION: "1.2.0"
-        run: uv build --wheel --out-dir dist/installation
+          PYTHON_CACHE_HIT: ${{ steps.python.outputs.cache-hit }}
+          PYTHON_CACHE_KEY: ${{ steps.python.outputs.cache-key }}
+        run: |
+          test "$PYTHON_CACHE_HIT" = true
+          printf 'Python exact key: %s\n' "$PYTHON_CACHE_KEY"
+          python - <<'PY'
+          import shutil
+          shutil.rmtree('.venv', ignore_errors=True)
+          PY
+          uv sync --frozen --offline --python "$(command -v python)"
 
-      - name: Check shared installer behavior and source resolution
-        shell: bash
-        run: >-
-          uv run --no-sync pytest -q tests/test_installation_contract.py tests/native/test_install_sources.py
-          --junitxml "$RUNNER_TEMP/installation-contract.xml"
-          --basetemp "$RUNNER_TEMP/installation-contract-tests"
+      - name: Restore prewarmed project tools
+        id: mise
+        uses: ./.github/actions/setup-mise
 
-      - name: Exercise bootstrap, version selection, profiles, and persistent memory
+      - name: Require the exact tool snapshot
         shell: bash
         env:
-          POWERCONTEXT_INSTALL_WHEEL: ${{ github.workspace }}/dist/installation/powercontext-1.2.0-py3-none-any.whl
-        run: >-
-          uv run --no-sync pytest -vv --durations=20 tests/native/test_installation.py
-          --junitxml "$RUNNER_TEMP/installation.xml"
-          --basetemp "$RUNNER_TEMP/installation-tests"
+          MISE_CACHE_HIT: ${{ steps.mise.outputs.cache-hit }}
+        run: test "$MISE_CACHE_HIT" = true
 
-      - name: Upload installation diagnostics after failure
-        if: failure()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+      - name: Restore the prewarmed config-runtime pnpm store
+        id: pnpm
+        uses: ./.github/actions/cache-pnpm
         with:
-          name: installation-${{ matrix.os }}
-          path: |
-            ${{ runner.temp }}/installation.xml
-            ${{ runner.temp }}/installation-contract.xml
-            ${{ runner.temp }}/installation-tests/**/*.log
-          if-no-files-found: ignore
+          working-directory: integrations/dsh/plugins/powercontext/tests/config-runtime
+          cache-dependency-glob: integrations/dsh/plugins/powercontext/tests/config-runtime/pnpm-lock.yaml
+          save-cache: 'false'
+
+      - name: Require an exact pnpm hit and install offline
+        shell: bash
+        env:
+          PNPM_CACHE_HIT: ${{ steps.pnpm.outputs.cache-hit }}
+          PNPM_CACHE_KEY: ${{ steps.pnpm.outputs.cache-key }}
+        run: |
+          test "$PNPM_CACHE_HIT" = true
+          printf 'pnpm exact key: %s\n' "$PNPM_CACHE_KEY"
+          pnpm --dir integrations/dsh/plugins/powercontext/tests/config-runtime install --frozen-lockfile --offline
+
+      - name: Select the pinned Rust toolchain and require a fresh target directory
+        shell: bash
+        run: |
+          rustup toolchain install 1.95.0-x86_64-unknown-linux-gnu --profile minimal
+          rustup default 1.95.0-x86_64-unknown-linux-gnu
+          test ! -e gateway/target
+
+      - name: Restore prewarmed Gateway compilation dependencies
+        id: cargo
+        uses: ./.github/actions/setup-rust-cache
+        with:
+          workspaces: gateway -> target
+          shared-key: gateway
+          cache-bin: 'false'
+          cache-on-failure: 'false'
+
+      - name: Require restored compilation artifacts and compile offline
+        shell: bash
+        env:
+          CARGO_CACHE_BACKEND: ${{ steps.cargo.outputs.cache-backend }}
+          CARGO_CACHE_HIT: ${{ steps.cargo.outputs.cache-hit }}
+          CARGO_CACHE_KEY: ${{ steps.cargo.outputs.cache-key }}
+        run: |
+          test "$CARGO_CACHE_BACKEND" = s3
+          printf 'Cargo exact-hit=%s requested-key=%s\n' "$CARGO_CACHE_HIT" "$CARGO_CACHE_KEY"
+          python3 - <<'PY'
+          from pathlib import Path
+          artifacts = list(Path('gateway/target/debug/deps').glob('*.rlib'))
+          assert artifacts, 'No compiled dependency artifacts restored into the fresh target directory'
+          print(f'Restored dependency rlibs: {len(artifacts)}; an exact or dependency-prefix hit is accepted')
+          PY
+          cargo test --locked --offline --manifest-path gateway/Cargo.toml --workspace --no-run
+
+      - name: Allocate unique post-save and explicit-save cache identities
+        id: keys
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import os
+          import uuid
+          from pathlib import Path
+          suffix = f"{os.environ['GITHUB_RUN_ID']}-{os.environ['GITHUB_RUN_ATTEMPT']}-{uuid.uuid4().hex}"
+          with Path(os.environ['GITHUB_OUTPUT']).open('a') as output:
+              output.write(f'post-key=gha-internal-cache-post-{suffix}\n')
+              output.write(f'explicit-key=gha-internal-cache-explicit-{suffix}\n')
+          PY
+
+      - name: Register the combined action for a real post save
+        id: post-cache
+        uses: ./.github/actions/cache
+        with:
+          path: ${{ runner.temp }}/ci-cache-gha-smoke/post
+          key: ${{ steps.keys.outputs.post-key }}
+
+      - name: Create random payloads after the combined action restore
+        id: payloads
+        shell: bash
+        env:
+          POST_CACHE_BACKEND: ${{ steps.post-cache.outputs.cache-backend }}
+          POST_CACHE_HIT: ${{ steps.post-cache.outputs.cache-hit }}
+        run: |
+          python3 - <<'PY'
+          import hashlib
+          import os
+          from pathlib import Path
+          assert os.environ['POST_CACHE_BACKEND'] == 's3'
+          assert os.environ['POST_CACHE_HIT'] != 'true', 'A unique key unexpectedly already exists'
+          root = Path(os.environ['RUNNER_TEMP']) / 'ci-cache-gha-smoke'
+          with Path(os.environ['GITHUB_OUTPUT']).open('a') as output:
+              for name in ('post', 'explicit'):
+                  directory = root / name
+                  directory.mkdir(parents=True, exist_ok=True)
+                  payload = os.urandom(4096)
+                  (directory / 'payload.bin').write_bytes(payload)
+                  output.write(f'{name}-sha256={hashlib.sha256(payload).hexdigest()}\n')
+          PY
+
+      - name: Explicitly save the second payload
+        id: explicit-cache
+        uses: ./.github/actions/cache-save
+        with:
+          path: ${{ runner.temp }}/ci-cache-gha-smoke/explicit
+          key: ${{ steps.keys.outputs.explicit-key }}
+
+      - name: Assert helpers did not export global AWS variables
+        shell: bash
+        env:
+          EXPLICIT_CACHE_BACKEND: ${{ steps.explicit-cache.outputs.cache-backend }}
+        run: |
+          python3 - <<'PY'
+          import os
+          assert os.environ['EXPLICIT_CACHE_BACKEND'] == 's3'
+          unexpected = sorted(name for name in os.environ if name.startswith('AWS_'))
+          assert not unexpected, f'Unexpected global AWS variable names: {unexpected}'
+          print('All writer helpers completed; global AWS variables absent; post save is verified by the dependent reader')
+          PY
+
+  reader:
+    name: Restore and verify both published payloads on a fresh runner
+    needs: writer
+    runs-on: powercontext-ci-standard
+    timeout-minutes: 30
+    steps:
+      - name: Check out the same dispatched commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Require a different runner and empty destination paths
+        shell: bash
+        env:
+          WRITER_RUNNER_NAME: ${{ needs.writer.outputs.runner-name }}
+        run: |
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          assert os.environ['RUNNER_NAME'] != os.environ['WRITER_RUNNER_NAME']
+          root = Path(os.environ['RUNNER_TEMP']) / 'ci-cache-gha-smoke'
+          assert not root.exists(), 'Reader cache destination is not fresh'
+          unexpected = sorted(name for name in os.environ if name.startswith('AWS_'))
+          assert not unexpected, f'Unexpected global AWS variable names: {unexpected}'
+          print(f"fresh reader={os.environ['RUNNER_NAME']}")
+          PY
+
+      - name: Restore the combined action post-save payload
+        id: post-cache
+        uses: ./.github/actions/cache-restore
+        with:
+          path: ${{ runner.temp }}/ci-cache-gha-smoke/post
+          key: ${{ needs.writer.outputs.post-key }}
+
+      - name: Restore the explicitly saved payload
+        id: explicit-cache
+        uses: ./.github/actions/cache-restore
+        with:
+          path: ${{ runner.temp }}/ci-cache-gha-smoke/explicit
+          key: ${{ needs.writer.outputs.explicit-key }}
+
+      - name: Verify exact S3 hits, bytes and the global credential boundary
+        shell: bash
+        env:
+          POST_BACKEND: ${{ steps.post-cache.outputs.cache-backend }}
+          POST_HIT: ${{ steps.post-cache.outputs.cache-hit }}
+          POST_EXPECTED_KEY: ${{ needs.writer.outputs.post-key }}
+          POST_MATCHED_KEY: ${{ steps.post-cache.outputs.cache-matched-key }}
+          POST_EXPECTED_SHA256: ${{ needs.writer.outputs.post-sha256 }}
+          EXPLICIT_BACKEND: ${{ steps.explicit-cache.outputs.cache-backend }}
+          EXPLICIT_HIT: ${{ steps.explicit-cache.outputs.cache-hit }}
+          EXPLICIT_EXPECTED_KEY: ${{ needs.writer.outputs.explicit-key }}
+          EXPLICIT_MATCHED_KEY: ${{ steps.explicit-cache.outputs.cache-matched-key }}
+          EXPLICIT_EXPECTED_SHA256: ${{ needs.writer.outputs.explicit-sha256 }}
+        run: |
+          python3 - <<'PY'
+          import hashlib
+          import os
+          from pathlib import Path
+          root = Path(os.environ['RUNNER_TEMP']) / 'ci-cache-gha-smoke'
+          for name in ('post', 'explicit'):
+              prefix = name.upper()
+              assert os.environ[f'{prefix}_BACKEND'] == 's3'
+              assert os.environ[f'{prefix}_HIT'] == 'true'
+              assert os.environ[f'{prefix}_MATCHED_KEY'] == os.environ[f'{prefix}_EXPECTED_KEY']
+              payload = (root / name / 'payload.bin').read_bytes()
+              assert len(payload) == 4096
+              assert hashlib.sha256(payload).hexdigest() == os.environ[f'{prefix}_EXPECTED_SHA256']
+              print(f'{name}: exact S3 hit and 4096-byte payload verified')
+          unexpected = sorted(name for name in os.environ if name.startswith('AWS_'))
+          assert not unexpected, f'Unexpected global AWS variable names: {unexpected}'
+          print('Both cache publication paths verified across independent runners; global AWS variables absent')
+          PY
