@@ -1116,6 +1116,8 @@ jobs:
         run: make opencode-test
 
       - name: Install the pinned OpenCode host
+        env:
+          XDG_CACHE_HOME: ${{ runner.temp }}/opencode-host-cache
         run: |
           package="opencode-$(node -p 'process.platform + "-" + process.arch')"
           # OpenCode's default x64 build needs AVX2; its own installer falls back to the baseline build without it.
