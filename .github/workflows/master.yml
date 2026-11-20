@@ -259,7 +259,7 @@ jobs:
     # Unit jobs must outlast pytest plus uv cache publication. End-to-end jobs
     # also need time for subprocess tails on internal runners.
     timeout-minutes: ${{ matrix.suite == 'e2e' && 55 || 50 }}
-    runs-on: powercontext-ci-standard
+    runs-on: powercontext-ci-python
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.quality.outputs.test-matrix || '{"include":[{"python-version":"3.11","suite":"unit"},{"python-version":"3.12","suite":"unit"},{"python-version":"3.13","suite":"unit"},{"python-version":"3.14","suite":"unit"},{"python-version":"3.11","suite":"e2e","shard-index":0,"shard-count":2},{"python-version":"3.11","suite":"e2e","shard-index":1,"shard-count":2},{"python-version":"3.12","suite":"e2e","shard-index":0,"shard-count":2},{"python-version":"3.12","suite":"e2e","shard-index":1,"shard-count":2},{"python-version":"3.13","suite":"e2e","shard-index":0,"shard-count":2},{"python-version":"3.13","suite":"e2e","shard-index":1,"shard-count":2},{"python-version":"3.14","suite":"e2e","shard-index":0,"shard-count":2},{"python-version":"3.14","suite":"e2e","shard-index":1,"shard-count":2}]}') }}
