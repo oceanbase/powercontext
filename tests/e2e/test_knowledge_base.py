@@ -68,6 +68,14 @@ def test_knowledge_base_import_edit_forget_and_space_selection(tmp_path, real_mo
                 return response.json()
 
             default = await call("GET", "/me/default-space")
+            schema_response = await client.get("/v1/plugins/knowledge-base/openapi.json")
+            assert schema_response.is_success, schema_response.text
+            operations = [
+                operation["operationId"]
+                for path in schema_response.json()["paths"].values()
+                for operation in path.values()
+            ]
+            assert operations and len(operations) == len(set(operations))
             assert (await call("GET", "/me/default-space"))["space_scope_id"] == default["space_scope_id"]
             selected_space = await call(
                 "POST", "/spaces", json={"title": "Acceptance space", "idempotency_key": uuid4().hex}
@@ -135,6 +143,8 @@ def test_knowledge_base_import_edit_forget_and_space_selection(tmp_path, real_mo
             chunk = listing["items"][1]
             assert "text" not in chunk
             content = await call("GET", chunks + "/" + chunk["chunk_id"])
+            batch = await call("POST", chunks + "/batch-get", json={"chunk_ids": [chunk["chunk_id"]]})
+            assert batch["items"] == [content]
             assert content["text"]
             results = await call(
                 "POST", "/retrieve", json={"space_scope_id": space, "query": "重启之前检查什么", "scope_ids": [scope]}

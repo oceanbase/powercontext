@@ -186,6 +186,10 @@ SQLite 使用 FTS5 和 sqlite-vec 余弦距离；SeekDB／OceanBase 使用原生
 该过程保留 chunk 身份、正文、向量及 document 版本，无需重新解析原文。升级时应预留索引构建时间；
 初始化完成后，进程才开始处理知识库请求。
 
+插件身份字段保留完整的规范调用方标识，包括 `user:` 或 `service:` 前缀及最长 255 字符的身份 ID。
+初始化会将 SeekDB／OceanBase 中已有的身份字段扩展到 263 字符，不改变已存身份、默认空间或归属关系。
+扩展中断后可继续执行；SQLite 无需扩展列宽。
+
 四张插件领域表为 `pc_knowledge_base_spaces`、`pc_knowledge_base_space_defaults`、`pc_knowledge_base_resources`、
 `pc_knowledge_base_chunks`；全文／向量投影属于派生结构。核心仍管理 Artifact 版本、生命周期、编辑证据、Source、cursor、租约与重试。
 备份实例时应一起保留核心数据库、插件数据库和快照目录。

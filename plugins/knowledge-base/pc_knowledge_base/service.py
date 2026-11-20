@@ -623,6 +623,11 @@ class KnowledgeBase:
         total = current.content["chunk_count"]
         return {"items": selected, "total": total, "next_offset": offset + limit if offset + limit < total else None}
 
+    # Distinct public operations share the same revision/visibility checks.
+    chunks_list = chunk_read
+    chunk_get = chunk_read
+    chunks_batch_get = chunk_read
+
     async def retrieve(self, request):
         body = request.body
         if request.scope_id is not None:
@@ -656,6 +661,8 @@ class KnowledgeBase:
         except ContentError as error:
             fail(str(error), 422)
         return {"space_scope_id": space, "scope_ids": selected, "hits": hits}
+
+    retrieve_scope = retrieve
 
     async def search(self, scopes, query_text, mode, limit):
         vector = [] if mode == "fts" else (await self.embedding.embed([query_text], query=True))[0]

@@ -207,6 +207,10 @@ On startup, existing native projections are upgraded by building `kb_tokens_v2` 
 `kb_tokens` index. Interrupted upgrades can be retried; chunk identities, text, vectors and document revisions remain unchanged.
 Allow index-build time during a plugin upgrade; initialization must finish before the process serves knowledge-base requests.
 
+Plugin identity columns preserve the full canonical caller, including the `user:` or `service:` prefix and up to 255
+principal-ID characters. Initialization widens existing SeekDB/OceanBase identity columns to 263 characters without changing
+stored identities, defaults or ownership. Interrupted widening is resumable; SQLite needs no column widening.
+
 The four plugin domain tables are `pc_knowledge_base_spaces`, `pc_knowledge_base_space_defaults`, `pc_knowledge_base_resources`
 and `pc_knowledge_base_chunks`. Fulltext/vector projections are derived structures. Core owns Artifact revisions, lifecycle,
 lineage-only edit evidence, Sources, cursors, leases and retries. Keep the core database, plugin database and snapshot directory

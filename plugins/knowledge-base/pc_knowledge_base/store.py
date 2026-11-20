@@ -51,15 +51,15 @@ spaces = Table(
     Column("space_scope_id", String(64), primary_key=True),
     Column("title", String(200), nullable=False),
     Column("kind", String(16), nullable=False),
-    Column("personal_owner_id", String(256, collation="utf8mb4_bin").with_variant(String(256), "sqlite"), unique=True),
-    Column("created_by", String(256), nullable=False),
+    Column("personal_owner_id", String(263, collation="utf8mb4_bin").with_variant(String(263), "sqlite"), unique=True),
+    Column("created_by", String(263), nullable=False),
     Column("request_digest", String(64), nullable=False),
     Column("version", Integer, nullable=False),
 )
 defaults = Table(
     "pc_knowledge_base_space_defaults",
     metadata,
-    Column("principal_id", String(256, collation="utf8mb4_bin").with_variant(String(256), "sqlite"), primary_key=True),
+    Column("principal_id", String(263, collation="utf8mb4_bin").with_variant(String(263), "sqlite"), primary_key=True),
     Column("space_scope_id", String(64), nullable=False),
     Column("version", Integer, nullable=False),
 )
@@ -120,6 +120,23 @@ class Store:
             if self.backend == "sqlite":
                 await c.execute(text("CREATE VIRTUAL TABLE IF NOT EXISTS kb_fts USING fts5(row_id UNINDEXED, tokens)"))
             else:
+                # Caller IDs include the principal kind: "service:" plus up to 255 characters.
+                # create_all does not widen existing tables. Each additive DDL can be repeated
+                # after interruption or concurrent Server/Worker startup without rewriting identities.
+                for table, column, definition in (
+                    (spaces.name, "personal_owner_id", "VARCHAR(263) COLLATE utf8mb4_bin NULL"),
+                    (spaces.name, "created_by", "VARCHAR(263) NOT NULL"),
+                    (defaults.name, "principal_id", "VARCHAR(263) COLLATE utf8mb4_bin NOT NULL"),
+                ):
+                    length = await c.scalar(
+                        text(
+                            "SELECT CHARACTER_MAXIMUM_LENGTH FROM information_schema.COLUMNS "
+                            "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = :table AND COLUMN_NAME = :column"
+                        ),
+                        {"table": table, "column": column},
+                    )
+                    if length is not None and length < 263:
+                        await c.execute(text(f"ALTER TABLE {table} MODIFY COLUMN {column} {definition}"))
                 # Derived native projections; they never replace the authoritative chunk rows.
                 await c.execute(
                     text(f"""CREATE TABLE IF NOT EXISTS kb_search (
