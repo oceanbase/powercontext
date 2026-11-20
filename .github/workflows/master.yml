@@ -77,7 +77,7 @@ jobs:
 
       - name: Save managed startup reports
         if: always()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        uses: ./.github/actions/upload-ci-diagnostics
         with:
           name: managed-startup-seekdb-${{ github.sha }}
           path: ${{ env.MIGRATION_REPORTS }}/
@@ -167,7 +167,7 @@ jobs:
           docker stop --timeout 30 upgrade-oceanbase || true
       - name: Save engine recovery evidence
         if: always()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        uses: ./.github/actions/upload-ci-diagnostics
         with:
           name: oceanbase-engine-recovery-${{ github.sha }}
           path: ${{ runner.temp }}/oceanbase-engine-recovery/
@@ -358,7 +358,7 @@ jobs:
 
       - name: Save Python test evidence
         if: always()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        uses: ./.github/actions/upload-ci-diagnostics
         with:
           name: python-tests-${{ matrix.python-version }}-${{ matrix.suite }}-${{ matrix.shard-index || 0 }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/pytest-diagnostics/
@@ -425,7 +425,7 @@ jobs:
 
       - name: Save installation role reports
         if: always()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        uses: ./.github/actions/upload-ci-diagnostics
         with:
           name: installation-roles-py${{ matrix.python-version }}-${{ github.sha }}
           path: |
@@ -501,7 +501,7 @@ jobs:
 
       - name: Save worker observability results
         if: always()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        uses: ./.github/actions/upload-ci-diagnostics
         with:
           name: worker-observability
           path: ${{ runner.temp }}/worker-observability.xml
@@ -702,7 +702,7 @@ jobs:
 
       - name: Upload seekdb bootstrap diagnostics
         if: always()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        uses: ./.github/actions/upload-ci-diagnostics
         with:
           name: seekdb-bootstrap-${{ matrix.python-version }}-${{ matrix.migration-shard }}
           path: .powercontext/database-bootstrap-ci/
@@ -710,7 +710,7 @@ jobs:
 
       - name: Upload seekdb migration diagnostics
         if: always()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        uses: ./.github/actions/upload-ci-diagnostics
         with:
           name: seekdb-migrations-${{ matrix.python-version }}-${{ matrix.migration-shard }}
           path: |
@@ -777,7 +777,7 @@ jobs:
 
       - name: Save clean migration reports
         if: always()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        uses: ./.github/actions/upload-ci-diagnostics
         with:
           name: atomic-memory-clean-seekdb-${{ github.sha }}
           path: ${{ env.MIGRATION_REPORTS }}/
@@ -918,7 +918,7 @@ jobs:
 
       - name: Upload Windows test diagnostics
         if: always()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        uses: ./.github/actions/upload-ci-diagnostics
         with:
           name: windows-unit-portability-${{ github.run_attempt }}
           path: ${{ runner.temp }}/pytest-diagnostics/
@@ -1241,7 +1241,7 @@ jobs:
 
       - name: Upload OpenCode host logs
         if: failure()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        uses: ./.github/actions/upload-ci-diagnostics
         with:
           name: opencode-host-logs-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/opencode-e2e/**/opencode.log
@@ -1300,7 +1300,7 @@ jobs:
 
       - name: Upload Codex host logs
         if: failure()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        uses: ./.github/actions/upload-ci-diagnostics
         with:
           name: codex-host-logs-${{ github.run_id }}-${{ github.run_attempt }}
           # pytest also links each case's directory as *current; upload each log once.
@@ -1356,7 +1356,7 @@ jobs:
 
       - name: Upload Claude Code host logs
         if: failure()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        uses: ./.github/actions/upload-ci-diagnostics
         with:
           name: claude-code-host-logs-${{ github.run_id }}-${{ github.run_attempt }}
           # pytest also links each case's directory as *current; upload each log once.
@@ -1394,7 +1394,7 @@ jobs:
 
       - name: Upload Bub host logs
         if: failure()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        uses: ./.github/actions/upload-ci-diagnostics
         with:
           name: bub-host-logs-${{ github.run_id }}-${{ github.run_attempt }}
           # Skip pytest's `*current` links to the same directories.
@@ -1481,7 +1481,7 @@ jobs:
 
       - name: Upload OpenClaw host logs
         if: failure()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        uses: ./.github/actions/upload-ci-diagnostics
         with:
           name: openclaw-host-logs-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
