@@ -19,6 +19,7 @@ import re
 import shutil
 import sqlite3
 from contextlib import closing
+from pathlib import Path
 
 import pytest
 
@@ -54,7 +55,7 @@ def previous_bundle(directory, embedding, *, through="s1401"):
     shutil.copytree(current.directory, directory, ignore=shutil.ignore_patterns("__pycache__"))
     manifest_path = directory / "manifest.json"
     manifest = json.loads(manifest_path.read_text())
-    revisions = list(manifest["revision_resources"])
+    revisions = current.revisions
     # Prune every revision after the requested previous head so the fixture
     # keeps describing the same earlier registration as later revisions are appended.
     created = set()
@@ -68,8 +69,8 @@ def previous_bundle(directory, embedding, *, through="s1401"):
             path.unlink(missing_ok=True)
             if resource in manifest["mysql_state_layouts"]:
                 manifest["mysql_state_layouts"].remove(resource)
-        for version in (directory / "versions").glob(f"{revision}_*.py"):
-            version.unlink()
+        script = current.script.get_revision(revision)
+        (directory / Path(script.path).relative_to(current.snapshot_directory)).unlink()
         (directory / "mysql" / "versions" / f"{revision}.py").unlink(missing_ok=True)
         del manifest["sqlite_fingerprints"][revision]
         del manifest["domain_readiness"][revision]
