@@ -37,7 +37,11 @@ function XMark() {
  * X logo with the text. The whole card links to the author's profile through
  * the name.
  */
-function TestimonialCard({ testimonial, profileLabel }: { testimonial: Testimonial; profileLabel: string }) {
+function TestimonialCard({ testimonial, profileLabel, repeat }: {
+  testimonial: Testimonial;
+  profileLabel: string;
+  repeat: boolean;
+}) {
   return (
     <figure className="pc-quote">
       <figcaption>
@@ -47,6 +51,7 @@ function TestimonialCard({ testimonial, profileLabel }: { testimonial: Testimoni
             aria-label={profileLabel.replace('{name}', testimonial.name)}
             href={testimonial.href}
             rel="noopener noreferrer"
+            tabIndex={repeat ? -1 : undefined}
             target="_blank"
           >
             {testimonial.name}
@@ -69,10 +74,10 @@ function Cards({ testimonials, profileLabel, repeat = false }: {
 }) {
   // The repeat only closes the loop: screen readers and the tab order skip it.
   return (
-    <ul aria-hidden={repeat || undefined} className="pc-quotes-set" data-repeat={repeat ? '' : undefined} inert={repeat || undefined}>
+    <ul aria-hidden={repeat || undefined} className="pc-quotes-set" data-repeat={repeat ? '' : undefined}>
       {testimonials.map((testimonial) => (
         <li key={testimonial.handle}>
-          <TestimonialCard profileLabel={profileLabel} testimonial={testimonial} />
+          <TestimonialCard profileLabel={profileLabel} repeat={repeat} testimonial={testimonial} />
         </li>
       ))}
     </ul>
