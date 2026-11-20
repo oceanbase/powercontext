@@ -92,6 +92,10 @@ def stage_distributions(dist: Path, staging: Path, *, release: bool) -> tuple[Pa
         shutil.copyfile(path, copied)
         staged.append(copied)
     wheel = staging / wheels[0].name
+    if release:
+        from schema_release import check_release_wheel
+
+        check_release_wheel(wheel)
     if sources:
         validate_sdist(staging / sources[0].name, wheel, staging.parent)
     return wheel, staged
