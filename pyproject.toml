@@ -118,6 +118,12 @@ cli = [
 source-images = [
     "pillow>=11,<13",
 ]
+knowledge-base = [
+    "fastembed>=0.7,<1",
+    "onnxruntime>=1.20,<2",
+    "opendal>=0.46,<1",
+    "rapidocr>=3,<4",
+]
 
 [project.scripts]
 powercontext = "powercontext.cli.app:main"
@@ -182,6 +188,7 @@ notebooks = [
     "python-dotenv>=1,<2",
     "playwright>=1.55,<2",
 ]
+knowledge-base-tests = ["playwright>=1.55,<2"]
 dev = [
     "powercontext[source-images]",
     "powercontext[code]",
@@ -227,6 +234,7 @@ only-include = ["src", "pyproject.toml", "README.md", "LICENSE", "LICENSES"]
 python = "./.venv"
 python-version = "3.11"
 extra-paths = [
+    "./plugins/knowledge-base",
     "./scripts",
     "./deploy/observability",
     "./desktop/tests",
@@ -243,6 +251,8 @@ extra-paths = [
 
 [tool.ty.src]
 exclude = [
+    # The plugin CI installs optional OCR/model dependencies and checks this directory explicitly.
+    "plugins/knowledge-base",
     # Optional Jupyter dependencies and notebook state are validated by notebooks-test.
     "examples/jupyter",
     "e2e/bub",

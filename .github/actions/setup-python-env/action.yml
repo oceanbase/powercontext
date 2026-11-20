@@ -42,6 +42,14 @@ outputs:
 runs:
   using: "composite"
   steps:
+    # Internal runner images may have a non-writable default ~/.cache directory.
+    - name: Use writable tool caches
+      shell: bash
+      run: |
+        echo "GOCACHE=$RUNNER_TEMP/go-build" >> "$GITHUB_ENV"
+        echo "MISE_CACHE_DIR=$RUNNER_TEMP/mise-cache" >> "$GITHUB_ENV"
+        echo "PREK_HOME=$RUNNER_TEMP/prek" >> "$GITHUB_ENV"
+
     - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
       with:
         python-version: ${{ inputs.python-version }}

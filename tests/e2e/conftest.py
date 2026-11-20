@@ -19,6 +19,8 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import shutil
+import subprocess
 from collections.abc import Iterator
 from pathlib import Path
 from uuid import uuid4
@@ -32,6 +34,37 @@ from powercontext.builtin.persistence.oceanbase import OceanBaseConfig
 from powercontext.builtin.persistence.seekdb import SeekDBConfig, SeekDBProfile
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from tests.e2e.atomic_memory_migration_backend import MigrationBackend, migration_profile
+
+
+@pytest.fixture(scope="session")
+def gateway_binary() -> Path:
+    """Reuse CI's serial build; direct local pytest runs may build on demand."""
+
+    prebuilt = os.environ.get("POWERCONTEXT_TEST_GATEWAY_BINARY")
+    if prebuilt is not None:
+        binary = Path(prebuilt)
+        if not prebuilt or not binary.is_file() or not os.access(binary, os.X_OK):
+            pytest.fail(f"POWERCONTEXT_TEST_GATEWAY_BINARY is not an executable file: {prebuilt!r}")
+        return binary.resolve()
+
+    root = Path(__file__).resolve().parents[2]
+    cargo = shutil.which("cargo") or str(Path.home() / ".cargo/bin/cargo")
+    subprocess.run(
+        [
+            cargo,
+            "build",
+            "--locked",
+            "--manifest-path",
+            str(root / "gateway/Cargo.toml"),
+            "--target-dir",
+            str(root / "gateway/target"),
+            "-p",
+            "pc-gateway-app",
+        ],
+        check=True,
+        timeout=300,
+    )
+    return root / "gateway/target/debug/pc-gateway"
 
 
 async def _provision_seekdb_database(config: SeekDBConfig) -> None:

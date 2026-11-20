@@ -207,6 +207,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           INSTALL_DIR: ${{ runner.temp }}
+          GOCACHE: ${{ runner.temp }}/go-build
           PATH: ${{ runner.temp }}:/usr/local/go/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
         with:
           config: .licenserc.yaml
@@ -216,14 +217,7 @@ jobs:
         id: python-env
         uses: ./.github/actions/setup-python-env
         with:
-          save-cache: 'false'
-
-      - name: Save preflight Python dependencies
-        if: steps.python-env.outputs.cache-hit != 'true' && github.event_name != 'merge_group'
-        uses: ./.github/actions/cache-save
-        with:
-          path: ${{ steps.python-env.outputs.cache-path }}
-          key: ${{ steps.python-env.outputs.cache-key }}
+          shared-cache: 'true'
 
       - name: Resolve Python version for hook cache
         id: python
@@ -233,7 +227,7 @@ jobs:
         id: prek-cache
         uses: ./.github/actions/cache-restore
         with:
-          path: ~/.cache/prek
+          path: ${{ runner.temp }}/prek
           key: prek-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.python.outputs.version }}-${{ hashFiles('.pre-commit-config.yaml') }}
 
       - name: Prepare prek environments
@@ -243,7 +237,7 @@ jobs:
         if: steps.prek-cache.outputs.cache-hit != 'true' && github.event_name != 'merge_group'
         uses: ./.github/actions/cache-save
         with:
-          path: ~/.cache/prek
+          path: ${{ runner.temp }}/prek
           key: ${{ steps.prek-cache.outputs.cache-primary-key }}
 
       - name: Run checks
@@ -322,6 +316,26 @@ jobs:
           shared-key: gateway
           cache-bin: false
           cache-on-failure: true
+
+      - name: Build Gateway before parallel end-to-end tests
+        if: matrix.suite == 'e2e'
+        timeout-minutes: 15
+        run: |
+          mkdir -p .artifacts/gateway-build
+          # bash pipefail keeps compiler errors fatal while tee preserves all output.
+          cargo build --locked --manifest-path gateway/Cargo.toml \
+            --target-dir gateway/target -p pc-gateway-app --verbose \
+            2>&1 | tee .artifacts/gateway-build/build.log
+          test -x "$GITHUB_WORKSPACE/gateway/target/debug/pc-gateway"
+          echo "POWERCONTEXT_TEST_GATEWAY_BINARY=$GITHUB_WORKSPACE/gateway/target/debug/pc-gateway" >> "$GITHUB_ENV"
+
+      - name: Upload Gateway build log
+        if: always() && matrix.suite == 'e2e'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: gateway-build-python-${{ matrix.python-version }}-shard-${{ matrix.shard-index }}
+          path: .artifacts/gateway-build/build.log
+          if-no-files-found: ignore
 
       - name: Run the ZCode service chain with native Hook deadlines
         if: matrix.suite == 'e2e' && matrix.shard-index == 0
@@ -1175,6 +1189,7 @@ jobs:
 
       - name: Verify the pinned OpenCode host
         env:
+          XDG_CACHE_HOME: ${{ runner.temp }}/opencode-host-cache
           OPENCODE_PACKAGE: ${{ steps.opencode-package.outputs.package }}
         run: |
           cli="$RUNNER_TEMP/opencode-host/node_modules/$OPENCODE_PACKAGE/bin/opencode"
@@ -1212,6 +1227,8 @@ jobs:
           persist-credentials: false
       - name: Set up the Python environment
         uses: ./.github/actions/setup-python-env
+        with:
+          shared-cache: 'true'
 
       - uses: ./.github/actions/setup-mise
       - name: Restore Codex host downloads
@@ -1474,6 +1491,10 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Use a writable mise runtime cache
+        shell: bash
+        run: echo "MISE_CACHE_DIR=$RUNNER_TEMP/mise-cache" >> "$GITHUB_ENV"
+
       - name: Set up website tools
         uses: jdx/mise-action@d5574b52816a478f9d4e6529a3f6ff17a8a36785 # v5.2.8
 
@@ -1661,6 +1682,55 @@ jobs:
     with:
       suites: ${{ needs.quality.outputs.suites }}
 
+  knowledge-base:
+    needs: [quality, tests]
+    if: ${{ !cancelled() && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').knowledge_base) }}
+    runs-on: powercontext-ci-standard
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-python-env
+        id: python-env
+        with:
+          python-version: '3.12'
+          save-cache: 'false'
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+      - name: Restore knowledge-base frontend downloads
+        id: npm-cache
+        uses: $/.github/actions/cache-npm
+        with:
+          cache-dependency-glob: frontend/knowledge-base/package-lock.json
+      - name: Install knowledge-base frontend dependencies
+        run: npm ci --prefix frontend/knowledge-base --no-audit --no-fund
+      - name: Save knowledge-base frontend downloads
+        if: steps.npm-cache.outputs.cache-hit != 'true' && github.event_name != 'merge_group'
+        uses: $/.github/actions/cache-save
+        with:
+          path: ${{ steps.npm-cache.outputs.cache-path }}
+          key: ${{ steps.npm-cache.outputs.cache-key }}
+      - name: Build and verify plugin Dashboard assets
+        run: |
+          npm run build --prefix frontend/knowledge-base
+          git diff --exit-code -- plugins/knowledge-base/ui
+      - name: Install plugin dependencies
+        run: uv sync --locked --extra knowledge-base --group knowledge-base-tests
+      - name: Save knowledge-base Python dependencies
+        if: steps.python-env.outputs.cache-hit != 'true' && github.event_name != 'merge_group'
+        uses: $/.github/actions/cache-save
+        with:
+          path: ${{ steps.python-env.outputs.cache-path }}
+          key: ${{ steps.python-env.outputs.cache-key }}
+      - name: Check plugin types with its optional dependencies
+        run: uv run --no-sync ty check --no-force-exclude plugins/knowledge-base
+      - name: Install browser for plugin navigation regressions
+        run: uv run --no-sync playwright install --with-deps chromium
+      - name: Exercise Server, Worker, revision lifecycle and real OCR
+        run: uv run --no-sync pytest tests/knowledge_base tests/e2e/test_knowledge_base*.py tests/e2e/test_plugin_pages.py
+
   ci-result:
     name: CI result
     needs:
@@ -1675,6 +1745,7 @@ jobs:
       - worker-observability
       - evaluation-tests
       - code-seekdb
+      - knowledge-base
       - atomic-memory-clean-seekdb
       - windows-unit-portability
       - dify-tools

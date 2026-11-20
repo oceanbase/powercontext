@@ -265,6 +265,8 @@ def run_selector(repository: Path, event: str, base: str = "", head: str = "") -
             {"tests", "windows-unit-portability", "cindy-package", "zcode-acceptance"},
         ),
         ("deploy/helm/powercontext/values.yaml", {"helm"}),
+        ("plugins/knowledge-base/pc_knowledge_base/content.py", {"knowledge-base"}),
+        ("tests/e2e/test_knowledge_base_ocr.py", {"tests", "knowledge-base"}),
         ("integrations/claude-code/plugins/powercontext/.mcp.json", {"tests", "claude-code-host"}),
         ("scripts/produce_managed_resources.py", {"managed-resource-candidates"}),
     ],
@@ -554,3 +556,75 @@ def test_database_execution_policy_controls_required_jobs_even_for_full_scope(re
     assert "release-schema" in required
     if not native:
         assert "deferred to the nightly or manual run" in (repository / "summary.md").read_text()
+
+
+@pytest.mark.parametrize("path", ["src/powercontext/cli/system.py", "src/powercontext/builtin/plugins/writer.py"])
+def test_unrelated_core_changes_skip_optional_plugin_gate(repository, path):
+    base = git(repository, "rev-parse", "HEAD")
+    selected = run_selector(repository, "pull_request", base, commit(repository, path))
+    assert not selected["knowledge_base"]
+    outputs = dict(line.split("=", 1) for line in (repository / "outputs.txt").read_text().splitlines())
+    assert "knowledge-base" not in json.loads(outputs["required-jobs"])
+
+
+@pytest.mark.parametrize("change", ["core", "extra", "test_group", "locked_plugin", "locked_unrelated"])
+def test_plugin_dependency_changes_select_only_relevant_plugin_gate(repository, change):
+    manifest = "\n".join([
+        "[project]",
+        'name = "powercontext"',
+        'dependencies = ["httpx>=1"]',
+        "[project.optional-dependencies]",
+        'knowledge-base = ["rapidocr>=3"]',
+        "[dependency-groups]",
+        'knowledge-base-tests = ["playwright>=1"]',
+    ])
+    lock = "\n".join([
+        "[[package]]",
+        'name = "powercontext"',
+        'version = "1"',
+        "[package.optional-dependencies]",
+        'knowledge-base = [{name="rapidocr"}]',
+        "[package.dev-dependencies]",
+        'knowledge-base-tests = [{name="playwright"}]',
+        "[[package]]",
+        'name = "rapidocr"',
+        'version = "3"',
+        'dependencies = [{name="numpy"}]',
+        "[[package]]",
+        'name = "numpy"',
+        'version = "2"',
+        "[[package]]",
+        'name = "playwright"',
+        'version = "1"',
+        "[[package]]",
+        'name = "httpx"',
+        'version = "1"',
+    ])
+    (repository / "pyproject.toml").write_text(manifest)
+    (repository / "uv.lock").write_text(lock)
+    git(repository, "add", ".")
+    git(repository, "commit", "-m", "Dependency baseline")
+    base = git(repository, "rev-parse", "HEAD")
+    if change == "core":
+        manifest = manifest.replace("httpx>=1", "httpx>=2")
+    elif change == "extra":
+        manifest = manifest.replace("rapidocr>=3", "rapidocr>=4")
+    elif change == "test_group":
+        manifest = manifest.replace("playwright>=1", "playwright>=2")
+    elif change == "locked_plugin":
+        lock = lock.replace('name = "numpy"\nversion = "2"', 'name = "numpy"\nversion = "3"')
+    else:
+        lock = lock.replace('name = "httpx"\nversion = "1"', 'name = "httpx"\nversion = "2"')
+    (repository / "pyproject.toml").write_text(manifest)
+    (repository / "uv.lock").write_text(lock)
+    git(repository, "add", ".")
+    git(repository, "commit", "-m", "Change dependency")
+    selected = run_selector(repository, "pull_request", base, git(repository, "rev-parse", "HEAD"))
+    assert selected["knowledge_base"] is (change not in {"core", "locked_unrelated"})
+
+
+def test_explicit_full_validation_includes_plugin_on_core_only_pr(repository, monkeypatch):
+    base = git(repository, "rev-parse", "HEAD")
+    head = commit(repository, "src/powercontext/cli/system.py")
+    monkeypatch.setenv("CI_FULL_VALIDATION", "true")
+    assert run_selector(repository, "pull_request", base, head)["knowledge_base"]

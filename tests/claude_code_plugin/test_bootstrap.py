@@ -592,7 +592,8 @@ def test_session_start_requests_follow_the_configured_settings(
 
     assert session_start_module.main(settings) == 0
     ((request, timeout),) = requests
-    assert 4.0 < budgets[0] <= 5.0
+    # Subtracting monotonic deadlines can round just above the configured budget on Windows.
+    assert 4.0 < budgets[0] <= 5.0 + 1e-9
     assert 0.0 < timeout <= 0.5
     assert request.get_header("Authorization") == "Bearer configured-token"
     body = json.loads(cast(bytes, request.data))
