@@ -285,3 +285,8 @@ limitations under the License.
 .method-evidence-option:has(input:checked) { background: var(--tblr-primary-lt); border-color: var(--tblr-primary); }
 
 .method-generation-actions { position: sticky; bottom: 0; z-index: 2; padding-bottom: 1rem; background: var(--tblr-bg-surface); }
+
+/* Scope-level evidence stays separate from artifact publication and reading state. */
+.artifact-processing { border: 1px solid var(--tblr-border-color); border-radius: .5rem; padding: 1rem 1.25rem; }
+.artifact-processing-drawer { --tblr-offcanvas-width: 30rem; max-width: 100%; }
+.artifact-processing-drawer .offcanvas-body { overflow-wrap: anywhere; }

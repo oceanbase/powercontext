@@ -2987,6 +2987,60 @@ paths:
           $ref: "#/components/responses/Unavailable"
         "500":
           $ref: "#/components/responses/InternalError"
+  /v1/scopes/{scope_id}/processing-status:
+    get:
+      tags:
+      - processing
+      summary: Inspect existing artifact processing evidence
+      description: Read bounded existing progress, safe blocks and Dream outcomes for one Scope and family without invoking
+        models, readiness probes, processing, retries or business-state writes. Requires Scope read access. Local observations
+        are not remote worker coverage.
+      operationId: get_artifact_processing_status
+      x-powercontext-access:
+        resolver: path_scope_read_access
+      x-powercontext-scope-mode: current
+      parameters:
+      - name: scope_id
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 256
+          pattern: .*\S.*
+      - name: family
+        in: query
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 128
+      responses:
+        '200':
+          description: Existing processing evidence; unsupported families are explicitly unavailable.
+          headers:
+            X-PowerContext-Request-ID:
+              $ref: '#/components/headers/RequestId'
+            Cache-Control:
+              schema:
+                type: string
+              description: Always no-store.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ArtifactProcessingStatusResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/InvalidRequest'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+        '500':
+          $ref: '#/components/responses/InternalError'
   /v1/scopes/{scope_id}/dream:
     post:
       tags:
@@ -8781,6 +8835,318 @@ components:
           maxItems: 30
           items:
             $ref: "#/components/schemas/RecallTokenDay"
+    GetArtifactProcessingStatusRequest:
+      type: object
+      additionalProperties: false
+      required:
+      - family
+      properties:
+        family:
+          type: string
+          minLength: 1
+          maxLength: 128
+    ArtifactProcessingProgress:
+      type: object
+      additionalProperties: false
+      required:
+      - source_cursor
+      - source_head
+      - target_source_through
+      - pending_inputs
+      properties:
+        source_cursor:
+          type: integer
+          minimum: 0
+        source_head:
+          type: integer
+          minimum: 0
+        target_source_through:
+          type: integer
+          minimum: 0
+          nullable: true
+        pending_inputs:
+          type: boolean
+    ArtifactProcessingObservation:
+      type: object
+      additionalProperties: false
+      required:
+      - binding
+      - family
+      - state
+      - reason
+      - observed_at
+      - scheduler_observed
+      - requested_generation
+      - handled_generation
+      - dirty_generation
+      - clean_generation
+      - running_seconds
+      - next_check_seconds
+      - retry_failures
+      properties:
+        binding:
+          type: string
+        family:
+          type: string
+          nullable: true
+        state:
+          $ref: '#/components/schemas/ProcessingState'
+        reason:
+          $ref: '#/components/schemas/ProcessingReason'
+        observed_at:
+          type: string
+          format: date-time
+        scheduler_observed:
+          type: boolean
+        requested_generation:
+          type: integer
+          minimum: 0
+        handled_generation:
+          type: integer
+          minimum: 0
+        dirty_generation:
+          type: integer
+          minimum: 0
+        clean_generation:
+          type: integer
+          minimum: 0
+        running_seconds:
+          type: number
+          minimum: 0
+          nullable: true
+        next_check_seconds:
+          type: number
+          minimum: 0
+          nullable: true
+        retry_failures:
+          type: integer
+          minimum: 0
+          nullable: true
+    ArtifactProcessingBlock:
+      type: object
+      additionalProperties: false
+      required:
+      - reason
+      - stage
+      - source_after
+      - target_source_through
+      - attempts
+      - requests
+      - tokens
+      - block_id
+      - blocked_at
+      - persisted
+      properties:
+        reason:
+          type: string
+          nullable: true
+        stage:
+          type: string
+          nullable: true
+        source_after:
+          type: integer
+          minimum: 0
+        target_source_through:
+          type: integer
+          minimum: 0
+        attempts:
+          type: integer
+          minimum: 0
+        requests:
+          type: integer
+          minimum: 0
+        tokens:
+          type: integer
+          minimum: 0
+        block_id:
+          type: string
+          nullable: true
+        blocked_at:
+          type: string
+          format: date-time
+          nullable: true
+        persisted:
+          type: boolean
+    ArtifactProcessingDream:
+      type: object
+      additionalProperties: false
+      required:
+      - run_id
+      - operation
+      - status
+      - outcome
+      - accepted_at
+      - completed_at
+      - candidate
+      - reason
+      - stage
+      properties:
+        run_id:
+          type: string
+        operation:
+          type: string
+        status:
+          $ref: '#/components/schemas/ArtifactProcessingDreamState'
+        outcome:
+          $ref: '#/components/schemas/ArtifactProcessingDreamOutcome'
+          nullable: true
+        accepted_at:
+          type: string
+          format: date-time
+        completed_at:
+          type: string
+          format: date-time
+          nullable: true
+        candidate:
+          $ref: '#/components/schemas/DreamCandidateRef'
+          nullable: true
+        reason:
+          type: string
+          nullable: true
+        stage:
+          type: string
+          nullable: true
+    ArtifactProcessingEvidence:
+      type: object
+      additionalProperties: false
+      required:
+      - origin
+      - durability
+      - scope_id
+      - binding
+      - observed_at
+      - read_at
+      - freshness
+      properties:
+        origin:
+          type: string
+        durability:
+          $ref: '#/components/schemas/ArtifactProcessingDurability'
+        scope_id:
+          type: string
+        binding:
+          type: string
+          nullable: true
+        observed_at:
+          type: string
+          format: date-time
+          nullable: true
+        read_at:
+          type: string
+          format: date-time
+        freshness:
+          $ref: '#/components/schemas/ArtifactProcessingFreshness'
+    ArtifactProcessingStatusResponse:
+      type: object
+      additionalProperties: false
+      required:
+      - scope_id
+      - family
+      - state
+      - observed_at
+      - queried_at
+      - source_consumption_applicable
+      - progress
+      - invocation
+      - executor
+      - executor_expires_at
+      - block
+      - dream_operations
+      - dream_pending
+      - unavailable_reason
+      - availability
+      - evidence
+      properties:
+        scope_id:
+          type: string
+        family:
+          type: string
+        state:
+          $ref: '#/components/schemas/ArtifactProcessingSummaryState'
+        observed_at:
+          type: string
+          format: date-time
+        queried_at:
+          type: string
+          format: date-time
+        source_consumption_applicable:
+          type: boolean
+        progress:
+          $ref: '#/components/schemas/ArtifactProcessingProgress'
+          nullable: true
+        invocation:
+          $ref: '#/components/schemas/ArtifactProcessingObservation'
+          nullable: true
+        executor:
+          $ref: '#/components/schemas/ArtifactProcessingObservation'
+          nullable: true
+        executor_expires_at:
+          type: string
+          format: date-time
+          nullable: true
+        block:
+          $ref: '#/components/schemas/ArtifactProcessingBlock'
+          nullable: true
+        dream_operations:
+          type: array
+          maxItems: 10
+          items:
+            $ref: '#/components/schemas/ArtifactProcessingDream'
+        dream_pending:
+          type: boolean
+          nullable: true
+        unavailable_reason:
+          type: string
+          nullable: true
+        availability:
+          type: object
+          additionalProperties:
+            $ref: '#/components/schemas/ArtifactProcessingAvailability'
+        evidence:
+          type: object
+          additionalProperties:
+            $ref: '#/components/schemas/ArtifactProcessingEvidence'
+      description: Passive evidence for one Scope and family. Consumption, invocation acknowledgement, local execution, blocks
+        and historical Dream outcomes are independent. Idle does not prove publication. Missing execution observations do not
+        prove stopped work.
+    ArtifactProcessingSummaryState:
+      type: string
+      enum:
+      - idle
+      - pending
+      - blocked
+      - unknown
+    ArtifactProcessingDreamState:
+      type: string
+      enum:
+      - queued
+      - running
+      - succeeded
+      - failed
+    ArtifactProcessingDreamOutcome:
+      type: string
+      enum:
+      - proposed
+      - no_change
+      - needs_evidence
+    ArtifactProcessingDurability:
+      type: string
+      enum:
+      - durable
+      - process_local
+    ArtifactProcessingFreshness:
+      type: string
+      enum:
+      - fresh
+      - stale
+      - unknown
+      - not_applicable
+    ArtifactProcessingAvailability:
+      type: string
+      enum:
+      - available
+      - unavailable
+      - not_applicable
     ProcessingState:
       type: string
       enum: [idle, dirty, pending, acknowledged, queued, running, retry_wait, blocked]

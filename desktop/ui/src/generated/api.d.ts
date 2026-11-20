@@ -1491,6 +1491,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/scopes/{scope_id}/processing-status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Inspect existing artifact processing evidence
+         * @description Read bounded existing progress, safe blocks and Dream outcomes for one Scope and family without invoking models, readiness probes, processing, retries or business-state writes. Requires Scope read access. Local observations are not remote worker coverage.
+         */
+        get: operations["get_artifact_processing_status"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/scopes/{scope_id}/dream": {
         parameters: {
             query?: never;
@@ -3912,6 +3932,106 @@ export interface components {
             totals: components["schemas"]["RecallTokenValue"];
             daily: components["schemas"]["RecallTokenDay"][];
         };
+        GetArtifactProcessingStatusRequest: {
+            family: string;
+        };
+        ArtifactProcessingProgress: {
+            source_cursor: number;
+            source_head: number;
+            target_source_through: number | null;
+            pending_inputs: boolean;
+        };
+        ArtifactProcessingObservation: {
+            binding: string;
+            family: string | null;
+            state: components["schemas"]["ProcessingState"];
+            reason: components["schemas"]["ProcessingReason"];
+            /** Format: date-time */
+            observed_at: string;
+            scheduler_observed: boolean;
+            requested_generation: number;
+            handled_generation: number;
+            dirty_generation: number;
+            clean_generation: number;
+            running_seconds: number | null;
+            next_check_seconds: number | null;
+            retry_failures: number | null;
+        };
+        ArtifactProcessingBlock: {
+            reason: string | null;
+            stage: string | null;
+            source_after: number;
+            target_source_through: number;
+            attempts: number;
+            requests: number;
+            tokens: number;
+            block_id: string | null;
+            /** Format: date-time */
+            blocked_at: string | null;
+            persisted: boolean;
+        };
+        ArtifactProcessingDream: {
+            run_id: string;
+            operation: string;
+            status: components["schemas"]["ArtifactProcessingDreamState"];
+            outcome: components["schemas"]["ArtifactProcessingDreamOutcome"];
+            /** Format: date-time */
+            accepted_at: string;
+            /** Format: date-time */
+            completed_at: string | null;
+            candidate: components["schemas"]["DreamCandidateRef"];
+            reason: string | null;
+            stage: string | null;
+        };
+        ArtifactProcessingEvidence: {
+            origin: string;
+            durability: components["schemas"]["ArtifactProcessingDurability"];
+            scope_id: string;
+            binding: string | null;
+            /** Format: date-time */
+            observed_at: string | null;
+            /** Format: date-time */
+            read_at: string;
+            freshness: components["schemas"]["ArtifactProcessingFreshness"];
+        };
+        /** @description Passive evidence for one Scope and family. Consumption, invocation acknowledgement, local execution, blocks and historical Dream outcomes are independent. Idle does not prove publication. Missing execution observations do not prove stopped work. */
+        ArtifactProcessingStatusResponse: {
+            scope_id: string;
+            family: string;
+            state: components["schemas"]["ArtifactProcessingSummaryState"];
+            /** Format: date-time */
+            observed_at: string;
+            /** Format: date-time */
+            queried_at: string;
+            source_consumption_applicable: boolean;
+            progress: components["schemas"]["ArtifactProcessingProgress"];
+            invocation: components["schemas"]["ArtifactProcessingObservation"];
+            executor: components["schemas"]["ArtifactProcessingObservation"];
+            /** Format: date-time */
+            executor_expires_at: string | null;
+            block: components["schemas"]["ArtifactProcessingBlock"];
+            dream_operations: components["schemas"]["ArtifactProcessingDream"][];
+            dream_pending: boolean | null;
+            unavailable_reason: string | null;
+            availability: {
+                [key: string]: components["schemas"]["ArtifactProcessingAvailability"];
+            };
+            evidence: {
+                [key: string]: components["schemas"]["ArtifactProcessingEvidence"];
+            };
+        };
+        /** @enum {string} */
+        ArtifactProcessingSummaryState: "idle" | "pending" | "blocked" | "unknown";
+        /** @enum {string} */
+        ArtifactProcessingDreamState: "queued" | "running" | "succeeded" | "failed";
+        /** @enum {string} */
+        ArtifactProcessingDreamOutcome: "proposed" | "no_change" | "needs_evidence";
+        /** @enum {string} */
+        ArtifactProcessingDurability: "durable" | "process_local";
+        /** @enum {string} */
+        ArtifactProcessingFreshness: "fresh" | "stale" | "unknown" | "not_applicable";
+        /** @enum {string} */
+        ArtifactProcessingAvailability: "available" | "unavailable" | "not_applicable";
         /** @enum {string} */
         ProcessingState: "idle" | "dirty" | "pending" | "acknowledged" | "queued" | "running" | "retry_wait" | "blocked";
         /** @enum {string} */
@@ -9149,6 +9269,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ListMemoryChangesResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["InvalidRequest"];
+            500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    get_artifact_processing_status: {
+        parameters: {
+            query: {
+                family: string;
+            };
+            header?: never;
+            path: {
+                scope_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Existing processing evidence; unsupported families are explicitly unavailable. */
+            200: {
+                headers: {
+                    "X-PowerContext-Request-ID": components["headers"]["RequestId"];
+                    /** @description Always no-store. */
+                    "Cache-Control"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ArtifactProcessingStatusResponse"];
                 };
             };
             401: components["responses"]["Unauthorized"];

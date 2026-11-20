@@ -3839,3 +3839,93 @@ uv run --no-sync python desktop/tests/real_server.py \
   --product-qualification sqlite-gateway-batch-capture-477a6c8b-v1 \
   --wheel desktop/.artifacts/gateway-batch-capture/powercontext-1.5.3.dev90+g477a6c8ba-py3-none-any.whl
 ```
+
+## Dashboard processing status protocol qualification
+
+`sqlite-dashboard-processing-4d64c4f9-v1` qualifies all thirteen Desktop protocol operations against
+Server source `4d64c4f9502dea40e1808ea496ab477431c85105`. That source adds the passive artifact processing
+status endpoint and Dashboard views. Desktop's existing operation set and reachable Rust wire schemas
+are unchanged; the complete OpenAPI document has a new identity.
+
+- Normalized OpenAPI SHA-256: `66da1b50fc5ec760764f6373dc64a20c6dc342dda34521a727a786a27e05cc3a`.
+- Wheel: `powercontext-1.5.3.dev64+g4d64c4f95-py3-none-any.whl`.
+- Wheel SHA-256: `d462997ee06b3886624d09cf27eab477d2d6767f22be3d1f4ae7b1be1ec74409`.
+- Native debug probe SHA-256: `cbb61d067c7a6198d4cace31bb7db7e4c2cc68118ac8fd34bc563f3d84311a08`.
+
+On 2026-11-19, macOS 15.8.2 arm64, Rust 1.95.0 and managed Python 3.12.13 passed anonymous loopback,
+static Bearer, HTTPS with explicit CA/base path, and enforced Provider modes of the unchanged
+`desktop/tests/real_server.py`. The native probe used the ordinary product `ConnectionManager`, the
+product Cargo lock and this bundled qualification, without `ci-fixtures`. The client and qualified
+contract digests match. Debug information was disabled with `CARGO_PROFILE_DEV_DEBUG=0`.
+
+[The qualification run](https://github.com/oceanbase/powercontext/actions/runs/44532214420) retains the
+wheel, profile, probe digest and four-mode report in `desktop-protocol-qualification-2725`. Its
+verification checkout is `4aa61ea6b8a6f822b9135cce718f3ae1eb9bba4f`; Server and Desktop source files match
+the implementation commit above. The report records a dirty Desktop worktree because this exact
+compatibility entry was added before compiling the product probe. The temporary verification workflow
+is not part of the feature change.
+
+The same run passes full OpenAPI generation verification, Rust formatting, clippy with denied warnings,
+Rust tests including `bundled_product_qualification_covers_every_desktop_operation`, IPC generation,
+frontend lint/type checks/tests/build, `make contract-test`, and the Dashboard/Client/inspector regressions.
+The managed Python build supports SQLite extension loading, including the semantic memory search test.
+These results qualify the observed local SQLite protocol, not installed WebView behavior, signed
+distributions, other platforms, native database upgrades or release acceptance.
+
+Download the run's artifact into `desktop/.artifacts/dashboard-processing`, then reproduce using its
+recorded wheel (the archive contains a `qualification/` subdirectory):
+
+```sh
+gh run download 44532214420 --repo oceanbase/powercontext \
+  --name desktop-protocol-qualification-2725 --dir desktop/.artifacts/dashboard-processing
+uv sync --locked --python 3.12.13 --managed-python
+RUSTUP_TOOLCHAIN=1.95.0 CARGO_PROFILE_DEV_DEBUG=0 \
+  cargo build --locked --manifest-path desktop/src-tauri/Cargo.toml --example server_probe
+uv run --no-sync python desktop/tests/real_server.py \
+  --product-qualification sqlite-dashboard-processing-4d64c4f9-v1 \
+  --wheel desktop/.artifacts/dashboard-processing/qualification/server-wheel/powercontext-1.5.3.dev64+g4d64c4f95-py3-none-any.whl
+```
+
+## Merged dashboard processing status protocol qualification
+
+`sqlite-dashboard-processing-merged-2cfd63f3-v1` qualifies all thirteen Desktop protocol operations against
+Server source `2cfd63f392d74815a849cea996921eb41466355c`, which includes the passive Dashboard processing
+status endpoint and the batch Source capture API. Desktop's reachable Rust wire schemas match the
+contract on master `b64ee80b6ceca93b4dc832211ce3a615518e6688`.
+
+- Normalized OpenAPI SHA-256: `ef804e5a12d3dc4e05b227a699bf8719fcfbb15a8d3034d2343ba3d20c5674ca`.
+- Wheel: `powercontext-1.5.3.dev96+g2cfd63f39-py3-none-any.whl`.
+- Wheel SHA-256: `5e84f203615f9a033a25a514a0af764f52d689968682a882c48e5d8aa1b8ae80`.
+- Native debug probe SHA-256: `207bdab64b0967e703d1666e5e216ee0d71447af6922f40c5f67df83005633c0`.
+
+On 2026-11-19, macOS 15.8.2 arm64, Rust 1.95.0 and managed Python 3.12.13 passed anonymous loopback,
+static Bearer, HTTPS with explicit CA/base path, and enforced Provider modes of
+`desktop/tests/real_server.py`. The native probe used the ordinary product `ConnectionManager`, the
+product Cargo lock and this bundled qualification, without `ci-fixtures`. Client and Server contract
+digests match. Debug information was disabled with `CARGO_PROFILE_DEV_DEBUG=0`.
+
+[The qualification run](https://github.com/oceanbase/powercontext/actions/runs/44536083251) retains the
+wheel, profile, probe digest and four-mode report in `desktop-protocol-qualification-2725`. Its
+verification checkout is `4699522746e9e6b52ee6a6870301069d701968f7`; Server and Desktop source files match
+the implementation commit above. The report records a dirty Desktop worktree because this exact
+compatibility entry was added before compiling the product probe. The temporary verification workflow
+is not part of the feature change.
+
+The same run passes full OpenAPI generation verification, Rust formatting, clippy with denied warnings,
+Rust tests including `bundled_product_qualification_covers_every_desktop_operation`, IPC generation,
+frontend lint/type checks/tests/build, `make contract-test`, and Dashboard/Client/inspector regressions.
+These results qualify the observed local SQLite protocol, not installed WebView behavior, signed
+distributions, other platforms, native database upgrades or release acceptance.
+
+Reproduce using the retained wheel (the archive contains a `qualification/` subdirectory):
+
+```sh
+gh run download 44536083251 --repo oceanbase/powercontext \
+  --name desktop-protocol-qualification-2725 --dir desktop/.artifacts/dashboard-processing-merged
+uv sync --locked --python 3.12.13 --managed-python
+RUSTUP_TOOLCHAIN=1.95.0 CARGO_PROFILE_DEV_DEBUG=0 \
+  cargo build --locked --manifest-path desktop/src-tauri/Cargo.toml --example server_probe
+uv run --no-sync python desktop/tests/real_server.py \
+  --product-qualification sqlite-dashboard-processing-merged-2cfd63f3-v1 \
+  --wheel desktop/.artifacts/dashboard-processing-merged/qualification/server-wheel/powercontext-1.5.3.dev96+g2cfd63f39-py3-none-any.whl
+```

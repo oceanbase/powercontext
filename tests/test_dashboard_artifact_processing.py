@@ -1,0 +1,279 @@
+# Copyright (c) 2026 OceanBase.
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+# http://www.apache.org/licenses/LICENSE-2.0
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""Exercise passive inspection and Dashboard disclosure through public HTTP reads."""
+
+import asyncio
+from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
+
+import httpx
+import pytest
+from sqlalchemy import event
+
+from powercontext.builtin.runtime import CaptureSource
+from powercontext.builtin.runtime.artifact_processing import ArtifactProcessingSupervisors
+from powercontext.builtin.runtime.family_processing import FAMILY_BINDINGS
+from powercontext.builtin.statistics.models import ProcessingObservation
+from powercontext.client import PowerContextClient
+from powercontext.http import ArtifactProcessingStatusResponse, GetArtifactProcessingStatusRequest
+from powercontext.server.app import create_app
+from powercontext.server.dashboard.api import DashboardAPI, ReadError
+from powercontext.server.dashboard.routes import router
+from tests.builtin.test_processing_status import _run_record, _runtime, _topic_budget
+from tests.e2e.test_access_control_regressions import _grant, _resource, _scope, _server
+from tests.test_dashboard import create_scope
+from tests.test_dashboard import dashboard as dashboard
+from tests.test_dashboard_profile_handoff import _profile
+
+
+@pytest.mark.parametrize(
+    ("page", "params", "family"),
+    [
+        ("notes", {}, "atomic-memory"),
+        ("topics", {}, "topic-memory"),
+        ("methods", {"kind": "experience"}, "experience"),
+        ("methods", {"kind": "skill"}, "skill"),
+        ("profile", {}, "profile"),
+        ("handoff", {}, "handoff"),
+        ("prompts", {}, "prompt"),
+    ],
+)
+def test_empty_artifact_pages_offer_independent_status(dashboard, page, params, family):
+    scope = create_scope(dashboard, "Processing scope")["scope_id"]
+    response = dashboard.get(f"/dashboard/{page}", params={"scope": scope, "lang": "en", **params})
+    assert response.status_code == 200, response.text
+    assert f'data-family="{family}"' in response.text
+    assert "data-artifact-processing" in response.text
+    status = dashboard.get(
+        "/dashboard/artifact-processing-status", params={"scope": scope, "family": family, "lang": "en"}
+    )
+    assert status.status_code == 200, status.text
+    assert status.headers["cache-control"] == "no-store"
+    assert "Current execution state is unavailable" in status.text
+    assert "No associated operation records found" in status.text
+    assert "data-processing-drawer" in status.text
+
+
+def test_generator_form_does_not_load_collection_status(dashboard):
+    scope = create_scope(dashboard, "Generation scope")["scope_id"]
+    response = dashboard.get("/dashboard/methods", params={"scope": scope, "generate": "1", "kind": "skill"})
+    assert response.status_code == 200
+    assert "data-artifact-processing" not in response.text
+
+
+def test_profile_status_is_only_shown_once_for_the_current_view(dashboard):
+    scope = create_scope(dashboard, "Profile processing")["scope_id"]
+    _profile(dashboard, scope, "A saved profile.")
+    current = dashboard.get("/dashboard/profile", params={"scope": scope})
+    assert current.status_code == 200
+    assert current.text.count("data-artifact-processing") == 1
+    for params in [{"view": "history"}, {"revision": "1"}]:
+        historical = dashboard.get("/dashboard/profile", params={"scope": scope, **params})
+        assert historical.status_code == 200
+        assert "data-artifact-processing" not in historical.text
+
+
+def test_http_evidence_is_passive_bounded_and_keeps_independent_paths(tmp_path):
+    async def scenario():
+        async with _runtime(tmp_path) as (runtime, scopes):
+            scope, other = scopes
+            await runtime.sources.for_scope(scope).capture(
+                CaptureSource(source_id="one", content="private input", metadata={})
+            )
+            async with runtime.primary_database.transaction() as connection:
+                await _topic_budget(connection, scope)
+                # Tags target the Topic family; a queued run must not hide its independent Source block.
+                await _run_record(connection, scope, 0, "revise_tags", "queued", tag_family="topic-memory")
+                await _run_record(connection, scope, 1, status="failed")
+                for index in range(2, 14):
+                    await _run_record(connection, scope, index)
+                await _run_record(connection, other, 99)
+            app = create_app(application=runtime)
+            app.include_router(router, prefix="/dashboard")
+            statements = []
+
+            def capture(conn, cursor, statement, parameters, context, executemany):
+                statements.append(statement)
+
+            engine = runtime.primary_database.engine.sync_engine
+            async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+                event.listen(engine, "before_cursor_execute", capture)
+                try:
+                    topic = await client.get(f"/v1/scopes/{scope}/processing-status", params={"family": "topic-memory"})
+                    html = await client.get(
+                        "/dashboard/artifact-processing-status",
+                        params={"scope": scope, "family": "topic-memory", "lang": "en"},
+                    )
+                    skill = await client.get(f"/v1/scopes/{scope}/processing-status", params={"family": "skill"})
+                finally:
+                    event.remove(engine, "before_cursor_execute", capture)
+                assert topic.status_code == 200, topic.text
+                result = ArtifactProcessingStatusResponse.model_validate(topic.json())
+                assert result.state == "pending" and result.block is not None
+                assert not result.block.persisted and result.block.block_id is None
+                assert result.dream_pending is True
+                assert result.progress is not None
+                assert result.progress.source_cursor == 0 and result.progress.source_head == 1
+                assert result.executor is None and result.availability["executor"] == "unavailable"
+                assert html.status_code == 200, html.text
+                assert "The Source path is blocked" in html.text and "queued or running operations" in html.text
+                assert "Block projected from existing budget records" in html.text
+                assert skill.status_code == 200, skill.text
+                value = skill.json()
+                assert len(value["dream_operations"]) == 10
+                assert value["dream_operations"][0]["run_id"] == "dr_13"
+                assert value["dream_operations"][0]["outcome"] == "no_change"
+                assert value["block"] is None and value["availability"]["progress"] == "not_applicable"
+                assert "private input" not in topic.text + html.text + skill.text
+                assert "private-error-text" not in skill.text
+                assert "dr_99" not in skill.text
+                assert all(
+                    not sql.lstrip().upper().startswith(("INSERT", "UPDATE", "DELETE"))
+                    and "FOR UPDATE" not in sql.upper()
+                    for sql in statements
+                )
+                unsupported = await client.get(f"/v1/scopes/{scope}/processing-status", params={"family": "custom"})
+                assert (
+                    unsupported.status_code == 200
+                    and unsupported.json()["unavailable_reason"] == "family_not_supported"
+                )
+                sdk = PowerContextClient("https://test", http_client=client)
+                reading = await sdk.get_artifact_processing_status(
+                    scope, GetArtifactProcessingStatusRequest(family="memory")
+                )
+                assert reading.family == "memory" and reading.scope_id == scope
+                assert (
+                    await client.get(f"/v1/scopes/{scope}/processing-status", params={"family": "skill", "extra": "x"})
+                ).status_code == 422
+                assert (
+                    await client.get("/v1/scopes/missing/processing-status", params={"family": "skill"})
+                ).status_code == 404
+                app.state.application = SimpleNamespace()
+                unavailable = await client.get(f"/v1/scopes/{scope}/processing-status", params={"family": "skill"})
+                assert (
+                    unavailable.status_code == 503
+                    and unavailable.json()["error"]["code"] == "processing_status_unavailable"
+                )
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("age", [0, 60])
+def test_local_execution_observations_are_scoped_expiring_and_redacted(tmp_path, monkeypatch, age):
+    async def scenario():
+        async with _runtime(tmp_path) as (runtime, scopes):
+
+            def observations(self, scope):
+                if scope != scopes[0]:
+                    return ()
+                return (
+                    ProcessingObservation(
+                        binding=FAMILY_BINDINGS["memory"],
+                        family="memory",
+                        state="running",
+                        reason="executing",
+                        scheduler_observed=True,
+                        observed_at=datetime.now(UTC) - timedelta(seconds=age),
+                        worker_id="private-worker",
+                        last_error_code="private-error",
+                        last_error_trace_id="private-trace",
+                    ),
+                )
+
+            monkeypatch.setattr(ArtifactProcessingSupervisors, "observe_scope", observations)
+            runtime.artifact_processing_supervisor = ArtifactProcessingSupervisors(())
+            app = create_app(application=runtime)
+            app.include_router(router, prefix="/dashboard")
+            async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+                response = await client.get(
+                    f"/v1/scopes/{scopes[0]}/processing-status", params={"family": "atomic-memory"}
+                )
+                assert response.status_code == 200, response.text
+                result = response.json()
+                assert result["executor"]["state"] == "running"
+                assert result["evidence"]["executor"]["scope_id"] == scopes[0]
+                assert result["evidence"]["executor"]["durability"] == "process_local"
+                assert result["evidence"]["executor"]["freshness"] == ("fresh" if age == 0 else "stale")
+                assert all(
+                    secret not in response.text for secret in ["private-worker", "private-error", "private-trace"]
+                )
+                html = await client.get(
+                    "/dashboard/artifact-processing-status",
+                    params={"scope": scopes[0], "family": "atomic-memory", "lang": "en"},
+                )
+                assert html.status_code == 200, html.text
+                assert ("was running when observed" if age == 0 else "Local observation is stale") in html.text
+                other = await client.get(
+                    f"/v1/scopes/{scopes[1]}/processing-status", params={"family": "atomic-memory"}
+                )
+                assert other.json()["executor"] is None
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("backend", ["builtin", "casbin"])
+def test_http_and_dashboard_inspection_require_scope_read(tmp_path, backend):
+    async def scenario():
+        async with _server(tmp_path, backend) as (app, client, _access):
+            app.include_router(router, prefix="/dashboard")
+            scope = await _scope(client)
+            await _grant(client, scope, "reader", "scope.viewer")
+            saved = await client.post(
+                "/v1/memory/remember", json={"scope_id": scope, "kind": "fact", "text": "Shared memory."}
+            )
+            assert saved.status_code == 200, saved.text
+            await _grant(
+                client,
+                scope,
+                "artifact-reader",
+                "artifact.viewer",
+                _resource(scope, "atomic-memory", saved.json()["records"][0]["artifact"]["artifact_id"]),
+            )
+            for principal, expected in [("reader", 200), ("stranger", 403), ("artifact-reader", 403)]:
+                headers = {"Authorization": f"Bearer {principal}"}
+                for path, params in [
+                    (f"/v1/scopes/{scope}/processing-status", {"family": "atomic-memory"}),
+                    ("/dashboard/artifact-processing-status", {"scope": scope, "family": "atomic-memory"}),
+                ]:
+                    response = await client.get(path, params=params, headers=headers)
+                    assert response.status_code == expected, response.text
+                    if expected == 403:
+                        assert "source_cursor" not in response.text and "data-processing-snapshot" not in response.text
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("failure", ["unavailable", "timeout"])
+def test_status_failure_is_isolated_from_saved_content(dashboard, monkeypatch, failure):
+    scope = create_scope(dashboard, "Independent status")["scope_id"]
+    saved = dashboard.post(
+        "/v1/memory/remember", json={"scope_id": scope, "kind": "fact", "text": "Saved content remains readable."}
+    )
+    assert saved.status_code == 200
+    read = DashboardAPI.read
+
+    async def unavailable(self, path, payload=None):
+        if "/processing-status?" in path:
+            if failure == "timeout":
+                await asyncio.sleep(30)
+            raise ReadError(503, "service_unavailable")
+        return await read(self, path, payload)
+
+    monkeypatch.setattr(DashboardAPI, "read", unavailable)
+    page = dashboard.get("/dashboard/notes", params={"scope": scope})
+    assert page.status_code == 200 and "Saved content remains readable." in page.text
+    response = dashboard.get(
+        "/dashboard/artifact-processing-status", params={"scope": scope, "family": "atomic-memory"}
+    )
+    assert response.status_code == 503 and response.text == ""
+    assert response.headers["cache-control"] == "no-store"
+    assert "x-dashboard-html" not in response.headers

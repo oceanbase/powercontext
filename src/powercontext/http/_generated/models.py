@@ -1327,6 +1327,77 @@ class RecallTokenDay(BaseModel):
     token_reduction: StrictInt
 
 
+class GetArtifactProcessingStatusRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    family: Annotated[StrictStr, Field(max_length=128, min_length=1)]
+
+
+class ArtifactProcessingProgress(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    source_cursor: Annotated[StrictInt, Field(ge=0)]
+    source_head: Annotated[StrictInt, Field(ge=0)]
+    target_source_through: Annotated[StrictInt | None, Field(ge=0)]
+    pending_inputs: StrictBool
+
+
+class ArtifactProcessingBlock(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    reason: Annotated[StrictStr | None, Field(...)]
+    stage: Annotated[StrictStr | None, Field(...)]
+    source_after: Annotated[StrictInt, Field(ge=0)]
+    target_source_through: Annotated[StrictInt, Field(ge=0)]
+    attempts: Annotated[StrictInt, Field(ge=0)]
+    requests: Annotated[StrictInt, Field(ge=0)]
+    tokens: Annotated[StrictInt, Field(ge=0)]
+    block_id: Annotated[StrictStr | None, Field(...)]
+    blocked_at: Annotated[AwareDatetime | None, Field(...)]
+    persisted: StrictBool
+
+
+class ArtifactProcessingSummaryState(StrEnum):
+    IDLE = "idle"
+    PENDING = "pending"
+    BLOCKED = "blocked"
+    UNKNOWN = "unknown"
+
+
+class ArtifactProcessingDreamState(StrEnum):
+    QUEUED = "queued"
+    RUNNING = "running"
+    SUCCEEDED = "succeeded"
+    FAILED = "failed"
+
+
+class ArtifactProcessingDreamOutcome(StrEnum):
+    PROPOSED = "proposed"
+    NO_CHANGE = "no_change"
+    NEEDS_EVIDENCE = "needs_evidence"
+
+
+class ArtifactProcessingDurability(StrEnum):
+    DURABLE = "durable"
+    PROCESS_LOCAL = "process_local"
+
+
+class ArtifactProcessingFreshness(StrEnum):
+    FRESH = "fresh"
+    STALE = "stale"
+    UNKNOWN = "unknown"
+    NOT_APPLICABLE = "not_applicable"
+
+
+class ArtifactProcessingAvailability(StrEnum):
+    AVAILABLE = "available"
+    UNAVAILABLE = "unavailable"
+    NOT_APPLICABLE = "not_applicable"
+
+
 class ProcessingState(StrEnum):
     IDLE = "idle"
     DIRTY = "dirty"
@@ -5261,6 +5332,75 @@ class RecallTokenStatistics(BaseModel):
     estimator: Annotated[TokenEstimatorProfile | None, Field(...)]
     totals: RecallTokenValue
     daily: Annotated[list[RecallTokenDay], Field(max_length=30)]
+
+
+class ArtifactProcessingObservation(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    binding: StrictStr
+    family: Annotated[StrictStr | None, Field(...)]
+    state: ProcessingState
+    reason: ProcessingReason
+    observed_at: AwareDatetime
+    scheduler_observed: StrictBool
+    requested_generation: Annotated[StrictInt, Field(ge=0)]
+    handled_generation: Annotated[StrictInt, Field(ge=0)]
+    dirty_generation: Annotated[StrictInt, Field(ge=0)]
+    clean_generation: Annotated[StrictInt, Field(ge=0)]
+    running_seconds: Annotated[StrictFloat | None, Field(ge=0.0)]
+    next_check_seconds: Annotated[StrictFloat | None, Field(ge=0.0)]
+    retry_failures: Annotated[StrictInt | None, Field(ge=0)]
+
+
+class ArtifactProcessingDream(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    run_id: StrictStr
+    operation: StrictStr
+    status: ArtifactProcessingDreamState
+    outcome: Annotated[ArtifactProcessingDreamOutcome | None, Field(...)]
+    accepted_at: AwareDatetime
+    completed_at: Annotated[AwareDatetime | None, Field(...)]
+    candidate: Annotated[DreamCandidateRef | None, Field(...)]
+    reason: Annotated[StrictStr | None, Field(...)]
+    stage: Annotated[StrictStr | None, Field(...)]
+
+
+class ArtifactProcessingEvidence(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    origin: StrictStr
+    durability: ArtifactProcessingDurability
+    scope_id: StrictStr
+    binding: Annotated[StrictStr | None, Field(...)]
+    observed_at: Annotated[AwareDatetime | None, Field(...)]
+    read_at: AwareDatetime
+    freshness: ArtifactProcessingFreshness
+
+
+class ArtifactProcessingStatusResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    scope_id: StrictStr
+    family: StrictStr
+    state: ArtifactProcessingSummaryState
+    observed_at: AwareDatetime
+    queried_at: AwareDatetime
+    source_consumption_applicable: StrictBool
+    progress: Annotated[ArtifactProcessingProgress | None, Field(...)]
+    invocation: Annotated[ArtifactProcessingObservation | None, Field(...)]
+    executor: Annotated[ArtifactProcessingObservation | None, Field(...)]
+    executor_expires_at: Annotated[AwareDatetime | None, Field(...)]
+    block: Annotated[ArtifactProcessingBlock | None, Field(...)]
+    dream_operations: Annotated[list[ArtifactProcessingDream], Field(max_length=10)]
+    dream_pending: Annotated[StrictBool | None, Field(...)]
+    unavailable_reason: Annotated[StrictStr | None, Field(...)]
+    availability: dict[str, ArtifactProcessingAvailability]
+    evidence: dict[str, ArtifactProcessingEvidence]
 
 
 class BootstrapDeliveryReading(BaseModel):
