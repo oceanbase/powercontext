@@ -16,6 +16,7 @@
 
 import { ArrowRight } from 'lucide-react';
 import Link from 'next/link';
+import { buttonClasses } from '@astrafoundry/design/ui';
 import { GitHubStarButton } from '@/components/github-star-button';
 import { HomeContributors } from '@/components/home-contributors';
 import type { HomeContent } from '@/lib/home-content';
@@ -56,7 +57,7 @@ export function HomeHero({ home, lang, contributors, stars }: {
           <Link className="pc-link" href={normalizeHref(hero.learn_more.href)}>{hero.learn_more.label}</Link>
         </p>
         <div className="pc-hero-actions">
-          <Link className="pc-button pc-button-primary" href={normalizeHref(hero.action.href)}>
+          <Link className={buttonClasses('primary', 'lg')} href={normalizeHref(hero.action.href)}>
             {hero.action.label} <ArrowRight aria-hidden="true" strokeWidth={2} />
           </Link>
           <GitHubStarButton

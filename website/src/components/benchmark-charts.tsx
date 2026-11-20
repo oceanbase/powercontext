@@ -93,9 +93,9 @@ export function LocomoTradeoffChart({
 
             return (
               <g key={point.name}>
-                <circle className={isPrimary ? 'fill-fd-primary' : 'fill-fd-muted-foreground'} cx={x(point.latency)} cy={y(point.accuracy)} r={isPrimary ? 7 : 6} />
+                <circle className={isPrimary ? 'fill-primary' : 'fill-fd-muted-foreground'} cx={x(point.latency)} cy={y(point.accuracy)} r={isPrimary ? 7 : 6} />
                 <text
-                  className={isPrimary ? 'fill-fd-primary text-sm font-semibold' : 'fill-fd-foreground text-sm'}
+                  className={isPrimary ? 'fill-primary text-sm font-semibold' : 'fill-fd-foreground text-sm'}
                   textAnchor={isFullContext ? 'end' : 'start'}
                   x={x(point.latency) + (isFullContext ? -14 : 14)}
                   y={y(point.accuracy) + (index === 1 ? 17 : -7)}
@@ -118,7 +118,7 @@ export function LocomoTradeoffChart({
           </thead>
           <tbody>
             {points.map((point, index) => (
-              <tr className={index === 0 ? 'text-fd-primary' : ''} key={point.name}>
+              <tr className={index === 0 ? 'text-primary-text' : ''} key={point.name}>
                 <th className="border-b border-fd-border px-3 py-2 text-left font-medium">{point.name}</th>
                 <td className="border-b border-fd-border px-3 py-2 tabular-nums">{point.accuracy}%</td>
                 <td className="border-b border-fd-border px-3 py-2 tabular-nums">{point.latency} {copy.second}</td>
@@ -146,7 +146,7 @@ export function LocomoComposition({ categories }: { categories: BenchmarkContent
         {categories.map((category, index) => (
           <span
             aria-hidden="true"
-            className={`bg-fd-primary ${opacity[index] ?? 'opacity-30'}`}
+            className={`bg-fd-foreground ${opacity[index] ?? 'opacity-30'}`}
             key={category.name}
             style={{ width: `${(counts[index] / total) * 100}%` }}
           />
@@ -200,14 +200,14 @@ export function SwePairedChart({
             </div>
             <div aria-hidden="true" className="h-3 bg-fd-muted">
               <div
-                className={`h-full ${score.kind === 'on' ? 'bg-fd-primary' : 'bg-fd-muted-foreground/50'}`}
+                className={`h-full ${score.kind === 'on' ? 'bg-primary' : 'bg-fd-muted-foreground/50'}`}
                 style={{ width: `${score.percentage}%` }}
               />
             </div>
           </div>
         ))}
       </div>
-      <figcaption className="mt-4 text-sm font-medium text-fd-primary">{deltaLabel}</figcaption>
+      <figcaption className="mt-4 text-sm font-medium text-primary-text">{deltaLabel}</figcaption>
     </figure>
   );
 }

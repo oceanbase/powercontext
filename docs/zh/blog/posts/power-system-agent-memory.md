@@ -62,9 +62,46 @@ pin: false
 
 先看整体结构：
 
-![面向电力系统的 LangGraph 多智能体技术架构](../../../assets/blog/power-system-agent-memory/power-system-agent-architecture.png)
-
-*图 1：面向电力系统的 Agent Runtime。LangGraph 统一编排业务智能体，并调用上下文、记忆和任务管理能力；底层连接本地模型、知识服务、数据与领域算法。*
+<figure class="fig" id="fig-power-system-agent-architecture">
+<div class="fig-canvas" style="--fw:960;--fh:580" role="img" aria-label="面向电力系统的 LangGraph 多智能体技术架构">
+<svg viewBox="0 0 960 580">
+<path class="fig-wire" d="M565 110 L565 154" marker-end="url(#fig-arrow)"/>
+<path class="fig-wire" d="M366 205 L394 205" marker-end="url(#fig-arrow)" marker-start="url(#fig-arrow)"/>
+<path class="fig-wire" d="M766 205 L794 205" marker-end="url(#fig-arrow)" marker-start="url(#fig-arrow)"/>
+<path class="fig-wire accent" d="M580 250 L580 294" marker-end="url(#fig-arrow-accent)" marker-start="url(#fig-arrow-accent)"/>
+<path class="fig-wire" d="M565 470 L565 436" marker-end="url(#fig-arrow)"/>
+</svg>
+<span class="fig-label strong" style="--x:0;--y:30">应用层</span>
+<span class="fig-label muted small" style="--x:0;--y:52">电力业务智能体</span>
+<span class="fig-label strong" style="--x:0;--y:180">编排层</span>
+<span class="fig-label muted small" style="--x:0;--y:202">工作流与协同</span>
+<span class="fig-label strong" style="--x:0;--y:330">运行时能力</span>
+<span class="fig-label muted small" style="--x:0;--y:352">上下文、记忆与任务</span>
+<span class="fig-label strong" style="--x:0;--y:500">基础设施</span>
+<span class="fig-label muted small" style="--x:0;--y:522">数据、知识与模型</span>
+<div class="fig-panel" style="--x:170;--y:0;--w:790;--h:110"></div>
+<div class="fig-box" style="--x:186;--y:20;--w:116;--h:70"><b>风险分析</b></div>
+<div class="fig-box" style="--x:312;--y:20;--w:116;--h:70"><b>故障诊断</b></div>
+<div class="fig-box" style="--x:438;--y:20;--w:116;--h:70"><b>电能质量</b></div>
+<div class="fig-box" style="--x:564;--y:20;--w:116;--h:70"><b>谐振分析</b></div>
+<div class="fig-box" style="--x:690;--y:20;--w:116;--h:70"><b>电缆绝缘</b></div>
+<div class="fig-box" style="--x:816;--y:20;--w:116;--h:70"><b>运维</b></div>
+<div class="fig-box dashed" style="--x:170;--y:152;--w:190;--h:106"><b>MCP 工具</b><span>数据库 · 知识库</span><span>领域工具 · 外部服务</span></div>
+<div class="fig-box accent" style="--x:400;--y:160;--w:360;--h:90"><b>LangGraph</b><span>工作流编排与智能体协同</span></div>
+<div class="fig-box dashed" style="--x:800;--y:152;--w:160;--h:106"><b>前端（SSE）</b><span>过程流 · 诊断报告</span><span>可视分析 · PDF 导出</span></div>
+<div class="fig-panel accent" style="--x:170;--y:300;--w:790;--h:130"><header><b>PowerContext</b></header></div>
+<div class="fig-card" style="--x:186;--y:344;--w:246;--h:74"><b>上下文管理</b><span>构建上下文 · 管理证据</span><span>动态检索</span></div>
+<div class="fig-card" style="--x:442;--y:344;--w:246;--h:74"><b>记忆管理</b><span>事实记忆 · 经验记忆</span><span>验证与生命周期</span></div>
+<div class="fig-card" style="--x:698;--y:344;--w:246;--h:74"><b>任务管理</b><span>生命周期 · 状态持久化</span><span>恢复 · 幂等</span></div>
+<div class="fig-panel" style="--x:170;--y:470;--w:790;--h:100"></div>
+<div class="fig-box fill" style="--x:186;--y:486;--w:142;--h:68"><b>RAGFlow</b><span>私有知识</span></div>
+<div class="fig-box fill" style="--x:338;--y:486;--w:142;--h:68"><b>本地 Wiki</b><span>专家知识</span></div>
+<div class="fig-box fill" style="--x:490;--y:486;--w:142;--h:68"><b>向量数据库</b><span>BGE-M3</span></div>
+<div class="fig-box fill" style="--x:642;--y:486;--w:142;--h:68"><b>本地大模型</b><span>Qwen</span></div>
+<div class="fig-box fill" style="--x:794;--y:486;--w:142;--h:68"><b>领域服务</b><span>分析与模型</span></div>
+</div>
+<figcaption>图 1：面向电力系统的 Agent Runtime。LangGraph 统一编排业务智能体，并调用上下文、记忆和任务管理能力；底层连接本地模型、知识服务、数据与领域算法。</figcaption>
+</figure>
 
 整个架构分成四层：
 
@@ -166,7 +203,27 @@ Context Manager 解决的是“本轮推理看什么”，Memory Manager 解决�
 
 我们不把 Memory 理解成完整日志，也不保存所有聊天记录。真正值得沉淀的是经过整理、能够追溯来源，并且在相似任务中有复用价值的事实和经验。
 
-![从运行证据到经验证经验的记忆提取、验证与复用流程](../../../assets/blog/power-system-agent-memory/memory.svg)
+<figure class="fig" id="fig-memory">
+<div class="fig-canvas" style="--fw:960;--fh:330" role="img" aria-label="从运行证据到经验证经验的记忆提取、验证与复用流程">
+<svg viewBox="0 0 960 330">
+<path class="fig-wire" d="M210 70 L244 70" marker-end="url(#fig-arrow)"/>
+<path class="fig-wire" d="M460 70 L494 70" marker-end="url(#fig-arrow)"/>
+<path class="fig-wire" d="M710 70 L744 70" marker-end="url(#fig-arrow)"/>
+<path class="fig-wire accent" d="M855 116 L855 160 Q855 170 845 170 L510 170 Q500 170 500 180 L500 214" marker-end="url(#fig-arrow-accent)"/>
+<path class="fig-wire dashed" d="M290 260 L115 260 Q105 260 105 250 L105 122" marker-end="url(#fig-arrow)"/>
+</svg>
+<span class="fig-label muted small" style="--x:0;--y:0">来源</span>
+<div class="fig-box start" style="--x:0;--y:24;--w:210;--h:92"><b>历史任务</b><span>SCADA · 告警 · 记录</span></div>
+<span class="fig-label muted small" style="--x:250;--y:0">提取</span>
+<div class="fig-box start" style="--x:250;--y:24;--w:210;--h:92"><b>原子记忆</b><span>事实 · 动作 · 结果</span></div>
+<span class="fig-label muted small" style="--x:500;--y:0">验证</span>
+<div class="fig-box start" style="--x:500;--y:24;--w:210;--h:92"><b>证据审核</b><span>规则 · 专家 · 结果</span></div>
+<span class="fig-label muted small" style="--x:750;--y:0">持久化</span>
+<div class="fig-box start accent" style="--x:750;--y:24;--w:210;--h:92"><b>已验证记忆</b><span>版本化 · 有作用域 · 可复用</span></div>
+<div class="fig-box" style="--x:290;--y:220;--w:420;--h:80"><b>检索与经验复用</b><span>元数据过滤 · 混合检索 · 相关性排序</span></div>
+<span class="fig-label muted small" style="--x:115;--y:172">反馈：新的诊断</span>
+</div>
+</figure>
 
 ### 5.1 短期记忆与长期记忆
 
@@ -207,7 +264,31 @@ Context Manager 解决的是“本轮推理看什么”，Memory Manager 解决�
 
 一条诊断任务完成后，Memory Extractor 从任务记录、诊断结论和检修结果中提取候选记忆。候选记忆进入 Memory Validator，结合数据、规则、历史案例和最终结果进行验证；无法自动确认的内容进入 Review Inbox，由专业人员补充证据或审核。
 
-![记忆验证流程：候选提取、证据校验、专家审核与复用](../../../assets/blog/power-system-agent-memory/memory-validation.svg)
+<figure class="fig" id="fig-memory-validation">
+<div class="fig-canvas" style="--fw:960;--fh:396" role="img" aria-label="记忆验证流程：候选提取、证据校验、专家审核与复用">
+<svg viewBox="0 0 960 396">
+<path class="fig-wire" d="M210 35 L244 35" marker-end="url(#fig-arrow)"/>
+<path class="fig-wire" d="M460 35 L494 35" marker-end="url(#fig-arrow)"/>
+<path class="fig-wire" d="M710 35 L744 35" marker-end="url(#fig-arrow)"/>
+<path class="fig-wire muted" d="M890 70 L890 154" marker-end="url(#fig-arrow-muted)"/>
+<path class="fig-wire" d="M780 70 L780 102 Q780 112 770 112 L615 112 Q605 112 605 122 L605 154" marker-end="url(#fig-arrow)"/>
+<path class="fig-wire accent" d="M830 70 L830 343 Q830 353 820 353 L716 353" marker-end="url(#fig-arrow-accent)"/>
+<path class="fig-wire" d="M605 226 L605 314" marker-end="url(#fig-arrow)"/>
+<path class="fig-wire" d="M500 353 L466 353" marker-end="url(#fig-arrow)"/>
+<path class="fig-wire" d="M250 353 L216 353" marker-end="url(#fig-arrow)"/>
+</svg>
+<div class="fig-box" style="--x:0;--y:0;--w:210;--h:70"><b>历史任务与诊断记录</b></div>
+<div class="fig-box" style="--x:250;--y:0;--w:210;--h:70"><b>记忆提取器</b></div>
+<div class="fig-box" style="--x:500;--y:0;--w:210;--h:70"><b>候选记忆</b></div>
+<div class="fig-box accent" style="--x:750;--y:0;--w:210;--h:70"><b>记忆验证器</b></div>
+<div class="fig-box quiet dashed" style="--x:820;--y:160;--w:140;--h:66"><b>拒绝</b><span>验证失败</span></div>
+<div class="fig-box" style="--x:500;--y:160;--w:210;--h:66"><b>审核收件箱</b><span>证据不足</span></div>
+<div class="fig-box accent" style="--x:500;--y:320;--w:210;--h:66"><b>已验证记忆</b><span>证据充分或审核通过</span></div>
+<div class="fig-box" style="--x:250;--y:320;--w:210;--h:66"><b>记忆存储</b></div>
+<div class="fig-box" style="--x:0;--y:320;--w:210;--h:66"><b>后续诊断检索</b></div>
+<span class="fig-label muted small" style="--x:615;--y:262">专家审核或补充证据</span>
+</div>
+</figure>
 
 记忆在生命周期中有明确状态：
 
@@ -252,7 +333,32 @@ PowerContext 的价值在于把 Agent 的上下文和记忆作为独立的工程
 
 任务生命周期使用状态机描述：
 
-![任务生命周期：等待、恢复、完成与失败之间的状态转换](../../../assets/blog/power-system-agent-memory/task-lifecycle.svg)
+<figure class="fig" id="fig-task-lifecycle">
+<div class="fig-canvas" style="--fw:960;--fh:410" role="img" aria-label="任务生命周期：等待、恢复、完成与失败之间的状态转换">
+<svg viewBox="0 0 960 410">
+<path class="fig-wire" d="M40 48 L84 48" marker-end="url(#fig-arrow)"/>
+<path class="fig-wire" d="M270 48 L384 48" marker-end="url(#fig-arrow)"/>
+<path class="fig-wire" d="M410 76 L410 106 Q410 116 400 116 L160 116 Q150 116 150 126 L150 230" marker-end="url(#fig-arrow)"/>
+<path class="fig-wire" d="M210 236 L210 176 Q210 166 220 166 L430 166 Q440 166 440 156 L440 82" marker-end="url(#fig-arrow)"/>
+<path class="fig-wire" d="M550 76 L550 106 Q550 116 560 116 L800 116 Q810 116 810 126 L810 230" marker-end="url(#fig-arrow)"/>
+<path class="fig-wire" d="M750 236 L750 176 Q750 166 740 166 L530 166 Q520 166 520 156 L520 82" marker-end="url(#fig-arrow)"/>
+<path class="fig-wire accent" d="M480 76 L480 324" marker-end="url(#fig-arrow-accent)"/>
+<path class="fig-wire" d="M570 358 L634 358" marker-end="url(#fig-arrow)"/>
+</svg>
+<span class="fig-dot" style="--x:20;--y:38;--w:20;--h:20"></span>
+<div class="fig-box" style="--x:90;--y:20;--w:180;--h:56"><b>CREATED</b></div>
+<div class="fig-box accent" style="--x:390;--y:20;--w:180;--h:56"><b>RUNNING</b></div>
+<div class="fig-box" style="--x:60;--y:236;--w:180;--h:56"><b>WAITING</b></div>
+<div class="fig-box" style="--x:720;--y:236;--w:180;--h:56"><b>FAILED</b></div>
+<div class="fig-box" style="--x:390;--y:330;--w:180;--h:56"><b>COMPLETED</b></div>
+<span class="fig-dot end" style="--x:640;--y:346;--w:24;--h:24"></span>
+<span class="fig-label muted small center" style="--x:280;--y:94">等待数据或人工输入</span>
+<span class="fig-label muted small center" style="--x:325;--y:174">条件满足或人工恢复</span>
+<span class="fig-label muted small center" style="--x:680;--y:94">执行失败</span>
+<span class="fig-label muted small center" style="--x:635;--y:174">满足恢复条件</span>
+<span class="fig-label accent small" style="--x:490;--y:260">任务完成</span>
+</div>
+</figure>
 
 这里区分两种状态：
 
@@ -305,14 +411,73 @@ State 中保存当前流程真正需要的信息，例如任务目标、当前�
 
 **任务恢复不只是恢复程序执行位置，还要恢复任务的业务语义和当前有效依据。**
 
-![任务持久化与恢复流程，以及检查点、操作存储和证据存储的关系](../../../assets/blog/power-system-agent-memory/task-recovery.svg)
+<figure class="fig" id="fig-task-recovery">
+<div class="fig-canvas" style="--fw:960;--fh:372" role="img" aria-label="任务持久化与恢复流程，以及检查点、操作存储和证据存储的关系">
+<svg viewBox="0 0 960 372">
+<path class="fig-wire" d="M172 35 L191 35" marker-end="url(#fig-arrow)"/>
+<path class="fig-wire" d="M369 35 L388 35" marker-end="url(#fig-arrow)"/>
+<path class="fig-wire" d="M566 35 L585 35" marker-end="url(#fig-arrow)"/>
+<path class="fig-wire" d="M763 35 L782 35" marker-end="url(#fig-arrow)"/>
+<path class="fig-wire accent dashed" d="M677 70 L677 95 Q677 105 667 105 L490 105 Q480 105 480 115 L480 134" marker-end="url(#fig-arrow-accent)"/>
+<path class="fig-wire" d="M480 216 L480 246 Q480 256 470 256 L150 256 Q140 256 140 266 L140 296" marker-end="url(#fig-arrow)"/>
+<path class="fig-wire" d="M480 216 L480 296" marker-end="url(#fig-arrow)"/>
+<path class="fig-wire" d="M480 216 L480 246 Q480 256 490 256 L810 256 Q820 256 820 266 L820 296" marker-end="url(#fig-arrow)"/>
+</svg>
+<div class="fig-box" style="--x:0;--y:0;--w:172;--h:70"><b>CREATED</b><span>任务 ID</span></div>
+<div class="fig-box" style="--x:197;--y:0;--w:172;--h:70"><b>RUNNING</b><span>LangGraph</span></div>
+<div class="fig-box" style="--x:394;--y:0;--w:172;--h:70"><b>WAITING</b><span>人工或数据</span></div>
+<div class="fig-box" style="--x:591;--y:0;--w:172;--h:70"><b>RESUMED</b><span>状态恢复</span></div>
+<div class="fig-box solid" style="--x:788;--y:0;--w:172;--h:70"><b>COMPLETED</b><span>已验证结果</span></div>
+<div class="fig-box accent" style="--x:240;--y:140;--w:480;--h:76"><b>恢复与验证</b><span>恢复检查点 · 重新验证证据 · 检查操作</span></div>
+<div class="fig-box fill" style="--x:0;--y:302;--w:280;--h:66"><b>检查点</b><span>工作流状态</span></div>
+<div class="fig-box fill" style="--x:340;--y:302;--w:280;--h:66"><b>操作存储</b><span>幂等与审计</span></div>
+<div class="fig-box fill" style="--x:680;--y:302;--w:280;--h:66"><b>证据存储</b><span>数据与来源</span></div>
+</div>
+</figure>
 
 
 ## 07 三个 Manager 如何在一次诊断中协同？
 
 把前面的设计放到一次完整诊断里，整体流程如下：
 
-![完整诊断流程：上下文、记忆、证据与任务管理的协作](../../../assets/blog/power-system-agent-memory/diagnosis-workflow.svg)
+<figure class="fig" id="fig-diagnosis-workflow">
+<div class="fig-canvas" style="--fw:960;--fh:586" role="img" aria-label="完整诊断流程：上下文、记忆、证据与任务管理的协作">
+<svg viewBox="0 0 960 586">
+<path class="fig-wire" d="M210 33 L244 33" marker-end="url(#fig-arrow)"/>
+<path class="fig-wire" d="M460 33 L494 33" marker-end="url(#fig-arrow)"/>
+<path class="fig-wire" d="M710 33 L744 33" marker-end="url(#fig-arrow)"/>
+<path class="fig-wire" d="M210 423 L244 423" marker-end="url(#fig-arrow)"/>
+<path class="fig-wire" d="M460 423 L494 423" marker-end="url(#fig-arrow)"/>
+<path class="fig-wire" d="M710 423 L744 423" marker-end="url(#fig-arrow)"/>
+<path class="fig-wire" d="M460 293 L494 293" marker-end="url(#fig-arrow)"/>
+<path class="fig-wire" d="M750 163 L716 163" marker-end="url(#fig-arrow)"/>
+<path class="fig-wire" d="M500 163 L466 163" marker-end="url(#fig-arrow)"/>
+<path class="fig-wire" d="M250 163 L216 163" marker-end="url(#fig-arrow)"/>
+<path class="fig-wire" d="M897 66 L897 124" marker-end="url(#fig-arrow)"/>
+<path class="fig-wire" d="M855 456 L855 514" marker-end="url(#fig-arrow)"/>
+<path class="fig-wire" d="M52 196 L52 384" marker-end="url(#fig-arrow)"/>
+<path class="fig-wire" d="M158 196 L158 282 Q158 292 168 292 L244 292" marker-end="url(#fig-arrow)"/>
+<path class="fig-wire dashed" d="M710 292 L720 292 Q730 292 730 282 L730 107 Q730 97 740 97 L803 97 Q813 97 813 87 L813 70" marker-end="url(#fig-arrow)"/>
+</svg>
+<div class="fig-box" style="--x:0;--y:0;--w:210;--h:66"><b>用户请求</b></div>
+<div class="fig-box" style="--x:250;--y:0;--w:210;--h:66"><b>任务管理</b><span>创建或加载任务</span></div>
+<div class="fig-box" style="--x:500;--y:0;--w:210;--h:66"><b>LangGraph</b><span>路由到智能体工作流</span></div>
+<div class="fig-box accent" style="--x:750;--y:0;--w:210;--h:66"><b>上下文管理</b><span>构建上下文</span></div>
+<div class="fig-box" style="--x:750;--y:130;--w:210;--h:66"><b>领域节点</b><span>查询数据 · MCP 工具</span></div>
+<div class="fig-box" style="--x:500;--y:130;--w:210;--h:66"><b>证据存储</b><span>持久化证据</span></div>
+<div class="fig-box" style="--x:250;--y:130;--w:210;--h:66"><b>大模型与领域分析</b></div>
+<div class="fig-box round dashed" style="--x:0;--y:130;--w:210;--h:66"><b>需要更多数据或审批？</b></div>
+<div class="fig-box" style="--x:250;--y:260;--w:210;--h:66"><b>任务管理</b><span>WAITING · 中断</span></div>
+<div class="fig-box" style="--x:500;--y:260;--w:210;--h:66"><b>恢复并重新验证</b></div>
+<div class="fig-box accent" style="--x:0;--y:390;--w:210;--h:66"><b>上下文管理</b><span>组装报告上下文</span></div>
+<div class="fig-box" style="--x:250;--y:390;--w:210;--h:66"><b>生成诊断报告</b></div>
+<div class="fig-box accent" style="--x:500;--y:390;--w:210;--h:66"><b>记忆管理</b><span>提取候选记忆</span></div>
+<div class="fig-box" style="--x:750;--y:390;--w:210;--h:66"><b>验证、审核、存储</b></div>
+<div class="fig-box solid" style="--x:750;--y:520;--w:210;--h:66"><b>任务管理</b><span>完成并归档</span></div>
+<span class="fig-label muted small" style="--x:62;--y:280">否</span>
+<span class="fig-label muted small" style="--x:168;--y:262">是</span>
+</div>
+</figure>
 
 一次诊断请求从 Task Manager 创建任务开始，LangGraph 根据业务类型路由到对应智能体图。每次进入模型节点前，Context Manager 组装当前任务上下文；节点通过 MCP 调用数据库、知识库和领域工具，产生的证据进入 Evidence Store。
 

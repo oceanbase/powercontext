@@ -56,9 +56,46 @@ This stack already covers the main capabilities required to run the business age
 
 ## 03 Overall architecture: LangGraph orchestrates; the Runtime manages context, memory, and tasks
 
-![LangGraph multi-agent architecture for a power system](../../../assets/blog/power-system-agent-memory/power-system-agent-architecture.png)
-
-*Figure 1. The Agent Runtime for a power system. LangGraph orchestrates business agents and calls context, memory, and task capabilities; the lower layers connect local models, knowledge services, data, and domain algorithms.*
+<figure class="fig" id="fig-power-system-agent-architecture">
+<div class="fig-canvas" style="--fw:960;--fh:580" role="img" aria-label="LangGraph multi-agent architecture for a power system">
+<svg viewBox="0 0 960 580">
+<path class="fig-wire" d="M565 110 L565 154" marker-end="url(#fig-arrow)"/>
+<path class="fig-wire" d="M366 205 L394 205" marker-end="url(#fig-arrow)" marker-start="url(#fig-arrow)"/>
+<path class="fig-wire" d="M766 205 L794 205" marker-end="url(#fig-arrow)" marker-start="url(#fig-arrow)"/>
+<path class="fig-wire accent" d="M580 250 L580 294" marker-end="url(#fig-arrow-accent)" marker-start="url(#fig-arrow-accent)"/>
+<path class="fig-wire" d="M565 470 L565 436" marker-end="url(#fig-arrow)"/>
+</svg>
+<span class="fig-label strong" style="--x:0;--y:30">Application</span>
+<span class="fig-label muted small" style="--x:0;--y:52">Power-system agents</span>
+<span class="fig-label strong" style="--x:0;--y:180">Orchestration</span>
+<span class="fig-label muted small" style="--x:0;--y:202">Workflows and coordination</span>
+<span class="fig-label strong" style="--x:0;--y:330">Runtime</span>
+<span class="fig-label muted small" style="--x:0;--y:352">Context, memory and tasks</span>
+<span class="fig-label strong" style="--x:0;--y:500">Infrastructure</span>
+<span class="fig-label muted small" style="--x:0;--y:522">Data, knowledge and models</span>
+<div class="fig-panel" style="--x:170;--y:0;--w:790;--h:110"></div>
+<div class="fig-box" style="--x:186;--y:20;--w:116;--h:70"><b>Risk analysis</b></div>
+<div class="fig-box" style="--x:312;--y:20;--w:116;--h:70"><b>Fault diagnosis</b></div>
+<div class="fig-box" style="--x:438;--y:20;--w:116;--h:70"><b>Power quality</b></div>
+<div class="fig-box" style="--x:564;--y:20;--w:116;--h:70"><b>Resonance</b></div>
+<div class="fig-box" style="--x:690;--y:20;--w:116;--h:70"><b>Cable insulation</b></div>
+<div class="fig-box" style="--x:816;--y:20;--w:116;--h:70"><b>Operations</b></div>
+<div class="fig-box dashed" style="--x:170;--y:152;--w:190;--h:106"><b>MCP tools</b><span>Database · knowledge base</span><span>Domain tools · services</span></div>
+<div class="fig-box accent" style="--x:400;--y:160;--w:360;--h:90"><b>LangGraph</b><span>Workflow orchestration and agent coordination</span></div>
+<div class="fig-box dashed" style="--x:800;--y:152;--w:160;--h:106"><b>Frontend (SSE)</b><span>Process flow · reports</span><span>Analytics · PDF export</span></div>
+<div class="fig-panel accent" style="--x:170;--y:300;--w:790;--h:130"><header><b>PowerContext</b></header></div>
+<div class="fig-card" style="--x:186;--y:344;--w:246;--h:74"><b>Context Manager</b><span>Build context · manage evidence</span><span>Dynamic retrieval</span></div>
+<div class="fig-card" style="--x:442;--y:344;--w:246;--h:74"><b>Memory Manager</b><span>Facts · experience</span><span>Validation and lifecycle</span></div>
+<div class="fig-card" style="--x:698;--y:344;--w:246;--h:74"><b>Task Manager</b><span>Lifecycle · persistence</span><span>Recovery · idempotency</span></div>
+<div class="fig-panel" style="--x:170;--y:470;--w:790;--h:100"></div>
+<div class="fig-box fill" style="--x:186;--y:486;--w:142;--h:68"><b>RAGFlow</b><span>Private knowledge</span></div>
+<div class="fig-box fill" style="--x:338;--y:486;--w:142;--h:68"><b>Local wiki</b><span>Expert knowledge</span></div>
+<div class="fig-box fill" style="--x:490;--y:486;--w:142;--h:68"><b>Vector database</b><span>BGE-M3</span></div>
+<div class="fig-box fill" style="--x:642;--y:486;--w:142;--h:68"><b>Local LLM</b><span>Qwen</span></div>
+<div class="fig-box fill" style="--x:794;--y:486;--w:142;--h:68"><b>Domain services</b><span>Analytics and models</span></div>
+</div>
+<figcaption>Figure 1. The Agent Runtime for a power system. LangGraph orchestrates business agents and calls context, memory, and task capabilities; the lower layers connect local models, knowledge services, data, and domain algorithms.</figcaption>
+</figure>
 
 The architecture has four layers.
 
@@ -160,7 +197,27 @@ Context Manager answers “what should this inference see?” Memory Manager ans
 
 We do not treat Memory as a complete log or a copy of every conversation. The useful material is organized, traceable, and reusable in similar tasks.
 
-![Memory extraction, validation, and reuse from operational evidence](../../../assets/blog/power-system-agent-memory/memory.svg)
+<figure class="fig" id="fig-memory">
+<div class="fig-canvas" style="--fw:960;--fh:330" role="img" aria-label="Memory extraction, validation, and reuse from operational evidence">
+<svg viewBox="0 0 960 330">
+<path class="fig-wire" d="M210 70 L244 70" marker-end="url(#fig-arrow)"/>
+<path class="fig-wire" d="M460 70 L494 70" marker-end="url(#fig-arrow)"/>
+<path class="fig-wire" d="M710 70 L744 70" marker-end="url(#fig-arrow)"/>
+<path class="fig-wire accent" d="M855 116 L855 160 Q855 170 845 170 L510 170 Q500 170 500 180 L500 214" marker-end="url(#fig-arrow-accent)"/>
+<path class="fig-wire dashed" d="M290 260 L115 260 Q105 260 105 250 L105 122" marker-end="url(#fig-arrow)"/>
+</svg>
+<span class="fig-label muted small" style="--x:0;--y:0">Source</span>
+<div class="fig-box start" style="--x:0;--y:24;--w:210;--h:92"><b>Historical tasks</b><span>SCADA · alarms · records</span></div>
+<span class="fig-label muted small" style="--x:250;--y:0">Extract</span>
+<div class="fig-box start" style="--x:250;--y:24;--w:210;--h:92"><b>Atomic memories</b><span>Facts · actions · results</span></div>
+<span class="fig-label muted small" style="--x:500;--y:0">Validate</span>
+<div class="fig-box start" style="--x:500;--y:24;--w:210;--h:92"><b>Evidence review</b><span>Rules · experts · outcomes</span></div>
+<span class="fig-label muted small" style="--x:750;--y:0">Persist</span>
+<div class="fig-box start accent" style="--x:750;--y:24;--w:210;--h:92"><b>Verified memory</b><span>Versioned · scoped · reusable</span></div>
+<div class="fig-box" style="--x:290;--y:220;--w:420;--h:80"><b>Retrieval and experience reuse</b><span>Metadata filters · hybrid search · relevance ranking</span></div>
+<span class="fig-label muted small" style="--x:115;--y:172">Feedback: a new diagnosis</span>
+</div>
+</figure>
 
 ### 5.1 Short-term and long-term memory
 
@@ -201,7 +258,31 @@ Each memory is an atomic unit that can be retrieved, updated, merged, or retired
 
 After a task is complete, Memory Extractor reads task records, diagnostic conclusions, and maintenance outcomes to produce candidate memories. Memory Validator checks them against data, rules, historical cases, and final outcomes. Content that cannot be confirmed automatically enters a Review Inbox, where specialists can add evidence or review it.
 
-![Memory validation: extraction, evidence checks, expert review, and reuse](../../../assets/blog/power-system-agent-memory/memory-validation.svg)
+<figure class="fig" id="fig-memory-validation">
+<div class="fig-canvas" style="--fw:960;--fh:396" role="img" aria-label="Memory validation: extraction, evidence checks, expert review, and reuse">
+<svg viewBox="0 0 960 396">
+<path class="fig-wire" d="M210 35 L244 35" marker-end="url(#fig-arrow)"/>
+<path class="fig-wire" d="M460 35 L494 35" marker-end="url(#fig-arrow)"/>
+<path class="fig-wire" d="M710 35 L744 35" marker-end="url(#fig-arrow)"/>
+<path class="fig-wire muted" d="M890 70 L890 154" marker-end="url(#fig-arrow-muted)"/>
+<path class="fig-wire" d="M780 70 L780 102 Q780 112 770 112 L615 112 Q605 112 605 122 L605 154" marker-end="url(#fig-arrow)"/>
+<path class="fig-wire accent" d="M830 70 L830 343 Q830 353 820 353 L716 353" marker-end="url(#fig-arrow-accent)"/>
+<path class="fig-wire" d="M605 226 L605 314" marker-end="url(#fig-arrow)"/>
+<path class="fig-wire" d="M500 353 L466 353" marker-end="url(#fig-arrow)"/>
+<path class="fig-wire" d="M250 353 L216 353" marker-end="url(#fig-arrow)"/>
+</svg>
+<div class="fig-box" style="--x:0;--y:0;--w:210;--h:70"><b>Historical tasks and diagnosis records</b></div>
+<div class="fig-box" style="--x:250;--y:0;--w:210;--h:70"><b>Memory extractor</b></div>
+<div class="fig-box" style="--x:500;--y:0;--w:210;--h:70"><b>Candidate memory</b></div>
+<div class="fig-box accent" style="--x:750;--y:0;--w:210;--h:70"><b>Memory validator</b></div>
+<div class="fig-box quiet dashed" style="--x:820;--y:160;--w:140;--h:66"><b>Rejected</b><span>Validation failed</span></div>
+<div class="fig-box" style="--x:500;--y:160;--w:210;--h:66"><b>Review inbox</b><span>Insufficient evidence</span></div>
+<div class="fig-box accent" style="--x:500;--y:320;--w:210;--h:66"><b>Verified memory</b><span>Sufficient or reviewed</span></div>
+<div class="fig-box" style="--x:250;--y:320;--w:210;--h:66"><b>Memory store</b></div>
+<div class="fig-box" style="--x:0;--y:320;--w:210;--h:66"><b>Future diagnosis retrieval</b></div>
+<span class="fig-label muted small" style="--x:615;--y:262">Expert review or more evidence</span>
+</div>
+</figure>
 
 Memories have explicit lifecycle states:
 
@@ -247,7 +328,32 @@ We therefore keep task management as a separate concern. Task Manager maintains 
 
 The task lifecycle can be described as:
 
-![Task lifecycle with waiting, recovery, completion, and failure states](../../../assets/blog/power-system-agent-memory/task-lifecycle.svg)
+<figure class="fig" id="fig-task-lifecycle">
+<div class="fig-canvas" style="--fw:960;--fh:410" role="img" aria-label="Task lifecycle with waiting, recovery, completion, and failure states">
+<svg viewBox="0 0 960 410">
+<path class="fig-wire" d="M40 48 L84 48" marker-end="url(#fig-arrow)"/>
+<path class="fig-wire" d="M270 48 L384 48" marker-end="url(#fig-arrow)"/>
+<path class="fig-wire" d="M410 76 L410 106 Q410 116 400 116 L160 116 Q150 116 150 126 L150 230" marker-end="url(#fig-arrow)"/>
+<path class="fig-wire" d="M210 236 L210 176 Q210 166 220 166 L430 166 Q440 166 440 156 L440 82" marker-end="url(#fig-arrow)"/>
+<path class="fig-wire" d="M550 76 L550 106 Q550 116 560 116 L800 116 Q810 116 810 126 L810 230" marker-end="url(#fig-arrow)"/>
+<path class="fig-wire" d="M750 236 L750 176 Q750 166 740 166 L530 166 Q520 166 520 156 L520 82" marker-end="url(#fig-arrow)"/>
+<path class="fig-wire accent" d="M480 76 L480 324" marker-end="url(#fig-arrow-accent)"/>
+<path class="fig-wire" d="M570 358 L634 358" marker-end="url(#fig-arrow)"/>
+</svg>
+<span class="fig-dot" style="--x:20;--y:38;--w:20;--h:20"></span>
+<div class="fig-box" style="--x:90;--y:20;--w:180;--h:56"><b>CREATED</b></div>
+<div class="fig-box accent" style="--x:390;--y:20;--w:180;--h:56"><b>RUNNING</b></div>
+<div class="fig-box" style="--x:60;--y:236;--w:180;--h:56"><b>WAITING</b></div>
+<div class="fig-box" style="--x:720;--y:236;--w:180;--h:56"><b>FAILED</b></div>
+<div class="fig-box" style="--x:390;--y:330;--w:180;--h:56"><b>COMPLETED</b></div>
+<span class="fig-dot end" style="--x:640;--y:346;--w:24;--h:24"></span>
+<span class="fig-label muted small center" style="--x:280;--y:94">Waiting for data or human input</span>
+<span class="fig-label muted small center" style="--x:325;--y:174">Condition met or human resumes</span>
+<span class="fig-label muted small center" style="--x:680;--y:94">Execution failed</span>
+<span class="fig-label muted small center" style="--x:635;--y:174">Recovery conditions met</span>
+<span class="fig-label accent small" style="--x:490;--y:260">Task complete</span>
+</div>
+</figure>
 
 We distinguish two kinds of state:
 
@@ -300,13 +406,72 @@ During recovery, the system checks whether original data is still valid, whether
 
 **Recovery restores more than a program position; it restores the task's business meaning and currently valid evidence.**
 
-![Persistent task and recovery flow, including checkpoints, operation storage, and evidence storage](../../../assets/blog/power-system-agent-memory/task-recovery.svg)
+<figure class="fig" id="fig-task-recovery">
+<div class="fig-canvas" style="--fw:960;--fh:372" role="img" aria-label="Persistent task and recovery flow, including checkpoints, operation storage, and evidence storage">
+<svg viewBox="0 0 960 372">
+<path class="fig-wire" d="M172 35 L191 35" marker-end="url(#fig-arrow)"/>
+<path class="fig-wire" d="M369 35 L388 35" marker-end="url(#fig-arrow)"/>
+<path class="fig-wire" d="M566 35 L585 35" marker-end="url(#fig-arrow)"/>
+<path class="fig-wire" d="M763 35 L782 35" marker-end="url(#fig-arrow)"/>
+<path class="fig-wire accent dashed" d="M677 70 L677 95 Q677 105 667 105 L490 105 Q480 105 480 115 L480 134" marker-end="url(#fig-arrow-accent)"/>
+<path class="fig-wire" d="M480 216 L480 246 Q480 256 470 256 L150 256 Q140 256 140 266 L140 296" marker-end="url(#fig-arrow)"/>
+<path class="fig-wire" d="M480 216 L480 296" marker-end="url(#fig-arrow)"/>
+<path class="fig-wire" d="M480 216 L480 246 Q480 256 490 256 L810 256 Q820 256 820 266 L820 296" marker-end="url(#fig-arrow)"/>
+</svg>
+<div class="fig-box" style="--x:0;--y:0;--w:172;--h:70"><b>CREATED</b><span>Task ID</span></div>
+<div class="fig-box" style="--x:197;--y:0;--w:172;--h:70"><b>RUNNING</b><span>LangGraph</span></div>
+<div class="fig-box" style="--x:394;--y:0;--w:172;--h:70"><b>WAITING</b><span>Human or data</span></div>
+<div class="fig-box" style="--x:591;--y:0;--w:172;--h:70"><b>RESUMED</b><span>State restored</span></div>
+<div class="fig-box solid" style="--x:788;--y:0;--w:172;--h:70"><b>COMPLETED</b><span>Verified result</span></div>
+<div class="fig-box accent" style="--x:240;--y:140;--w:480;--h:76"><b>Recovery and validation</b><span>Restore the checkpoint · revalidate evidence · check operations</span></div>
+<div class="fig-box fill" style="--x:0;--y:302;--w:280;--h:66"><b>Checkpointer</b><span>Workflow state</span></div>
+<div class="fig-box fill" style="--x:340;--y:302;--w:280;--h:66"><b>Operation store</b><span>Idempotency and audit</span></div>
+<div class="fig-box fill" style="--x:680;--y:302;--w:280;--h:66"><b>Evidence store</b><span>Data and provenance</span></div>
+</div>
+</figure>
 
 ## 07 How the three Managers cooperate in one diagnosis
 
 Putting the design together, one diagnosis follows this flow:
 
-![Diagnosis workflow connecting context, memory, evidence, and task management](../../../assets/blog/power-system-agent-memory/diagnosis-workflow.svg)
+<figure class="fig" id="fig-diagnosis-workflow">
+<div class="fig-canvas" style="--fw:960;--fh:586" role="img" aria-label="Diagnosis workflow connecting context, memory, evidence, and task management">
+<svg viewBox="0 0 960 586">
+<path class="fig-wire" d="M210 33 L244 33" marker-end="url(#fig-arrow)"/>
+<path class="fig-wire" d="M460 33 L494 33" marker-end="url(#fig-arrow)"/>
+<path class="fig-wire" d="M710 33 L744 33" marker-end="url(#fig-arrow)"/>
+<path class="fig-wire" d="M210 423 L244 423" marker-end="url(#fig-arrow)"/>
+<path class="fig-wire" d="M460 423 L494 423" marker-end="url(#fig-arrow)"/>
+<path class="fig-wire" d="M710 423 L744 423" marker-end="url(#fig-arrow)"/>
+<path class="fig-wire" d="M460 293 L494 293" marker-end="url(#fig-arrow)"/>
+<path class="fig-wire" d="M750 163 L716 163" marker-end="url(#fig-arrow)"/>
+<path class="fig-wire" d="M500 163 L466 163" marker-end="url(#fig-arrow)"/>
+<path class="fig-wire" d="M250 163 L216 163" marker-end="url(#fig-arrow)"/>
+<path class="fig-wire" d="M897 66 L897 124" marker-end="url(#fig-arrow)"/>
+<path class="fig-wire" d="M855 456 L855 514" marker-end="url(#fig-arrow)"/>
+<path class="fig-wire" d="M52 196 L52 384" marker-end="url(#fig-arrow)"/>
+<path class="fig-wire" d="M158 196 L158 282 Q158 292 168 292 L244 292" marker-end="url(#fig-arrow)"/>
+<path class="fig-wire dashed" d="M710 292 L720 292 Q730 292 730 282 L730 107 Q730 97 740 97 L803 97 Q813 97 813 87 L813 70" marker-end="url(#fig-arrow)"/>
+</svg>
+<div class="fig-box" style="--x:0;--y:0;--w:210;--h:66"><b>User request</b></div>
+<div class="fig-box" style="--x:250;--y:0;--w:210;--h:66"><b>Task Manager</b><span>Create or load the task</span></div>
+<div class="fig-box" style="--x:500;--y:0;--w:210;--h:66"><b>LangGraph</b><span>Route to the agent workflow</span></div>
+<div class="fig-box accent" style="--x:750;--y:0;--w:210;--h:66"><b>Context Manager</b><span>Build the context</span></div>
+<div class="fig-box" style="--x:750;--y:130;--w:210;--h:66"><b>Domain nodes</b><span>Query data · MCP tools</span></div>
+<div class="fig-box" style="--x:500;--y:130;--w:210;--h:66"><b>Evidence store</b><span>Persist evidence</span></div>
+<div class="fig-box" style="--x:250;--y:130;--w:210;--h:66"><b>LLM and domain analysis</b></div>
+<div class="fig-box round dashed" style="--x:0;--y:130;--w:210;--h:66"><b>Need more data or approval?</b></div>
+<div class="fig-box" style="--x:250;--y:260;--w:210;--h:66"><b>Task Manager</b><span>WAITING · interrupt</span></div>
+<div class="fig-box" style="--x:500;--y:260;--w:210;--h:66"><b>Resume and revalidate</b></div>
+<div class="fig-box accent" style="--x:0;--y:390;--w:210;--h:66"><b>Context Manager</b><span>Assemble the report context</span></div>
+<div class="fig-box" style="--x:250;--y:390;--w:210;--h:66"><b>Generate the diagnosis report</b></div>
+<div class="fig-box accent" style="--x:500;--y:390;--w:210;--h:66"><b>Memory Manager</b><span>Extract candidate memories</span></div>
+<div class="fig-box" style="--x:750;--y:390;--w:210;--h:66"><b>Validate, review, store</b></div>
+<div class="fig-box solid" style="--x:750;--y:520;--w:210;--h:66"><b>Task Manager</b><span>Complete and archive</span></div>
+<span class="fig-label muted small" style="--x:62;--y:280">No</span>
+<span class="fig-label muted small" style="--x:168;--y:262">Yes</span>
+</div>
+</figure>
 
 A diagnosis starts when Task Manager creates a task. LangGraph routes it to the appropriate agent graph. Before every model node, Context Manager assembles the current task context. Nodes call databases, knowledge bases, and domain tools through MCP, and their evidence enters Evidence Store.
 

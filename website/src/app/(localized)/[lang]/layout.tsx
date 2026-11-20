@@ -19,6 +19,7 @@ import type { ReactNode } from 'react';
 import { Provider } from '@/components/provider';
 import { isLanguage, languages } from '@/lib/i18n';
 import { siteMetadata } from '@/lib/metadata';
+import { fontVariables } from '../../fonts';
 import '../../global.css';
 
 export const metadata = siteMetadata;
@@ -38,7 +39,7 @@ export default async function LanguageLayout({
   if (!isLanguage(lang)) notFound();
 
   return (
-    <html lang={lang} suppressHydrationWarning>
+    <html lang={lang} className={fontVariables} suppressHydrationWarning>
       <body>
         <Provider lang={lang}>{children}</Provider>
       </body>

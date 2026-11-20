@@ -54,9 +54,24 @@ The conversation captured by the plugin is a **Source**, the original material. 
 
 For recall, the plugin calls `context/prepare` and receives **PreparedContext**: relevant reference text for this query, bounded by a byte budget. The service can retain more material than any one model request needs to receive.
 
-[![Scopes, Sources, Memory, and PreparedContext in PowerContext](../../../assets/blog/magpie-gateway-powercontext-memory/context-model.en.svg)](../../../assets/blog/magpie-gateway-powercontext-memory/context-model.en.svg)
-
-Figure 3: original material becomes reference context for a request. The other families belong to PowerContext; this plugin mainly uses recall and conversation Source writes.
+<figure class="fig" id="fig-context-model">
+<div class="fig-canvas" style="--fw:960;--fh:384" role="img" aria-label="Scopes, Sources, Memory, and PreparedContext in PowerContext">
+<svg viewBox="0 0 960 384">
+<path class="fig-wire accent" d="M284 128 L344 128" marker-end="url(#fig-arrow-accent)"/>
+<path class="fig-wire accent" d="M610 128 L670 128" marker-end="url(#fig-arrow-accent)"/>
+</svg>
+<div class="fig-panel accent" style="--x:0;--y:0;--w:960;--h:384"><header><b>One project / work Scope</b><span>A Scope organizes data; its ID is not user identity or execution rights</span></header></div>
+<div class="fig-box start" style="--x:24;--y:64;--w:260;--h:128"><b>Source evidence</b><span>Chats, docs, outcomes</span><span>Raw material and IDs</span></div>
+<div class="fig-box start accent" style="--x:350;--y:64;--w:260;--h:128"><b>Memory / Artifact</b><span>Decisions, constraints, facts, steps</span><span>Stable ID + revision + sources</span></div>
+<div class="fig-box start" style="--x:676;--y:64;--w:260;--h:128"><b>context/prepare</b><span>Select by query and config</span><span>Byte-bounded reference text</span></div>
+<span class="fig-label muted" style="--x:24;--y:222">Other context families have their own workflows; capturing conversations does not create them</span>
+<div class="fig-card" style="--x:24;--y:260;--w:216;--h:96"><b>Profile</b><span>User and work preferences</span></div>
+<div class="fig-card" style="--x:256;--y:260;--w:216;--h:96"><b>Handoff</b><span>Committed work handover</span></div>
+<div class="fig-card" style="--x:488;--y:260;--w:216;--h:96"><b>Experience</b><span>Reviewed task lessons</span></div>
+<div class="fig-card" style="--x:720;--y:260;--w:216;--h:96"><b>Skill</b><span>Explicit workflow export</span></div>
+</div>
+<figcaption>Figure 3: original material becomes reference context for a request. The other families belong to PowerContext; this plugin mainly uses recall and conversation Source writes.</figcaption>
+</figure>
 
 These records belong to a Scope, which can organize a project or work area. Clients sharing project memory need to resolve to the same authorized Scope. Its ID selects data; service authentication still determines access.
 
@@ -88,9 +103,25 @@ Both approaches can be used together. Project conventions can be recalled automa
 
 PowerContext now also has an [official Rust Gateway](https://github.com/oceanbase/powercontext/blob/master/gateway/README.md) as another integration option. I kept Magpie as the entry point because it already managed model configuration, routing, and protocol adaptation for my clients. The following sections describe this plugin's development; the independent experiment later in the article pins PowerContext to 1.3.0.
 
-[![Explicit MCP or SDK tools alongside automatic Magpie gateway recall](../../../assets/blog/magpie-gateway-powercontext-memory/integration-choices.en.svg)](../../../assets/blog/magpie-gateway-powercontext-memory/integration-choices.en.svg)
-
-Figure 6: explicit agent tools and automatic gateway recall suit different operations.
+<figure class="fig" id="fig-integration-choices">
+<div class="fig-canvas" style="--fw:960;--fh:330" role="img" aria-label="Explicit MCP or SDK tools alongside automatic Magpie gateway recall">
+<svg viewBox="0 0 960 330">
+<path class="fig-wire" d="M304 94 L334 94" marker-end="url(#fig-arrow)"/>
+<path class="fig-wire" d="M620 94 L650 94" marker-end="url(#fig-arrow)"/>
+<path class="fig-wire accent" d="M304 266 L334 266" marker-end="url(#fig-arrow-accent)"/>
+<path class="fig-wire accent" d="M620 266 L650 266" marker-end="url(#fig-arrow-accent)"/>
+</svg>
+<div class="fig-panel" style="--x:0;--y:0;--w:960;--h:152"><header><b>Path A: the agent calls tools</b></header></div>
+<div class="fig-box" style="--x:24;--y:60;--w:280;--h:68"><b>Agent in the client</b></div>
+<div class="fig-box" style="--x:340;--y:60;--w:280;--h:68"><b>MCP / SDK tools</b></div>
+<div class="fig-box" style="--x:656;--y:60;--w:280;--h:68"><b>PowerContext</b></div>
+<div class="fig-panel accent" style="--x:0;--y:172;--w:960;--h:152"><header><b>Path B: gateway recall and optional capture</b></header></div>
+<div class="fig-box" style="--x:24;--y:232;--w:280;--h:68"><b>Client model request</b></div>
+<div class="fig-box" style="--x:340;--y:232;--w:280;--h:68"><b>Magpie + hook</b></div>
+<div class="fig-box" style="--x:656;--y:232;--w:280;--h:68"><b>PowerContext</b></div>
+</div>
+<figcaption>Figure 6: explicit agent tools and automatic gateway recall suit different operations.</figcaption>
+</figure>
 
 The first obstacle was Magpie's plugin entry point at the time. Synchronous gateway middleware could rewrite fields, but recall needed an HTTP request and a wait for PowerContext before inference could continue.
 
@@ -112,9 +143,36 @@ The host checks rewrites as well. A change to tool declarations, tool choice, `m
 
 The plugin first resolves an existing Scope and retrieves context. On the first turn, it also fetches the latest committed Handoff hint in parallel. References are appended to the latest user message before the request reaches the model.
 
-[![Synchronous recall, asynchronous capture, and background extraction between Magpie and PowerContext](../../../assets/blog/magpie-gateway-powercontext-memory/architecture.en.svg)](../../../assets/blog/magpie-gateway-powercontext-memory/architecture.en.svg)
-
-Figure 7: recall before a request and capture after a reply. Figures can be opened at full size.
+<figure class="fig" id="fig-architecture">
+<div class="fig-canvas" style="--fw:960;--fh:446" role="img" aria-label="Synchronous recall, asynchronous capture, and background extraction between Magpie and PowerContext">
+<svg viewBox="0 0 960 446">
+<path class="fig-wire" d="M210 38 L294 38" marker-end="url(#fig-arrow)"/>
+<path class="fig-wire accent" d="M530 38 L744 38" marker-end="url(#fig-arrow-accent)"/>
+<path class="fig-wire accent" d="M438 76 L438 134" marker-end="url(#fig-arrow-accent)"/>
+<path class="fig-wire accent" d="M530 172 L575 172 Q585 172 585 162 L585 149 Q585 139 595 139 L634 139" marker-end="url(#fig-arrow-accent)"/>
+<path class="fig-wire accent" d="M530 172 L575 172 Q585 172 585 182 L585 199 Q585 209 595 209 L634 209" marker-end="url(#fig-arrow-accent)"/>
+<path class="fig-wire dashed" d="M340 76 L340 94 Q340 104 330 104 L240 104 Q230 104 230 114 L230 358 Q230 368 240 368 L294 368" marker-end="url(#fig-arrow)"/>
+<path class="fig-wire dashed" d="M530 368 L634 368" marker-end="url(#fig-arrow)"/>
+<path class="fig-wire dashed" d="M780 368 L814 368" marker-end="url(#fig-arrow)"/>
+<path class="fig-wire accent" d="M640 432 L676 432"/>
+<path class="fig-wire dashed" d="M0 432 L36 432"/>
+</svg>
+<div class="fig-box" style="--x:0;--y:0;--w:210;--h:76"><b>Client</b><span>Owns tool execution</span></div>
+<div class="fig-box accent" style="--x:300;--y:0;--w:230;--h:76"><b>Magpie + hook</b><span>Bounded rewrites</span></div>
+<div class="fig-box" style="--x:750;--y:0;--w:210;--h:76"><b>Upstream model</b><span>One inference request</span></div>
+<span class="fig-label accent center small" style="--x:640;--y:12">Append reference text</span>
+<div class="fig-box accent" style="--x:300;--y:140;--w:230;--h:64"><b>1. Resolve the Scope</b></div>
+<div class="fig-box start" style="--x:640;--y:112;--w:320;--h:54"><b>2a. <code>context/prepare</code></b></div>
+<div class="fig-box start" style="--x:640;--y:182;--w:320;--h:54"><b>2b. <code>handoff/hint</code> (first turn)</b></div>
+<div class="fig-box" style="--x:300;--y:330;--w:230;--h:76"><b>Stage, write later</b><span>Capture is off by default</span></div>
+<span class="fig-label muted end small" style="--x:222;--y:250">Completion event</span>
+<div class="fig-box fill" style="--x:640;--y:336;--w:140;--h:64"><b>Source</b></div>
+<div class="fig-box fill" style="--x:820;--y:336;--w:140;--h:64"><b>Memory</b></div>
+<span class="fig-label muted small" style="--x:686;--y:423">Recall: a wait before inference; failure lets it continue</span>
+<span class="fig-label muted small" style="--x:46;--y:423">Capture and extraction: never block the reply</span>
+</div>
+<figcaption>Figure 7: recall before a request and capture after a reply.</figcaption>
+</figure>
 
 ## The memory added on turn one disappears on turn two
 
@@ -126,9 +184,33 @@ On turn two, the client sends `U1, A1, U2`. If the plugin appends only the lates
 
 This changes the historical prefix and can affect the provider's prompt cache. Querying `U1` again is unreliable too: memory may have changed, or results may come back in a different order, so `R1'` need not equal the original.
 
-[![Reference omission versus exact replay across two requests](../../../assets/blog/magpie-gateway-powercontext-memory/prompt-prefix.en.svg)](../../../assets/blog/magpie-gateway-powercontext-memory/prompt-prefix.en.svg)
-
-Figure 8: restore the original R1 on the next turn rather than merely querying again.
+<figure class="fig" id="fig-prompt-prefix">
+<div class="fig-canvas" style="--fw:960;--fh:396" role="img" aria-label="Reference omission versus exact replay across two requests">
+<span class="fig-label strong" style="--x:0;--y:14">Turn 1</span>
+<div class="fig-box fill" style="--x:220;--y:0;--w:92;--h:48"><b>System</b></div>
+<div class="fig-box fill" style="--x:324;--y:0;--w:92;--h:48"><b>U1</b></div>
+<div class="fig-box accent" style="--x:428;--y:0;--w:92;--h:48"><b>R1</b></div>
+<span class="fig-label muted small" style="--x:220;--y:60">After turn 1, the client usually keeps U1 and A1 without the injected R1.</span>
+<span class="fig-label strong" style="--x:0;--y:114">Turn 2: no replay</span>
+<div class="fig-box fill" style="--x:220;--y:100;--w:92;--h:48"><b>System</b></div>
+<div class="fig-box fill" style="--x:324;--y:100;--w:92;--h:48"><b>U1</b></div>
+<div class="fig-box quiet dashed" style="--x:428;--y:100;--w:92;--h:48"><b>absent</b></div>
+<div class="fig-box fill" style="--x:532;--y:100;--w:92;--h:48"><b>A1</b></div>
+<div class="fig-box fill" style="--x:636;--y:100;--w:92;--h:48"><b>U2</b></div>
+<div class="fig-box accent" style="--x:740;--y:100;--w:92;--h:48"><b>R2</b></div>
+<span class="fig-label muted small" style="--x:220;--y:160">R1 is gone, so the prefix diverges from the previous request here.</span>
+<span class="fig-label accent" style="--x:0;--y:214">Turn 2: replay R1</span>
+<div class="fig-box fill" style="--x:220;--y:200;--w:92;--h:48"><b>System</b></div>
+<div class="fig-box fill" style="--x:324;--y:200;--w:92;--h:48"><b>U1</b></div>
+<div class="fig-box accent" style="--x:428;--y:200;--w:92;--h:48"><b>R1</b></div>
+<div class="fig-box fill" style="--x:532;--y:200;--w:92;--h:48"><b>A1</b></div>
+<div class="fig-box fill" style="--x:636;--y:200;--w:92;--h:48"><b>U2</b></div>
+<div class="fig-box accent" style="--x:740;--y:200;--w:92;--h:48"><b>R2</b></div>
+<span class="fig-label accent small" style="--x:220;--y:260">Replay the old block exactly; query U2 once and reuse R2 for tool continuations.</span>
+<div class="fig-box fill start" style="--x:0;--y:312;--w:960;--h:76"><b>In-process cache: 8 MiB payload / 256 sessions / 128 turns per session</b><span>Restarts, eviction and other rewrites can still change the prefix; provider cache hits stay provider-owned.</span></div>
+</div>
+<figcaption>Figure 8: restore the original R1 on the next turn rather than merely querying again.</figcaption>
+</figure>
 
 I keep the injected reference blocks in an in-process session cache. A new request first gets the old blocks restored, then queries for the latest turn. The following pseudocode omits origin checks, Scope resolution, and budget accounting:
 
@@ -175,9 +257,23 @@ A successful reply is staged first. The client may regenerate that answer, so th
 
 If the next request keeps the old history and adds a user message, the plugin writes the staged conversation early. A successful regeneration of the same turn replaces it. Failure or cancellation preserves the previous successful answer's idle-capture opportunity. Without another request, the default write happens after ten minutes. History forks and capacity reclamation can also cause an early write.
 
-[![Capture staging, retained replies, regeneration, and the idle-write timer](../../../assets/blog/magpie-gateway-powercontext-memory/capture-lifecycle.en.svg)](../../../assets/blog/magpie-gateway-powercontext-memory/capture-lifecycle.en.svg)
-
-Figure 9: how continuations, regeneration, and idle waiting treat a staged answer.
+<figure class="fig" id="fig-capture-lifecycle">
+<div class="fig-canvas" style="--fw:960;--fh:392" role="img" aria-label="Capture staging, retained replies, regeneration, and the idle-write timer">
+<svg viewBox="0 0 960 392">
+<path class="fig-wire accent" d="M230 34 L294 34" marker-end="url(#fig-arrow-accent)"/>
+<path class="fig-wire" d="M390 68 L390 90 Q390 100 380 100 L160 100 Q150 100 150 110 L150 134" marker-end="url(#fig-arrow)"/>
+<path class="fig-wire" d="M480 68 L480 134" marker-end="url(#fig-arrow)"/>
+<path class="fig-wire" d="M810 68 L810 134" marker-end="url(#fig-arrow)"/>
+</svg>
+<div class="fig-box accent" style="--x:0;--y:0;--w:230;--h:68"><b>Success → stage P1</b></div>
+<div class="fig-box start" style="--x:300;--y:0;--w:660;--h:68"><b>What does the next request keep?</b><span>Check the kept history before handling the next reply</span></div>
+<div class="fig-card" style="--x:0;--y:140;--w:300;--h:132"><b>Old history + a new user turn</b><span class="accent">Write P1 early</span><span>Stage P2 once this reply succeeds</span></div>
+<div class="fig-card" style="--x:330;--y:140;--w:300;--h:132"><b>Regenerate the same turn</b><span class="accent">Success → replace the staged reply</span><span>Failure → keep P1 for the idle write</span></div>
+<div class="fig-card" style="--x:660;--y:140;--w:300;--h:132"><b>No later request</b><span class="accent">Idle write after 10 min by default</span><span>Shutting down may lose it</span></div>
+<div class="fig-box fill start" style="--x:0;--y:304;--w:960;--h:80"><b>Source writes: a 10-second deadline per attempt, and no automatic retry after an uncertain receipt</b><span>Content digests give a stable identity, not exactly-once delivery.</span></div>
+</div>
+<figcaption>Figure 9: how continuations, regeneration, and idle waiting treat a staged answer.</figcaption>
+</figure>
 
 The write uses `POST v1/sources/content`. A Source contains user and assistant messages plus client-supplied tool calls and results. Injected references are removed. PowerContext then extracts Memory according to its service-side configuration, so a completed reply does not immediately imply a new item on the Memory page.
 
@@ -235,9 +331,17 @@ The script then waits for background processing. The generation fixture returns 
 
 Both Magpie and PowerContext are then restarted. A new session sends only a question asking for the codename. The check inspects the upstream request for a reference block and the codename, and makes sure the old prompt and reply were not carried forward. A final query in an unrelated Scope must not contain the same codename.
 
-[![Evidence summary from the actual independent-service integration run](../../../assets/blog/magpie-gateway-powercontext-memory/experiment-result.en.svg)](../../../assets/blog/magpie-gateway-powercontext-memory/experiment-result.en.svg)
-
-Figure 10: a summary of the November 4, 2026 run. Original data is in [result.json](https://tsukikage7.com/examples/magpie-powercontext/result.json).
+<figure class="fig" id="fig-experiment-result">
+<div class="fig-canvas" style="--fw:960;--fh:470" role="img" aria-label="Evidence summary from the actual independent-service integration run">
+<span class="fig-label muted small" style="--x:0;--y:0">2026-11-04 14:26 (UTC+8) · magpie 0.1.2700 · PowerContext 1.3.0</span>
+<div class="fig-card accent" style="--x:0;--y:28;--w:960;--h:76"><b>Random deployment codename: QUARTZ-96DC9678</b><span>Real host, service and database; a deterministic HTTP fixture for generation</span></div>
+<div class="fig-rows" style="--x:0;--y:124;--w:960;--h:260;--cols:4em 1fr"><div><strong>PASS</strong><span>Empty Scope → the full conversation is captured as a Source</span></div><div><strong>PASS</strong><span>Background extraction → the Memory revision cites that Source</span></div><div><strong>PASS</strong><span>Restart the service and gateway → the Memory persists</span></div><div><strong>PASS</strong><span>New session, one question → upstream receives the recalled reference</span></div><div><strong>PASS</strong><span>An unrelated Scope → the codename is absent</span></div></div>
+<span class="fig-label muted small" style="--x:0;--y:448">Checks the pipeline, citations, persistence and isolation; not real-model quality or client interaction.</span>
+<span class="fig-label muted small" style="--x:0;--y:402">Source: <code>magpie-conversation:3fc1cbcf6145d5debeecb7a643ead19b0…</code></span>
+<span class="fig-label muted small" style="--x:0;--y:426">Artifact: <code>atomic-memory</code> revision 1 · new-session user messages: 1</span>
+</div>
+<figcaption>Figure 10: a summary of the November 4, 2026 run. Original data is in <a href="https://tsukikage7.com/examples/magpie-powercontext/result.json">result.json</a>.</figcaption>
+</figure>
 
 This run used Magpie 0.1.2700, Bun 1.4.3, PowerContext 1.3.0, and plugin 0.2.1. Idle capture and Memory scheduling were shortened to one second to reduce waiting. The generated Memory text was:
 

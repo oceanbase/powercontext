@@ -50,10 +50,10 @@ export function baseOptions(lang: Language): BaseLayoutProps {
       url: lang === defaultLanguage ? '/' : `/${lang}`,
     },
     links: [
-      { text: label.docs, url: `/${lang}/docs` },
-      { text: label.benchmarks, url: `/${lang}/benchmarks` },
-      { text: label.changelog, url: `/${lang}/changelog` },
-      { text: label.blog, url: `/${lang}/blog` },
+      { text: label.docs, url: `/${lang}/docs`, active: 'nested-url' },
+      { text: label.benchmarks, url: `/${lang}/benchmarks`, active: 'nested-url' },
+      { text: label.changelog, url: `/${lang}/changelog`, active: 'nested-url' },
+      { text: label.blog, url: `/${lang}/blog`, active: 'nested-url' },
       {
         type: 'custom',
         secondary: true,

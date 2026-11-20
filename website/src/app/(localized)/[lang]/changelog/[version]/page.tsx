@@ -14,16 +14,25 @@
  * limitations under the License.
  */
 
-import { ArrowLeft, ExternalLink } from 'lucide-react';
+import { ArrowUpRight } from 'lucide-react';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { HomeLayout } from 'fumadocs-ui/layouts/home';
-import { buttonVariants } from 'fumadocs-ui/components/ui/button';
+import { BackLink, Dateline, editorial as styles } from '@/components/editorial';
 import { SiteFooter } from '@/components/site-footer';
+import { buttonClasses } from '@astrafoundry/design/ui';
 import { isLanguage, languages } from '@/lib/i18n';
 import { releases } from '@/lib/releases';
+
+/** Keeps a title's middots at the end of a line rather than starting the next. */
+const title = (text: string) => text.replaceAll(' · ', '\u00a0· ');
 import { baseOptions } from '@/lib/site';
 import { pageMetadata } from '@/lib/metadata';
+
+const labels = {
+  en: { back: 'Changelog', highlights: 'Highlights', install: 'Install', github: 'View the full GitHub release' },
+  zh: { back: '更新日志', highlights: '主要变化', install: '安装', github: '查看完整 GitHub Release' },
+} as const;
 
 export default async function ReleasePage({
   params,
@@ -34,26 +43,31 @@ export default async function ReleasePage({
   if (!isLanguage(lang)) notFound();
   const release = releases.find((item) => item.version === version);
   if (!release) notFound();
+  const text = labels[lang];
 
   return (
     <HomeLayout {...baseOptions(lang)}>
-      <main className="mx-auto w-full max-w-(--fd-layout-width) px-4 py-16">
-        <article className="prose max-w-3xl">
-          <Link className="inline-flex items-center gap-1 text-sm text-fd-primary no-underline hover:underline" href={`/${lang}/changelog`}>
-            <ArrowLeft aria-hidden="true" className="size-4" /> {lang === 'zh' ? '返回更新日志' : 'Back to changelog'}
-          </Link>
-          <time className="mt-10 block text-sm text-fd-muted-foreground" dateTime={release.date}>{release.date}</time>
-          <h1 className="mt-2">{release.version} · {release.title[lang]}</h1>
-          <p className="lead">{release.summary[lang]}</p>
-          <h2>{lang === 'zh' ? '主要变化' : 'Highlights'}</h2>
-          <ul>
-            {release.changes[lang].map((change) => <li key={change}>{change}</li>)}
-          </ul>
-          <pre className="overflow-x-auto"><code>{release.installCommand}</code></pre>
-          <Link className={buttonVariants({ variant: 'outline' })} href={release.githubUrl}>
-            {lang === 'zh' ? '查看完整 GitHub Release' : 'View the full GitHub release'}
-            <ExternalLink aria-hidden="true" className="size-4" />
-          </Link>
+      <main>
+        <article className={styles.article}>
+          <header className={styles.articleHeader}>
+            <BackLink href={`/${lang}/changelog`}>{text.back}</BackLink>
+            <Dateline date={release.date} labels={[<span className={styles.version} key="v">{release.version}</span>]} lang={lang} />
+            <h1 className={styles.postTitle}>{title(release.title[lang])}</h1>
+            <p className={styles.postSummary}>{release.summary[lang]}</p>
+          </header>
+          <div className={styles.prose}>
+            <h2 id="highlights">{text.highlights}</h2>
+            <ul>
+              {release.changes[lang].map((change) => <li key={change}>{change}</li>)}
+            </ul>
+            <h2 id="install">{text.install}</h2>
+            <pre className={styles.command}><code>{release.installCommand}</code></pre>
+            <div className={styles.links}>
+              <Link className={buttonClasses('secondary', 'md')} href={release.githubUrl}>
+                {text.github} <ArrowUpRight aria-hidden="true" strokeWidth={1.75} />
+              </Link>
+            </div>
+          </div>
         </article>
       </main>
       <SiteFooter lang={lang} />

@@ -15,7 +15,6 @@
  */
 
 import { HomeLayout } from 'fumadocs-ui/layouts/home';
-import { FooterHelix } from '@/components/home/footer-helix';
 import { HomeHero } from '@/components/home/home-hero';
 import {
   EcosystemSection, FeaturesSection, OnboardingSection, ProofSection,
@@ -55,9 +54,7 @@ export async function HomePage({ lang }: { lang: Language }) {
         <OnboardingSection content={home.onboarding} lang={lang} />
       </div>
       <RevealOnScroll />
-      <SiteFooter lang={lang}>
-        <FooterHelix />
-      </SiteFooter>
+      <SiteFooter lang={lang} />
     </HomeLayout>
   );
 }
