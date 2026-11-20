@@ -194,7 +194,9 @@ def test_healthy_combined_api_exposes_idle_stalled_and_stopped_processing(  # no
     # Fault injection is confined to the worker boundary. API, runtime, database,
     # supervisor, durable requests and Prometheus rendering are real components.
     if observation_failure == "timeout":
-        monkeypatch.setattr("powercontext.builtin.runtime.artifact_processing._DISCOVERY_TIMEOUT_SECONDS", 0.2)
+        monkeypatch.setattr(
+            "powercontext.builtin.runtime.artifact_processing._PENDING_OBSERVATION_TIMEOUT_SECONDS", 0.2
+        )
     app = create_server_app(settings=_settings(tmp_path / "stalled.db"))
     with TestClient(app) as client:
         runtime = app.state.application

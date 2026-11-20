@@ -113,6 +113,7 @@ class AtomicMemoryProcessingConfig:
     related_max_distance: float = 1.0
     related_page_size: int = DEFAULT_ATOMIC_MEMORY_RELATED_PAGE_SIZE
     related_fts_fallback: bool = False
+    alias_recall: bool = True
     comparison_batch_size: int = 20
     input_tokens_limit: int = 64_000
 
@@ -138,6 +139,7 @@ class AtomicMemoryProcessingConfig:
             related_max_distance=runtime.atomic_memory_related_max_distance,
             related_page_size=runtime.atomic_memory_related_page_size,
             related_fts_fallback=runtime.atomic_memory_related_fts_fallback,
+            alias_recall=runtime.atomic_memory_alias_recall,
             comparison_batch_size=runtime.atomic_memory_comparison_batch_size,
             input_tokens_limit=runtime.atomic_memory_input_tokens_limit,
         )
@@ -684,7 +686,10 @@ class AtomicMemorySourceWindowProcessor:
 
     async def _recall_related_items(self, scope_id, context, workset, compare_page, *, request, local_policy=False):
         application = self.application
-        request, ranks = await self._related_rank_snapshot(scope_id, request)
+        if self.config.alias_recall:
+            request, ranks = await self._aliased_rank_snapshot(scope_id, request)
+        else:
+            request, ranks = await self._related_rank_snapshot(scope_id, request)
         if not ranks:
             return
         cursor = AtomicMemoryRelatedCursor(ranks)
@@ -716,6 +721,34 @@ class AtomicMemorySourceWindowProcessor:
                 workset.release(loaded, keep=key)
             if cursor is None:
                 break
+            del page, loaded, refs
+
+    async def _aliased_rank_snapshot(self, scope_id, request):
+        application = self.application
+        while True:
+            async with application.database.transaction(consistent_snapshot=True) as connection:
+                try:
+                    direct = await application.index.related_ranks(connection, scope_id, request)
+                except AtomicMemoryIndexError as error:
+                    if error.code == "stale-recall":
+                        _conflict("Related channels returned different memory versions")
+                    if not self.config.related_fts_fallback or error.code not in {
+                        "incomplete-vector",
+                        "embedding-profile",
+                    }:
+                        raise
+                    request = replace(request, mode="fts")
+                    continue
+                try:
+                    # Roll back alias-only SQL failures without invalidating direct
+                    # results or the surrounding read/authorization snapshot.
+                    async with connection.begin_nested():
+                        aliases = await application.index.aliased_related_ranks(connection, scope_id, request)
+                except (AtomicMemoryIndexError, OperationalError) as error:
+                    _require_alias_snapshot(connection, error)
+                    aliases = ()
+                ranks = _combine_related_ranks(direct, aliases)
+            return request, ranks
 
     async def _related_rank_snapshot(self, scope_id, request):
         application = self.application
@@ -1174,3 +1207,29 @@ def _input_item_count(value: object) -> int | None:
     if isinstance(evidence, (tuple, list)):
         return len(evidence)
     return None
+
+
+def _combine_related_ranks(direct, aliases):
+    """Preserve direct order, then append alias-only successors with their observed versions."""
+    ranks = {rank.artifact_ref.artifact_id: rank for rank in direct}
+    for rank in aliases:
+        identity = rank.artifact_ref.artifact_id
+        previous = ranks.get(identity)
+        if previous is None:
+            ranks[identity] = rank
+        elif previous.artifact_ref != rank.artifact_ref or previous.state_version != rank.state_version:
+            _conflict("Related channels returned different memory versions")
+    return tuple(ranks.values())
+
+
+def _require_alias_snapshot(connection, error: AtomicMemoryIndexError | OperationalError):
+    """Only operational failures with a valid owner snapshot can fall back."""
+    if isinstance(error, AtomicMemoryIndexError):
+        if error.code == "stale-recall":
+            _conflict("Related channels returned different memory versions")
+        raise error
+    if connection.invalidated or getattr(error, "connection_invalidated", False):
+        raise error
+    message = str(error).lower()
+    if "savepoint" in message and ("no such" in message or "does not exist" in message):
+        raise error

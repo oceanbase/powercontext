@@ -104,6 +104,7 @@ _RETRY_STATE_LIMIT = 1000
 _CHANNEL_QUEUE_LIMIT = _DISCOVERY_PAGE_SIZE // 2
 _DISCOVERY_PAGE_DELAY_SECONDS = 0.01
 _DISCOVERY_TIMEOUT_SECONDS = 2.0
+_PENDING_OBSERVATION_TIMEOUT_SECONDS = 2.0
 _SPAWN_SIGTERM_GRACE_SECONDS = 1.0
 _WORKER_SHUTDOWN_TIMEOUT_SECONDS = 5.0
 ProcessingKey = tuple[str, str]
@@ -930,7 +931,7 @@ class ArtifactProcessingSupervisor:
             return
         state.next_pending_observation_at = now + self._pending_observation_interval
         try:
-            async with asyncio.timeout(_DISCOVERY_TIMEOUT_SECONDS):
+            async with asyncio.timeout(_PENDING_OBSERVATION_TIMEOUT_SECONDS):
                 async with self._database.transaction(consistent_snapshot=True) as connection:
                     observation = await self._intents.pending_observation(connection, state.binding.binding_name)
         except asyncio.CancelledError:
