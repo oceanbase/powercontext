@@ -48,7 +48,9 @@ This reads all 2,033 committed cases without altering their inputs. The separate
 
 ### Running the checks
 
-Use CPython 3.14 with Unicode 16 and the root project's locked dependencies plus Jieba 0.42.1. Install rust-anything and maturin separately. On Windows explicitly select Rust `1.97.1-x86_64-pc-windows-msvc` (the repository/default toolchain may differ) and put the intended Python environment first on PATH; rust-anything prefers `python3` over `python`.
+Use CPython 3.14 with Unicode 16 and the root project's locked dependencies plus Jieba 0.42.1. Install rust-anything and maturin separately. On Windows explicitly select Rust `1.95.0-x86_64-pc-windows-msvc`, matching the gateway CI version, and put the intended Python environment first on PATH; rust-anything prefers `python3` over `python`. The timing samples above retain their original 1.97.1 build identities; they are not measurements of the 1.95.0 build.
+
+The 1.95.0 MSVC build was separately validated on Windows CPython 3.14.3: fmt, locked Cargo tests (two passed), locked clippy with warnings denied, release wheel construction and clean-environment `-I` strict validation all passed. The installed extension SHA-256 was `070d051e50482ce3e00e1041d13055d8514071d57efe6696f639677f7b6d95d3`; all 2,637 recorded strings, type checks and negative controls passed. No performance measurements were taken for that build.
 
 From the repository root:
 

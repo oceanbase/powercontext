@@ -14,12 +14,12 @@ The tested platform is Windows x64 with CPython 3.14.3 and Unicode 16.0.0. The w
 
 ## Reproduce
 
-Run from the repository root with a CPython 3.14 environment containing the reference dependencies, Jieba0.42.1, pytest, maturin and rust-anything. On Windows select an MSVC Rust toolchain at least 1.97. The tool's Python driver selects `python3` before `python`; ensure these resolve to the intended environment.
+Run from the repository root with a CPython 3.14 environment containing the reference dependencies, Jieba0.42.1, pytest, maturin and rust-anything. Select Rust 1.95.0, matching the gateway CI version; on Windows use the MSVC target. The tool's Python driver selects `python3` before `python`; ensure these resolve to the intended environment.
 
-This crate's minimum Rust version is 1.97; the measured Windows build used 1.97.1 MSVC. It is independent of the gateway workspace, whose CI pins Rust 1.95.0 and cannot build this crate. Existing CI does not compile the pilot. A future pilot CI job must select its own toolchain rather than inherit the gateway pin. For the measured Windows configuration, explicitly select it before running the commands below:
+This independent crate declares Rust 1.95 and uses the same 1.95.0 toolchain version as the gateway. Existing CI does not compile the pilot; a future pilot job must explicitly select that toolchain too. The published timing samples were measured with 1.97.1 MSVC and remain evidence for that build, not performance measurements of 1.95.0. Select the shared version before running the commands below:
 
 ```powershell
-$env:RUSTUP_TOOLCHAIN = '1.97.1-x86_64-pc-windows-msvc'
+$env:RUSTUP_TOOLCHAIN = '1.95.0-x86_64-pc-windows-msvc'
 ```
 
 ```text
