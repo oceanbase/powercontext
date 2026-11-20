@@ -1,0 +1,70 @@
+.github/scripts/ci_resource_sampler.py
+  s_2ef0feea0a110d::t_15f1473370e3c2 1-23,25-122,124-143
+  s_2ef0feea0a110d::t_bc63209aa47dde 24,123
+tests/e2e/server_startup.py
+  s_2ef0feea0a110d::t_7781e912002b12 1-30
+tests/e2e/test_claude_code_service_chain.py
+  s_2ef0feea0a110d::t_2addaaa00f3644 40
+  s_2ef0feea0a110d::t_de6958616d64a5 92,169
+tests/e2e/test_server_uds.py
+  s_2ef0feea0a110d::t_321645d14f01bd 30,43-52,84,99,106,113-119
+tests/builtin/runtime/test_artifact_processing.py
+  s_2ef0feea0a110d::t_2c0cd1ff9cc723 46,236,239-240
+tests/test_ci_pipeline.py
+  s_2ef0feea0a110d::t_bc63209aa47dde 233,239
+integrations/langgraph/examples/_local_server.py
+  s_2ef0feea0a110d::t_a604757038425a 101
+  s_2ef0feea0a110d::t_7781e912002b12 26,31,62-68,70-75,77-100,102-105
+tests/builtin/runtime/test_model_usage_recorder.py
+  s_2ef0feea0a110d::t_2c0cd1ff9cc723 1084-1085,1087-1093
+Makefile
+  s_2ef0feea0a110d::t_c83ecb7e270978 54,67,76,80
+tests/test_langgraph_example_lifecycle.py
+  s_2ef0feea0a110d::t_a604757038425a 89-93
+  s_2ef0feea0a110d::t_e6ae34a26c9c3b 1-85,87-88,94-109
+  s_2ef0feea0a110d::t_15f1473370e3c2 86
+tests/test_ci_pytest_diagnostics.py
+  s_2ef0feea0a110d::t_66f5fa354b4d1e 1-58
+tests/e2e/test_http_resource_admission.py
+  s_2ef0feea0a110d::t_bc63209aa47dde 32,51
+tests/e2e/test_codex_service_chain.py
+  s_2ef0feea0a110d::t_2addaaa00f3644 51
+  s_2ef0feea0a110d::t_60a87754bdcd38 102,179,275,421,595
+tests/test_operational_metrics.py
+  s_2ef0feea0a110d::t_2c0cd1ff9cc723 192,289-290
+tests/e2e/test_statistics_flow.py
+  s_2ef0feea0a110d::t_2c0cd1ff9cc723 31,77-78
+tests/e2e/test_worker_logging.py
+  s_2ef0feea0a110d::t_ca63e08ea0da8f 460-461,466-467
+  s_2ef0feea0a110d::t_2c0cd1ff9cc723 150,172-177,198,201,208-209,211-217,224
+tests/e2e/test_worker_model_usage.py
+  s_2ef0feea0a110d::t_a6e8efccacbf80 26,45,51,144,146-148,180-188
+.github/scripts/collect_pytest_diagnostics.py
+  s_2ef0feea0a110d::t_232bf08450d926 2-15
+  s_2ef0feea0a110d::t_c83ecb7e270978 1,16-50
+.github/scripts/pytest_ci_diagnostics.py
+  s_2ef0feea0a110d::t_15f1473370e3c2 1-86,89-93,95
+  s_2ef0feea0a110d::t_bc63209aa47dde 87-88,94
+tests/e2e/test_topic_memory_product_chain.py
+  s_2ef0feea0a110d::t_bc63209aa47dde 540-542
+.github/workflows/master.yml
+  s_2ef0feea0a110d::t_fcd30d19b4e46c 264,275-279,313-315,336-338,344-346,355-367
+tests/e2e/test_langgraph_chain.py
+  s_2ef0feea0a110d::t_cba5ea0eb99765 51,121
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "92e41b227ffa5ebb310b20531babefbeb407fe34",
+  "prompts": {},
+  "sessions": {
+    "s_2ef0feea0a110d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1a9cf-a4e7-7f63-9c51-1284f7c332e8",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "frf12 <rongfeng.frf@antgroup.com>"
+    }
+  }
+}
