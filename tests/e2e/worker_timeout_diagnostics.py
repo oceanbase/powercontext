@@ -15,13 +15,39 @@
 """Test-owned evidence captured synchronously before worker cleanup."""
 
 import asyncio
+import atexit
+import faulthandler
 import os
 import sys
 from contextlib import suppress
+from dataclasses import dataclass
 from pathlib import Path
 from types import CoroutineType, GeneratorType
 
 from powercontext.builtin.runtime.artifact_processing import _SpawnedWorkerHandle
+
+
+@dataclass(frozen=True)
+class WorkerStackDiagnostics:
+    """Keep child stacks available even if a non-daemon thread blocks process exit."""
+
+    directory: Path
+    delay_seconds: float = 30
+
+    def __call__(self) -> None:
+        self.directory.mkdir(parents=True, exist_ok=True)
+        output = (self.directory / f"worker-{os.getpid()}-stacks.log").open("w", encoding="utf-8")
+        # atexit runs after multiprocessing waits for non-daemon threads, so the
+        # watchdog remains active while the parent is waiting for child exit.
+        atexit.register(output.close)
+        atexit.register(faulthandler.cancel_dump_traceback_later)
+        faulthandler.dump_traceback_later(self.delay_seconds, repeat=True, file=output)
+
+
+def run_with_worker_diagnostics(diagnostics, entrypoint, assignment):
+    """Add child stacks while retaining a Server's existing logging and tracing setup."""
+    diagnostics()
+    return entrypoint(assignment)
 
 
 def _location(frame):

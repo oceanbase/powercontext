@@ -35,6 +35,7 @@ from powercontext.server.factory import create_server_app
 from powercontext.server.settings import McpConfig, ServerSettings, TracingConfig
 from powercontext.server.tracing import configure_server_tracing
 from powercontext.server.worker_tracing import WorkerTracing
+from tests.e2e.provider_worker_fixture import LargeProviderReport
 
 
 @dataclass(frozen=True)
@@ -201,23 +202,34 @@ def test_native_worker_provider_reports_are_counted_once(tmp_path, monkeypatch, 
                 assert any(b"provider.http.completed" in packet for packet in traces)
 
 
-def _large_provider_report(_assignment):
-    from powercontext.builtin.inference.observability import ProviderObservation, current_provider_observer
-    from powercontext.builtin.runtime.processing_contracts import ArtifactProcessingWorkerCompletion
-
-    observer = current_provider_observer()
-    assert observer is not None
-    for code in range(200, 328):
-        observer(ProviderObservation("http", "openai", "generation", "success", code / 1000, code, "initial"))
-    return ArtifactProcessingWorkerCompletion()
-
-
-def test_large_provider_report_drains_before_process_join():
+def test_large_provider_report_drains_before_process_join(tmp_path, monkeypatch):
     import asyncio
+    import sys
 
     from powercontext.builtin.persistence.supervision import ArtifactProcessingFence
     from powercontext.builtin.runtime.artifact_processing import SpawnArtifactProcessingWorkerLauncher
     from powercontext.builtin.runtime.processing_contracts import ArtifactProcessingWorkAssignment
+
+    if sys.platform == "linux":
+        import fcntl
+        import multiprocessing.connection
+
+        create_pipe = multiprocessing.connection.Pipe
+
+        def small_report_pipe(duplex=True):
+            receiver, sender = create_pipe(duplex)
+            if not duplex:
+                # Linux can reduce pipe capacity under per-user pipe pressure.
+                # Exercise that real backpressure even on an otherwise idle node.
+                try:
+                    fcntl.fcntl(receiver.fileno(), fcntl.F_SETPIPE_SZ, 1)
+                except BaseException:
+                    receiver.close()
+                    sender.close()
+                    raise
+            return receiver, sender
+
+        monkeypatch.setattr(multiprocessing.connection, "Pipe", small_report_pipe)
 
     async def scenario():
         assignment = ArtifactProcessingWorkAssignment(
@@ -230,9 +242,15 @@ def test_large_provider_report_drains_before_process_join():
             ),
             worker_id="00000000-0000-4000-8000-000000000001",
         )
-        launcher = SpawnArtifactProcessingWorkerLauncher(_large_provider_report, collect_provider_observations=True)
+        ready = tmp_path / "provider-worker-ready"
+        launcher = SpawnArtifactProcessingWorkerLauncher(LargeProviderReport(ready), collect_provider_observations=True)
         handle = await launcher.start(assignment)
         try:
+            # Interpreter imports are setup; the report must still drain and the
+            # real child must exit within the original observation deadline.
+            async with asyncio.timeout(60):
+                while not ready.exists():  # noqa: ASYNC110 - readiness is written by a separate process.
+                    await asyncio.sleep(0.01)
             completion = await asyncio.wait_for(handle.wait(), timeout=20)
             assert completion.provider_observations is not None
             assert sum(row.count for row in completion.provider_observations.rows) == 128

@@ -21,7 +21,6 @@ import shlex
 import socket
 import subprocess
 import threading
-import time
 from pathlib import Path
 from typing import Any
 
@@ -39,6 +38,7 @@ from powercontext.cli.app import create_cli
 from powercontext.server.factory import create_server_app
 from powercontext.server.settings import AccessControlConfig, BearerAuthConfig, McpConfig, ServerSettings
 from tests.e2e.atomic_memory_models import independent_atomic_memory_model
+from tests.e2e.server_startup import wait_for_server_startup
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 WORKBUDDY_PLUGIN = PROJECT_ROOT / "integrations" / "workbuddy" / "plugins" / "powercontext"
@@ -77,7 +77,7 @@ def test_workbuddy_hook_and_mcp_share_one_service_configuration(
     thread = threading.Thread(target=server.run, kwargs={"sockets": [listener]}, daemon=True)
     thread.start()
     try:
-        _wait_until_started(server, thread)
+        wait_for_server_startup(server, thread)
         home = tmp_path / "WorkBuddy Home"
         monkeypatch.setenv("WORKBUDDY_HOME", str(home))
         monkeypatch.setenv("POWERCONTEXT_HOME", str(tmp_path / "PowerContext Data"))
@@ -259,10 +259,3 @@ def _workbuddy_mcp_connection(
     endpoint = f"{configured_url}/mcp"
     authorization = environment.get("POWERCONTEXT_WORKBUDDY_AUTHORIZATION", "")
     return endpoint, {"Authorization": authorization}
-
-
-def _wait_until_started(server: uvicorn.Server, thread: threading.Thread) -> None:
-    deadline = time.monotonic() + 10
-    while thread.is_alive() and not server.started and time.monotonic() < deadline:
-        time.sleep(0.01)
-    assert server.started

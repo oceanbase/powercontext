@@ -46,7 +46,7 @@ from powercontext.builtin.runtime.atomic_memory_input import ATOMIC_MEMORY_INPUT
 from powercontext.builtin.runtime.family_processing import FAMILY_BINDINGS
 from powercontext.builtin.scope import ScopeDraft
 from powercontext.sources import SourceSequenceLocator
-from tests.e2e.worker_timeout_diagnostics import record_worker_timeout
+from tests.e2e.worker_timeout_diagnostics import WorkerStackDiagnostics, record_worker_timeout
 
 _FORBIDDEN = "synthetic-worker-forbidden-value"
 _MEMORY = "The user prefers tests exercising spawned worker recovery."
@@ -113,6 +113,7 @@ def test_privacy_rejection_keeps_source_pending_and_recovers_after_restart(
     tmp_path, monkeypatch, caplog, request, encoding: Literal["off", "active"]
 ) -> None:
     monkeypatch.setenv("OPENAI_API_KEY", "synthetic-worker-key")
+    worker_diagnostics = WorkerStackDiagnostics(tmp_path / "logs")
     server = WorkerServer(("127.0.0.1", 0), WorkerHandler)
     server.requests = []
     thread = threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True)
@@ -153,7 +154,7 @@ def test_privacy_rejection_keeps_source_pending_and_recovers_after_restart(
             ),
         )
         source_content = _MEMORY + " Synthetic sensitive marker: " + _FORBIDDEN
-        async with open_builtin_runtime(config) as runtime:
+        async with open_builtin_runtime(config, worker_initializer=worker_diagnostics) as runtime:
             assert runtime.scopes is not None and runtime.atomic_memory is not None
             supervisor = runtime.artifact_processing_supervisor
             assert supervisor is not None
@@ -201,7 +202,7 @@ def test_privacy_rejection_keeps_source_pending_and_recovers_after_restart(
             assert intent.clean_generation < intent.dirty_generation
 
         # Reopen the same deployment and stop admission before inspecting preserved evidence.
-        async with open_builtin_runtime(config) as reopened:
+        async with open_builtin_runtime(config, worker_initializer=worker_diagnostics) as reopened:
             assert reopened.artifact_processing_supervisor is not None
             await reopened.artifact_processing_supervisor.close()
             source = await reopened.records.for_scope(scope.scope_id).get_source(
@@ -222,7 +223,7 @@ def test_privacy_rejection_keeps_source_pending_and_recovers_after_restart(
                 )
             }
         )
-        async with open_builtin_runtime(recovery) as reopened:
+        async with open_builtin_runtime(recovery, worker_initializer=worker_diagnostics) as reopened:
             supervisor = reopened.artifact_processing_supervisor
             assert supervisor is not None
             try:

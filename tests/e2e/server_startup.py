@@ -19,12 +19,14 @@ import time
 
 import uvicorn
 
+SERVER_STARTUP_TIMEOUT_SECONDS = 60.0
+
 
 def wait_for_server_startup(server: uvicorn.Server, thread: threading.Thread) -> None:
-    deadline = time.monotonic() + 60
+    deadline = time.monotonic() + SERVER_STARTUP_TIMEOUT_SECONDS
     while thread.is_alive() and not server.started and time.monotonic() < deadline:
         time.sleep(0.01)
     if not server.started:
         if not thread.is_alive():
             raise RuntimeError("Server thread exited before startup completed")  # noqa: TRY003
-        raise TimeoutError("Server did not start within 60 seconds")  # noqa: TRY003
+        raise TimeoutError(f"Server did not start within {SERVER_STARTUP_TIMEOUT_SECONDS:g} seconds")  # noqa: TRY003
