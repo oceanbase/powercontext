@@ -21,6 +21,7 @@ from itertools import pairwise
 
 import pytest
 from sqlalchemy import select, update
+from sqlalchemy.exc import OperationalError
 
 from powercontext.builtin.artifacts.atomic_memory import AtomicMemoryContent
 from powercontext.builtin.artifacts.atomic_memory.extraction import AtomicMemoryGenerationPipeline
@@ -234,7 +235,14 @@ def test_invalid_alias_chains_fail_without_guessing_endpoint(tmp_path, corruptio
     asyncio.run(scenario())
 
 
-@pytest.mark.parametrize("failure", [RuntimeError("alias unavailable"), asyncio.CancelledError()])
+@pytest.mark.parametrize(
+    "failure",
+    [
+        OperationalError(None, None, RuntimeError("alias unavailable")),
+        AtomicMemoryIndexError("alias-chain", "Alias chain has missing in-Scope authority"),
+        asyncio.CancelledError(),
+    ],
+)
 @pytest.mark.parametrize("enabled", [False, True])
 def test_alias_failure_fallback_flag_off_and_cancellation(tmp_path, monkeypatch, failure, enabled):
     async def failed(*args, **kwargs):
@@ -253,12 +261,15 @@ def test_alias_failure_fallback_flag_off_and_cancellation(tmp_path, monkeypatch,
             config, embedding_model=AliasEmbedding(), candidate_pipeline=pipeline
         ) as contexts:
             await seed_alias(contexts)
-            await (await contexts.get("project")).triggers.flush(limit=200)
+            context = await contexts.get("project")
+            await context.triggers.flush(limit=200)
+            cursor = await context.triggers.cursor()
             monkeypatch.setattr(SQLiteAtomicMemoryIndex, "enumerate_aliased_related", failed)
             await contexts.records.create_source("project", "content", OTHER)
-            if enabled and isinstance(failure, asyncio.CancelledError):
-                with pytest.raises(asyncio.CancelledError):
+            if enabled and isinstance(failure, (AtomicMemoryIndexError, asyncio.CancelledError)):
+                with pytest.raises(type(failure)):
                     await contexts.process_memory("project", 1)
+                assert await context.triggers.cursor() == cursor
                 assert not recorder.requests
             else:
                 await contexts.process_memory("project", 1)

@@ -343,9 +343,10 @@ states, content, reconciliation actions and prompts retain their existing semant
 Resolution follows current authority inside the same Scope, detects cycles and rejects malformed links or
 chains exceeding 64 merge edges. Forgotten or retired endpoints produce no hit. Endpoint kind/tag filters and
 existing read/comparison authorization apply before its current body enters reconciliation. Direct hits retain
-their order and take priority over duplicate alias hits after exact revision/state agreement is checked. Alias
-channel failure can degrade to validated direct results; cancellation, authorization failure and invalidated
-snapshots do not become successful fallback. Per-request comparison batches and token limits remain in effect;
+their order and take priority over duplicate alias hits after exact revision/state agreement is checked. An alias
+database operational error can fall back to validated direct results while the original snapshot remains valid.
+Invalid alias chains, stale projections, cancellation, authorization failure and lost snapshots stop reconciliation.
+Per-request comparison batches and token limits remain in effect;
 they do not bound total candidates, flush tokens or traversal work.
 Enabled recall retains the matching bodies until snapshot authorization completes, so peak retained content grows
 with the complete matching set rather than only one comparison page.

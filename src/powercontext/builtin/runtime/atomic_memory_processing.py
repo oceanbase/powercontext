@@ -749,7 +749,7 @@ class AtomicMemorySourceWindowProcessor:
                         aliases, alias_heads = await application.index.enumerate_aliased_related(
                             connection, scope_id, request
                         )
-                except Exception as error:
+                except (AtomicMemoryIndexError, OperationalError) as error:
                     _require_alias_snapshot(connection, error)
                     aliases, alias_heads = (), {}
                 hits, heads = _combine_related_hits(direct, heads, aliases, alias_heads)
@@ -1253,12 +1253,14 @@ def _combine_related_hits(direct, heads, aliases, alias_heads):
     return hits, heads
 
 
-def _require_alias_snapshot(connection, error):
-    """Degradation cannot reuse direct results after the owner snapshot is lost."""
-    if isinstance(error, AtomicMemoryIndexError) and error.code == "stale-recall":
-        _conflict("Related channels returned different memory versions")
+def _require_alias_snapshot(connection, error: AtomicMemoryIndexError | OperationalError):
+    """Only operational failures with a valid owner snapshot can fall back."""
+    if isinstance(error, AtomicMemoryIndexError):
+        if error.code == "stale-recall":
+            _conflict("Related channels returned different memory versions")
+        raise error
     if connection.invalidated or getattr(error, "connection_invalidated", False):
         raise error
-    message = str(error).lower() if isinstance(error, OperationalError) else ""
+    message = str(error).lower()
     if "savepoint" in message and ("no such" in message or "does not exist" in message):
         raise error
