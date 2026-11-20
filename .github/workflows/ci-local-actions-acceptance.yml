@@ -1,0 +1,747 @@
+# Temporary workflow: copy only to the dedicated acceptance branch.
+# Never include this workflow in the product PR.
+name: CI local action acceptance (temporary)
+'on':
+  workflow_dispatch: {}
+  push:
+    branches:
+    - codex/ci-local-actions-acceptance-20261120
+permissions:
+  contents: read
+env:
+  PIP_DISABLE_PIP_VERSION_CHECK: '1'
+defaults:
+  run:
+    shell: bash
+jobs:
+  local_seed:
+    name: Local helpers and S3 save / ${{ matrix.pool }}
+    strategy:
+      fail-fast: false
+      matrix:
+        pool:
+        - standard
+        - light
+    runs-on: powercontext-ci-${{ matrix.pool }}
+    timeout-minutes: 30
+    env:
+      POOL: ${{ matrix.pool }}
+      PURPOSE: local-seed
+    steps:
+    - name: Check out the exact workflow revision
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      with:
+        ref: ${{ github.workflow_sha }}
+        persist-credentials: false
+    - name: Record runner identity and require no self archive
+      run: |
+        python3 - <<'PYCODE'
+        import hashlib
+        import json
+        import os
+        import socket
+        import subprocess
+        from pathlib import Path
+
+        root = Path(os.environ['GITHUB_WORKSPACE'])
+        report = Path(os.environ['RUNNER_TEMP']) / 'local-actions-report'
+        report.mkdir(parents=True, exist_ok=True)
+        with Path(os.environ['GITHUB_ENV']).open('a') as envfile:
+            envfile.write(f'REPORT_DIR={report}\n')
+            if os.environ['PURPOSE'] == 'old-source':
+                pip_cache = Path(os.environ['RUNNER_TEMP']) / f"old-source-pip-{os.environ['GITHUB_RUN_ID']}-{os.environ['GITHUB_RUN_ATTEMPT']}"
+                envfile.write(f'PIP_CACHE_DIR={pip_cache}\n')
+        sha = os.environ['GITHUB_WORKFLOW_SHA']
+        repository = os.environ['GITHUB_REPOSITORY']
+        archive_root = os.environ.get('ACTIONS_RUNNER_ACTION_ARCHIVE_CACHE')
+        assert archive_root, 'Configured runner action archive cache is missing'
+        archive = Path(archive_root) / repository.replace('/', '_').lower() / (sha + '.tar.gz')
+        action_root = Path(os.environ['RUNNER_TEMP']).parent / '_actions' / repository / sha
+        hook_path = os.environ.get('ACTIONS_RUNNER_HOOK_JOB_STARTED', '')
+        state = {
+            'purpose': os.environ['PURPOSE'],
+            'pool': os.environ['POOL'],
+            'run_id': os.environ['GITHUB_RUN_ID'],
+            'run_attempt': os.environ['GITHUB_RUN_ATTEMPT'],
+            'workflow_sha': sha,
+            'source_sha': subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip(),
+            'runner_name': os.environ['RUNNER_NAME'],
+            'hostname': socket.gethostname(),
+            'hook_present': bool(hook_path),
+            'legacy_prewarm_marker_present': 'PC_CI_ACTION_ARCHIVE_PREWARM' in os.environ,
+            'action_archive_cache_configured': bool(archive_root),
+            'archive_present_before': archive.exists(),
+            'self_action_directory_present_before': action_root.exists(),
+            'root_ci_cache_present': (root / 'scripts/ci_cache.py').exists(),
+            'root_prepare_bundle_present': (root / 'scripts/prepare_bundle_dependencies.py').exists(),
+        }
+        (report / 'environment.json').write_text(json.dumps(state, indent=2) + '\n')
+        assert not state['hook_present'], 'Production runner must not configure a job-start hook'
+        assert not state['legacy_prewarm_marker_present'], 'Workflow must not set a legacy prewarm marker'
+        if os.environ['PURPOSE'] != 'old-source':
+            assert state['source_sha'] == sha, state
+            assert not state['archive_present_before'], state
+            assert not state['self_action_directory_present_before'], state
+        else:
+            assert state['source_sha'] == os.environ['OLD_SOURCE_SHA'], state
+            assert not state['root_ci_cache_present'], state
+            assert not state['root_prepare_bundle_present'], state
+            assert action_root.is_dir(), 'Current workflow helpers were not extracted as remote actions'
+            tools = action_root / 'scripts'
+            for filename in ('ci_cache.py', 'prepare_bundle_dependencies.py', 'managed_resource_build_tools.json'):
+                assert (tools / filename).is_file(), filename
+            state['workflow_tool_sha256'] = {
+                filename: hashlib.sha256((tools / filename).read_bytes()).hexdigest()
+                for filename in ('ci_cache.py', 'prepare_bundle_dependencies.py', 'managed_resource_build_tools.json')
+            }
+            (report / 'environment.json').write_text(json.dumps(state, indent=2) + '\n')
+            with Path(os.environ['GITHUB_ENV']).open('a') as envfile:
+                envfile.write(f'WORKFLOW_ACTION_ROOT={action_root}\n')
+        print(json.dumps(state, sort_keys=True))
+        PYCODE
+    - name: Use local Python environment helper on standard
+      id: python
+      if: matrix.pool == 'standard'
+      uses: ./.github/actions/setup-python-env
+      with:
+        python-version: '3.12'
+        uv-version: 0.10.12
+        save-cache: 'false'
+    - name: Use local uv helper on light
+      id: uv
+      if: matrix.pool == 'light'
+      uses: ./.github/actions/setup-uv
+      with:
+        version: 0.10.12
+        enable-cache: 'true'
+        save-cache: 'false'
+        cache-suffix: local-action-acceptance-light
+    - name: Use local mise helper with the checked-in tool versions on light
+      id: mise
+      if: matrix.pool == 'light'
+      uses: ./.github/actions/setup-mise
+      with:
+        working_directory: .
+    - name: Verify installed tools and create an identifiable binary payload
+      run: |
+        uv --version
+        if [ "$POOL" = standard ]; then
+          uv run --no-sync python -c 'import powercontext; print("Python environment import succeeded")'
+        else
+          mise --version
+          node --version
+          pnpm --version
+        fi
+        python3 - <<'PYCODE'
+        import hashlib
+        import json
+        import os
+        import socket
+        from pathlib import Path
+
+        payload = Path('ci-local-actions-payload')
+        assert not payload.exists(), 'Payload must begin absent'
+        payload.mkdir()
+        content = bytes(range(256)) * 4096
+        (payload / 'bytes.bin').write_bytes(content)
+        origin = {name: os.environ[name] for name in (
+            'GITHUB_RUN_ID', 'GITHUB_RUN_ATTEMPT', 'GITHUB_WORKFLOW_SHA', 'POOL', 'RUNNER_NAME'
+        )}
+        origin['HOSTNAME'] = socket.gethostname()
+        origin['sha256'] = hashlib.sha256(content).hexdigest()
+        origin['byte_count'] = len(content)
+        (payload / 'origin.json').write_text(json.dumps(origin, sort_keys=True) + '\n')
+        Path(os.environ['REPORT_DIR'], 'payload.json').write_text(json.dumps(origin, indent=2) + '\n')
+        PYCODE
+    - name: Publish the binary probe to the real S3 backend
+      id: save
+      uses: ./.github/actions/cache-save
+      with:
+        path: ci-local-actions-payload
+        key: local-actions-acceptance-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.pool }}
+    - name: Require the real S3 backend
+      env:
+        CACHE_BACKEND: ${{ steps.save.outputs.cache-backend }}
+      run: |
+        test "$CACHE_BACKEND" = s3
+    - name: Record final evidence and enforce archive boundary
+      if: always()
+      env:
+        PRIOR_STATUS: ${{ job.status }}
+        CACHE_BACKEND: ${{ steps.save.outputs.cache-backend }}
+        PYTHON_CACHE_HIT: ${{ steps.python.outputs.cache-hit }}
+        UV_CACHE_HIT: ${{ steps.uv.outputs.cache-hit }}
+        MISE_CACHE_HIT: ${{ steps.mise.outputs.cache-hit }}
+      run: |
+        python3 - <<'PYCODE'
+        import json
+        import os
+        from pathlib import Path
+
+        report = Path(os.environ['RUNNER_TEMP']) / 'local-actions-report'
+        report.mkdir(parents=True, exist_ok=True)
+        sha = os.environ['GITHUB_WORKFLOW_SHA']
+        repository = os.environ['GITHUB_REPOSITORY']
+        archive_root = os.environ.get('ACTIONS_RUNNER_ACTION_ARCHIVE_CACHE')
+        archive = Path(archive_root) / repository.replace('/', '_').lower() / (sha + '.tar.gz') if archive_root else None
+        actions = Path(os.environ['RUNNER_TEMP']).parent / '_actions' / repository / sha
+        state = {
+            'purpose': os.environ['PURPOSE'],
+            'pool': os.environ['POOL'],
+            'prior_step_status': os.environ['PRIOR_STATUS'],
+            'hook_present': bool(os.environ.get('ACTIONS_RUNNER_HOOK_JOB_STARTED')),
+            'legacy_prewarm_marker_present': 'PC_CI_ACTION_ARCHIVE_PREWARM' in os.environ,
+            'action_archive_cache_configured': bool(archive_root),
+            'archive_present_after': archive.exists() if archive else None,
+            'self_action_directory_present_after': actions.exists(),
+            'cache_backend': os.environ.get('CACHE_BACKEND', ''),
+            'cache_hit': os.environ.get('CACHE_HIT', ''),
+            'python_env_cache_hit': os.environ.get('PYTHON_CACHE_HIT', ''),
+            'uv_cache_hit': os.environ.get('UV_CACHE_HIT', ''),
+            'mise_cache_hit': os.environ.get('MISE_CACHE_HIT', ''),
+            'builder_first_cache_hit': os.environ.get('BUILDER_FIRST_HIT', ''),
+            'builder_second_cache_hit': os.environ.get('BUILDER_SECOND_HIT', ''),
+            'pip_first_cache_hit': os.environ.get('PIP_FIRST_HIT', ''),
+            'pip_second_cache_hit': os.environ.get('PIP_SECOND_HIT', ''),
+        }
+        (report / 'result.json').write_text(json.dumps(state, indent=2) + '\n')
+        lines = [f"{key}: {value}" for key, value in state.items()]
+        lines += ['Review the full job log for hook and action-download evidence; artifact upload precedes post-job actions.']
+        (report / 'summary.txt').write_text('\n'.join(lines) + '\n')
+        with Path(os.environ['GITHUB_STEP_SUMMARY']).open('a') as output:
+            output.write('```text\n' + '\n'.join(lines) + '\n```\n')
+        assert archive is not None
+        assert not state['hook_present'], 'Production runner must not configure a job-start hook'
+        assert not state['legacy_prewarm_marker_present'], 'Workflow must not set a legacy prewarm marker'
+        if os.environ['PURPOSE'] != 'old-source':
+            assert not state['archive_present_after'], state
+            assert not state['self_action_directory_present_after'], state
+        else:
+            assert state['self_action_directory_present_after'], state
+            root = Path(os.environ['GITHUB_WORKSPACE'])
+            assert not (root / 'scripts/ci_cache.py').exists()
+            assert not (root / 'scripts/prepare_bundle_dependencies.py').exists()
+        PYCODE
+    - name: Upload short acceptance report
+      if: always()
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+      with:
+        name: local-actions-seed-${{ matrix.pool }}-${{ github.run_attempt }}
+        path: ${{ runner.temp }}/local-actions-report
+        if-no-files-found: error
+        retention-days: 7
+  local_restore:
+    name: Fresh Pod S3 restore / ${{ matrix.pool }}
+    needs: local_seed
+    strategy:
+      fail-fast: false
+      matrix:
+        pool:
+        - standard
+        - light
+    runs-on: powercontext-ci-${{ matrix.pool }}
+    timeout-minutes: 15
+    env:
+      POOL: ${{ matrix.pool }}
+      PURPOSE: local-restore
+    steps:
+    - name: Check out the exact workflow revision
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      with:
+        ref: ${{ github.workflow_sha }}
+        persist-credentials: false
+    - name: Record fresh runner identity and require no self archive
+      run: |
+        python3 - <<'PYCODE'
+        import hashlib
+        import json
+        import os
+        import socket
+        import subprocess
+        from pathlib import Path
+
+        root = Path(os.environ['GITHUB_WORKSPACE'])
+        report = Path(os.environ['RUNNER_TEMP']) / 'local-actions-report'
+        report.mkdir(parents=True, exist_ok=True)
+        with Path(os.environ['GITHUB_ENV']).open('a') as envfile:
+            envfile.write(f'REPORT_DIR={report}\n')
+            if os.environ['PURPOSE'] == 'old-source':
+                pip_cache = Path(os.environ['RUNNER_TEMP']) / f"old-source-pip-{os.environ['GITHUB_RUN_ID']}-{os.environ['GITHUB_RUN_ATTEMPT']}"
+                envfile.write(f'PIP_CACHE_DIR={pip_cache}\n')
+        sha = os.environ['GITHUB_WORKFLOW_SHA']
+        repository = os.environ['GITHUB_REPOSITORY']
+        archive_root = os.environ.get('ACTIONS_RUNNER_ACTION_ARCHIVE_CACHE')
+        assert archive_root, 'Configured runner action archive cache is missing'
+        archive = Path(archive_root) / repository.replace('/', '_').lower() / (sha + '.tar.gz')
+        action_root = Path(os.environ['RUNNER_TEMP']).parent / '_actions' / repository / sha
+        hook_path = os.environ.get('ACTIONS_RUNNER_HOOK_JOB_STARTED', '')
+        state = {
+            'purpose': os.environ['PURPOSE'],
+            'pool': os.environ['POOL'],
+            'run_id': os.environ['GITHUB_RUN_ID'],
+            'run_attempt': os.environ['GITHUB_RUN_ATTEMPT'],
+            'workflow_sha': sha,
+            'source_sha': subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip(),
+            'runner_name': os.environ['RUNNER_NAME'],
+            'hostname': socket.gethostname(),
+            'hook_present': bool(hook_path),
+            'legacy_prewarm_marker_present': 'PC_CI_ACTION_ARCHIVE_PREWARM' in os.environ,
+            'action_archive_cache_configured': bool(archive_root),
+            'archive_present_before': archive.exists(),
+            'self_action_directory_present_before': action_root.exists(),
+            'root_ci_cache_present': (root / 'scripts/ci_cache.py').exists(),
+            'root_prepare_bundle_present': (root / 'scripts/prepare_bundle_dependencies.py').exists(),
+        }
+        (report / 'environment.json').write_text(json.dumps(state, indent=2) + '\n')
+        assert not state['hook_present'], 'Production runner must not configure a job-start hook'
+        assert not state['legacy_prewarm_marker_present'], 'Workflow must not set a legacy prewarm marker'
+        if os.environ['PURPOSE'] != 'old-source':
+            assert state['source_sha'] == sha, state
+            assert not state['archive_present_before'], state
+            assert not state['self_action_directory_present_before'], state
+        else:
+            assert state['source_sha'] == os.environ['OLD_SOURCE_SHA'], state
+            assert not state['root_ci_cache_present'], state
+            assert not state['root_prepare_bundle_present'], state
+            assert action_root.is_dir(), 'Current workflow helpers were not extracted as remote actions'
+            tools = action_root / 'scripts'
+            for filename in ('ci_cache.py', 'prepare_bundle_dependencies.py', 'managed_resource_build_tools.json'):
+                assert (tools / filename).is_file(), filename
+            state['workflow_tool_sha256'] = {
+                filename: hashlib.sha256((tools / filename).read_bytes()).hexdigest()
+                for filename in ('ci_cache.py', 'prepare_bundle_dependencies.py', 'managed_resource_build_tools.json')
+            }
+            (report / 'environment.json').write_text(json.dumps(state, indent=2) + '\n')
+            with Path(os.environ['GITHUB_ENV']).open('a') as envfile:
+                envfile.write(f'WORKFLOW_ACTION_ROOT={action_root}\n')
+        print(json.dumps(state, sort_keys=True))
+        PYCODE
+    - name: Require a cold local payload directory
+      run: |
+        test ! -e ci-local-actions-payload
+    - name: Restore the probe from S3 on a fresh Pod
+      id: restore
+      uses: ./.github/actions/cache-restore
+      with:
+        path: ci-local-actions-payload
+        key: local-actions-acceptance-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.pool }}
+    - name: Verify exact bytes and a different Pod identity
+      env:
+        CACHE_BACKEND: ${{ steps.restore.outputs.cache-backend }}
+        CACHE_HIT: ${{ steps.restore.outputs.cache-hit }}
+      run: |
+        python3 - <<'PYCODE'
+        import hashlib
+        import json
+        import os
+        import socket
+        from pathlib import Path
+
+        assert os.environ['CACHE_BACKEND'] == 's3'
+        assert os.environ['CACHE_HIT'] == 'true'
+        payload = Path('ci-local-actions-payload')
+        origin = json.loads((payload / 'origin.json').read_text())
+        content = (payload / 'bytes.bin').read_bytes()
+        assert content == bytes(range(256)) * 4096
+        assert len(content) == origin['byte_count']
+        assert hashlib.sha256(content).hexdigest() == origin['sha256']
+        for name in ('GITHUB_RUN_ID', 'GITHUB_RUN_ATTEMPT', 'GITHUB_WORKFLOW_SHA', 'POOL'):
+            assert origin[name] == os.environ[name], name
+        assert origin['HOSTNAME'] != socket.gethostname(), 'Restore must run on a fresh Pod'
+        assert origin['RUNNER_NAME'] != os.environ['RUNNER_NAME'], 'Restore must use a fresh runner'
+        evidence = {
+            'source': origin,
+            'restore_hostname': socket.gethostname(),
+            'restore_runner': os.environ['RUNNER_NAME'],
+            'cache_backend': os.environ['CACHE_BACKEND'],
+            'cache_hit': os.environ['CACHE_HIT'],
+            'exact_bytes_verified': True,
+        }
+        Path(os.environ['REPORT_DIR'], 'payload.json').write_text(json.dumps(evidence, indent=2) + '\n')
+        print(json.dumps(evidence, sort_keys=True))
+        PYCODE
+    - name: Record final evidence and enforce archive boundary
+      if: always()
+      env:
+        PRIOR_STATUS: ${{ job.status }}
+        CACHE_BACKEND: ${{ steps.restore.outputs.cache-backend }}
+        CACHE_HIT: ${{ steps.restore.outputs.cache-hit }}
+      run: |
+        python3 - <<'PYCODE'
+        import json
+        import os
+        from pathlib import Path
+
+        report = Path(os.environ['RUNNER_TEMP']) / 'local-actions-report'
+        report.mkdir(parents=True, exist_ok=True)
+        sha = os.environ['GITHUB_WORKFLOW_SHA']
+        repository = os.environ['GITHUB_REPOSITORY']
+        archive_root = os.environ.get('ACTIONS_RUNNER_ACTION_ARCHIVE_CACHE')
+        archive = Path(archive_root) / repository.replace('/', '_').lower() / (sha + '.tar.gz') if archive_root else None
+        actions = Path(os.environ['RUNNER_TEMP']).parent / '_actions' / repository / sha
+        state = {
+            'purpose': os.environ['PURPOSE'],
+            'pool': os.environ['POOL'],
+            'prior_step_status': os.environ['PRIOR_STATUS'],
+            'hook_present': bool(os.environ.get('ACTIONS_RUNNER_HOOK_JOB_STARTED')),
+            'legacy_prewarm_marker_present': 'PC_CI_ACTION_ARCHIVE_PREWARM' in os.environ,
+            'action_archive_cache_configured': bool(archive_root),
+            'archive_present_after': archive.exists() if archive else None,
+            'self_action_directory_present_after': actions.exists(),
+            'cache_backend': os.environ.get('CACHE_BACKEND', ''),
+            'cache_hit': os.environ.get('CACHE_HIT', ''),
+            'python_env_cache_hit': os.environ.get('PYTHON_CACHE_HIT', ''),
+            'uv_cache_hit': os.environ.get('UV_CACHE_HIT', ''),
+            'mise_cache_hit': os.environ.get('MISE_CACHE_HIT', ''),
+            'builder_first_cache_hit': os.environ.get('BUILDER_FIRST_HIT', ''),
+            'builder_second_cache_hit': os.environ.get('BUILDER_SECOND_HIT', ''),
+            'pip_first_cache_hit': os.environ.get('PIP_FIRST_HIT', ''),
+            'pip_second_cache_hit': os.environ.get('PIP_SECOND_HIT', ''),
+        }
+        (report / 'result.json').write_text(json.dumps(state, indent=2) + '\n')
+        lines = [f"{key}: {value}" for key, value in state.items()]
+        lines += ['Review the full job log for hook and action-download evidence; artifact upload precedes post-job actions.']
+        (report / 'summary.txt').write_text('\n'.join(lines) + '\n')
+        with Path(os.environ['GITHUB_STEP_SUMMARY']).open('a') as output:
+            output.write('```text\n' + '\n'.join(lines) + '\n```\n')
+        assert archive is not None
+        assert not state['hook_present'], 'Production runner must not configure a job-start hook'
+        assert not state['legacy_prewarm_marker_present'], 'Workflow must not set a legacy prewarm marker'
+        if os.environ['PURPOSE'] != 'old-source':
+            assert not state['archive_present_after'], state
+            assert not state['self_action_directory_present_after'], state
+        else:
+            assert state['self_action_directory_present_after'], state
+            root = Path(os.environ['GITHUB_WORKSPACE'])
+            assert not (root / 'scripts/ci_cache.py').exists()
+            assert not (root / 'scripts/prepare_bundle_dependencies.py').exists()
+        PYCODE
+    - name: Upload short acceptance report
+      if: always()
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+      with:
+        name: local-actions-restore-${{ matrix.pool }}-${{ github.run_attempt }}
+        path: ${{ runner.temp }}/local-actions-report
+        if-no-files-found: error
+        retention-days: 7
+  old_source:
+    name: Workflow-version remote helpers with pre-cache source
+    runs-on: powercontext-ci-light
+    timeout-minutes: 20
+    env:
+      POOL: light
+      PURPOSE: old-source
+      OLD_SOURCE_SHA: 87ac483e8a38712a9d46a2642c413a18f24bcc3f
+    steps:
+    - name: Check out the genuine source revision preceding the cache helpers
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      with:
+        ref: 87ac483e8a38712a9d46a2642c413a18f24bcc3f
+        persist-credentials: false
+    - name: Prove old source is missing scripts and record current remote helper sources
+      run: |
+        python3 - <<'PYCODE'
+        import hashlib
+        import json
+        import os
+        import socket
+        import subprocess
+        from pathlib import Path
+
+        root = Path(os.environ['GITHUB_WORKSPACE'])
+        report = Path(os.environ['RUNNER_TEMP']) / 'local-actions-report'
+        report.mkdir(parents=True, exist_ok=True)
+        with Path(os.environ['GITHUB_ENV']).open('a') as envfile:
+            envfile.write(f'REPORT_DIR={report}\n')
+            if os.environ['PURPOSE'] == 'old-source':
+                pip_cache = Path(os.environ['RUNNER_TEMP']) / f"old-source-pip-{os.environ['GITHUB_RUN_ID']}-{os.environ['GITHUB_RUN_ATTEMPT']}"
+                envfile.write(f'PIP_CACHE_DIR={pip_cache}\n')
+        sha = os.environ['GITHUB_WORKFLOW_SHA']
+        repository = os.environ['GITHUB_REPOSITORY']
+        archive_root = os.environ.get('ACTIONS_RUNNER_ACTION_ARCHIVE_CACHE')
+        assert archive_root, 'Configured runner action archive cache is missing'
+        archive = Path(archive_root) / repository.replace('/', '_').lower() / (sha + '.tar.gz')
+        action_root = Path(os.environ['RUNNER_TEMP']).parent / '_actions' / repository / sha
+        hook_path = os.environ.get('ACTIONS_RUNNER_HOOK_JOB_STARTED', '')
+        state = {
+            'purpose': os.environ['PURPOSE'],
+            'pool': os.environ['POOL'],
+            'run_id': os.environ['GITHUB_RUN_ID'],
+            'run_attempt': os.environ['GITHUB_RUN_ATTEMPT'],
+            'workflow_sha': sha,
+            'source_sha': subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip(),
+            'runner_name': os.environ['RUNNER_NAME'],
+            'hostname': socket.gethostname(),
+            'hook_present': bool(hook_path),
+            'legacy_prewarm_marker_present': 'PC_CI_ACTION_ARCHIVE_PREWARM' in os.environ,
+            'action_archive_cache_configured': bool(archive_root),
+            'archive_present_before': archive.exists(),
+            'self_action_directory_present_before': action_root.exists(),
+            'root_ci_cache_present': (root / 'scripts/ci_cache.py').exists(),
+            'root_prepare_bundle_present': (root / 'scripts/prepare_bundle_dependencies.py').exists(),
+        }
+        (report / 'environment.json').write_text(json.dumps(state, indent=2) + '\n')
+        assert not state['hook_present'], 'Production runner must not configure a job-start hook'
+        assert not state['legacy_prewarm_marker_present'], 'Workflow must not set a legacy prewarm marker'
+        if os.environ['PURPOSE'] != 'old-source':
+            assert state['source_sha'] == sha, state
+            assert not state['archive_present_before'], state
+            assert not state['self_action_directory_present_before'], state
+        else:
+            assert state['source_sha'] == os.environ['OLD_SOURCE_SHA'], state
+            assert not state['root_ci_cache_present'], state
+            assert not state['root_prepare_bundle_present'], state
+            assert action_root.is_dir(), 'Current workflow helpers were not extracted as remote actions'
+            tools = action_root / 'scripts'
+            for filename in ('ci_cache.py', 'prepare_bundle_dependencies.py', 'managed_resource_build_tools.json'):
+                assert (tools / filename).is_file(), filename
+            state['workflow_tool_sha256'] = {
+                filename: hashlib.sha256((tools / filename).read_bytes()).hexdigest()
+                for filename in ('ci_cache.py', 'prepare_bundle_dependencies.py', 'managed_resource_build_tools.json')
+            }
+            (report / 'environment.json').write_text(json.dumps(state, indent=2) + '\n')
+            with Path(os.environ['GITHUB_ENV']).open('a') as envfile:
+                envfile.write(f'WORKFLOW_ACTION_ROOT={action_root}\n')
+        print(json.dumps(state, sort_keys=True))
+        PYCODE
+    - name: Set up Python for the small bundle fixture
+      uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0
+      with:
+        python-version: '3.12'
+    - name: Create requirements from the actual workflow build-tool lock
+      run: |
+        python - <<'PYCODE'
+        import json
+        import os
+        import socket
+        from pathlib import Path
+
+        action_root = Path(os.environ['WORKFLOW_ACTION_ROOT'])
+        pins = json.loads((action_root / 'scripts/managed_resource_build_tools.json').read_text())
+        package = next(item for item in pins['packages'] if item['name'] == 'packaging')
+        assert len(package['sha256']) == 64
+        work = Path('build/ci-local-actions-acceptance')
+        work.mkdir(parents=True)
+        requirement = f"{package['name']}=={package['version']} --hash=sha256:{package['sha256']}\n"
+        identity = f"# acceptance {os.environ['GITHUB_RUN_ID']}/{os.environ['GITHUB_RUN_ATTEMPT']}\n"
+        for filename in ('upstream-requirements.lock', 'upstream-plugin-requirements.lock'):
+            (work / filename).write_text(identity + requirement)
+        Path(os.environ['REPORT_DIR'], 'fixture-package.json').write_text(json.dumps(package, indent=2) + '\n')
+        PYCODE
+    - name: Run workflow-version uv with old source at the workspace root
+      id: uv
+      uses: $/.github/actions/setup-uv
+      with:
+        version: 0.10.12
+        enable-cache: 'true'
+        cache-suffix: old-source-acceptance-${{ github.run_id }}-${{ github.run_attempt }}
+        cache-dependency-glob: build/ci-local-actions-acceptance/upstream-requirements.lock
+    - name: Populate the uv cache with the actual pinned small dependency
+      run: |
+        uv venv "$RUNNER_TEMP/old-source-uv-consumer"
+        uv pip install --python "$RUNNER_TEMP/old-source-uv-consumer/bin/python" \
+          --require-hashes -r build/ci-local-actions-acceptance/upstream-requirements.lock
+    - name: Run the workflow-version locked bundle builder
+      id: builder
+      uses: $/.github/actions/setup-bundle-builder
+      with:
+        working-directory: build/ci-local-actions-acceptance
+    - name: Run workflow-version pip cache planning and restore
+      id: pip
+      uses: $/.github/actions/cache-pip
+      with:
+        python-executable: ${{ steps.builder.outputs.python-path }}
+        cache-dependency-glob: |
+          build/ci-local-actions-acceptance/upstream-requirements.lock
+          build/ci-local-actions-acceptance/upstream-plugin-requirements.lock
+          build/ci-local-actions-acceptance/build-tools.lock
+    - name: Download the small pinned wheel through the workflow-version helper
+      uses: $/.github/actions/prepare-bundle-wheels
+      with:
+        stage: download
+        python-executable: ${{ steps.builder.outputs.python-path }}
+        working-directory: build/ci-local-actions-acceptance
+    - name: Capture pip response hashes before the explicit S3 save
+      run: |
+        python - <<'PYCODE'
+        import hashlib
+        import json
+        import os
+        import socket
+        from pathlib import Path
+
+        root = Path(os.environ['PIP_CACHE_DIR'])
+        hashes = {str(path.relative_to(root)): hashlib.sha256(path.read_bytes()).hexdigest()
+                  for name in ('http', 'http-v2') for path in (root / name).rglob('*') if path.is_file()}
+        assert hashes, 'Actual pip HTTP downloads must exist'
+        Path(os.environ['REPORT_DIR'], 'pip-response-sha256.json').write_text(json.dumps(hashes, indent=2) + '\n')
+        PYCODE
+    - name: Save real pip HTTP responses using the workflow-version helper
+      id: save
+      uses: $/.github/actions/cache-save
+      with:
+        path: ${{ steps.pip.outputs.cache-path }}
+        key: ${{ steps.pip.outputs.cache-key }}
+    - name: Remove local pip responses and builder files before restore
+      run: |
+        python - <<'PYCODE'
+        import os
+        import shutil
+        from pathlib import Path
+
+        root = Path(os.environ['PIP_CACHE_DIR'])
+        for name in ('http', 'http-v2'):
+            shutil.rmtree(root / name, ignore_errors=True)
+        work = Path('build/ci-local-actions-acceptance')
+        shutil.rmtree(work / 'build-tool-wheels')
+        shutil.rmtree(work / 'builder')
+        PYCODE
+    - name: Restore build tools from S3 and rebuild the isolated interpreter offline
+      id: builder_again
+      uses: $/.github/actions/setup-bundle-builder
+      with:
+        working-directory: build/ci-local-actions-acceptance
+    - name: Restore pip responses after removing the local files
+      id: pip_again
+      uses: $/.github/actions/cache-pip
+      with:
+        python-executable: ${{ steps.builder_again.outputs.python-path }}
+        cache-dependency-glob: |
+          build/ci-local-actions-acceptance/upstream-requirements.lock
+          build/ci-local-actions-acceptance/upstream-plugin-requirements.lock
+          build/ci-local-actions-acceptance/build-tools.lock
+    - name: Require exact S3 hits and byte-identical pip responses
+      env:
+        CACHE_BACKEND: ${{ steps.save.outputs.cache-backend }}
+        BUILDER_HIT: ${{ steps.builder_again.outputs.cache-hit }}
+        PIP_HIT: ${{ steps.pip_again.outputs.cache-hit }}
+      run: |
+        python - <<'PYCODE'
+        import hashlib
+        import json
+        import os
+        import socket
+        from pathlib import Path
+
+        assert os.environ['CACHE_BACKEND'] == 's3'
+        assert os.environ['BUILDER_HIT'] == 'true'
+        assert os.environ['PIP_HIT'] == 'true'
+        root = Path(os.environ['PIP_CACHE_DIR'])
+        hashes = json.loads(Path(os.environ['REPORT_DIR'], 'pip-response-sha256.json').read_text())
+        actual = {str(path.relative_to(root)): hashlib.sha256(path.read_bytes()).hexdigest()
+                  for name in ('http', 'http-v2') for path in (root / name).rglob('*') if path.is_file()}
+        assert hashes == actual
+        Path(os.environ['REPORT_DIR'], 'old-source-cache.json').write_text(json.dumps({
+            'cache_backend': os.environ['CACHE_BACKEND'],
+            'builder_restore_hit': True, 'pip_restore_hit': True,
+            'pip_files_verified': len(hashes), 'exact_pip_bytes_verified': True,
+        }, indent=2) + '\n')
+        PYCODE
+    - name: Build the small wheel closure with workflow-version tooling
+      uses: $/.github/actions/prepare-bundle-wheels
+      with:
+        stage: build
+        python-executable: ${{ steps.builder_again.outputs.python-path }}
+        working-directory: build/ci-local-actions-acceptance
+    - name: Verify builder provenance, locked versions, and offline installation
+      env:
+        BUILDER_PYTHON: ${{ steps.builder_again.outputs.python-path }}
+      run: |
+        "$BUILDER_PYTHON" - <<'PYCODE'
+        import importlib.metadata
+        import json
+        import os
+        import socket
+        from pathlib import Path
+
+        root = Path(os.environ['WORKFLOW_ACTION_ROOT'])
+        work = Path('build/ci-local-actions-acceptance')
+        original = (root / 'scripts/managed_resource_build_tools.json').read_bytes()
+        assert (work / 'build-tools.json').read_bytes() == original
+        versions = {item['name']: importlib.metadata.version(item['name']) for item in json.loads(original)['packages']}
+        for item in json.loads(original)['packages']:
+            assert versions[item['name']] == item['version'], item['name']
+        Path(os.environ['REPORT_DIR'], 'installed-builder-versions.json').write_text(json.dumps(versions, indent=2) + '\n')
+        PYCODE
+        python -m venv "$RUNNER_TEMP/old-source-offline-consumer"
+        "$RUNNER_TEMP/old-source-offline-consumer/bin/python" -m pip install --no-index --no-deps \
+          --require-hashes --find-links build/ci-local-actions-acceptance/wheelhouse \
+          -r build/ci-local-actions-acceptance/requirements.lock
+        "$RUNNER_TEMP/old-source-offline-consumer/bin/python" - <<'PYCODE'
+        import importlib.metadata
+        import json
+        import os
+        import socket
+        from pathlib import Path
+        expected = json.loads(Path(os.environ['REPORT_DIR'], 'fixture-package.json').read_text())
+        assert importlib.metadata.version(expected['name']) == expected['version']
+        Path(os.environ['REPORT_DIR'], 'offline-install.txt').write_text(f"{expected['name']}=={expected['version']}: verified\n")
+        PYCODE
+    - name: Record final evidence and enforce archive boundary
+      if: always()
+      env:
+        PRIOR_STATUS: ${{ job.status }}
+        CACHE_BACKEND: ${{ steps.save.outputs.cache-backend }}
+        UV_CACHE_HIT: ${{ steps.uv.outputs.cache-hit }}
+        BUILDER_FIRST_HIT: ${{ steps.builder.outputs.cache-hit }}
+        BUILDER_SECOND_HIT: ${{ steps.builder_again.outputs.cache-hit }}
+        PIP_FIRST_HIT: ${{ steps.pip.outputs.cache-hit }}
+        PIP_SECOND_HIT: ${{ steps.pip_again.outputs.cache-hit }}
+      run: |
+        python3 - <<'PYCODE'
+        import json
+        import os
+        from pathlib import Path
+
+        report = Path(os.environ['RUNNER_TEMP']) / 'local-actions-report'
+        report.mkdir(parents=True, exist_ok=True)
+        sha = os.environ['GITHUB_WORKFLOW_SHA']
+        repository = os.environ['GITHUB_REPOSITORY']
+        archive_root = os.environ.get('ACTIONS_RUNNER_ACTION_ARCHIVE_CACHE')
+        archive = Path(archive_root) / repository.replace('/', '_').lower() / (sha + '.tar.gz') if archive_root else None
+        actions = Path(os.environ['RUNNER_TEMP']).parent / '_actions' / repository / sha
+        state = {
+            'purpose': os.environ['PURPOSE'],
+            'pool': os.environ['POOL'],
+            'prior_step_status': os.environ['PRIOR_STATUS'],
+            'hook_present': bool(os.environ.get('ACTIONS_RUNNER_HOOK_JOB_STARTED')),
+            'legacy_prewarm_marker_present': 'PC_CI_ACTION_ARCHIVE_PREWARM' in os.environ,
+            'action_archive_cache_configured': bool(archive_root),
+            'archive_present_after': archive.exists() if archive else None,
+            'self_action_directory_present_after': actions.exists(),
+            'cache_backend': os.environ.get('CACHE_BACKEND', ''),
+            'cache_hit': os.environ.get('CACHE_HIT', ''),
+            'python_env_cache_hit': os.environ.get('PYTHON_CACHE_HIT', ''),
+            'uv_cache_hit': os.environ.get('UV_CACHE_HIT', ''),
+            'mise_cache_hit': os.environ.get('MISE_CACHE_HIT', ''),
+            'builder_first_cache_hit': os.environ.get('BUILDER_FIRST_HIT', ''),
+            'builder_second_cache_hit': os.environ.get('BUILDER_SECOND_HIT', ''),
+            'pip_first_cache_hit': os.environ.get('PIP_FIRST_HIT', ''),
+            'pip_second_cache_hit': os.environ.get('PIP_SECOND_HIT', ''),
+        }
+        (report / 'result.json').write_text(json.dumps(state, indent=2) + '\n')
+        lines = [f"{key}: {value}" for key, value in state.items()]
+        lines += ['Review the full job log for hook and action-download evidence; artifact upload precedes post-job actions.']
+        (report / 'summary.txt').write_text('\n'.join(lines) + '\n')
+        with Path(os.environ['GITHUB_STEP_SUMMARY']).open('a') as output:
+            output.write('```text\n' + '\n'.join(lines) + '\n```\n')
+        assert archive is not None
+        assert not state['hook_present'], 'Production runner must not configure a job-start hook'
+        assert not state['legacy_prewarm_marker_present'], 'Workflow must not set a legacy prewarm marker'
+        if os.environ['PURPOSE'] != 'old-source':
+            assert not state['archive_present_after'], state
+            assert not state['self_action_directory_present_after'], state
+        else:
+            assert state['self_action_directory_present_after'], state
+            root = Path(os.environ['GITHUB_WORKSPACE'])
+            assert not (root / 'scripts/ci_cache.py').exists()
+            assert not (root / 'scripts/prepare_bundle_dependencies.py').exists()
+        PYCODE
+    - name: Upload short acceptance report
+      if: always()
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+      with:
+        name: local-actions-old-source-${{ github.run_attempt }}
+        path: ${{ runner.temp }}/local-actions-report
+        if-no-files-found: error
+        retention-days: 7
