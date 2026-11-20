@@ -150,7 +150,7 @@ def test_supported_mode_cannot_succeed_with_an_empty_matrix(release):
     "relative",
     [
         "src/powercontext/server/identity.py",
-        "src/powercontext/server/authz/repository.py",
+        "src/powercontext/builtin/authz/repository.py",
         "src/powercontext/builtin/code/seekdb.py",
         "src/powercontext/limits.py",
     ],
@@ -792,7 +792,7 @@ def test_seekdb_diagnostics_share_one_budget_with_maintenance_evidence(tmp_path)
         "src/powercontext/builtin/persistence/tables.py",
         "src/powercontext/builtin/persistence/revision.sql",
         "src/powercontext/builtin/code/layout.json",
-        "src/powercontext/server/authz/repository.py",
+        "src/powercontext/builtin/authz/repository.py",
         "src/powercontext/server/identity.py",
         "src/powercontext/limits.py",
     ],
@@ -989,6 +989,37 @@ def _process_identity(pid: int) -> str | None:
 
 def _process_exists(pid: int, identity: str) -> bool:
     return _process_identity(pid) == identity
+
+
+def test_vanished_descendant_is_absent_but_other_proc_read_errors_survive(monkeypatch):
+    read_text = Path.read_text
+
+    def exit_during_read(self, *args, **kwargs):
+        if self.as_posix().startswith("/proc/"):
+            raise ProcessLookupError(3, "No such process")
+        return read_text(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", exit_during_read)
+    assert _process_identity(os.getpid()) is None
+    assert _process_exists(os.getpid(), "start-time") is False
+
+    def denied(self, *args, **kwargs):
+        if self.as_posix().startswith("/proc/"):
+            raise PermissionError(13, "Permission denied")
+        return read_text(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", denied)
+    with pytest.raises(PermissionError):
+        _process_identity(os.getpid())
+
+    def exhausted(self, *args, **kwargs):
+        if self.as_posix().startswith("/proc/"):
+            raise OSError(24, "Too many open files")
+        return read_text(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", exhausted)
+    with pytest.raises(OSError, match="Too many open files"):
+        _process_identity(os.getpid())
 
 
 @pytest.fixture

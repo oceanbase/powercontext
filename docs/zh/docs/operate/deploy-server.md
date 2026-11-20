@@ -182,11 +182,8 @@ asyncio.run(main())
 配置。Core 使用 UDS 时，Agent 宿主接入需要显式提供代理的 HTTP(S) URL。远端 Skill Receiver endpoint 仍要求 HTTPS
 或 loopback peer；直接 UDS 连接没有 loopback peer，不会豁免该检查。
 
-Server 使用 UDS 时，通过 `POWERCONTEXT_SERVER_SOURCE_PLUGINS_DIR` 或
-`POWERCONTEXT_SERVER_SOURCE_MANAGEMENT_AUTOSTART` 启用 Source 自动部署，还需将
-`POWERCONTEXT_SERVER_PUBLIC_URL` 配置为代理地址。collect manager 和 runtime 通过该 URL 连接；未配置时会在创建
-部署凭据或进程前拒绝启动。`source load --kind write` 使用同一配置，也可显式传入 `--server-url`。UDS 模式下，
-这些命令不会根据 `HTTP_PORT` 推断 TCP 地址。
+Server 使用 UDS 时，设备上的 `powercontext source-agent` 通过 `--server` 传入代理的 HTTP(S) URL 连接中心；
+它不会根据 `HTTP_PORT` 推断 TCP 地址。Server 自带的采集 runner 在 Server 内部运行，不需要额外的地址。
 
 这一监听入口提供 [Rust 网关设计（RFC #2199）](https://github.com/oceanbase/powercontext/pull/2199)所需的 Core 传输能力。
 Rust 可执行程序、联合 launcher、网关配置、私有通道认证、私有路由和网关状态表仍需单独实现。设计中的网关负责原有
@@ -279,13 +276,71 @@ G5-A 的“可能已计费进入调用证据”仍待接入 [#2506](https://gith
 透明 Core/MCP 转发继续使用部署正文上限，不消耗模型输入额度。
 `PC_GATEWAY_MAX_CONCURRENT`（默认 64）分别限制模型调用与 fallback 调用，
 活跃的 fallback SSE 连接不会耗尽模型并发许可。两类合计最多可持有配置值两倍的许可，
-不含豁免的健康探测；该设置不是进程全局并发上限。每个许可随响应 body 持有，直到 body drop；
+不含豁免的健康探测；该设置不是进程全局并发上限。
+模型许可由实际 HTTP/1 连接 owner 持有，覆盖本地响应交付及相关请求工作结束，
+包括 body EOF/drop 后仍由框架缓冲的待写数据。模型响应声明 `Connection: close`；
+连接正常完成表示本地完成，不证明客户端已经读取或接受响应。
+原始 180 秒单调期限覆盖入口、执行和本地交付；到期直接结束连接，不另加交付或清理窗口，
+部分响应可能截断，错误 JSON 仅尽力返回。框架实际观察到断连时以 `request_cancelled` 停止本地工作；
+没有观察到断连的网络失联由原期限收束。交付中断保留已完成的执行终态和模型发送事实，
+包括 `ReleaseAuthorized` 与 `ResponseReceived`；取消不证明 provider 回滚，也不代表可以安全重发。
+进程内 `ExecutionSnapshot::local_delivery` 用 `NotStarted`、`InProgress`、`Completed` 与
+`Interrupted(reason)` 表示模型内容的交付状态；拒绝和生命周期错误响应不启动模型内容交付。
+它独立于执行终态，不持有响应字节或并发许可。
+fallback 许可仍随响应 body 持有，直到 body drop；fallback 保留认证、keep-alive 与流式行为，
+不继承模型期限或强制关闭连接策略。provider 发送与 HTTP Core RPC 使用全新 HTTP/1 连接，不复用空闲连接；
+UDS Core 客户端保留有界空闲连接池。Gateway 从首个停机信号起最多排空 25 秒，并将进程退出限制在 30 秒内。
 `/healthz` 豁免两类并发限制。已知 Content-Length 的 fallback 超限请求在转发前返回 413。
 未知长度超限会产生 body error：前缀可能已经到达 Core，转发失败时代理返回 502。
 这不是成功截断，Gateway 不会通过完整缓冲 MCP 流来强制统一错误状态码。
 
 这些是逐正文和分类并发限制，不是驻留字节测量，也不构成进程 RSS 上限。
 全局驻留字节记账与输出容量发现属于 [#2464 的 G5-B 后续工作](https://github.com/oceanbase/powercontext/issues/2464)。
+
+### 复用缓存前缀抽取记忆
+
+网关与 Server 部署在同一主机时，为一个已沉淀回合抽取 Atomic Memory 可以复用服务商为 Agent 会话写下的提示缓存，
+而不必再次发送对话记录。该功能默认关闭，需要两端同时开启：
+
+- **网关：** 设置 `PC_GATEWAY_PREFIX_EXTRACTION=on`，并开启沉淀（`PC_GATEWAY_SEDIMENT=on`）。对 Responses 会话，网关
+  在内存中保留每个回合终止响应对应的、实际发出的请求及其响应输出，最多 30 分钟、最多 64 个回合、总计最多 64 MiB，
+  超出时先丢弃最早的，抽取前已被丢弃的回合走普通抽取；并在沉淀的 Source
+  元数据中记录一个不透明的句柄，以及该终止响应的输入和输出 token 数。请求和响应本身从不进入 Source、证据或日志。
+  沉淀的 Source 完整记录这一回合（投影 `gateway-turn-text.v2`）：字段不截断、步骤不省略，工具调用的全部参数字段、
+  工具输出与错误、其他消息和无法识别的条目都在其中；只有推理密文、ID 和其他传输元数据不进入记录，二进制数据记为带字节数
+  的占位文本。注入的记忆块不在 Source 里。一段 Source 按 Core 的字符估算最多 50,000 个 token；Server 生效的
+  Atomic Memory 输入上限（`POWERCONTEXT_SERVER_RUNTIME_ATOMIC_MEMORY_INPUT_TOKENS_LIMIT`，默认 64,000）更低时以它为准。
+  网关在启动时从 Server 读取这个上限，修改后需重启网关。这个上限针对整个抽取输入，其中还包括抽取指令和 Source 元数据；
+  把它设在 50,000 附近或更低时，接近上限的一段 Source 加上这些内容会超出上限，Atomic Memory 对这段 Source 的处理每次都会失败。
+  更大的回合按顺序拆成几段 Source，各段在步骤边界结束，元数据的 `turn` 标明所属回合与段号，
+  句柄在最后一段上。一个回合的各段在一次批量请求（`POST /v1/sources/content/batch`）里写入 Server：要么全部入库，
+  要么都不入库；同一回合已以不同内容入库时整批被拒绝，先写入的记录保留。第一段总是使用回合本身的 Source ID，
+  所以重试的回合拆成不同段数时也是如此。沉淀因此要求 Server 提供批量写入；
+  Server 的能力报告里没有 `context_protection.limits.capture_batch_sources` 时，网关在启动时记录一条错误，
+  回合不沉淀，其他请求不受影响。段数超过该上限的回合同样不沉淀。
+- **Server：** 将 `POWERCONTEXT_SERVER_INFERENCE_PREFIX_EXTRACTION_GATEWAY_URL` 设为网关的监听地址；网关要求密钥时，
+  将 `POWERCONTEXT_SERVER_INFERENCE_PREFIX_EXTRACTION_GATEWAY_HEADERS` 设为
+  `{"Authorization": "Bearer <PC_GATEWAY_API_KEY>"}`。仍需配置生成模型，因为普通抽取是回退路径。
+
+命中缓存的输入并非免费，服务商仍按较低的价格计费。处理窗口恰好只含一个这样的回合时，Server 先估算两种请求的成本：
+前缀请求为 Core 的指令加上终止响应的输出 token（按全价），再加上命中缓存的输入 token 乘以
+`POWERCONTEXT_SERVER_INFERENCE_PREFIX_EXTRACTION_CACHED_INPUT_RATIO`（默认 `0.1`）；普通抽取为其指令加上 Source
+证据。处理窗口须恰好含一个完整回合：一段 Source，或同一回合按顺序排列的全部分段；各段合起来放不进一次抽取输入的回合，
+因此逐段走普通抽取：这样的窗口第一次处理时超出输入预算，`/v1/memory/flush` 返回错误并缩小窗口，后续处理逐段完成；
+自动处理按退避间隔重试。只有前者更低时才复用前缀。工具输出较多的回合通常满足这一条件；长会话的前缀不断增长后，就不再满足。随后 Server 把抽取指令、输出 Schema 和该 Source 的来源信息发给
+`POST /gateway/v1/extract`。网关把它们作为一条用户消息追加在保留的请求和响应之后，把 `tool_choice` 设为 `none`，
+发往 Agent 自己的目标和账号。工具、`prompt_cache_key`、推理设置、响应格式等会改变缓存前缀的字段保持不变。该请求
+照常经过 Server 的 `before_send` 和 `before_release` 检查。前缀里含有网关注入的记忆块，抽取指令说明
+`BEGIN_POWERCONTEXT_*` 与 `END_POWERCONTEXT_*` 标记之间的内容不是这一回合的证据。enforcing 模式下，Server 会暂扣重放服务商加密推理的请求，
+因此对 Codex 等客户端，抽取会回退到普通抽取。它不注入、也不沉淀。Server
+用与普通抽取相同的 Schema 和规则校验回复。Server 等待这次请求的时间与普通抽取相同，为
+`POWERCONTEXT_SERVER_INFERENCE_GENERATION_TIMEOUT_SECONDS`（默认 30 秒）；网关一侧，从开始接收请求起的 180 秒期限同样适用。
+超时后 Server 回退到普通抽取，而已经发出的前缀请求可能仍被服务商计费。
+
+其他情况都回退到普通抽取：窗口不是恰好一个完整回合或没有句柄、估算复用前缀并不更便宜或前缀规模未知、句柄过期或未知、目标不一致、检查被暂扣或阻断、服务商或网关
+出错，以及回复未通过校验。每次尝试都记录为 `atomic_memory.prefixed_extraction` 日志事件，参见
+[日志、指标与追踪](observability.md#operational-fields-与关联)。模型用量（包括命中缓存的输入 token）与其他
+生成一样上报。
 
 ## 使用 Docker 运行
 

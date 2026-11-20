@@ -15,8 +15,8 @@
 //! PR #2264 失败语义表的状态机级验证（真实契约形态）。
 
 use pc_gateway_core::{
-    DegradePolicy, ExecutionState, ExecutionTerminal, Executor, GateClient, GateError, ManagedCall,
-    ManagedOutcome, ModelSendState, RequestControl,
+    DegradePolicy, ExecutionState, ExecutionTerminal, Executor, GateClient, GateError,
+    LifecycleStopReason, ManagedCall, ManagedOutcome, ModelSendState, RequestControl,
 };
 use pc_gateway_evidence::{BufferedEvidenceSink, NoopEvidenceSink};
 use pc_gateway_protocol::{
@@ -24,13 +24,14 @@ use pc_gateway_protocol::{
 };
 use pc_gateway_transport::{AdmittedSend, SendIndeterminateReason, SendOutcome, Transport};
 use pc_gateway_types::{
-    CaptureContentSourceRequest, CheckDecision, CheckPhase, ContextCheckRequest,
+    CaptureContentSourcesRequest, CheckDecision, CheckPhase, ContextCheckRequest,
     ContextCheckResult, PrepareContextRequest, PrepareContextResult, PreparedContext,
     PreparedContextLocation,
 };
 use std::collections::VecDeque;
 use std::future::Future;
 use std::num::NonZeroU32;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 // ---------- 测试替身 ----------
@@ -85,8 +86,11 @@ struct FakeGate {
     prepare_include_code: Mutex<Vec<bool>>,
     captured: Mutex<Vec<(String, String)>>,
     captured_metadata: Mutex<Vec<serde_json::Value>>,
+    /// capture 请求次数：一个回合的各段在一次请求里。
+    capture_requests: AtomicUsize,
     /// 设置后，capture 记录请求后返回该错误。
     capture_error: Mutex<Option<GateError>>,
+    capture_hold: Mutex<Option<Arc<tokio::sync::Notify>>>,
     /// 设置后，prepare 在返回前等待屏障，用于让并发请求的准备互相重叠。
     prepare_barrier: Mutex<Option<Arc<tokio::sync::Barrier>>>,
     /// 依次给出的 prepare 结果，先于 `prepare_result` 使用。
@@ -168,16 +172,23 @@ impl GateClient for FakeGate {
 
     async fn capture(
         &self,
-        request: CaptureContentSourceRequest,
+        request: CaptureContentSourcesRequest,
     ) -> Result<serde_json::Value, GateError> {
-        self.captured_metadata
-            .lock()
-            .unwrap()
-            .push(request.metadata.clone().unwrap_or(serde_json::Value::Null));
-        self.captured
-            .lock()
-            .unwrap()
-            .push((request.source_id, request.content));
+        self.capture_requests.fetch_add(1, Ordering::SeqCst);
+        for source in request.sources {
+            self.captured_metadata
+                .lock()
+                .unwrap()
+                .push(source.metadata.unwrap_or(serde_json::Value::Null));
+            self.captured
+                .lock()
+                .unwrap()
+                .push((source.source_id, source.content));
+        }
+        let hold = self.capture_hold.lock().unwrap().clone();
+        if let Some(hold) = hold {
+            hold.notified().await;
+        }
         match self.capture_error.lock().unwrap().take() {
             Some(error) => Err(error),
             None => Ok(serde_json::json!({"captured": true})),
@@ -274,6 +285,7 @@ fn call(degrade: DegradePolicy) -> ManagedCall {
         degrade_policy: degrade,
         inject_context: false,
         include_code: false,
+        capture_prefix: false,
         conversation_id: None,
         sediment: false,
         prepared_contexts: Vec::new(),
@@ -335,7 +347,7 @@ impl GateClient for FakeGateRef {
 
     fn capture(
         &self,
-        request: CaptureContentSourceRequest,
+        request: CaptureContentSourcesRequest,
     ) -> impl Future<Output = Result<serde_json::Value, GateError>> + Send {
         GateClient::capture(&*self.0, request)
     }
@@ -374,7 +386,9 @@ fn harness(
         prepare_include_code: Mutex::new(Vec::new()),
         captured: Mutex::new(Vec::new()),
         captured_metadata: Mutex::new(Vec::new()),
+        capture_requests: AtomicUsize::new(0),
         capture_error: Mutex::new(None),
+        capture_hold: Mutex::new(None),
     });
     let executor = Executor::new(
         FakeGateRef(gate.clone()),
@@ -385,6 +399,223 @@ fn harness(
 }
 
 // ---------- 用例 ----------
+
+#[tokio::test]
+async fn interrupted_ingress_control_records_known_stop_without_starting_execution() {
+    let control = request_control();
+    let lifecycle = control.lifecycle();
+    let observation = control.observation();
+    let mut ingress = Box::pin(lifecycle.run(std::future::pending::<()>()));
+    assert!(
+        std::future::poll_fn(|cx| std::task::Poll::Ready(ingress.as_mut().poll(cx)))
+            .await
+            .is_pending()
+    );
+    control.cancellation().cancel();
+    drop(ingress);
+    assert_eq!(
+        observation.snapshot().stop_reason,
+        Some(LifecycleStopReason::RequestCancelled)
+    );
+    assert_eq!(observation.snapshot().execution, ExecutionState::NotStarted);
+    assert_eq!(observation.snapshot().model_send, ModelSendState::NoSend);
+}
+
+#[tokio::test]
+async fn cancellation_before_execution_prevents_model_send() {
+    let (executor, renderer, transport, _) = harness(
+        vec![
+            Ok(result(CheckPhase::BeforeSend, CheckDecision::Allow, &[])),
+            Ok(result(CheckPhase::BeforeRelease, CheckDecision::Allow, &[])),
+        ],
+        vec![raw_response()],
+        2,
+    );
+    let control = request_control();
+    control.cancellation().cancel();
+    let outcome = executor
+        .run(
+            control,
+            call(DegradePolicy::Pause),
+            &RendererRef(renderer),
+            &NoopEvidenceSink,
+        )
+        .await;
+    assert!(transport.sends.lock().unwrap().is_empty(), "{outcome:?}");
+}
+
+// The same public execution path is exercised with an explicit stop, expiration,
+// and an outer owner interruption. Every fault has a normal request on the same executor.
+#[tokio::test(start_paused = true)]
+async fn known_stops_preserve_facts_at_every_execution_boundary() {
+    for boundary in [
+        "prepare",
+        "admission",
+        "model",
+        "release",
+        "capture",
+        "readmission",
+        "degraded",
+    ] {
+        for mode in ["cancel", "deadline", "outer", "shutdown"] {
+            let degraded = boundary == "degraded";
+            let (executor, renderer, transport, gate) = harness(
+                if degraded {
+                    vec![Err(GateError::GateUnavailable("offline".into()))]
+                } else {
+                    vec![
+                        Ok(result(CheckPhase::BeforeSend, CheckDecision::Allow, &[])),
+                        Ok(result(
+                            if boundary == "readmission" {
+                                CheckPhase::BeforeSend
+                            } else {
+                                CheckPhase::BeforeRelease
+                            },
+                            CheckDecision::Allow,
+                            &[],
+                        )),
+                    ]
+                },
+                vec![if boundary == "readmission" {
+                    SendOutcome::NotSent(pc_gateway_transport::NotSentReason::ConnectRefused)
+                } else {
+                    raw_response()
+                }],
+                2,
+            );
+            let hold = Arc::new(tokio::sync::Notify::new());
+            match boundary {
+                "prepare" => gate.prepare_holds.lock().unwrap().push_back(Some(hold)),
+                "admission" => gate.check_holds.lock().unwrap().push_back(Some(hold)),
+                "release" | "readmission" => {
+                    gate.check_holds.lock().unwrap().extend([None, Some(hold)])
+                }
+                "capture" => *gate.capture_hold.lock().unwrap() = Some(hold),
+                _ => transport.send_holds.lock().unwrap().push_back(Some(hold)),
+            }
+            let expected_send = match boundary {
+                "prepare" | "admission" => ModelSendState::NoSend,
+                "release" | "capture" => ModelSendState::ResponseReceived,
+                "readmission" => ModelSendState::DefinitelyNotSent,
+                _ => ModelSendState::PossiblySent,
+            };
+            let control = RequestControl::new(
+                tokio::time::Instant::now() + std::time::Duration::from_secs(7),
+                None,
+            );
+            let observer = control.observation();
+            let cancellation = control.cancellation();
+            let mut managed = call(DegradePolicy::PassthroughWithoutMemory);
+            managed.inject_context = boundary == "prepare";
+            managed.sediment = boundary == "capture";
+            let renderer = RendererRef(renderer);
+            let mut pending =
+                Box::pin(executor.run(control, managed, &renderer, &NoopEvidenceSink));
+            assert!(
+                std::future::poll_fn(|cx| std::task::Poll::Ready(pending.as_mut().poll(cx)))
+                    .await
+                    .is_pending(),
+                "{boundary}"
+            );
+            assert_eq!(observer.snapshot().model_send, expected_send, "{boundary}");
+            let reason = match mode {
+                "deadline" => {
+                    tokio::time::advance(std::time::Duration::from_secs(7)).await;
+                    LifecycleStopReason::DeadlineExceeded
+                }
+                "shutdown" => {
+                    cancellation.cancel_with(LifecycleStopReason::GatewayShutdown);
+                    LifecycleStopReason::GatewayShutdown
+                }
+                _ => {
+                    cancellation.cancel();
+                    LifecycleStopReason::RequestCancelled
+                }
+            };
+            if mode == "outer" {
+                drop(pending);
+            } else {
+                assert!(
+                    matches!(pending.await, ManagedOutcome::Stopped { reason: actual, model_send } if actual == reason && model_send == expected_send),
+                    "{boundary} {mode}"
+                );
+            }
+            let snapshot = observer.snapshot();
+            assert_eq!(snapshot.stop_reason, Some(reason), "{boundary} {mode}");
+            assert_eq!(
+                snapshot.execution,
+                ExecutionState::Finished(ExecutionTerminal::Stopped(reason)),
+                "{boundary} {mode}"
+            );
+            assert_eq!(snapshot.model_send, expected_send);
+            assert_eq!(
+                transport.sends.lock().unwrap().len(),
+                usize::from(expected_send != ModelSendState::NoSend)
+            );
+            cancellation.cancel_with(LifecycleStopReason::GatewayShutdown);
+            assert_eq!(observer.snapshot(), snapshot);
+
+            gate.results.lock().unwrap().clear();
+            gate.results.lock().unwrap().extend([
+                Ok(result(CheckPhase::BeforeSend, CheckDecision::Allow, &[])),
+                Ok(result(CheckPhase::BeforeRelease, CheckDecision::Allow, &[])),
+            ]);
+            transport.outcomes.lock().unwrap().clear();
+            transport.outcomes.lock().unwrap().push_back(raw_response());
+            *gate.capture_hold.lock().unwrap() = None;
+            assert!(matches!(
+                executor
+                    .run(
+                        request_control(),
+                        call(DegradePolicy::Pause),
+                        &renderer,
+                        &NoopEvidenceSink
+                    )
+                    .await,
+                ManagedOutcome::Released { .. }
+            ));
+        }
+    }
+}
+
+#[tokio::test]
+async fn cancellation_during_synchronous_render_prevents_send() {
+    struct CancellingRenderer(pc_gateway_core::RequestCancellation);
+    impl WireRenderer for CancellingRenderer {
+        fn name(&self) -> &'static str {
+            "cancel"
+        }
+        fn render(
+            &self,
+            _: &CanonicalRequest,
+            _: Option<&serde_json::Value>,
+        ) -> Result<RenderedPayload, pc_gateway_protocol::RenderError> {
+            self.0.cancel();
+            Ok(RenderedPayload {
+                bytes: bytes::Bytes::from_static(b"{}"),
+                content_type: "application/json",
+            })
+        }
+    }
+    let (executor, _, transport, _) = harness(vec![], vec![], 2);
+    let control = request_control();
+    let renderer = CancellingRenderer(control.cancellation());
+    assert!(matches!(
+        executor
+            .run(
+                control,
+                call(DegradePolicy::PassthroughWithoutMemory),
+                &renderer,
+                &NoopEvidenceSink
+            )
+            .await,
+        ManagedOutcome::Stopped {
+            reason: LifecycleStopReason::RequestCancelled,
+            model_send: ModelSendState::NoSend
+        }
+    ));
+    assert!(transport.sends.lock().unwrap().is_empty());
+}
 
 #[tokio::test]
 async fn released_execution_retains_control_and_complete_response_facts() {
@@ -398,6 +629,7 @@ async fn released_execution_retains_control_and_complete_response_facts() {
     );
     let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(37);
     let control = RequestControl::new(deadline, Some("request-1".into()));
+    let lifecycle = control.lifecycle();
     let observation = control.observation();
     let cancellation = control.cancellation();
     assert_eq!(observation.snapshot().execution, ExecutionState::NotStarted);
@@ -428,6 +660,20 @@ async fn released_execution_retains_control_and_complete_response_facts() {
     cancellation.cancel();
     drop(cancellation);
     assert_eq!(observation.snapshot(), terminal);
+    assert_eq!(
+        lifecycle.checkpoint(),
+        Err(LifecycleStopReason::RequestCancelled)
+    );
+    assert_eq!(observation.snapshot().execution, terminal.execution);
+    assert_eq!(observation.snapshot().model_send, terminal.model_send);
+    assert_eq!(
+        observation.snapshot().stop_reason,
+        Some(LifecycleStopReason::RequestCancelled)
+    );
+    assert_eq!(
+        lifecycle.checkpoint(),
+        Err(LifecycleStopReason::RequestCancelled)
+    );
 }
 
 #[tokio::test]
@@ -521,7 +767,7 @@ async fn abandonment_preserves_sending_facts_at_each_pending_boundary() {
 }
 
 #[tokio::test]
-async fn cancellation_is_shared_intent_and_does_not_finalize_pending_execution() {
+async fn cancellation_stops_pending_execution_without_releasing_or_sending() {
     let (executor, renderer, transport, gate) = harness(
         vec![Ok(result(
             CheckPhase::BeforeSend,
@@ -563,63 +809,135 @@ async fn cancellation_is_shared_intent_and_does_not_finalize_pending_execution()
     assert!(other_cancellation.is_cancelled());
     other_cancellation.cancelled().await;
     assert_eq!(observer.snapshot().execution, ExecutionState::Running);
-    hold.notify_one();
-    assert!(matches!(execution.await, ManagedOutcome::Blocked { .. }));
+    assert!(matches!(
+        execution.await,
+        ManagedOutcome::Stopped {
+            reason: LifecycleStopReason::RequestCancelled,
+            model_send: ModelSendState::NoSend
+        }
+    ));
     assert_eq!(
         observer.snapshot().execution,
-        ExecutionState::Finished(ExecutionTerminal::Blocked)
+        ExecutionState::Finished(ExecutionTerminal::Stopped(
+            LifecycleStopReason::RequestCancelled
+        ))
     );
     assert_eq!(observer.snapshot().model_send, ModelSendState::NoSend);
     assert!(transport.sends.lock().unwrap().is_empty());
 }
 
-#[tokio::test]
-async fn readmission_keeps_the_callers_deadline_even_when_it_has_expired() {
+#[tokio::test(start_paused = true)]
+async fn prepare_admission_and_provider_share_one_total_budget() {
+    let (executor, renderer, transport, gate) = harness(
+        vec![Ok(result(
+            CheckPhase::BeforeSend,
+            CheckDecision::Allow,
+            &[],
+        ))],
+        vec![raw_response()],
+        2,
+    );
+    let prepare = Arc::new(tokio::sync::Notify::new());
+    let admission = Arc::new(tokio::sync::Notify::new());
+    gate.prepare_holds
+        .lock()
+        .unwrap()
+        .push_back(Some(prepare.clone()));
+    gate.check_holds
+        .lock()
+        .unwrap()
+        .push_back(Some(admission.clone()));
+    transport
+        .send_holds
+        .lock()
+        .unwrap()
+        .push_back(Some(Arc::new(tokio::sync::Notify::new())));
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(10);
+    let control = RequestControl::new(deadline, None);
+    let observer = control.observation();
+    let renderer = RendererRef(renderer);
+    let mut managed = call(DegradePolicy::Pause);
+    managed.inject_context = true;
+    let mut pending = Box::pin(executor.run(control, managed, &renderer, &NoopEvidenceSink));
+    assert!(
+        std::future::poll_fn(|cx| std::task::Poll::Ready(pending.as_mut().poll(cx)))
+            .await
+            .is_pending()
+    );
+    tokio::time::advance(std::time::Duration::from_secs(4)).await;
+    prepare.notify_one();
+    assert!(
+        std::future::poll_fn(|cx| std::task::Poll::Ready(pending.as_mut().poll(cx)))
+            .await
+            .is_pending()
+    );
+    tokio::time::advance(std::time::Duration::from_secs(4)).await;
+    admission.notify_one();
+    assert!(
+        std::future::poll_fn(|cx| std::task::Poll::Ready(pending.as_mut().poll(cx)))
+            .await
+            .is_pending()
+    );
+    assert_eq!(observer.snapshot().model_send, ModelSendState::PossiblySent);
+    assert!(matches!(
+        pending.await,
+        ManagedOutcome::Stopped {
+            reason: LifecycleStopReason::DeadlineExceeded,
+            ..
+        }
+    ));
+    assert_eq!(tokio::time::Instant::now(), deadline);
+    assert_eq!(transport.sends.lock().unwrap().len(), 1);
+}
+
+#[tokio::test(start_paused = true)]
+async fn readmission_consumes_the_original_remaining_budget() {
     let (executor, renderer, transport, gate) = harness(
         vec![
             Ok(result(CheckPhase::BeforeSend, CheckDecision::Allow, &[])),
             Ok(result(CheckPhase::BeforeSend, CheckDecision::Allow, &[])),
-            Ok(result(CheckPhase::BeforeRelease, CheckDecision::Allow, &[])),
         ],
-        vec![
-            SendOutcome::NotSent(pc_gateway_transport::NotSentReason::ConnectRefused),
-            raw_response(),
-        ],
+        vec![SendOutcome::NotSent(
+            pc_gateway_transport::NotSentReason::ConnectRefused,
+        )],
         2,
     );
-    let hold = Arc::new(tokio::sync::Notify::new());
     gate.check_holds
         .lock()
         .unwrap()
-        .extend([None, Some(hold.clone())]);
-    let deadline = tokio::time::Instant::now() - std::time::Duration::from_secs(1);
+        .extend([None, Some(Arc::new(tokio::sync::Notify::new()))]);
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(7);
     let control = RequestControl::new(deadline, None);
     let observer = control.observation();
     let renderer = RendererRef(renderer);
-    let mut execution = Box::pin(executor.run(
-        control,
-        call(DegradePolicy::Pause),
-        &renderer,
-        &NoopEvidenceSink,
+    let outcome = executor
+        .run(
+            control,
+            call(DegradePolicy::Pause),
+            &renderer,
+            &NoopEvidenceSink,
+        )
+        .await;
+    assert!(matches!(
+        outcome,
+        ManagedOutcome::Stopped {
+            reason: LifecycleStopReason::DeadlineExceeded,
+            model_send: ModelSendState::DefinitelyNotSent
+        }
     ));
-    assert!(std::future::poll_fn(|context| std::task::Poll::Ready(
-        execution.as_mut().poll(context)
-    ))
-    .await
-    .is_pending());
+    assert_eq!(tokio::time::Instant::now(), deadline);
     assert_eq!(observer.deadline(), deadline);
     assert_eq!(
-        observer.snapshot().model_send,
-        ModelSendState::DefinitelyNotSent
+        observer.snapshot().stop_reason,
+        Some(LifecycleStopReason::DeadlineExceeded)
     );
-    hold.notify_one();
-    assert!(matches!(execution.await, ManagedOutcome::Released { .. }));
-    assert_eq!(observer.deadline(), deadline);
     assert_eq!(
-        observer.snapshot().model_send,
-        ModelSendState::ResponseReceived
+        observer.snapshot().execution,
+        ExecutionState::Finished(ExecutionTerminal::Stopped(
+            LifecycleStopReason::DeadlineExceeded
+        ))
     );
-    assert_eq!(transport.sends.lock().unwrap().len(), 2);
+    assert_eq!(transport.sends.lock().unwrap().len(), 1);
 }
 
 #[tokio::test]
@@ -1318,7 +1636,7 @@ async fn sediment_captures_released_turn_synchronously() {
     assert_eq!(
         metadata[0]["powercontext_capture_coverage"],
         serde_json::json!({
-            "schema": "powercontext.capture-coverage.v1", "projection": "gateway-turn-text.v1",
+            "schema": "powercontext.capture-coverage.v1", "projection": "gateway-turn-text.v2",
             "unit": "gateway_turn_projection", "status": "complete", "reasons": []
         })
     );
@@ -2742,316 +3060,62 @@ async fn responses_tool_loop_captures_once_at_the_terminal_response() {
 }
 
 #[tokio::test]
-async fn responses_call_coverage_requires_a_measurable_payload() {
-    for (item, name, arguments, measurable) in [
-        (
-            serde_json::json!({"type": "apply_patch_call", "call_id": "call_0",
-                "operation": {"type": "update_file", "path": "example.py", "diff": "@@\n-old\n+new"}}),
-            "apply_patch_call",
-            "",
-            false,
-        ),
-        (
-            serde_json::json!({"type": "future_tool_call", "call_id": "call_0", "payload": {"text": "hidden"}}),
-            "future_tool_call",
-            "",
-            false,
-        ),
-        (
-            serde_json::json!({"type": "future_tool_call", "call_id": "call_0", "arguments": "visible", "payload": "hidden"}),
-            "future_tool_call",
-            "visible",
-            false,
-        ),
-        (
-            serde_json::json!({"type": "function_call", "call_id": "call_0", "name": "run"}),
-            "run",
-            "",
-            false,
-        ),
-        (
-            serde_json::json!({"type": "function_call", "call_id": "call_0", "name": "run", "arguments": null}),
-            "run",
-            "",
-            false,
-        ),
-        (
-            serde_json::json!({"type": "function_call", "call_id": "call_0", "name": "run", "arguments": ""}),
-            "run",
-            "",
-            true,
-        ),
-        (
-            serde_json::json!({"type": "custom_tool_call", "call_id": "call_0", "name": "run", "input": "ls"}),
-            "run",
-            "ls",
-            true,
-        ),
-        (
-            serde_json::json!({"type": "computer_call", "call_id": "call_0", "action": {"type": "screenshot"}}),
-            "computer_call",
-            "{\"type\":\"screenshot\"}",
-            true,
-        ),
-    ] {
-        for clipped in [false, true] {
-            let (executor, _renderer, transport, gate) = harness(
-                allow_runs(2),
-                vec![
-                    responses_output(serde_json::json!([item.clone()])),
-                    responses_output(serde_json::json!([
-                        {"type": "message", "role": "assistant", "content": "done"}
-                    ])),
-                ],
-                2,
-            );
-            let output = if clipped {
-                "x".repeat(8193)
-            } else {
-                "ok".into()
-            };
-            let output_item = serde_json::json!({
-                "type": format!("{}_output", item["type"].as_str().unwrap()),
-                "call_id": "call_0", "output": output
-            });
-            for step in 0..2 {
-                let mut c = tool_loop_call("fix the bug", step, true);
-                c.inject_context = false;
-                c.sediment = true;
-                if step == 1 {
-                    c.request.messages[1].content = vec![item.clone()];
-                    c.request.messages[2].content = vec![output_item.clone()];
-                }
-                let outcome = executor
-                    .run(
-                        request_control(),
-                        c,
-                        &pc_gateway_protocol::OpenAiResponsesRenderer,
-                        &NoopEvidenceSink,
-                    )
-                    .await;
-                assert!(matches!(outcome, ManagedOutcome::Released { .. }));
-                assert_eq!(gate.captured.lock().unwrap().len(), step);
-            }
-            let sent: serde_json::Value =
-                serde_json::from_slice(&transport.sends.lock().unwrap()[1]).unwrap();
-            assert_eq!(sent["input"][1], item);
-            assert_eq!(sent["input"][2], output_item);
-            let captured = gate.captured.lock().unwrap();
-            let body: serde_json::Value = serde_json::from_str(&captured[0].1).unwrap();
-            let projected_output = if clipped {
-                format!("{}\n[truncated 1 bytes]", "x".repeat(8192))
-            } else {
-                output
-            };
-            assert_eq!(
-                body,
-                serde_json::json!({
-                    "kind": "gateway_turn", "user": "fix the bug",
-                    "steps": [
-                        {"type": "tool_call", "name": name, "arguments": arguments},
-                        {"type": "tool_output", "output": projected_output}
-                    ],
-                    "assistant": "done"
-                })
-            );
-            let mut reasons = Vec::new();
-            if clipped {
-                reasons.push("field_byte_limit");
-            }
-            if !measurable {
-                reasons.push("unmeasured_projection");
-            }
-            assert_eq!(
-                gate.captured_metadata.lock().unwrap()[0]["powercontext_capture_coverage"],
-                serde_json::json!({
-                    "schema": "powercontext.capture-coverage.v1", "projection": "gateway-turn-text.v1",
-                    "unit": "gateway_turn_projection",
-                    "status": if clipped { "partial" } else if measurable { "complete" } else { "unknown" },
-                    "reasons": reasons
-                }),
-                "item: {item}"
-            );
-        }
-    }
-}
-
-#[tokio::test]
-async fn responses_hosted_call_without_projected_payload_is_unmeasured() {
+async fn a_captured_turn_keeps_every_call_field_and_output_uncut() {
+    let call_item = serde_json::json!({"type": "apply_patch_call", "call_id": "call_0",
+        "operation": {"type": "update_file", "path": "example.py", "diff": "@@\n-old\n+new"}});
+    let long = "x".repeat(40_000);
+    let output_item =
+        serde_json::json!({"type": "apply_patch_call_output", "call_id": "call_0", "output": long});
     let (executor, _renderer, _transport, gate) = harness(
-        allow_runs(1),
-        vec![responses_output(serde_json::json!([
-            {"type": "code_interpreter_call", "output": "tool result"},
-            {"type": "message", "role": "assistant", "content": "done"}
-        ]))],
+        allow_runs(2),
+        vec![
+            responses_output(serde_json::json!([call_item.clone()])),
+            responses_output(serde_json::json!([
+                {"type": "message", "role": "assistant", "content": "done"}
+            ])),
+        ],
         2,
     );
-    let mut c = tool_loop_call("fix the bug", 0, true);
-    c.inject_context = false;
-    c.sediment = true;
-    let outcome = executor
-        .run(
-            request_control(),
-            c,
-            &pc_gateway_protocol::OpenAiResponsesRenderer,
-            &NoopEvidenceSink,
-        )
-        .await;
-    assert!(matches!(outcome, ManagedOutcome::Released { .. }));
+    for step in 0..2 {
+        let mut c = tool_loop_call("fix the bug", step, true);
+        c.inject_context = false;
+        c.sediment = true;
+        if step == 1 {
+            c.request.messages[1].content = vec![call_item.clone()];
+            c.request.messages[2].content = vec![output_item.clone()];
+        }
+        let outcome = executor
+            .run(
+                request_control(),
+                c,
+                &pc_gateway_protocol::OpenAiResponsesRenderer,
+                &NoopEvidenceSink,
+            )
+            .await;
+        assert!(matches!(outcome, ManagedOutcome::Released { .. }));
+    }
     let captured = gate.captured.lock().unwrap();
+    assert_eq!(captured.len(), 1);
     let body: serde_json::Value = serde_json::from_str(&captured[0].1).unwrap();
     assert_eq!(
         body,
         serde_json::json!({
             "kind": "gateway_turn", "user": "fix the bug",
             "steps": [
-                {"type": "tool_call", "name": "code_interpreter_call", "arguments": ""},
-                {"type": "tool_output", "output": "tool result"}
+                {"type": "tool_call", "name": "apply_patch_call",
+                 "arguments": "{\"diff\":\"@@\\n-old\\n+new\",\"path\":\"example.py\",\"type\":\"update_file\"}"},
+                {"type": "tool_output", "output": long}
             ],
             "assistant": "done"
         })
     );
-    let metadata = gate.captured_metadata.lock().unwrap();
     assert_eq!(
-        metadata[0]["powercontext_capture_coverage"]["status"],
-        "unknown"
+        gate.captured_metadata.lock().unwrap()[0]["powercontext_capture_coverage"],
+        serde_json::json!({
+            "schema": "powercontext.capture-coverage.v1", "projection": "gateway-turn-text.v2",
+            "unit": "gateway_turn_projection", "status": "complete", "reasons": []
+        })
     );
-    assert_eq!(
-        metadata[0]["powercontext_capture_coverage"]["reasons"],
-        serde_json::json!(["unmeasured_projection"])
-    );
-}
-
-#[tokio::test]
-async fn responses_output_coverage_requires_a_measurable_payload() {
-    for (output, projected_output, measurable) in [
-        (
-            serde_json::json!({"type": "mcp_approval_response", "approval_request_id": "approval-1",
-                "approve": false, "reason": "Denied because production data"}),
-            "",
-            false,
-        ),
-        (
-            serde_json::json!({"type": "mcp_approval_response", "approval_request_id": "approval-1",
-                "approve": true, "output": "visible", "reason": "Unprojected decision"}),
-            "visible",
-            false,
-        ),
-        (
-            serde_json::json!({"type": "future_tool_call_output", "call_id": "call_0", "payload": "hidden"}),
-            "",
-            false,
-        ),
-        (
-            serde_json::json!({"type": "future_tool_call_output", "call_id": "call_0", "output": "visible", "payload": "hidden"}),
-            "visible",
-            false,
-        ),
-        (
-            serde_json::json!({"type": "function_call_output", "call_id": "call_0"}),
-            "",
-            false,
-        ),
-        (
-            serde_json::json!({"type": "function_call_output", "call_id": "call_0", "output": null}),
-            "null",
-            false,
-        ),
-        (
-            serde_json::json!({"type": "function_call_output", "call_id": "call_0", "output": ""}),
-            "",
-            true,
-        ),
-        (
-            serde_json::json!({"type": "custom_tool_call_output", "call_id": "call_0", "output": "ok"}),
-            "ok",
-            true,
-        ),
-    ] {
-        for clipped in [false, true] {
-            let assistant = if clipped {
-                "x".repeat(8193)
-            } else {
-                "done".into()
-            };
-            let (executor, _renderer, transport, gate) = harness(
-                allow_runs(2),
-                vec![
-                    responses_output(serde_json::json!([output.clone()])),
-                    responses_output(serde_json::json!([
-                        {"type": "message", "role": "assistant", "content": assistant}
-                    ])),
-                ],
-                2,
-            );
-            for step in 0..2 {
-                let mut c = tool_loop_call("fix the bug", step, true);
-                c.inject_context = false;
-                c.sediment = true;
-                if step == 1 {
-                    if output["type"] == "mcp_approval_response" {
-                        c.request.messages[1].content = vec![serde_json::json!({
-                            "type": "mcp_approval_request", "id": "approval-1",
-                            "name": "run", "server_label": "docs", "arguments": "{}"
-                        })];
-                    } else if output["type"] == "custom_tool_call_output" {
-                        c.request.messages[1].content = vec![serde_json::json!({
-                            "type": "custom_tool_call", "call_id": "call_0", "name": "run", "input": "{}"
-                        })];
-                    }
-                    c.request.messages[2].content = vec![output.clone()];
-                }
-                let outcome = executor
-                    .run(
-                        request_control(),
-                        c,
-                        &pc_gateway_protocol::OpenAiResponsesRenderer,
-                        &NoopEvidenceSink,
-                    )
-                    .await;
-                assert!(matches!(outcome, ManagedOutcome::Released { .. }));
-                assert_eq!(gate.captured.lock().unwrap().len(), step);
-            }
-            let sent: serde_json::Value =
-                serde_json::from_slice(&transport.sends.lock().unwrap()[1]).unwrap();
-            assert_eq!(sent["input"][2], output);
-            let captured = gate.captured.lock().unwrap();
-            let body: serde_json::Value = serde_json::from_str(&captured[0].1).unwrap();
-            let projected_assistant = if clipped {
-                format!("{}\n[truncated 1 bytes]", "x".repeat(8192))
-            } else {
-                assistant
-            };
-            assert_eq!(
-                body,
-                serde_json::json!({
-                    "kind": "gateway_turn", "user": "fix the bug",
-                    "steps": [
-                        {"type": "tool_call", "name": "run", "arguments": "{}"},
-                        {"type": "tool_output", "output": projected_output}
-                    ],
-                    "assistant": projected_assistant
-                })
-            );
-            let mut reasons = Vec::new();
-            if clipped {
-                reasons.push("field_byte_limit");
-            }
-            if !measurable {
-                reasons.push("unmeasured_projection");
-            }
-            assert_eq!(
-                gate.captured_metadata.lock().unwrap()[0]["powercontext_capture_coverage"],
-                serde_json::json!({
-                    "schema": "powercontext.capture-coverage.v1", "projection": "gateway-turn-text.v1",
-                    "unit": "gateway_turn_projection",
-                    "status": if clipped { "partial" } else if measurable { "complete" } else { "unknown" },
-                    "reasons": reasons
-                }),
-                "output: {output}"
-            );
-        }
-    }
 }
 
 #[tokio::test]
@@ -3470,11 +3534,12 @@ async fn terminal_evidence_covers_zero_send_release_refusal_and_paid_possibility
     }
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn interrupted_model_send_keeps_paid_possibility_and_observed_stop_facts() {
     use pc_gateway_evidence::{AttemptOutcome, EvidenceEvent, Interruption, Sending, Terminal};
     for (stop, expected) in [
         ("cancel", Interruption::CancellationRequested),
+        ("shutdown", Interruption::CancellationRequested),
         ("deadline", Interruption::DeadlineElapsed),
         ("drop", Interruption::FutureDropped),
     ] {
@@ -3496,7 +3561,7 @@ async fn interrupted_model_send_keeps_paid_possibility_and_observed_stop_facts()
         let control = RequestControl::new(
             tokio::time::Instant::now()
                 + if stop == "deadline" {
-                    std::time::Duration::ZERO
+                    std::time::Duration::from_secs(10)
                 } else {
                     std::time::Duration::from_secs(30)
                 },
@@ -3512,12 +3577,24 @@ async fn interrupted_model_send_keeps_paid_possibility_and_observed_stop_facts()
                 .await
                 .is_pending()
         );
-        if stop == "cancel" {
-            cancellation.cancel();
-        }
+        let terminal = match stop {
+            "cancel" => {
+                cancellation.cancel();
+                Terminal::Stopped(LifecycleStopReason::RequestCancelled)
+            }
+            "shutdown" => {
+                cancellation.cancel_with(LifecycleStopReason::GatewayShutdown);
+                Terminal::Stopped(LifecycleStopReason::GatewayShutdown)
+            }
+            "deadline" => {
+                tokio::time::advance(std::time::Duration::from_secs(11)).await;
+                Terminal::Stopped(LifecycleStopReason::DeadlineExceeded)
+            }
+            _ => Terminal::Abandoned,
+        };
         drop(future);
         let record = &evidence.calls()[0];
-        assert_eq!(record.terminal, Terminal::Abandoned);
+        assert_eq!(record.terminal, terminal);
         assert_eq!(record.sending, Sending::PossiblySent);
         assert_eq!(record.interruption, Some(expected));
         let snapshot = observation.snapshot();
@@ -3673,7 +3750,9 @@ async fn failing_or_blocked_full_evidence_output_cannot_change_release_or_cancel
         );
         assert_eq!(
             observation.snapshot().execution,
-            ExecutionState::Finished(ExecutionTerminal::Abandoned)
+            ExecutionState::Finished(ExecutionTerminal::Stopped(
+                LifecycleStopReason::RequestCancelled
+            ))
         );
         let (executor, renderer, _, _) = harness(
             vec![
@@ -4194,5 +4273,248 @@ async fn real_body_timeout_exports_timeout_attempt_and_unknown_usage_without_rel
                 }
             }
         }
+    }
+}
+
+// ---------- #2413：为复用缓存前缀的记忆抽取保留回合前缀 ----------
+
+#[tokio::test]
+async fn a_terminal_responses_turn_keeps_its_prefix_for_extraction() {
+    let output = serde_json::json!([
+        reasoning_item(),
+        {"id": "msg_1", "type": "message", "role": "assistant",
+         "content": [{"type": "output_text", "text": "done", "annotations": []}]}
+    ]);
+    let (executor, _renderer, transport, gate) = harness(
+        allow_runs(2),
+        vec![
+            responses_output(output.clone()),
+            responses_output(output.clone()),
+        ],
+        2,
+    );
+    for capture_prefix in [true, false] {
+        let mut c = tool_loop_call("fix the bug", 0, true);
+        c.inject_context = false;
+        c.sediment = true;
+        c.capture_prefix = capture_prefix;
+        let outcome = executor
+            .run(
+                request_control(),
+                c,
+                &pc_gateway_protocol::OpenAiResponsesRenderer,
+                &NoopEvidenceSink,
+            )
+            .await;
+        assert!(matches!(outcome, ManagedOutcome::Released { .. }));
+    }
+    let metadata = gate.captured_metadata.lock().unwrap().clone();
+    assert!(
+        metadata[1].get("prefix_handle").is_none(),
+        "without opt-in nothing is kept"
+    );
+    let handle = metadata[0]["prefix_handle"].as_str().unwrap().to_owned();
+    let prefix = executor.prefix(&handle, "project:test").unwrap();
+    assert_eq!(prefix.conversation_id, "conversation-a");
+    assert_eq!(prefix.target_profile, "openai:test");
+    assert_eq!(
+        prefix.request_body,
+        transport.sends.lock().unwrap()[0],
+        "the prefix is the exact body sent upstream"
+    );
+    assert_eq!(
+        serde_json::Value::from(prefix.response_output.clone()),
+        output
+    );
+    assert!(executor.prefix(&handle, "project:other").is_none());
+    // 前缀规模取自终止响应的用量，供 Core 判断复用前缀是否更便宜。
+    assert_eq!(metadata[0]["prefix_input_tokens"], 10);
+    assert_eq!(metadata[0]["prefix_output_tokens"], 2);
+}
+
+#[tokio::test]
+async fn an_injected_turn_keeps_its_prefix_and_a_source_without_the_injection() {
+    let output = serde_json::json!([
+        {"id": "msg_1", "type": "message", "role": "assistant",
+         "content": [{"type": "output_text", "text": "done", "annotations": []}]}
+    ]);
+    let (executor, _renderer, transport, gate) =
+        harness(allow_runs(1), vec![responses_output(output)], 2);
+    *gate.prepare_result.lock().unwrap() = Some(Ok(reuse_result("memory-snapshot-1")));
+    let mut c = tool_loop_call("fix the bug", 0, true);
+    c.sediment = true;
+    c.capture_prefix = true;
+    c.inject_context = true;
+    let outcome = executor
+        .run(
+            request_control(),
+            c,
+            &pc_gateway_protocol::OpenAiResponsesRenderer,
+            &NoopEvidenceSink,
+        )
+        .await;
+    assert!(matches!(outcome, ManagedOutcome::Released { .. }));
+    // 前缀是实际发出的请求，含注入块；Source 取自注入前的请求，不含注入块。
+    let handle = gate.captured_metadata.lock().unwrap()[0]["prefix_handle"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let prefix = executor.prefix(&handle, "project:test").unwrap();
+    assert_eq!(prefix.request_body, transport.sends.lock().unwrap()[0]);
+    assert!(String::from_utf8_lossy(&prefix.request_body).contains("memory-snapshot-1"));
+    assert!(!gate.captured.lock().unwrap()[0]
+        .1
+        .contains("memory-snapshot-1"));
+    // 抽取请求要凭原绑定通过检查：前缀连同注入块的绑定与位置一起保留。
+    let sent: serde_json::Value = serde_json::from_slice(&prefix.request_body).unwrap();
+    let [prepared] = prefix.prepared_contexts.as_slice() else {
+        panic!("one injected block: {:?}", prefix.prepared_contexts);
+    };
+    let injected = sent
+        .pointer(&prepared.location.pointer)
+        .and_then(|text| text.as_str())
+        .unwrap();
+    assert!(injected.len() as u64 >= prepared.location.end_byte);
+}
+
+/// 一个被拆成几段的回合在给定批量上限下执行一次，返回沉淀请求次数、沉淀的段数和未沉淀的原因。
+async fn capture_split_turn(batch: Option<usize>) -> (usize, usize, Vec<String>) {
+    let output = serde_json::json!([
+        {"id": "msg_1", "type": "message", "role": "assistant",
+         "content": [{"type": "output_text", "text": "done", "annotations": []}]}
+    ]);
+    let (executor, _renderer, _transport, gate) =
+        harness(allow_runs(1), vec![responses_output(output)], 2);
+    let executor = executor.with_capture_batch_limit(batch);
+    let evidence = BufferedEvidenceSink::new();
+    let mut c = tool_loop_call(&"y".repeat(450_000), 0, true);
+    c.inject_context = false;
+    c.sediment = true;
+    c.capture_prefix = true;
+    let outcome = executor
+        .run(
+            request_control(),
+            c,
+            &pc_gateway_protocol::OpenAiResponsesRenderer,
+            &evidence,
+        )
+        .await;
+    assert!(matches!(outcome, ManagedOutcome::Released { .. }));
+    let reasons = evidence
+        .not_sent()
+        .into_iter()
+        .map(|(_, reason)| reason)
+        .collect();
+    let captured = gate.captured.lock().unwrap().len();
+    (
+        gate.capture_requests.load(Ordering::SeqCst),
+        captured,
+        reasons,
+    )
+}
+
+#[tokio::test]
+async fn a_retried_turn_keeps_its_first_source_id_when_the_part_count_changes() {
+    let output = |text: &str| {
+        responses_output(serde_json::json!([
+            {"id": "msg_1", "type": "message", "role": "assistant",
+             "content": [{"type": "output_text", "text": text, "annotations": []}]}
+        ]))
+    };
+    let long = "y".repeat(450_000);
+    for responses in [["done", long.as_str()], [long.as_str(), "done"]] {
+        let (executor, _renderer, _transport, gate) = harness(
+            allow_runs_with_fresh_release_bindings(2),
+            responses.iter().map(|text| output(text)).collect(),
+            2,
+        );
+        let mut first_ids = Vec::new();
+        let mut part_counts = Vec::new();
+        for _ in 0..2 {
+            let before = gate.captured.lock().unwrap().len();
+            let mut c = tool_loop_call("fix the bug", 0, true);
+            c.inject_context = false;
+            c.sediment = true;
+            c.conversation_id = Some("conversation-a".into());
+            let outcome = executor
+                .run(
+                    request_control(),
+                    c,
+                    &pc_gateway_protocol::OpenAiResponsesRenderer,
+                    &NoopEvidenceSink,
+                )
+                .await;
+            assert!(matches!(outcome, ManagedOutcome::Released { .. }));
+            let captured = gate.captured.lock().unwrap();
+            first_ids.push(captured[before].0.clone());
+            part_counts.push(captured.len() - before);
+        }
+        assert_ne!(part_counts[0], part_counts[1]);
+        assert_eq!(
+            first_ids[0], first_ids[1],
+            "Core sees the retry as the same Source and rejects its batch"
+        );
+    }
+}
+
+#[tokio::test]
+async fn a_turn_is_not_captured_when_core_offers_no_batch_capture() {
+    let (requests, captured, reasons) = capture_split_turn(None).await;
+    assert_eq!((requests, captured), (0, 0));
+    assert_eq!(reasons, ["sediment_failed:batch_unsupported"]);
+}
+
+#[tokio::test]
+async fn a_turn_with_more_parts_than_one_batch_holds_is_not_captured_in_part() {
+    let (requests, captured, reasons) = capture_split_turn(Some(2)).await;
+    assert_eq!((requests, captured), (0, 0));
+    assert_eq!(reasons, ["sediment_failed:too_many_parts"]);
+}
+
+#[tokio::test]
+async fn an_oversized_turn_is_captured_as_ordered_parts_with_the_handle_on_the_last() {
+    let output = serde_json::json!([
+        {"id": "msg_1", "type": "message", "role": "assistant",
+         "content": [{"type": "output_text", "text": "done", "annotations": []}]}
+    ]);
+    let (executor, _renderer, _transport, gate) =
+        harness(allow_runs(1), vec![responses_output(output)], 2);
+    let mut c = tool_loop_call(&"y".repeat(450_000), 0, true);
+    c.inject_context = false;
+    c.sediment = true;
+    c.capture_prefix = true;
+    let outcome = executor
+        .run(
+            request_control(),
+            c,
+            &pc_gateway_protocol::OpenAiResponsesRenderer,
+            &NoopEvidenceSink,
+        )
+        .await;
+    assert!(matches!(outcome, ManagedOutcome::Released { .. }));
+    let captured = gate.captured.lock().unwrap().clone();
+    let metadata = gate.captured_metadata.lock().unwrap().clone();
+    let count = captured.len();
+    assert!(count >= 3);
+    assert_eq!(
+        gate.capture_requests.load(Ordering::SeqCst),
+        1,
+        "every part of the turn goes to Core in one request"
+    );
+    let turn = captured[0].0.clone();
+    for (index, ((source_id, content), metadata)) in captured.iter().zip(&metadata).enumerate() {
+        if index > 0 {
+            assert_eq!(source_id, &format!("{turn}-{}of{count}", index + 1));
+        }
+        assert!(content.chars().count() <= 200_000);
+        assert_eq!(
+            metadata["turn"],
+            serde_json::json!({"source_id": turn, "part": index + 1, "parts": count})
+        );
+        assert_eq!(
+            metadata.get("prefix_handle").is_some(),
+            index + 1 == count,
+            "only the last part carries the handle"
+        );
     }
 }

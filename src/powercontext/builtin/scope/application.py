@@ -44,6 +44,7 @@ from powercontext.builtin.scope.models import (
     ScopeDescriptorPage,
     ScopeDiscovery,
     ScopeDraft,
+    ScopeExternalReference,
     ScopeMutation,
     ScopeSelection,
 )
@@ -138,11 +139,17 @@ class ScopeApplication:
         self,
         *,
         scope_ids: Sequence[str] | None = None,
+        external_reference: ScopeExternalReference | None = None,
+        exclude_external_reference_kind: str | None = None,
     ) -> tuple[ScopeDescriptor, ...]:
         async with self._database.transaction() as connection:
             if scope_ids is not None:
                 return await self._repository.get_many(connection, tuple(scope_ids))
-            return await self._repository.list(connection)
+            if external_reference is not None:
+                return await self._repository.with_external_reference(connection, external_reference)
+            return await self._repository.list(
+                connection, exclude_external_reference_kind=exclude_external_reference_kind
+            )
 
     async def navigation(self, scope_ids):
         """Resolve ancestor names without discovering unrelated Scopes or their contents."""

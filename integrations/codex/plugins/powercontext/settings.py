@@ -24,7 +24,7 @@ from pathlib import Path
 from typing import Any, Literal
 from urllib.parse import urlsplit, urlunsplit
 
-from powercontext_client_config import parse_boolean, resolve_allow_insecure_http
+from powercontext_lifecycle.client_config import parse_boolean, resolve_allow_insecure_http
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator, model_validator
 from pydantic.fields import FieldInfo
 from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, SettingsConfigDict
@@ -216,6 +216,18 @@ class CodexPluginSettings(BaseSettings):
         if value is None:
             return None
         return value.strip() or None
+
+
+# The PreToolUse and Stop hooks run under a 10-second host deadline (hooks.json). Keep their HTTP budget below it so
+# uv/Python start-up and the hook's output fit inside the limit; a hook killed at the deadline returns no decision.
+_HOOK_HOST_TIMEOUT_SECONDS = 10.0
+_HOOK_STARTUP_AND_OUTPUT_MARGIN_SECONDS = 2.0
+
+
+def host_bounded_http_budget(configured_seconds: float) -> float:
+    """Bound a deadline-gated hook's HTTP budget below the host process deadline."""
+
+    return min(configured_seconds, _HOOK_HOST_TIMEOUT_SECONDS - _HOOK_STARTUP_AND_OUTPUT_MARGIN_SECONDS)
 
 
 def _server_url_from_mcp_configuration() -> str:

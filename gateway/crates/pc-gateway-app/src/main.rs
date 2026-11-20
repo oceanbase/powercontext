@@ -25,12 +25,14 @@
 //! PC_GATEWAY_POLICY_VERSION、PC_GATEWAY_MAX_ATTEMPTS、PC_GATEWAY_DEGRADE。
 
 mod authentication;
+mod connection;
 mod evidence_body;
 mod evidence_diagnostics;
 mod ingress;
 mod link;
 mod middleware;
 mod proxy;
+mod shutdown;
 mod steering;
 
 use crate::link::CoreLink;
@@ -67,6 +69,8 @@ pub struct AppState {
     pub sediment: bool,
     /// 运维配置的固定指令（`PC_GATEWAY_STEERING_FILE`），只插入 Responses 请求；未配置时为空。
     pub steering: Option<String>,
+    /// 为 Core 保留会话前缀以复用缓存抽取记忆：`PC_GATEWAY_PREFIX_EXTRACTION=on`（默认关，#2413）。
+    pub prefix_extraction: bool,
     /// 默认 Scope（启动时读一次，避免热路径读环境变量）。
     pub default_scope: String,
     /// Confirmed model input intersection in bytes; zero pauses model routes.
@@ -167,6 +171,16 @@ async fn main() {
         .map(|limit| limit.min(max_body_bytes))
         .unwrap_or(0);
     let degradation_allowed = capabilities.as_ref().is_some_and(|caps| !caps.enforcing);
+    let sediment = matches!(std::env::var("PC_GATEWAY_SEDIMENT").as_deref(), Ok("on"));
+    let capture_batch = capabilities
+        .as_ref()
+        .and_then(|caps| caps.limits.capture_batch_sources)
+        .map(|limit| usize::try_from(limit).unwrap_or(usize::MAX));
+    if sediment && capabilities.is_some() && capture_batch.is_none() {
+        tracing::error!(
+            "PC_GATEWAY_SEDIMENT=on, but Core does not offer batch Source capture; turns are not sedimented until Core is upgraded and the gateway restarted"
+        );
+    }
 
     let state = Arc::new(AppState {
         executor: Arc::new(
@@ -176,6 +190,12 @@ async fn main() {
                 NonZeroU32::new(max_attempts).expect("max_attempts > 0"),
             )
             .with_input_limit(model_body_bytes)
+            .with_source_token_limit(pc_gateway_core::source_token_limit(
+                capabilities
+                    .as_ref()
+                    .and_then(|caps| caps.limits.atomic_memory_input_tokens),
+            ))
+            .with_capture_batch_limit(capture_batch)
             .with_core_enforcement(capabilities.as_ref().is_none_or(|caps| caps.enforcing)),
         ),
         evidence,
@@ -205,14 +225,21 @@ async fn main() {
             std::env::var("PC_GATEWAY_INJECTION_RESPONSES").as_deref(),
             Ok("off")
         ),
-        sediment: matches!(std::env::var("PC_GATEWAY_SEDIMENT").as_deref(), Ok("on")),
+        sediment,
         steering,
+        prefix_extraction: matches!(
+            std::env::var("PC_GATEWAY_PREFIX_EXTRACTION").as_deref(),
+            Ok("on")
+        ),
         default_scope: std::env::var("PC_GATEWAY_DEFAULT_SCOPE")
             .unwrap_or_else(|_| "gateway:default".into()),
         max_body_bytes: model_body_bytes,
         degradation_allowed,
     });
 
+    let executor = state.executor.clone();
+    let shutdown = shutdown::Shutdown::install(executor.model_admission())
+        .expect("install process shutdown watchdog before accepting requests");
     let router = router(state, proxy_state);
 
     // 中间件链：按序注册，前者为外层。新增功能 = 实现 GatewayMiddleware + 此处一行。
@@ -227,10 +254,13 @@ async fn main() {
 
     tracing::info!(%addr, "pc-gateway listening (port takeover mode)");
     let listener = tokio::net::TcpListener::bind(addr).await.expect("bind");
-    axum::serve(listener, app)
-        .with_graceful_shutdown(shutdown_signal())
-        .await
-        .expect("serve");
+    connection::serve(listener, app, async {
+        let deadlines = shutdown.signalled().await;
+        executor.close_model_admission();
+        deadlines
+    })
+    .await
+    .expect("serve");
 }
 
 fn router(state: Arc<AppState>, proxy_state: proxy::ProxyState) -> Router {
@@ -241,13 +271,9 @@ fn router(state: Arc<AppState>, proxy_state: proxy::ProxyState) -> Router {
             post(ingress::chat_completions),
         )
         .route("/gateway/v1/responses", post(ingress::responses))
+        .route("/gateway/v1/extract", post(ingress::extract))
         .fallback(proxy::fallback)
         .with_state((state, proxy_state))
-}
-
-async fn shutdown_signal() {
-    let _ = tokio::signal::ctrl_c().await;
-    tracing::info!("shutting down (draining)");
 }
 
 /// A failed or incompatible startup discovery pauses model routes. Core still

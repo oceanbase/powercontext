@@ -43,7 +43,7 @@ MANAGED_INPUTS = (
     "src/powercontext/builtin/persistence",
     "src/powercontext/builtin/code",
     "src/powercontext/server/identity.py",
-    "src/powercontext/server/authz",
+    "src/powercontext/builtin/authz",
     "src/powercontext/limits.py",
 )
 PHASES = frozenset({
@@ -509,6 +509,9 @@ def validate_target(root: Path, wheel: Path, *, release: bool, release_notes: st
     check_docs(root, policy)
     actual_version = wheel_version(wheel)
     if release:
+        from schema_release import check_release_wheel
+
+        check_release_wheel(wheel)
         require(actual_version == policy["target_version"], "Wheel version differs from upgrade policy target")
     return policy
 

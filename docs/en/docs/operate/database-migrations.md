@@ -15,10 +15,10 @@ The design follows [RFC #1771](https://github.com/oceanbase/powercontext/pull/17
 `powercontext server db-migrate status/plan/apply/verify` default to `--bundle server` and use the configured persistent SQLite, embedded seekDB, or OceanBase MySQL database. Explicit environment files are authoritative; arbitrary bundle paths are not accepted.
 
 The full Server framework uses two normalization checkpoints before its shared migration chain for the PowerContext
-1.5.1 target (stored compatibility IDs shown below):
+1.5.2 target (stored compatibility IDs shown below):
 
-- **1.3.0:** `s1300 → s1400 → s1401 → s1402 → v1_4_1_004 → v1_4_1_005 → v1_4_1_006 → v1_5_0_001 → v1_5_0_002 → v1_5_0_003 → v1_5_0_004`.
-- **1.4.0:** `r1400 → s1400 → s1401 → s1402 → v1_4_1_004 → v1_4_1_005 → v1_4_1_006 → v1_5_0_001 → v1_5_0_002 → v1_5_0_003 → v1_5_0_004` through a separate frozen source bridge.
+- **1.3.0:** `s1300 → s1400 → s1401 → s1402 → v1_4_1_004 → v1_4_1_005 → v1_4_1_006 → v1_5_0_001 → v1_5_0_002 → v1_5_0_003 → v1_5_0_004 → v1_5_0_005 → v1_5_2_pr2639`.
+- **1.4.0:** `r1400 → s1400 → s1401 → s1402 → v1_4_1_004 → v1_4_1_005 → v1_4_1_006 → v1_5_0_001 → v1_5_0_002 → v1_5_0_003 → v1_5_0_004 → v1_5_0_005 → v1_5_2_pr2639` through a separate frozen source bridge.
 
 Application release numbers and schema revisions are distinct. The 1.4.0 release is not the `s1400` checkpoint:
 its existing Candidate schema is current, but its Topic attempt storage still needs the registered bridge.
@@ -93,6 +93,10 @@ Revision `v1_4_1_005` adds nullable `pc_atomic_memory_current.description` metad
 
 Revision `v1_5_0_004` registers `pc_artifact_source_locators`, an optional relation keyed by the existing Artifact Revision and Source-edge ordinal. Existing managed databases require explicit migration before Server startup. The migration preserves existing lineage rows, exact identities and historical payloads without rewriting them or backfilling locators. Atomic Memory embeddings remain unchanged; no re-embedding is required. See [Source citation locators](../workflows/sources.md) for locator behavior.
 
+Revision `v1_5_0_005` removes the previous Artifact plugin-framework storage and adds nullable `pc_artifacts.metadata`. The upgrade refuses to proceed while old plugin registrations or data remain. There is currently no supported in-place upgrade path for these databases. Unloading plugins, deleting plugin directories, or exporting archives does not clear the retained framework records, even when no Artifacts were generated. Keep the database on the previous version until a supported migration is available. A separate fresh database can use the new version, but this does not migrate old plugin data; do not manually delete framework records to bypass the check. The immutable revision keeps its original `1.5.0` numbering.
+
+Revision `v1_5_2_pr2639` adds `pc_source_runners` and `pc_source_collect_targets` for Source collection and drops the empty `pc_source_write_plugins`; it rewrites no records. While `pc_source_write_plugins` still holds records (after `source load --kind write`), the upgrade is refused with `unsupported_plugin_data` and the database stays unchanged. The previous version has no operation that removes these registrations, so such a database currently has no supported in-place upgrade path: keep using the previous version or move to a new database, and do not delete the records by hand to bypass the check. The previous Source management service's own SQLite is not migrated. See [Source plugins](../workflows/source-plugins.md).
+
 Revision `v1_4_1_006` registers `pc_source_write_plugins` for persisted Source write plugin declarations.
 Revision `v1_5_0_001` adds Artifact plugin registration fields, family schemas, search state and projections,
 index coverage and change tracking, and vector-space/index registrations. SQLite also registers portable vector
@@ -145,9 +149,14 @@ read-only no-op. See [Migrate to Atomic Memory](atomic-memory-migration.md).
 
 ## Migration names and software versions
 
-The target release is **PowerContext 1.5.1**. Migration names use
-`v<major>_<minor>_<patch>_<sequence>`, with a three-digit sequence within the release.
-Sequence `000` identifies a registered historical baseline; upgrade steps start at `001`.
+The target release is **PowerContext 1.5.2**. Schema changes for the next release accumulate
+in the shared unpublished revision `000`. A release PR freezes that draft as `v<major>_<minor>_<patch>`;
+there is no PR number or step suffix. Execution follows `down_revision`, not name sorting.
+Without a schema change, a release keeps the previous database head and adds no revision.
+
+Existing three-digit sequence names, PR-based names and legacy aliases remain readable and immutable.
+Historical sequence `000` in a name such as `v1_3_0_000` identifies a baseline; it is distinct from the
+literal mutable draft ID `000`. The following registered names remain unchanged:
 
 | Migration name | Software release | Step | Compatible stored revision | Meaning |
 | --- | --- | --- | --- | --- |
@@ -163,12 +172,14 @@ Sequence `000` identifies a registered historical baseline; upgrade steps start 
 | `v1_5_0_002` | 1.5.0 | 2 | `v1_5_0_002` | Retained Source evidence and historical validation |
 | `v1_5_0_003` | 1.5.0 | 3 | `v1_5_0_003` | Disposable exact-revision evidence projection |
 | `v1_5_0_004` | 1.5.0 | 4 | `v1_5_0_004` | Source citation position locators |
+| `v1_5_0_005` | 1.5.0 | 5 | `v1_5_0_005` | Remove previous plugin-framework storage and add nullable Artifact metadata |
+| `v1_5_2_pr2639` | 1.5.2 | PR #2639 | `v1_5_2_pr2639` | Source collection runner and target tables; remove the write plugin registry |
 
-Both registered source paths reach `v1_5_0_004`; only 1.3.0 is selected for CI upgrade acceptance:
+Both registered source paths reach `v1_5_2_pr2639`; only 1.3.0 is selected for CI upgrade acceptance:
 
 ```text
-1.3.0: v1_3_0_000 -> v1_4_1_001 -> v1_4_1_002 -> v1_4_1_003 -> v1_4_1_004 -> v1_4_1_005 -> v1_4_1_006 -> v1_5_0_001 -> v1_5_0_002 -> v1_5_0_003 -> v1_5_0_004
-1.4.0: v1_4_0_000 -> v1_4_1_001 -> v1_4_1_002 -> v1_4_1_003 -> v1_4_1_004 -> v1_4_1_005 -> v1_4_1_006 -> v1_5_0_001 -> v1_5_0_002 -> v1_5_0_003 -> v1_5_0_004
+1.3.0: v1_3_0_000 -> v1_4_1_001 -> v1_4_1_002 -> v1_4_1_003 -> v1_4_1_004 -> v1_4_1_005 -> v1_4_1_006 -> v1_5_0_001 -> v1_5_0_002 -> v1_5_0_003 -> v1_5_0_004 -> v1_5_0_005 -> v1_5_2_pr2639
+1.4.0: v1_4_0_000 -> v1_4_1_001 -> v1_4_1_002 -> v1_4_1_003 -> v1_4_1_004 -> v1_4_1_005 -> v1_4_1_006 -> v1_5_0_001 -> v1_5_0_002 -> v1_5_0_003 -> v1_5_0_004 -> v1_5_0_005 -> v1_5_2_pr2639
 ```
 
 `status` and `plan` show `source_migration`, `target_migration` and `pending_migrations`
@@ -179,6 +190,16 @@ contains `name`, `software_version`, `sequence` and the compatible `revision` ID
 {"revision":"v1_5_0_001","name":"v1_5_0_001","software_version":"1.5.0","sequence":1}
 ```
 
+For the unpublished draft, the descriptor is:
+
+```json
+{"revision":"000","name":"000","software_version":null,"sequence":null}
+```
+
+After a release PR declares a target version and freezes the draft, `software_version` reports
+that release and `sequence` remains `null`. Historical sequence names retain their numeric sequence;
+previous PR-based names also remain supported. These descriptors never define execution order.
+
 The software version describes the registered database state, not the currently running binary
 or the source of an interrupted maintenance window. A release without storage changes may reuse
 the same database revision. Names do not prove upgrade acceptance; the full release gate still applies.
@@ -188,11 +209,90 @@ frozen resources and recovery evidence. Their release-based names are display al
 additional executable revisions or accepted replacement IDs for stamping a database. This keeps
 existing plans and original backups usable. Partial prototype bundles keep their own opaque IDs.
 
-For a new Server migration, use the release-based name directly as its Alembic `revision` and
-register its schema, domain steps and recovery checkpoints as usual. `down_revision` must reference
-the actual preceding ID (`v1_5_0_004` when appending directly to the current head), even if that ID has
-a display alias. The framework follows this registered chain, not lexical name ordering. Already
-registered names and release assignments stay immutable; a version bump must not rename history.
+### Develop the shared cumulative migration
+
+The first schema-changing PR after a release creates
+`src/powercontext/builtin/persistence/migrations/server_resources/versions/000.py` with
+`revision = "000"` and `down_revision` pointing to the latest frozen head. The corresponding native
+entry is `server_resources/mysql/versions/000.py`. Later PRs edit this same logical migration.
+A migration can contain multiple table changes, data transformations and validations; all execute
+within stopped-write maintenance, without restarting the service between operations.
+
+SQL alone is not the complete migration contract. Update the main and registered source manifests,
+SQLite fingerprints, native recovery layouts and applicable vector/Code profiles together. Register
+new domain tasks and their resources under `000`. Keep draft-owned filenames explicit, such as
+`schemas/sqlite-000.json`, `schemas/mysql-000.json` or `domain_000.py`, and use complete literal IDs
+and paths in Python/JSON registrations. Keep SQL/data literals unchanged; the freeze tool rewrites
+identity and registered path strings, not arbitrary text or generated paths. Do not share mutable
+draft resources with frozen revisions. Do not add an empty draft to releases without storage changes.
+
+Before merging, update against master and resolve the cumulative script and registration conflicts.
+Run `make schema-check` and the affected migration tests. CI compares frozen history with the PR base,
+checks the SQLite/native dependency chains, and executes the cumulative SQLite upgrade from registered
+sources with and without vectors. Existing selected installed-release acceptance also runs before merge;
+PRs currently select SQLite, while full native acceptance remains scheduled/manual and release-gated.
+A passing individual branch is insufficient: require checks on the merged result and enforce an
+up-to-date branch or merge queue through repository settings. This PR workflow does not configure
+GitHub branch protection automatically.
+
+Only upgrades between supported released versions are promised. Databases and plans produced by
+unpublished `000` are disposable. Rebuild development databases when `000` changes or is frozen;
+do not replay the edited draft on an already-stamped database or stamp `000` as a release. No
+compatibility bridge from a development draft to the frozen release is provided.
+
+### Transition existing schema PRs
+
+The cumulative workflow applies when a schema PR updates against master. Legacy sequence and PR-based
+revisions already in the master baseline remain immutable, including `v1_5_2_pr2639`. The baseline
+comparison protects their IDs, resources and dependencies; adopting this workflow does not rename them.
+
+An unmerged PR that introduces an unpublished revision such as `v1_5_2_pr2674` must:
+
+1. Update against the latest master and identify only changes not already present in its frozen history
+   or shared draft. Do not copy SQL from a previous release back into the new draft.
+2. Fold those changes into the existing `000`, or create it with `down_revision` pointing to the latest
+   frozen head if no draft exists. Reconcile execution order and dependencies with the cumulative changes.
+3. Replace the superseded unpublished SQLite/native revision entries and draft-owned resource names;
+   update manifests, fingerprints, checkpoints, domain tasks and applicable source/vector/Code registrations
+   together. Preserve every frozen revision and its resources.
+4. Rebuild development databases and plans created from the unpublished revision. Run `make schema-check`,
+   `uv run --locked python scripts/schema_release.py check --base-ref origin/master`, affected migration
+   tests and the selected upgrade acceptance on the merged result before merging.
+
+The PR opening date does not exempt new revisions from the gate. An open PR can merge after adoption by
+following this conversion; it does not have to merge first. A legacy revision already merged into master
+before adoption becomes part of the protected baseline. Published revisions must never be converted to
+`000`; any further changes belong in the next cumulative migration. Release PRs freeze the accumulated
+`000` through the normal release process.
+
+### Freeze in the release PR
+
+After resolving the release version, run these commands with its actual stable `X.Y.Z`:
+
+```bash
+make version-bump VERSION=X.Y.Z
+make schema-freeze VERSION=X.Y.Z
+make release-check
+```
+
+The first command synchronizes release declarations and generated APIs. The second requires those
+declarations to agree, validates all source chains, and freezes `000` as `vX_Y_Z`. It renames
+000-owned resources and updates literal references in manifests, scripts and profiles. It validates
+the complete staged result and unchanged historical revision checksums before writing, then refreshes
+the persistence digest. Review the existing compatibility rationale rather than treating this digest
+refresh as upgrade acceptance. If no draft exists, freezing is a no-op; existing heads remain unchanged.
+
+The release PR records the software version and schema head in release notes and verifies the exact
+publication artifacts using the existing upgrade gate. Both release source checks and wheel acceptance
+reject an unfrozen `000`, including releases that skip upgrade acceptance. Freezing does not merge SQL
+at publication time: CI already validated the cumulative changes before their PRs merged. After release,
+the next schema change starts a new `000` depending on the frozen head. The released scripts and resources
+then remain immutable; failures are fixed in the next cumulative migration.
+
+Existing `pc_schema_revision` values, resources, plans and checksums remain unchanged by this workflow
+change. The released 1.5.2 database head is `v1_5_0_005`; the existing `v1_5_2_pr2639` revision
+follows it and remains unchanged. New cumulative drafts depend on that current head. No production
+draft is introduced without a real storage change.
 
 ## Initialization and maintenance ownership
 

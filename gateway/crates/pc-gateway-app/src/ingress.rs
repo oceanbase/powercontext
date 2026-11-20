@@ -22,7 +22,7 @@ use axum::extract::{Request, State};
 use axum::http::{header, HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::Json;
-use pc_gateway_core::{ManagedCall, ManagedOutcome, RequestControl};
+use pc_gateway_core::{LifecycleStopReason, ManagedCall, ManagedOutcome, RequestControl};
 use pc_gateway_protocol::{
     first_model_content_offset, CanonicalMessage, CanonicalRequest, OutputLimits, OutputProtocol,
     Role,
@@ -137,26 +137,197 @@ enum Format {
     Responses,
 }
 
+/// Marks a response carrying released or explicitly degraded model content.
+#[derive(Clone, Copy)]
+pub(crate) struct ModelContent;
+
+/// 网关密钥认证（替代服务商 key；上游凭据由受控配置持有）。
+fn unauthorized(state: &AppState, headers: &HeaderMap) -> Option<Response> {
+    let expected = state.api_key.as_ref()?;
+    (!crate::authentication::authenticate(expected, headers)).then(|| {
+        (
+            StatusCode::UNAUTHORIZED,
+            [(header::WWW_AUTHENTICATE, "Bearer")],
+            Json(serde_json::json!({ "error": "invalid_gateway_key" })),
+        )
+            .into_response()
+    })
+}
+
+/// Core 复用会话前缀抽取记忆的请求（#2413）。
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ExtractRequest {
+    /// 沉淀的 Source 元数据中的 `prefix_handle`。
+    handle: String,
+    /// Core 的抽取指令，作为一条用户消息追加在前缀之后。
+    instruction: String,
+    #[serde(default)]
+    max_output_tokens: Option<u32>,
+}
+
+const MAX_EXTRACT_INSTRUCTION_BYTES: usize = 64 * 1024;
+
+/// 在保留的前缀后追加 Core 的抽取指令并发送。请求照常经过 before_send/before_release 检查，沿用原请求里注入块的
+/// 绑定与位置；不再注入、不沉淀、不保留前缀。前缀不可用时返回 404，由 Core 回退到普通抽取。
+pub async fn extract(
+    State((state, _)): State<SharedProxy>,
+    headers: HeaderMap,
+    owner: Option<axum::Extension<crate::connection::ModelConnection>>,
+    Json(request): Json<ExtractRequest>,
+) -> Response {
+    let error = |status: StatusCode, code: &str| {
+        (status, Json(serde_json::json!({ "error": code }))).into_response()
+    };
+    if !state.prefix_extraction {
+        return error(StatusCode::NOT_FOUND, "prefix_extraction_disabled");
+    }
+    if let Some(rejected) = unauthorized(&state, &headers) {
+        return rejected;
+    }
+    if request.instruction.trim().is_empty()
+        || request.instruction.len() > MAX_EXTRACT_INSTRUCTION_BYTES
+    {
+        return error(StatusCode::BAD_REQUEST, "invalid_instruction");
+    }
+    let Some(prefix) = state.executor.prefix(&request.handle, &state.default_scope) else {
+        return error(StatusCode::NOT_FOUND, "prefix_unavailable");
+    };
+    if prefix.target_profile != state.upstream_profile {
+        return error(StatusCode::CONFLICT, "target_mismatch");
+    }
+    let canonical = prefixed_request(&prefix, &request)
+        .and_then(|body| serde_json::from_value::<OpenAiResponsesRequest>(body).ok())
+        .and_then(|parsed| to_canonical_responses(parsed).ok());
+    let Some(canonical) = canonical else {
+        return error(StatusCode::INTERNAL_SERVER_ERROR, "prefix_invalid");
+    };
+    let call = ManagedCall {
+        scope_id: state.default_scope.clone(),
+        target_profile: state.upstream_profile.clone(),
+        request: canonical,
+        target_url: state.upstream_responses.clone(),
+        headers: bearer_headers(&state.upstream_responses_api_key),
+        degrade_policy: pc_gateway_core::DegradePolicy::Pause,
+        inject_context: false,
+        include_code: false,
+        capture_prefix: false,
+        conversation_id: Some(prefix.conversation_id.clone()),
+        sediment: false,
+        prepared_contexts: prefix.prepared_contexts.clone(),
+    };
+    let renderer = pc_gateway_protocol::GatewayRenderer::Responses(Default::default());
+    // 期限从连接开始接收请求时起算，读取请求体的时间也在其中。
+    let control = match owner {
+        Some(axum::Extension(owner)) => owner.take_control(),
+        None => RequestControl::new(
+            tokio::time::Instant::now() + std::time::Duration::from_secs(180),
+            None,
+        ),
+    };
+    match state
+        .executor
+        .run(control, call, &renderer, state.evidence.as_ref())
+        .await
+    {
+        ManagedOutcome::Released { status, body, .. } if (200..300).contains(&status) => {
+            match serde_json::from_slice::<serde_json::Value>(&body) {
+                Ok(response) => Json(serde_json::json!({
+                    "text": responses_output_text(&response),
+                    "usage": response.get("usage").cloned().unwrap_or(serde_json::Value::Null),
+                    "model": response.get("model").cloned().unwrap_or(serde_json::Value::Null),
+                }))
+                .into_response(),
+                Err(_) => error(StatusCode::BAD_GATEWAY, "invalid_upstream_response"),
+            }
+        }
+        outcome => respond(outcome, OutputProtocol::OpenAiResponses),
+    }
+}
+
+/// 前缀请求：原始请求的 input 依次接上终止响应的输出（去掉 `id`/`status`，与客户端重放的形式一致）和 Core 的
+/// 指令。其余字段（工具、`prompt_cache_key`、推理设置等）不变，只把 `tool_choice` 设为 `none`、改为非流式，
+/// 并在 Core 给出时设置输出上限：这些字段不影响前缀缓存。
+fn prefixed_request(
+    prefix: &pc_gateway_core::PrefixEntry,
+    request: &ExtractRequest,
+) -> Option<serde_json::Value> {
+    let mut body: serde_json::Value = serde_json::from_slice(&prefix.request_body).ok()?;
+    let input = body.get_mut("input")?.as_array_mut()?;
+    for item in &prefix.response_output {
+        let mut item = item.clone();
+        if let Some(fields) = item.as_object_mut() {
+            fields.remove("id");
+            fields.remove("status");
+        }
+        input.push(item);
+    }
+    input.push(serde_json::json!({
+        "type": "message",
+        "role": "user",
+        "content": [{"type": "input_text", "text": request.instruction}],
+    }));
+    body["tool_choice"] = "none".into();
+    body["stream"] = false.into();
+    if let Some(limit) = request.max_output_tokens {
+        body["max_output_tokens"] = limit.into();
+    }
+    Some(body)
+}
+
+/// Responses 响应中助手消息的文本。
+fn responses_output_text(response: &serde_json::Value) -> String {
+    response
+        .get("output")
+        .and_then(|output| output.as_array())
+        .into_iter()
+        .flatten()
+        .filter(|item| item.get("type").and_then(|t| t.as_str()) == Some("message"))
+        .flat_map(|item| {
+            item.get("content")
+                .and_then(|c| c.as_array())
+                .into_iter()
+                .flatten()
+        })
+        .filter_map(|part| part.get("text").and_then(|t| t.as_str()))
+        .collect::<Vec<_>>()
+        .join("")
+}
+
 async fn ingress_common(
     state: Arc<AppState>,
     headers: HeaderMap,
     req: Request,
     format: Format,
 ) -> Response {
-    let control = RequestControl::new(
-        tokio::time::Instant::now() + std::time::Duration::from_secs(180),
-        req.extensions().get::<String>().cloned(),
-    );
+    let control = match req.extensions().get::<crate::connection::ModelConnection>() {
+        Some(owner) => owner.take_control(),
+        None => RequestControl::new(
+            tokio::time::Instant::now() + std::time::Duration::from_secs(180),
+            req.extensions().get::<String>().cloned(),
+        ),
+    };
+    let protocol = match format {
+        Format::Chat => OutputProtocol::OpenAiChat,
+        Format::Responses => OutputProtocol::OpenAiResponses,
+    };
+    let lifecycle = control.lifecycle();
     let observation = control.observation();
     let cancellation = control.cancellation();
-    let mut response = ingress_model(state.clone(), headers, req, format, control).await;
-    if matches!(
-        observation.snapshot().execution,
-        pc_gateway_core::ExecutionState::Finished(
-            pc_gateway_core::ExecutionTerminal::ReleaseAuthorized
-                | pc_gateway_core::ExecutionTerminal::Degraded
-        )
-    ) {
+    let mut response = match lifecycle
+        .run(ingress_model(state.clone(), headers, req, format, control))
+        .await
+    {
+        Ok(response) => response,
+        Err(reason) => respond(
+            ManagedOutcome::Stopped {
+                reason,
+                model_send: observation.snapshot().model_send,
+            },
+            protocol,
+        ),
+    };
+    if response.extensions().get::<ModelContent>().is_some() {
         let first_content = response
             .extensions()
             .get::<FirstContentOffset>()
@@ -172,8 +343,13 @@ async fn ingress_common(
             ),
         );
     }
+    response.extensions_mut().insert(lifecycle);
     response.extensions_mut().insert(observation);
     response.extensions_mut().insert(cancellation);
+    response.headers_mut().insert(
+        header::CONNECTION,
+        header::HeaderValue::from_static("close"),
+    );
     response
 }
 
@@ -184,16 +360,8 @@ async fn ingress_model(
     format: Format,
     control: RequestControl,
 ) -> Response {
-    // 网关密钥认证（替代服务商 key；上游凭据由受控配置持有）。
-    if let Some(expected) = &state.api_key {
-        if !crate::authentication::authenticate(expected, &headers) {
-            return (
-                StatusCode::UNAUTHORIZED,
-                [(header::WWW_AUTHENTICATE, "Bearer")],
-                Json(serde_json::json!({ "error": "invalid_gateway_key" })),
-            )
-                .into_response();
-        }
+    if let Some(rejected) = unauthorized(&state, &headers) {
+        return rejected;
     }
 
     if state.max_body_bytes == 0 {
@@ -227,6 +395,19 @@ async fn ingress_model(
                 .into_response();
         }
     };
+    let lifecycle = control.lifecycle();
+    if let Err(reason) = lifecycle.checkpoint() {
+        return respond(
+            ManagedOutcome::Stopped {
+                reason,
+                model_send: lifecycle.observation().snapshot().model_send,
+            },
+            match format {
+                Format::Chat => OutputProtocol::OpenAiChat,
+                Format::Responses => OutputProtocol::OpenAiResponses,
+            },
+        );
+    }
     let mut client_stream = false;
     let canonical = match format {
         Format::Chat => {
@@ -322,11 +503,24 @@ async fn ingress_model(
             conversation.is_some(),
         ),
         include_code: state.inject_code,
+        capture_prefix: state.prefix_extraction && matches!(format, Format::Responses),
         conversation_id: conversation,
         sediment: state.sediment,
         prepared_contexts: Vec::new(),
     };
 
+    if let Err(reason) = lifecycle.checkpoint() {
+        return respond(
+            ManagedOutcome::Stopped {
+                reason,
+                model_send: lifecycle.observation().snapshot().model_send,
+            },
+            match format {
+                Format::Chat => OutputProtocol::OpenAiChat,
+                Format::Responses => OutputProtocol::OpenAiResponses,
+            },
+        );
+    }
     let outcome = state
         .executor
         .run(control, call, &renderer, state.evidence.as_ref())
@@ -368,6 +562,7 @@ fn respond_responses_sse(outcome: ManagedOutcome) -> Response {
         body,
     )
         .into_response();
+    response.extensions_mut().insert(ModelContent);
     response
         .extensions_mut()
         .insert(FirstContentOffset(first_content));
@@ -811,12 +1006,14 @@ fn respond(outcome: ManagedOutcome, protocol: OutputProtocol) -> Response {
         } => {
             // 上游状态码与 Content-Type 原样透传（错误不伪装 200）。
             let code = StatusCode::from_u16(status).unwrap_or(StatusCode::BAD_GATEWAY);
-            (
+            let mut response = (
                 code,
                 [(header::CONTENT_TYPE, content_type.as_str())],
                 body.to_vec(),
             )
-                .into_response()
+                .into_response();
+            response.extensions_mut().insert(ModelContent);
+            response
         }
         ManagedOutcome::Degraded {
             status,
@@ -828,7 +1025,10 @@ fn respond(outcome: ManagedOutcome, protocol: OutputProtocol) -> Response {
             .header("x-pc-degraded", "passthrough_without_memory")
             .body(axum::body::Body::from(body.to_vec()))
         {
-            Ok(r) => r,
+            Ok(mut response) => {
+                response.extensions_mut().insert(ModelContent);
+                response
+            }
             Err(e) => (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 axum::Json(serde_json::json!({ "error": e.to_string() })),
@@ -872,6 +1072,17 @@ fn respond(outcome: ManagedOutcome, protocol: OutputProtocol) -> Response {
             Json(serde_json::json!({ "decision": "admission_expired" })),
         )
             .into_response(),
+        ManagedOutcome::Stopped { reason, model_send } => (
+            match reason {
+                LifecycleStopReason::DeadlineExceeded => StatusCode::GATEWAY_TIMEOUT,
+                LifecycleStopReason::GatewayShutdown => StatusCode::SERVICE_UNAVAILABLE,
+                // Explicit cancellation is a Rust control result. If an embedding owner still
+                // has an HTTP response channel, use a standard error status without a new endpoint.
+                LifecycleStopReason::RequestCancelled => StatusCode::SERVICE_UNAVAILABLE,
+            },
+            Json(serde_json::json!({ "decision": reason, "model_send": model_send })),
+        )
+            .into_response(),
         ManagedOutcome::GatePaused(msg) => (
             StatusCode::SERVICE_UNAVAILABLE,
             Json(serde_json::json!({ "decision": "gate_paused", "detail": msg })),
@@ -889,9 +1100,19 @@ fn respond(outcome: ManagedOutcome, protocol: OutputProtocol) -> Response {
 fn _unused(_: Option<Bytes>) {}
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     //! PR #2307 review P2：chat 工具元数据经入口 canonical 化的保真测试。
     use super::*;
+
+    #[derive(Default)]
+    pub(crate) struct Receivers {
+        pub admissions: std::sync::atomic::AtomicUsize,
+        pub sends: std::sync::atomic::AtomicUsize,
+        pub response_bytes: std::sync::atomic::AtomicUsize,
+        pub blocked_phase: std::sync::atomic::AtomicUsize,
+        pub entered: tokio::sync::Notify,
+        pub release: tokio::sync::Notify,
+    }
 
     #[tokio::test]
     async fn deterministic_withholds_are_bad_requests_and_preserve_reasons() {
@@ -940,24 +1161,34 @@ mod tests {
         }
     }
 
-    async fn lifecycle_router() -> (axum::Router, tokio::task::JoinHandle<()>) {
+    pub(crate) async fn lifecycle_router(
+    ) -> (axum::Router, tokio::task::JoinHandle<()>, Arc<Receivers>) {
         lifecycle_router_with_evidence(Arc::new(pc_gateway_evidence::NoopEvidenceSink)).await
     }
 
     async fn lifecycle_router_with_evidence(
         evidence: Arc<dyn pc_gateway_evidence::EvidenceSink>,
-    ) -> (axum::Router, tokio::task::JoinHandle<()>) {
+    ) -> (axum::Router, tokio::task::JoinHandle<()>, Arc<Receivers>) {
         use axum::routing::post;
         use pc_gateway_core::{Executor, HttpGateClient};
         use pc_gateway_types::{CheckPhase, ContextCheckRequest};
+        let received = Arc::new(Receivers::default());
         let mock = axum::Router::new()
             .route(
                 "/v1/context/check",
-                post(|Json(request): Json<ContextCheckRequest>| async move {
+                post(|State(received): State<Arc<Receivers>>, Json(request): Json<ContextCheckRequest>| async move {
                     let phase = match request {
                         ContextCheckRequest::BeforeSend { .. } => CheckPhase::BeforeSend,
                         ContextCheckRequest::BeforeRelease { .. } => CheckPhase::BeforeRelease,
                     };
+                    let phase_id = if phase == CheckPhase::BeforeSend {
+                        received.admissions.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                        1
+                    } else { 2 };
+                    if received.blocked_phase.load(std::sync::atomic::Ordering::SeqCst) == phase_id {
+                        received.entered.notify_one();
+                        std::future::pending::<()>().await;
+                    }
                     Json(serde_json::json!({
                         "schema": pc_gateway_types::CONTEXT_CHECK_SCHEMA,
                         "phase": phase,
@@ -972,7 +1203,12 @@ mod tests {
             )
             .route(
                 "/v1/chat/completions",
-                post(|Json(request): Json<serde_json::Value>| async move {
+                post(|State(received): State<Arc<Receivers>>, Json(request): Json<serde_json::Value>| async move {
+                    received.sends.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    if received.blocked_phase.load(std::sync::atomic::Ordering::SeqCst) == 3 {
+                        received.entered.notify_one();
+                        received.release.notified().await;
+                    }
                     let usage = serde_json::json!({"prompt_tokens": 100, "completion_tokens": 12, "prompt_tokens_details": {"cached_tokens": 70}});
                     if request["stream"] == true {
                         (
@@ -984,7 +1220,7 @@ mod tests {
                         (
                             StatusCode::CREATED,
                             Json(serde_json::json!({
-                                "choices": [{"message": {"role": "assistant", "content": "checked"}}],
+                                "choices": [{"message": {"role": "assistant", "content": if received.response_bytes.load(std::sync::atomic::Ordering::SeqCst) == 0 { "checked".to_owned() } else { "x".repeat(received.response_bytes.load(std::sync::atomic::Ordering::SeqCst)) }}}],
                                 "usage": usage,
                                 "provider_debug": "SYNTHETIC_SENSITIVE_RESPONSE"
                             })),
@@ -994,13 +1230,15 @@ mod tests {
             )
             .route(
                 "/v1/responses",
-                post(|| async {
+                post(|State(received): State<Arc<Receivers>>| async move {
+                    received.sends.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                     Json(serde_json::json!({
                         "id": "resp-1", "object": "response", "status": "completed", "output": [{"type":"message", "role":"assistant", "content":[{"type":"output_text", "text":"SYNTHETIC_SENSITIVE_RESPONSE"}]}],
                         "usage": {"input_tokens": 80, "output_tokens": 11, "input_tokens_details": {"cached_tokens": 30}}
                     }))
                 }),
             );
+        let mock = mock.with_state(received.clone());
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let base = format!("http://{}", listener.local_addr().unwrap());
         let server = tokio::spawn(async move { axum::serve(listener, mock).await.unwrap() });
@@ -1023,6 +1261,7 @@ mod tests {
             inject_code: false,
             sediment: false,
             steering: None,
+            prefix_extraction: false,
             default_scope: "test".into(),
             max_body_bytes: 1024 * 1024,
             degradation_allowed: false,
@@ -1030,11 +1269,11 @@ mod tests {
         let router = crate::middleware::apply_chain(
             crate::router(state, crate::proxy::ProxyState::from_env()),
             vec![
-                crate::middleware::ResourceLimits::new(1024 * 1024, 1024 * 1024, 2),
+                crate::middleware::ResourceLimits::new(1024 * 1024, 1024 * 1024, 1),
                 Arc::new(crate::middleware::RequestId),
             ],
         );
-        (router, server)
+        (router, server, received)
     }
 
     struct PendingBody {
@@ -1090,7 +1329,7 @@ mod tests {
                 true,
             ),
         ] {
-            let (router, server) = lifecycle_router().await;
+            let (router, server, _) = lifecycle_router().await;
             let (sender, receiver) = tokio::sync::oneshot::channel();
             let started = tokio::time::Instant::now();
             let request = Request::builder()
@@ -1142,6 +1381,7 @@ mod tests {
                 response.headers()["x-powercontext-request-id"],
                 "route-request"
             );
+            assert_eq!(response.headers()[header::CONNECTION], "close");
             assert_eq!(
                 response.status(),
                 if path.contains("chat") {
@@ -1204,7 +1444,7 @@ mod tests {
                 serde_json::json!({"model": "test", "input": [{"role": "user", "content": "hello"}], "store": false, "stream": true}),
             ),
         ] {
-            let (router, server) = lifecycle_router().await;
+            let (router, server, _) = lifecycle_router().await;
             let response = router
                 .oneshot(
                     Request::builder()
@@ -1306,6 +1546,62 @@ mod tests {
             .render(&canonical, None)
             .unwrap();
         serde_json::from_slice(&payload.bytes).unwrap()
+    }
+
+    #[test]
+    fn an_extraction_request_extends_the_sent_prefix_unchanged() {
+        let sent = render_responses(&codex_request(false));
+        let output = vec![
+            serde_json::json!({"id": "rs_1", "type": "reasoning", "summary": [], "encrypted_content": "gAAAA-x"}),
+            serde_json::json!({"id": "msg_1", "type": "message", "role": "assistant", "status": "completed",
+                "content": [{"type": "output_text", "text": "done", "annotations": []}]}),
+        ];
+        let prefix = pc_gateway_core::PrefixEntry {
+            scope_id: "s".into(),
+            target_profile: "codex".into(),
+            conversation_id: "codex-thread:a".into(),
+            request_body: serde_json::to_vec(&sent).unwrap().into(),
+            response_output: output,
+            prepared_contexts: Vec::new(),
+        };
+        let request = ExtractRequest {
+            handle: "h".into(),
+            instruction: "Extract memories.".into(),
+            max_output_tokens: Some(2000),
+        };
+        let extract = render_responses(&prefixed_request(&prefix, &request).unwrap());
+
+        let before = sent["input"].as_array().unwrap();
+        let after = extract["input"].as_array().unwrap();
+        assert_eq!(
+            after[..before.len()],
+            before[..],
+            "the sent input is kept as is"
+        );
+        // 响应输出按客户端重放的形式接上：去掉 id 与 status。
+        assert_eq!(
+            after[before.len()..],
+            [
+                serde_json::json!({"type": "reasoning", "summary": [], "encrypted_content": "gAAAA-x"}),
+                serde_json::json!({"type": "message", "role": "assistant",
+                    "content": [{"type": "output_text", "text": "done", "annotations": []}]}),
+                // 与客户端追加的用户消息渲染方式相同。
+                serde_json::json!({"role": "user",
+                    "content": [{"type": "input_text", "text": "Extract memories."}]}),
+            ]
+        );
+        assert_eq!(extract["tool_choice"], "none");
+        assert_eq!(extract["max_output_tokens"], 2000);
+        assert_ne!(extract["stream"], true);
+        // 影响缓存的其余字段（模型、指令、工具、prompt_cache_key、推理设置）不变。
+        let rest = |body: &serde_json::Value| {
+            let mut fields = body.as_object().unwrap().clone();
+            for key in ["input", "tool_choice", "stream", "max_output_tokens"] {
+                fields.remove(key);
+            }
+            fields
+        };
+        assert_eq!(rest(&extract), rest(&sent));
     }
 
     #[test]
@@ -1802,7 +2098,7 @@ mod tests {
             JsonEvidenceSink::new(output.clone(), std::num::NonZeroUsize::new(1024).unwrap())
                 .unwrap(),
         );
-        let (router, server) = lifecycle_router_with_evidence(sink.clone()).await;
+        let (router, server, _) = lifecycle_router_with_evidence(sink.clone()).await;
         // Exercise JSON/SSE on both public routes with the real reqwest transport.
         for i in 0..200 {
             let chat = i % 4 < 2;
@@ -1891,7 +2187,7 @@ mod tests {
         use pc_gateway_evidence::{BufferedEvidenceSink, DeliveryBoundary, EvidenceEvent};
         use tower::ServiceExt;
         let evidence = Arc::new(BufferedEvidenceSink::new());
-        let (router, server) = lifecycle_router_with_evidence(evidence.clone()).await;
+        let (router, server, _) = lifecycle_router_with_evidence(evidence.clone()).await;
         let request = Request::builder()
             .method("POST")
             .uri("/gateway/v1/chat/completions")

@@ -1,5 +1,185 @@
 # Desktop validation
 
+## Server 5fb2b2d1 Gateway contract qualification
+
+`sqlite-gateway-5fb2b2d1-v1` qualifies the thirteen generated Desktop operations against
+SQLite Server source `5fb2b2d149dee376adb1bb09b73bb3d6f015b192`, including the Gateway
+lifecycle schemas and the v1.5.1 API additions.
+
+- Normalized OpenAPI SHA-256: `d2c3b84ad4e6206bd911acf5d2652dcaa881a6039c217dcd7f066ffc12fb1a72`.
+- Wheel: `powercontext-1.5.2.dev0+g5fb2b2d1-py3-none-any.whl`.
+- Wheel SHA-256: `6e8f523146999243404d71e96b735a597dc9e5d64e081fed6778bda5e389ece2`.
+
+All 750 packaged runtime files match that exact Git archive after CRLF normalization.
+The wheel was built from the archive with an explicit development version. Historical
+qualification records retain their original source, contract, artifact and operation identities.
+
+On 2026-11-10, Linux x86_64 / WSL2 / Python 3.14.4 / Rust 1.97.1 passed anonymous
+loopback, static Bearer, HTTPS with explicit CA/base path, and enforced Provider modes
+through the native `server_probe` and ordinary product `ConnectionManager`.
+The harness selected the bundled product record and verified the actual wheel hash before
+starting isolated real Python Server processes. All four modes preserve committed-write
+response loss as unknown without replay and leave the Server alive after client exit.
+The Provider mode additionally passes identity-change invalidation, same-identity revocation,
+51-Scope pagination, and scoped native authorization when Server discovery is denied.
+These checks establish local native protocol behavior; installed GUI, system credentials,
+Windows/macOS, external providers, and production deployment require separate acceptance.
+
+```sh
+cargo build --locked --manifest-path desktop/src-tauri/Cargo.toml --example server_probe
+uv run --no-sync python desktop/tests/real_server.py \
+  --product-qualification sqlite-gateway-5fb2b2d1-v1 \
+  --wheel desktop/.artifacts/server-5fb2b2d1/powercontext-1.5.2.dev0+g5fb2b2d1-py3-none-any.whl
+```
+
+The wheel, aggregate report, and source-equivalence report are retained under ignored
+`desktop/.artifacts/server-5fb2b2d1/`. Per-mode process artifacts remain under ignored
+`desktop/.artifacts/real-server-*/`.
+
+## Server 58dda714 Gateway contract qualification
+
+`sqlite-gateway-58dda714-v1` qualifies the thirteen generated Desktop operations against
+SQLite Server source `58dda7146afe8a1c9241e8c1bc1e645179945330`, including the Gateway
+lifecycle contract and listener authentication.
+
+- Normalized OpenAPI SHA-256: `0df224e7027e81be9e2f6d768a7d38c46ce36297a4b60b2ebb03031558b465fb`.
+- Wheel: `powercontext-1.5.1.dev0+g58dda714-py3-none-any.whl`.
+- Wheel SHA-256: `db79f910642f9b6841e297d50f08d2d05e5b4ecab82dbc8f8e4d6f4c8e875528`.
+
+All 738 packaged runtime files match that exact Git archive after CRLF normalization.
+The wheel was built from the archive with an explicit build version. Historical
+qualification records retain their original source, contract, artifact and operation identities.
+
+On 2026-11-07, Linux x86_64 / WSL2 / Python 3.14.4 / Rust 1.97.1 passed anonymous
+loopback, static Bearer, HTTPS with explicit CA/base path, and enforced Provider modes
+through the native `server_probe` and ordinary product `ConnectionManager`.
+The harness selected the bundled product record and verified the actual wheel hash before
+starting isolated real Python Server processes. All four modes preserve committed-write
+response loss as unknown without replay and leave the Server alive after client exit.
+The Provider mode additionally passes identity-change invalidation, same-identity revocation,
+51-Scope pagination, and scoped native authorization when Server discovery is denied.
+These checks establish local native protocol behavior; installed GUI, system credentials,
+Windows/macOS, external providers, and production deployment require separate acceptance.
+
+```sh
+cargo build --locked --manifest-path desktop/src-tauri/Cargo.toml --example server_probe
+uv run --no-sync python desktop/tests/real_server.py \
+  --product-qualification sqlite-gateway-58dda714-v1 \
+  --wheel desktop/.artifacts/server-58dda714/powercontext-1.5.1.dev0+g58dda714-py3-none-any.whl
+```
+
+The wheel, aggregate report, and source-equivalence report are retained under ignored
+`desktop/.artifacts/server-58dda714/`. Per-mode process artifacts remain under ignored
+`desktop/.artifacts/real-server-*/`.
+
+## Gateway contract 0df224e7 authenticated legacy qualification
+
+The `authenticatedClients` entries for `sqlite-atomic-112db11e-v1` and
+`sqlite-atomic-3cefa45a-v1` qualify their original eleven operations for client contract
+`0df224e7027e81be9e2f6d768a7d38c46ce36297a4b60b2ebb03031558b465fb` in authenticated mode.
+Their original Server commits, contract digests, artifact hashes, operation sets and existing evidence are preserved.
+
+On 2026-11-07, Linux x86_64 / WSL2 / Python 3.14.4 / Rust 1.97.1 passed static Bearer,
+HTTPS with explicit CA/base path, and enforced Provider modes for both historical Servers through the
+unchanged native probe. The explicit rebuilt-source fixture verified every packaged runtime file against
+each historical Git archive before execution. The rebuilt artifacts are the same fixture wheels and
+SHA-256 values recorded under Gateway contract authenticated legacy qualification; these checks do not
+qualify them as the original product wheels. Anonymous legacy use still requires an upgrade.
+
+```sh
+uv run --no-sync python desktop/tests/real_server.py \
+  --rebuilt-qualification sqlite-atomic-112db11e-v1 \
+  --wheel desktop/.artifacts/legacy-112db11e/powercontext-1.5.1.dev0+g112db11e-py3-none-any.whl
+uv run --no-sync python desktop/tests/real_server.py \
+  --rebuilt-qualification sqlite-atomic-3cefa45a-v1 \
+  --wheel desktop/.artifacts/legacy-3cefa45a/powercontext-1.5.1.dev0+g3cefa45a-py3-none-any.whl
+```
+
+Reports are retained in `.scratch/gateway-g3-follow-up/merge-2538/` and the harness process artifacts
+under ignored `desktop/.artifacts/`. These checks establish local native protocol behavior, not installed
+GUI, system credentials, Windows/macOS, external providers, or production deployment acceptance.
+
+## Server c527f3f6 Gateway contract qualification
+
+`sqlite-gateway-c527f3f6-v1` qualifies the thirteen generated Desktop operations against
+SQLite Server source `c527f3f65c3d3a38f53399230075eceef9364078`. Gateway lifecycle schemas
+are included in the authoritative OpenAPI document; Desktop's existing operation set
+and native wire models remain unchanged.
+
+- Normalized OpenAPI SHA-256: `ee13915c5a1d53a7d3f7b59416d37a22601b0bffd14430997708f19f68a8354f`.
+- Wheel: `powercontext-1.5.1.dev0+gc527f3f6-py3-none-any.whl`.
+- Wheel SHA-256: `bbf4227a828a8964fa5eb5eab8b08c499cd3a76fbdcf986600c3db74aeff3106`.
+
+All 739 packaged runtime files match that exact Git archive after CRLF normalization.
+The wheel was built from the archive with an explicit build version. All historical
+qualification records retain their original source, contract, artifact and operation identities.
+
+On 2026-11-07, Linux x86_64 / WSL2 / Python 3.14.4 / Rust 1.97.1 passed anonymous
+loopback, static Bearer, HTTPS with explicit CA/base path, and enforced Provider modes
+through the unchanged native `server_probe` and ordinary product `ConnectionManager`.
+The harness selected the bundled product record and verified the actual wheel hash before
+starting its isolated real Python Server processes; no fixture qualification was injected.
+All four modes preserve committed-write response loss as unknown without replay and leave
+the Server alive after client exit. The Provider mode additionally passes identity-change
+invalidation, same-identity revocation, 51-Scope pagination, and scoped native authorization
+when Server discovery is denied. These are local protocol checks, not installed UI, system
+vault, Windows, macOS, external-provider, or production-deployment acceptance.
+
+```sh
+cargo build --locked --manifest-path desktop/src-tauri/Cargo.toml --example server_probe
+uv run --no-sync python desktop/tests/real_server.py \
+  --product-qualification sqlite-gateway-c527f3f6-v1 \
+  --wheel desktop/.artifacts/server-wheel/powercontext-1.5.1.dev0+gc527f3f6-py3-none-any.whl
+```
+
+The debug native probe SHA-256 is
+`347ac20bbdf1574776e16c487a713afae263de05b4d602d916348a76f685bcda`.
+The report identifies source `c527f3f6` with the new qualification record in the working
+tree. Raw reports, per-mode Server logs, the source-equivalence report, and the exact wheel
+are retained under ignored `desktop/.artifacts/`.
+
+## Gateway contract authenticated legacy qualification
+
+The `authenticatedClients` entries for `sqlite-atomic-112db11e-v1` and
+`sqlite-atomic-3cefa45a-v1` qualify their original eleven operations for client contract
+`ee13915c5a1d53a7d3f7b59416d37a22601b0bffd14430997708f19f68a8354f` in Bearer mode.
+Their original Server commits, Server contract digests, artifact hashes, operations and
+evidence remain unchanged. Anonymous legacy use still requires an upgrade.
+
+On 2026-11-07, the unchanged native probe passed static Bearer, HTTPS with explicit CA/base
+path, and enforced Provider modes for each historical Server on Linux x86_64 / WSL2 /
+Python 3.14.4 / Rust 1.97.1. The existing explicit rebuilt-source fixture path compared every
+packaged runtime file with each exact Git archive before execution. The rebuilt wheels are
+distinct fixture artifacts; these runs do not qualify them as the original product wheels.
+
+| Historical Server source | Rebuilt fixture wheel | Actual fixture SHA-256 |
+| --- | --- | --- |
+| `112db11e885c38b997da2177e03a4065a7e35dc3` | `powercontext-1.5.1.dev0+g112db11e-py3-none-any.whl` | `567d0cd4a4c7488d6ba76325f0652593a9fddf8782eb0008e75b2b88a76c5c87` |
+| `3cefa45ad08490423391148439c9eb73f1d48f58` | `powercontext-1.5.1.dev0+g3cefa45a-py3-none-any.whl` | `9831d1e045b21267d3cd6d6c04fada5f54f2180013c0de9aaf477fa6861a8f6b` |
+
+```sh
+uv run --no-sync python desktop/tests/real_server.py \
+  --rebuilt-qualification sqlite-atomic-112db11e-v1 \
+  --wheel desktop/.artifacts/legacy-112db11e/powercontext-1.5.1.dev0+g112db11e-py3-none-any.whl
+uv run --no-sync python desktop/tests/real_server.py \
+  --rebuilt-qualification sqlite-atomic-3cefa45a-v1 \
+  --wheel desktop/.artifacts/legacy-3cefa45a/powercontext-1.5.1.dev0+g3cefa45a-py3-none-any.whl
+```
+
+Aggregate reports and harness output are retained under ignored `desktop/.artifacts/g3-legacy-*`.
+Per-mode Server logs and process reports are under `desktop/.artifacts/real-server-*/`;
+the process reports identify each fixture by its wheel SHA-256.
+The probe identity and platform limits are the same as in the current product qualification above.
+
+The native regression suite also passes with these product and authenticated-client records:
+
+```sh
+cargo test --locked --manifest-path desktop/src-tauri/Cargo.toml --tests
+```
+
+One existing case is explicitly ignored. The passing suite includes the legacy compatibility
+regressions and bundled-product assertions; it does not establish installed GUI or platform acceptance.
+
 ## Installed connection journey acceptance
 
 The Windows installed WebDriver entry point runs `installed_connections.py` before
@@ -3214,3 +3394,448 @@ cargo +1.95.0 build --locked --manifest-path desktop/src-tauri/Cargo.toml --exam
 ```
 
 The exact wheel is retained under `.git/pr2557-wheel3/`; the measured report is under ignored `desktop/.artifacts/real-server.json`. These are local protocol results against an isolated built-wheel Server. They do not establish installed UI, native credential persistence, Windows or Intel macOS execution, OceanBase behavior, external production acceptance or release readiness.
+
+## Server a211ba84 merged gateway contract protocol qualification
+
+`sqlite-gateway-deadline-a211ba84-v1` qualifies the thirteen bundled Desktop
+operations against Server source `a211ba8491a3ab18de6b79906ee23760f130207b`
+and the merged Gateway deadline and cancellation contract.
+
+- Normalized OpenAPI SHA-256: `382b67847c63cf8cdd6561a85053ddf1bde2673a03934e03f208dde6b8430acc`.
+- Wheel: `powercontext-1.5.2.dev105+ga211ba849-py3-none-any.whl`.
+- Wheel SHA-256: `d1575941d03ae449bc83553daf29ce82072749ffba1b1adaccf2188f288c40a9`.
+- Native debug probe SHA-256: `9c44e7d16739ad02e64a5e8cf13b7df66ce90902fbbdb0f32bafc98dca308078`.
+
+All 749 packaged Server and service-bootstrap runtime files match the clean Git
+source archive after CRLF normalization; no runtime file is missing or added. The
+wheel was built from the clean merge commit before adding this product profile. The
+native `server_probe` was built with the product Cargo lock and Rust 1.95.0, without
+`ci-fixtures`.
+
+On 2026-11-13, Linux 6.6.87.2 WSL2 x86_64 and Python 3.14.4 passed all four modes
+in `desktop/tests/real_server.py`: anonymous loopback, static Bearer, HTTPS with an
+explicit CA/base path, and enforced Provider access. The ordinary product
+`ConnectionManager` reported `bundled product records` and this exact profile for
+all four modes. Checks cover discovery, connection identity, exact Scope selection,
+statistics, Memory save/search/exact revision reads, committed writes with lost
+responses without replay, and independent Server survival after client exit.
+Provider mode also checks Principal changes, same-identity revocation, scoped native
+authorization without Server observation permission, and 51 same-title Scopes.
+Statistics usage is controlled fixture input, not an external model-provider
+execution claim.
+
+The harness report is retained under ignored `desktop/.artifacts/real-server.json`;
+the wheel is retained under ignored `desktop/.artifacts/server-wheel/`. The harness
+records the Desktop working tree as dirty because this profile had not yet been
+committed; the Server wheel itself is bound to the clean recorded source. Previous
+profiles retain their original source, contract, artifact and evidence identities.
+This is local SQLite protocol qualification, not an installed WebView or
+credential-persistence test, other-platform qualification, external database
+deployment, gateway transport acceptance, or release approval.
+
+
+## Server 3427cee7 plugin interfaces protocol qualification
+
+`sqlite-plugin-interfaces-3427cee7-v1` qualifies all thirteen Desktop protocol operations against
+Server source `3427cee715b00e7c054f2855afaff8142d624dde`, which adds directory plugins, removes the
+managed Artifact plugin framework, and describes built-in-or-plugin Artifact create and replace
+bodies with `anyOf`.
+
+- Normalized OpenAPI SHA-256: `6e532edd31a2d4ebb632c1a1aae87826a4013f0c92d6fda1d1c53b08a8c1b70b`.
+- Wheel: `powercontext-1.5.2.dev163+g3427cee71-py3-none-any.whl`.
+- Wheel SHA-256: `b63c19dfc6a58de15de142f051185178943a6566ee738d1abe8dad205e0479f6`.
+- Native debug probe SHA-256 (built without debug info): `fe29a7d6426a2062b4bd1d950741761f2a526f23960a3bd0a8141a29c28b454a`.
+
+On 2026-11-14, Linux 7.0 x86_64 (Ubuntu 24.04, glibc 2.39) and Python 3.12.3 passed anonymous loopback,
+static Bearer, HTTPS with explicit CA/base path, and enforced Provider modes of the unchanged
+`desktop/tests/real_server.py` through the ordinary product ConnectionManager. The probe was built with
+the product Cargo lock without `ci-fixtures` and selected this bundled qualification; the client and
+qualified contract digests are identical. `bundled_product_qualification_covers_every_desktop_operation`
+passed against the same records. The wheel and report are retained under ignored
+`desktop/.artifacts/plugin-interfaces/` and `desktop/.artifacts/real-server.json`.
+This qualifies the observed local SQLite protocol; it does not establish installed WebView, native
+credential persistence, other operating systems, native database upgrades or release acceptance.
+
+Reproduce against the recorded artifact:
+
+```sh
+cargo build --locked --manifest-path desktop/src-tauri/Cargo.toml --example server_probe
+uv run --no-sync python desktop/tests/real_server.py \
+  --product-qualification sqlite-plugin-interfaces-3427cee7-v1 \
+  --wheel desktop/.artifacts/plugin-interfaces/powercontext-1.5.2.dev163+g3427cee71-py3-none-any.whl
+```
+
+## Server be5f0f76 v1.5.2 release protocol qualification
+
+`sqlite-release-1-5-2-be5f0f76-v1` qualifies all thirteen bundled Desktop protocol
+operations against Server source `be5f0f769f37a05f4341fc039b38dbdd7bfc0dd3`,
+with the API release version set to `1.5.2`.
+
+This is an artifact-specific historical qualification, not a qualification of the final
+release tag. `serverCommit` identifies the source actually used to build the recorded
+wheel and must remain paired with its `artifactSha256`. A squash merge need not put
+that commit on `master`; retrieve the PR history explicitly to inspect the source:
+
+```sh
+git fetch https://github.com/oceanbase/powercontext.git refs/pull/2670/head
+git show be5f0f769f37a05f4341fc039b38dbdd7bfc0dd3:pyproject.toml
+```
+
+Subsequent branch changes include runtime migration diagnostics and upstream plugin
+runtime changes. This record does not qualify those changes. Qualifying the final
+release requires building and testing that artifact and adding a record with its own
+source commit, artifact digest and results; changing this record to a later commit or
+tag would misidentify the tested artifact. The locally retained wheel and report are
+not public release assets, so fetching the source alone does not reproduce this run.
+
+- OpenAPI SHA-256: `e9749951301bd0fc191e70b4573016fda0f56a21cbcdc9affebf1af2a6d3b568`.
+- Wheel: `powercontext-1.5.2.dev178+gbe5f0f769-py3-none-any.whl`.
+- Wheel SHA-256: `436574fca95ce7b7660ccdc61e825955e09749bc9f07edfccbe339635d1e0da4`.
+- Native debug probe SHA-256: `2e019c3fd7a01a01e1dd258a44d67fbba1457d3a76ba3e95a708afeb9ca8ee22`.
+
+On 2026-11-16, Linux 5.10 x86_64 with glibc 2.32 and Python 3.14.6 passed
+anonymous loopback, static Bearer, HTTPS with an explicit CA/base path, and
+injected-provider/enforced-access modes. The ordinary ConnectionManager selected
+this bundled product record with matching Server and client contract digests.
+Checks cover save, search, exact revision reads, lost write responses without
+replay, independent Server survival after client exit, Principal changes,
+same-identity revocation, 51 same-title Scopes, and scoped native authorization
+without Server observation permission. Model usage is fixture input.
+All 808 checked packaged runtime files match the source tree at the recorded commit.
+
+The host lacks WebKitGTK 4.1. The native probe was compiled with Rust 1.96.0 in
+an isolated protocol-only Cargo crate importing the unchanged product connections,
+credentials, error, Ops bridge, session observations and transport modules, plus
+the unchanged `server_probe.rs`. Every registry dependency version and checksum
+matches the product Cargo lock. The crate omits the Tauri/WebView shell and uses
+no `ci-fixtures`; this is not a full Desktop application build.
+
+The first harness run exceeded its startup polling budget in Bearer mode. The
+successful run used a local wrapper around `desktop/tests/real_server.py` that
+allows 60 seconds for Server startup. Native probe code, request timeouts,
+HTTP assertions and business operations are unchanged. The original harness
+SHA-256 is `998b09165bf2114408d9e2da234403b1a218bfe19cecbd9453436e7ac0606075`.
+The wheel, isolated Cargo crate, wrapper and four-mode report are retained under
+`/data/codex-tmp/release-v1.5.2/` on the validation host; the report is
+`artifacts/real-server.json`.
+
+The report marks the Desktop working tree dirty because the new qualification
+record was not yet committed. Historical profiles retain their original evidence.
+These results qualify the observed local SQLite protocol, not installed WebView
+behavior, native credential persistence, other platforms, external providers,
+native database upgrades or the formal release acceptance matrix.
+
+
+## Server 0d56ec37 plugin reload protocol qualification
+
+`sqlite-plugin-reload-0d56ec37-v1` qualifies all thirteen Desktop protocol operations against
+Server source `0d56ec3773e7a65a95538e38eb8ae9c150eb3461`, which reloads plugin directories, describes
+plugin routes, and adds version fields to the plugin listing.
+
+- Normalized OpenAPI SHA-256: `3200acfd5f802d74ce349249c22c9c0038822732e939818382cce0efd4757940`.
+- Wheel: `powercontext-1.5.2.dev245+g0d56ec377-py3-none-any.whl`.
+- Wheel SHA-256: `4fef79a944dd077a413cb65ef4183f536ae9b3db4c0839168cacc35b271760bc`.
+- Native debug probe SHA-256 (built without debug info): `1b3ed1767e09e12efb44880d36a7d084c48a4e95a2eb991761f555aa5f32395c`.
+
+On 2026-11-17, Linux 7.0 x86_64 (Ubuntu 24.04, glibc 2.39) and Python 3.12.3 passed anonymous loopback,
+static Bearer, HTTPS with explicit CA/base path, and enforced Provider modes of the unchanged
+`desktop/tests/real_server.py` through the ordinary product ConnectionManager. The probe was built with
+the product Cargo lock without `ci-fixtures` and selected this bundled qualification; the client and
+qualified contract digests are identical. `bundled_product_qualification_covers_every_desktop_operation`
+passed against the same records. The wheel and report are retained under ignored
+`desktop/.artifacts/plugin-reload/` and `desktop/.artifacts/real-server.json`.
+This qualifies the observed local SQLite protocol; it does not establish installed WebView, native
+credential persistence, other operating systems, native database upgrades or release acceptance.
+
+Reproduce against the recorded artifact:
+
+```sh
+cargo build --locked --manifest-path desktop/src-tauri/Cargo.toml --example server_probe
+uv run --no-sync python desktop/tests/real_server.py \
+  --product-qualification sqlite-plugin-reload-0d56ec37-v1 \
+  --wheel desktop/.artifacts/plugin-reload/powercontext-1.5.2.dev245+g0d56ec377-py3-none-any.whl
+```
+
+
+## Server 9f113a72 Source plugins protocol qualification
+
+`sqlite-source-plugins-9f113a72-v1` qualifies all thirteen Desktop protocol operations against
+Server source `9f113a7294eec3e04eed29b76fb2b07890248416`, which adds Source plugin collection runners, their registration, and
+targets and removes the Source management operations.
+
+- Normalized OpenAPI SHA-256: `d133a4c382a734d1e6fd194b1dbf4d90f7ffabc37fe335fc27d93f59fa4e636f`.
+- Wheel: `powercontext-1.5.2.dev248+g9f113a729-py3-none-any.whl`.
+- Wheel SHA-256: `f556e37dcb8438c6e06402de9dc4290a364304520a9591efb535572d48605352`.
+- Native debug probe SHA-256 (built without debug info): `e21cc0274a24b20aac28f417242e254bb2b4ce8ee6635fa671d038ca44382a7b`.
+
+On 2026-11-18, Linux 7.0 x86_64 (Ubuntu 24.04, glibc 2.39) and Python 3.12.3 passed anonymous loopback,
+static Bearer, HTTPS with explicit CA/base path, and enforced Provider modes of the unchanged
+`desktop/tests/real_server.py` through the ordinary product ConnectionManager. The probe was built with
+the product Cargo lock without `ci-fixtures` and selected this bundled qualification; the client and
+qualified contract digests are identical. `bundled_product_qualification_covers_every_desktop_operation`
+passed against the same records. The wheel and report are retained under ignored
+`desktop/.artifacts/source-plugins/` and `desktop/.artifacts/real-server.json`.
+This qualifies the observed local SQLite protocol; it does not establish installed WebView, native
+credential persistence, other operating systems, native database upgrades or release acceptance.
+
+Reproduce against the recorded artifact:
+
+```sh
+cargo build --locked --manifest-path desktop/src-tauri/Cargo.toml --example server_probe
+uv run --no-sync python desktop/tests/real_server.py \
+  --product-qualification sqlite-source-plugins-9f113a72-v1 \
+  --wheel desktop/.artifacts/source-plugins/powercontext-1.5.2.dev248+g9f113a729-py3-none-any.whl
+```
+
+
+## Server bc22089e plugin Scope listing protocol qualification
+
+`sqlite-plugin-scope-listing-bc22089e-v1` qualifies all thirteen Desktop protocol operations against
+Server source `bc22089e9dc9fcefe6cc1d26d56a2a0c677bbd68`, which leaves plugin-created Scopes out of Scope listings and states
+that rule in the `list_scopes` description.
+
+- Normalized OpenAPI SHA-256: `eaa14b1581221ea89706140c5181c9ca701d685caaa9ebcbfdbcf5758db3d713`.
+- Wheel: `powercontext-1.5.2.dev238+gbc22089e9-py3-none-any.whl`.
+- Wheel SHA-256: `d7c7644cb32bc54bba8e9a2c5dd64d88d7db58d8c46a96008bbe4c4134b43fde`.
+- Native debug probe SHA-256 (built without debug info): `0feb207b3fdb9be2293c67f6a0cdd4d01ea51c6685f71b20ac6af6c4fa2770f2`.
+
+On 2026-11-18, Linux 7.0 x86_64 (Ubuntu 24.04, glibc 2.39) and Python 3.12.3 passed anonymous loopback,
+static Bearer, HTTPS with explicit CA/base path, and enforced Provider modes of the unchanged
+`desktop/tests/real_server.py` through the ordinary product ConnectionManager. The probe was built with
+the product Cargo lock without `ci-fixtures` and selected this bundled qualification; the client and
+qualified contract digests are identical. `bundled_product_qualification_covers_every_desktop_operation`
+passed against the same records. The wheel and report are retained under ignored
+`desktop/.artifacts/plugin-scope-listing/` and `desktop/.artifacts/real-server.json`.
+This qualifies the observed local SQLite protocol; it does not establish installed WebView, native
+credential persistence, other operating systems, native database upgrades or release acceptance.
+
+Reproduce against the recorded artifact:
+
+```sh
+cargo build --locked --manifest-path desktop/src-tauri/Cargo.toml --example server_probe
+uv run --no-sync python desktop/tests/real_server.py \
+  --product-qualification sqlite-plugin-scope-listing-bc22089e-v1 \
+  --wheel desktop/.artifacts/plugin-scope-listing/powercontext-1.5.2.dev238+gbc22089e9-py3-none-any.whl
+```
+
+## Server 1dd494f4 gateway Source limit protocol qualification
+
+`sqlite-gateway-source-limit-1dd494f4-v1` qualifies all thirteen Desktop protocol operations against
+Server source `1dd494f409d1c8805f53b71a76882b0acb8e2ac0`, which adds the optional
+`context_protection.limits.atomic_memory_input_tokens` capability limit.
+
+- Normalized OpenAPI SHA-256: `e830db5428188580578fa8fe1c1596c48c33a9b551118e483b441a77a182e0b7`.
+- Wheel: `powercontext-1.5.3.dev21+g1dd494f40-py3-none-any.whl`.
+- Wheel SHA-256: `9d09fb39c9b3054f65f673c4d64fbc1bb199452c934dc545e69898aed209a74f`.
+- Native debug probe SHA-256: `883cc8cecd1c0665873c419a71b896e18d3ca8396998276e483a8c9782a3836a`.
+
+On 2026-11-17, Linux 7.0 x86_64 (Ubuntu 24.04, glibc 2.39) and Python 3.11.18 passed anonymous loopback,
+static Bearer, HTTPS with explicit CA/base path, and enforced Provider modes of the unchanged
+`desktop/tests/real_server.py` through the ordinary product ConnectionManager. The probe was built with
+the product Cargo lock without `ci-fixtures` and selected this bundled qualification; the client and
+qualified contract digests are identical. `bundled_product_qualification_covers_every_desktop_operation`
+passed against the same records. The wheel and report are retained under ignored
+`desktop/.artifacts/gateway-source-limit/` and `desktop/.artifacts/real-server.json`.
+The report marks the Desktop working tree dirty because the new qualification record was not yet committed.
+This qualifies the observed local SQLite protocol; it does not establish installed WebView, native
+credential persistence, other operating systems, native database upgrades or release acceptance.
+
+Reproduce against the recorded artifact:
+
+```sh
+cargo build --locked --manifest-path desktop/src-tauri/Cargo.toml --example server_probe
+uv run --no-sync python desktop/tests/real_server.py \
+  --product-qualification sqlite-gateway-source-limit-1dd494f4-v1 \
+  --wheel desktop/.artifacts/gateway-source-limit/powercontext-1.5.3.dev21+g1dd494f40-py3-none-any.whl
+```
+
+## Server a777326a gateway batch capture protocol qualification
+
+`sqlite-gateway-batch-capture-a777326a-v1` qualifies all thirteen Desktop protocol operations against
+Server source `a777326ad3aab35d8de0893a98b0b8650b691f0b`, which adds the `capture_content_sources`
+operation and the optional `context_protection.limits.capture_batch_sources` capability limit.
+
+- Normalized OpenAPI SHA-256: `ba8ac9fe8b29c8fbc821b5eda0559653c82d7c8eccf41891c8f42a9d6d6b60c3`.
+- Wheel: `powercontext-1.5.3.dev26+ga777326ad-py3-none-any.whl`.
+- Wheel SHA-256: `b15a33f9e042fb5e6509c517abe84afca0f8a0dbf1466136ed043e239bb59e2a`.
+- Native debug probe SHA-256: `1203bd8446e2214ca4fd63a4207edf175f7d2107e6fc12ec719cd4734e8807d2`.
+
+On 2026-11-17, Linux 7.0 x86_64 (Ubuntu 24.04, glibc 2.39) and Python 3.11.18 passed anonymous loopback,
+static Bearer, HTTPS with explicit CA/base path, and enforced Provider modes of the unchanged
+`desktop/tests/real_server.py` through the ordinary product ConnectionManager. The probe was built with
+the product Cargo lock without `ci-fixtures` and selected this bundled qualification; the client and
+qualified contract digests are identical. `bundled_product_qualification_covers_every_desktop_operation`
+passed against the same records. The wheel and report are retained under ignored
+`desktop/.artifacts/gateway-batch-capture/` and `desktop/.artifacts/real-server.json`.
+The report marks the Desktop working tree dirty because the new qualification record and the regenerated
+IPC types were not yet committed. The first run of the harness failed in the anonymous loopback mode on the
+seeded partial-usage statistics assertion (`generation.requests` was 0, expected 2); the unchanged rerun
+passed all four modes, and that run is the one recorded here.
+This qualifies the observed local SQLite protocol; it does not establish installed WebView, native
+credential persistence, other operating systems, native database upgrades or release acceptance.
+
+Reproduce against the recorded artifact:
+
+```sh
+cargo build --locked --manifest-path desktop/src-tauri/Cargo.toml --example server_probe
+uv run --no-sync python desktop/tests/real_server.py \
+  --product-qualification sqlite-gateway-batch-capture-a777326a-v1 \
+  --wheel desktop/.artifacts/gateway-batch-capture/powercontext-1.5.3.dev26+ga777326ad-py3-none-any.whl
+```
+
+## Server e4d72fd2 gateway batch capture wording protocol qualification
+
+`sqlite-gateway-batch-capture-e4d72fd2-v1` qualifies all thirteen Desktop protocol operations against
+Server source `e4d72fd298dcc4828af2010aeb72a9361ea032cb`. Compared with the `a777326a` qualification, the
+contract changes only the description of `capture_content_sources`: already stored items keep their
+journal positions.
+
+- Normalized OpenAPI SHA-256: `d1d210c3b5d7983a045102983fe0a00af034ec85b24851e779645bca60762ca2`.
+- Wheel: `powercontext-1.5.3.dev30+ge4d72fd29-py3-none-any.whl`.
+- Wheel SHA-256: `b4e9e3de5367d935fb49bb7aa9340cda6d5e562ca4b370c9fe72fc9ebd5d77e3`.
+- Native debug probe SHA-256: `05d9b9ba16ff3197b06275a8878fddf46fa974475d464f243d6bc39e548736af`.
+
+On 2026-11-18, Linux 7.0 x86_64 (Ubuntu 24.04, glibc 2.39) and Python 3.11.18 passed anonymous loopback,
+static Bearer, HTTPS with explicit CA/base path, and enforced Provider modes of the unchanged
+`desktop/tests/real_server.py` through the ordinary product ConnectionManager. The probe was built with
+the product Cargo lock without `ci-fixtures` and selected this bundled qualification; the client and
+qualified contract digests are identical. `bundled_product_qualification_covers_every_desktop_operation`
+passed against the same records. The wheel and report are retained under ignored
+`desktop/.artifacts/gateway-batch-capture/` and `desktop/.artifacts/real-server.json`.
+The report marks the Desktop working tree dirty because the new qualification record was not yet committed.
+This qualifies the observed local SQLite protocol; it does not establish installed WebView, native
+credential persistence, other operating systems, native database upgrades or release acceptance.
+
+Reproduce against the recorded artifact:
+
+```sh
+cargo build --locked --manifest-path desktop/src-tauri/Cargo.toml --example server_probe
+uv run --no-sync python desktop/tests/real_server.py \
+  --product-qualification sqlite-gateway-batch-capture-e4d72fd2-v1 \
+  --wheel desktop/.artifacts/gateway-batch-capture/powercontext-1.5.3.dev30+ge4d72fd29-py3-none-any.whl
+```
+
+## Server 3989ab67 gateway batch capture and plugin reload protocol qualification
+
+`sqlite-gateway-batch-capture-3989ab67-v1` qualifies all thirteen Desktop protocol operations against
+Server source `3989ab67da9081ddd78a17e4fac53278ee1ebdf9`, the merge of the gateway batch capture contract
+(`e4d72fd2`) with the plugin reload contract (`0d56ec37`).
+
+- Normalized OpenAPI SHA-256: `638079aac0ca493d7624e42adb0a3c63efbf20b8c79ff76796f2b574ff369bf8`.
+- Wheel: `powercontext-1.5.3.dev73+g3989ab67d-py3-none-any.whl`.
+- Wheel SHA-256: `5c45a9c26539f45adb15a82bdd54ec620cf126a63b468a10e11a34085c8a0473`.
+- Native debug probe SHA-256: `515bd7750d29bed0d3dcefadc64aa0b275bb19a0937455a2f8a5e862b907d5ad`.
+
+On 2026-11-18, Linux 7.0 x86_64 (Ubuntu 24.04, glibc 2.39) and Python 3.11.18 passed anonymous loopback,
+static Bearer, HTTPS with explicit CA/base path, and enforced Provider modes of the unchanged
+`desktop/tests/real_server.py` through the ordinary product ConnectionManager. The probe was built with
+the product Cargo lock without `ci-fixtures` and selected this bundled qualification; the client and
+qualified contract digests are identical. `bundled_product_qualification_covers_every_desktop_operation`
+passed against the same records. The wheel and report are retained under ignored
+`desktop/.artifacts/gateway-batch-capture/` and `desktop/.artifacts/real-server.json`.
+The report marks the Desktop working tree dirty because the new qualification record was not yet committed.
+This qualifies the observed local SQLite protocol; it does not establish installed WebView, native
+credential persistence, other operating systems, native database upgrades or release acceptance.
+
+Reproduce against the recorded artifact:
+
+```sh
+cargo build --locked --manifest-path desktop/src-tauri/Cargo.toml --example server_probe
+uv run --no-sync python desktop/tests/real_server.py \
+  --product-qualification sqlite-gateway-batch-capture-3989ab67-v1 \
+  --wheel desktop/.artifacts/gateway-batch-capture/powercontext-1.5.3.dev73+g3989ab67d-py3-none-any.whl
+```
+
+## Server 60d660af gateway batch capture and Source plugins protocol qualification
+
+`sqlite-gateway-batch-capture-60d660af-v1` qualifies all thirteen Desktop protocol operations against
+Server source `60d660af233aafc8fcec04d596491d577f559710`, the merge of the gateway batch capture contract
+(`3989ab67`) with the Source plugins contract (`9f113a72`).
+
+- Normalized OpenAPI SHA-256: `61333b394f558123c510ffd3f0298d48cd1e264b7980b63133be600f437f0a9a`.
+- Wheel: `powercontext-1.5.3.dev77+g60d660af2-py3-none-any.whl`.
+- Wheel SHA-256: `584654915e6b832839d4d3e9efaf65bc21eb76c8a0f480bbe163e14287bd2681`.
+- Native debug probe SHA-256: `b4d6f75745be586144b581c56e94ac81541fd9c34406ace29f6712e19cdfae7b`.
+
+On 2026-11-18, Linux 7.0 x86_64 (Ubuntu 24.04, glibc 2.39) and Python 3.11.18 passed anonymous loopback,
+static Bearer, HTTPS with explicit CA/base path, and enforced Provider modes of the unchanged
+`desktop/tests/real_server.py` through the ordinary product ConnectionManager. The probe was built with
+the product Cargo lock without `ci-fixtures` and selected this bundled qualification; the client and
+qualified contract digests are identical. `bundled_product_qualification_covers_every_desktop_operation`
+passed against the same records. The wheel and report are retained under ignored
+`desktop/.artifacts/gateway-batch-capture/` and `desktop/.artifacts/real-server.json`.
+The report marks the Desktop working tree dirty because the new qualification record was not yet committed.
+This qualifies the observed local SQLite protocol; it does not establish installed WebView, native
+credential persistence, other operating systems, native database upgrades or release acceptance.
+
+Reproduce against the recorded artifact:
+
+```sh
+cargo build --locked --manifest-path desktop/src-tauri/Cargo.toml --example server_probe
+uv run --no-sync python desktop/tests/real_server.py \
+  --product-qualification sqlite-gateway-batch-capture-60d660af-v1 \
+  --wheel desktop/.artifacts/gateway-batch-capture/powercontext-1.5.3.dev77+g60d660af2-py3-none-any.whl
+```
+
+## Server 7d187e2f gateway batch capture and plugin Scope listing protocol qualification
+
+`sqlite-gateway-batch-capture-7d187e2f-v1` qualifies all thirteen Desktop protocol operations against
+Server source `7d187e2fbd2cf3da0a7d94be4fec574ace8f7adb`, the merge of the gateway batch capture contract
+(`60d660af`) with the plugin Scope listing contract (`bc22089e`).
+
+- Normalized OpenAPI SHA-256: `7251888d24eeb2f1c2514bf55fd28779ec1eafda35cc851d0d710d2661102f08`.
+- Wheel: `powercontext-1.5.3.dev85+g7d187e2fb-py3-none-any.whl`.
+- Wheel SHA-256: `2a9e0c59b1c6a48291b0965baa814450dccfdcc76e64d6164eca12e1bc50d932`.
+- Native debug probe SHA-256: `00643167b5a64d474b51c2a42127bcfff4f385a83784b3083547ae4447cbaf1e`.
+
+On 2026-11-18, Linux 7.0 x86_64 (Ubuntu 24.04, glibc 2.39) and Python 3.11.18 passed anonymous loopback,
+static Bearer, HTTPS with explicit CA/base path, and enforced Provider modes of the unchanged
+`desktop/tests/real_server.py` through the ordinary product ConnectionManager. The probe was built with
+the product Cargo lock without `ci-fixtures` and selected this bundled qualification; the client and
+qualified contract digests are identical. `bundled_product_qualification_covers_every_desktop_operation`
+passed against the same records. The wheel and report are retained under ignored
+`desktop/.artifacts/gateway-batch-capture/` and `desktop/.artifacts/real-server.json`.
+The report marks the Desktop working tree dirty because the new qualification record was not yet committed.
+This qualifies the observed local SQLite protocol; it does not establish installed WebView, native
+credential persistence, other operating systems, native database upgrades or release acceptance.
+
+Reproduce against the recorded artifact:
+
+```sh
+cargo build --locked --manifest-path desktop/src-tauri/Cargo.toml --example server_probe
+uv run --no-sync python desktop/tests/real_server.py \
+  --product-qualification sqlite-gateway-batch-capture-7d187e2f-v1 \
+  --wheel desktop/.artifacts/gateway-batch-capture/powercontext-1.5.3.dev85+g7d187e2fb-py3-none-any.whl
+```
+
+## Server 477a6c8b gateway batch capture metadata wording protocol qualification
+
+`sqlite-gateway-batch-capture-477a6c8b-v1` qualifies all thirteen Desktop protocol operations against
+Server source `477a6c8ba8893a2108c48e29d7a5551220198b99`. Compared with the `7d187e2f` qualification, the
+contract changes only the description of `capture_content_sources`: an already stored item counts as
+stored when both its content and its metadata match.
+
+- Normalized OpenAPI SHA-256: `d08d42ecaa26134d43ce8e8000c643713fa1664c975468cc8cbb24bfd81d49cb`.
+- Wheel: `powercontext-1.5.3.dev90+g477a6c8ba-py3-none-any.whl`.
+- Wheel SHA-256: `a0a85ffd2a9c498539e43b55bc929a35bd2b8244f6973d344158124bd9647e30`.
+- Native debug probe SHA-256: `d6c93d2465af015462299927ee5ce5bb87266b2e2e1e7690e53e8a65ee083dd2`.
+
+On 2026-11-18, Linux 7.0 x86_64 (Ubuntu 24.04, glibc 2.39) and Python 3.11.18 passed anonymous loopback,
+static Bearer, HTTPS with explicit CA/base path, and enforced Provider modes of the unchanged
+`desktop/tests/real_server.py` through the ordinary product ConnectionManager. The probe was built with
+the product Cargo lock without `ci-fixtures` and selected this bundled qualification; the client and
+qualified contract digests are identical. `bundled_product_qualification_covers_every_desktop_operation`
+passed against the same records. The wheel and report are retained under ignored
+`desktop/.artifacts/gateway-batch-capture/` and `desktop/.artifacts/real-server.json`.
+The report marks the Desktop working tree dirty because the new qualification record was not yet committed.
+This qualifies the observed local SQLite protocol; it does not establish installed WebView, native
+credential persistence, other operating systems, native database upgrades or release acceptance.
+
+Reproduce against the recorded artifact:
+
+```sh
+cargo build --locked --manifest-path desktop/src-tauri/Cargo.toml --example server_probe
+uv run --no-sync python desktop/tests/real_server.py \
+  --product-qualification sqlite-gateway-batch-capture-477a6c8b-v1 \
+  --wheel desktop/.artifacts/gateway-batch-capture/powercontext-1.5.3.dev90+g477a6c8ba-py3-none-any.whl
+```

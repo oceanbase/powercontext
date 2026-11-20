@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use pc_gateway_types::{
-    CaptureContentSourceRequest, ContextCheckRequest, ContextCheckResult, PrepareContextRequest,
+    CaptureContentSourcesRequest, ContextCheckRequest, ContextCheckResult, PrepareContextRequest,
     PrepareContextResult,
 };
 use std::future::Future;
@@ -39,11 +39,11 @@ pub trait GateClient: Send + Sync {
         request: PrepareContextRequest,
     ) -> impl Future<Output = Result<PrepareContextResult, GateError>> + Send;
 
-    /// CAPTURE_CONTENT_SOURCE：沉淀一轮过检对话（同步落库；提取在 PC 后台）。
+    /// CAPTURE_CONTENT_SOURCES：在一个事务内沉淀一轮过检对话的全部分段（同步落库；提取在 PC 后台）。
     /// best-effort：失败只记证据，不影响已过检响应的交付语义。
     fn capture(
         &self,
-        request: CaptureContentSourceRequest,
+        request: CaptureContentSourcesRequest,
     ) -> impl Future<Output = Result<serde_json::Value, GateError>> + Send;
 }
 

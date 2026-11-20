@@ -50,6 +50,7 @@ from powercontext.builtin.runtime.atomic_memory_rebuild import (
 from powercontext.builtin.runtime.relational import RelationalContexts
 from powercontext.builtin.scope import ScopeDraft
 from powercontext.builtin.sources import CONTENT_SOURCE_DEFINITION
+from powercontext.builtin.sources.content import ContentCapture
 from powercontext.sources import (
     TEXT_EVIDENCE_PROJECTION_KEY,
     AdapterSourceDefinition,
@@ -84,6 +85,59 @@ async def _commit(contexts, scope_id, artifact_id, text_value, *, sources=(), ar
     async with contexts.database.transaction() as connection:
         result = await application.service.commit(connection, prepared, None)
     return result.primary
+
+
+def test_batched_revisions_keep_their_own_evidence_after_reopen(migration_backend) -> None:
+    config = BuiltinConfig(database=migration_backend.config)
+    count = 600
+    shared = SourceRef(source_type="content", source_id="shared")
+    refs = tuple(SourceRef(source_type="content", source_id=f"fact-{index:04}") for index in range(count))
+
+    async def scenario() -> None:
+        async with open_builtin_contexts(config) as contexts:
+            await contexts.get("batch-evidence")
+            await contexts.records.capture_sources(
+                "batch-evidence",
+                tuple(
+                    ContentCapture(source_id=ref.source_id, content=f"Accepted material {ref.source_id}.", metadata={})
+                    for ref in (shared, *refs)
+                ),
+            )
+            application = contexts.atomic_memory
+            async with contexts.database.transaction() as connection:
+                plans = tuple([
+                    await application.service.inspect_change(
+                        connection,
+                        "batch-evidence",
+                        f"memory-{index:04}",
+                        AtomicMemoryContent(kind="fact", text=f"Accepted fact {index}."),
+                        None,
+                        lineage=ArtifactLineage(sources=(shared, ref)),
+                    )
+                    for index, ref in enumerate(refs)
+                ])
+            prepared = tuple([await application.service.prepare_change(plan) for plan in plans])
+
+            async with contexts.database.transaction() as connection:
+                await application.service.commit_window(connection, "batch-evidence", prepared, None)
+
+        async with open_builtin_contexts(config) as contexts:
+            memory = contexts.atomic_memory.for_scope("batch-evidence")
+            found = []
+            cursor = None
+            while True:
+                page = await memory.list(limit=100, cursor=cursor)
+                found.extend(item.ref.artifact_id for item in page.items)
+                cursor = page.next_cursor
+                if cursor is None:
+                    break
+            assert set(found) == {f"memory-{index:04}" for index in range(count)}
+            for index in (0, count // 2, count - 1):
+                evidence = await memory.evidence(f"memory-{index:04}", revision=1)
+                assert tuple(item.source_ref for item in evidence.sources) == (shared, refs[index])
+                assert all(item.declaration == MemoryEvidenceDeclaration() for item in evidence.sources)
+
+    asyncio.run(scenario())
 
 
 @pytest.mark.parametrize("representation", ["native", "observation"])
@@ -496,7 +550,6 @@ def test_shared_merge_and_restore_preserve_source_evidence(migration_backend: Mi
         async with open_builtin_runtime(
             BuiltinConfig(database=migration_backend.config),
             source_registry=registry,
-            scheduler_path=tmp_path / "scheduler.db",
         ) as runtime:
             assert runtime.scopes is not None
             scope = await runtime.scopes.create(

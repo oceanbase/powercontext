@@ -29,8 +29,9 @@ jobs:
     if: >-
       ${{ !cancelled() &&
           ((inputs.suites == '' && needs.changes.result != 'success') || fromJSON(inputs.suites || needs.changes.outputs.suites || '{}').gateway) }}
-    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'powercontext-ci-light' || 'ubuntu-24.04' }}
-    timeout-minutes: 20
+    runs-on: powercontext-ci-light
+    # Include Rust/Go toolchains, cold builds, and upstream protocol acceptance.
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -41,11 +42,18 @@ jobs:
         uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           workspaces: gateway -> target
+          shared-key: gateway
           cache-bin: false
+          cache-on-failure: true
       - name: Format check
         run: cargo fmt --manifest-path gateway/Cargo.toml --all --check
       - name: Clippy
         run: cargo clippy --locked --manifest-path gateway/Cargo.toml --all-targets -- -D warnings
+      - name: Install Python Core for mandatory UDS recovery acceptance
+        uses: ./.github/actions/setup-python-env
+        with:
+          python-version: "3.12"
+          shared-cache: 'true'
       - name: Tests
         run: cargo test --locked --manifest-path gateway/Cargo.toml --workspace
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0

@@ -33,7 +33,7 @@ ISSUES_URL = "https://github.com/oceanbase/powercontext/issues"
 # Extras are not recorded as installed. Check their declared requirements before
 # loading these providers; unrelated packages must not enable an incomplete role.
 _OPTIONAL_COMMAND_ROLES = {
-    "powercontext.builtin.code.cli:app": "builtin",
+    "powercontext.cli.code:app": "builtin",
     "powercontext.server.cli:app": "server",
     "powercontext.service.cli:app": "server",
 }
@@ -147,9 +147,10 @@ def create_cli(commands: Iterable[typer.Typer] | None = None) -> typer.Typer:
         )
 
     registered_names = register_commands(cli)
-    from powercontext.source_management.cli import register_commands as register_source_commands
+    from powercontext.source_agent import source_agent
 
-    registered_names.update(register_source_commands(cli))
+    cli.command(name="source-agent")(source_agent)
+    registered_names.add("source-agent")
 
     if commands is None:
         commands = _load_command_providers()

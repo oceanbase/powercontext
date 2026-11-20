@@ -56,7 +56,6 @@ def dashboard(tmp_path: Path):
             access=AccessControlConfig(mode="enforced"),
             auth=BearerAuthConfig(token=SecretStr(token)),
         ),
-        scheduler_path=tmp_path / "scheduler.db",
     )
     with TestClient(app) as client:
         client.headers["Authorization"] = f"Bearer {token}"
@@ -105,6 +104,32 @@ def test_prompt_and_profile_dashboards_open_without_content(dashboard: TestClien
     assert profile.status_code == 200
     assert "No profile in this scope" in profile.text
     assert "Prompts" in prompts.text
+
+
+@pytest.mark.parametrize("language", ["en", "zh"])
+def test_dashboard_displays_topic_and_profile_prompts(dashboard: TestClient, language: str) -> None:
+    scope = create_scope(dashboard, "Prompt visibility")["scope_id"]
+    response = dashboard.get("/dashboard/prompts", params={"scope": scope, "lang": language})
+    assert response.status_code == 200
+    assert response.text.count('class="supporting-details prompt-group mb-3"') == 6
+    assert CATALOGS[language]["prompt_topic_conditional"] in response.text
+    for key in (
+        "topic_memory.probe",
+        "topic_memory.global",
+        "topic_memory.planner",
+        "topic_memory.evolve",
+        "topic_memory.temporary",
+        "topic_memory.reduce",
+        "topic_memory.reconcile",
+        "profile.generate",
+    ):
+        configuration = dashboard.get(f"/v1/scopes/{scope}/prompts/{key}")
+        assert configuration.status_code == 200
+        instructions = configuration.json()["builtin"]["instructions"]
+        assert instructions
+        assert unescape(instructions) in unescape(response.text)
+        assert f"<code>{key}</code>" in response.text
+        assert CATALOGS[language][key] in response.text
 
 
 def test_dashboard_favicons_use_square_viewports(dashboard: TestClient) -> None:
@@ -200,9 +225,9 @@ def test_malformed_usage_preserves_authorized_page_sections(dashboard: TestClien
 
 
 def test_dashboard_preserves_injected_atomic_read_rules(dashboard: TestClient, monkeypatch) -> None:
+    from powercontext.builtin.authz import AccessDeniedError
     from powercontext.builtin.runtime.application import BuiltinRuntime
     from powercontext.builtin.runtime.atomic_memory import AtomicMemoryAccess, AtomicMemoryApplication
-    from powercontext.server.authz import AccessDeniedError
 
     class DenyRead(AtomicMemoryAccess):
         async def authorize(self, connection, scope_id, context, action, ref=None):
@@ -556,7 +581,6 @@ def test_memory_search_modes_surface_semantic_hits_and_keep_navigation(tmp_path:
             dashboard=DashboardConfig(enabled=True),
             mcp=McpConfig(enabled=False),
         ),
-        scheduler_path=tmp_path / "scheduler.db",
         embedding_model=CoffeeEmbedding(),
     )
     with TestClient(app) as client:
@@ -1287,7 +1311,6 @@ def test_authentication_recovers_without_exposing_credentials(tmp_path: Path) ->
             auth=BearerAuthConfig(enabled=True, token=SecretStr(token)),
             mcp=McpConfig(enabled=False),
         ),
-        scheduler_path=tmp_path / "scheduler.db",
     )
     with TestClient(app) as client:
         assert client.get("/dashboard/home").status_code == 401
@@ -1326,7 +1349,6 @@ def test_sign_in_returns_to_selected_scope(tmp_path: Path) -> None:
             auth=BearerAuthConfig(enabled=True, token=SecretStr(token)),
             mcp=McpConfig(enabled=False),
         ),
-        scheduler_path=tmp_path / "scheduler.db",
     )
     with TestClient(app) as client:
         client.headers["Authorization"] = f"Bearer {token}"
@@ -1396,13 +1418,13 @@ def test_committed_handoff_json_and_its_sources_are_readable(dashboard: TestClie
 
 
 def test_dashboard_is_opt_in_and_enforced_access_requires_the_static_token_profile(tmp_path: Path, monkeypatch) -> None:
+    from powercontext.builtin.authz import PrincipalRef
     from powercontext.server.authentication import StaticBearerAuthenticationProvider
-    from powercontext.server.authz import PrincipalRef
 
     monkeypatch.setenv("POWERCONTEXT_SERVER_DASHBOARD_ENABLED", "false")
     database = SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path}/disabled.db")
     settings = ServerSettings(database=database, mcp=McpConfig(enabled=False))
-    with TestClient(create_server_app(settings=settings, scheduler_path=tmp_path / "scheduler.db")) as client:
+    with TestClient(create_server_app(settings=settings)) as client:
         assert client.get("/health/ready").status_code == 200
         assert client.get("/v1/scopes/default").status_code == 200
         for path in ("/", "/dashboard/home", "/dashboard/static/layout.css"):
@@ -1435,7 +1457,7 @@ def test_disabled_dashboard_does_not_offer_token_login(tmp_path: Path) -> None:
         auth=BearerAuthConfig(token=SecretStr(token)),
         mcp=McpConfig(enabled=False),
     )
-    with TestClient(create_server_app(settings=settings, scheduler_path=tmp_path / "scheduler.db")) as client:
+    with TestClient(create_server_app(settings=settings)) as client:
         response = client.get("/dashboard/home")
         assert response.status_code == 401
         assert response.headers["content-type"].startswith("application/json")

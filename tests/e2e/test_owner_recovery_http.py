@@ -26,13 +26,13 @@ import httpx
 import pytest
 from typer.testing import CliRunner
 
+from powercontext.builtin.authz import AccessUnavailableError, PrincipalRef, RelationshipStore, ResourceRef
+from powercontext.builtin.authz.composition import open_builtin_access_control
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.records import ArtifactWrite
 from powercontext.builtin.runtime import RuntimeConfig
 from powercontext.cli.app import create_cli
 from powercontext.server.authentication import AuthenticationResult, ProviderReadiness
-from powercontext.server.authz import AccessUnavailableError, PrincipalRef, RelationshipStore, ResourceRef
-from powercontext.server.authz.composition import open_builtin_access_control
 from powercontext.server.factory import create_server_app
 from powercontext.server.settings import AccessControlConfig, McpConfig, MetricsConfig, ServerSettings
 
@@ -86,7 +86,6 @@ async def _server(tmp_path, *, interrupted=False):
             ),
             access_control=access,
             authentication_provider=_Authentication(),
-            scheduler_path=tmp_path / "scheduler.db",
         )
         async with (
             app.router.lifespan_context(app),

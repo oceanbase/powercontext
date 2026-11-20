@@ -25,6 +25,7 @@ from pathlib import Path
 import pytest
 
 from powercontext.artifacts import ArtifactRef
+from powercontext.builtin.authz.composition import open_builtin_access_control
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.records import ArtifactWrite
 from powercontext.builtin.runtime import (
@@ -37,7 +38,6 @@ from powercontext.builtin.runtime import (
     RuntimeConfig,
 )
 from powercontext.builtin.scope import ScopeDraft
-from powercontext.server.authz.composition import open_builtin_access_control
 from tests.e2e.dream_support import open_dream_runtime, process_pending
 from tests.e2e.test_dream_skill_prompt import PromptGenerator
 from tests.e2e.test_owner_recovery_http import ALICE, _server

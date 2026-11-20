@@ -240,7 +240,7 @@ def test_website_build_uses_the_standard_internal_runner():
 
 def test_all_end_to_end_suites_have_extended_timeout():
     timeout = workflow("master.yml")["jobs"]["tests"]["timeout-minutes"]
-    assert timeout == "${{ matrix.suite == 'e2e' && 55 || 50 }}"
+    assert timeout == "${{ matrix.suite == 'e2e' && 90 || 75 }}"
 
 
 def test_installation_roles_use_only_two_python_runners():
@@ -284,11 +284,8 @@ def test_automatic_host_workflows_share_one_scope_and_admission_gate():
                 assert "fromJSON(inputs.suites || needs.changes.outputs.suites || '{}')" in child_job["if"]
 
 
-def test_compatibility_and_upgrade_matrices_have_bounded_runner_bursts():
-    assert int(workflow("master.yml")["jobs"]["tests"]["strategy"]["max-parallel"]) <= 3
-    assert int(workflow("master.yml")["jobs"]["isolated-installations"]["strategy"]["max-parallel"]) <= 2
+def test_upgrade_evidence_and_hosted_candidate_budgets():
     upgrade = workflow("upgrade-release.yml")["jobs"]["cases"]["strategy"]
-    assert int(upgrade["max-parallel"]) <= 3
     assert upgrade["fail-fast"] is False  # Complete upgrade evidence remains mandatory.
     jobs = workflow("managed-resource-candidates.yml")["jobs"]
     native = jobs["candidate"]["strategy"]

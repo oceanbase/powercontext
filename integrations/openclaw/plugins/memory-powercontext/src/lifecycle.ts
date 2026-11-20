@@ -15,7 +15,6 @@
  */
 
 
-import { createHash } from "node:crypto";
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk/plugin-entry";
 import { normalizeAgentId, parseAgentSessionKey } from "openclaw/plugin-sdk/routing";
 import type { PowerContextConfig } from "./config.js";
@@ -30,7 +29,9 @@ import {
 } from "./content.js";
 import type { PowerContextClient } from "./http.js";
 import { createDiagnosticEmitter, failureEvent } from "./diagnostics.js";
+import { type FlushProgress, nonNegativeInteger, readFlushProgress, scopeCorrelation } from "./flush-progress.js";
 import { resolvePowerContextScope } from "./scope.js";
+import { containsSecret, scrubSecrets } from "./prompt-privacy.js";
 import { isPowerContextCapabilities, isPreparedContext } from "./types.js";
 
 type LifecycleDependencies = {
@@ -43,11 +44,6 @@ type LifecycleDependencies = {
 const MAX_SESSION_SCOPES = 32;
 const MAX_TRACKED_RUNS = 64;
 const CLOSING_BUDGET_MS = 1000;
-
-type FlushProgress = {
-  currentCursor: number;
-  remainingWork: boolean;
-};
 
 type CheckpointResult = {
   acknowledged: boolean;
@@ -66,10 +62,6 @@ function agentIdFromSessionKey(sessionKey: string | undefined): string | undefin
   return agentId ? normalizeAgentId(agentId) : undefined;
 }
 
-function nonNegativeInteger(value: unknown): value is number {
-  return typeof value === "number" && Number.isInteger(value) && value >= 0;
-}
-
 function sourcePosition(value: unknown): number {
   if (!value || typeof value !== "object") {
     throw new Error("PowerContext returned an invalid Source capture payload");
@@ -82,28 +74,16 @@ function sourcePosition(value: unknown): number {
 }
 
 function flushProgress(value: unknown): FlushProgress {
-  if (!value || typeof value !== "object") {
+  const progress = readFlushProgress(value);
+  if (!progress) {
     throw new Error("PowerContext returned an invalid flush payload");
   }
-  const result = value as Record<string, unknown>;
-  if (
-    !["idle", "processed"].includes(String(result.status))
-    || !nonNegativeInteger(result.previous_cursor)
-    || !nonNegativeInteger(result.current_cursor)
-    || !nonNegativeInteger(result.high_watermark)
-    || !nonNegativeInteger(result.processed_source_count)
-    || (result.remaining_work !== undefined && typeof result.remaining_work !== "boolean")
-  ) {
-    throw new Error("PowerContext returned an invalid flush payload");
-  }
-  return {
-    currentCursor: result.current_cursor,
-    remainingWork: result.remaining_work === true,
-  };
+  return progress;
 }
 
-function scopeCorrelation(scopeId: string): string {
-  return createHash("sha256").update(scopeId).digest("hex").slice(0, 16);
+// Fetch trims the Authorization header value, so the Server sees the trimmed token.
+function serverToken(config: PowerContextConfig): string | undefined {
+  return process.env[config.tokenEnv]?.trim() || undefined;
 }
 
 export function registerPowerContextLifecycle(api: OpenClawPluginApi, deps: LifecycleDependencies) {
@@ -337,6 +317,11 @@ export function registerPowerContextLifecycle(api: OpenClawPluginApi, deps: Life
     ) {
       return;
     }
+    // Check the whole latest user text, because truncation can shorten a credential below a recognizable shape.
+    const text = latestUserText(params.messages);
+    if (!text || containsSecret(text, serverToken(config))) {
+      return;
+    }
     const content = captureTranscript(params.messages, config.captureMaxChars);
     if (!content) {
       return;
@@ -453,7 +438,7 @@ export function registerPowerContextLifecycle(api: OpenClawPluginApi, deps: Life
       });
       const prepared = await deps.client.post<unknown>("/v1/context/prepare", {
         scope_id: scopeId,
-        query: truncateUtf8(query, 8192),
+        query: truncateUtf8(scrubSecrets(query, serverToken(config)), 8192),
         max_bytes: config.prepareMaxBytes,
         ...(config.contextAssembly !== undefined ? { assembly: config.contextAssembly } : {}),
       });

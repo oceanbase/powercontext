@@ -7,7 +7,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
     "info": {
         "title": "PowerContext API",
         "description": "Remote PowerContext transport. Runtime behavior is reported by /v1/capabilities.",
-        "version": "1.5.1",
+        "version": "1.5.2",
     },
     "paths": {
         "/v1/recall/manifest": {
@@ -499,319 +499,6 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "x-powercontext-access": {"action": "server.observe", "resource": {"type": "server"}},
             }
         },
-        "/v1/admin/artifact-plugins": {
-            "get": {
-                "tags": ["artifact-plugins"],
-                "summary": "List Artifact plugin registrations",
-                "operationId": "list_artifact_plugins",
-                "responses": {
-                    "200": {
-                        "description": "Durable registration states.",
-                        "content": {
-                            "application/json": {"schema": {"$ref": "#/components/schemas/ArtifactPluginPage"}}
-                        },
-                    },
-                    "401": {"$ref": "#/components/responses/Unauthorized"},
-                    "403": {"$ref": "#/components/responses/Forbidden"},
-                    "503": {"$ref": "#/components/responses/Unavailable"},
-                },
-                "x-powercontext-access": {"action": "server.admin", "resource": {"type": "server"}},
-            }
-        },
-        "/v1/admin/artifact-plugins/{binding_name}": {
-            "get": {
-                "tags": ["artifact-plugins"],
-                "summary": "Get an Artifact plugin registration",
-                "operationId": "get_artifact_plugin",
-                "x-powercontext-access": {"action": "server.admin", "resource": {"type": "server"}},
-                "parameters": [
-                    {
-                        "name": "binding_name",
-                        "in": "path",
-                        "required": True,
-                        "schema": {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-z][a-z0-9-]*$"},
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "Durable registration state without plugin configuration secrets.",
-                        "content": {
-                            "application/json": {"schema": {"$ref": "#/components/schemas/ArtifactPluginState"}}
-                        },
-                    },
-                    "401": {"$ref": "#/components/responses/Unauthorized"},
-                    "403": {"$ref": "#/components/responses/Forbidden"},
-                    "404": {"$ref": "#/components/responses/NotFound"},
-                    "503": {"$ref": "#/components/responses/Unavailable"},
-                },
-            }
-        },
-        "/v1/admin/artifact-plugins/enable-all": {
-            "post": {
-                "tags": ["artifact-plugins"],
-                "summary": "Enable the currently disabled Artifact plugins",
-                "description": "Captures "
-                "registrations and "
-                "generations at "
-                "request start, then "
-                "accepts each "
-                "eligible enable "
-                "independently. "
-                "Enabled, unloaded, "
-                "failed and "
-                "transitioning "
-                "plugins are skipped. "
-                "Concurrent changes "
-                "and validation "
-                "failures are "
-                "reported per plugin "
-                "without rolling back "
-                "successes. Does not "
-                "discover or reload "
-                "plugins; poll each "
-                "status URL for the "
-                "asynchronous "
-                "outcome.",
-                "operationId": "enable_all_artifact_plugins",
-                "responses": {
-                    "200": {
-                        "description": "Per-plugin acceptance, skip or failure results.",
-                        "content": {
-                            "application/json": {
-                                "schema": {"$ref": "#/components/schemas/EnableAllArtifactPluginsResponse"}
-                            }
-                        },
-                    },
-                    "401": {"$ref": "#/components/responses/Unauthorized"},
-                    "403": {"$ref": "#/components/responses/Forbidden"},
-                    "503": {"$ref": "#/components/responses/Unavailable"},
-                },
-                "x-powercontext-access": {"action": "server.admin", "resource": {"type": "server"}},
-            }
-        },
-        "/v1/admin/artifact-plugins/{binding_name}/reload": {
-            "post": {
-                "tags": ["artifact-plugins"],
-                "summary": "Load or update a Worker-loaded Artifact plugin",
-                "description": "Reads the "
-                "binding's "
-                "direct "
-                "child "
-                "entry "
-                "under "
-                "POWERCONTEXT_SERVER_ARTIFACT_PLUGINS_DIR "
-                "and fixes "
-                "its "
-                "resolved "
-                "immutable "
-                "directory. "
-                "The "
-                "manifest "
-                "binding_name "
-                "must "
-                "match the "
-                "directory "
-                "entry and "
-                "request "
-                "path. "
-                "Saves "
-                "validated "
-                "configuration "
-                "and "
-                "declarations "
-                "without "
-                "creating "
-                "a "
-                "pipeline. "
-                "Existing "
-                "enabled "
-                "or "
-                "disabled "
-                "plugins "
-                "keep "
-                "their "
-                "state; "
-                "initial, "
-                "unloaded "
-                "or failed "
-                "registrations "
-                "become "
-                "disabled. "
-                "This "
-                "initial "
-                "path "
-                "supports "
-                "the "
-                "global "
-                "SQLite "
-                "Supervisor. "
-                "Plugin "
-                "code is "
-                "loaded "
-                "only in "
-                "child "
-                "processes.",
-                "operationId": "reload_artifact_plugin",
-                "x-powercontext-access": {"action": "server.admin", "resource": {"type": "server"}},
-                "parameters": [
-                    {
-                        "name": "binding_name",
-                        "in": "path",
-                        "required": True,
-                        "schema": {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-z][a-z0-9-]*$"},
-                    }
-                ],
-                "requestBody": {
-                    "required": True,
-                    "content": {
-                        "application/json": {"schema": {"$ref": "#/components/schemas/ReloadArtifactPluginRequest"}}
-                    },
-                },
-                "responses": {
-                    "202": {
-                        "description": "Definition saved; poll its registration state until transition completes.",
-                        "headers": {
-                            "Location": {"schema": {"type": "string"}, "description": "Registration status URL."}
-                        },
-                        "content": {
-                            "application/json": {"schema": {"$ref": "#/components/schemas/ArtifactPluginState"}}
-                        },
-                    },
-                    "400": {"$ref": "#/components/responses/BadRequest"},
-                    "401": {"$ref": "#/components/responses/Unauthorized"},
-                    "403": {"$ref": "#/components/responses/Forbidden"},
-                    "409": {"$ref": "#/components/responses/Conflict"},
-                    "422": {"$ref": "#/components/responses/InvalidRequest"},
-                    "503": {"$ref": "#/components/responses/Unavailable"},
-                },
-            }
-        },
-        "/v1/admin/artifact-plugins/{binding_name}/enable": {
-            "post": {
-                "tags": ["artifact-plugins"],
-                "summary": "Enable an Artifact plugin",
-                "operationId": "enable_artifact_plugin",
-                "x-powercontext-access": {"action": "server.admin", "resource": {"type": "server"}},
-                "parameters": [
-                    {
-                        "name": "binding_name",
-                        "in": "path",
-                        "required": True,
-                        "schema": {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-z][a-z0-9-]*$"},
-                    }
-                ],
-                "requestBody": {
-                    "required": True,
-                    "content": {
-                        "application/json": {
-                            "schema": {"$ref": "#/components/schemas/ChangeArtifactPluginStateRequest"}
-                        }
-                    },
-                },
-                "responses": {
-                    "202": {
-                        "description": "Target saved; poll its registration state until transition completes.",
-                        "headers": {
-                            "Location": {"schema": {"type": "string"}, "description": "Registration status URL."}
-                        },
-                        "content": {
-                            "application/json": {"schema": {"$ref": "#/components/schemas/ArtifactPluginState"}}
-                        },
-                    },
-                    "400": {"$ref": "#/components/responses/BadRequest"},
-                    "401": {"$ref": "#/components/responses/Unauthorized"},
-                    "403": {"$ref": "#/components/responses/Forbidden"},
-                    "404": {"$ref": "#/components/responses/NotFound"},
-                    "409": {"$ref": "#/components/responses/Conflict"},
-                    "422": {"$ref": "#/components/responses/InvalidRequest"},
-                    "503": {"$ref": "#/components/responses/Unavailable"},
-                },
-            }
-        },
-        "/v1/admin/artifact-plugins/{binding_name}/disable": {
-            "post": {
-                "tags": ["artifact-plugins"],
-                "summary": "Disable an Artifact plugin",
-                "operationId": "disable_artifact_plugin",
-                "x-powercontext-access": {"action": "server.admin", "resource": {"type": "server"}},
-                "parameters": [
-                    {
-                        "name": "binding_name",
-                        "in": "path",
-                        "required": True,
-                        "schema": {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-z][a-z0-9-]*$"},
-                    }
-                ],
-                "requestBody": {
-                    "required": True,
-                    "content": {
-                        "application/json": {
-                            "schema": {"$ref": "#/components/schemas/ChangeArtifactPluginStateRequest"}
-                        }
-                    },
-                },
-                "responses": {
-                    "202": {
-                        "description": "Target saved; poll its registration state until transition completes.",
-                        "headers": {
-                            "Location": {"schema": {"type": "string"}, "description": "Registration status URL."}
-                        },
-                        "content": {
-                            "application/json": {"schema": {"$ref": "#/components/schemas/ArtifactPluginState"}}
-                        },
-                    },
-                    "400": {"$ref": "#/components/responses/BadRequest"},
-                    "401": {"$ref": "#/components/responses/Unauthorized"},
-                    "403": {"$ref": "#/components/responses/Forbidden"},
-                    "404": {"$ref": "#/components/responses/NotFound"},
-                    "409": {"$ref": "#/components/responses/Conflict"},
-                    "422": {"$ref": "#/components/responses/InvalidRequest"},
-                    "503": {"$ref": "#/components/responses/Unavailable"},
-                },
-            }
-        },
-        "/v1/admin/artifact-plugins/{binding_name}/unload": {
-            "post": {
-                "tags": ["artifact-plugins"],
-                "summary": "Unload an Artifact plugin",
-                "operationId": "unload_artifact_plugin",
-                "x-powercontext-access": {"action": "server.admin", "resource": {"type": "server"}},
-                "parameters": [
-                    {
-                        "name": "binding_name",
-                        "in": "path",
-                        "required": True,
-                        "schema": {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-z][a-z0-9-]*$"},
-                    }
-                ],
-                "requestBody": {
-                    "required": True,
-                    "content": {
-                        "application/json": {
-                            "schema": {"$ref": "#/components/schemas/ChangeArtifactPluginStateRequest"}
-                        }
-                    },
-                },
-                "responses": {
-                    "202": {
-                        "description": "Target saved; poll its registration state until transition completes.",
-                        "headers": {
-                            "Location": {"schema": {"type": "string"}, "description": "Registration status URL."}
-                        },
-                        "content": {
-                            "application/json": {"schema": {"$ref": "#/components/schemas/ArtifactPluginState"}}
-                        },
-                    },
-                    "400": {"$ref": "#/components/responses/BadRequest"},
-                    "401": {"$ref": "#/components/responses/Unauthorized"},
-                    "403": {"$ref": "#/components/responses/Forbidden"},
-                    "404": {"$ref": "#/components/responses/NotFound"},
-                    "409": {"$ref": "#/components/responses/Conflict"},
-                    "422": {"$ref": "#/components/responses/InvalidRequest"},
-                    "503": {"$ref": "#/components/responses/Unavailable"},
-                },
-            }
-        },
         "/v1/capabilities": {
             "get": {
                 "tags": ["capabilities"],
@@ -849,8 +536,12 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "full-width/half-width matching follow the "
                 "underlying database collation; results need not "
                 "be identical across backends. Requests without "
-                "query parameters preserve the existing "
-                "complete-list behavior.",
+                "query parameters return the complete list in one "
+                "response. Scopes created by a plugin (external "
+                "reference kind `powercontext.plugin`) are used "
+                "through that plugin and are left out of every "
+                "listing, unless `external_reference_kind` is "
+                "`powercontext.plugin`.",
                 "operationId": "list_scopes",
                 "x-powercontext-feature-contracts": ["scope.selection"],
                 "x-powercontext-access": {"action": "server.observe", "resource": {"type": "server"}},
@@ -1311,6 +1002,62 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "x-powercontext-scope-mode": "current",
             }
         },
+        "/v1/sources/content/batch": {
+            "post": {
+                "tags": ["sources"],
+                "summary": "Capture several ContentSources in one transaction",
+                "description": "Accept an ordered group of raw "
+                "content Sources that belong "
+                "together, such as the parts of "
+                "one conversation turn. Each item "
+                "follows the rules of the single "
+                "ContentSource capture operation. "
+                "All items are stored in one "
+                "transaction, or none is stored. "
+                "Newly stored items receive "
+                "consecutive journal positions in "
+                "request order. An exact replay "
+                "is idempotent, and an item whose "
+                "identity already exists with the "
+                "same content and metadata counts "
+                "as stored and keeps its existing "
+                "position. An item whose identity "
+                "exists with different content or "
+                "different metadata rejects the "
+                "whole request. Accepted Source "
+                "evidence does not mean Memory "
+                "was extracted.",
+                "operationId": "capture_content_sources",
+                "requestBody": {
+                    "content": {
+                        "application/json": {"schema": {"$ref": "#/components/schemas/CaptureContentSourcesRequest"}}
+                    },
+                    "required": True,
+                },
+                "responses": {
+                    "202": {
+                        "description": "Every Source is durably stored for later processing.",
+                        "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+                        "content": {
+                            "application/json": {
+                                "schema": {"$ref": "#/components/schemas/CaptureContentSourcesResponse"}
+                            }
+                        },
+                    },
+                    "409": {"$ref": "#/components/responses/Conflict"},
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "403": {"$ref": "#/components/responses/Forbidden"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                    "503": {"$ref": "#/components/responses/Unavailable"},
+                    "500": {"$ref": "#/components/responses/InternalError"},
+                },
+                "x-powercontext-access": {
+                    "action": "scope.contribute",
+                    "resource": {"type": "scope", "scope-id-from": "scope_id"},
+                },
+                "x-powercontext-scope-mode": "current",
+            }
+        },
         "/v1/sources/working-notes": {
             "post": {
                 "tags": ["sources"],
@@ -1463,7 +1210,31 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
             "post": {
                 "tags": ["source-ingestion"],
                 "summary": "Commit a Connector binding checkpoint",
-                "description": "Replaces the checkpoint only when its expected starting value still matches.",
+                "description": "Replaces the checkpoint "
+                "only when its expected "
+                "starting value still "
+                "matches. A binding that "
+                "is a collection target is "
+                "committed only by the "
+                "runner the target belongs "
+                "to, with the target's "
+                "current configuration "
+                "version: the target's "
+                "existence, enabled state, "
+                "runner, and configuration "
+                "version are checked in "
+                "the transaction that "
+                "writes the checkpoint and "
+                "the reported status, "
+                "whichever optional fields "
+                "the request carries. The "
+                "connector version target "
+                "is reserved for "
+                "collection targets: a "
+                "commit that names it, or "
+                "carries config_version, "
+                "for a target that no "
+                "longer exists is refused.",
                 "operationId": "commit_connector_checkpoint",
                 "requestBody": {
                     "content": {
@@ -2291,6 +2062,985 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "resource": {"type": "scope", "scope-id-from": "scope_id"},
                 },
                 "x-powercontext-scope-mode": "current",
+            }
+        },
+        "/v1/plugins": {
+            "get": {
+                "tags": ["plugins"],
+                "summary": "List loaded plugins",
+                "description": "Lists the plugins in the plugin directory as "
+                "this Server instance sees them: whether each "
+                "loaded or failed, the version in use, and what "
+                "it declares. Plugins have no persisted "
+                "lifecycle state. Each instance rescans the "
+                "directory on its own, so instances may briefly "
+                "differ after a plugin changes.",
+                "operationId": "list_plugins",
+                "responses": {
+                    "200": {
+                        "description": "Plugins found in the plugin directory by this instance.",
+                        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/PluginPage"}}},
+                    },
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "403": {"$ref": "#/components/responses/Forbidden"},
+                    "503": {"$ref": "#/components/responses/Unavailable"},
+                },
+                "x-powercontext-access": {"action": "server.admin", "resource": {"type": "server"}},
+            }
+        },
+        "/v1/plugins/{name}": {
+            "get": {
+                "tags": ["plugins"],
+                "summary": "Get one loaded plugin",
+                "operationId": "get_plugin",
+                "x-powercontext-access": {"action": "server.admin", "resource": {"type": "server"}},
+                "parameters": [
+                    {
+                        "name": "name",
+                        "in": "path",
+                        "required": True,
+                        "schema": {"type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[a-z][a-z0-9-]*$"},
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "The plugin's check result, version in use, and declaration on this instance.",
+                        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/PluginState"}}},
+                    },
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "403": {"$ref": "#/components/responses/Forbidden"},
+                    "404": {"$ref": "#/components/responses/NotFound"},
+                    "503": {"$ref": "#/components/responses/Unavailable"},
+                },
+            }
+        },
+        "/v1/plugins/{name}/openapi.json": {
+            "get": {
+                "tags": ["plugins"],
+                "summary": "Describe a plugin's own routes",
+                "description": "Returns an OpenAPI 3.1 "
+                "document that core "
+                "generates from the routes "
+                "the loaded plugin version "
+                "declares: paths, methods, "
+                "the access each route "
+                "requires, request and "
+                "response schemas, and the "
+                "shared error responses. The "
+                "plugin owns the "
+                "compatibility of its "
+                "routes.",
+                "operationId": "get_plugin_openapi",
+                "x-powercontext-access": {"action": "access.self", "resource": {"type": "server"}},
+                "parameters": [
+                    {
+                        "name": "name",
+                        "in": "path",
+                        "required": True,
+                        "schema": {"type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[a-z][a-z0-9-]*$"},
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "The plugin's route description.",
+                        "content": {
+                            "application/json": {"schema": {"$ref": "#/components/schemas/PluginOpenApiDocument"}}
+                        },
+                    },
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "403": {"$ref": "#/components/responses/Forbidden"},
+                    "404": {"$ref": "#/components/responses/NotFound"},
+                    "503": {"$ref": "#/components/responses/Unavailable"},
+                },
+            }
+        },
+        "/v1/source-runners": {
+            "get": {
+                "tags": ["source-collection"],
+                "summary": "List collection runners",
+                "description": "Lists the Server's own runner and every "
+                "registered runner, with the Source "
+                "plugins each loaded, whether each plugin "
+                "version is compatible with the version "
+                "this Server loaded, and when each runner "
+                "last synced. A capability's description, "
+                "parameter schema, and identity come from "
+                "the Source plugin this Server loaded.",
+                "operationId": "pc_source_runners",
+                "responses": {
+                    "200": {
+                        "description": "Runners ordered by name.",
+                        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/SourceRunnerPage"}}},
+                    },
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "403": {"$ref": "#/components/responses/Forbidden"},
+                    "503": {"$ref": "#/components/responses/Unavailable"},
+                },
+                "x-powercontext-access": {"action": "access.self", "resource": {"type": "server"}},
+            },
+            "post": {
+                "tags": ["source-collection"],
+                "summary": "Register a collection runner",
+                "description": "Registers a runner for the caller and "
+                "returns its name, which is unique "
+                "across the deployment and never "
+                "changes. With registration_id, the "
+                "Server uses suggested_name when no "
+                "runner has it and assigns another name "
+                "otherwise; the same caller registering "
+                "again with the same registration_id "
+                "gets the same runner. With name, the "
+                "runner takes exactly that name: it is "
+                "created when no runner has it, the "
+                "caller's own runner of that name is "
+                "returned, and a name another principal "
+                "registered is a conflict. The name "
+                "server is reserved.",
+                "operationId": "register_source_runner",
+                "requestBody": {
+                    "content": {
+                        "application/json": {"schema": {"$ref": "#/components/schemas/SourceRunnerRegisterRequest"}}
+                    },
+                    "required": True,
+                },
+                "responses": {
+                    "201": {
+                        "description": "The runner was registered.",
+                        "content": {
+                            "application/json": {"schema": {"$ref": "#/components/schemas/SourceRunnerRegistration"}}
+                        },
+                    },
+                    "200": {
+                        "description": "The caller had already registered this runner.",
+                        "content": {
+                            "application/json": {"schema": {"$ref": "#/components/schemas/SourceRunnerRegistration"}}
+                        },
+                    },
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "403": {"$ref": "#/components/responses/Forbidden"},
+                    "409": {"$ref": "#/components/responses/Conflict"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                    "503": {"$ref": "#/components/responses/Unavailable"},
+                },
+                "x-powercontext-access": {"action": "access.self", "resource": {"type": "server"}},
+            },
+        },
+        "/v1/source-runners/{runner}/sync": {
+            "post": {
+                "tags": ["source-collection"],
+                "summary": "Sync a collection runner",
+                "description": "Records the runner's "
+                "loaded Source plugins and "
+                "last-seen time and "
+                "returns every enabled "
+                "target assigned to it "
+                "across Scopes, with each "
+                "target's configuration "
+                "version and checkpoint. "
+                "The runner must be "
+                "registered, and only the "
+                "principal that registered "
+                "it may sync. Targets of "
+                "plugins whose version "
+                "this Server does not "
+                "accept are withheld and "
+                "listed as rejected.",
+                "operationId": "sync_source_runner",
+                "x-powercontext-access": {"action": "access.self", "resource": {"type": "server"}},
+                "parameters": [
+                    {
+                        "name": "runner",
+                        "in": "path",
+                        "required": True,
+                        "schema": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 128,
+                            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@-]*$",
+                        },
+                    }
+                ],
+                "requestBody": {
+                    "required": True,
+                    "content": {
+                        "application/json": {"schema": {"$ref": "#/components/schemas/SourceRunnerSyncRequest"}}
+                    },
+                },
+                "responses": {
+                    "200": {
+                        "description": "The runner's current targets.",
+                        "content": {
+                            "application/json": {"schema": {"$ref": "#/components/schemas/SourceRunnerSyncResult"}}
+                        },
+                    },
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "403": {"$ref": "#/components/responses/Forbidden"},
+                    "404": {"$ref": "#/components/responses/NotFound"},
+                    "409": {"$ref": "#/components/responses/Conflict"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                    "503": {"$ref": "#/components/responses/Unavailable"},
+                },
+            }
+        },
+        "/v1/source-runners/{runner}": {
+            "patch": {
+                "tags": ["source-collection"],
+                "summary": "Rename a collection runner for display",
+                "description": "Changes the runner's display "
+                "name. The runner's name, "
+                "which targets refer to, never "
+                "changes.",
+                "operationId": "update_source_runner",
+                "x-powercontext-access": {"action": "server.admin", "resource": {"type": "server"}},
+                "parameters": [
+                    {
+                        "name": "runner",
+                        "in": "path",
+                        "required": True,
+                        "schema": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 128,
+                            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@-]*$",
+                        },
+                    }
+                ],
+                "requestBody": {
+                    "required": True,
+                    "content": {
+                        "application/json": {"schema": {"$ref": "#/components/schemas/SourceRunnerUpdateRequest"}}
+                    },
+                },
+                "responses": {
+                    "200": {
+                        "description": "The changed runner.",
+                        "content": {
+                            "application/json": {"schema": {"$ref": "#/components/schemas/SourceRunnerRegistration"}}
+                        },
+                    },
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "403": {"$ref": "#/components/responses/Forbidden"},
+                    "404": {"$ref": "#/components/responses/NotFound"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                    "503": {"$ref": "#/components/responses/Unavailable"},
+                },
+            },
+            "delete": {
+                "tags": ["source-collection"],
+                "summary": "Delete a collection runner record",
+                "description": "Deletes a runner's record "
+                "once it has no targets. The "
+                "principal that registered "
+                "the runner may delete it; "
+                "deleting another principal's "
+                "runner requires "
+                "server.admin.",
+                "operationId": "delete_source_runner",
+                "x-powercontext-access": {"action": "access.self", "resource": {"type": "server"}},
+                "parameters": [
+                    {
+                        "name": "runner",
+                        "in": "path",
+                        "required": True,
+                        "schema": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 128,
+                            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@-]*$",
+                        },
+                    }
+                ],
+                "responses": {
+                    "204": {"description": "The runner record is deleted."},
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "403": {"$ref": "#/components/responses/Forbidden"},
+                    "404": {"$ref": "#/components/responses/NotFound"},
+                    "409": {"$ref": "#/components/responses/Conflict"},
+                    "503": {"$ref": "#/components/responses/Unavailable"},
+                },
+            },
+        },
+        "/v1/scopes/{scope_id}/source-targets": {
+            "post": {
+                "tags": ["source-collection"],
+                "summary": "Add a collection target",
+                "description": "Assigns a target of a "
+                "Source plugin "
+                "capability to a "
+                "runner. Parameters "
+                "are validated against "
+                "the parameter schema "
+                "of the plugin version "
+                "this Server loaded, "
+                "and the declared "
+                "identity parameters "
+                "form the target key. "
+                "A target with the "
+                "same Scope, runner, "
+                "capability, and key "
+                "is returned unchanged "
+                "when its parameters "
+                "match and is a "
+                "conflict otherwise. "
+                "The runner must be "
+                "registered. Targets "
+                "of the Server's own "
+                "runner, named server, "
+                "require server.admin.",
+                "operationId": "pc_source_add",
+                "x-powercontext-scope-mode": "none",
+                "x-powercontext-access": {
+                    "action": "scope.contribute",
+                    "resource": {"type": "scope", "scope-id-from": "scope_id"},
+                },
+                "parameters": [
+                    {
+                        "name": "scope_id",
+                        "in": "path",
+                        "required": True,
+                        "schema": {"type": "string", "minLength": 1, "maxLength": 256, "pattern": ".*\\S.*"},
+                    }
+                ],
+                "requestBody": {
+                    "required": True,
+                    "content": {
+                        "application/json": {"schema": {"$ref": "#/components/schemas/SourceTargetCreateRequest"}}
+                    },
+                },
+                "responses": {
+                    "201": {
+                        "description": "The target was added.",
+                        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/SourceTarget"}}},
+                    },
+                    "200": {
+                        "description": "The same target already exists.",
+                        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/SourceTarget"}}},
+                    },
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "403": {"$ref": "#/components/responses/Forbidden"},
+                    "409": {"$ref": "#/components/responses/Conflict"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                    "503": {"$ref": "#/components/responses/Unavailable"},
+                },
+            },
+            "get": {
+                "tags": ["source-collection"],
+                "summary": "List a Scope's collection targets",
+                "description": "Returns each target's configuration and the status its runner last reported.",
+                "operationId": "pc_source_status",
+                "x-powercontext-scope-mode": "none",
+                "x-powercontext-access": {
+                    "action": "scope.read",
+                    "resource": {"type": "scope", "scope-id-from": "scope_id"},
+                },
+                "parameters": [
+                    {
+                        "name": "scope_id",
+                        "in": "path",
+                        "required": True,
+                        "schema": {"type": "string", "minLength": 1, "maxLength": 256, "pattern": ".*\\S.*"},
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Targets ordered by ID.",
+                        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/SourceTargetPage"}}},
+                    },
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "403": {"$ref": "#/components/responses/Forbidden"},
+                    "503": {"$ref": "#/components/responses/Unavailable"},
+                },
+            },
+        },
+        "/v1/scopes/{scope_id}/source-targets/{target_id}": {
+            "patch": {
+                "tags": ["source-collection"],
+                "summary": "Change or pause a collection target",
+                "description": "Enables "
+                "or "
+                "disables "
+                "a "
+                "target, "
+                "or "
+                "replaces "
+                "its "
+                "parameters. "
+                "Identity "
+                "parameters "
+                "cannot "
+                "change: "
+                "to "
+                "collect "
+                "another "
+                "object, "
+                "add a "
+                "target. "
+                "A "
+                "disabled "
+                "target "
+                "keeps "
+                "its "
+                "checkpoint "
+                "and "
+                "resumes "
+                "from it. "
+                "Each "
+                "change "
+                "increases "
+                "the "
+                "target's "
+                "configuration "
+                "version, "
+                "so "
+                "results "
+                "collected "
+                "before "
+                "it are "
+                "refused. "
+                "Targets "
+                "of the "
+                "server "
+                "runner "
+                "require "
+                "server.admin.",
+                "operationId": "pc_source_target_set_enabled",
+                "x-powercontext-scope-mode": "none",
+                "x-powercontext-access": {
+                    "action": "scope.contribute",
+                    "resource": {"type": "scope", "scope-id-from": "scope_id"},
+                },
+                "parameters": [
+                    {
+                        "name": "scope_id",
+                        "in": "path",
+                        "required": True,
+                        "schema": {"type": "string", "minLength": 1, "maxLength": 256, "pattern": ".*\\S.*"},
+                    },
+                    {
+                        "name": "target_id",
+                        "in": "path",
+                        "required": True,
+                        "schema": {"type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[0-9a-f]{1,64}$"},
+                    },
+                ],
+                "requestBody": {
+                    "required": True,
+                    "content": {
+                        "application/json": {"schema": {"$ref": "#/components/schemas/SourceTargetUpdateRequest"}}
+                    },
+                },
+                "responses": {
+                    "200": {
+                        "description": "The changed target.",
+                        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/SourceTarget"}}},
+                    },
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "403": {"$ref": "#/components/responses/Forbidden"},
+                    "404": {"$ref": "#/components/responses/NotFound"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                    "503": {"$ref": "#/components/responses/Unavailable"},
+                },
+            },
+            "delete": {
+                "tags": ["source-collection"],
+                "summary": "Delete a collection target",
+                "description": "Deletes "
+                "the "
+                "target "
+                "and its "
+                "checkpoint. "
+                "Sources "
+                "it "
+                "collected "
+                "stay. "
+                "Targets "
+                "of the "
+                "server "
+                "runner "
+                "require "
+                "server.admin.",
+                "operationId": "pc_source_target_delete",
+                "x-powercontext-scope-mode": "none",
+                "x-powercontext-access": {
+                    "action": "scope.contribute",
+                    "resource": {"type": "scope", "scope-id-from": "scope_id"},
+                },
+                "parameters": [
+                    {
+                        "name": "scope_id",
+                        "in": "path",
+                        "required": True,
+                        "schema": {"type": "string", "minLength": 1, "maxLength": 256, "pattern": ".*\\S.*"},
+                    },
+                    {
+                        "name": "target_id",
+                        "in": "path",
+                        "required": True,
+                        "schema": {"type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[0-9a-f]{1,64}$"},
+                    },
+                ],
+                "responses": {
+                    "204": {"description": "The target is deleted."},
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "403": {"$ref": "#/components/responses/Forbidden"},
+                    "404": {"$ref": "#/components/responses/NotFound"},
+                    "503": {"$ref": "#/components/responses/Unavailable"},
+                },
+            },
+        },
+        "/v1/scopes/{scope_id}/source-targets/{target_id}/transfer": {
+            "post": {
+                "tags": ["source-collection"],
+                "summary": "Transfer a collection target to another runner",
+                "description": "Assigns "
+                "the "
+                "target "
+                "to "
+                "another "
+                "registered "
+                "runner. "
+                "The "
+                "target "
+                "keeps "
+                "its "
+                "ID "
+                "and, "
+                "unless "
+                "reset_checkpoint "
+                "is "
+                "true, "
+                "its "
+                "checkpoint. "
+                "The "
+                "configuration "
+                "version "
+                "increases, "
+                "so "
+                "results "
+                "the "
+                "previous "
+                "runner "
+                "collected "
+                "are "
+                "refused. "
+                "Permissions "
+                "are "
+                "those "
+                "of "
+                "adding "
+                "the "
+                "target "
+                "to "
+                "the "
+                "destination "
+                "runner; "
+                "server.admin "
+                "is "
+                "required "
+                "when "
+                "either "
+                "runner "
+                "is "
+                "the "
+                "server "
+                "runner. "
+                "A "
+                "target "
+                "with "
+                "the "
+                "same "
+                "key "
+                "on "
+                "the "
+                "destination "
+                "runner "
+                "is "
+                "a "
+                "conflict.",
+                "operationId": "pc_source_target_transfer",
+                "x-powercontext-scope-mode": "none",
+                "x-powercontext-access": {
+                    "action": "scope.contribute",
+                    "resource": {"type": "scope", "scope-id-from": "scope_id"},
+                },
+                "parameters": [
+                    {
+                        "name": "scope_id",
+                        "in": "path",
+                        "required": True,
+                        "schema": {"type": "string", "minLength": 1, "maxLength": 256, "pattern": ".*\\S.*"},
+                    },
+                    {
+                        "name": "target_id",
+                        "in": "path",
+                        "required": True,
+                        "schema": {"type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[0-9a-f]{1,64}$"},
+                    },
+                ],
+                "requestBody": {
+                    "required": True,
+                    "content": {
+                        "application/json": {"schema": {"$ref": "#/components/schemas/SourceTargetTransferRequest"}}
+                    },
+                },
+                "responses": {
+                    "200": {
+                        "description": "The transferred target.",
+                        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/SourceTarget"}}},
+                    },
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "403": {"$ref": "#/components/responses/Forbidden"},
+                    "404": {"$ref": "#/components/responses/NotFound"},
+                    "409": {"$ref": "#/components/responses/Conflict"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                    "503": {"$ref": "#/components/responses/Unavailable"},
+                },
+            }
+        },
+        "/v1/plugins/{name}/scopes": {
+            "get": {
+                "tags": ["plugins"],
+                "summary": "List a plugin's progress per Scope",
+                "description": "Reads the plugin's pending work "
+                "and consumption cursor in each "
+                "Scope from the database, so every "
+                "Server role returns the same "
+                "answer. Call outcomes are "
+                "reported through logs and "
+                "metrics, not here.",
+                "operationId": "list_plugin_scopes",
+                "x-powercontext-access": {"action": "server.admin", "resource": {"type": "server"}},
+                "parameters": [
+                    {
+                        "name": "name",
+                        "in": "path",
+                        "required": True,
+                        "schema": {"type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[a-z][a-z0-9-]*$"},
+                    },
+                    {
+                        "name": "cursor",
+                        "in": "query",
+                        "required": False,
+                        "schema": {"type": "string", "minLength": 1, "maxLength": 256},
+                    },
+                    {
+                        "name": "limit",
+                        "in": "query",
+                        "required": False,
+                        "schema": {"type": "integer", "minimum": 1, "maximum": 200, "default": 50},
+                    },
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Scopes the plugin has been asked to process, ordered by Scope ID.",
+                        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/PluginScopePage"}}},
+                    },
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "403": {"$ref": "#/components/responses/Forbidden"},
+                    "404": {"$ref": "#/components/responses/NotFound"},
+                    "503": {"$ref": "#/components/responses/Unavailable"},
+                },
+            }
+        },
+        "/v1/scopes/{scope_id}/artifacts/{family}/merges": {
+            "post": {
+                "tags": ["artifacts"],
+                "summary": "Merge exact current Artifacts into a new Artifact",
+                "description": "Freezes "
+                "every "
+                "input into "
+                "a new "
+                "result "
+                "Artifact "
+                "in one "
+                "transaction. "
+                "Available "
+                "for every "
+                "Family "
+                "registered "
+                "with the "
+                "shared "
+                "merge "
+                "service, "
+                "including "
+                "plugin "
+                "families; "
+                "other "
+                "families "
+                "return "
+                "422. The "
+                "caller "
+                "needs "
+                "write "
+                "access to "
+                "each "
+                "input.",
+                "operationId": "merge_artifacts",
+                "x-powercontext-scope-mode": "current",
+                "x-powercontext-access": {"resolver": "artifact_merge_domain_access"},
+                "parameters": [
+                    {
+                        "name": "scope_id",
+                        "in": "path",
+                        "required": True,
+                        "schema": {"type": "string", "minLength": 1, "maxLength": 256, "pattern": ".*\\S.*"},
+                    },
+                    {
+                        "name": "family",
+                        "in": "path",
+                        "required": True,
+                        "schema": {"$ref": "#/components/schemas/ArtifactReadFamily"},
+                    },
+                ],
+                "requestBody": {
+                    "required": True,
+                    "content": {"application/json": {"schema": {"$ref": "#/components/schemas/MergeArtifactsRequest"}}},
+                },
+                "responses": {
+                    "200": {
+                        "description": "The merge result and the frozen inputs.",
+                        "content": {
+                            "application/json": {"schema": {"$ref": "#/components/schemas/ArtifactGovernanceResponse"}}
+                        },
+                    },
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "403": {"$ref": "#/components/responses/Forbidden"},
+                    "404": {"$ref": "#/components/responses/NotFound"},
+                    "409": {"$ref": "#/components/responses/Conflict"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                    "503": {"$ref": "#/components/responses/Unavailable"},
+                },
+            }
+        },
+        "/v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}/governance": {
+            "get": {
+                "tags": ["artifacts"],
+                "summary": "Read an Artifact's current governance state",
+                "description": "Returns "
+                "the "
+                "lifecycle "
+                "state, "
+                "state "
+                "version "
+                "and "
+                "merge "
+                "target "
+                "that "
+                "forget, "
+                "merge "
+                "and "
+                "restoration "
+                "check. "
+                "Available "
+                "for "
+                "every "
+                "Family "
+                "registered "
+                "with "
+                "the "
+                "shared "
+                "merge "
+                "service.",
+                "operationId": "get_artifact_governance",
+                "x-powercontext-scope-mode": "current",
+                "x-powercontext-access": {"resolver": "artifact_merge_domain_access"},
+                "parameters": [
+                    {
+                        "name": "scope_id",
+                        "in": "path",
+                        "required": True,
+                        "schema": {"type": "string", "minLength": 1, "maxLength": 256, "pattern": ".*\\S.*"},
+                    },
+                    {
+                        "name": "family",
+                        "in": "path",
+                        "required": True,
+                        "schema": {"$ref": "#/components/schemas/ArtifactReadFamily"},
+                    },
+                    {
+                        "name": "artifact_id",
+                        "in": "path",
+                        "required": True,
+                        "schema": {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[\\x21-\\x7E]+$"},
+                    },
+                ],
+                "responses": {
+                    "200": {
+                        "description": "The current governance state.",
+                        "content": {
+                            "application/json": {"schema": {"$ref": "#/components/schemas/ArtifactGovernanceRecord"}}
+                        },
+                    },
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "403": {"$ref": "#/components/responses/Forbidden"},
+                    "404": {"$ref": "#/components/responses/NotFound"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                    "503": {"$ref": "#/components/responses/Unavailable"},
+                },
+            }
+        },
+        "/v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}/forget": {
+            "post": {
+                "tags": ["artifacts"],
+                "summary": "Forget one Artifact without changing its content revision",
+                "description": "Deprecates "
+                "the "
+                "exact "
+                "current "
+                "Artifact "
+                "without "
+                "a "
+                "replacement "
+                "so "
+                "it "
+                "leaves "
+                "search; "
+                "restoration "
+                "brings "
+                "it "
+                "back. "
+                "Available "
+                "for "
+                "every "
+                "Family "
+                "registered "
+                "with "
+                "the "
+                "shared "
+                "merge "
+                "service.",
+                "operationId": "forget_artifact",
+                "x-powercontext-scope-mode": "current",
+                "x-powercontext-access": {"resolver": "artifact_merge_domain_access"},
+                "parameters": [
+                    {
+                        "name": "scope_id",
+                        "in": "path",
+                        "required": True,
+                        "schema": {"type": "string", "minLength": 1, "maxLength": 256, "pattern": ".*\\S.*"},
+                    },
+                    {
+                        "name": "family",
+                        "in": "path",
+                        "required": True,
+                        "schema": {"$ref": "#/components/schemas/ArtifactReadFamily"},
+                    },
+                    {
+                        "name": "artifact_id",
+                        "in": "path",
+                        "required": True,
+                        "schema": {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[\\x21-\\x7E]+$"},
+                    },
+                ],
+                "requestBody": {
+                    "required": True,
+                    "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ForgetArtifactRequest"}}},
+                },
+                "responses": {
+                    "200": {
+                        "description": "The Artifact's governance state after forgetting.",
+                        "content": {
+                            "application/json": {"schema": {"$ref": "#/components/schemas/ArtifactGovernanceResponse"}}
+                        },
+                    },
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "403": {"$ref": "#/components/responses/Forbidden"},
+                    "404": {"$ref": "#/components/responses/NotFound"},
+                    "409": {"$ref": "#/components/responses/Conflict"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                    "503": {"$ref": "#/components/responses/Unavailable"},
+                },
+            }
+        },
+        "/v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}/restorations": {
+            "post": {
+                "tags": ["artifacts"],
+                "summary": "Restore an Artifact or undo the merge that produced it",
+                "description": "`restore` "
+                "reactivates "
+                "the "
+                "Artifact, "
+                "optionally "
+                "at "
+                "an "
+                "earlier "
+                "content "
+                "revision, "
+                "and "
+                "undoes "
+                "the "
+                "merges "
+                "that "
+                "froze "
+                "it. "
+                "`undo_merge` "
+                "restores "
+                "a "
+                "merge "
+                "result's "
+                "inputs "
+                "and "
+                "retires "
+                "the "
+                "result. "
+                "Each "
+                "runs "
+                "as "
+                "one "
+                "group. "
+                "Available "
+                "for "
+                "every "
+                "Family "
+                "registered "
+                "with "
+                "the "
+                "shared "
+                "merge "
+                "service.",
+                "operationId": "restore_artifact",
+                "x-powercontext-scope-mode": "current",
+                "x-powercontext-access": {"resolver": "artifact_merge_domain_access"},
+                "parameters": [
+                    {
+                        "name": "scope_id",
+                        "in": "path",
+                        "required": True,
+                        "schema": {"type": "string", "minLength": 1, "maxLength": 256, "pattern": ".*\\S.*"},
+                    },
+                    {
+                        "name": "family",
+                        "in": "path",
+                        "required": True,
+                        "schema": {"$ref": "#/components/schemas/ArtifactReadFamily"},
+                    },
+                    {
+                        "name": "artifact_id",
+                        "in": "path",
+                        "required": True,
+                        "schema": {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[\\x21-\\x7E]+$"},
+                    },
+                ],
+                "requestBody": {
+                    "required": True,
+                    "content": {
+                        "application/json": {"schema": {"$ref": "#/components/schemas/RestoreArtifactRequest"}}
+                    },
+                },
+                "responses": {
+                    "200": {
+                        "description": "The revisions restored and retired by the operation.",
+                        "content": {
+                            "application/json": {"schema": {"$ref": "#/components/schemas/ArtifactRestorationResult"}}
+                        },
+                    },
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "403": {"$ref": "#/components/responses/Forbidden"},
+                    "404": {"$ref": "#/components/responses/NotFound"},
+                    "409": {"$ref": "#/components/responses/Conflict"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                    "503": {"$ref": "#/components/responses/Unavailable"},
+                },
             }
         },
         "/v1/scopes/{scope_id}/artifacts/{family}/search": {
@@ -4424,7 +5174,12 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "description": "Persist one Source without "
                 "synchronously deriving "
                 "Artifacts. The Server "
-                "generates source_id.",
+                "generates source_id. A "
+                "Source type defined by a "
+                "loaded plugin is resolved by "
+                "that plugin from the "
+                "submitted input; unknown "
+                "types return 404.",
                 "operationId": "create_source",
                 "x-powercontext-access": {
                     "action": "scope.contribute",
@@ -4530,7 +5285,14 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "head, chunks, and "
                 "configured retrieval "
                 "indexes are committed "
-                "atomically.",
+                "atomically. A family "
+                "provided by a loaded "
+                "plugin takes the complete "
+                "content object; core "
+                "allocates the Artifact ID "
+                "and the plugin's "
+                "create_artifact method "
+                "writes revision one.",
                 "operationId": "create_artifact",
                 "x-powercontext-access": {"resolver": "create_artifact_access"},
                 "parameters": [
@@ -4976,7 +5738,22 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "through "
                 "its "
                 "restoration "
-                "flow.",
+                "flow. "
+                "Plugin "
+                "families "
+                "accept "
+                "their "
+                "own "
+                "content "
+                "unchanged; "
+                "the "
+                "plugin's "
+                "next "
+                "invocation "
+                "sees "
+                "the "
+                "new "
+                "revision.",
                 "operationId": "replace_artifact",
                 "x-powercontext-scope-mode": "current",
                 "x-powercontext-access": {"resolver": "path_artifact_write_access"},
@@ -4991,19 +5768,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                         "name": "family",
                         "in": "path",
                         "required": True,
-                        "schema": {
-                            "type": "string",
-                            "enum": [
-                                "memory",
-                                "atomic-memory",
-                                "experience",
-                                "skill",
-                                "handoff",
-                                "prompt",
-                                "topic-memory",
-                                "profile",
-                            ],
-                        },
+                        "schema": {"$ref": "#/components/schemas/ArtifactReadFamily"},
                     },
                     {
                         "name": "artifact_id",
@@ -5426,6 +6191,92 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                         "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
                         "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ArtifactRevision"}}},
                     },
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "403": {"$ref": "#/components/responses/Forbidden"},
+                    "404": {"$ref": "#/components/responses/NotFound"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                    "503": {"$ref": "#/components/responses/Unavailable"},
+                    "500": {"$ref": "#/components/responses/InternalError"},
+                },
+            }
+        },
+        "/v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}/rendering": {
+            "get": {
+                "tags": ["artifacts"],
+                "summary": "Present a plugin Artifact",
+                "description": "Returns "
+                "the "
+                "default "
+                "presentation "
+                "of "
+                "one "
+                "revision "
+                "of "
+                "a "
+                "plugin "
+                "family "
+                "as "
+                "the "
+                "plugin "
+                "renders "
+                "it, "
+                "in "
+                "Markdown "
+                "or "
+                "plain "
+                "text, "
+                "for "
+                "people "
+                "and "
+                "for "
+                "agent "
+                "context. "
+                "The "
+                "current "
+                "revision "
+                "is "
+                "used "
+                "unless "
+                "revision "
+                "is "
+                "given. "
+                "Built-in "
+                "families "
+                "have "
+                "no "
+                "rendering "
+                "and "
+                "return "
+                "422.",
+                "operationId": "get_artifact_rendering",
+                "x-powercontext-access": {"resolver": "path_artifact_read_access"},
+                "parameters": [
+                    {
+                        "name": "scope_id",
+                        "in": "path",
+                        "required": True,
+                        "schema": {"type": "string", "minLength": 1, "maxLength": 256, "pattern": ".*\\S.*"},
+                    },
+                    {
+                        "name": "family",
+                        "in": "path",
+                        "required": True,
+                        "schema": {"$ref": "#/components/schemas/ArtifactReadFamily"},
+                    },
+                    {
+                        "name": "artifact_id",
+                        "in": "path",
+                        "required": True,
+                        "schema": {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[\\x21-\\x7E]+$"},
+                    },
+                    {"name": "revision", "in": "query", "required": False, "schema": {"type": "integer", "minimum": 1}},
+                ],
+                "responses": {
+                    "200": {
+                        "description": "The rendering of the exact revision.",
+                        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ArtifactRendering"}}},
+                    },
+                    "400": {"$ref": "#/components/responses/BadRequest"},
                     "401": {"$ref": "#/components/responses/Unauthorized"},
                     "403": {"$ref": "#/components/responses/Forbidden"},
                     "404": {"$ref": "#/components/responses/NotFound"},
@@ -5960,576 +6811,6 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "x-powercontext-access": {"action": "access.self", "resource": {"type": "server"}},
             }
         },
-        "/v1/source-management/capabilities": {
-            "post": {
-                "tags": ["source-management"],
-                "summary": "pc source capabilities",
-                "operationId": "pc_source_capabilities",
-                "requestBody": {
-                    "content": {"application/json": {"schema": {"$ref": "#/components/schemas/SourceCapabilityQuery"}}},
-                    "required": True,
-                },
-                "responses": {
-                    "200": {
-                        "description": "Confirmed Source management result.",
-                        "content": {
-                            "application/json": {"schema": {"$ref": "#/components/schemas/SourceCapabilityResponse"}}
-                        },
-                    },
-                    "400": {"$ref": "#/components/responses/BadRequest"},
-                    "401": {"$ref": "#/components/responses/Unauthorized"},
-                    "403": {"$ref": "#/components/responses/Forbidden"},
-                    "404": {"$ref": "#/components/responses/NotFound"},
-                    "409": {"$ref": "#/components/responses/Conflict"},
-                    "422": {"$ref": "#/components/responses/InvalidRequest"},
-                    "503": {"$ref": "#/components/responses/Unavailable"},
-                },
-                "x-powercontext-scope-mode": "none",
-                "x-powercontext-access": {
-                    "action": "scope.read",
-                    "resource": {"type": "scope", "scope-id-from": "scope_id"},
-                },
-            }
-        },
-        "/v1/source-management/add": {
-            "post": {
-                "tags": ["source-management"],
-                "summary": "pc source add",
-                "description": "Use the discovered write or "
-                "collect capability and version. "
-                "Collect capabilities require an "
-                "explicit instance_id. Write runs "
-                "in the Server using loaded "
-                "Definition and Projection "
-                "implementations, without an "
-                "instance or management service. "
-                "Write waits for Source "
-                "references or an error in the "
-                "original call; no durable "
-                "request or status query is "
-                "created. Collect establishes or "
-                "reuses a persistent target and "
-                "never resumes a stopped target. "
-                "No mode or idempotency_key is "
-                "accepted; write retries use the "
-                "underlying Source identity "
-                "rules.",
-                "operationId": "pc_source_add",
-                "requestBody": {
-                    "content": {"application/json": {"schema": {"$ref": "#/components/schemas/SourceAddRequest"}}},
-                    "required": True,
-                },
-                "responses": {
-                    "200": {
-                        "description": "Confirmed Source management result.",
-                        "content": {
-                            "application/json": {"schema": {"$ref": "#/components/schemas/SourceManagementReceipt"}}
-                        },
-                    },
-                    "400": {"$ref": "#/components/responses/BadRequest"},
-                    "401": {"$ref": "#/components/responses/Unauthorized"},
-                    "403": {"$ref": "#/components/responses/Forbidden"},
-                    "404": {"$ref": "#/components/responses/NotFound"},
-                    "409": {"$ref": "#/components/responses/Conflict"},
-                    "422": {"$ref": "#/components/responses/InvalidRequest"},
-                    "503": {"$ref": "#/components/responses/Unavailable"},
-                },
-                "x-powercontext-scope-mode": "none",
-                "x-powercontext-access": {
-                    "action": "scope.contribute",
-                    "resource": {"type": "scope", "scope-id-from": "scope_id"},
-                },
-            }
-        },
-        "/v1/source-management/status": {
-            "post": {
-                "tags": ["source-management"],
-                "summary": "pc source status",
-                "description": "Query a collect target by "
-                "scope_id and target_id. "
-                "Result view requires "
-                "scope.read and returns "
-                "received Source references "
-                "and submission time, not "
-                "per-round completion. Control "
-                "view requires "
-                "scope.contribute and returns "
-                "enabled and tracking without "
-                "input or results.",
-                "operationId": "pc_source_status",
-                "requestBody": {
-                    "content": {"application/json": {"schema": {"$ref": "#/components/schemas/SourceStatusRequest"}}},
-                    "required": True,
-                },
-                "responses": {
-                    "200": {
-                        "description": "Confirmed Source management result.",
-                        "content": {
-                            "application/json": {"schema": {"$ref": "#/components/schemas/SourceManagementReceipt"}}
-                        },
-                    },
-                    "400": {"$ref": "#/components/responses/BadRequest"},
-                    "401": {"$ref": "#/components/responses/Unauthorized"},
-                    "403": {"$ref": "#/components/responses/Forbidden"},
-                    "404": {"$ref": "#/components/responses/NotFound"},
-                    "409": {"$ref": "#/components/responses/Conflict"},
-                    "422": {"$ref": "#/components/responses/InvalidRequest"},
-                    "503": {"$ref": "#/components/responses/Unavailable"},
-                },
-                "x-powercontext-scope-mode": "none",
-                "x-powercontext-access": {"resolver": "source_status_access"},
-            }
-        },
-        "/v1/source-management/target-set-enabled": {
-            "post": {
-                "tags": ["source-management"],
-                "summary": "Stop or resume a collect target",
-                "description": "Set collect "
-                "target enabled "
-                "state using "
-                "scope.contribute. "
-                "Repeating the "
-                "current state is "
-                "safe. Resume "
-                "requires stopped "
-                "confirmation; it "
-                "does not restart "
-                "an ended apply or "
-                "enable a disabled "
-                "instance. No "
-                "revision or retry "
-                "key is required.",
-                "operationId": "pc_source_target_set_enabled",
-                "requestBody": {
-                    "content": {
-                        "application/json": {"schema": {"$ref": "#/components/schemas/SourceTargetSetEnabledRequest"}}
-                    },
-                    "required": True,
-                },
-                "responses": {
-                    "200": {
-                        "description": "Confirmed Source management result.",
-                        "content": {
-                            "application/json": {"schema": {"$ref": "#/components/schemas/SourceManagementReceipt"}}
-                        },
-                    },
-                    "400": {"$ref": "#/components/responses/BadRequest"},
-                    "401": {"$ref": "#/components/responses/Unauthorized"},
-                    "403": {"$ref": "#/components/responses/Forbidden"},
-                    "404": {"$ref": "#/components/responses/NotFound"},
-                    "409": {"$ref": "#/components/responses/Conflict"},
-                    "422": {"$ref": "#/components/responses/InvalidRequest"},
-                    "503": {"$ref": "#/components/responses/Unavailable"},
-                },
-                "x-powercontext-scope-mode": "none",
-                "x-powercontext-access": {
-                    "action": "scope.contribute",
-                    "resource": {"type": "scope", "scope-id-from": "scope_id"},
-                },
-            }
-        },
-        "/v1/source-management/instances": {
-            "post": {
-                "tags": ["source-management"],
-                "summary": "pc source instances",
-                "description": "Discover instances with "
-                "scope_id from the Server "
-                "capability catalog. "
-                "Control view requires "
-                "instance_id and "
-                "server.admin, and returns "
-                "enabled, actual and "
-                "availability without "
-                "business configuration.",
-                "operationId": "pc_source_instances",
-                "requestBody": {
-                    "content": {"application/json": {"schema": {"$ref": "#/components/schemas/SourceInstancesQuery"}}},
-                    "required": True,
-                },
-                "responses": {
-                    "200": {
-                        "description": "Confirmed Source management result.",
-                        "content": {
-                            "application/json": {"schema": {"$ref": "#/components/schemas/SourceInstancesResponse"}}
-                        },
-                    },
-                    "400": {"$ref": "#/components/responses/BadRequest"},
-                    "401": {"$ref": "#/components/responses/Unauthorized"},
-                    "403": {"$ref": "#/components/responses/Forbidden"},
-                    "404": {"$ref": "#/components/responses/NotFound"},
-                    "409": {"$ref": "#/components/responses/Conflict"},
-                    "422": {"$ref": "#/components/responses/InvalidRequest"},
-                    "503": {"$ref": "#/components/responses/Unavailable"},
-                },
-                "x-powercontext-scope-mode": "none",
-                "x-powercontext-access": {"resolver": "source_instances_access"},
-            }
-        },
-        "/v1/source-management/instance-set-enabled": {
-            "post": {
-                "tags": ["source-management"],
-                "summary": "pc source instance set enabled",
-                "description": "Set instance "
-                "business "
-                "enabled state "
-                "using "
-                "server.admin. "
-                "Repeating the "
-                "same state does "
-                "not restart "
-                "apply. "
-                "Restarting an "
-                "ended run "
-                "requires "
-                "disable, "
-                "confirmed "
-                "stopped, then "
-                "enable. The "
-                "Runtime process "
-                "stays online.",
-                "operationId": "pc_source_instance_set_enabled",
-                "requestBody": {
-                    "content": {
-                        "application/json": {"schema": {"$ref": "#/components/schemas/SourceInstanceSetEnabledRequest"}}
-                    },
-                    "required": True,
-                },
-                "responses": {
-                    "200": {
-                        "description": "Confirmed Source management result.",
-                        "content": {
-                            "application/json": {"schema": {"$ref": "#/components/schemas/SourceInstanceStatus"}}
-                        },
-                    },
-                    "400": {"$ref": "#/components/responses/BadRequest"},
-                    "401": {"$ref": "#/components/responses/Unauthorized"},
-                    "403": {"$ref": "#/components/responses/Forbidden"},
-                    "404": {"$ref": "#/components/responses/NotFound"},
-                    "409": {"$ref": "#/components/responses/Conflict"},
-                    "422": {"$ref": "#/components/responses/InvalidRequest"},
-                    "503": {"$ref": "#/components/responses/Unavailable"},
-                },
-                "x-powercontext-scope-mode": "none",
-                "x-powercontext-access": {"action": "server.admin", "resource": {"type": "server"}},
-            }
-        },
-        "/v1/source-management/configure": {
-            "post": {
-                "tags": ["source-management"],
-                "summary": "source configure",
-                "operationId": "source_configure",
-                "requestBody": {
-                    "content": {
-                        "application/json": {"schema": {"$ref": "#/components/schemas/SourceConfigureRequest"}}
-                    },
-                    "required": True,
-                },
-                "responses": {
-                    "200": {
-                        "description": "Confirmed Source management result.",
-                        "content": {
-                            "application/json": {"schema": {"$ref": "#/components/schemas/SourceInstanceStatus"}}
-                        },
-                    },
-                    "400": {"$ref": "#/components/responses/BadRequest"},
-                    "401": {"$ref": "#/components/responses/Unauthorized"},
-                    "403": {"$ref": "#/components/responses/Forbidden"},
-                    "404": {"$ref": "#/components/responses/NotFound"},
-                    "409": {"$ref": "#/components/responses/Conflict"},
-                    "422": {"$ref": "#/components/responses/InvalidRequest"},
-                    "503": {"$ref": "#/components/responses/Unavailable"},
-                },
-                "x-powercontext-scope-mode": "none",
-                "x-powercontext-access": {"action": "server.admin", "resource": {"type": "server"}},
-            }
-        },
-        "/v1/source-management/write/load": {
-            "post": {
-                "tags": ["source-management"],
-                "summary": "Load a trusted Server-local Source write plugin",
-                "description": "Requires server.admin. "
-                "The Server imports the "
-                "local directory or "
-                "module, validates and "
-                "registers its Source "
-                "Definitions, and persists "
-                "its entry for restart. An "
-                "identical deployment is "
-                "reusable; conflicting "
-                "configurations fail. "
-                "Existing code is replaced "
-                "only through controlled "
-                "Server restart.",
-                "operationId": "load_source_write_plugin",
-                "requestBody": {
-                    "content": {
-                        "application/json": {"schema": {"$ref": "#/components/schemas/SourceWritePluginLoadRequest"}}
-                    },
-                    "required": True,
-                },
-                "responses": {
-                    "200": {
-                        "description": "The Server has loaded and persisted the executable write capabilities.",
-                        "content": {
-                            "application/json": {"schema": {"$ref": "#/components/schemas/SourceWritePluginState"}}
-                        },
-                    },
-                    "400": {"$ref": "#/components/responses/BadRequest"},
-                    "401": {"$ref": "#/components/responses/Unauthorized"},
-                    "403": {"$ref": "#/components/responses/Forbidden"},
-                    "409": {"$ref": "#/components/responses/Conflict"},
-                    "422": {"$ref": "#/components/responses/InvalidRequest"},
-                    "503": {"$ref": "#/components/responses/Unavailable"},
-                },
-                "x-powercontext-scope-mode": "none",
-                "x-powercontext-access": {"action": "server.admin", "resource": {"type": "server"}},
-            }
-        },
-        "/v1/source-management/channel/open": {
-            "post": {
-                "tags": ["source-management-channel"],
-                "summary": "Source manager reverse channel open",
-                "operationId": "source_channel_open",
-                "requestBody": {
-                    "content": {"application/json": {"schema": {"$ref": "#/components/schemas/SourceChannelOpen"}}},
-                    "required": True,
-                },
-                "responses": {
-                    "200": {
-                        "description": "Channel exchange.",
-                        "content": {
-                            "application/json": {"schema": {"$ref": "#/components/schemas/SourceChannelResponse"}}
-                        },
-                    },
-                    "400": {"$ref": "#/components/responses/BadRequest"},
-                    "401": {"$ref": "#/components/responses/Unauthorized"},
-                    "403": {"$ref": "#/components/responses/Forbidden"},
-                    "409": {"$ref": "#/components/responses/Conflict"},
-                    "422": {"$ref": "#/components/responses/InvalidRequest"},
-                    "503": {"$ref": "#/components/responses/Unavailable"},
-                },
-                "x-powercontext-access": {"resolver": "source_management_channel_access"},
-            }
-        },
-        "/v1/source-management/channel/catalog": {
-            "post": {
-                "tags": ["source-management-channel"],
-                "summary": "Source manager reverse channel catalog",
-                "operationId": "source_channel_catalog",
-                "requestBody": {
-                    "content": {"application/json": {"schema": {"$ref": "#/components/schemas/SourceChannelRequest"}}},
-                    "required": True,
-                },
-                "responses": {
-                    "200": {
-                        "description": "Channel exchange.",
-                        "content": {
-                            "application/json": {"schema": {"$ref": "#/components/schemas/SourceChannelResponse"}}
-                        },
-                    },
-                    "400": {"$ref": "#/components/responses/BadRequest"},
-                    "401": {"$ref": "#/components/responses/Unauthorized"},
-                    "403": {"$ref": "#/components/responses/Forbidden"},
-                    "409": {"$ref": "#/components/responses/Conflict"},
-                    "422": {"$ref": "#/components/responses/InvalidRequest"},
-                    "503": {"$ref": "#/components/responses/Unavailable"},
-                },
-                "x-powercontext-access": {"resolver": "source_management_channel_access"},
-            }
-        },
-        "/v1/source-management/channel/poll": {
-            "post": {
-                "tags": ["source-management-channel"],
-                "summary": "Source manager reverse channel poll",
-                "operationId": "source_channel_poll",
-                "requestBody": {
-                    "content": {"application/json": {"schema": {"$ref": "#/components/schemas/SourceChannelRequest"}}},
-                    "required": True,
-                },
-                "responses": {
-                    "200": {
-                        "description": "Channel exchange.",
-                        "content": {
-                            "application/json": {"schema": {"$ref": "#/components/schemas/SourceChannelResponse"}}
-                        },
-                    },
-                    "400": {"$ref": "#/components/responses/BadRequest"},
-                    "401": {"$ref": "#/components/responses/Unauthorized"},
-                    "403": {"$ref": "#/components/responses/Forbidden"},
-                    "409": {"$ref": "#/components/responses/Conflict"},
-                    "422": {"$ref": "#/components/responses/InvalidRequest"},
-                    "503": {"$ref": "#/components/responses/Unavailable"},
-                },
-                "x-powercontext-access": {"resolver": "source_management_channel_access"},
-            }
-        },
-        "/v1/source-management/channel/reply": {
-            "post": {
-                "tags": ["source-management-channel"],
-                "summary": "Source manager reverse channel reply",
-                "operationId": "source_channel_reply",
-                "requestBody": {
-                    "content": {"application/json": {"schema": {"$ref": "#/components/schemas/SourceChannelRequest"}}},
-                    "required": True,
-                },
-                "responses": {
-                    "200": {
-                        "description": "Channel exchange.",
-                        "content": {
-                            "application/json": {"schema": {"$ref": "#/components/schemas/SourceChannelResponse"}}
-                        },
-                    },
-                    "400": {"$ref": "#/components/responses/BadRequest"},
-                    "401": {"$ref": "#/components/responses/Unauthorized"},
-                    "403": {"$ref": "#/components/responses/Forbidden"},
-                    "409": {"$ref": "#/components/responses/Conflict"},
-                    "422": {"$ref": "#/components/responses/InvalidRequest"},
-                    "503": {"$ref": "#/components/responses/Unavailable"},
-                },
-                "x-powercontext-access": {"resolver": "source_management_channel_access"},
-            }
-        },
-        "/v1/source-management/channel/close": {
-            "post": {
-                "tags": ["source-management-channel"],
-                "summary": "Source manager reverse channel close",
-                "operationId": "source_channel_close",
-                "requestBody": {
-                    "content": {"application/json": {"schema": {"$ref": "#/components/schemas/SourceChannelRequest"}}},
-                    "required": True,
-                },
-                "responses": {
-                    "200": {
-                        "description": "Channel exchange.",
-                        "content": {
-                            "application/json": {"schema": {"$ref": "#/components/schemas/SourceChannelResponse"}}
-                        },
-                    },
-                    "400": {"$ref": "#/components/responses/BadRequest"},
-                    "401": {"$ref": "#/components/responses/Unauthorized"},
-                    "403": {"$ref": "#/components/responses/Forbidden"},
-                    "409": {"$ref": "#/components/responses/Conflict"},
-                    "422": {"$ref": "#/components/responses/InvalidRequest"},
-                    "503": {"$ref": "#/components/responses/Unavailable"},
-                },
-                "x-powercontext-access": {"resolver": "source_management_channel_access"},
-            }
-        },
-        "/v1/source-management/instances/{instance_id}/{operation}": {
-            "post": {
-                "tags": ["source-management-instance"],
-                "summary": "Authenticated instance control, permission checks and durable result exchange",
-                "description": "Served "
-                "by "
-                "the "
-                "optional "
-                "standalone "
-                "Source "
-                "manager. "
-                "Instances "
-                "initiate "
-                "every "
-                "exchange; "
-                "this "
-                "is "
-                "not "
-                "a "
-                "Server "
-                "or "
-                "public "
-                "MCP "
-                "endpoint. "
-                "The "
-                "operation "
-                "path "
-                "chooses "
-                "owner/connect/poll/reply/sync/execution/results/stopped-targets/close "
-                "and "
-                "the "
-                "applicable "
-                "fields. "
-                "Source "
-                "observations "
-                "continue "
-                "to "
-                "go "
-                "directly "
-                "to "
-                "the "
-                "PC "
-                "Server.",
-                "operationId": "source_instance_exchange",
-                "servers": [
-                    {
-                        "url": "http://127.0.0.1:8010",
-                        "description": "Replace "
-                        "with "
-                        "the "
-                        "configured "
-                        "Source "
-                        "manager "
-                        "instance "
-                        "endpoint; "
-                        "use "
-                        "HTTPS "
-                        "off "
-                        "loopback.",
-                    }
-                ],
-                "x-powercontext-access": {"resolver": "source_instance_channel_access"},
-                "x-powercontext-role": "source-manager",
-                "x-powercontext-scope-mode": "none",
-                "parameters": [
-                    {
-                        "name": "instance_id",
-                        "in": "path",
-                        "required": True,
-                        "schema": {"type": "string", "minLength": 1, "maxLength": 256, "pattern": "^[A-Za-z0-9_.-]+$"},
-                    },
-                    {
-                        "name": "operation",
-                        "in": "path",
-                        "required": True,
-                        "schema": {
-                            "type": "string",
-                            "enum": [
-                                "owner",
-                                "connect",
-                                "poll",
-                                "reply",
-                                "sync",
-                                "execution",
-                                "results",
-                                "stopped-targets",
-                                "close",
-                            ],
-                        },
-                    },
-                ],
-                "requestBody": {
-                    "required": True,
-                    "content": {
-                        "application/json": {"schema": {"$ref": "#/components/schemas/SourceInstanceExchangeRequest"}}
-                    },
-                },
-                "responses": {
-                    "200": {
-                        "description": "Instance control exchange.",
-                        "content": {
-                            "application/json": {
-                                "schema": {"$ref": "#/components/schemas/SourceInstanceExchangeResponse"}
-                            }
-                        },
-                    },
-                    "400": {"$ref": "#/components/responses/BadRequest"},
-                    "401": {"$ref": "#/components/responses/Unauthorized"},
-                    "403": {"$ref": "#/components/responses/Forbidden"},
-                    "409": {"$ref": "#/components/responses/Conflict"},
-                    "422": {"$ref": "#/components/responses/InvalidRequest"},
-                    "503": {"$ref": "#/components/responses/Unavailable"},
-                },
-            }
-        },
         "/v1/access/ownership/plan": {
             "post": {
                 "tags": ["access"],
@@ -6630,6 +6911,30 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
     },
     "components": {
         "schemas": {
+            "GatewayLifecycleDecision": {
+                "type": "string",
+                "enum": ["deadline_exceeded", "gateway_shutdown", "request_cancelled"],
+            },
+            "GatewayModelSend": {
+                "type": "string",
+                "enum": ["no_send", "definitely_not_sent", "possibly_sent", "response_received"],
+                "description": "Sending facts known at the stop "
+                "boundary. Possibly sent never "
+                "means safe to resend; response "
+                "received does not authorize "
+                "release or establish client "
+                "receipt.",
+            },
+            "GatewayLifecycleError": {
+                "properties": {
+                    "decision": {"$ref": "#/components/schemas/GatewayLifecycleDecision"},
+                    "model_send": {"$ref": "#/components/schemas/GatewayModelSend"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["decision", "model_send"],
+                "description": "Lifecycle control result, independent of Core allow/block/withhold and local delivery.",
+            },
             "ContractVersion": {
                 "properties": {
                     "major": {"type": "integer", "minimum": 1.0},
@@ -7361,11 +7666,6 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
                     "family": {"$ref": "#/components/schemas/ArtifactReadFamily"},
                     "artifact_id": {"type": "string", "maxLength": 128, "minLength": 1, "pattern": "^[\\x21-\\x7E]+$"},
-                    "schema_version": {
-                        "type": "string",
-                        "description": "Persisted schema version for a custom Artifact family.",
-                        "nullable": True,
-                    },
                     "revision": {"type": "integer", "minimum": 1.0},
                     "sources": {"items": {"$ref": "#/components/schemas/SourceTypeReference"}, "type": "array"},
                     "artifacts": {"items": {"$ref": "#/components/schemas/ArtifactReference"}, "type": "array"},
@@ -7403,7 +7703,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
             "ArtifactCreated": {
                 "properties": {
                     "scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
-                    "family": {"$ref": "#/components/schemas/BaseArtifactFamily"},
+                    "family": {"$ref": "#/components/schemas/ArtifactReadFamily"},
                     "artifact_id": {"type": "string", "maxLength": 128, "minLength": 1, "pattern": "^[\\x21-\\x7E]+$"},
                     "revision": {"type": "integer", "minimum": 1.0},
                     "sources": {"items": {"$ref": "#/components/schemas/SourceTypeReference"}, "type": "array"},
@@ -7434,11 +7734,6 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
                     "family": {"$ref": "#/components/schemas/ArtifactReadFamily"},
                     "artifact_id": {"type": "string", "maxLength": 128, "minLength": 1, "pattern": "^[\\x21-\\x7E]+$"},
-                    "schema_version": {
-                        "type": "string",
-                        "description": "Persisted schema version for a custom Artifact family.",
-                        "nullable": True,
-                    },
                     "revision": {"type": "integer", "minimum": 1.0},
                     "content": {"additionalProperties": True, "type": "object"},
                     "sources": {"items": {"$ref": "#/components/schemas/SourceTypeReference"}, "type": "array"},
@@ -8172,106 +8467,623 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "type": "object",
                 "required": ["operation", "output_kind", "effect"],
             },
-            "CustomArtifactFamilySchema": {
+            "PluginKind": {"type": "string", "enum": ["artifact", "source"]},
+            "PluginLoadStatus": {"type": "string", "enum": ["loaded", "failed"]},
+            "PluginTrigger": {"type": "string", "enum": ["schedule", "sources"]},
+            "PluginRoute": {
                 "properties": {
-                    "family": {"type": "string"},
-                    "schema_version": {"type": "string"},
-                    "content_schema": {"additionalProperties": True, "type": "object"},
-                    "search_fields": {
-                        "items": {"type": "string"},
-                        "type": "array",
-                        "description": "Legacy persisted text fields; new plugins use search.",
-                    },
-                    "search": {
-                        "additionalProperties": True,
-                        "type": "object",
-                        "description": "Persistent declarative indexes and supported search modes.",
-                    },
+                    "method": {"type": "string", "enum": ["GET", "POST", "PUT", "PATCH", "DELETE"]},
+                    "path": {"type": "string", "description": "Route template under /v1/plugins/{name}/api."},
+                    "access": {"type": "string", "enum": ["authenticated", "scope.read", "scope.contribute"]},
+                    "mcp": {"type": "boolean", "description": "The route is also an MCP tool."},
                 },
                 "additionalProperties": False,
                 "type": "object",
-                "required": ["family", "schema_version", "content_schema", "search_fields"],
+                "required": ["method", "path", "access", "mcp"],
             },
-            "ReloadArtifactPluginRequest": {
-                "properties": {"expected_generation": {"type": "integer", "minimum": 0.0}},
-                "additionalProperties": False,
-                "type": "object",
-                "required": ["expected_generation"],
-            },
-            "ChangeArtifactPluginStateRequest": {
-                "properties": {"expected_generation": {"type": "integer", "minimum": 1.0}},
-                "additionalProperties": False,
-                "type": "object",
-                "required": ["expected_generation"],
-            },
-            "ArtifactPluginState": {
+            "PluginVersionRef": {
                 "properties": {
-                    "binding_name": {"type": "string"},
-                    "plugin_id": {"type": "string"},
-                    "family": {"type": "string"},
-                    "binding_generation": {"type": "integer", "minimum": 1.0},
-                    "desired_state": {"type": "string", "enum": ["enabled", "disabled", "unloaded"]},
-                    "phase": {
+                    "name": {"type": "string", "maxLength": 64, "minLength": 1, "pattern": "^[a-z][a-z0-9-]*$"},
+                    "version": {"type": "string", "maxLength": 64, "minLength": 1},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["name", "version"],
+                "description": "The Source plugin and version a "
+                "runner used; the Server accepts "
+                "it only within the loaded "
+                "plugin's compatible range.",
+            },
+            "SourceRunnerPluginReport": {
+                "properties": {
+                    "name": {"type": "string", "maxLength": 64, "minLength": 1, "pattern": "^[a-z][a-z0-9-]*$"},
+                    "version": {
                         "type": "string",
-                        "enum": ["activating", "enabled", "stopping", "disabled", "unloading", "unloaded", "failed"],
+                        "maxLength": 64,
+                        "description": "Null when the plugin failed to load on the runner.",
+                        "nullable": True,
                     },
-                    "last_error": {"type": "string", "nullable": True},
-                },
-                "additionalProperties": False,
-                "type": "object",
-                "required": [
-                    "binding_name",
-                    "plugin_id",
-                    "family",
-                    "binding_generation",
-                    "desired_state",
-                    "phase",
-                    "last_error",
-                ],
-            },
-            "ArtifactPluginPage": {
-                "properties": {
-                    "items": {"items": {"$ref": "#/components/schemas/ArtifactPluginState"}, "type": "array"}
-                },
-                "additionalProperties": False,
-                "type": "object",
-                "required": ["items"],
-            },
-            "EnableArtifactPluginResult": {
-                "properties": {
-                    "binding_name": {"type": "string"},
-                    "outcome": {"type": "string", "enum": ["accepted", "skipped", "failed"]},
-                    "status_url": {
-                        "type": "string",
-                        "description": "Registration status URL for the asynchronous result.",
-                    },
-                    "state": {"$ref": "#/components/schemas/ArtifactPluginState"},
                     "error": {
                         "type": "string",
-                        "enum": ["conflict", "invalid_plugin", "unavailable", None],
-                        "description": "Safe per-plugin failure code; null for accepted or skipped entries.",
+                        "maxLength": 1024,
+                        "description": "Safe load failure category on the runner.",
                         "nullable": True,
                     },
                 },
                 "additionalProperties": False,
                 "type": "object",
-                "required": ["binding_name", "outcome", "status_url", "state", "error"],
+                "required": ["name", "version", "error"],
             },
-            "EnableAllArtifactPluginsResponse": {
+            "SourceRunnerSyncRequest": {
                 "properties": {
-                    "items": {"items": {"$ref": "#/components/schemas/EnableArtifactPluginResult"}, "type": "array"}
+                    "plugins": {
+                        "items": {"$ref": "#/components/schemas/SourceRunnerPluginReport"},
+                        "type": "array",
+                        "maxItems": 200,
+                    }
                 },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["plugins"],
+            },
+            "SourceRunnerTarget": {
+                "properties": {
+                    "scope_id": {"type": "string"},
+                    "target_id": {"type": "string"},
+                    "capability": {"type": "string"},
+                    "parameters": {"additionalProperties": True, "type": "object"},
+                    "config_version": {
+                        "type": "integer",
+                        "minimum": 1.0,
+                        "description": "Sent back when the runner commits what it collected under this configuration.",
+                    },
+                    "checkpoint": {
+                        "description": "The target's last committed checkpoint; null before the first commit.",
+                        "nullable": True,
+                    },
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["scope_id", "target_id", "capability", "parameters", "config_version", "checkpoint"],
+            },
+            "SourceRunnerRejection": {
+                "properties": {
+                    "name": {"type": "string"},
+                    "code": {"type": "string", "enum": ["plugin_version_incompatible", "plugin_not_loaded"]},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["name", "code"],
+            },
+            "SourceRunnerSyncResult": {
+                "properties": {
+                    "targets": {"items": {"$ref": "#/components/schemas/SourceRunnerTarget"}, "type": "array"},
+                    "rejected": {"items": {"$ref": "#/components/schemas/SourceRunnerRejection"}, "type": "array"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["targets", "rejected"],
+            },
+            "SourceRunnerCapability": {
+                "properties": {
+                    "name": {"type": "string"},
+                    "version": {"type": "string", "description": "The version the runner reported.", "nullable": True},
+                    "error": {"type": "string", "nullable": True},
+                    "compatible": {
+                        "type": "boolean",
+                        "description": "This Server loaded the plugin and accepts the runner's version.",
+                    },
+                    "description": {
+                        "type": "string",
+                        "description": "From the plugin this Server loaded; null when it loaded none.",
+                        "nullable": True,
+                    },
+                    "parameters_schema": {"additionalProperties": True, "type": "object", "nullable": True},
+                    "identity": {
+                        "additionalProperties": {"items": {"type": "string"}, "type": "array"},
+                        "type": "object",
+                        "description": "Identity parameters and their normalization steps.",
+                        "nullable": True,
+                    },
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["name", "version", "error", "compatible", "description", "parameters_schema", "identity"],
+            },
+            "SourceRunnerRegisterRequest": {
+                "properties": {
+                    "registration_id": {
+                        "type": "string",
+                        "maxLength": 64,
+                        "minLength": 16,
+                        "pattern": "^[A-Za-z0-9_-]+$",
+                        "description": "A random value the runner keeps; it makes the registration repeatable.",
+                    },
+                    "suggested_name": {
+                        "type": "string",
+                        "maxLength": 128,
+                        "minLength": 1,
+                        "description": "Used "
+                        "when "
+                        "no "
+                        "runner "
+                        "has "
+                        "it; "
+                        "characters "
+                        "other "
+                        "than "
+                        "letters, "
+                        "digits "
+                        "and "
+                        "._:@- "
+                        "are "
+                        "replaced.",
+                    },
+                    "name": {
+                        "type": "string",
+                        "maxLength": 128,
+                        "minLength": 1,
+                        "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@-]*$",
+                        "description": "The exact name to register or reuse.",
+                    },
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "description": "Either registration_id, with an optional suggested_name, or name.",
+            },
+            "SourceRunnerRegistration": {
+                "properties": {
+                    "runner": {"type": "string", "description": "The name to sync under."},
+                    "display_name": {"type": "string"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["runner", "display_name"],
+            },
+            "SourceRunnerUpdateRequest": {
+                "properties": {
+                    "display_name": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"}
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["display_name"],
+            },
+            "SourceRunner": {
+                "properties": {
+                    "runner": {"type": "string"},
+                    "display_name": {"type": "string"},
+                    "last_seen_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "description": "Null for the Server's own runner.",
+                        "nullable": True,
+                    },
+                    "capabilities": {"items": {"$ref": "#/components/schemas/SourceRunnerCapability"}, "type": "array"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["runner", "display_name", "last_seen_at", "capabilities"],
+            },
+            "SourceRunnerPage": {
+                "properties": {"items": {"items": {"$ref": "#/components/schemas/SourceRunner"}, "type": "array"}},
                 "additionalProperties": False,
                 "type": "object",
                 "required": ["items"],
             },
+            "SourceTargetCreateRequest": {
+                "properties": {
+                    "runner": {"type": "string", "maxLength": 128, "minLength": 1},
+                    "capability": {"type": "string", "maxLength": 64, "minLength": 1, "pattern": "^[a-z][a-z0-9-]*$"},
+                    "parameters": {"additionalProperties": True, "type": "object"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["runner", "capability", "parameters"],
+            },
+            "SourceTargetUpdateRequest": {
+                "properties": {
+                    "enabled": {"type": "boolean"},
+                    "parameters": {"additionalProperties": True, "type": "object"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+            },
+            "SourceTargetTransferRequest": {
+                "properties": {
+                    "runner": {"type": "string", "maxLength": 128, "minLength": 1},
+                    "reset_checkpoint": {
+                        "type": "boolean",
+                        "description": "Also "
+                        "clear "
+                        "the "
+                        "checkpoint "
+                        "when "
+                        "the "
+                        "new "
+                        "runner's "
+                        "data "
+                        "differs "
+                        "from "
+                        "the "
+                        "previous "
+                        "runner's.",
+                        "default": False,
+                    },
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["runner"],
+            },
+            "SourceTargetStatus": {
+                "properties": {
+                    "last_attempt_at": {"type": "string", "format": "date-time", "nullable": True},
+                    "last_success_at": {"type": "string", "format": "date-time", "nullable": True},
+                    "consecutive_failures": {"type": "integer", "minimum": 0.0},
+                    "last_error_code": {"type": "string", "nullable": True},
+                    "last_error_message": {"type": "string", "nullable": True},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": [
+                    "last_attempt_at",
+                    "last_success_at",
+                    "consecutive_failures",
+                    "last_error_code",
+                    "last_error_message",
+                ],
+            },
+            "SourceTargetResultStatus": {
+                "properties": {
+                    "succeeded": {"type": "boolean"},
+                    "error_code": {"type": "string", "maxLength": 128, "nullable": True},
+                    "error_message": {"type": "string", "maxLength": 1024, "nullable": True},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["succeeded"],
+                "description": "The outcome of the collection attempt whose checkpoint this commits.",
+            },
+            "SourceTarget": {
+                "properties": {
+                    "scope_id": {"type": "string"},
+                    "target_id": {"type": "string"},
+                    "runner": {"type": "string"},
+                    "capability": {"type": "string"},
+                    "target_key": {"type": "string"},
+                    "parameters": {"additionalProperties": True, "type": "object"},
+                    "enabled": {"type": "boolean"},
+                    "config_version": {"type": "integer", "minimum": 1.0},
+                    "updated_at": {"type": "string", "format": "date-time"},
+                    "updated_by": {"type": "string"},
+                    "status": {"$ref": "#/components/schemas/SourceTargetStatus"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": [
+                    "scope_id",
+                    "target_id",
+                    "runner",
+                    "capability",
+                    "target_key",
+                    "parameters",
+                    "enabled",
+                    "config_version",
+                    "updated_at",
+                    "updated_by",
+                    "status",
+                ],
+            },
+            "SourceTargetPage": {
+                "properties": {"items": {"items": {"$ref": "#/components/schemas/SourceTarget"}, "type": "array"}},
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["items"],
+            },
+            "PluginOpenApiDocument": {
+                "additionalProperties": True,
+                "type": "object",
+                "description": "An OpenAPI 3.1 document describing one plugin's routes.",
+            },
+            "PluginPagesState": {
+                "properties": {
+                    "title": {
+                        "additionalProperties": {"type": "string"},
+                        "type": "object",
+                        "description": "Navigation title by language.",
+                    },
+                    "path": {"type": "string", "description": "Dashboard path of the plugin's page."},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["title", "path"],
+            },
+            "PluginState": {
+                "properties": {
+                    "name": {"type": "string"},
+                    "kind": {"$ref": "#/components/schemas/PluginKind"},
+                    "status": {"$ref": "#/components/schemas/PluginLoadStatus"},
+                    "error": {
+                        "type": "string",
+                        "description": "Safe failure category when the plugin is not loaded.",
+                        "nullable": True,
+                    },
+                    "family": {"type": "string", "nullable": True},
+                    "binding_name": {"type": "string", "nullable": True},
+                    "scopes": {"items": {"type": "string"}, "type": "array", "nullable": True},
+                    "source_types": {
+                        "items": {"type": "string"},
+                        "type": "array",
+                        "description": "Source types delivered to the plugin; null when it consumes no Sources.",
+                        "nullable": True,
+                    },
+                    "triggers": {"items": {"$ref": "#/components/schemas/PluginTrigger"}, "type": "array"},
+                    "version_digest": {
+                        "type": "string",
+                        "description": "Content "
+                        "digest "
+                        "of "
+                        "the "
+                        "plugin "
+                        "version "
+                        "in "
+                        "use "
+                        "on "
+                        "this "
+                        "instance; "
+                        "null "
+                        "when "
+                        "none "
+                        "loaded.",
+                        "nullable": True,
+                    },
+                    "declaration_digest": {
+                        "type": "string",
+                        "description": "Digest of the declaration in use.",
+                        "nullable": True,
+                    },
+                    "activated_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "description": "When this instance switched to the version in use.",
+                        "nullable": True,
+                    },
+                    "last_check_failure": {
+                        "type": "string",
+                        "description": "Safe "
+                        "category "
+                        "of "
+                        "the "
+                        "latest "
+                        "failed "
+                        "check "
+                        "of "
+                        "a "
+                        "newer "
+                        "version; "
+                        "the "
+                        "version "
+                        "in "
+                        "use "
+                        "stays "
+                        "active. "
+                        "Cleared "
+                        "when "
+                        "a "
+                        "version "
+                        "activates.",
+                        "nullable": True,
+                    },
+                    "routes": {"items": {"$ref": "#/components/schemas/PluginRoute"}, "type": "array"},
+                    "pages": {"allOf": [{"$ref": "#/components/schemas/PluginPagesState"}], "nullable": True},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": [
+                    "name",
+                    "kind",
+                    "status",
+                    "error",
+                    "family",
+                    "binding_name",
+                    "scopes",
+                    "source_types",
+                    "triggers",
+                    "version_digest",
+                    "declaration_digest",
+                    "activated_at",
+                    "last_check_failure",
+                    "routes",
+                    "pages",
+                ],
+            },
+            "PluginPage": {
+                "properties": {"items": {"items": {"$ref": "#/components/schemas/PluginState"}, "type": "array"}},
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["items"],
+            },
+            "PluginScopeState": {
+                "properties": {
+                    "scope_id": {"type": "string"},
+                    "pending": {
+                        "type": "boolean",
+                        "description": "New Sources or a schedule request are waiting for an invocation.",
+                    },
+                    "consumed_position": {
+                        "type": "integer",
+                        "minimum": 0.0,
+                        "description": "Source "
+                        "journal "
+                        "position "
+                        "the "
+                        "plugin "
+                        "has "
+                        "consumed "
+                        "through; "
+                        "null "
+                        "when "
+                        "it "
+                        "consumes "
+                        "no "
+                        "Sources.",
+                        "nullable": True,
+                    },
+                    "source_position": {
+                        "type": "integer",
+                        "minimum": 0.0,
+                        "description": "Latest Source journal position in the Scope, of any Source type.",
+                        "nullable": True,
+                    },
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["scope_id", "pending", "consumed_position", "source_position"],
+            },
+            "ListPluginScopesRequest": {
+                "properties": {
+                    "cursor": {"type": "string", "maxLength": 256, "minLength": 1},
+                    "limit": {"type": "integer", "maximum": 200.0, "minimum": 1.0, "default": 50},
+                },
+                "additionalProperties": False,
+                "type": "object",
+            },
+            "PluginScopePage": {
+                "properties": {
+                    "items": {"items": {"$ref": "#/components/schemas/PluginScopeState"}, "type": "array"},
+                    "next_cursor": {"type": "string", "nullable": True},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["items", "next_cursor"],
+            },
+            "ArtifactLifecycleState": {"type": "string", "enum": ["active", "deprecated", "retired"]},
+            "ArtifactGovernanceInput": {
+                "properties": {
+                    "artifact_id": {"type": "string", "maxLength": 128, "minLength": 1},
+                    "revision": {"type": "integer", "minimum": 1.0},
+                    "state_version": {"type": "integer", "minimum": 0.0},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["artifact_id", "revision", "state_version"],
+                "description": "An exact current Artifact the caller has read; a later change rejects the request.",
+            },
+            "MergeArtifactsRequest": {
+                "properties": {
+                    "inputs": {
+                        "items": {"$ref": "#/components/schemas/ArtifactGovernanceInput"},
+                        "type": "array",
+                        "minItems": 2,
+                    },
+                    "content": {
+                        "additionalProperties": True,
+                        "type": "object",
+                        "description": "Complete content of the result in the Family's content shape.",
+                    },
+                    "source_refs": {"items": {"$ref": "#/components/schemas/SourceReference"}, "type": "array"},
+                    "artifact_refs": {"items": {"$ref": "#/components/schemas/ArtifactReference"}, "type": "array"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["inputs", "content"],
+            },
+            "ForgetArtifactRequest": {
+                "properties": {
+                    "revision": {"type": "integer", "minimum": 1.0},
+                    "state_version": {"type": "integer", "minimum": 0.0},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["revision", "state_version"],
+            },
+            "ArtifactRestorationOperation": {"type": "string", "enum": ["restore", "undo_merge"]},
+            "RestoreArtifactRequest": {
+                "properties": {
+                    "operation": {"$ref": "#/components/schemas/ArtifactRestorationOperation", "default": "restore"},
+                    "revision": {
+                        "type": "integer",
+                        "minimum": 1.0,
+                        "description": "Content "
+                        "revision "
+                        "to "
+                        "restore; "
+                        "omitted "
+                        "restores "
+                        "the "
+                        "current "
+                        "one. "
+                        "Not "
+                        "accepted "
+                        "with "
+                        "undo_merge.",
+                        "nullable": True,
+                    },
+                },
+                "additionalProperties": False,
+                "type": "object",
+            },
+            "ArtifactGovernanceRecord": {
+                "properties": {
+                    "artifact": {"$ref": "#/components/schemas/ArtifactReference"},
+                    "lifecycle_state": {"$ref": "#/components/schemas/ArtifactLifecycleState"},
+                    "state_version": {"type": "integer", "minimum": 0.0},
+                    "merged_into_id": {"type": "string", "nullable": True},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["artifact", "lifecycle_state", "state_version", "merged_into_id"],
+            },
+            "ArtifactGovernanceResponse": {
+                "properties": {
+                    "changed": {"type": "boolean"},
+                    "records": {"items": {"$ref": "#/components/schemas/ArtifactGovernanceRecord"}, "type": "array"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["changed", "records"],
+            },
+            "ArtifactRestorationResult": {
+                "properties": {
+                    "changed": {"type": "boolean"},
+                    "restored": {"items": {"$ref": "#/components/schemas/ArtifactReference"}, "type": "array"},
+                    "retired": {"items": {"$ref": "#/components/schemas/ArtifactReference"}, "type": "array"},
+                    "undo_merge_results": {"items": {"type": "string"}, "type": "array"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["changed", "restored", "retired", "undo_merge_results"],
+            },
+            "CreatePluginArtifactRequest": {
+                "properties": {
+                    "family": {"type": "string", "maxLength": 128, "minLength": 1, "pattern": "^[a-z][a-z0-9-]*$"},
+                    "content": {"additionalProperties": True, "type": "object"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["family", "content"],
+                "description": "Create an Artifact of "
+                "a family a loaded "
+                "plugin provides. The "
+                "family must not be a "
+                "built-in family name; "
+                "core allocates the "
+                "Artifact ID and stores "
+                "the content the plugin "
+                "writes.",
+            },
+            "ReplacePluginArtifactRequest": {
+                "properties": {"content": {"additionalProperties": True, "type": "object"}},
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["content"],
+                "description": "Complete content of a "
+                "plugin Artifact; core "
+                "stores it unchanged "
+                "and indexes the "
+                "declared fields.",
+            },
             "Capabilities": {
                 "properties": {
-                    "custom_artifact_schemas": {
-                        "items": {"$ref": "#/components/schemas/CustomArtifactFamilySchema"},
-                        "type": "array",
-                        "default": [],
-                    },
                     "prompts": {
                         "additionalProperties": {"$ref": "#/components/schemas/PromptCapability"},
                         "type": "object",
@@ -9705,6 +10517,84 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "type": "object",
                 "required": ["scope_id", "source_id", "content"],
             },
+            "CaptureContentSourceItem": {
+                "properties": {
+                    "source_id": {"type": "string", "maxLength": 256, "minLength": 1},
+                    "content": {
+                        "type": "string",
+                        "maxLength": 200000,
+                        "minLength": 1,
+                        "description": "Raw "
+                        "integration "
+                        "content, "
+                        "under "
+                        "the "
+                        "rules "
+                        "of "
+                        "the "
+                        "single "
+                        "ContentSource "
+                        "capture "
+                        "operation.",
+                    },
+                    "metadata": {
+                        "additionalProperties": True,
+                        "type": "object",
+                        "description": "Caller "
+                        "metadata, "
+                        "under "
+                        "the "
+                        "rules "
+                        "of "
+                        "the "
+                        "single "
+                        "ContentSource "
+                        "capture "
+                        "operation.",
+                        "nullable": True,
+                    },
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["source_id", "content"],
+            },
+            "CaptureContentSourcesRequest": {
+                "properties": {
+                    "scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
+                    "sources": {
+                        "items": {"$ref": "#/components/schemas/CaptureContentSourceItem"},
+                        "type": "array",
+                        "maxItems": 128,
+                        "minItems": 1,
+                        "description": "Sources in journal order. Each source_id appears once.",
+                    },
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["scope_id", "sources"],
+            },
+            "CaptureContentSourcesResponse": {
+                "properties": {
+                    "status": {"$ref": "#/components/schemas/CaptureStatus"},
+                    "sources": {
+                        "items": {"$ref": "#/components/schemas/CapturedContentSource"},
+                        "type": "array",
+                        "description": "One receipt per requested Source, in request order.",
+                    },
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["status", "sources"],
+            },
+            "CapturedContentSource": {
+                "properties": {
+                    "source": {"$ref": "#/components/schemas/SourceReference"},
+                    "position": {"type": "integer", "minimum": 1.0},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["source", "position"],
+            },
             "WorkingNoteKind": {
                 "type": "string",
                 "enum": ["inspection", "abandoned_approach", "validation", "unresolved", "host_context"],
@@ -9875,6 +10765,37 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "properties": {
                     "scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
                     "observation": {"$ref": "#/components/schemas/SourceObservation"},
+                    "plugin": {
+                        "allOf": [{"$ref": "#/components/schemas/PluginVersionRef"}],
+                        "description": "Set "
+                        "by "
+                        "collection "
+                        "runners. "
+                        "The "
+                        "Server "
+                        "checks "
+                        "the "
+                        "version "
+                        "against "
+                        "the "
+                        "Source "
+                        "plugin "
+                        "it "
+                        "loaded "
+                        "and "
+                        "has "
+                        "that "
+                        "plugin "
+                        "resolve "
+                        "and "
+                        "project "
+                        "the "
+                        "observation; "
+                        "unsupported "
+                        "versions "
+                        "return "
+                        "plugin_version_incompatible.",
+                    },
                 },
                 "additionalProperties": False,
                 "type": "object",
@@ -9894,6 +10815,69 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "binding": {"$ref": "#/components/schemas/ConnectorBinding"},
                     "expected": {"nullable": True},
                     "checkpoint": {"nullable": True},
+                    "plugin": {
+                        "allOf": [{"$ref": "#/components/schemas/PluginVersionRef"}],
+                        "description": "Set "
+                        "by "
+                        "collection "
+                        "runners "
+                        "for "
+                        "a "
+                        "target's "
+                        "checkpoint; "
+                        "checked "
+                        "like "
+                        "a "
+                        "runner's "
+                        "observations.",
+                    },
+                    "status": {
+                        "allOf": [{"$ref": "#/components/schemas/SourceTargetResultStatus"}],
+                        "description": "The "
+                        "collection "
+                        "attempt's "
+                        "outcome, "
+                        "recorded "
+                        "on "
+                        "the "
+                        "target "
+                        "together "
+                        "with "
+                        "the "
+                        "checkpoint.",
+                    },
+                    "config_version": {
+                        "type": "integer",
+                        "minimum": 1.0,
+                        "description": "The "
+                        "configuration "
+                        "version "
+                        "of "
+                        "the "
+                        "collection "
+                        "target "
+                        "the "
+                        "runner "
+                        "collected "
+                        "under. "
+                        "Required "
+                        "when "
+                        "the "
+                        "binding "
+                        "is "
+                        "a "
+                        "collection "
+                        "target; "
+                        "the "
+                        "commit "
+                        "is "
+                        "refused "
+                        "when "
+                        "the "
+                        "target "
+                        "changed "
+                        "since.",
+                    },
                 },
                 "additionalProperties": False,
                 "type": "object",
@@ -10325,7 +11309,22 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
             "PreparedContextSearchGroup": {
                 "properties": {
                     "round": {"type": "integer", "maximum": 2.0, "minimum": 0.0},
-                    "family": {"$ref": "#/components/schemas/PreparedContextFamily"},
+                    "family": {
+                        "type": "string",
+                        "maxLength": 128,
+                        "minLength": 1,
+                        "pattern": "^[a-z][a-z0-9-]*$",
+                        "description": "atomic-memory, "
+                        "topic-memory, "
+                        "experience, "
+                        "profile, "
+                        "code, "
+                        "or "
+                        "a "
+                        "loaded "
+                        "plugin "
+                        "family.",
+                    },
                     "mode": {"type": "string", "enum": ["fts", "vector", "hybrid", "snapshot", "code", "none"]},
                     "outcome": {"type": "string", "enum": ["completed", "not_run", "failed"]},
                     "fallback_reason": {
@@ -10425,10 +11424,6 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "type": "object",
                 "required": ["round", "config_id", "outcome", "fallback_reason", "count"],
             },
-            "PreparedContextFamily": {
-                "type": "string",
-                "enum": ["atomic-memory", "topic-memory", "experience", "profile", "code"],
-            },
             "PreparedContextCodeEvidence": {
                 "properties": {
                     "scope_id": {"type": "string"},
@@ -10453,7 +11448,22 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
             },
             "PreparedContextSelectedItem": {
                 "properties": {
-                    "kind": {"$ref": "#/components/schemas/PreparedContextFamily"},
+                    "kind": {
+                        "type": "string",
+                        "maxLength": 128,
+                        "minLength": 1,
+                        "pattern": "^[a-z][a-z0-9-]*$",
+                        "description": "atomic-memory, "
+                        "topic-memory, "
+                        "experience, "
+                        "profile, "
+                        "code, "
+                        "or "
+                        "a "
+                        "loaded "
+                        "plugin "
+                        "family.",
+                    },
                     "artifact_address": {"$ref": "#/components/schemas/ArtifactAddress"},
                     "code_evidence": {"$ref": "#/components/schemas/PreparedContextCodeEvidence"},
                     "rendered_bytes": {"type": "integer", "minimum": 0.0},
@@ -10465,7 +11475,22 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
             },
             "PreparedContextOmittedGroup": {
                 "properties": {
-                    "family": {"$ref": "#/components/schemas/PreparedContextFamily"},
+                    "family": {
+                        "type": "string",
+                        "maxLength": 128,
+                        "minLength": 1,
+                        "pattern": "^[a-z][a-z0-9-]*$",
+                        "description": "atomic-memory, "
+                        "topic-memory, "
+                        "experience, "
+                        "profile, "
+                        "code, "
+                        "or "
+                        "a "
+                        "loaded "
+                        "plugin "
+                        "family.",
+                    },
                     "reason": {
                         "type": "string",
                         "enum": [
@@ -10784,6 +11809,65 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "dependencies": {"type": "integer", "minimum": 1.0},
                     "send_seconds": {"type": "integer", "minimum": 1.0},
                     "correlate_seconds": {"type": "integer", "minimum": 1.0},
+                    "atomic_memory_input_tokens": {
+                        "type": "integer",
+                        "minimum": 1.0,
+                        "description": "The "
+                        "effective "
+                        "estimated-token "
+                        "limit "
+                        "of "
+                        "one "
+                        "Atomic "
+                        "Memory "
+                        "model "
+                        "input, "
+                        "including "
+                        "a "
+                        "deployment "
+                        "override. "
+                        "A "
+                        "gateway "
+                        "sizes "
+                        "each "
+                        "captured "
+                        "Source "
+                        "against "
+                        "it. "
+                        "Absent "
+                        "when "
+                        "the "
+                        "runtime "
+                        "does "
+                        "not "
+                        "report "
+                        "the "
+                        "limit.",
+                    },
+                    "capture_batch_sources": {
+                        "type": "integer",
+                        "minimum": 1.0,
+                        "description": "The "
+                        "most "
+                        "Sources "
+                        "one "
+                        "batch "
+                        "ContentSource "
+                        "capture "
+                        "request "
+                        "accepts. "
+                        "Absent "
+                        "when "
+                        "the "
+                        "Server "
+                        "does "
+                        "not "
+                        "offer "
+                        "the "
+                        "batch "
+                        "capture "
+                        "operation.",
+                    },
                 },
                 "additionalProperties": False,
                 "type": "object",
@@ -12596,7 +13680,88 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
             },
             "ContextAssemblySection": {
                 "properties": {
-                    "family": {"$ref": "#/components/schemas/ContextAssemblyFamily"},
+                    "family": {
+                        "type": "string",
+                        "maxLength": 128,
+                        "minLength": 1,
+                        "pattern": "^[a-z][a-z0-9-]*$",
+                        "description": "A "
+                        "built-in "
+                        "family "
+                        "(memory, "
+                        "experience, "
+                        "profile, "
+                        "topic-memory) "
+                        "or "
+                        "a "
+                        "loaded "
+                        "plugin "
+                        "family "
+                        "that "
+                        "implements "
+                        "search. "
+                        "A "
+                        "plugin "
+                        "family's "
+                        "entries "
+                        "come "
+                        "from "
+                        "the "
+                        "plugin's "
+                        "search "
+                        "with "
+                        "the "
+                        "request "
+                        "query "
+                        "and "
+                        "this "
+                        "limit; "
+                        "a "
+                        "family "
+                        "that "
+                        "is "
+                        "neither "
+                        "returns "
+                        "HTTP "
+                        "422.",
+                    },
+                    "search": {
+                        "additionalProperties": True,
+                        "type": "object",
+                        "description": "Additional "
+                        "generic "
+                        "search "
+                        "fields "
+                        "passed "
+                        "to "
+                        "the "
+                        "plugin's "
+                        "search "
+                        "unchanged, "
+                        "such "
+                        "as "
+                        "mode, "
+                        "filters, "
+                        "fusion, "
+                        "or "
+                        "rerank. "
+                        "Only "
+                        "plugin "
+                        "families "
+                        "accept "
+                        "it; "
+                        "the "
+                        "query "
+                        "and "
+                        "limit "
+                        "come "
+                        "from "
+                        "the "
+                        "request "
+                        "and "
+                        "this "
+                        "section.",
+                    },
                     "limit": {
                         "type": "integer",
                         "maximum": 8.0,
@@ -12735,7 +13900,6 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "preserve the existing context "
                 "format; null is invalid.",
             },
-            "ContextAssemblyFamily": {"type": "string", "enum": ["memory", "experience", "profile", "topic-memory"]},
             "ContextAssemblyFormat": {"type": "string", "enum": ["markdown"]},
             "ContextAssemblyMetadata": {"type": "string", "enum": ["confidence", "recall_rank"]},
             "ProposeExperienceRequest": {
@@ -13288,6 +14452,18 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "required": ["retrieval", "channels"],
                 "x-powercontext-artifact-search-validation": "score",
             },
+            "ArtifactRendering": {
+                "properties": {
+                    "family": {"type": "string", "minLength": 1},
+                    "artifact_id": {"type": "string", "maxLength": 128, "minLength": 1},
+                    "revision": {"type": "integer", "minimum": 1.0},
+                    "format": {"type": "string", "enum": ["markdown", "text"]},
+                    "text": {"type": "string"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["family", "artifact_id", "revision", "format", "text"],
+            },
             "ArtifactSearchItem": {
                 "properties": {
                     "family": {"type": "string", "minLength": 1},
@@ -13405,6 +14581,23 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "required": ["artifact", "title", "summary", "detail", "source_refs"],
             },
             "CreateArtifactRequest": {
+                "anyOf": [
+                    {"$ref": "#/components/schemas/CreateBuiltinArtifactRequest"},
+                    {"$ref": "#/components/schemas/CreatePluginArtifactRequest"},
+                ],
+                "description": "A built-in family's creation "
+                "request, or the complete "
+                "content of an Artifact in a "
+                "loaded plugin's family. The "
+                "family name selects the "
+                "branch: built-in names "
+                "select the built-in branch.",
+                "x-powercontext-family-dispatch": {
+                    "builtin": "CreateBuiltinArtifactRequest",
+                    "plugin": "CreatePluginArtifactRequest",
+                },
+            },
+            "CreateBuiltinArtifactRequest": {
                 "oneOf": [
                     {"$ref": "#/components/schemas/CreateAtomicMemoryArtifactRequest"},
                     {"$ref": "#/components/schemas/CreateTopicMemoryArtifactRequest"},
@@ -13583,9 +14776,49 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "type": "object",
                 "required": ["kind", "text"],
             },
+            "SourceType": {
+                "type": "string",
+                "enum": ["content"],
+                "description": "The built-in Source type that create_source accepts.",
+            },
             "CreateSourceRequest": {
                 "properties": {
-                    "source_type": {"type": "string", "enum": ["content"], "default": "content"},
+                    "source_type": {
+                        "type": "string",
+                        "maxLength": 128,
+                        "minLength": 1,
+                        "pattern": "^[a-z][a-z0-9._-]*$",
+                        "description": "The "
+                        "built-in "
+                        "content "
+                        "type, "
+                        "or "
+                        "a "
+                        "Source "
+                        "type "
+                        "that "
+                        "a "
+                        "loaded "
+                        "plugin "
+                        "defines. "
+                        "A "
+                        "plugin "
+                        "type's "
+                        "content "
+                        "is "
+                        "that "
+                        "type's "
+                        "input; "
+                        "the "
+                        "plugin "
+                        "resolves "
+                        "it "
+                        "into "
+                        "the "
+                        "stored "
+                        "Source.",
+                        "default": "content",
+                    },
                     "content": {
                         "description": "JSON "
                         "value "
@@ -13595,7 +14828,15 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                         "built-in "
                         "content "
                         "Source "
-                        "adapter. "
+                        "adapter, "
+                        "or "
+                        "the "
+                        "input "
+                        "of "
+                        "a "
+                        "plugin "
+                        "Source "
+                        "type. "
                         "Server-reserved "
                         "payload "
                         "schemas, "
@@ -13629,17 +14870,17 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
             },
             "TaggableArtifactFamily": {
                 "type": "string",
-                "enum": [
-                    "memory",
-                    "atomic-memory",
-                    "experience",
-                    "skill",
-                    "handoff",
-                    "profile",
-                    "prompt",
-                    "topic-memory",
-                ],
-                "description": "All readable Artifact families support logical tags on persisted Artifacts.",
+                "maxLength": 128,
+                "minLength": 1,
+                "pattern": "^[a-z][a-z0-9-]*$",
+                "description": "A built-in Family or a "
+                "loaded plugin family; every "
+                "readable Family supports "
+                "logical tags on persisted "
+                "Artifacts. The "
+                "collection-level memory "
+                "Family tags entries "
+                "instead.",
             },
             "TagMatch": {"type": "string", "enum": ["all", "any"]},
             "TagTargetType": {"type": "string", "enum": ["artifact", "memory_entry"]},
@@ -13829,7 +15070,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "type": "object",
             },
             "ReplaceArtifactRequest": {
-                "oneOf": [
+                "anyOf": [
                     {"$ref": "#/components/schemas/ReplaceAtomicMemoryArtifactRequest"},
                     {"$ref": "#/components/schemas/ReplaceTopicMemoryArtifactRequest"},
                     {"$ref": "#/components/schemas/ReplaceMemoryArtifactRequest"},
@@ -13838,7 +15079,16 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     {"$ref": "#/components/schemas/ReplaceHandoffArtifactRequest"},
                     {"$ref": "#/components/schemas/ReplacePromptArtifactRequest"},
                     {"$ref": "#/components/schemas/ReplaceProfileArtifactRequest"},
-                ]
+                    {"$ref": "#/components/schemas/ReplacePluginArtifactRequest"},
+                ],
+                "description": "The complete content for "
+                "the family in the path. A "
+                "plugin family's content is "
+                "any object, so a built-in "
+                "family's request also "
+                "matches the plugin branch; "
+                "the path family selects the "
+                "branch the Server applies.",
             },
             "ReplacePromptArtifactRequest": {
                 "properties": {
@@ -13855,6 +15105,11 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "additionalProperties": False,
                 "type": "object",
                 "required": ["content"],
+            },
+            "GetArtifactRenderingRequest": {
+                "properties": {"revision": {"type": "integer", "minimum": 1.0, "nullable": True}},
+                "additionalProperties": False,
+                "type": "object",
             },
             "ListArtifactRevisionsRequest": {
                 "properties": {
@@ -14989,322 +16244,6 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "type": "object",
                 "required": ["versions"],
             },
-            "SourceCapabilityQuery": {
-                "properties": {
-                    "scope_id": {"type": "string", "maxLength": 256, "minLength": 1},
-                    "capability": {"type": "string", "maxLength": 256, "minLength": 1},
-                    "instance_id": {"type": "string", "maxLength": 256, "minLength": 1},
-                    "input": {"additionalProperties": True, "type": "object"},
-                },
-                "additionalProperties": False,
-                "type": "object",
-                "required": ["scope_id"],
-            },
-            "SourceWritePluginLoadRequest": {
-                "properties": {
-                    "id": {
-                        "type": "string",
-                        "maxLength": 128,
-                        "minLength": 1,
-                        "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.-]*$",
-                    },
-                    "entry": {"type": "string", "maxLength": 4096, "minLength": 1},
-                },
-                "additionalProperties": False,
-                "type": "object",
-                "required": ["id", "entry"],
-            },
-            "SourceWritePluginState": {
-                "properties": {
-                    "id": {"type": "string"},
-                    "entry": {"type": "string"},
-                    "capabilities": {"items": {"additionalProperties": True, "type": "object"}, "type": "array"},
-                },
-                "additionalProperties": False,
-                "type": "object",
-                "required": ["id", "entry", "capabilities"],
-            },
-            "SourceAddRequest": {
-                "properties": {
-                    "scope_id": {"type": "string", "maxLength": 256, "minLength": 1},
-                    "capability": {"type": "string", "maxLength": 256, "minLength": 1},
-                    "capability_version": {"type": "string", "maxLength": 256, "minLength": 1},
-                    "instance_id": {"type": "string", "maxLength": 256, "minLength": 1},
-                    "input": {"additionalProperties": True, "type": "object"},
-                },
-                "additionalProperties": False,
-                "type": "object",
-                "required": ["scope_id", "capability", "capability_version", "input"],
-            },
-            "SourceStatusRequest": {
-                "properties": {
-                    "scope_id": {"type": "string", "maxLength": 256, "minLength": 1},
-                    "target_id": {"type": "string", "maxLength": 256, "minLength": 1},
-                    "view": {"type": "string", "enum": ["result", "control"], "default": "result"},
-                },
-                "additionalProperties": False,
-                "type": "object",
-                "required": ["scope_id", "target_id"],
-            },
-            "SourceInstanceSetEnabledRequest": {
-                "properties": {
-                    "instance_id": {"type": "string", "maxLength": 256, "minLength": 1},
-                    "enabled": {"type": "boolean"},
-                },
-                "additionalProperties": False,
-                "type": "object",
-                "required": ["instance_id", "enabled"],
-            },
-            "SourceConfigureRequest": {
-                "properties": {
-                    "update": {"type": "boolean", "default": False},
-                    "registration": {"additionalProperties": True, "type": "object"},
-                },
-                "additionalProperties": False,
-                "type": "object",
-                "required": ["registration"],
-            },
-            "SourceCapabilityResponse": {
-                "properties": {
-                    "capabilities": {"items": {"additionalProperties": True, "type": "object"}, "type": "array"},
-                    "management": {"type": "string", "enum": ["not-configured", "online", "unavailable"]},
-                },
-                "additionalProperties": False,
-                "type": "object",
-                "required": ["capabilities", "management"],
-            },
-            "SourceInstancesResponse": {
-                "properties": {
-                    "instances": {"items": {"additionalProperties": True, "type": "object"}, "type": "array"},
-                    "capabilities": {"items": {"additionalProperties": True, "type": "object"}, "type": "array"},
-                    "management": {"type": "string", "enum": ["not-configured", "online", "unavailable"]},
-                },
-                "additionalProperties": False,
-                "type": "object",
-                "required": ["instances"],
-            },
-            "SourceCollectionResult": {
-                "properties": {
-                    "outcome": {"type": "string", "enum": ["saved", "unchanged"]},
-                    "source_refs": {"items": {"$ref": "#/components/schemas/SourceTypeReference"}, "type": "array"},
-                },
-                "additionalProperties": False,
-                "type": "object",
-                "required": ["outcome", "source_refs"],
-            },
-            "SourceManagementReceipt": {
-                "properties": {
-                    "target_id": {"type": "string", "maxLength": 256, "minLength": 1},
-                    "tracking": {"type": "string", "enum": ["enabled", "stopping", "stopped"]},
-                    "result": {"$ref": "#/components/schemas/SourceCollectionResult"},
-                    "error": {"type": "string"},
-                    "instance_id": {"type": "string", "maxLength": 256, "minLength": 1},
-                    "capability": {"type": "string", "maxLength": 256, "minLength": 1},
-                    "capability_version": {"type": "string", "maxLength": 256, "minLength": 1},
-                    "availability": {"type": "string", "enum": ["online", "offline", "unavailable"]},
-                    "updated_at": {"type": "string"},
-                    "kind": {"type": "string", "enum": ["collect", "write"]},
-                    "enabled": {"type": "boolean"},
-                    "source_refs": {
-                        "items": {"$ref": "#/components/schemas/SourceTypeReference"},
-                        "type": "array",
-                        "maxItems": 1,
-                        "description": "Default "
-                        "collect "
-                        "status "
-                        "only. "
-                        "The "
-                        "single "
-                        "Source "
-                        "reference "
-                        "from "
-                        "the "
-                        "submission "
-                        "report "
-                        "most "
-                        "recently "
-                        "received "
-                        "by "
-                        "the "
-                        "manager, "
-                        "or "
-                        "empty "
-                        "before "
-                        "any "
-                        "report. "
-                        "Omitted "
-                        "from "
-                        "collect "
-                        "add "
-                        "responses; "
-                        "not "
-                        "a "
-                        "batch "
-                        "result "
-                        "or "
-                        "submission "
-                        "history.",
-                    },
-                    "last_submitted_at": {
-                        "type": "string",
-                        "description": "Default "
-                        "collect "
-                        "status "
-                        "only. "
-                        "Runtime-reported "
-                        "submission "
-                        "time "
-                        "paired "
-                        "with "
-                        "source_refs, "
-                        "or "
-                        "null "
-                        "before "
-                        "any "
-                        "report. "
-                        "Selection "
-                        "follows "
-                        "manager "
-                        "receipt "
-                        "order, "
-                        "not "
-                        "timestamp "
-                        "order. "
-                        "Omitted "
-                        "from "
-                        "collect "
-                        "add "
-                        "responses.",
-                        "nullable": True,
-                    },
-                },
-                "additionalProperties": False,
-                "type": "object",
-            },
-            "SourceInstanceStatus": {
-                "properties": {
-                    "targets_initialized": {"type": "boolean"},
-                    "target_id": {"type": "string"},
-                    "instance_id": {"type": "string", "maxLength": 256, "minLength": 1},
-                    "enabled": {"type": "boolean"},
-                    "actual": {"type": "string"},
-                    "run_id": {"type": "string", "nullable": True},
-                    "availability": {"type": "string"},
-                    "reused": {"type": "boolean"},
-                },
-                "additionalProperties": False,
-                "type": "object",
-                "required": ["instance_id"],
-            },
-            "SourceChannelOpen": {
-                "properties": {
-                    "protocol": {"type": "string", "maxLength": 256, "minLength": 1},
-                    "deployment_id": {"type": "string", "maxLength": 256, "minLength": 1},
-                    "manager_id": {"type": "string", "maxLength": 256, "minLength": 1},
-                },
-                "additionalProperties": False,
-                "type": "object",
-                "required": ["protocol", "deployment_id", "manager_id"],
-            },
-            "SourceChannelRequest": {
-                "properties": {
-                    "generation": {"type": "string", "maxLength": 256, "minLength": 1},
-                    "message_id": {"type": "string", "maxLength": 256, "minLength": 1},
-                    "response": {"additionalProperties": True, "type": "object"},
-                    "catalog": {"additionalProperties": True, "type": "object"},
-                },
-                "additionalProperties": False,
-                "type": "object",
-                "required": ["generation"],
-            },
-            "SourceChannelResponse": {
-                "properties": {
-                    "generation": {"type": "string", "maxLength": 256, "minLength": 1},
-                    "protocol": {"type": "string", "maxLength": 256, "minLength": 1},
-                    "confirmed": {"type": "boolean"},
-                    "messages": {"items": {"additionalProperties": True, "type": "object"}, "type": "array"},
-                },
-                "additionalProperties": False,
-                "type": "object",
-            },
-            "SourceInstanceExchangeRequest": {
-                "properties": {
-                    "generation": {"type": "string", "maxLength": 256, "minLength": 1},
-                    "protocol": {"type": "string", "maxLength": 256, "minLength": 1},
-                    "message_id": {"type": "string", "maxLength": 256, "minLength": 1},
-                    "execution_location": {"type": "string", "maxLength": 256, "minLength": 1},
-                    "configuration_digest": {"type": "string", "maxLength": 256, "minLength": 1},
-                    "run_id": {"type": "string", "maxLength": 256, "minLength": 1},
-                    "execution": {"type": "string", "maxLength": 256, "minLength": 1},
-                    "target_id": {"type": "string", "maxLength": 256, "minLength": 1},
-                    "capabilities": {
-                        "items": {"additionalProperties": True, "type": "object"},
-                        "type": "array",
-                        "maxItems": 64,
-                    },
-                    "response": {"additionalProperties": True, "type": "object"},
-                    "owner": {"additionalProperties": True, "type": "object"},
-                    "status": {
-                        "type": "string",
-                        "enum": ["running", "complete", "completed", "pending", "failed", "stopped", "cleanup-failed"],
-                    },
-                    "source_refs": {
-                        "items": {"$ref": "#/components/schemas/SourceTypeReference"},
-                        "type": "array",
-                        "maxItems": 1,
-                        "minItems": 1,
-                        "description": "One "
-                        "confirmed "
-                        "Source "
-                        "submission "
-                        "reported "
-                        "by "
-                        "the "
-                        "Runtime; "
-                        "not "
-                        "a "
-                        "batch "
-                        "or "
-                        "historical "
-                        "reference "
-                        "list.",
-                    },
-                    "error": {"type": "string", "maxLength": 1024},
-                    "targets": {
-                        "items": {"additionalProperties": True, "type": "object"},
-                        "type": "array",
-                        "maxItems": 256,
-                    },
-                    "cursor": {"type": "string", "maxLength": 256},
-                    "owner_exited": {"type": "boolean"},
-                    "previous_owner": {"additionalProperties": True, "type": "object"},
-                    "submitted_at": {"type": "string"},
-                },
-                "additionalProperties": False,
-                "type": "object",
-            },
-            "SourceInstanceExchangeResponse": {"additionalProperties": True, "type": "object"},
-            "SourceTargetSetEnabledRequest": {
-                "properties": {
-                    "scope_id": {"type": "string", "maxLength": 256, "minLength": 1},
-                    "target_id": {"type": "string", "maxLength": 256, "minLength": 1},
-                    "enabled": {"type": "boolean"},
-                },
-                "additionalProperties": False,
-                "type": "object",
-                "required": ["scope_id", "target_id", "enabled"],
-            },
-            "SourceInstancesQuery": {
-                "properties": {
-                    "scope_id": {"type": "string", "maxLength": 256, "minLength": 1},
-                    "capability": {"type": "string", "maxLength": 256, "minLength": 1},
-                    "instance_id": {"type": "string", "maxLength": 256, "minLength": 1},
-                    "input": {"additionalProperties": True, "type": "object"},
-                    "view": {"type": "string", "enum": ["discovery", "control"], "default": "discovery"},
-                },
-                "additionalProperties": False,
-                "type": "object",
-            },
             "PlanAccessOwnershipRequest": {
                 "properties": {
                     "scope_ids": {
@@ -15454,6 +16393,31 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
             },
         },
         "responses": {
+            "GatewayDeadlineExceeded": {
+                "description": "Total monotonic work "
+                "deadline exceeded. Best "
+                "effort only while HTTP "
+                "status can still be "
+                "sent; an expired "
+                "deadline or unavailable "
+                "connection may prevent "
+                "delivery. Does not imply "
+                "zero cost or permit "
+                "retry.",
+                "content": {"application/json": {"schema": {"$ref": "#/components/schemas/GatewayLifecycleError"}}},
+            },
+            "GatewayStopped": {
+                "description": "Gateway shutdown, or explicit "
+                "in-process cancellation when a "
+                "response channel remains "
+                "available. No HTTP cancellation "
+                "endpoint or nonstandard "
+                "cancellation status is defined. "
+                "Already started HTTP status and "
+                "completed execution terminals are "
+                "preserved.",
+                "content": {"application/json": {"schema": {"$ref": "#/components/schemas/GatewayLifecycleError"}}},
+            },
             "ClientUpgradeRequired": {
                 "description": "This response requires a "
                 "coordinated client "
@@ -15574,5 +16538,12 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
         "access.principal": {"major": 1, "minor": 0},
         "scope.selection": {"major": 1, "minor": 0},
         "memory.explicit": {"major": 1, "minor": 0},
+    },
+    "x-powercontext-gateway-lifecycle": {
+        "paths": ["/gateway/v1/chat/completions", "/gateway/v1/responses"],
+        "responses": {
+            "504": {"$ref": "#/components/responses/GatewayDeadlineExceeded"},
+            "503": {"$ref": "#/components/responses/GatewayStopped"},
+        },
     },
 }
