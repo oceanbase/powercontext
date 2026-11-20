@@ -4498,7 +4498,7 @@ async fn capture_split_turn(batch: Option<usize>) -> (usize, usize, Vec<String>)
 }
 
 #[tokio::test]
-async fn a_retried_turn_keeps_its_first_source_id_when_the_part_count_changes() {
+async fn a_retried_turn_uses_distinct_source_ids_when_the_part_count_changes() {
     let output = |text: &str| {
         responses_output(serde_json::json!([
             {"id": "msg_1", "type": "message", "role": "assistant",
@@ -4534,9 +4534,9 @@ async fn a_retried_turn_keeps_its_first_source_id_when_the_part_count_changes() 
             part_counts.push(captured.len() - before);
         }
         assert_ne!(part_counts[0], part_counts[1]);
-        assert_eq!(
+        assert_ne!(
             first_ids[0], first_ids[1],
-            "Core sees the retry as the same Source and rejects its batch"
+            "different terminal records must have distinct Source IDs"
         );
     }
 }
