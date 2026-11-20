@@ -30,7 +30,8 @@ jobs:
       ${{ !cancelled() &&
           ((inputs.suites == '' && needs.changes.result != 'success') || fromJSON(inputs.suites || needs.changes.outputs.suites || '{}').gateway) }}
     runs-on: powercontext-ci-light
-    timeout-minutes: 20
+    # Include Rust/Go toolchains, cold builds, and upstream protocol acceptance.
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:

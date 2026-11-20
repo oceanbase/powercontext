@@ -19,7 +19,7 @@ notebooks-test: ## Execute provider-free tutorials in fresh kernels; use ARGS fo
 	@uv run --locked --group notebooks python examples/jupyter/run.py $(ARGS)
 
 .PHONY: check
-check: version-check upgrade-policy-check workflow-actions-check integration-manifest-check integration-guidance-check integration-lifecycle-check ## Run code quality tools.
+check: schema-check version-check upgrade-policy-check workflow-actions-check integration-manifest-check integration-guidance-check integration-lifecycle-check ## Run code quality tools.
 
 .PHONY: integration-guidance integration-guidance-check
 integration-guidance: ## Copy shared Skills into native packages.
@@ -280,7 +280,7 @@ version-check: ## Check release references and generated API code; optionally as
 	@$(MAKE) api-generate-check js-api-generate-check
 
 .PHONY: release-check
-release-check: version-check upgrade-policy-check docs-install ## Check version references and require matching bilingual notes for a stable release.
+release-check: schema-release-check version-check upgrade-policy-check docs-install ## Check version references and require matching bilingual notes for a stable release.
 	@cd website && node --import tsx --test tests/releases.test.ts
 
 .PHONY: upgrade-policy-check
@@ -339,3 +339,13 @@ help:
 	[[print(f'\033[36m{m[0]:<20}\033[0m {m[1]}') for m in re.findall(r'^([a-zA-Z0-9_-]+):.*?## (.*)$$', open(makefile).read(), re.M)] for makefile in ('$(MAKEFILE_LIST)').strip().split()]"
 
 .DEFAULT_GOAL := help
+
+.PHONY: schema-check schema-release-check schema-freeze
+schema-check: ## Validate the shared draft and registered Server migration chains.
+	@uv run --locked python scripts/schema_release.py check
+
+schema-release-check: ## Reject an unfrozen 000 migration before publication.
+	@uv run --locked python scripts/schema_release.py check --release
+
+schema-freeze: ## Freeze shared 000 resources after version-bump: VERSION=X.Y.Z.
+	@uv run --locked python scripts/schema_release.py freeze
