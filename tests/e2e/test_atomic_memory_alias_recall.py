@@ -36,7 +36,13 @@ from powercontext.builtin.persistence.atomic_memory_index import AtomicMemoryInd
 from powercontext.builtin.persistence.sqlite.atomic_memory_index import SQLiteAtomicMemoryIndex
 from powercontext.builtin.records import ArtifactWrite
 from powercontext.builtin.runtime import open_builtin_contexts
-from tests.e2e.test_atomic_memory_related_embedding import PROFILE, _config, _Extractor, _Reconciler
+from tests.e2e.test_atomic_memory_related_embedding import (
+    PROFILE,
+    _config,
+    _Extractor,
+    _Reconciler,
+    _RecordingCreateReconciler,
+)
 
 OLD = "Deploys go out to five percent of traffic first."
 OTHER = "Pause the deployment if errors rise."
@@ -194,7 +200,7 @@ def test_alias_failure_that_destroys_snapshot_does_not_publish(tmp_path, monkeyp
                 await connection.exec_driver_sql("ROLLBACK")
                 raise RuntimeError("Alias query lost its transaction")  # noqa: TRY003
 
-            monkeypatch.setattr(contexts.atomic_memory.index, "enumerate_aliased_related", lost_snapshot)
+            monkeypatch.setattr(contexts.atomic_memory.index, "aliased_related_ranks", lost_snapshot)
             await contexts.records.create_source("project", "content", OLD)
             with pytest.raises(OperationalError, match="savepoint"):
                 await context.triggers.flush(limit=1)
@@ -261,5 +267,63 @@ def test_alias_switch_does_not_add_transactions_without_recall_candidates(tmp_pa
     async def scenario():
         baseline = await process(False)
         assert await process(True) == baseline
+
+    asyncio.run(scenario())
+
+
+def test_recall_fetches_each_page_before_comparing_and_includes_alias_only_successor(tmp_path):
+    from sqlalchemy import event
+
+    page_size = 1
+    pending_body_ids = []
+
+    class PageReconciler(_RecordingCreateReconciler):
+        async def generate(self, request):
+            if request.related:
+                assert 0 < len(pending_body_ids) <= page_size
+                pending_body_ids.clear()
+            return await super().generate(request)
+
+    async def scenario():
+        config = _config(tmp_path)
+        config = config.model_copy(
+            update={
+                "runtime": config.runtime.model_copy(
+                    update={"atomic_memory_alias_recall": True, "atomic_memory_related_page_size": page_size}
+                )
+            }
+        )
+        reconciler = PageReconciler()
+        pipeline = AtomicMemoryGenerationPipeline(
+            extractor=_Extractor(), reconciler=reconciler, estimator=character_token_estimator()
+        )
+        async with open_builtin_contexts(
+            config, embedding_model=AliasEmbedding(), candidate_pipeline=pipeline
+        ) as contexts:
+            await seed_alias(contexts)
+            direct = f"{OLD} Verify the metrics."
+            await contexts.records.create_artifact(
+                "project", "atomic-memory", ArtifactWrite(content={"kind": "fact", "text": direct})
+            )
+            context = await contexts.get("project")
+            await context.triggers.flush(limit=200)
+            reconciler.inputs.clear()
+            await contexts.records.create_source("project", "content", OLD)
+
+            def observe_bodies(_conn, _cursor, statement, parameters, _ctx, _many):
+                if "current.text AS projected_text" in statement:
+                    pending_body_ids.extend(parameters[1:])
+
+            engine = contexts.database.engine.sync_engine
+            event.listen(engine, "before_cursor_execute", observe_bodies)
+            try:
+                await context.triggers.flush(limit=1)
+            finally:
+                event.remove(engine, "before_cursor_execute", observe_bodies)
+            assert [tuple(item.text for item in request.related) for request in reconciler.inputs] == [
+                (direct,),
+                (CURRENT,),
+            ]
+            assert not pending_body_ids
 
     asyncio.run(scenario())

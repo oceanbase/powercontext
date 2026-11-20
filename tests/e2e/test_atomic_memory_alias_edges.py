@@ -264,7 +264,7 @@ def test_alias_failure_fallback_flag_off_and_cancellation(tmp_path, monkeypatch,
             context = await contexts.get("project")
             await context.triggers.flush(limit=200)
             cursor = await context.triggers.cursor()
-            monkeypatch.setattr(SQLiteAtomicMemoryIndex, "enumerate_aliased_related", failed)
+            monkeypatch.setattr(SQLiteAtomicMemoryIndex, "aliased_related_ranks", failed)
             await contexts.records.create_source("project", "content", OTHER)
             if enabled and isinstance(failure, (AtomicMemoryIndexError, asyncio.CancelledError)):
                 with pytest.raises(type(failure)):

@@ -348,8 +348,10 @@ database operational error can fall back to validated direct results while the o
 Invalid alias chains, stale projections, cancellation, authorization failure and lost snapshots stop reconciliation.
 Per-request comparison batches and token limits remain in effect;
 they do not bound total candidates, flush tokens or traversal work.
-Enabled recall retains the matching bodies until snapshot authorization completes, so peak retained content grows
-with the complete matching set rather than only one comparison page.
+Enabled recall discovers direct and alias candidates in one snapshot using identities, versions and ranking metadata.
+Each page loads bodies and checks versions and authorization in its own snapshot. Comparison runs after that
+snapshot closes, and page-local bodies are released after comparison. The candidate metadata and retained
+coordination state can still grow across pages.
 
 For unmanaged databases, supported index initialization creates this derived table. Managed Server databases
 require the explicit schema upgrade to `v1_5_2_pr2674` through `db-migrate --bundle server`; ordinary startup remains

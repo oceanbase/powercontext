@@ -25,9 +25,7 @@ from powercontext.artifacts import ArtifactRef
 from powercontext.builtin.artifacts.search import fts_query_requirements
 from powercontext.builtin.persistence.atomic_memory_index import (
     AtomicMemoryIndexError,
-    AtomicMemoryIndexHit,
-    atomic_memory_bodies_from_rows,
-    atomic_memory_body_select,
+    AtomicMemoryRelatedRank,
     atomic_memory_profile_fingerprint,
     oceanbase_fts_coverage_sql,
     sqlite_fts_coverage_sql,
@@ -97,7 +95,7 @@ async def _matching_aliases(
     return tuple((await connection.execute(statement, parameters)).mappings())
 
 
-async def _successors(connection: AsyncConnection, scope_id: str, candidates: tuple[Any, ...]) -> tuple[str, ...]:
+async def _successors(connection: AsyncConnection, scope_id: str, candidates: tuple[Any, ...]) -> dict[str, Any]:
     """Read each shared suffix at most once; one batched read per frontier."""
     heads = ARTIFACT_HEADS_TABLE
     cache: dict[str, Any] = {}
@@ -109,7 +107,14 @@ async def _successors(connection: AsyncConnection, scope_id: str, candidates: tu
         for offset in range(0, len(pending), _IDENTITY_BATCH):
             rows = (
                 await connection.execute(
-                    select(heads).where(
+                    select(
+                        heads.c.artifact_id,
+                        heads.c.revision,
+                        heads.c.governance_generation,
+                        heads.c.lifecycle_state,
+                        heads.c.merged_into_id,
+                        heads.c.replacement_artifact_id,
+                    ).where(
                         heads.c.scope_id == scope_id,
                         heads.c.family == "atomic-memory",
                         heads.c.artifact_id.in_(pending[offset : offset + _IDENTITY_BATCH]),
@@ -124,9 +129,9 @@ async def _successors(connection: AsyncConnection, scope_id: str, candidates: tu
             for identity in pending
             if cache[identity]["merged_into_id"] is not None
         }
-    return tuple(
-        dict.fromkeys(endpoint for candidate in candidates if (endpoint := _endpoint(cache, candidate)) is not None)
-    )
+    return {
+        endpoint: cache[endpoint] for candidate in candidates if (endpoint := _endpoint(cache, candidate)) is not None
+    }
 
 
 def _endpoint(cache: dict[str, Any], candidate: Any) -> str | None:
@@ -159,45 +164,38 @@ def _endpoint(cache: dict[str, Any], candidate: Any) -> str | None:
     return None
 
 
-async def enumerate_aliased_related(
+async def aliased_related_ranks(
     index: RelationalAtomicMemoryIndex, connection: AsyncConnection, scope_id: str, request: AtomicMemoryRelatedRequest
-) -> tuple[tuple[AtomicMemoryIndexHit, ...], dict[str, dict[str, object]]]:
+) -> tuple[AtomicMemoryRelatedRank, ...]:
     candidates = await _matching_aliases(index, connection, scope_id, request)
     endpoints = await _successors(connection, scope_id, candidates)
     current = index.table
-    hits = []
-    heads: dict[str, dict[str, object]] = {}
+    ranks = []
+    ordered = tuple(endpoints)
     for offset in range(0, len(endpoints), _IDENTITY_BATCH):
-        ids = endpoints[offset : offset + _IDENTITY_BATCH]
+        ids = ordered[offset : offset + _IDENTITY_BATCH]
         rows = (
             (
                 await connection.execute(
-                    select(current).where(current.c.scope_id == scope_id, current.c.artifact_id.in_(ids))
+                    select(
+                        current.c.artifact_id,
+                        current.c.revision,
+                        current.c.state_version,
+                        current.c.kind,
+                        current.c.tag_keys,
+                    ).where(current.c.scope_id == scope_id, current.c.artifact_id.in_(ids))
                 )
             )
             .mappings()
             .all()
         )
-        body_rows = (
-            await connection.execute(
-                text(atomic_memory_body_select()).bindparams(bindparam("body_ids", expanding=True)),
-                {"scope_id": scope_id, "body_ids": ids},
-            )
-        ).mappings()
-        _, joined = atomic_memory_bodies_from_rows(body_rows)
         by_id = {str(row["artifact_id"]): row for row in rows}
         for identity in ids:
             row = by_id.get(identity)
             if row is None:
                 continue
-            head = joined.get(identity)
-            if (
-                head is None
-                or head["lifecycle_state"] != "active"
-                or head["merged_into_id"] is not None
-                or head["revision"] != row["revision"]
-                or head["governance_generation"] != row["state_version"]
-            ):
+            head = endpoints[identity]
+            if head["revision"] != row["revision"] or head["governance_generation"] != row["state_version"]:
                 raise AtomicMemoryIndexError("stale-recall", "Alias successor projection differs from authority")
             filters = request.filters
             if filters.kind is not None and row["kind"] != filters.kind:
@@ -207,14 +205,12 @@ async def enumerate_aliased_related(
                 required = set(filters.tag_filter.keys)
                 if not (required <= keys if filters.tag_filter.match == "all" else required & keys):
                     continue
-            hits.append(
-                AtomicMemoryIndexHit(
+            ranks.append(
+                AtomicMemoryRelatedRank(
                     artifact_ref=ArtifactRef(family="atomic-memory", artifact_id=identity, revision=row["revision"]),
                     state_version=row["state_version"],
                     kind=row["kind"],
-                    text=row["text"],
                     score=0.0,
                 )
             )
-            heads[identity] = head
-    return tuple(hits), heads
+    return tuple(ranks)

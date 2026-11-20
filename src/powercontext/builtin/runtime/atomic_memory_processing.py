@@ -685,12 +685,11 @@ class AtomicMemorySourceWindowProcessor:
         return await self._related_request(query, filters)
 
     async def _recall_related_items(self, scope_id, context, workset, compare_page, *, request, local_policy=False):
-        if self.config.alias_recall:
-            return await self._recall_aliased_items(
-                scope_id, context, workset, compare_page, request=request, local_policy=local_policy
-            )
         application = self.application
-        request, ranks = await self._related_rank_snapshot(scope_id, request)
+        if self.config.alias_recall:
+            request, ranks = await self._aliased_rank_snapshot(scope_id, request)
+        else:
+            request, ranks = await self._related_rank_snapshot(scope_id, request)
         if not ranks:
             return
         cursor = AtomicMemoryRelatedCursor(ranks)
@@ -722,16 +721,14 @@ class AtomicMemorySourceWindowProcessor:
                 workset.release(loaded, keep=key)
             if cursor is None:
                 break
+            del page, loaded, refs
 
-    async def _recall_aliased_items(self, scope_id, context, workset, compare_page, *, request, local_policy):
+    async def _aliased_rank_snapshot(self, scope_id, request):
         application = self.application
         while True:
-            async with (
-                deferred_decision_audit(context),
-                application.database.transaction(consistent_snapshot=True) as connection,
-            ):
+            async with application.database.transaction(consistent_snapshot=True) as connection:
                 try:
-                    direct, heads = await application.index.enumerate_related_with_heads(connection, scope_id, request)
+                    direct = await application.index.related_ranks(connection, scope_id, request)
                 except AtomicMemoryIndexError as error:
                     if error.code == "stale-recall":
                         _conflict("Related channels returned different memory versions")
@@ -746,38 +743,12 @@ class AtomicMemorySourceWindowProcessor:
                     # Roll back alias-only SQL failures without invalidating direct
                     # results or the surrounding read/authorization snapshot.
                     async with connection.begin_nested():
-                        aliases, alias_heads = await application.index.enumerate_aliased_related(
-                            connection, scope_id, request
-                        )
+                        aliases = await application.index.aliased_related_ranks(connection, scope_id, request)
                 except (AtomicMemoryIndexError, OperationalError) as error:
                     _require_alias_snapshot(connection, error)
-                    aliases, alias_heads = (), {}
-                hits, heads = _combine_related_hits(direct, heads, aliases, alias_heads)
-                loaded = []
-                values = tuple(hits.values())
-                for offset in range(0, len(values), request.page_size):
-                    page = values[offset : offset + request.page_size]
-                    async with self._prefetch_artifact_policy(
-                        connection,
-                        scope_id,
-                        context,
-                        tuple(hit.artifact_ref for hit in page),
-                        include_scope=local_policy,
-                    ):
-                        if local_policy:
-                            await application.security.authorize(connection, scope_id, context, "read")
-                        loaded.extend(
-                            await self._load_related_items(
-                                connection, scope_id, page, context, workset, joined_heads=heads
-                            )
-                        )
-            break
-        # Model calls remain outside the database snapshot and keep the existing
-        # per-comparison token and batch budgets.
-        for offset in range(0, len(loaded), request.page_size):
-            page = loaded[offset : offset + request.page_size]
-            key = await compare_page(tuple(page))
-            workset.release(page, keep=key)
+                    aliases = ()
+                ranks = _combine_related_ranks(direct, aliases)
+            return request, ranks
 
     async def _related_rank_snapshot(self, scope_id, request):
         application = self.application
@@ -1238,19 +1209,17 @@ def _input_item_count(value: object) -> int | None:
     return None
 
 
-def _combine_related_hits(direct, heads, aliases, alias_heads):
-    """Direct rank order wins only when both channels agree on the exact version."""
-    hits = {hit.artifact_ref.artifact_id: hit for hit in direct}
-    for hit in aliases:
-        identity = hit.artifact_ref.artifact_id
-        previous = hits.get(identity)
-        if previous is not None:
-            if previous.artifact_ref != hit.artifact_ref or previous.state_version != hit.state_version:
-                _conflict("Related channels returned different memory versions")
-            continue
-        hits[identity] = hit
-        heads[identity] = alias_heads[identity]
-    return hits, heads
+def _combine_related_ranks(direct, aliases):
+    """Preserve direct order, then append alias-only successors with their observed versions."""
+    ranks = {rank.artifact_ref.artifact_id: rank for rank in direct}
+    for rank in aliases:
+        identity = rank.artifact_ref.artifact_id
+        previous = ranks.get(identity)
+        if previous is None:
+            ranks[identity] = rank
+        elif previous.artifact_ref != rank.artifact_ref or previous.state_version != rank.state_version:
+            _conflict("Related channels returned different memory versions")
+    return tuple(ranks.values())
 
 
 def _require_alias_snapshot(connection, error: AtomicMemoryIndexError | OperationalError):

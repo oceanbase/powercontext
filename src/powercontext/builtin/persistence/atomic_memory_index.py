@@ -306,6 +306,10 @@ class AtomicMemoryIndex(Protocol):
         self, connection: AsyncConnection, scope_id: str, request: AtomicMemoryRelatedRequest, /
     ) -> tuple[tuple[AtomicMemoryIndexHit, ...], dict[str, dict[str, object]]]: ...
 
+    async def aliased_related_ranks(
+        self, connection: AsyncConnection, scope_id: str, request: AtomicMemoryRelatedRequest, /
+    ) -> tuple[AtomicMemoryRelatedRank, ...]: ...
+
     async def enumerate_aliased_related(
         self, connection: AsyncConnection, scope_id: str, request: AtomicMemoryRelatedRequest, /
     ) -> tuple[tuple[AtomicMemoryIndexHit, ...], dict[str, dict[str, object]]]: ...
@@ -1170,13 +1174,33 @@ class RelationalAtomicMemoryIndex:
                 )
             )
 
+    async def aliased_related_ranks(
+        self, connection: AsyncConnection, scope_id: str, request: AtomicMemoryRelatedRequest, /
+    ) -> tuple[AtomicMemoryRelatedRank, ...]:
+        from powercontext.builtin.persistence.atomic_memory_alias import aliased_related_ranks
+
+        self.validate_request(request)
+        return await aliased_related_ranks(self, connection, scope_id, request)
+
     async def enumerate_aliased_related(
         self, connection: AsyncConnection, scope_id: str, request: AtomicMemoryRelatedRequest, /
     ) -> tuple[tuple[AtomicMemoryIndexHit, ...], dict[str, dict[str, object]]]:
-        from powercontext.builtin.persistence.atomic_memory_alias import enumerate_aliased_related
-
-        self.validate_request(request)
-        return await enumerate_aliased_related(self, connection, scope_id, request)
+        ranks = await self.aliased_related_ranks(connection, scope_id, request)
+        hits: list[AtomicMemoryIndexHit] = []
+        heads: dict[str, dict[str, object]] = {}
+        for offset in range(0, len(ranks), request.page_size):
+            page_ranks = ranks[offset : offset + request.page_size]
+            rows = (
+                await connection.execute(
+                    text(atomic_memory_body_select()).bindparams(bindparam("body_ids", expanding=True)),
+                    {"scope_id": scope_id, "body_ids": [rank.artifact_ref.artifact_id for rank in page_ranks]},
+                )
+            ).mappings()
+            texts, page_heads = atomic_memory_bodies_from_rows(rows)
+            page = atomic_memory_page_from_ranks(page_ranks, texts, page_heads, None)
+            hits.extend(page.hits)
+            heads.update(page.heads)
+        return tuple(hits), heads
 
     def _projection_values(self, scope_id: str, projection: AtomicMemoryProjection) -> dict[str, object]:
         if projection.artifact_ref.family != "atomic-memory":
