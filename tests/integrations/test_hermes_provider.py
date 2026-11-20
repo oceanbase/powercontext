@@ -299,8 +299,8 @@ def test_evaluation_trace_keeps_the_plugin_redaction(tmp_path, hermes_modules):
     )
     provider.initialize("session-1", hermes_home=str(tmp_path), agent_identity="coder", user_id="user-7")
 
-    # The plugin's own rule accepts a key name after a hyphen and takes its value from the next line; the shared rule
-    # does not recognize this value.
+    # The plugin's own rule takes a value from the unindented next line; the shared rule keeps a value on its line and
+    # does not recognize this one.
     provider.prefetch("X-Api-Key:\nsynthetic-header-2084")
     provider.shutdown()
 
@@ -344,8 +344,8 @@ def test_evaluation_trace_redacts_every_credential_the_recall_query_redacts(tmp_
     trace_dir = tmp_path / "powercontext" / "evaluation-trace"
     trace = "".join(path.read_text(encoding="utf-8") for path in (trace_dir / "sessions").glob("*.jsonl"))
     assert "powercontext_injection" in trace
-    assert "synthetic-value-2084" not in trace
-    assert "synthetic_value_2084" not in trace
+    for marker in ("synthetic-value-2084", "synthetic_value_2084", "SyntheticValue2084"):
+        assert marker not in trace
 
 
 def test_evaluation_trace_slash_command_reads_named_session(tmp_path, hermes_modules):

@@ -32,6 +32,8 @@ from tests.inprocess_adapter_turns import ADAPTERS, run_turn
 
 ROOT = Path(__file__).resolve().parents[1]
 CASES = json.loads((ROOT / "tests/fixtures/automatic_prompt_privacy.json").read_text(encoding="utf-8"))["cases"]
+# Every synthetic credential value in the fixture contains one of these markers.
+VALUE_MARKERS = ("synthetic-value-2084", "synthetic_value_2084", "SyntheticValue2084")
 HOOKS = {
     "claude": "claude-code/plugins/powercontext/hooks/user_prompt_submit.py",
     "codex": "codex/plugins/powercontext/hooks/recall.py",
@@ -167,10 +169,9 @@ def test_inprocess_adapter_skips_credentials_without_disabling_recall(
     assert len(turn.queries) == 1
     sent = json.dumps(turn.requests)
     if case["sensitive"]:
-        assert "synthetic-value-2084" not in sent
-        assert "synthetic_value_2084" not in sent
-        assert "synthetic-value-2084" not in caplog.text
-        assert "synthetic_value_2084" not in caplog.text
+        for marker in VALUE_MARKERS:
+            assert marker not in sent
+            assert marker not in caplog.text
         if adapter in {"hermes", "langchain"}:  # The completed turn is skipped as a whole.
             assert turn.captures == []
         if adapter == "pydantic-ai":  # Only the user_prompt event is skipped.
@@ -208,6 +209,6 @@ def test_inprocess_turn_capture_skips_a_credential_only_in_the_assistant_reply(
     assert turn.queries == ["Show me the deployment settings."]
     assert turn.captures == []
     sent = json.dumps(turn.requests)
-    assert "synthetic-value-2084" not in sent
-    assert "synthetic_value_2084" not in sent
+    for marker in VALUE_MARKERS:
+        assert marker not in sent
     assert "sensitive_content in the assistant text" in caplog.text
