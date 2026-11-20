@@ -1,0 +1,28 @@
+integrations/claude-code/plugins/powercontext/scripts/workspace_scope.py
+  s_2ef0feea0a110d::t_c894f6778fd584 244
+tests/builtin/runtime/test_processing_scheduler.py
+  s_2ef0feea0a110d::t_214ac7b580c676 632,634
+src/powercontext/service/launcher.py
+  s_2ef0feea0a110d::t_e7111e48a19078 25,33-35,72-73
+  s_2ef0feea0a110d::t_ed4001cefa93b8 74
+tests/test_service.py
+  s_2ef0feea0a110d::t_e7111e48a19078 1898,1925,1947,1973,1992,2031
+tests/claude_code_plugin/test_hook.py
+  s_2ef0feea0a110d::t_c894f6778fd584 527
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "fda709ee827cfd2bab416160c3a1bea561ddef60",
+  "prompts": {},
+  "sessions": {
+    "s_2ef0feea0a110d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1a9cf-a4e7-7f63-9c51-1284f7c332e8",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "frf12 <rongfeng.frf@antgroup.com>"
+    }
+  }
+}
