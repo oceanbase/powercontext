@@ -6,7 +6,7 @@ permissions:
   actions: write
 jobs:
   artifact-probe:
-    runs-on: powercontext-ci-light
+    runs-on: powercontext-ci-python
     timeout-minutes: 15
     steps:
     - name: Prepare isolated probes
