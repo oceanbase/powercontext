@@ -546,7 +546,7 @@ def test_spawn_launcher_reaps_child_when_popen_raises_before_publication(tmp_pat
             nonlocal child_pid
             real_launch(popen, process)
             child_pid = popen.pid
-            deadline = time.monotonic() + SPAWN_TEST_TIMEOUT_SECONDS
+            deadline = time.monotonic() + SPAWN_STARTUP_TIMEOUT_SECONDS
             while not ready.exists() and time.monotonic() < deadline:
                 time.sleep(0.01)
             assert ready.exists()
@@ -570,7 +570,7 @@ def test_spawn_launcher_reaps_child_when_popen_raises_before_publication(tmp_pat
             worker_id="00000000-0000-4000-8000-000000000001",
         )
         start_task = asyncio.create_task(SpawnArtifactProcessingWorkerLauncher(_ignore_sigterm).start(assignment))
-        assert await asyncio.to_thread(launched.wait, SPAWN_TEST_TIMEOUT_SECONDS)
+        assert await asyncio.to_thread(launched.wait, SPAWN_STARTUP_TIMEOUT_SECONDS)
         if cancel_start:
             start_task.cancel()
             await asyncio.sleep(0.05)
