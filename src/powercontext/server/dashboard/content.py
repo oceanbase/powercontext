@@ -278,10 +278,12 @@ async def load_prompts(api: DashboardAPI, request: Request, ctx: dict[str, Any])
     configuration = next((item for item in ctx["data"]["prompts"] if item["prompt_key"] == selected_key), None)
     artifact = None if configuration is None else configuration.get("artifact")
     raw_revision = request.query_params.get("prompt_revision")
-    if raw_revision is None and artifact is None:
-        return
     try:
-        selected = positive_revision(raw_revision if raw_revision is not None else str(artifact["revision"]))
+        if raw_revision is None:
+            if artifact is None:
+                return
+            raw_revision = str(artifact["revision"])
+        selected = positive_revision(raw_revision)
         ctx["prompt_opened"] = await api.artifact_revision(ctx["scope"], "prompt", selected_key, selected)
     except ReadError as error:
         # Never substitute current content for an unavailable or invalid historical revision.
