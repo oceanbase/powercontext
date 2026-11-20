@@ -68,8 +68,9 @@ jobs:
       run: "python3 - <<'PYCODE'\nimport hashlib, json, os, shutil, subprocess\nfrom pathlib import Path\nroot=Path.cwd()\n\
         report=Path(os.environ['RUNNER_TEMP'])/'ci-failure-diagnostics'\nreport.mkdir(parents=True,exist_ok=True)\nshutil.copyfile(root/'.ci-diagnostics/ci_failure_probe.py',report/'ci_failure_probe.py')\n\
         (root/'.ci-diagnostics/ci_failure_probe.py').unlink()\n(root/'.ci-diagnostics').rmdir()\n(root/'.github/workflows/ci-failure-diagnostics.yml').unlink()\n\
-        source='6fa94f2d0d4f73cec32ca4d99f5461199b3f07b7'\nchanged=subprocess.check_output(['git','diff',source,'--name-only'],text=True).splitlines()\n\
-        assert changed==['tests/e2e/plugin_server.py'],changed\nstate={'source_sha':source,'workflow_sha':os.environ['GITHUB_WORKFLOW_SHA'],'test_diagnostic_changes':changed,\n\
+        source='6fa94f2d0d4f73cec32ca4d99f5461199b3f07b7'\nchanged=subprocess.check_output(['git','diff','HEAD','--name-only'],text=True).splitlines()\n\
+        assert set(changed)=={'.ci-diagnostics/ci_failure_probe.py','.github/workflows/ci-failure-diagnostics.yml'},changed\n\
+        state={'source_sha':source,'workflow_sha':os.environ['GITHUB_WORKFLOW_SHA'],'checkout_cleanup':changed,'test_diagnostic_changes':['tests/e2e/plugin_server.py'],\n\
         'runner':os.environ['RUNNER_NAME'],'hostname':os.environ['HOSTNAME'],'cpu_count':os.cpu_count(),\n'affinity':len(os.sched_getaffinity(0)),'pytest_workers_env':os.environ.get('PYTEST_WORKERS'),\n\
         'archive_hook_env':os.environ.get('ACTIONS_RUNNER_HOOK_JOB_STARTED')}\n(report/'environment.json').write_text(json.dumps(state,indent=2)+'\\\
         n')\nwith Path(os.environ['GITHUB_ENV']).open('a') as f:\n f.write(f'PC_CI_DIAGNOSTIC_DIR={report}\\n')\n f.write('PYTHONPATH='+str(report)+(os.pathsep+os.environ['PYTHONPATH']\
