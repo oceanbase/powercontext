@@ -17,6 +17,10 @@ Work Contract 和 Task Outcome 也会保留 Source 证据。
 3. 将符合条件的证据处理为 Memory，需要配置生成模型，并启用定时处理或显式执行 Memory flush。
    步骤见[启用提取与向量搜索](../get-started/configure-models.md)。
 
+两个 Source 读取接口都会原样返回随 Content Source 采集的 `metadata`：详情响应在记录上返回，列表响应在每个条目上返回。
+没有调用方元数据的 Source（包括字段出现之前写入的记录）返回 `{}`。元数据不参与 `content_digest`、Source 身份或
+journal position。
+
 采集成功表示证据已保存，不表示提取成功，也不表示内容一定值得长期保留。
 通过 Source 引用追溯生成结果的输入。不要在同一身份下修改内容并重试采集，将其当作新的观察。
 

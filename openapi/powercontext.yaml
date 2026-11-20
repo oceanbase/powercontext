@@ -13893,7 +13893,7 @@ components:
           nullable: true
     SourceRecord:
       type: object
-      required: [scope_id, source_type, source_id, content, position, content_digest]
+      required: [scope_id, source_type, source_id, content, metadata, position, content_digest]
       properties:
         receipt_identity:
           $ref: "#/components/schemas/HandoffReceiptIdentity"
@@ -13916,6 +13916,10 @@ components:
           pattern: '.*\S.*'
         content:
           description: Persisted canonical JSON content.
+        metadata:
+          type: object
+          additionalProperties: true
+          description: Caller-supplied metadata for a Content Source, returned unchanged; an empty object for Sources that carry no caller metadata.
         position:
           type: integer
           minimum: 1

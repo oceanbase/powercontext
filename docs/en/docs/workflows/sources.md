@@ -17,6 +17,11 @@ types can refer to material supplied by a connector. Work Contracts and Task Out
 3. To process eligible evidence into Memory, configure a generation model and either scheduled processing or an
    explicit Memory flush. See [Enable extraction and vector search](../get-started/configure-models.md).
 
+Both Source reads return the `metadata` captured with a Content Source, unchanged: the detail response carries it on
+the record and the list response carries it on every item. Sources without caller metadata, including records written
+before that field existed, return `{}`. Metadata does not participate in `content_digest`, Source identity, or journal
+position.
+
 A successful capture means evidence was stored; it does not mean extraction succeeded or that the result was worth
 keeping. Use Source references to trace a generated result back to its input. Do not retry a capture with changed
 content under the same identity as if it were a new observation.
