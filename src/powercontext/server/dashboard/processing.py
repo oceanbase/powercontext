@@ -11,6 +11,7 @@
 
 """Read durable inputs and recorded Dream executions without inferring missing history."""
 
+import asyncio
 from typing import Any, cast
 from urllib.parse import urlencode
 
@@ -113,6 +114,27 @@ async def load_topic_status(api, ctx) -> None:
         )
     except ReadError as error:
         ctx["errors"]["processing_topic_status"] = error
+
+
+async def load_source_consumption(api, ctx) -> None:
+    family = {"notes": "atomic-memory", "profile": "profile", "experience": "experience"}.get(ctx["page"])
+    if ctx["page"] == "methods" and ctx["method_kind"] == "experience":
+        family = "experience"
+    if family is None or ctx["record_only"] or not ctx["scope_descriptor"]:
+        return
+    try:
+        # This projection owns a separate authorized transaction. Its failure must
+        # not invalidate the content snapshot or expose unaudited status values.
+        async with asyncio.timeout(5):
+            status = await api.project(ctx["scope"], "source_consumption", family=family)
+    except ReadError as error:
+        if error.status == 401:
+            raise
+        ctx["errors"]["source_consumption"] = error
+    except TimeoutError:
+        ctx["errors"]["source_consumption"] = ReadError(503, "service_unavailable")
+    else:
+        ctx["source_consumption"] = status
 
 
 async def load_memory_previews(api, ctx):
