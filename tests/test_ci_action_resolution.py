@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -155,3 +156,29 @@ def test_remote_builder_uses_workflow_tool_pins_and_writes_to_old_checkout(tmp_p
     cache_path = str((tmp_path / work / "build-tool-wheels").resolve())
     assert json.loads(result.stdout)["cache-path"] == cache_path
     assert f"cache-path={cache_path}" in output.read_text()
+
+
+def test_automatic_cache_save_paths_survive_nested_post_context() -> None:
+    # actions/runner#2009 and #2800 discard nested composite steps/inputs at
+    # post cleanup. Cache preserves its keys in state, but rereads its path.
+    failures = []
+
+    def visit(reference: str, callers: tuple[str, ...]) -> None:
+        path = self_action_path(reference)
+        if path is None:
+            return
+        action = yaml.safe_load(path.read_text())
+        scope = (*callers, str(path.parent.relative_to(ROOT)))
+        for step in action["runs"]["steps"]:
+            uses = step.get("uses", "")
+            if uses.split("@", 1)[0] in {"actions/cache", "runs-on/cache"}:
+                cache_path = step["with"]["path"]
+                if len(scope) > 1 and re.search(r"\$\{\{[^}]*\b(?:steps|inputs)\.", cache_path):
+                    failures.append(f"{' -> '.join(scope)}: post-save path loses its source: {cache_path}")
+            else:
+                visit(uses, scope)
+
+    for workflow in (ROOT / ".github/workflows").glob("*.yml"):
+        for reference in workflow_actions(workflow):
+            visit(reference, ())
+    assert not failures, "Cache post-save must retain its original paths:\n" + "\n".join(sorted(set(failures)))
