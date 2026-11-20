@@ -471,10 +471,17 @@ def test_render_reports_a_truncated_stats_response_as_offline(
     assert "PC offline · run powercontext doctor" in rendered
 
 
-def test_render_aborts_a_slow_scope_response_at_the_absolute_budget(
+@pytest.mark.parametrize(
+    ("request_timeout", "http_budget"),
+    [("5.0", "0.2"), ("0.3", "2.0")],
+    ids=["absolute-budget", "request-timeout"],
+)
+def test_render_aborts_a_slow_scope_response_at_the_tighter_limit(
     statusline_module: ModuleType,
     monkeypatch,
     tmp_path: Path,
+    request_timeout: str,
+    http_budget: str,
 ) -> None:
     stats_requests = 0
 
@@ -514,8 +521,8 @@ def test_render_aborts_a_slow_scope_response_at_the_absolute_budget(
     )
     with _serve(SlowScopeHandler) as server_url:
         monkeypatch.setenv("POWERCONTEXT_CLAUDE_SERVER_URL", server_url)
-        monkeypatch.setenv("POWERCONTEXT_CLAUDE_REQUEST_TIMEOUT_SECONDS", "5.0")
-        monkeypatch.setenv("POWERCONTEXT_CLAUDE_HTTP_BUDGET_SECONDS", "0.2")
+        monkeypatch.setenv("POWERCONTEXT_CLAUDE_REQUEST_TIMEOUT_SECONDS", request_timeout)
+        monkeypatch.setenv("POWERCONTEXT_CLAUDE_HTTP_BUDGET_SECONDS", http_budget)
         started = time.monotonic()
         rendered = statusline_module.render("http://127.0.0.1:9000")
         elapsed = time.monotonic() - started

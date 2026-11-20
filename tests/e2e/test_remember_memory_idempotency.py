@@ -60,13 +60,13 @@ def test_keyed_creation_after_source_collection_upgrade(tmp_path: Path, source_r
     configuration = {"processing_manifest": canonical_processing_manifest(BuiltinConfig()), "embedding_enabled": False}
     previous_directory = tmp_path / "source-collection-bundle"
     shutil.copytree(bundle.snapshot_directory, previous_directory)
-    revision = bundle.script.get_revision("v1_5_2_001")
+    revision = bundle.script.get_revision("000")
     (previous_directory / Path(revision.path).relative_to(bundle.snapshot_directory)).unlink()
     manifest_path = previous_directory / "manifest.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     for field in ("revision_resources", "sqlite_fingerprints", "domain_readiness"):
-        del manifest[field]["v1_5_2_001"]
-    manifest["mysql_state_layouts"].remove("schemas/mysql-v1_5_2_001.json")
+        del manifest[field]["000"]
+    manifest["mysql_state_layouts"].remove("schemas/mysql-000.json")
     manifest["affected_objects"].remove("pc_atomic_memory_idempotency")
     manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
     previous = SQLiteMigrationRunner(database, MigrationBundle(previous_directory), configuration=configuration)
@@ -88,7 +88,7 @@ def test_keyed_creation_after_source_collection_upgrade(tmp_path: Path, source_r
     runner = SQLiteMigrationRunner(database, bundle, configuration=configuration)
     plan = runner.plan(backup_policy="skip")
     assert plan.source_revision == "v1_5_2_pr2639"
-    assert plan.revisions == ("v1_5_2_001",)
+    assert plan.revisions == ("000",)
     runner.apply(
         plan_id=plan.plan_id,
         backup_policy="skip",

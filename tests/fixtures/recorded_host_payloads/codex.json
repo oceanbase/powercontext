@@ -1,6 +1,6 @@
 {
-  "description": "SessionStart payloads that Codex 0.165.0-alpha.1.2 passed to the plugin's hook in TUI runs, one per lifecycle. The session ID, working directory, transcript path, and prompt IDs follow the characterization fixture; every other key and value is as the host sent it.",
-  "payloads": {
+  "description": "Payloads that Codex 0.165.0-alpha.1.2 passed to the plugin's hooks: SessionStart once for each lifecycle, in TUI runs, and UserPromptSubmit, in a codex exec --json run. The session ID, working directory, transcript path, prompt IDs, and prompt follow the characterization fixture; every other key and value is as the host sent it.",
+  "SessionStart": {
     "startup": {
       "session_id": "thread-a",
       "transcript_path": "$CONFIG/sessions/2026/10/26/rollout-thread-a.jsonl",
@@ -28,5 +28,15 @@
       "permission_mode": "bypassPermissions",
       "source": "fork"
     }
+  },
+  "UserPromptSubmit": {
+    "session_id": "thread-a",
+    "turn_id": "turn-1",
+    "transcript_path": "$CONFIG/sessions/2026/10/26/rollout-thread-a.jsonl",
+    "cwd": "$CWD",
+    "hook_event_name": "UserPromptSubmit",
+    "model": "gpt-6.1-sol",
+    "permission_mode": "bypassPermissions",
+    "prompt": "Which service owns the retry budget?"
   }
 }

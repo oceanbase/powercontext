@@ -12,13 +12,19 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Add keyed remember_memory receipts through the shared DDL executor."""
+"""Register retry receipts for keyed remember_memory creations."""
 
-from alembic import context
+import json
+from pathlib import Path
 
-revision = "v1_5_2_001"
+from alembic import op
+
+revision = "000"
 down_revision = "v1_5_2_pr2639"
 
 
-def upgrade() -> None:
-    context.config.attributes["execute_revision"](revision)
+def upgrade():
+    statements = json.loads((Path(__file__).parents[1] / "schemas/sqlite-000.json").read_text(encoding="utf-8"))
+    connection = op.get_bind()
+    for statement in statements["create"]:
+        connection.exec_driver_sql(statement)

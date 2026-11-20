@@ -63,6 +63,13 @@ runs:
         echo "cache-path=$UV_CACHE_DIR" >> "$GITHUB_OUTPUT"
       shell: bash
 
+    - name: Use a writable cache directory for project tools
+      if: runner.os == 'Linux'
+      shell: bash
+      run: |
+        mkdir -p "$RUNNER_TEMP/project-cache"
+        echo "XDG_CACHE_HOME=$RUNNER_TEMP/project-cache" >> "$GITHUB_ENV"
+
     # Publish before tests so a later failure or timeout cannot discard the download cache.
     - name: Save Python dependencies
       if: inputs.shared-cache == 'true' && steps.uv.outputs.cache-hit != 'true' && github.event_name != 'merge_group'

@@ -259,7 +259,7 @@ def test_evidence_recovery_resumes_before_final_schema_marker(tmp_path, monkeypa
                 "v1_5_0_004",
                 "v1_5_0_005",
                 "v1_5_2_pr2639",
-                "v1_5_2_001",
+                "000",
             )
             assert (database.read_bytes(), journal.path.read_bytes()) == before
             assert connection.exec_driver_sql("SELECT schema_version FROM pc_atomic_memory_evidence_schema").all() == []
