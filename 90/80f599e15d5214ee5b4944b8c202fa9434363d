@@ -1,0 +1,27 @@
+.github/actions/upload-ci-diagnostics/README.md
+  s_2ef0feea0a110d::t_4970a5228f5a5a 1-11
+.github/actions/upload-ci-diagnostics/action.yml
+  s_2ef0feea0a110d::t_4970a5228f5a5a 1-136
+.github/actions/upload-ci-diagnostics/artifact-state.test.cjs
+  s_2ef0feea0a110d::t_4970a5228f5a5a 1-90
+.github/actions/upload-ci-diagnostics/artifact-state.cjs
+  s_2ef0feea0a110d::t_4970a5228f5a5a 1-64
+.github/workflows/master.yml
+  s_2ef0feea0a110d::t_4970a5228f5a5a 80,170,361,428,504,705,713,780,921,1244,1303,1359,1397,1484
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "9080f599e15d5214ee5b4944b8c202fa9434363d",
+  "prompts": {},
+  "sessions": {
+    "s_2ef0feea0a110d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1a9cf-a4e7-7f63-9c51-1284f7c332e8",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "frf12 <rongfeng.frf@antgroup.com>"
+    }
+  }
+}
