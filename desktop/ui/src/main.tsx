@@ -17,5 +17,19 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import { App } from "./app/App";
+import { disablePageZoom } from "./app/disable-page-zoom";
+import { TooltipProvider } from "./components/ui/tooltip";
+import "./generated/design-tokens.css";
 import "./app/style.css";
-ReactDOM.createRoot(document.getElementById("root")!).render(<React.StrictMode><App /></React.StrictMode>);
+
+const isMacOS = /Macintosh|Mac OS X/.test(navigator.userAgent);
+document.documentElement.dataset.platform = isMacOS ? "macos" : "windows";
+disablePageZoom();
+
+ReactDOM.createRoot(document.getElementById("root")!).render(
+  <React.StrictMode>
+    <TooltipProvider>
+      <App />
+    </TooltipProvider>
+  </React.StrictMode>,
+);

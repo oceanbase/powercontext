@@ -16,23 +16,47 @@
 
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { messages, type Language } from "./messages";
-import { Modal } from "./Modal";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogBody,
+  DialogCloseButton,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+
+type ConfirmationOptions = {
+  message: string;
+  title?: string;
+  confirmLabel?: string;
+  destructive?: boolean;
+  primaryMessage?: boolean;
+};
 
 export function useConfirmation(language: Language) {
   const [request, setRequest] = useState<{
-    message: string;
+    options: ConfirmationOptions;
     id: number;
   } | null>(null);
   const sequence = useRef(0);
   const descriptionId = useId();
   const pending = useRef<((answer: boolean) => void) | null>(null);
-  const confirm = useCallback((text: string): Promise<boolean> => {
-    if (pending.current) return Promise.resolve(false);
-    return new Promise((resolve) => {
-      pending.current = resolve;
-      setRequest({ message: text, id: ++sequence.current });
-    });
-  }, []);
+  const confirm = useCallback(
+    (input: string | ConfirmationOptions): Promise<boolean> => {
+      if (pending.current) return Promise.resolve(false);
+      return new Promise((resolve) => {
+        pending.current = resolve;
+        setRequest({
+          options: typeof input === "string" ? { message: input } : input,
+          id: ++sequence.current,
+        });
+      });
+    },
+    [],
+  );
   useEffect(
     () => () => {
       pending.current?.(false);
@@ -47,24 +71,46 @@ export function useConfirmation(language: Language) {
     resolve?.(value);
   }
   const t = messages[language];
+  const options = request?.options;
+  const title = options?.title ?? t.confirmTitle;
   const confirmation =
     request === null ? null : (
-      <Modal
+      <Dialog
         key={request.id}
-        label={t.confirmTitle}
-        role="alertdialog"
-        descriptionId={descriptionId}
-        onClose={() => answer(false)}
+        open
+        onOpenChange={(open) => !open && answer(false)}
       >
-        <h2>{t.confirmTitle}</h2>
-        <p id={descriptionId}>{request.message}</p>
-        <div className="actions">
-          <button onClick={() => answer(false)}>{t.cancelAction}</button>
-          <button className="primary" onClick={() => answer(true)}>
-            {t.confirmAction}
-          </button>
-        </div>
-      </Modal>
+        <DialogContent role="alertdialog" aria-describedby={descriptionId}>
+          <DialogHeader>
+            <DialogTitle>{title}</DialogTitle>
+            <DialogCloseButton label={t.closeDialog} />
+          </DialogHeader>
+          <DialogBody className="confirmation-dialog-content">
+            <DialogDescription
+              id={descriptionId}
+              className={
+                request.options.primaryMessage
+                  ? "confirmation-primary-message"
+                  : undefined
+              }
+            >
+              {request.options.message}
+            </DialogDescription>
+          </DialogBody>
+          <DialogFooter>
+            <Button size="sm" variant="outline" onClick={() => answer(false)}>
+              {t.cancelAction}
+            </Button>
+            <Button
+              size="sm"
+              variant={request.options.destructive ? "destructive" : "default"}
+              onClick={() => answer(true)}
+            >
+              {request.options.confirmLabel ?? t.confirmAction}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     );
   return { confirm, confirmation };
 }

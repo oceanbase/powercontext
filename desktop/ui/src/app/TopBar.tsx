@@ -1,28 +1,21 @@
-/*
- * Copyright (c) 2026 OceanBase.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+/* Copyright (c) 2026 OceanBase. Licensed under the Apache License, Version 2.0. */
 
-import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
-import type { DesktopState } from "../generated/ipc";
-import { messages, type Language } from "./messages";
-import { connectionError, connectionMessages } from "./connection-messages";
+import { useEffect, useRef, useState } from "react";
+import { Button } from "@/components/ui/button";
+import { Check, ChevronsUpDown, Plus } from "lucide-react";
 import {
-  activeCheckReport,
-  connectionAccessMode,
-  connectionPrincipal,
-} from "./context";
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import type { DesktopState, ScopeDescriptor } from "../generated/ipc";
+import { activeCheckReport, connectionCheckReport } from "./context";
+import { messages, type Language } from "./messages";
+import { previewScopes } from "./preview-data";
 
 type Props = {
   state: DesktopState | null;
@@ -30,350 +23,312 @@ type Props = {
   loading?: boolean;
   contextPending?: boolean;
   onManageConnections: (profileId?: string) => void;
-  onOpenScopes: (trigger: HTMLElement) => void;
-  onDisconnect: () => void;
+  onSelectConnection?: (profileId: string) => void;
+  onSelectScope?: (scope: ScopeDescriptor) => void;
+  onCreateScope?: (trigger: HTMLElement) => void;
+  onOpenScopes?: (trigger: HTMLElement) => void;
+  /** Kept optional for callers while the disconnect action is retired. */
+  onDisconnect?: () => void;
+  hideContent?: boolean;
 };
+
 export function TopBar({
   state,
   language,
   loading = false,
   contextPending = false,
   onManageConnections,
-  onOpenScopes,
-  onDisconnect,
+  onSelectConnection,
+  onSelectScope,
+  onCreateScope,
+  hideContent = false,
 }: Props) {
   const t = messages[language];
-  const ct = connectionMessages[language];
-  const [open, setOpen] = useState<"connection" | "identity" | null>(null);
+  const [open, setOpen] = useState<"connection" | "scope" | null>(null);
   const wrap = useRef<HTMLDivElement>(null);
-  const connectionTrigger = useRef<HTMLButtonElement>(null);
-  const identityTrigger = useRef<HTMLButtonElement>(null);
-  const connectionMenu = useRef<HTMLDivElement>(null);
-  const menuStart = useRef(0);
-  const connectionMenuId = useId();
-  const identityId = useId();
-  function closePopup() {
-    (open === "connection"
-      ? connectionTrigger
-      : identityTrigger
-    ).current?.focus();
-    setOpen(null);
-  }
-  useLayoutEffect(() => {
-    if (open !== "connection") return;
-    const items = connectionMenu.current?.querySelectorAll<HTMLButtonElement>(
-      '[role="menuitem"]:not(:disabled)',
+  const scopeTrigger = useRef<HTMLButtonElement>(null);
+  const active = state?.active;
+  const activeProfile = state?.profiles.find(
+    (profile) => profile.id === active?.connectionId,
+  );
+  const hasService = !!activeProfile;
+  const hasScope = hasService && !!active?.scope;
+  const activeReport = activeCheckReport(state);
+  const serviceUnavailable =
+    !!activeReport &&
+    !!(
+      activeReport.liveness.error ||
+      activeReport.readiness.error ||
+      (activeReport.readiness.value &&
+        activeReport.readiness.value.status !== "ready")
     );
-    items?.[menuStart.current === -1 ? items.length - 1 : 0]?.focus();
-  }, [open]);
+  const serviceStatus = loading
+    ? "checking"
+    : serviceUnavailable
+      ? "unavailable"
+      : activeReport?.readiness.value?.status === "ready"
+        ? "ready"
+        : "unknown";
+  const serviceStatusLabel =
+    language === "zh"
+      ? {
+          checking: "正在检查",
+          ready: "服务正常",
+          unavailable: "服务异常",
+          unknown: "状态未知",
+        }[serviceStatus]
+      : {
+          checking: "Checking",
+          ready: "Service ready",
+          unavailable: "Service unavailable",
+          unknown: "Status unknown",
+        }[serviceStatus];
+
   useEffect(() => {
-    const bar = wrap.current;
-    if (!bar) return;
-    const update = () => {
+    if (hideContent) setOpen(null);
+  }, [hideContent]);
+
+  useEffect(() => {
+    const element = wrap.current;
+    if (!element) return;
+    const update = () =>
       document.documentElement.style.setProperty(
         "--topbar-height",
-        `${bar.getBoundingClientRect().height}px`,
+        `${element.getBoundingClientRect().height}px`,
       );
-    };
     update();
     const observer =
       typeof ResizeObserver === "undefined" ? null : new ResizeObserver(update);
-    observer?.observe(bar);
+    observer?.observe(element);
     return () => {
       observer?.disconnect();
       document.documentElement.style.removeProperty("--topbar-height");
     };
   }, []);
-  useEffect(() => {
-    if (!open) return;
-    function onPointerDown(event: PointerEvent) {
-      if (event.target instanceof Node && !wrap.current?.contains(event.target))
-        setOpen(null);
-    }
-    function onKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") {
-        event.preventDefault();
-        closePopup();
-      }
-    }
-    document.addEventListener("pointerdown", onPointerDown);
-    document.addEventListener("keydown", onKeyDown);
-    return () => {
-      document.removeEventListener("pointerdown", onPointerDown);
-      document.removeEventListener("keydown", onKeyDown);
-    };
-  }, [open]);
-  const active = state?.active;
-  const report = activeCheckReport(state);
-  const activeProfile = state?.profiles.find(
-    (p) => p.id === active?.connectionId,
-  );
-  const principal = report?.anonymousAccess
-    ? null
-    : connectionPrincipal(report);
-  const identityText = !active
-    ? t.notConnected
-    : report?.anonymousAccess
-      ? t.anonymousIdentity
-      : principal
-        ? (principal.description ?? `${principal.type}: ${principal.id}`)
-        : t.identityUnverified;
-  const connectionText = active
-    ? t.activeContext
-    : state
-      ? t.notConnected
-      : loading
-        ? t.loadingState
-        : t.stateUnavailable;
+
   return (
     <div className="topbar" ref={wrap}>
-      <div className="menu-wrap">
-        <button
-          className="menu-trigger"
-          aria-expanded={open === "connection"}
-          aria-haspopup="menu"
-          aria-controls={connectionMenuId}
-          aria-label={`${t.current}: ${activeProfile?.name ?? connectionText}`}
-          ref={connectionTrigger}
-          onClick={() => {
-            menuStart.current = 0;
-            setOpen(open === "connection" ? null : "connection");
-          }}
-          onKeyDown={(event) => {
-            if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
-            event.preventDefault();
-            menuStart.current = event.key === "ArrowUp" ? -1 : 0;
-            setOpen("connection");
-          }}
-        >
-          <span className="label">{activeProfile?.name ?? connectionText}</span>
-          <span aria-hidden="true">▾</span>
-        </button>
-        {open === "connection" && (
-          <div
-            className="menu"
-            role="menu"
-            aria-label={t.manageConnections}
-            id={connectionMenuId}
-            ref={connectionMenu}
-            onBlur={(event) => {
-              if (
-                event.relatedTarget instanceof Node &&
-                !connectionMenu.current?.contains(event.relatedTarget) &&
-                event.relatedTarget !== connectionTrigger.current
-              )
-                setOpen(null);
-            }}
-            onKeyDown={(event) => {
-              if (event.key === "Escape") {
-                event.stopPropagation();
-                event.preventDefault();
-                closePopup();
-                return;
-              }
-              if (event.key === "Tab") {
-                closePopup();
-                return;
-              }
-              const items = Array.from(
-                connectionMenu.current?.querySelectorAll<HTMLButtonElement>(
-                  '[role="menuitem"]:not(:disabled)',
-                ) ?? [],
-              );
-              const current = items.indexOf(
-                document.activeElement as HTMLButtonElement,
-              );
-              let index: number;
-              if (event.key === "ArrowDown")
-                index = (current + 1) % items.length;
-              else if (event.key === "ArrowUp")
-                index = (current + items.length - 1) % items.length;
-              else if (event.key === "Home") index = 0;
-              else if (event.key === "End") index = items.length - 1;
-              else return;
-              event.preventDefault();
-              items[index]?.focus();
-            }}
+      {hasService && !hideContent && (
+        <div className="context-switchers" aria-label={t.globalContext}>
+          <DropdownMenu
+            open={open === "connection"}
+            onOpenChange={(nextOpen) => setOpen(nextOpen ? "connection" : null)}
           >
-            {state?.profiles.map((p) => (
-              <button
-                key={p.id}
-                className="menu-item"
-                role="menuitem"
-                tabIndex={-1}
-                onClick={() => {
-                  closePopup();
-                  onManageConnections(p.id);
-                }}
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="context"
+                size="sm"
+                className="context-switcher service-switcher"
+                aria-label={`${language === "zh" ? "当前服务" : "Current service"}: ${activeProfile.name}, ${serviceStatusLabel}`}
               >
-                <span>
-                  {p.name}
-                  {state.active?.connectionId === p.id
-                    ? ` · ${ct.activeBadge}`
-                    : ""}
+                <span className="context-switcher-label">
+                  {activeProfile.name}
                 </span>
-                <span className="meta">{p.endpoint}</span>
-              </button>
-            ))}
-            {state?.profiles.length ? <div className="menu-separator" /> : null}
-            <button
-              className="menu-item"
-              role="menuitem"
-              tabIndex={-1}
-              onClick={() => {
-                closePopup();
-                onManageConnections();
-              }}
+                <span
+                  className={`service-status-dot${serviceStatus === "ready" ? " service-status-dot-success" : serviceStatus === "unavailable" ? " service-status-dot-danger" : ""}`}
+                  aria-hidden="true"
+                />
+                <ChevronsUpDown
+                  className="context-swap-icon"
+                  aria-hidden="true"
+                />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent
+              align="start"
+              aria-label={t.manageConnections}
+              className="context-menu min-w-[260px] max-w-[360px]"
             >
-              {t.manageConnections}
-            </button>
-            {state?.active && (
-              <>
-                <div className="menu-separator" />
-                <button
-                  className="menu-item"
-                  role="menuitem"
-                  tabIndex={-1}
-                  disabled={contextPending}
-                  onClick={() => {
-                    closePopup();
-                    onDisconnect();
-                  }}
+              <ConnectionMenu
+                state={state}
+                activeId={active?.connectionId}
+                label={t.manageConnections}
+                activeLabel={language === "zh" ? "当前" : "Active"}
+                language={language}
+                onSelectConnection={(profileId) => {
+                  if (onSelectConnection) onSelectConnection(profileId);
+                  else onManageConnections(profileId);
+                }}
+                onManageConnections={onManageConnections}
+              />
+            </DropdownMenuContent>
+          </DropdownMenu>
+          {hasScope && (
+            <>
+              <span className="context-separator" aria-hidden="true">
+                /
+              </span>
+              <DropdownMenu
+                open={open === "scope"}
+                onOpenChange={(nextOpen) => setOpen(nextOpen ? "scope" : null)}
+              >
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="context"
+                    size="sm"
+                    ref={scopeTrigger}
+                    className="context-switcher scope-switcher"
+                    disabled={contextPending}
+                    aria-label={`${language === "zh" ? "当前记忆空间" : "Current memory space"}: ${active?.scope?.title}`}
+                  >
+                    <span className="context-switcher-label">
+                      {active?.scope?.title}
+                    </span>
+                    <ChevronsUpDown
+                      className="context-swap-icon"
+                      aria-hidden="true"
+                    />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent
+                  align="start"
+                  className="context-menu min-w-[260px] max-w-[360px]"
                 >
-                  {ct.disconnect}
-                </button>
-              </>
-            )}
-            <p className="menu-note">{t.switchHint}</p>
-          </div>
-        )}
-      </div>
-      <span className="status-pill" role="status">
-        <span aria-hidden="true" className="dot" />
-        {connectionText}
-      </span>
-      <span aria-hidden="true" className="divider" />
-      <div className="topbar-group">
-        <span className="topbar-label">{t.scopeLabel}</span>
-        <button
-          className="menu-trigger scope-trigger"
-          onClick={(event) => onOpenScopes(event.currentTarget)}
-          disabled={!state || contextPending}
-          aria-haspopup="dialog"
-        >
-          <span className="scope-label">
-            {active?.scope?.title ?? t.noScopeSelected}
-            {active?.scope && <code>{active.scope.scope_id}</code>}
-          </span>
-          <span aria-hidden="true">▾</span>
-        </button>
-      </div>
-      <span className="topbar-spacer" />
-      <div className="menu-wrap">
-        <button
-          className="menu-trigger"
-          aria-expanded={open === "identity"}
-          aria-controls={identityId}
-          ref={identityTrigger}
-          onClick={() => setOpen(open === "identity" ? null : "identity")}
-        >
-          <span className="label">{identityText}</span>
-          <span aria-hidden="true">▾</span>
-        </button>
-        {open === "identity" && (
-          <div
-            className="menu right"
-            role="region"
-            aria-label={t.identityDetails}
-            id={identityId}
-          >
-            <p className="menu-note">
-              <strong>{t.identityDetails}</strong>
-            </p>
-            {principal ? (
-              <>
-                <p className="menu-note">
-                  {principal.type}: {principal.id}
-                  {principal.description ? ` · ${principal.description}` : ""}
-                </p>
-                <p className="menu-note">
-                  {t.accessMode}:{" "}
-                  {connectionAccessMode(report)?.value ?? t.unverified}
-                </p>
-              </>
-            ) : (
-              <p className="menu-note">
-                {report?.anonymousAccess ? ct.noIdentity : t.identityUnverified}
-                {connectionAccessMode(report)?.error && (
-                  <>
-                    {" "}
-                    {connectionError(
-                      connectionAccessMode(report)?.error,
-                      language,
-                    )}
-                  </>
-                )}
-              </p>
-            )}
-          </div>
-        )}
-      </div>
-      <span aria-hidden="true" className="avatar">
-        {identityText.charAt(0).toUpperCase()}
-      </span>
-      {active && (
-        <div
-          className="global-context"
-          role="group"
-          aria-label={t.globalContext}
-        >
-          {activeProfile && (
-            <p className="context-endpoint">{activeProfile.endpoint}</p>
+                  <ScopeMenu
+                    active={active!.scope!}
+                    language={language}
+                    onSelect={(scope) => onSelectScope?.(scope)}
+                    onCreate={() => {
+                      const trigger = scopeTrigger.current;
+                      if (trigger) onCreateScope?.(trigger);
+                    }}
+                  />
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </>
           )}
-          <dl className="context-facts">
-            <div>
-              <dt>{t.compatibility}</dt>
-              <dd>
-                {report?.compatibilityVerified
-                  ? t.compatibilityVerified
-                  : t.unverified}
-              </dd>
-            </div>
-            <div>
-              <dt>{t.liveness}</dt>
-              <dd>
-                {report?.liveness.error
-                  ? connectionError(report.liveness.error, language)
-                  : (report?.liveness.value?.status ?? t.unverified)}
-              </dd>
-            </div>
-            <div>
-              <dt>{t.readiness}</dt>
-              <dd>
-                {report?.readiness.error
-                  ? connectionError(report.readiness.error, language)
-                  : report?.readiness.value?.status === "ready"
-                    ? t.serviceReady
-                    : report?.readiness.value
-                      ? t.serviceNotReady
-                      : t.unverified}
-              </dd>
-            </div>
-          </dl>
-          <p className="small">
-            {report && (
-              <>
-                {t.lastChecked}:{" "}
-                {new Date(report.checkedAt * 1000).toLocaleString(
-                  language === "zh" ? "zh-CN" : "en-US",
-                )}
-                .{" "}
-              </>
-            )}
-            {t.readinessNote}
-          </p>
         </div>
       )}
+      <span
+        className="topbar-spacer"
+        data-tauri-drag-region
+        aria-hidden="true"
+      />
     </div>
+  );
+}
+
+function ConnectionMenu({
+  state,
+  activeId,
+  label,
+  activeLabel,
+  language,
+  onSelectConnection,
+  onManageConnections,
+}: {
+  state: DesktopState | null;
+  activeId?: string;
+  label: string;
+  activeLabel: string;
+  language: Language;
+  onSelectConnection: (profileId: string) => void;
+  onManageConnections: (profileId?: string) => void;
+}) {
+  return (
+    <>
+      {state?.profiles.map((profile) => {
+        const report = connectionCheckReport(state, profile.id);
+        const unavailable = !!(
+          report?.liveness.error ||
+          report?.readiness.error ||
+          (report?.readiness.value && report.readiness.value.status !== "ready")
+        );
+        const status = unavailable
+          ? "unavailable"
+          : report?.readiness.value?.status === "ready"
+            ? "ready"
+            : "unknown";
+        const statusLabel =
+          language === "zh"
+            ? {
+                ready: "服务正常",
+                unavailable: "服务异常",
+                unknown: "状态未知",
+              }[status]
+            : {
+                ready: "Service ready",
+                unavailable: "Service unavailable",
+                unknown: "Status unknown",
+              }[status];
+        return (
+          <DropdownMenuItem
+            key={profile.id}
+            className="menu-item"
+            onSelect={() => onSelectConnection(profile.id)}
+          >
+            <span className="context-menu-option">
+              <span className="context-menu-option-title">
+                <span>{profile.name}</span>
+                <span
+                  className={`service-status-dot${status === "ready" ? " service-status-dot-success" : status === "unavailable" ? " service-status-dot-danger" : ""}`}
+                  role="img"
+                  aria-label={statusLabel}
+                />
+              </span>
+              {profile.id === activeId && <Check aria-label={activeLabel} />}
+            </span>
+            <span className="meta">{profile.endpoint}</span>
+          </DropdownMenuItem>
+        );
+      })}
+      <DropdownMenuSeparator className="menu-separator" />
+      <DropdownMenuItem
+        className="menu-item"
+        onSelect={() => onManageConnections()}
+      >
+        {label}
+      </DropdownMenuItem>
+    </>
+  );
+}
+
+function ScopeMenu({
+  active,
+  language,
+  onSelect,
+  onCreate,
+}: {
+  active: ScopeDescriptor;
+  language: Language;
+  onSelect: (scope: ScopeDescriptor) => void;
+  onCreate: () => void;
+}) {
+  // Only the desktop development connection exposes simulated Spaces. A real
+  // service must never receive locally invented choices.
+  const scopes = active.scope_id.startsWith("preview-")
+    ? previewScopes(language)
+    : [active];
+
+  return (
+    <>
+      <DropdownMenuRadioGroup
+        value={active.scope_id}
+        onValueChange={(value) => {
+          const scope = scopes.find(
+            (candidate) => candidate.scope_id === value,
+          );
+          if (scope) onSelect(scope);
+        }}
+      >
+        {scopes.map((scope) => (
+          <DropdownMenuRadioItem
+            key={scope.scope_id}
+            value={scope.scope_id}
+            className="menu-item"
+          >
+            {scope.title}
+          </DropdownMenuRadioItem>
+        ))}
+      </DropdownMenuRadioGroup>
+      <DropdownMenuSeparator className="menu-separator" />
+      <DropdownMenuItem
+        className="menu-item context-menu-create"
+        onSelect={onCreate}
+      >
+        <Plus aria-hidden="true" />
+        {language === "zh" ? "创建记忆空间" : "Create memory space"}
+      </DropdownMenuItem>
+    </>
   );
 }

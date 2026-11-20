@@ -16,12 +16,22 @@
 
 import { defineConfig } from "vitest/config";
 import react from "@vitejs/plugin-react";
+import tailwindcss from "@tailwindcss/vite";
 export default defineConfig({
   root: "ui",
   base: "./",
-  plugins: [react()],
+  plugins: [react(), tailwindcss()],
+  resolve: {
+    alias: {
+      "@": new URL("./ui/src", import.meta.url).pathname,
+    },
+  },
   clearScreen: false,
   server: { port: 1420, strictPort: true },
   build: { outDir: "../dist", emptyOutDir: true },
-  test: { environment: "jsdom", include: ["tests/**/*.test.tsx"] },
+  test: {
+    environment: "jsdom",
+    include: ["tests/**/*.test.tsx"],
+    setupFiles: ["./tests/setup.tsx"],
+  },
 });
