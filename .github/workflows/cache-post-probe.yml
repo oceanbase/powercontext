@@ -1,0 +1,86 @@
+{
+  "name": "Cache post contract probe",
+  "on": {
+    "workflow_dispatch": {}
+  },
+  "permissions": {
+    "contents": "read",
+    "actions": "read"
+  },
+  "jobs": {
+    "cold": {
+      "strategy": {
+        "fail-fast": false,
+        "matrix": {
+          "runner": [
+            "powercontext-ci-light",
+            "windows-latest"
+          ]
+        }
+      },
+      "uses": "./.github/workflows/cache-post-probe-worker.yml",
+      "with": {
+        "runner": "${{ matrix.runner }}",
+        "stage": "seed",
+        "generation": "1"
+      }
+    },
+    "exact": {
+      "strategy": {
+        "fail-fast": false,
+        "matrix": {
+          "runner": [
+            "powercontext-ci-light",
+            "windows-latest"
+          ]
+        }
+      },
+      "uses": "./.github/workflows/cache-post-probe-worker.yml",
+      "with": {
+        "runner": "${{ matrix.runner }}",
+        "stage": "verify",
+        "generation": "1"
+      },
+      "needs": "cold",
+      "if": "always()"
+    },
+    "changed": {
+      "strategy": {
+        "fail-fast": false,
+        "matrix": {
+          "runner": [
+            "powercontext-ci-light",
+            "windows-latest"
+          ]
+        }
+      },
+      "uses": "./.github/workflows/cache-post-probe-worker.yml",
+      "with": {
+        "runner": "${{ matrix.runner }}",
+        "stage": "seed",
+        "generation": "2"
+      },
+      "needs": "exact",
+      "if": "always()"
+    },
+    "changed_exact": {
+      "strategy": {
+        "fail-fast": false,
+        "matrix": {
+          "runner": [
+            "powercontext-ci-light",
+            "windows-latest"
+          ]
+        }
+      },
+      "uses": "./.github/workflows/cache-post-probe-worker.yml",
+      "with": {
+        "runner": "${{ matrix.runner }}",
+        "stage": "verify",
+        "generation": "2"
+      },
+      "needs": "changed",
+      "if": "always()"
+    }
+  }
+}

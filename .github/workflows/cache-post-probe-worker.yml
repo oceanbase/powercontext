@@ -1,0 +1,150 @@
+{
+  "name": "Cache post probe worker",
+  "on": {
+    "workflow_call": {
+      "inputs": {
+        "runner": {
+          "required": true,
+          "type": "string"
+        },
+        "stage": {
+          "required": true,
+          "type": "string"
+        },
+        "generation": {
+          "required": true,
+          "type": "string"
+        }
+      }
+    }
+  },
+  "permissions": {
+    "contents": "read",
+    "actions": "read"
+  },
+  "jobs": {
+    "probe": {
+      "runs-on": "${{ inputs.runner }}",
+      "timeout-minutes": 20,
+      "defaults": {
+        "run": {
+          "shell": "bash"
+        }
+      },
+      "env": {
+        "PROBE_STAGE": "${{ inputs.stage }}",
+        "PROBE_GENERATION": "${{ inputs.generation }}"
+      },
+      "steps": [
+        {
+          "uses": "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+          "with": {
+            "persist-credentials": false
+          }
+        },
+        {
+          "name": "Set up a portable Python interpreter",
+          "uses": "actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0",
+          "with": {
+            "python-version": "3.12"
+          }
+        },
+        {
+          "name": "Prepare unique sentinel projects",
+          "id": "prepare",
+          "run": "python .github/scripts/cache_post_probe.py prepare"
+        },
+        {
+          "name": "Cache from composite input",
+          "id": "input",
+          "uses": "./.github/actions/cache",
+          "with": {
+            "path": "${{ github.workspace }}/.cache-post-probe/cache/input",
+            "key": "${{ steps.prepare.outputs.prefix }}-input"
+          }
+        },
+        {
+          "name": "Cache from step output",
+          "id": "output",
+          "uses": "./.github/actions/cache",
+          "with": {
+            "path": "${{ steps.prepare.outputs.output-path }}",
+            "key": "${{ steps.prepare.outputs.prefix }}-output"
+          }
+        },
+        {
+          "name": "Set up Node",
+          "uses": "actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1",
+          "with": {
+            "node-version": "22.19.0"
+          }
+        },
+        {
+          "name": "Install only pnpm",
+          "run": "npm install --global pnpm@11.13.1 --prefix \"$RUNNER_TEMP/probe-pnpm\"\necho \"$RUNNER_TEMP/probe-pnpm/bin\" >> \"$GITHUB_PATH\"\necho \"$RUNNER_TEMP/probe-pnpm\" >> \"$GITHUB_PATH\""
+        },
+        {
+          "name": "Cache independent pnpm store a",
+          "id": "pnpm_a",
+          "uses": "./.github/actions/cache-pnpm",
+          "with": {
+            "working-directory": ".cache-post-probe/${{ github.run_id }}/pnpm-a",
+            "cache-dependency-glob": ".cache-post-probe/${{ github.run_id }}/pnpm-a/pnpm-lock.yaml"
+          }
+        },
+        {
+          "name": "Cache independent pnpm store b",
+          "id": "pnpm_b",
+          "uses": "./.github/actions/cache-pnpm",
+          "with": {
+            "working-directory": ".cache-post-probe/${{ github.run_id }}/pnpm-b",
+            "cache-dependency-glob": ".cache-post-probe/${{ github.run_id }}/pnpm-b/pnpm-lock.yaml"
+          }
+        },
+        {
+          "name": "Exercise full Python composite chain",
+          "id": "uv",
+          "uses": "./.github/actions/setup-python-env",
+          "with": {
+            "python-version": "3.12",
+            "shared-cache": "false",
+            "save-cache": "true",
+            "cache-dependency-glob": ".cache-post-probe/identity.txt"
+          }
+        },
+        {
+          "name": "Exercise Go composite cache",
+          "id": "go",
+          "uses": "./.github/actions/setup-go",
+          "with": {
+            "go-version": "1.27.3",
+            "cache-dependency-path": ".cache-post-probe/identity.txt"
+          }
+        },
+        {
+          "name": "Verify exact cache hits and sentinel content",
+          "run": "python .github/scripts/cache_post_probe.py check",
+          "env": {
+            "RESULT_INPUT": "${{ toJSON(steps.input.outputs) }}",
+            "RESULT_OUTPUT": "${{ toJSON(steps.output.outputs) }}",
+            "RESULT_PNPM_A": "${{ toJSON(steps.pnpm_a.outputs) }}",
+            "RESULT_PNPM_B": "${{ toJSON(steps.pnpm_b.outputs) }}",
+            "RESULT_UV": "${{ toJSON(steps.uv.outputs) }}",
+            "RESULT_GO": "${{ toJSON(steps.go.outputs) }}"
+          }
+        },
+        {
+          "name": "Archive probe receipt",
+          "if": "always()",
+          "uses": "actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9",
+          "with": {
+            "name": "cache-post-${{ runner.os }}-g${{ inputs.generation }}-${{ inputs.stage }}-${{ github.run_id }}",
+            "path": ".cache-post-probe/receipts",
+            "if-no-files-found": "warn",
+            "retention-days": 7
+          }
+        }
+      ]
+    }
+  }
+}
