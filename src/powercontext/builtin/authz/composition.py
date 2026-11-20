@@ -21,7 +21,10 @@ from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from uuid import uuid4
 
+from sqlalchemy.exc import IntegrityError
+
 from powercontext.builtin.authz.casbin import CasbinAuthorizationProvider
+from powercontext.builtin.authz.errors import AccessConflictError
 from powercontext.builtin.authz.models import (
     DEFAULT_DEPLOYMENT_ID,
     AccessBinding,
@@ -143,22 +146,38 @@ async def _bootstrap_server_roles(
     for principal in principals:
         for role in (AccessRole.SERVER_OBSERVER, AccessRole.SERVER_ADMIN):
             key = f"static-preset:{deployment_id}:{principal.id}:{role.value}"
-            await repository.create_binding(
-                AccessBinding(
-                    binding_id=str(uuid4()),
-                    subject=principal,
-                    resource=resource,
-                    role=role,
-                    granted_by=principal,
-                    reason="static bearer preset",
-                    created_at=datetime.now(UTC),
-                    expires_at=None,
-                    state=AccessBindingState.ACTIVE,
-                    version=1,
-                    policy_revision="pending",
-                    idempotency_key=key,
-                )
+            binding = AccessBinding(
+                binding_id=str(uuid4()),
+                subject=principal,
+                resource=resource,
+                role=role,
+                granted_by=principal,
+                reason="static bearer preset",
+                created_at=datetime.now(UTC),
+                expires_at=None,
+                state=AccessBindingState.ACTIVE,
+                version=1,
+                policy_revision="pending",
+                idempotency_key=key,
             )
+            for attempt in range(3):
+                try:
+                    await repository.create_binding(binding)
+                    break
+                except AccessConflictError as error:
+                    cause = error.__cause__
+                    # Concurrent MySQL startup can lose the first policy-head
+                    # insert or idempotency-record insert. The failed transaction
+                    # has rolled back; replay the same preset key in a new one.
+                    if (
+                        attempt == 2
+                        or error.code not in {"binding-version", "idempotency-key"}
+                        or not isinstance(cause, IntegrityError)
+                        or cause.orig is None
+                        or not cause.orig.args
+                        or cause.orig.args[0] != 1062
+                    ):
+                        raise
 
 
 __all__ = ("open_builtin_access_control", "open_casbin_access_control")
