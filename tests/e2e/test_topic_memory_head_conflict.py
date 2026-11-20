@@ -39,6 +39,7 @@ from powercontext.http import (
 )
 from powercontext.server.factory import create_server_app
 from powercontext.server.settings import McpConfig, ServerSettings
+from tests.e2e.worker_timeout_diagnostics import record_worker_timeout
 
 _REPLACES = MAX_TOPIC_MEMORY_WORK_ATTEMPTS + 1
 _WORKER_CONTENT = {"title": "zircon worker", "summary": "zircon worker summary", "detail": "# zircon\nWorker update."}
@@ -106,7 +107,7 @@ class _Handler(BaseHTTPRequestHandler):
         pass
 
 
-def test_http_replaces_during_generation_never_block_the_spawned_topic_worker(tmp_path, monkeypatch, caplog):
+def test_http_replaces_during_generation_never_block_the_spawned_topic_worker(tmp_path, monkeypatch, caplog, request):
     caplog.set_level(logging.INFO, logger="powercontext.builtin.runtime.artifact_processing")
     monkeypatch.setenv("OPENAI_API_KEY", "local-test-provider")
     provider = _Provider(("127.0.0.1", 0), _Handler)
@@ -150,13 +151,17 @@ def test_http_replaces_during_generation_never_block_the_spawned_topic_worker(tm
                 CaptureContentSourceRequest(scope_id=scope, source_id="update", content="zircon changed")
             )
             await client.flush_topic_memory(FlushTopicMemoryRequest(scope_id=scope))
-            async with asyncio.timeout(120):
-                while (await http.get(path)).json()["content"] != _WORKER_CONTENT:
-                    status = await client.get_topic_memory_processing_status(
-                        TopicMemoryProcessingStatusRequest(scope_id=scope)
-                    )
-                    assert status.block is None
-                    await asyncio.sleep(0.05)
+            try:
+                async with asyncio.timeout(120):
+                    while (await http.get(path)).json()["content"] != _WORKER_CONTENT:
+                        status = await client.get_topic_memory_processing_status(
+                            TopicMemoryProcessingStatusRequest(scope_id=scope)
+                        )
+                        assert status.block is None
+                        await asyncio.sleep(0.05)
+            except TimeoutError:
+                record_worker_timeout(request, tmp_path)
+                raise
 
             # The Worker revised the head written by the last manual replace.
             revisions = (await http.get(path + "/revisions")).json()["items"]
