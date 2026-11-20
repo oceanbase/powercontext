@@ -265,6 +265,15 @@ make test
 
 PowerContext 是 [PowerMem](https://www.powermem.ai/) 的后续项目。
 
+## 社区交流
+
+欢迎加入 PowerContext 飞书交流群，分享使用经验、交流问题，一起探索 AI Agent 的上下文管理。
+使用飞书扫描下方二维码即可加入。
+
+<p align="center">
+  <img src="docs/assets/powercontext-group-qr.png" alt="PowerContext 飞书交流群二维码" width="280" />
+</p>
+
 ## 贡献者
 
 感谢每一位为 PowerContext 作出贡献的伙伴。❤️

@@ -115,7 +115,7 @@ class AtomicMemoryProcessingConfig:
     related_fts_fallback: bool = False
     alias_recall: bool = True
     comparison_batch_size: int = 20
-    input_tokens_limit: int = 24_000
+    input_tokens_limit: int = 64_000
 
     def __post_init__(self) -> None:
         if (

@@ -132,7 +132,7 @@ kimi = ["integrations/kimi-code/**", "tests/*kimi*", ".github/workflows/kimi-cod
 upgrade = [
   "scripts/oceanbase_ci.py",
   "scripts/run_atomic_memory_clean_migration.py", "scripts/build_ops_bundle.py",
-  "release/**", "scripts/upgrade_*.py", "scripts/ci_legacy_upgrade_rejection.py",
+  "release/**", "scripts/schema_release.py", "tests/test_schema*.py", "scripts/upgrade_*.py", "scripts/ci_legacy_upgrade_rejection.py",
   "scripts/ci_release_smoke.py", "scripts/ci_ops_bundle_smoke.py", "scripts/capture_release_schema.py",
   "tests/release_upgrades/**", "tests/test_upgrade*.py", "tests/test_registered_source_maintenance_cli.py",
   "tests/test_managed_*maintenance.py", "tests/e2e/*migration*", "tests/e2e/*managed_startup*",
