@@ -311,8 +311,13 @@ def test_long_shared_transaction_drops_usage_without_invalidating_memory() -> No
                         raise ValueError("business rollback")  # noqa: TRY003
                 assert await _rows(database) == ()
                 await _assert_connection_restored(database)
+                # Give the same recorder a normal recovery budget after the blocked write settles.
+                recorder._write_timeout_seconds = 5.0
                 _offer(recorder)
-                await recorder.flush()
+                target = recorder.checkpoint()
+                async with asyncio.timeout(6.0):
+                    while recorder._settled < target:
+                        await recorder.flush(target)
                 assert (await _rows(database))[0].requests == 1
             finally:
                 await recorder.close()
