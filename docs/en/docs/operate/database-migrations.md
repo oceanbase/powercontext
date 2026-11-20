@@ -17,8 +17,8 @@ The design follows [RFC #1771](https://github.com/oceanbase/powercontext/pull/17
 The full Server framework uses two normalization checkpoints before its shared migration chain for the PowerContext
 1.5.2 target (stored compatibility IDs shown below):
 
-- **1.3.0:** `s1300 → s1400 → s1401 → s1402 → v1_4_1_004 → v1_4_1_005 → v1_4_1_006 → v1_5_0_001 → v1_5_0_002 → v1_5_0_003 → v1_5_0_004 → v1_5_0_005 → v1_5_2_pr2639`.
-- **1.4.0:** `r1400 → s1400 → s1401 → s1402 → v1_4_1_004 → v1_4_1_005 → v1_4_1_006 → v1_5_0_001 → v1_5_0_002 → v1_5_0_003 → v1_5_0_004 → v1_5_0_005 → v1_5_2_pr2639` through a separate frozen source bridge.
+- **1.3.0:** `s1300 → s1400 → s1401 → s1402 → v1_4_1_004 → v1_4_1_005 → v1_4_1_006 → v1_5_0_001 → v1_5_0_002 → v1_5_0_003 → v1_5_0_004 → v1_5_0_005 → v1_5_2_pr2639 → 000`.
+- **1.4.0:** `r1400 → s1400 → s1401 → s1402 → v1_4_1_004 → v1_4_1_005 → v1_4_1_006 → v1_5_0_001 → v1_5_0_002 → v1_5_0_003 → v1_5_0_004 → v1_5_0_005 → v1_5_2_pr2639 → 000` through a separate frozen source bridge.
 
 Application release numbers and schema revisions are distinct. The 1.4.0 release is not the `s1400` checkpoint:
 its existing Candidate schema is current, but its Topic attempt storage still needs the registered bridge.
@@ -96,6 +96,10 @@ Revision `v1_5_0_004` registers `pc_artifact_source_locators`, an optional relat
 Revision `v1_5_0_005` removes the previous Artifact plugin-framework storage and adds nullable `pc_artifacts.metadata`. The upgrade refuses to proceed while old plugin registrations or data remain. There is currently no supported in-place upgrade path for these databases. Unloading plugins, deleting plugin directories, or exporting archives does not clear the retained framework records, even when no Artifacts were generated. Keep the database on the previous version until a supported migration is available. A separate fresh database can use the new version, but this does not migrate old plugin data; do not manually delete framework records to bypass the check. The immutable revision keeps its original `1.5.0` numbering.
 
 Revision `v1_5_2_pr2639` adds `pc_source_runners` and `pc_source_collect_targets` for Source collection and drops the empty `pc_source_write_plugins`; it rewrites no records. While `pc_source_write_plugins` still holds records (after `source load --kind write`), the upgrade is refused with `unsupported_plugin_data` and the database stays unchanged. The previous version has no operation that removes these registrations, so such a database currently has no supported in-place upgrade path: keep using the previous version or move to a new database, and do not delete the records by hand to bypass the check. The previous Source management service's own SQLite is not migrated. See [Source plugins](../workflows/source-plugins.md).
+
+The cumulative draft `000` registers `pc_atomic_memory_idempotency`, the retry receipts for keyed `remember_memory` creations, with an index on their expiry time. Existing managed databases require explicit migration before Server startup; the migration creates an empty table and rewrites no existing data. A receipt stores SHA-256 digests of the key namespace and the created content, the bound Artifact revision and the creation state version; it stores neither the raw key, the principal ID nor the memory body. Receipts expire 24 hours after creation and are removed in bounded batches. See [Atomic Memory](../workflows/atomic-memory.md) for retry behavior.
+
+Development databases and plans created with the unpublished `v1_5_2_001` revision must be rebuilt against `000`.
 
 Revision `v1_4_1_006` registers `pc_source_write_plugins` for persisted Source write plugin declarations.
 Revision `v1_5_0_001` adds Artifact plugin registration fields, family schemas, search state and projections,
@@ -175,11 +179,11 @@ literal mutable draft ID `000`. The following registered names remain unchanged:
 | `v1_5_0_005` | 1.5.0 | 5 | `v1_5_0_005` | Remove previous plugin-framework storage and add nullable Artifact metadata |
 | `v1_5_2_pr2639` | 1.5.2 | PR #2639 | `v1_5_2_pr2639` | Source collection runner and target tables; remove the write plugin registry |
 
-Both registered source paths reach `v1_5_2_pr2639`; only 1.3.0 is selected for CI upgrade acceptance:
+Both registered source paths reach the cumulative draft `000`; only 1.3.0 is selected for CI upgrade acceptance:
 
 ```text
-1.3.0: v1_3_0_000 -> v1_4_1_001 -> v1_4_1_002 -> v1_4_1_003 -> v1_4_1_004 -> v1_4_1_005 -> v1_4_1_006 -> v1_5_0_001 -> v1_5_0_002 -> v1_5_0_003 -> v1_5_0_004 -> v1_5_0_005 -> v1_5_2_pr2639
-1.4.0: v1_4_0_000 -> v1_4_1_001 -> v1_4_1_002 -> v1_4_1_003 -> v1_4_1_004 -> v1_4_1_005 -> v1_4_1_006 -> v1_5_0_001 -> v1_5_0_002 -> v1_5_0_003 -> v1_5_0_004 -> v1_5_0_005 -> v1_5_2_pr2639
+1.3.0: v1_3_0_000 -> v1_4_1_001 -> v1_4_1_002 -> v1_4_1_003 -> v1_4_1_004 -> v1_4_1_005 -> v1_4_1_006 -> v1_5_0_001 -> v1_5_0_002 -> v1_5_0_003 -> v1_5_0_004 -> v1_5_0_005 -> v1_5_2_pr2639 -> 000
+1.4.0: v1_4_0_000 -> v1_4_1_001 -> v1_4_1_002 -> v1_4_1_003 -> v1_4_1_004 -> v1_4_1_005 -> v1_4_1_006 -> v1_5_0_001 -> v1_5_0_002 -> v1_5_0_003 -> v1_5_0_004 -> v1_5_0_005 -> v1_5_2_pr2639 -> 000
 ```
 
 `status` and `plan` show `source_migration`, `target_migration` and `pending_migrations`

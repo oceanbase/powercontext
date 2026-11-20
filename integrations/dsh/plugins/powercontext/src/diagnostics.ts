@@ -48,6 +48,9 @@ const PUBLIC_ERROR_CODES = new Set([
   'invalid_cursor', 'cursor_expired', 'precondition_required', 'capacity_exceeded',
   'source_conflict', 'candidate_conflict', 'artifact_conflict', 'candidate_terminal',
   'scope_version_conflict', 'scope_idempotency_conflict', 'scope_binding_target_missing', 'artifact_publication_conflict',
+  // remember_memory returns it when an idempotency_key is reused for different content;
+  // the caller recovers by choosing a new key, so it must reach the caller as itself.
+  'idempotency_conflict',
   'connector_checkpoint_conflict', 'generation_conflict', 'external_skill_snapshot_unavailable',
   'handoff_report_inconsistent', 'invalid_request', 'invalid_scope_relationship',
   'invalid_source_ingestion', 'invalid_lifecycle', 'artifact_publication_unsupported',

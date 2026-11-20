@@ -50,6 +50,30 @@ Atomic Memory 将每条事实、偏好或决策保存为独立的 `atomic-memory
 成功后正文产生下一条 revision。缺少 `If-Match` 返回 `428 precondition_required`，
 过期返回 `412 revision_conflict`。重新读取并协调正文后再提交。
 
+## 安全重试 remember_memory
+
+`POST /v1/memory/remember`（`remember_memory`）每次调用都会创建一条新记忆。若响应丢失，需要重试而不产生重复记忆，
+可发送 `idempotency_key`：1 到 256 个除空格外的可打印 ASCII 字符。每次逻辑写入生成一个新的、不可猜测的键（例如 UUID），
+且只在重试该次写入时复用：
+
+```json
+{
+  "scope_id": "S",
+  "kind": "preference",
+  "text": "Prefer short pull requests.",
+  "idempotency_key": "3f0c8f5e-7a51-4c1e-9a43-0f1e2b7d9c60"
+}
+```
+
+键的作用域是 Scope 与已认证的 principal；关闭访问控制时，所有调用方在同一 Scope 内共享一个命名空间。创建后 24 小时内，
+相同键且存储内容相同的请求返回原始响应：同一 revision 1 的 `ArtifactRef` 与创建时记录的状态，即使该记忆随后被修订、遗忘或合并。
+当前状态请通过 Atomic Memory 读取操作获取。规范化后的 `text`、`kind`、`description`（省略时等同于由正文派生的默认描述）
+及正文 schema 一致即视为内容相同；`reason` 不参与比较。相同键配不同内容返回 `409 idempotency_conflict`，
+`error.details.kind` 为 `"memory_idempotency_key"`，且不写入任何数据；新内容请使用新键。24 小时后该键视为未使用，会创建新记忆。
+
+每次重放都会重新检查调用方当前的授权。服务端只保存键命名空间与内容的摘要，不保存原始键或记忆正文。服务端、Python SDK
+和 MCP 工具都不会自动生成键或自动重试；`expected_revision` 保持原有行为。
+
 ## 当前状态与遗忘
 
 `GET /v1/scopes/S/artifacts/atomic-memory/M/state` 返回当前精确 `artifact` 引用、`state`、

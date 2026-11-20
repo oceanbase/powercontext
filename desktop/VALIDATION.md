@@ -3103,6 +3103,49 @@ installed-platform acceptance remain separate requirements.
 不代表默认启动预算通过，也不构成启动性能承诺。该记录不替代安装后 GUI、原生凭据持久化、
 Windows／macOS、数据库升级、签名或正式发行验收。
 
+## Server df79da6b memory idempotency protocol qualification
+
+`sqlite-memory-idempotency-df79da6b-v1` qualifies all thirteen bundled Desktop protocol operations
+against Server source `df79da6b74cd146980154732272da44bf028469f`, whose contract adds the optional
+`idempotency_key` to `remember_memory`. The 63 earlier qualification records retain their original
+identities and evidence.
+
+- Normalized OpenAPI SHA-256: `e0e147b69008320adfe9d8d46183fa73b3f3ede6f815205fdf51b920438e14d7`.
+- Wheel: `powercontext-1.5.2.dev10+gdf79da6b7-py3-none-any.whl`.
+- Wheel SHA-256: `58ab4068f0267a876d00a7513869f959546eb749fe8a534d554da6c1f9a5b49b`.
+- Native debug probe SHA-256: `508fdd4ba4470f9913937afc627dad9574f6d76129cf20c48e2afa80e8c88b3c`.
+
+The wheel was built from a clean checkout of that commit. All 751 packaged runtime files match
+the exact Git source archive after CRLF normalization, with no missing or extra runtime files.
+The wheel uses the actual VCS development version; it is not a tagged stable artifact. The
+qualification follow-up changes only this record and its catalog entry.
+
+On 2026-11-11, Linux x86_64 (kernel 6.5.0, glibc 2.36, Debian 12 container), Python 3.11.2 and
+Rust 1.95.0 passed anonymous loopback, static Bearer, HTTPS with an explicit CA/base path, and
+enforced authentication Provider modes against independent real HTTP/SQLite Servers.
+`python desktop/tests/real_server.py --product-qualification sqlite-memory-idempotency-df79da6b-v1`
+reported `bundled product records` with the matching wheel and contract digests. The unchanged
+`server_probe` example was built from the product crate with `cargo build --locked` and the
+repository harness ran with its default startup budget. Every mode kept the Server alive after
+the client exited and reported a committed write with a lost response as unknown without replay.
+The Provider mode also covered Principal changes, revocation, scoped authorization without Server
+observation permission, and same-title Scope pagination. `cargo test --locked --test session`
+passed 9 tests, including bundled product coverage of every Desktop operation.
+
+Python dependencies were installed from the versions and hashes in `uv.lock` through a package
+mirror, and the wheel was built with `python -m build`; the run did not use `uv sync` or `uv build`.
+The probe does not send `idempotency_key`; keyed replay and conflict behavior is covered by
+`tests/e2e/test_remember_memory_idempotency.py`.
+
+This record does not qualify the installed WebView, credential persistence, Windows/macOS,
+native database upgrades, signing, or stable release publication. The full Tauri build and
+installed-platform acceptance remain separate requirements.
+
+本记录绑定上述精确源码、契约和 wheel，751 个运行时文件与源码归档一致，四种真实 HTTP／SQLite
+连接模式均以测试工具的默认启动预算通过，原生协议模块和业务断言保持不变。探针不发送
+`idempotency_key`，带键重放与冲突行为由 `tests/e2e/test_remember_memory_idempotency.py` 覆盖。
+该记录不替代安装后 GUI、原生凭据持久化、Windows／macOS、数据库升级、签名或正式发行验收。
+
 ## Server 6a20aa88 merged contract protocol qualification
 
 `sqlite-core-target-release-6a20aa88-v1` binds the merged Core target and v1.5.1
@@ -3220,6 +3263,49 @@ cargo test --locked --manifest-path desktop/src-tauri/Cargo.toml \
   --test session bundled_product_qualification_covers_every_desktop_operation
 make contract-test
 ```
+
+## Server bc11d08e memory idempotency protocol qualification
+
+`sqlite-memory-idempotency-bc11d08e-v1` qualifies all thirteen bundled Desktop protocol operations
+against Server source `bc11d08ee694a5c05131b90b0a46d032ee5cbb66`, whose contract combines the optional
+`idempotency_key` on `remember_memory` with the optional Task Outcome stop reason. The 66 earlier
+qualification records retain their original identities and evidence.
+
+- Normalized OpenAPI SHA-256: `36eb4ebc989a34be1872cd220c5289df81d690ea57d9e5565d50d06046ac9a81`.
+- Wheel: `powercontext-1.5.2.dev56+gbc11d08ee-py3-none-any.whl`.
+- Wheel SHA-256: `4bb3bb9c97efe9bb2b0ebec4d6a299c2861bd572ebf0fd6dc148d1e360e34bc9`.
+- Native debug probe SHA-256: `931e0cc0dba27c8e889c612ae5009a7889ab8bd22ca9bee37f80b078418d7b8a`.
+
+The wheel was built from a clean checkout of that commit. All 752 packaged runtime files match
+the exact Git source archive after CRLF normalization, with no missing or extra runtime files.
+The wheel uses the actual VCS development version; it is not a tagged stable artifact.
+
+On 2026-11-12, Linux x86_64 (kernel 6.5.0, glibc 2.36, Debian 12 container), Python 3.11.2 and
+Rust 1.95.0 passed anonymous loopback, static Bearer, HTTPS with an explicit CA/base path, and
+enforced authentication Provider modes against independent real HTTP/SQLite Servers.
+`python desktop/tests/real_server.py --product-qualification sqlite-memory-idempotency-bc11d08e-v1`
+reported `bundled product records` with matching client and Server contract digests. The unchanged
+`server_probe` example was built from the product crate with `cargo build --locked`, and the
+repository harness ran with its default startup budget. Every mode kept the Server alive after the
+client exited and reported a committed write with a lost response as unknown without replay. The
+Provider mode also covered Principal changes, revocation, scoped authorization without Server
+observation permission, and same-title Scope pagination. `cargo test --locked --test session`
+passed 9 tests, including bundled product coverage of every Desktop operation.
+
+Python dependencies were installed from the versions and hashes in `uv.lock` through a package
+mirror, and the wheel was built with `python -m build`. The probe sends neither `idempotency_key`
+nor a stop reason; keyed replay and conflict behavior is covered by
+`tests/e2e/test_remember_memory_idempotency.py`, and stop reasons by the Work and HTTP SQLite tests.
+A later commit on the same branch changes in-process authorization before keyed receipt lookup;
+it does not change the HTTP contract or the Desktop protocol path.
+
+This record does not qualify the installed WebView, credential persistence, Windows/macOS,
+native database upgrades, signing, or stable release publication.
+
+本记录绑定上述精确源码、契约和 wheel，752 个运行时文件与源码归档一致，四种真实 HTTP／SQLite
+连接模式均以测试工具的默认启动预算通过，原生协议模块和业务断言保持不变。探针不发送
+`idempotency_key` 或停止原因，相关行为由各自的 SQLite 测试覆盖。该记录不替代安装后 GUI、
+原生凭据持久化、Windows／macOS、数据库升级、签名或正式发行验收。
 
 ## Server bf0e57f3 merged contract protocol qualification
 
@@ -3395,6 +3481,72 @@ cargo +1.95.0 build --locked --manifest-path desktop/src-tauri/Cargo.toml --exam
 
 The exact wheel is retained under `.git/pr2557-wheel3/`; the measured report is under ignored `desktop/.artifacts/real-server.json`. These are local protocol results against an isolated built-wheel Server. They do not establish installed UI, native credential persistence, Windows or Intel macOS execution, OceanBase behavior, external production acceptance or release readiness.
 
+## Server 6506e18f memory idempotency protocol qualification
+
+`sqlite-memory-idempotency-6506e18f-v1` qualifies all thirteen bundled Desktop protocol
+operations against Server source `6506e18f4cf6a1bf4e575df61bf3abe849d95054`. The bundled
+contract includes the optional `idempotency_key` on `remember_memory`, Core target
+resolution and Task Outcome stop reasons.
+
+- Normalized OpenAPI SHA-256: `71296c61a668467c03235d1dd2395ef69ac7f60476c8de0987eec455f1c72e75`.
+- Wheel: `powercontext-1.5.2.dev121+g6506e18f4-py3-none-any.whl`.
+- Wheel SHA-256: `b092c3bd646bce9c445e67ee57087c6fb53551efb5b7e9a8069f1a2a21fec374`.
+- Native debug probe SHA-256: `cad39a7dc4a1aad294042169e129b14ee1e40b7be41a8b875e702209ee952bc3`.
+
+All 797 packaged Server and service-bootstrap runtime files match the exact Git source
+archive after CRLF normalization, with no missing, extra or changed runtime files.
+The wheel was built from the clean recorded commit with its actual VCS development
+version. The product probe was built with Rust 1.95.0 and `cargo build --locked`, without
+`ci-fixtures`. Its working tree contained the added qualification record; the recorded
+Server wheel remains bound to the clean source commit.
+
+On 2026-11-14, a dedicated remote Linux x86_64 server ran the unchanged
+`desktop/tests/real_server.py` in an Ubuntu 24.04 container, kernel 6.5.0, glibc 2.39 and
+Python 3.12.3. Anonymous loopback, static Bearer, HTTPS with an explicit CA/base path,
+and enforced Provider modes all passed through the ordinary product ConnectionManager.
+Every mode reported `bundled product records` and the exact qualification above, with
+matching client and Server contract digests. Checks include connection identity, exact
+Scope selection, Memory save/search/exact revision reads, statistics, committed writes
+with lost responses without replay, and Server survival after the client exits. Provider
+mode also checks Principal changes, same-identity revocation, scoped authorization
+without Server observation permission, and 51 same-title Scopes. Statistics usage is
+controlled fixture input rather than an external model-provider execution claim.
+
+The contract gate passes 68 tests and the idempotency end-to-end suite passes 18 tests,
+including revoked-contributor retries, untrusted-context key probing and the shared
+anonymous namespace when access control is disabled. All nine native session tests pass,
+including bundled coverage of every Desktop operation. The original missing-profile
+contract assertion was reproduced before adding this record. Skill pin and tool-contract
+fixture checks also pass. Python dependencies were installed from an export of `uv.lock`
+with the pinned versions and hashes verified through a package mirror; the repository
+lock files retain their original registry identities.
+
+The exact wheel, source comparison, native probe identity and four-mode report are
+retained on the remote server under ignored `desktop/.artifacts/pr2583/`. This evidence
+qualifies the observed HTTP/SQLite protocol behavior. Installed WebView, credential
+persistence, other operating systems, external databases, database upgrade acceptance
+and release publication require their own evidence. The Desktop probe does not send
+`idempotency_key`; keyed replay, conflict and authorization behavior use the separate
+idempotency suite above.
+
+Reproduce using the recorded wheel and a client containing this bundled profile:
+
+```sh
+cargo build --locked --manifest-path desktop/src-tauri/Cargo.toml --example server_probe
+uv run --no-sync python desktop/tests/real_server.py \
+  --product-qualification sqlite-memory-idempotency-6506e18f-v1 \
+  --wheel desktop/.artifacts/pr2583/server-wheel/powercontext-1.5.2.dev121+g6506e18f4-py3-none-any.whl
+cargo test --locked --manifest-path desktop/src-tauri/Cargo.toml --test session
+make contract-test
+uv run --no-sync python -m pytest tests/e2e/test_remember_memory_idempotency.py -q
+```
+
+本记录绑定上述精确源码、契约和 wheel，797 个运行时文件与 Git 源码归档一致。独立远端容器中的
+四种真实 HTTP／SQLite 连接模式全部通过，产品连接管理器选中同一内置资格记录。合同测试 68 项、
+幂等端到端测试 18 项和原生 session 测试 9 项通过，包含评论涉及的权限与命名空间回归。
+依赖按锁文件中的版本和哈希经镜像安装，未修改仓库锁文件。本记录不替代安装版界面、凭据持久化、
+其他平台、外部数据库、升级或发布验收；幂等 key 的行为由独立端到端测试覆盖。
+
 ## Server a211ba84 merged gateway contract protocol qualification
 
 `sqlite-gateway-deadline-a211ba84-v1` qualifies the thirteen bundled Desktop
@@ -3433,6 +3585,67 @@ This is local SQLite protocol qualification, not an installed WebView or
 credential-persistence test, other-platform qualification, external database
 deployment, gateway transport acceptance, or release approval.
 
+## Server dc99352f memory gateway protocol qualification
+
+`sqlite-memory-gateway-dc99352f-v1` qualifies all thirteen bundled Desktop protocol
+operations against Server source `dc99352fa53f9db07398000e904cb006c7b17a01`. The combined
+OpenAPI includes keyed Memory creation and Gateway lifecycle metadata.
+
+- Normalized OpenAPI SHA-256: `4ebf65e50668d64b7856c7f72667f7758840a49e443d1bb618318ac5d4615c00`.
+- Wheel: `powercontext-1.5.2.dev164+gdc99352fa-py3-none-any.whl`.
+- Wheel SHA-256: `ee4f6c22345711c1a52e043bca950c7655a2323ef1aacf6c5428329dcb757ad5`.
+- Native debug probe SHA-256: `ff98d330b4fb9f2ff958b2badd2ab3234f097ced473d3997b72e4e904e5ca6ae`.
+
+All 799 packaged runtime files match the exact Git source archive after CRLF
+normalization, with no missing, extra or changed files. The wheel was built from the
+clean recorded commit with its actual VCS development version. Rust 1.95.0 built the
+ordinary product probe with `cargo build --locked`, without `ci-fixtures`; the client
+working tree contained the added qualification record.
+
+On 2026-11-15, a dedicated remote Linux x86_64 server ran the unchanged real-Server
+harness in an Ubuntu 24.04 container, kernel 6.5.0, glibc 2.39 and Python 3.12.3.
+Anonymous loopback, static Bearer, HTTPS with an explicit CA/base path, and enforced
+Provider modes all passed. Every mode reported `bundled product records`, the exact
+qualification above and matching client/Server contract digests. Checks cover identity,
+Scope selection, Memory save/search/exact reads, statistics, committed writes with lost
+responses without replay, and Server survival after client exit. Provider mode also
+checks Principal changes, revocation, scoped authorization without Server observation
+permission, and 51 same-title Scopes. Statistics usage is controlled fixture input.
+
+The generated Python and Desktop contracts are current. The Desktop generator and its
+check mode pass with Node 24.14.1, OpenAPI Generator 7.26.0 and Rustfmt 1.95.0;
+TypeScript checking also passes. The contract suite passes 69 tests, the idempotency
+end-to-end suite passes 18 tests, and all nine native session tests pass. `make check`
+passes, including type checks and 61 integration-manifest tests. Skill pin and
+tool-contract fixture checks pass. The missing-profile assertion was reproduced before
+adding this record.
+
+The wheel, source comparison, probe checksum and four-mode report are retained on the
+remote server under ignored `desktop/.artifacts/pr2583-nov15/`. Historical qualification
+records and authenticated-client mappings retain their evidence identities. These results
+qualify the Desktop HTTP/SQLite protocol, not the Rust Gateway lifecycle routes,
+installed WebView, credential persistence, other platforms, external databases, database
+upgrades or release publication. The probe does not send `idempotency_key`; the separate
+idempotency suite covers keyed writes, replay, conflict and authorization.
+
+
+Reproduce using the recorded wheel and a client containing this bundled profile:
+
+```sh
+cargo build --locked --manifest-path desktop/src-tauri/Cargo.toml --example server_probe
+uv run --no-sync python desktop/tests/real_server.py \
+  --product-qualification sqlite-memory-gateway-dc99352f-v1 \
+  --wheel desktop/.artifacts/pr2583-nov15/server-wheel/powercontext-1.5.2.dev164+gdc99352fa-py3-none-any.whl
+cargo test --locked --manifest-path desktop/src-tauri/Cargo.toml --test session
+make contract-test
+uv run --no-sync python -m pytest tests/e2e/test_remember_memory_idempotency.py -q
+```
+
+本记录绑定上述精确源码、组合契约和 wheel，799 个运行时文件与源码归档一致。远端容器中的匿名、
+Bearer、HTTPS 和 Provider 四种真实 HTTP／SQLite 模式全部通过，产品连接管理器选中同一内置记录。
+合同测试 69 项、幂等端到端测试 18 项、原生 session 测试 9 项及完整代码质量检查通过。
+历史资格与已认证客户端映射保留各自证据。本记录验证 Desktop 协议，不代替 Rust Gateway 生命周期、
+安装版界面、凭据持久化、其他平台、外部数据库、升级或发布验收；幂等 key 由独立端到端测试覆盖。
 
 ## Server 3427cee7 plugin interfaces protocol qualification
 
@@ -3464,6 +3677,70 @@ uv run --no-sync python desktop/tests/real_server.py \
   --product-qualification sqlite-plugin-interfaces-3427cee7-v1 \
   --wheel desktop/.artifacts/plugin-interfaces/powercontext-1.5.2.dev163+g3427cee71-py3-none-any.whl
 ```
+
+
+## Server b496cc22 memory plugins protocol qualification
+
+`sqlite-memory-plugins-b496cc22-v1` qualifies all thirteen bundled Desktop protocol
+operations against Server source `b496cc22ccf73a9c9e86dd5e7f942aa750186d1c`. Its OpenAPI
+combines keyed Memory creation, Gateway lifecycle metadata and the plugin interfaces.
+
+- Normalized OpenAPI SHA-256: `d988b0dacfa08880a2f21d562f8c014f5c8175d139ecac0de24612d6c503861a`.
+- Wheel: `powercontext-1.5.2.dev195+gb496cc22c-py3-none-any.whl`.
+- Wheel SHA-256: `e93a6080ad051bd0cb8d2ee7e4ee55852bc48a447e465c305cf31d157baa5da7`.
+- Native debug probe SHA-256: `ba2e76b6700bff1a38c05e279f6f7ebb82a6a2b7a8c9c21c43123dcceb28f2c5`.
+
+All 807 packaged runtime files match the exact Git source archive after CRLF
+normalization, with no missing, extra or changed files. The wheel was built from the
+clean recorded commit with its actual VCS development version. Rust 1.95.0 built the
+ordinary product probe with `cargo build --locked`, without `ci-fixtures`; the client
+working tree contained the added qualification record.
+
+On 2026-11-15, the unchanged real-Server harness passed anonymous loopback, static
+Bearer, HTTPS with explicit CA/base path and enforced Provider modes on a dedicated
+remote Linux x86_64 server in an Ubuntu 24.04 container, kernel 6.5.0, glibc 2.39 and
+Python 3.12.3. Every mode reported `bundled product records`, the exact qualification
+above and matching client/Server contract digests. Checks cover identity, Scope
+selection, Memory save/search/exact reads, statistics, committed writes with lost
+responses without replay, and Server survival after client exit. Provider mode also
+checks Principal changes, revocation, scoped authorization without Server observation
+permission, and 51 same-title Scopes. Statistics usage is controlled fixture input.
+
+The API/Desktop contract suite passes 69 tests, the idempotency suite passes 18 tests,
+and all nine native session tests pass. `make check` passes, including type checks and
+61 integration-manifest tests. Desktop generation/check mode, TypeScript checking and
+native IPC generation checking pass. Skill pins and the tool-contract fixture pass.
+Separate SQLite migration and maintenance coverage passes 85 tests. The plugin storage
+regression preserves refusal while retired plugin data exists, then checks that cleanup
+and receipt-table creation complete through `v1_5_0_005` followed by `v1_5_2_001`.
+The receipt revision inherits plugin-aware readiness and records the reviewed final
+schema fingerprint on both registered source chains.
+
+The exact wheel, source comparison, probe checksum and four-mode report are retained
+on the remote server under ignored `desktop/.artifacts/pr2583-interfaces/`. Historical
+profiles and authenticated-client mappings retain their evidence identities. These
+results qualify the Desktop HTTP/SQLite protocol, not arbitrary plugin execution,
+Rust Gateway lifecycle routes, installed WebView, credential persistence, other platforms,
+external databases, installed-release upgrades or release publication. The probe does
+not send `idempotency_key`; the separate idempotency suite covers keyed creation,
+replay, conflict and authorization.
+
+```sh
+cargo build --locked --manifest-path desktop/src-tauri/Cargo.toml --example server_probe
+uv run --no-sync python desktop/tests/real_server.py \
+  --product-qualification sqlite-memory-plugins-b496cc22-v1 \
+  --wheel desktop/.artifacts/pr2583-interfaces/server-wheel/powercontext-1.5.2.dev195+gb496cc22c-py3-none-any.whl
+cargo test --locked --manifest-path desktop/src-tauri/Cargo.toml --test session
+make contract-test
+uv run --no-sync python -m pytest tests/e2e/test_remember_memory_idempotency.py -q
+```
+
+本记录绑定上述精确源码、组合契约和 wheel，807 个运行时文件与源码归档一致。远端容器中的四种
+真实 HTTP／SQLite 连接模式全部通过，产品连接管理器选中同一内置记录。合同测试 69 项、幂等测试
+18 项、原生 session 测试 9 项、SQLite 迁移与维护测试 85 项及代码质量检查通过。升级链先执行
+`v1_5_0_005`，再执行 `v1_5_2_001`，保留插件数据拒绝规则、插件就绪校验和幂等收据表。
+本记录不代替任意插件执行、Rust Gateway 生命周期、安装版、凭据持久化、其他平台、外部数据库、
+已安装发行版升级或发布验收；幂等 key 的行为由独立端到端测试覆盖。
 
 ## Server be5f0f76 v1.5.2 release protocol qualification
 
@@ -3525,6 +3802,53 @@ These results qualify the observed local SQLite protocol, not installed WebView
 behavior, native credential persistence, other platforms, external providers,
 native database upgrades or the formal release acceptance matrix.
 
+## Server efd4be07 memory release protocol qualification
+
+`sqlite-memory-release-efd4be07-v1` qualifies all thirteen bundled Desktop protocol operations against
+Server source `efd4be0731bc4683be4e2a66fc045cd808d00eb8`, combining API version `1.5.2` and keyed Memory creation.
+
+- Normalized OpenAPI SHA-256: `f41106d8716b5acc5212afcf515b45d58f963d6b10c0c158b85afe54a7acd731`.
+- Wheel: `powercontext-1.5.2.dev216+gefd4be073-py3-none-any.whl`.
+- Wheel SHA-256: `c9d384e215bd1d5e433e2b948654c9d1586bf5bfda6da719df3086b53ef48ff7`.
+- Native debug probe SHA-256: `6dc5179afaa963f74e2c9ed3f41c15a90fe61725ad6e05d4900def354d0693db`.
+
+All 808 packaged runtime files match the exact Git source archive after CRLF
+normalization. The wheel was built from the clean recorded commit with its actual VCS
+version. Rust 1.95.0 built the ordinary product probe with `cargo build --locked`, without
+`ci-fixtures`; the client working tree contained the added qualification record.
+
+On 2026-11-16, the unchanged real-Server harness passed anonymous loopback, static Bearer,
+HTTPS with explicit CA/base path and enforced Provider modes on a dedicated remote Linux
+x86_64 server in an Ubuntu 24.04 container, kernel 6.5.0, glibc 2.39 and Python 3.12.3.
+All four modes selected this bundled product record with matching client and Server
+contract digests. Checks cover identity, Scope selection, Memory save/search/exact reads,
+statistics, committed writes with lost responses without replay, and Server survival
+after client exit. Provider mode additionally checks Principal changes, revocation,
+51 same-title Scopes, and scoped authorization without Server observation permission.
+Statistics usage is controlled fixture input.
+
+The exact wheel, source comparison, probe checksum and four-mode report are retained
+on the validation server under ignored `desktop/.artifacts/pr2583-release/`.
+Historical profiles and authenticated-client mappings retain their original identities.
+This record qualifies the Desktop HTTP/SQLite protocol; it does not establish installed
+WebView behavior, credential persistence, arbitrary plugin execution, Gateway lifecycle
+routes, other platforms, external databases, installed-release upgrades or publication.
+The probe does not send `idempotency_key`; separate end-to-end tests cover keyed writes.
+
+```sh
+cargo build --locked --manifest-path desktop/src-tauri/Cargo.toml --example server_probe
+uv run --no-sync python desktop/tests/real_server.py \
+  --product-qualification sqlite-memory-release-efd4be07-v1 \
+  --wheel desktop/.artifacts/pr2583-release/server-wheel/powercontext-1.5.2.dev216+gefd4be073-py3-none-any.whl
+cargo test --locked --manifest-path desktop/src-tauri/Cargo.toml --test session
+make contract-test
+uv run --no-sync pytest tests/e2e/test_remember_memory_idempotency.py -q
+```
+
+本记录绑定上述精确源码、API 1.5.2 与幂等写入组合契约及 wheel；808 个运行时文件与源码归档一致。
+远端容器中的匿名、Bearer、HTTPS 和 Provider 四种真实 HTTP／SQLite 连接模式全部通过，
+产品连接管理器选中对应内置记录。历史记录保持不变。本记录不代替安装版界面、凭据持久化、
+任意插件执行、Gateway 生命周期、其他平台、外部数据库、已安装发行版升级或发布验收。
 
 ## Server 0d56ec37 plugin reload protocol qualification
 
@@ -3556,7 +3880,6 @@ uv run --no-sync python desktop/tests/real_server.py \
   --wheel desktop/.artifacts/plugin-reload/powercontext-1.5.2.dev245+g0d56ec377-py3-none-any.whl
 ```
 
-
 ## Server 9f113a72 Source plugins protocol qualification
 
 `sqlite-source-plugins-9f113a72-v1` qualifies all thirteen Desktop protocol operations against
@@ -3587,7 +3910,6 @@ uv run --no-sync python desktop/tests/real_server.py \
   --wheel desktop/.artifacts/source-plugins/powercontext-1.5.2.dev248+g9f113a729-py3-none-any.whl
 ```
 
-
 ## Server bc22089e plugin Scope listing protocol qualification
 
 `sqlite-plugin-scope-listing-bc22089e-v1` qualifies all thirteen Desktop protocol operations against
@@ -3617,6 +3939,56 @@ uv run --no-sync python desktop/tests/real_server.py \
   --product-qualification sqlite-plugin-scope-listing-bc22089e-v1 \
   --wheel desktop/.artifacts/plugin-scope-listing/powercontext-1.5.2.dev238+gbc22089e9-py3-none-any.whl
 ```
+
+## Server f63022b3 memory and Source protocol qualification
+
+`sqlite-memory-source-f63022b3-v1` qualifies all thirteen bundled Desktop protocol operations against
+Server source `f63022b3f80358872170e995a5c55bf5c4dd5ef4`. Its contract combines keyed Memory creation,
+Source collection runners, plugin reload, and the exclusion of plugin-created Scopes from Scope listings.
+The registered migration chain reaches `v1_5_2_001` through `v1_5_2_pr2639`.
+
+- Normalized OpenAPI SHA-256: `a4143b643a80cbc98c04b75053799e64d12e3b03c9819416920c24ee8a730b32`.
+- Wheel: `powercontext-1.5.2.dev273+gf63022b3f-py3-none-any.whl`.
+- Wheel SHA-256: `7577343e5af3bac316b99225eebf6bb18c8097e93082a830cd458e74e7b0371c`.
+- Native debug probe SHA-256: `de9360f4d40a6bfeafe07bb54a05d25627c731955650826ac1a5a52261baca8d`.
+
+All 810 packaged runtime files from `powercontext`, `powercontext_service_bootstrap`, and
+`powercontext_integration_lifecycle` match the recorded Git source archive after CRLF normalization.
+The wheel was built from that clean commit with its actual VCS version. Rust 1.95.0 built the ordinary
+product probe with `cargo build --locked`, without `ci-fixtures`. The client working tree contained
+the added qualification record; historical profiles and authenticated-client mappings retain their identities.
+
+On 2026-11-18, the unchanged `desktop/tests/real_server.py` passed anonymous loopback, static Bearer,
+HTTPS with an explicit CA/base path, and enforced Provider fixture modes in an Ubuntu 24.04 container
+on Linux 6.5.0-26 x86_64, with glibc 2.39, Python 3.12.3, and SQLite 3.45.1. All four modes selected
+this bundled product record with identical Server and client contract digests. Checks cover identity,
+Scope selection, Memory save/search/exact revision reads, statistics, committed writes with lost responses
+without replay, and Server survival after client exit. Provider mode also verifies Principal changes,
+same-identity revocation, 51 same-title Scopes, and scoped authorization without Server observation permission.
+The native session suite passed all nine tests, including bundled coverage of every Desktop operation.
+Statistics usage is controlled fixture input.
+
+The exact wheel, source comparison, probe checksum, and four-mode report are retained on the validation
+host under ignored `desktop/.artifacts/reconcile-2639/`. This qualifies the observed HTTP/SQLite protocol;
+it does not establish installed WebView behavior, credential persistence, arbitrary plugin execution,
+Gateway lifecycle, other operating systems, external providers or databases, installed-release upgrades,
+or publication acceptance. The probe does not send `idempotency_key`; separate end-to-end tests cover
+keyed writes, including upgrades from the Source collection checkpoint through both registered source histories.
+
+```sh
+cargo build --locked --manifest-path desktop/src-tauri/Cargo.toml --example server_probe
+uv run --no-sync python desktop/tests/real_server.py \
+  --product-qualification sqlite-memory-source-f63022b3-v1 \
+  --wheel desktop/.artifacts/reconcile-2639/server-wheel/powercontext-1.5.2.dev273+gf63022b3f-py3-none-any.whl
+cargo test --locked --manifest-path desktop/src-tauri/Cargo.toml --test session
+make contract-test
+uv run --no-sync pytest tests/e2e/test_remember_memory_idempotency.py -q
+```
+
+本记录绑定上述精确源码、组合契约与 wheel；810 个运行时文件与源码归档一致，四种真实 HTTP／SQLite
+连接模式全部选中该内置资格记录。原生 session 的九项测试通过。带键写入及两条来源路径从 Source 采集
+检查点升级后的幂等重放，由独立端到端测试覆盖。本记录不替代安装版界面、凭据持久化、任意插件执行、
+Gateway 生命周期、其他平台、外部 Provider 或数据库、已安装发行版升级及正式发布验收。
 
 ## Server 1dd494f4 gateway Source limit protocol qualification
 
@@ -3839,3 +4211,41 @@ uv run --no-sync python desktop/tests/real_server.py \
   --product-qualification sqlite-gateway-batch-capture-477a6c8b-v1 \
   --wheel desktop/.artifacts/gateway-batch-capture/powercontext-1.5.3.dev90+g477a6c8ba-py3-none-any.whl
 ```
+
+## Server ff058b03 memory and batch capture protocol qualification
+
+`sqlite-memory-batch-ff058b03-v1` qualifies all thirteen bundled Desktop operations against
+Server source `ff058b0399d81614c02bc5d927e107d177b7827d`, whose contract includes keyed Memory creation
+and batch ContentSource capture.
+
+- Normalized OpenAPI SHA-256: `faf79a7df51ecb088c26691c04f8d6d10ca5d968891078dedc55aeb3aff90e92`.
+- Wheel: `powercontext-1.5.2.dev306+gff058b039-py3-none-any.whl`.
+- Wheel SHA-256: `456545493b0f93361c31dc46e8a1d8ed82e1247884063fa78e329f4ad5228a52`.
+- Native debug probe SHA-256: `12f3af459c4eb21774b700fd97247ba885485779da3c1d07035e3b3823af113b`.
+
+The wheel was built from the recorded Git commit. All 811 packaged runtime files match that
+commit's source archive after CRLF normalization. Rust 1.95.0 built the native probe with the
+product Cargo lock and without `ci-fixtures`.
+
+On 2026-11-20, the real-Server harness selected the bundled product record in all four modes:
+anonymous loopback, static Bearer, HTTPS with explicit CA and a base path, and enforced Provider.
+The run used Linux 6.5.0-26 x86_64 with glibc 2.39 and Python 3.12.3 in an Ubuntu 24.04 container.
+The client and Server contract digests matched. Memory saves, searches, exact revision reads and
+the other bundled operations passed, including lost-response handling and Provider revocation.
+The native session suite passed all nine cases. The Desktop probe exercises HTTP/SQLite and the
+native protocol. Separate Server tests exercise keyed Memory replay and batch capture.
+
+The wheel, source comparison, probe checksum, and four-mode report are retained under ignored
+`desktop/.artifacts/pr2583-batch-capture/` on the validation host.
+
+```sh
+cargo build --locked --manifest-path desktop/src-tauri/Cargo.toml --example server_probe
+uv run --no-sync python desktop/tests/real_server.py \
+  --product-qualification sqlite-memory-batch-ff058b03-v1 \
+  --wheel desktop/.artifacts/pr2583-batch-capture/server-wheel/powercontext-1.5.2.dev306+gff058b039-py3-none-any.whl
+cargo test --locked --manifest-path desktop/src-tauri/Cargo.toml --test session
+```
+
+本记录绑定精确源码、组合契约与 wheel。811 个运行时文件与源码归档一致，匿名、Bearer、HTTPS
+和 Provider 四种真实 HTTP／SQLite 连接均选中该内置资格记录，原生 session 九项测试通过。
+带键 Memory 重放和批量 ContentSource 采集由独立的 Server 测试覆盖。

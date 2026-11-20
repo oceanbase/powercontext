@@ -231,6 +231,7 @@ def test_sdk_registers_exact_catalog_and_json_text_inputs(registry):
             "scope_id",
             "tag_filter",
             "expected_revision",
+            "idempotency_key",
             "max_bytes",
             "include_code",
             "assembly",
@@ -256,6 +257,7 @@ def test_sdk_registers_exact_catalog_and_json_text_inputs(registry):
         ("pc_prepare_context", {"query": "scope"}, "bootstrap_receipt_id", "receipt-1"),
         ("pc_search", {"query": "scope"}, "tag_filter", {"tags": ["private"]}),
         ("pc_remember", {"kind": "decision", "text": "Retain."}, "expected_revision", 1),
+        ("pc_remember", {"kind": "decision", "text": "Retain."}, "idempotency_key", "retry-1"),
     ],
 )
 def test_server_controlled_parameters_are_rejected_at_the_sdk_boundary(

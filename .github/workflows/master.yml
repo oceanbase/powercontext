@@ -300,6 +300,8 @@ jobs:
         if: matrix.suite == 'unit'
         env:
           PYTEST_ADDOPTS: --require-dsh-config-runtime --require-claude-code-python-floor
+          # Limit contention for tests that spawn subprocesses with fixed deadlines.
+          PYTEST_WORKERS: "8"
         run: make unit-test
 
       - name: Check Source serialization with minimum Pydantic

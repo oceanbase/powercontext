@@ -90,6 +90,10 @@ Code 专用诊断字段仅在 `code.*` events 中输出。
 已登记的完整性原因以 `WARNING` 输出；可预期的历史缺口保持 `INFO` 或 `DEBUG`。`manifest_conflict` 这类完整性原因
 可告警，并与“从未声明”区分开。
 
+`atomic_memory.idempotency.cleanup_failed` 事件表示带键的 `remember_memory` 创建已提交，但随后对过期重试键的
+有界清理失败。创建结果与响应不受影响，之后的带键创建会再次清理。该事件以 `WARNING` 输出，`operation` 为
+`remember_memory`，`unit` 为 `atomic-memory`，`outcome` 为 `failure`，并带 `exception_type`；不携带键、主体或记忆内容。
+
 Server role 为 `all`（API 与 supervisor）、`api` 或 `background`，child process 使用 `worker`。
 显式配置 logging 但没有指定 deployment role 时使用 `server`。JSON identity 字段对应 trace resource attributes：
 `service.name`、`service.version`、`service.instance.id` 和 `powercontext.service.role`。

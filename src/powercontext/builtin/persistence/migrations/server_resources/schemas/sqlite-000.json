@@ -1,0 +1,6 @@
+{
+  "create": [
+    "CREATE TABLE pc_atomic_memory_idempotency (\n\tnamespace_digest VARCHAR(64) NOT NULL, \n\tdigest_version INTEGER NOT NULL, \n\trequest_digest VARCHAR(64) NOT NULL, \n\tscope_id VARCHAR(256) NOT NULL, \n\tartifact_id VARCHAR(128) NOT NULL, \n\trevision INTEGER NOT NULL, \n\tstate_version INTEGER NOT NULL, \n\tcreated_at DATETIME NOT NULL, \n\texpires_at DATETIME NOT NULL, \n\tPRIMARY KEY (namespace_digest), \n\tCONSTRAINT ck_pc_atomic_memory_idempotency_digest_version CHECK (digest_version > 0), \n\tCONSTRAINT ck_pc_atomic_memory_idempotency_revision CHECK (revision > 0), \n\tCONSTRAINT ck_pc_atomic_memory_idempotency_state_version CHECK (state_version >= 0)\n)",
+    "CREATE INDEX ix_pc_atomic_memory_idempotency_expires_at ON pc_atomic_memory_idempotency (expires_at)"
+  ]
+}
