@@ -1154,7 +1154,7 @@ jobs:
       - name: Restore OpenCode host downloads
         if: runner.os == 'Linux' && runner.environment == 'self-hosted'
         id: opencode-npm-cache
-        uses: $/.github/actions/cache-npm
+        uses: ./.github/actions/cache-npm
         with:
           packages: ${{ steps.opencode-package.outputs.package }}@${{ env.OPENCODE_VERSION }}
 
@@ -1168,7 +1168,7 @@ jobs:
 
       - name: Save OpenCode host downloads
         if: runner.os == 'Linux' && runner.environment == 'self-hosted' && steps.opencode-npm-cache.outputs.cache-hit != 'true'
-        uses: $/.github/actions/cache-save
+        uses: ./.github/actions/cache-save
         with:
           path: ${{ steps.opencode-npm-cache.outputs.cache-path }}
           key: ${{ steps.opencode-npm-cache.outputs.cache-key }}
@@ -1217,7 +1217,7 @@ jobs:
       - name: Restore Codex host downloads
         if: runner.os == 'Linux' && runner.environment == 'self-hosted'
         id: codex-npm-cache
-        uses: $/.github/actions/cache-npm
+        uses: ./.github/actions/cache-npm
         with:
           packages: '@openai/codex@${{ env.CODEX_VERSION }}'
 
@@ -1229,7 +1229,7 @@ jobs:
 
       - name: Save Codex host downloads
         if: runner.os == 'Linux' && runner.environment == 'self-hosted' && steps.codex-npm-cache.outputs.cache-hit != 'true'
-        uses: $/.github/actions/cache-save
+        uses: ./.github/actions/cache-save
         with:
           path: ${{ steps.codex-npm-cache.outputs.cache-path }}
           key: ${{ steps.codex-npm-cache.outputs.cache-key }}

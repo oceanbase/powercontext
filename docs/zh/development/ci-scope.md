@@ -145,7 +145,9 @@ Docker 镜像缓存与依赖快照分开配置。Runner 可以通过 `PC_CI_OCEA
 
 内部 mise 缓存还会单独保存启动所需的二进制、版本记录和签名校验文件，并在已安装工具恢复后恢复该快照，避免旧工具快照覆盖这些文件。固定版本的上游 action 仍会在本地校验二进制、安装项目工具并导出环境。已安装工具精确命中时，仍可保存尚未命中的启动快照；显式指定 mise 版本时使用独立的启动缓存键。只发布文件齐全的启动快照；校验文件缺失时仅跳过缓存写入，不使已成功的工具安装失败。
 
-打包历史源码时使用 `$/` action 引用，让缓存工具跟随工作流提交，待构建源码仍保持指定的 checkout。嵌套缓存 action 也使用同一种引用方式。这要求使用 GitHub.com 和 2.336.0 或更高版本的 runner，详见 GitHub 的[同仓库 action 引用发布说明](https://github.blog/changelog/2026-07-30-reference-same-repository-actions-with-self-repository-syntax/)。
+普通 CI 使用源码 checkout 中的 `./.github/actions/` 本地 helper，嵌套 helper 也使用本地引用，因此解析它们不再下载第二份仓库归档。打包历史源码时保留顶层 `$/` 引用：这些 helper 自包含，从自身 action 目录加载工具，同时根据指定 checkout 的源码生成指纹。这要求使用 GitHub.com 和 2.336.0 或更高版本的 runner，详见 GitHub 的[同仓库 action 引用发布说明](https://github.blog/changelog/2026-07-30-reference-same-repository-actions-with-self-repository-syntax/)。
+
+内部 runner 不再在每个任务开始前预下载仓库归档。只有解析远程 action 引用时，runner 才会下载所需归档。包含嵌套 `$/` 引用的旧版工作流继续使用这一原生下载路径；历史源码打包仍使用工作流版本的工具。
 
 缓存服务的存储必须在 worker 回收后保留，且所有 runner Pod 都能访问该服务。helper 会让服务地址的主机绕过出口代理。服务部署、bucket 创建和持久存储由基础设施配置负责，仓库工作流不会创建这些资源。验收时应在不同 Pod 中分别保存和恢复缓存，验证 worker 移除后缓存仍可用，并比较真实 CI 的依赖安装耗时。仅通过 YAML 校验，不能证明后端可用或性能已经提升。
 

@@ -62,7 +62,7 @@ jobs:
       - name: Restore Kimi CLI downloads
         if: runner.os == 'Linux' && runner.environment == 'self-hosted'
         id: kimi-npm-cache
-        uses: $/.github/actions/cache-npm
+        uses: ./.github/actions/cache-npm
         with:
           packages: '@moonshot-ai/kimi-code@${{ env.KIMI_VERSION }}'
 
@@ -82,7 +82,7 @@ jobs:
 
       - name: Save Kimi CLI downloads
         if: runner.os == 'Linux' && runner.environment == 'self-hosted' && steps.kimi-npm-cache.outputs.cache-hit != 'true'
-        uses: $/.github/actions/cache-save
+        uses: ./.github/actions/cache-save
         with:
           path: ${{ steps.kimi-npm-cache.outputs.cache-path }}
           key: ${{ steps.kimi-npm-cache.outputs.cache-key }}

@@ -99,14 +99,63 @@ def test_internal_cache_bypasses_proxy_for_both_environment_spellings(
     assert output_value(repeated, "no_proxy") == expected
 
 
-@pytest.mark.parametrize("name", ["cache", "cache-restore", "cache-save"])
+@pytest.mark.parametrize(
+    "name", ["cache", "cache-restore", "cache-save", "setup-uv", "cache-pip", "setup-bundle-builder"]
+)
 def test_cache_action_environment_has_no_case_insensitive_duplicate_keys(name: str) -> None:
     action = yaml.safe_load((SCRIPT.parents[1] / f".github/actions/{name}/action.yml").read_text())
     for step in action["runs"]["steps"]:
         names = list(step.get("env", {}))
         # GitHub validates action YAML environment mappings without case
         # distinctions, even though a Linux process environment is case-sensitive.
-        assert len(names) == len({key.casefold() for key in names}), step["id"]
+        assert len(names) == len({key.casefold() for key in names}), step
+        if any(key.startswith("AWS_") for key in names):
+            assert step["uses"].startswith("runs-on/cache@") or step["uses"].startswith("runs-on/cache/")
+
+
+def cache_expression(expression: str, context: dict[str, str]) -> str | bool:
+    expression = expression.removeprefix("${{").removesuffix("}}")
+    for name, value in context.items():
+        expression = expression.replace(name, repr(value))
+    expression = expression.replace("&&", " and ").replace("||", " or ").replace("always()", "True")
+    return eval(expression, {"__builtins__": {}})  # noqa: S307 - checked-in expressions with fixed test values
+
+
+@pytest.mark.parametrize("helper", ["cache", "cache-restore", "cache-pip", "setup-bundle-builder"])
+@pytest.mark.parametrize("backend", ["github", "s3"])
+@pytest.mark.parametrize("hit", ["true", "false", ""])
+def test_cache_helpers_route_restore_outputs_and_builder_downloads(helper: str, backend: str, hit: str) -> None:
+    action = yaml.safe_load((SCRIPT.parents[1] / f".github/actions/{helper}/action.yml").read_text())
+    context = {"steps.backend.outputs.backend": backend}
+    restored = []
+    provider = "runs-on" if backend == "s3" else "actions"
+    for step in action["runs"]["steps"]:
+        reference = step.get("uses", "")
+        if not reference.startswith(("actions/cache", "runs-on/cache")) or "/save@" in reference:
+            continue
+        selected = cache_expression(step["if"], context)
+        context[f"steps.{step['id']}.outputs.cache-hit"] = hit if selected else ""
+        context[f"steps.{step['id']}.outputs.cache-matched-key"] = "restored-key" if selected and hit else ""
+        if selected:
+            restored.append(reference)
+    assert len(restored) == 1
+    assert restored[0].startswith(f"{provider}/cache")
+    assert cache_expression(action["outputs"]["cache-hit"]["value"], context) == hit
+    if "cache-matched-key" in action["outputs"]:
+        assert cache_expression(action["outputs"]["cache-matched-key"]["value"], context) == (
+            "restored-key" if hit else ""
+        )
+    if helper == "setup-bundle-builder":
+        downloads = [step for step in action["runs"]["steps"] if "pip download" in step.get("run", "")]
+        assert len(downloads) == 1
+        assert cache_expression(downloads[0]["if"], context) == (hit != "true")
+        saves = [
+            step["uses"]
+            for step in action["runs"]["steps"]
+            if "/cache/save@" in step.get("uses", "") and cache_expression(step["if"], context)
+        ]
+        assert len(saves) == (0 if hit == "true" else 1)
+        assert all(reference.startswith(f"{provider}/cache/save@") for reference in saves)
 
 
 def test_hosted_runner_uses_github_even_when_process_has_internal_configuration(tmp_path: Path) -> None:
@@ -141,8 +190,18 @@ def test_configured_internal_cache_does_not_fall_back_when_credentials_are_missi
     assert environment == ""
 
 
-def test_macos_keeps_original_cache_backend(tmp_path: Path) -> None:
-    result, output, environment = run_cache(tmp_path, "backend", RUNNER_OS="macOS", RUNNER_ENVIRONMENT="self-hosted")
+@pytest.mark.parametrize("runner_os", ["macOS", "Windows"])
+def test_non_linux_runner_keeps_original_cache_backend(tmp_path: Path, runner_os: str) -> None:
+    result, output, environment = run_cache(
+        tmp_path,
+        "backend",
+        RUNNER_OS=runner_os,
+        RUNNER_ENVIRONMENT="self-hosted",
+        PC_CI_CACHE_ENDPOINT="http://cache.example.test:8333",
+        PC_CI_CACHE_BUCKET="ci-cache",
+        PC_CI_CACHE_ACCESS_KEY="test-access",
+        PC_CI_CACHE_SECRET_KEY="test-secret",  # noqa: S106 - inert test fixture
+    )
     assert result.returncode == 0, result.stderr
     assert "backend=github" in output
     assert environment == ""

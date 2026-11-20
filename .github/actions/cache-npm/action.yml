@@ -28,7 +28,7 @@ runs:
       run: python3 "$GITHUB_ACTION_PATH/../../../scripts/ci_cache.py" npm
 
     - id: restore
-      uses: $/.github/actions/cache-restore
+      uses: ./.github/actions/cache-restore
       with:
         path: ${{ steps.snapshot.outputs.cache-path }}
         key: ${{ steps.snapshot.outputs.cache-key }}

@@ -66,20 +66,20 @@ jobs:
           cache-dependency-path: gateway/tck/upstreams.json
       - name: Restore protocol runner downloads
         id: tck-npm-cache
-        uses: $/.github/actions/cache-npm
+        uses: ./.github/actions/cache-npm
         with:
           cache-dependency-glob: gateway/tck/package-lock.json
       - name: Install protocol runner dependencies
         run: npm ci --prefix gateway/tck --no-audit --no-fund
       - name: Save protocol runner downloads
         if: steps.tck-npm-cache.outputs.cache-hit != 'true'
-        uses: $/.github/actions/cache-save
+        uses: ./.github/actions/cache-save
         with:
           path: ${{ steps.tck-npm-cache.outputs.cache-path }}
           key: ${{ steps.tck-npm-cache.outputs.cache-key }}
       - name: Restore pinned protocol suite sources
         id: tck-source-cache
-        uses: $/.github/actions/cache-restore
+        uses: ./.github/actions/cache-restore
         with:
           path: |
             .cache/gateway-tck/openai_sdk-*
@@ -89,7 +89,7 @@ jobs:
         run: python3 tests/e2e/gateway_tck.py --prepare-only
       - name: Save pinned protocol suite sources
         if: steps.tck-source-cache.outputs.cache-hit != 'true'
-        uses: $/.github/actions/cache-save
+        uses: ./.github/actions/cache-save
         with:
           path: |
             .cache/gateway-tck/openai_sdk-*

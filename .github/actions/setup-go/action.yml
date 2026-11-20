@@ -27,7 +27,7 @@ runs:
   using: composite
   steps:
     - id: backend
-      uses: $/.github/actions/cache-backend
+      uses: ./.github/actions/cache-backend
 
     - id: go
       uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -47,7 +47,7 @@ runs:
 
     - id: internal
       if: steps.backend.outputs.backend == 's3' && inputs.cache == 'true'
-      uses: $/.github/actions/cache
+      uses: ./.github/actions/cache
       with:
         path: ${{ steps.snapshot.outputs.cache-path }}
         key: ${{ steps.snapshot.outputs.cache-key }}
