@@ -1,0 +1,62 @@
+.github/actions/cache/action.yml
+  s_2ef0feea0a110d::t_1b481a6b6cc0cd 36-37
+.github/actions/setup-rust-cache/action.yml
+  s_2ef0feea0a110d::t_1b481a6b6cc0cd 36,60
+.github/actions/cache-restore/action.yml
+  s_2ef0feea0a110d::t_1b481a6b6cc0cd 33-34
+.github/actions/setup-python-env/action.yml
+  s_2ef0feea0a110d::t_1b481a6b6cc0cd 51,69
+.github/actions/cache-npm/action.yml
+  s_2ef0feea0a110d::t_1b481a6b6cc0cd 31
+.github/actions/setup-openapi-generator/action.yml
+  s_2ef0feea0a110d::t_1b481a6b6cc0cd 15,28
+.github/actions/setup-bundle-builder/action.yml
+  s_2ef0feea0a110d::t_e159ae41e92d04 19,23-26,33-42,46-53,56,65-74,78-85
+.github/actions/setup-go/action.yml
+  s_2ef0feea0a110d::t_1b481a6b6cc0cd 30,50
+.github/actions/cache-save/action.yml
+  s_2ef0feea0a110d::t_1b481a6b6cc0cd 25-26
+.github/actions/cache-pip/action.yml
+  s_2ef0feea0a110d::t_e159ae41e92d04 19,23-26,34-44,49-56
+.github/actions/setup-uv/action.yml
+  s_2ef0feea0a110d::t_1b481a6b6cc0cd 55-56,76,81-88,92,96-103
+.github/actions/cache-pnpm/action.yml
+  s_2ef0feea0a110d::t_1b481a6b6cc0cd 47,56
+tests/test_ci_action_resolution.py
+  s_2ef0feea0a110d::t_d53e0c76b84e7e 59-61,66-67,87-89,121-123,128-130,152-154
+  s_2ef0feea0a110d::t_b93675e66e96b1 155-157
+  s_2ef0feea0a110d::t_e2a3af899b99f4 19,137-151
+  s_2ef0feea0a110d::t_ec3d6c39d50165 1-14,17-18,20-58,62-65,68-86,90-120,124-127,131-136
+  s_2ef0feea0a110d::t_f55bc0253e212d 15-16
+.github/actions/setup-mise/action.yml
+  s_2ef0feea0a110d::t_1b481a6b6cc0cd 21,35,44,68,75
+tests/test_ci_cache.py
+  s_2ef0feea0a110d::t_4b3db9a06272c0 111-144,148-158,193-204
+  s_2ef0feea0a110d::t_d53e0c76b84e7e 102-104,145-147
+.github/workflows/gateway.yml
+  s_2ef0feea0a110d::t_e016fe031c148d 69,76,82,92
+.github/workflows/kimi-code-acceptance.yml
+  s_2ef0feea0a110d::t_b4c8c1a60cc5e3 65,85
+.github/workflows/master.yml
+  s_2ef0feea0a110d::t_472b2015c47a38 1157,1171,1220,1232
+docs/en/development/ci-scope.md
+  s_2ef0feea0a110d::t_b8e3e8b7291159 148-150
+docs/zh/development/ci-scope.md
+  s_2ef0feea0a110d::t_191bafa8b08d81 148-150
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "6fa94f2d0d4f73cec32ca4d99f5461199b3f07b7",
+  "prompts": {},
+  "sessions": {
+    "s_2ef0feea0a110d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1a9cf-a4e7-7f63-9c51-1284f7c332e8",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "frf12 <rongfeng.frf@antgroup.com>"
+    }
+  }
+}
