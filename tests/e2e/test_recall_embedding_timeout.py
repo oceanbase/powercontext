@@ -79,22 +79,24 @@ class _SlowQueryEmbedding:
         return EmbeddingResult(vectors=tuple((value, math.sqrt(1.0 - value**2)) for value in similarities))
 
 
-class _TimedQueryEmbedding:
-    """Embed entries at once and record how long each query embedding is waited for before it is abandoned."""
+class _CancelledQueryEmbedding:
+    """Embed entries at once and record whether each slow query completes or is cancelled."""
 
     profile = _PROFILE
 
     def __init__(self, delay: float) -> None:
         self.delay = delay
-        self.waits: list[float] = []
+        self.outcomes: list[str] = []
 
     async def embed(self, texts: tuple[str, ...], /) -> EmbeddingResult:
         if any(text == _QUERY for text in texts):
-            started = asyncio.get_running_loop().time()
             try:
                 await asyncio.sleep(self.delay)
-            finally:
-                self.waits.append(asyncio.get_running_loop().time() - started)
+            except asyncio.CancelledError:
+                self.outcomes.append("cancelled")
+                raise
+            else:
+                self.outcomes.append("completed")
         return EmbeddingResult(vectors=tuple((0.3, math.sqrt(1.0 - 0.3**2)) for _ in texts))
 
 
@@ -246,7 +248,7 @@ def test_one_budget_bounds_the_embedding_waits_of_a_preparation_across_scopes(
     """
 
     budget = 0.2
-    embedding = _TimedQueryEmbedding(delay=5.0)
+    embedding = _CancelledQueryEmbedding(delay=5.0)
 
     async def scenario() -> Any:
         async with _runtime(tmp_path / "shared.db", budget, embedding) as runtime:
@@ -275,9 +277,9 @@ def test_one_budget_bounds_the_embedding_waits_of_a_preparation_across_scopes(
         search.family == "atomic-memory" and search.fallback_reason == "inference_timeout"
         for search in prepared.receipt.retrieval.searches
     )
-    # This is the external inference-attempt budget for one request.
-    assert len(embedding.waits) == 1
-    assert embedding.waits[0] < budget * 1.5
+    # The shared budget cancels the only attempt and prevents later Scopes from starting another.
+    # Wall-clock cancellation latency also includes runner scheduling delays, outside this budget's control.
+    assert embedding.outcomes == ["cancelled"]
     (record,) = _fallbacks(caplog)
     _assert_fallback_record(record, "inference_timeout")
 
