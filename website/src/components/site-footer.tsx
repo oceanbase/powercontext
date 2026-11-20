@@ -14,9 +14,10 @@
  * limitations under the License.
  */
 
+import { SiteFooterShell } from '@astrafoundry/design/ui';
 import Link from 'next/link';
-import type { ReactNode } from 'react';
 import { BrandLogo } from './brand-logo';
+import { FooterHelix } from './home/footer-helix';
 import { defaultLanguage, type Language } from '@/lib/i18n';
 import { repositoryUrl } from '@/lib/urls';
 
@@ -45,42 +46,48 @@ const copy = {
   },
 } as const;
 
-export function SiteFooter({ children, lang }: { children?: ReactNode; lang: Language }) {
+/**
+ * The footer every page shares: Sunbeam's SiteFooterShell from
+ * @astrafoundry/design, closing on the helix drawn from the brand mark.
+ */
+export function SiteFooter({ lang }: { lang: Language }) {
   const text = copy[lang];
 
   return (
-    <footer className="mt-20 border-t bg-fd-card/40">
-      <div className="mx-auto grid w-full max-w-(--fd-layout-width) gap-10 px-4 py-12 md:grid-cols-4">
-        <div className="md:col-span-2">
-          <Link aria-label="PowerContext" href={lang === defaultLanguage ? '/' : `/${lang}`}>
-            <BrandLogo className="w-40" />
-          </Link>
-          <p className="mt-4 max-w-sm text-sm leading-6 text-fd-muted-foreground">{text.description}</p>
-          <p className="mt-5 text-xs text-fd-muted-foreground">
-            {text.maintained}{' '}
-            <a className="text-fd-foreground hover:underline" href="https://oceanbase.com" rel="noreferrer" target="_blank">
-              OceanBase
-            </a>
-          </p>
-        </div>
-        <nav aria-label={text.product}>
-          <p className="text-sm font-medium">{text.product}</p>
-          <ul className="mt-4 space-y-3 text-sm text-fd-muted-foreground">
-            <li><Link className="hover:text-fd-foreground" href={`/${lang}/docs`}>{text.docs}</Link></li>
-            <li><Link className="hover:text-fd-foreground" href={`/${lang}/benchmarks`}>{text.benchmarks}</Link></li>
-            <li><Link className="hover:text-fd-foreground" href={`/${lang}/changelog`}>{text.changelog}</Link></li>
-          </ul>
-        </nav>
-        <nav aria-label={text.resources}>
-          <p className="text-sm font-medium">{text.resources}</p>
-          <ul className="mt-4 space-y-3 text-sm text-fd-muted-foreground">
-            <li><Link className="hover:text-fd-foreground" href={`/${lang}/modules`}>{text.python}</Link></li>
-            <li><Link className="hover:text-fd-foreground" href="/api">{text.http}</Link></li>
-            <li><a className="hover:text-fd-foreground" href={repositoryUrl} rel="noreferrer" target="_blank">GitHub</a></li>
-          </ul>
-        </nav>
-      </div>
-      {children}
-    </footer>
+    <SiteFooterShell
+      brand={(
+        <Link aria-label="PowerContext" className="w-fit" href={lang === defaultLanguage ? '/' : `/${lang}`}>
+          <BrandLogo className="w-40" />
+        </Link>
+      )}
+      className="pc-site-footer"
+      columns={[
+        {
+          title: text.product,
+          links: [
+            { label: text.docs, href: `/${lang}/docs` },
+            { label: text.benchmarks, href: `/${lang}/benchmarks` },
+            { label: text.changelog, href: `/${lang}/changelog` },
+          ],
+        },
+        {
+          title: text.resources,
+          links: [
+            { label: text.python, href: `/${lang}/modules` },
+            { label: text.http, href: '/api' },
+            { label: 'GitHub', href: repositoryUrl },
+          ],
+        },
+      ]}
+      illustration={<FooterHelix />}
+      legal={(
+        <>
+          {text.maintained}{' '}
+          <a className="text-foreground hover:underline" href="https://oceanbase.com" rel="noreferrer" target="_blank">OceanBase</a>
+        </>
+      )}
+      linkAs={Link}
+      tagline={text.description}
+    />
   );
 }

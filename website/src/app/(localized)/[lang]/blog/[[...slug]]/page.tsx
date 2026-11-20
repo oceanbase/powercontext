@@ -15,14 +15,19 @@
  */
 
 import type { Metadata } from 'next';
-import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { HomeLayout } from 'fumadocs-ui/layouts/home';
 import { AuthorSocialLinks } from '@/components/blog-author-socials';
 import { SiteFooter } from '@/components/site-footer';
-import { AuthorCard, AuthorPhoto, BlogHighlights, BlogPagination, Byline, CoverImage, PostDate } from '@/components/blog';
+import {
+  AuthorCards, AuthorPhoto, BlogPagination, Byline, CoverImage, FeaturedPost, PostList,
+} from '@/components/blog';
+import { BackLink, Dateline, PageHeading, editorial as styles } from '@/components/editorial';
+import figures from '@/components/figures.module.css';
+import { CopyPageButton } from '@/components/copy-page-button';
+import { FigureDefs } from '@/components/figure-defs';
 import { getMDXComponents } from '@/components/mdx';
-import styles from '@/components/blog.module.css';
+import { SegmentedNav } from '@/components/segmented-nav';
 import { blog, blogListing, blogRoutes } from '@/lib/blog';
 import { blogSource } from '@/lib/blog-source';
 import { isLanguage, languages } from '@/lib/i18n';
@@ -31,7 +36,6 @@ import { absoluteSiteUrl, withBasePath } from '@/lib/urls';
 import { pageMetadata } from '@/lib/metadata';
 import { getPageMarkdownUrl } from '@/lib/markdown';
 import { StructuredData } from '@/components/structured-data';
-import { MarkdownCopyButton } from 'fumadocs-ui/layouts/docs/page';
 
 type Props = { params: Promise<{ lang: string; slug?: string[] }> };
 
@@ -72,15 +76,53 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   });
 }
 
+const text = {
+  en: {
+    blog: 'Blog',
+    lead: 'Ideas and practical guides on project memory, agent collaboration, and engineering.',
+    allPosts: 'All posts',
+    earlier: 'Earlier posts',
+    morePosts: 'More posts',
+    archive: 'Archive',
+    years: 'Browse by year',
+    all: 'All',
+    contents: 'Contents',
+    count: (n: number) => `${n} ${n === 1 ? 'post' : 'posts'}`,
+    empty: 'Articles are coming soon.',
+  },
+  zh: {
+    blog: '博客',
+    lead: '关于项目记忆、Agent 协作与工程实践的思考和记录。',
+    allPosts: '全部文章',
+    earlier: '更早的文章',
+    morePosts: '更多文章',
+    archive: '归档',
+    years: '按年份查看',
+    all: '全部',
+    contents: '目录',
+    count: (n: number) => `共 ${n} 篇`,
+    empty: '文章即将发布。',
+  },
+} as const;
+
+/** Articles with fewer sections read fine without a contents list. */
+const MIN_TOC_HEADINGS = 3;
+/** How many other posts follow an article. */
+const MORE_POSTS = 3;
+
 export default async function BlogPage({ params }: Props) {
   const { lang, slug = [] } = await params;
   if (!isLanguage(lang)) notFound();
+  const copy = text[lang];
   const root = `/${lang}/blog`;
   const post = slug.length === 1 ? blog[lang].posts.find((item) => item.slug === slug[0]) : undefined;
   if (post) {
     const source = blogSource.getPage([post.slug], lang);
     if (!source) notFound();
     const Body = source.data.body;
+    const markdownUrl = withBasePath(getPageMarkdownUrl({ ...source, slugs: ['blog', ...source.slugs] }).url);
+    const headings = source.data.toc.filter((item) => item.depth === 2);
+    const more = blog[lang].posts.filter((item) => item.slug !== post.slug).slice(0, MORE_POSTS);
     return <HomeLayout {...baseOptions(lang)}>
       <StructuredData data={{
         '@context': 'https://schema.org', '@type': 'BlogPosting',
@@ -98,62 +140,89 @@ export default async function BlogPage({ params }: Props) {
         '@context': 'https://schema.org', '@type': 'BreadcrumbList',
         itemListElement: [
           { name: 'PowerContext', item: absoluteSiteUrl(lang === 'en' ? '/' : '/zh/') },
-          { name: lang === 'zh' ? '博客' : 'Blog', item: absoluteSiteUrl(`${root}/`) },
+          { name: copy.blog, item: absoluteSiteUrl(`${root}/`) },
           { name: post.title, item: absoluteSiteUrl(`${root}/${post.slug}/`) },
         ].map((item, index) => ({ '@type': 'ListItem', position: index + 1, ...item })),
       }} />
-      <main className={styles.main}><article className={styles.article}>
-        <Link className={styles.back} href={root}>← {lang === 'zh' ? '返回博客' : 'Back to blog'}</Link>
-        <header className={styles.articleHeading}>
-          <div className={styles.featureMeta}><span>{post.categories.join(' · ')}</span><PostDate date={post.date} lang={lang} /></div>
-          <h1>{post.title}</h1>
-          <div className={styles.authorCards}>{post.authors.map((id) => <AuthorCard key={id} author={blog[lang].authors[id]} lang={lang} />)}</div>
-          <div className={styles.articleSummary}><strong>TL;DR</strong><p>{post.description}</p></div>
-        </header>
-        <div className="mb-4 flex items-center gap-3 text-sm text-fd-muted-foreground">
-          <MarkdownCopyButton markdownUrl={withBasePath(getPageMarkdownUrl({ ...source, slugs: ['blog', ...source.slugs] }).url)} />
-          <a href={withBasePath(getPageMarkdownUrl({ ...source, slugs: ['blog', ...source.slugs] }).url)} className="underline underline-offset-4">{lang === 'zh' ? '查看 Markdown' : 'View Markdown'}</a>
-        </div>
-        <div className={styles.articleCover}><CoverImage post={post} priority /></div>
-        <div className={`prose max-w-none ${styles.articleBody}`}><Body components={getMDXComponents()} /></div>
-      </article></main>
+      <main>
+        <article className={styles.article}>
+          <header className={styles.articleHeader}>
+            <BackLink href={root}>{copy.blog}</BackLink>
+            <Dateline date={post.date} labels={[post.categories.join(' · ') || null]} lang={lang} />
+            <h1 className={styles.postTitle}>{post.title}</h1>
+            <p className={styles.postSummary}>{post.description}</p>
+            <div className={styles.bylineRow}>
+              <Byline lang={lang} post={post} />
+              <CopyPageButton lang={lang} markdownUrl={markdownUrl} />
+            </div>
+          </header>
+          <div className={styles.postCover}><CoverImage post={post} priority /></div>
+          {headings.length >= MIN_TOC_HEADINGS ? (
+            <nav aria-labelledby="post-contents" className={styles.toc}>
+              <h2 id="post-contents">{copy.contents}</h2>
+              <ol>
+                {headings.map((heading) => <li key={heading.url}><a href={heading.url}>{heading.title}</a></li>)}
+              </ol>
+            </nav>
+          ) : null}
+          <div className={`${styles.prose} ${figures.scope}`}>
+            <Body components={getMDXComponents()} />
+            <FigureDefs />
+          </div>
+          <AuthorCards lang={lang} post={post} />
+        </article>
+        {more.length > 0 ? (
+          <section aria-labelledby="more-posts" className={`${styles.main} ${styles.section} pt-0!`}>
+            <h2 className={styles.sectionTitle} id="more-posts">{copy.morePosts}</h2>
+            <PostList lang={lang} posts={more} />
+          </section>
+        ) : null}
+      </main>
       <SiteFooter lang={lang} />
     </HomeLayout>;
   }
   const listing = blogListing(lang, slug);
   if (!listing) notFound();
   const years = [...new Set(blog[lang].posts.map((item) => item.date.slice(0, 4)))].sort().reverse();
+  const isFront = slug.length === 0;
+  const [featured, ...rest] = listing.posts;
+  const rows = isFront && featured ? rest : listing.posts;
+  const title = listing.author?.name ?? (listing.year ? `${copy.archive} · ${listing.year}` : copy.blog);
   return <HomeLayout {...baseOptions(lang)}>
     <main className={styles.main}>
-      <header className={`${styles.heading} ${listing.author ? styles.authorHeading : ''}`}>
-        {slug.length > 0 && <Link className={styles.back} href={root}>← {lang === 'zh' ? '全部文章' : 'All posts'}</Link>}
-        {listing.author ? <><AuthorPhoto author={listing.author} large /><h1>{listing.author.name}</h1>{listing.author.description && <p>{listing.author.description}</p>}<AuthorSocialLinks author={listing.author} className={styles.authorSocials} /></> : <>
-          <div className={styles.eyebrow}>PowerContext</div>
-          <h1>{listing.year ? `${lang === 'zh' ? '归档' : 'Archive'} · ${listing.year}` : lang === 'zh' ? '博客' : 'Blog'}</h1>
-          <p>{lang === 'zh' ? '关于项目记忆、Agent 协作与工程实践的思考和记录。' : 'Ideas and practical guides on project memory, agent collaboration, and engineering.'}</p>
-        </>}
-      </header>
-      {slug.length === 0 && <BlogHighlights posts={listing.posts} lang={lang} />}
-      <section id="all-posts" className={styles.allPosts} aria-labelledby="all-posts-heading">
-      <div className={styles.toolbar}>
-        <div><h2 id="all-posts-heading">{lang === 'zh' ? '全部文章' : 'All articles'}</h2><span>{lang === 'zh' ? `共 ${listing.total} 篇` : `${listing.total} ${listing.total === 1 ? 'article' : 'articles'}`}</span></div>
-        <nav className={styles.years} aria-label={lang === 'zh' ? '按年份查看' : 'Browse by year'}><span>{lang === 'zh' ? '年份' : 'Year'}</span>{years.map((year) => <Link key={year} href={`${root}/archive/${year}`} aria-current={listing.year === year ? 'page' : undefined}>{year}</Link>)}</nav>
-      </div>
-      <div className={styles.columnLabels} aria-hidden="true"><span>{lang === 'zh' ? '文章 / 作者' : 'Article / Author'}</span><span>{lang === 'zh' ? '摘要' : 'Description'}</span><span>{lang === 'zh' ? '分类' : 'Category'}</span><span>{lang === 'zh' ? '发布日期' : 'Published'}</span></div>
-      {listing.posts.map((item) => <article key={item.slug} className={styles.row}>
-        <div className={styles.rowTitle}>
-          <Link className={styles.rowCover} href={`${root}/${item.slug}`} aria-label={item.title}><CoverImage post={item} /></Link>
-          {item.pin && <span className={styles.pinned}>{lang === 'zh' ? '置顶' : 'Pinned'}</span>}
-          <h3><Link href={`${root}/${item.slug}`}>{item.title}<span className={styles.rowArrow} aria-hidden="true"> ↗</span></Link></h3>
-          <div className={styles.byline}><Byline post={item} lang={lang} /></div>
+      {listing.author ? (
+        <header className={styles.profile}>
+          <BackLink href={root}>{copy.allPosts}</BackLink>
+          <AuthorPhoto author={listing.author} large />
+          <h1 className={styles.title}>{listing.author.name}</h1>
+          {listing.author.description ? <p className={styles.lead}>{listing.author.description}</p> : null}
+          <AuthorSocialLinks author={listing.author} className={styles.socials} />
+        </header>
+      ) : (
+        <PageHeading align="split" lead={listing.year ? undefined : copy.lead} title={title}>
+          {slug.length > 0 ? <BackLink href={root}>{copy.allPosts}</BackLink> : null}
+        </PageHeading>
+      )}
+      {isFront && featured ? <FeaturedPost lang={lang} post={featured} /> : null}
+      <section aria-labelledby="all-posts-heading" className={styles.section} id="all-posts">
+        <div className={styles.sectionHead}>
+          <h2 className={styles.sectionTitle} id="all-posts-heading">
+            {isFront && featured ? copy.earlier : copy.allPosts}
+            <span className="sr-only"> · {copy.count(listing.total)}</span>
+          </h2>
+          {!listing.author && years.length > 1 ? (
+            <SegmentedNav
+              current={listing.year ? `${root}/archive/${listing.year}` : root}
+              items={[{ href: root, label: copy.all }, ...years.map((year) => ({ href: `${root}/archive/${year}`, label: year }))]}
+              label={copy.years}
+            />
+          ) : null}
         </div>
-        <p className={styles.summary}>{item.description}</p>
-        <div className={styles.categories}>{item.categories.join(' · ')}</div>
-        <PostDate date={item.date} lang={lang} />
-      </article>)}
-      {listing.total === 0 && <p className={styles.summary}>{lang === 'zh' ? '文章即将发布。' : 'Articles are coming soon.'}</p>}
-      <BlogPagination {...listing} lang={lang} />
+        {rows.length > 0 ? <PostList lang={lang} posts={rows} /> : null}
+        {listing.total === 0 ? <p className={styles.lead}>{copy.empty}</p> : null}
+        <BlogPagination {...listing} lang={lang} />
       </section>
-    </main><SiteFooter lang={lang} />
+    </main>
+    <SiteFooter lang={lang} />
   </HomeLayout>;
 }

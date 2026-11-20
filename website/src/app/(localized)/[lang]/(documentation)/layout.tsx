@@ -17,9 +17,8 @@
 import type { ReactNode } from 'react';
 import { notFound } from 'next/navigation';
 import type { Folder, Root } from 'fumadocs-core/page-tree';
-import { DocsLayout } from 'fumadocs-ui/layouts/docs';
+import { DocsShell } from '@/components/docs-shell';
 import { isLanguage } from '@/lib/i18n';
-import { baseOptions } from '@/lib/site';
 import { source } from '@/lib/source';
 
 function getDocumentationTree(lang: string): Root {
@@ -74,8 +73,8 @@ export default async function DocumentationLayout({
   if (!isLanguage(lang)) notFound();
 
   return (
-    <DocsLayout tree={getDocumentationTree(lang)} {...baseOptions(lang)}>
+    <DocsShell lang={lang} title={lang === 'zh' ? '文档' : 'Documentation'} tree={getDocumentationTree(lang)} url={`/${lang}/docs`}>
       {children}
-    </DocsLayout>
+    </DocsShell>
   );
 }

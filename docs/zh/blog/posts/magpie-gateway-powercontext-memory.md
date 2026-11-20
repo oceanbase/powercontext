@@ -54,9 +54,24 @@ PowerContext 里有几个名字需要先交代一下，后面的代码会用到�
 
 到了召回时，插件调用 `context/prepare`，拿到本次查询相关的 **PreparedContext**。它是这次要补给模型的参考文本，有字节预算；服务里保存的内容再多，也不必每次全部发给模型。
 
-[![PowerContext 中 Scope、Source、Memory 与 PreparedContext 的关系](../../../assets/blog/magpie-gateway-powercontext-memory/context-model.zh.svg)](../../../assets/blog/magpie-gateway-powercontext-memory/context-model.zh.svg)
-
-图 3：从原始材料到本轮参考上下文。图里的其他家族属于 PowerContext 的能力，本文插件主要用到召回和对话 Source 写入。
+<figure class="fig" id="fig-context-model">
+<div class="fig-canvas" style="--fw:960;--fh:384" role="img" aria-label="PowerContext 中 Scope、Source、Memory 与 PreparedContext 的关系">
+<svg viewBox="0 0 960 384">
+<path class="fig-wire accent" d="M284 128 L344 128" marker-end="url(#fig-arrow-accent)"/>
+<path class="fig-wire accent" d="M610 128 L670 128" marker-end="url(#fig-arrow-accent)"/>
+</svg>
+<div class="fig-panel accent" style="--x:0;--y:0;--w:960;--h:384"><header><b>同一项目 / 工作作用域</b><span>Scope 组织相关数据；Scope ID 不代表用户身份或执行授权</span></header></div>
+<div class="fig-box start" style="--x:24;--y:64;--w:260;--h:128"><b>Source 证据</b><span>对话、文档、任务结果</span><span>原始材料与来源标识</span></div>
+<div class="fig-box start accent" style="--x:350;--y:64;--w:260;--h:128"><b>Memory / Artifact</b><span>决定、约束、事实、下一步</span><span>稳定 ID + revision + sources</span></div>
+<div class="fig-box start" style="--x:676;--y:64;--w:260;--h:128"><b>context/prepare</b><span>按查询与配置选择内容</span><span>受预算约束的参考文本</span></div>
+<span class="fig-label muted" style="--x:24;--y:222">其他上下文有各自的职责与工作流，不会因存回对话而全部自动生成</span>
+<div class="fig-card" style="--x:24;--y:260;--w:216;--h:96"><b>Profile</b><span>用户与工作方式偏好</span></div>
+<div class="fig-card" style="--x:256;--y:260;--w:216;--h:96"><b>Handoff</b><span>已确认的进展与交接</span></div>
+<div class="fig-card" style="--x:488;--y:260;--w:216;--h:96"><b>Experience</b><span>任务经验，评审后复用</span></div>
+<div class="fig-card" style="--x:720;--y:260;--w:216;--h:96"><b>Skill</b><span>受管流程，显式导出</span></div>
+</div>
+<figcaption>图 3：从原始材料到本轮参考上下文。图里的其他家族属于 PowerContext 的能力，本文插件主要用到召回和对话 Source 写入。</figcaption>
+</figure>
 
 这些内容归在一个 Scope 里，可以按项目或工作范围组织。几个客户端要读同一份项目记忆，就需要解析到同一个有权访问的 Scope。Scope ID 用来选数据，具体能不能访问，还要由服务端鉴权决定。
 
@@ -88,9 +103,25 @@ PowerContext 里有几个名字需要先交代一下，后面的代码会用到�
 
 PowerContext 现在也有[官方 Rust Gateway](https://github.com/oceanbase/powercontext/blob/master/gateway/README.md)，可以作为另一种接入方式。我这里保留 Magpie 作为入口，是因为几个客户端的模型配置、路由和协议适配已经在它那里管理。下文记录的是这次插件开发，后面的独立实验固定使用 PowerContext 1.3.0。
 
-[![MCP 或 SDK 显式工具路径与 Magpie 网关自动召回路径](../../../assets/blog/magpie-gateway-powercontext-memory/integration-choices.zh.svg)](../../../assets/blog/magpie-gateway-powercontext-memory/integration-choices.zh.svg)
-
-图 6：Agent 主动调用工具，以及网关自动召回，分别适合不同的操作。
+<figure class="fig" id="fig-integration-choices">
+<div class="fig-canvas" style="--fw:960;--fh:330" role="img" aria-label="MCP 或 SDK 显式工具路径与 Magpie 网关自动召回路径">
+<svg viewBox="0 0 960 330">
+<path class="fig-wire" d="M304 94 L334 94" marker-end="url(#fig-arrow)"/>
+<path class="fig-wire" d="M620 94 L650 94" marker-end="url(#fig-arrow)"/>
+<path class="fig-wire accent" d="M304 266 L334 266" marker-end="url(#fig-arrow-accent)"/>
+<path class="fig-wire accent" d="M620 266 L650 266" marker-end="url(#fig-arrow-accent)"/>
+</svg>
+<div class="fig-panel" style="--x:0;--y:0;--w:960;--h:152"><header><b>路径 A：Agent 主动调用</b></header></div>
+<div class="fig-box" style="--x:24;--y:60;--w:280;--h:68"><b>客户端中的 Agent</b></div>
+<div class="fig-box" style="--x:340;--y:60;--w:280;--h:68"><b>MCP / SDK 工具</b></div>
+<div class="fig-box" style="--x:656;--y:60;--w:280;--h:68"><b>PowerContext</b></div>
+<div class="fig-panel accent" style="--x:0;--y:172;--w:960;--h:152"><header><b>路径 B：网关自动召回与可选捕获</b></header></div>
+<div class="fig-box" style="--x:24;--y:232;--w:280;--h:68"><b>客户端的模型请求</b></div>
+<div class="fig-box" style="--x:340;--y:232;--w:280;--h:68"><b>Magpie + hook</b></div>
+<div class="fig-box" style="--x:656;--y:232;--w:280;--h:68"><b>PowerContext</b></div>
+</div>
+<figcaption>图 6：Agent 主动调用工具，以及网关自动召回，分别适合不同的操作。</figcaption>
+</figure>
 
 第一个问题出在 Magpie 当时的插件入口上。原有网关中间件是同步执行的，适合改请求字段；我要做的召回却需要发 HTTP 请求，等 PowerContext 返回以后，才能继续请求模型。
 
@@ -112,9 +143,36 @@ PowerContext 现在也有[官方 Rust Gateway](https://github.com/oceanbase/powe
 
 插件最终的请求过程如下。先解析已有 Scope，再取上下文；第一轮还会并行取一份最近已提交的 Handoff 提示。结果被追加到最新用户消息后，才发给模型。
 
-[![Magpie 与 PowerContext 的同步召回、异步存回和后台提炼链路](../../../assets/blog/magpie-gateway-powercontext-memory/architecture.zh.svg)](../../../assets/blog/magpie-gateway-powercontext-memory/architecture.zh.svg)
-
-图 7：请求前的召回和回复后的存回。配图均可点击查看原图。
+<figure class="fig" id="fig-architecture">
+<div class="fig-canvas" style="--fw:960;--fh:446" role="img" aria-label="Magpie 与 PowerContext 的同步召回、异步存回和后台提炼链路">
+<svg viewBox="0 0 960 446">
+<path class="fig-wire" d="M210 38 L294 38" marker-end="url(#fig-arrow)"/>
+<path class="fig-wire accent" d="M530 38 L744 38" marker-end="url(#fig-arrow-accent)"/>
+<path class="fig-wire accent" d="M438 76 L438 134" marker-end="url(#fig-arrow-accent)"/>
+<path class="fig-wire accent" d="M530 172 L575 172 Q585 172 585 162 L585 149 Q585 139 595 139 L634 139" marker-end="url(#fig-arrow-accent)"/>
+<path class="fig-wire accent" d="M530 172 L575 172 Q585 172 585 182 L585 199 Q585 209 595 209 L634 209" marker-end="url(#fig-arrow-accent)"/>
+<path class="fig-wire dashed" d="M340 76 L340 94 Q340 104 330 104 L240 104 Q230 104 230 114 L230 358 Q230 368 240 368 L294 368" marker-end="url(#fig-arrow)"/>
+<path class="fig-wire dashed" d="M530 368 L634 368" marker-end="url(#fig-arrow)"/>
+<path class="fig-wire dashed" d="M780 368 L814 368" marker-end="url(#fig-arrow)"/>
+<path class="fig-wire accent" d="M640 432 L676 432"/>
+<path class="fig-wire dashed" d="M0 432 L36 432"/>
+</svg>
+<div class="fig-box" style="--x:0;--y:0;--w:210;--h:76"><b>客户端</b><span>保留工具执行权</span></div>
+<div class="fig-box accent" style="--x:300;--y:0;--w:230;--h:76"><b>Magpie + hook</b><span>限定字段改写</span></div>
+<div class="fig-box" style="--x:750;--y:0;--w:210;--h:76"><b>上游模型</b><span>一次推理请求</span></div>
+<span class="fig-label accent center small" style="--x:640;--y:12">追加参考文本</span>
+<div class="fig-box accent" style="--x:300;--y:140;--w:230;--h:64"><b>1. 解析已有 Scope</b></div>
+<div class="fig-box start" style="--x:640;--y:112;--w:320;--h:54"><b>2a. <code>context/prepare</code></b></div>
+<div class="fig-box start" style="--x:640;--y:182;--w:320;--h:54"><b>2b. <code>handoff/hint</code>（首轮可选）</b></div>
+<div class="fig-box" style="--x:300;--y:330;--w:230;--h:76"><b>暂存，合适时机写入</b><span>capture 默认关闭</span></div>
+<span class="fig-label muted end small" style="--x:222;--y:250">回复完成通知</span>
+<div class="fig-box fill" style="--x:640;--y:336;--w:140;--h:64"><b>Source</b></div>
+<div class="fig-box fill" style="--x:820;--y:336;--w:140;--h:64"><b>Memory</b></div>
+<span class="fig-label muted small" style="--x:686;--y:423">召回：推理前等待，失败时放行</span>
+<span class="fig-label muted small" style="--x:46;--y:423">存回与提炼：不阻塞回复流</span>
+</div>
+<figcaption>图 7：请求前的召回和回复后的存回。</figcaption>
+</figure>
 
 ## 第一轮补进去的记忆，第二轮会消失
 
@@ -126,9 +184,33 @@ PowerContext 现在也有[官方 Rust Gateway](https://github.com/oceanbase/powe
 
 这会改变发给模型的历史前缀，影响服务商的 prompt cache。再查询一次 `U1` 也不稳妥：记忆库可能更新了，返回顺序也可能变，查出来的 `R1'` 未必和原来完全一样。
 
-[![两轮请求中参考块缺失与原样重放的对比](../../../assets/blog/magpie-gateway-powercontext-memory/prompt-prefix.zh.svg)](../../../assets/blog/magpie-gateway-powercontext-memory/prompt-prefix.zh.svg)
-
-图 8：第二轮要补回当时发过的 R1，而不只是再查一遍。
+<figure class="fig" id="fig-prompt-prefix">
+<div class="fig-canvas" style="--fw:960;--fh:396" role="img" aria-label="两轮请求中参考块缺失与原样重放的对比">
+<span class="fig-label strong" style="--x:0;--y:14">第一轮</span>
+<div class="fig-box fill" style="--x:220;--y:0;--w:92;--h:48"><b>System</b></div>
+<div class="fig-box fill" style="--x:324;--y:0;--w:92;--h:48"><b>U1</b></div>
+<div class="fig-box accent" style="--x:428;--y:0;--w:92;--h:48"><b>R1</b></div>
+<span class="fig-label muted small" style="--x:220;--y:60">第一轮发送后，客户端自己的历史通常只保留 U1 与 A1。</span>
+<span class="fig-label strong" style="--x:0;--y:114">第二轮：未重放</span>
+<div class="fig-box fill" style="--x:220;--y:100;--w:92;--h:48"><b>System</b></div>
+<div class="fig-box fill" style="--x:324;--y:100;--w:92;--h:48"><b>U1</b></div>
+<div class="fig-box quiet dashed" style="--x:428;--y:100;--w:92;--h:48"><b>缺失</b></div>
+<div class="fig-box fill" style="--x:532;--y:100;--w:92;--h:48"><b>A1</b></div>
+<div class="fig-box fill" style="--x:636;--y:100;--w:92;--h:48"><b>U2</b></div>
+<div class="fig-box accent" style="--x:740;--y:100;--w:92;--h:48"><b>R2</b></div>
+<span class="fig-label muted small" style="--x:220;--y:160">R1 消失，从这里开始与上一次请求的前缀不同。</span>
+<span class="fig-label accent" style="--x:0;--y:214">第二轮：重放 R1</span>
+<div class="fig-box fill" style="--x:220;--y:200;--w:92;--h:48"><b>System</b></div>
+<div class="fig-box fill" style="--x:324;--y:200;--w:92;--h:48"><b>U1</b></div>
+<div class="fig-box accent" style="--x:428;--y:200;--w:92;--h:48"><b>R1</b></div>
+<div class="fig-box fill" style="--x:532;--y:200;--w:92;--h:48"><b>A1</b></div>
+<div class="fig-box fill" style="--x:636;--y:200;--w:92;--h:48"><b>U2</b></div>
+<div class="fig-box accent" style="--x:740;--y:200;--w:92;--h:48"><b>R2</b></div>
+<span class="fig-label accent small" style="--x:220;--y:260">原样补回旧参考块，只对新的 U2 查询；同轮工具续推理复用 R2。</span>
+<div class="fig-box fill start" style="--x:0;--y:312;--w:960;--h:76"><b>进程内缓存：8 MiB 载荷预算 / 256 个会话 / 每会话 128 轮</b><span>重启、淘汰或其他请求改写仍会改变前缀；实际缓存命中由模型服务商决定。</span></div>
+</div>
+<figcaption>图 8：第二轮要补回当时发过的 R1，而不只是再查一遍。</figcaption>
+</figure>
 
 我的处理是在进程内为每个会话保留当时注入的参考块。新请求到来，先把旧用户消息对应的块原样补回，再查询最新一轮。下面是省略来源检查、Scope 解析和预算计算后的伪代码：
 
@@ -175,9 +257,23 @@ Handoff 是可选的，因此单独处理。没有已提交的 Handoff，404 或
 
 如果下一次请求带着完整的旧历史，又增加了一条用户消息，插件便把此前暂存的对话写出去。如果是重新生成同一轮，成功的新回答替换暂存；重新生成失败或被取消，则继续保留上一份成功回答的空闲写入机会。没有后续请求，默认十分钟后写入。历史分叉和容量回收也可能让暂存提前写出。
 
-[![对话暂存、续聊确认、重新生成与十分钟空闲写入的时序](../../../assets/blog/magpie-gateway-powercontext-memory/capture-lifecycle.zh.svg)](../../../assets/blog/magpie-gateway-powercontext-memory/capture-lifecycle.zh.svg)
-
-图 9：续聊、重新生成和空闲等待，分别怎样处理已暂存的回答。
+<figure class="fig" id="fig-capture-lifecycle">
+<div class="fig-canvas" style="--fw:960;--fh:392" role="img" aria-label="对话暂存、续聊确认、重新生成与十分钟空闲写入的时序">
+<svg viewBox="0 0 960 392">
+<path class="fig-wire accent" d="M230 34 L294 34" marker-end="url(#fig-arrow-accent)"/>
+<path class="fig-wire" d="M390 68 L390 90 Q390 100 380 100 L160 100 Q150 100 150 110 L150 134" marker-end="url(#fig-arrow)"/>
+<path class="fig-wire" d="M480 68 L480 134" marker-end="url(#fig-arrow)"/>
+<path class="fig-wire" d="M810 68 L810 134" marker-end="url(#fig-arrow)"/>
+</svg>
+<div class="fig-box accent" style="--x:0;--y:0;--w:230;--h:68"><b>成功回答 → 暂存 P1</b></div>
+<div class="fig-box start" style="--x:300;--y:0;--w:660;--h:68"><b>下一次请求带来什么？</b><span>先检查保留的历史，再处理本次回答</span></div>
+<div class="fig-card" style="--x:0;--y:140;--w:300;--h:132"><b>旧历史 + 新的用户消息</b><span class="accent">提前写出 P1</span><span>本轮成功后再暂存 P2</span></div>
+<div class="fig-card" style="--x:330;--y:140;--w:300;--h:132"><b>重新生成同一轮回答</b><span class="accent">成功 → 替换暂存</span><span>失败 → 保留 P1 的空闲写入</span></div>
+<div class="fig-card" style="--x:660;--y:140;--w:300;--h:132"><b>没有后续请求</b><span class="accent">默认 10 分钟后写出</span><span>进程退出可能丢失</span></div>
+<div class="fig-box fill start" style="--x:0;--y:304;--w:960;--h:80"><b>写入 Source：单次 10 秒时限；回执不确定时不自动重试</b><span>内容摘要提供稳定标识，不构成 exactly-once 保证。</span></div>
+</div>
+<figcaption>图 9：续聊、重新生成和空闲等待，分别怎样处理已暂存的回答。</figcaption>
+</figure>
 
 写入走的是 `POST v1/sources/content`。Source 中保存用户消息、助手回复，以及客户端传来的工具调用和结果，网关注入的参考块会移除。PowerContext 后台再根据服务端配置提炼 Memory，所以回复结束后，管理面板里未必马上就有新记忆。
 
@@ -235,9 +331,17 @@ Source 写入有独立的十秒超时，大对话会分片发送。插件为内�
 
 然后把 Magpie 和 PowerContext 都重启，换一个新会话，只发送一条询问代号的问题。这一步要检查发往上游的请求里确实出现了参考块和代号，也要确认请求没有夹带旧会话的提示与回复。最后再换一个无关 Scope，确认查不到同一个代号。
 
-[![本次独立服务集成实验的实际运行证据摘要](../../../assets/blog/magpie-gateway-powercontext-memory/experiment-result.zh.svg)](../../../assets/blog/magpie-gateway-powercontext-memory/experiment-result.zh.svg)
-
-图 10：2026 年 11 月 4 日运行记录的摘要，原始数据在 [result.json](https://tsukikage7.com/examples/magpie-powercontext/result.json) 中。
+<figure class="fig" id="fig-experiment-result">
+<div class="fig-canvas" style="--fw:960;--fh:470" role="img" aria-label="本次独立服务集成实验的实际运行证据摘要">
+<span class="fig-label muted small" style="--x:0;--y:0">2026/11/04 14:26（UTC+8） · magpie 0.1.2700 · PowerContext 1.3.0</span>
+<div class="fig-card accent" style="--x:0;--y:28;--w:960;--h:76"><b>随机部署代号：QUARTZ-96DC9678</b><span>真实宿主、服务与数据库；生成模型使用确定性 HTTP 夹具</span></div>
+<div class="fig-rows" style="--x:0;--y:124;--w:960;--h:260;--cols:4em 1fr"><div><strong>PASS</strong><span>空 Scope 开始 → 自动捕获完整对话 Source</span></div><div><strong>PASS</strong><span>后台提炼 Memory → revision 引用该 Source</span></div><div><strong>PASS</strong><span>同时重启服务与网关 → Memory 仍在</span></div><div><strong>PASS</strong><span>新会话只有一条问题 → 上游收到记忆参考块</span></div><div><strong>PASS</strong><span>另一个无关 Scope → 看不到本次代号</span></div></div>
+<span class="fig-label muted small" style="--x:0;--y:448">验证链路、引用、持久化与隔离；未评价真实模型质量或真实客户端交互。</span>
+<span class="fig-label muted small" style="--x:0;--y:402">Source: <code>magpie-conversation:3fc1cbcf6145d5debeecb7a643ead19b0…</code></span>
+<span class="fig-label muted small" style="--x:0;--y:426">Artifact：<code>atomic-memory</code> revision 1 · 新会话用户消息：1</span>
+</div>
+<figcaption>图 10：2026 年 11 月 4 日运行记录的摘要，原始数据在 <a href="https://tsukikage7.com/examples/magpie-powercontext/result.json">result.json</a> 中。</figcaption>
+</figure>
 
 这次跑的是 Magpie 0.1.2700、Bun 1.4.3、PowerContext 1.3.0，以及插件 0.2.1。为了缩短等待，实验把空闲存回和 Memory 调度都调成了一秒。报告里记录的 Memory 原文如下：
 

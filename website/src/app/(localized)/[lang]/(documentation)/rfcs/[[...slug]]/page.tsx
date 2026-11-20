@@ -21,7 +21,7 @@ import { createPageLink, getMDXComponents } from '@/components/mdx';
 import { isLanguage, languages } from '@/lib/i18n';
 import { source } from '@/lib/source';
 import { contentMetadata } from '@/lib/content-seo';
-import { ContentPageActions } from '@/components/content-page-actions';
+import { ContentPageActions, pageActionOptions } from '@/components/content-page-actions';
 
 interface PageProps {
   params: Promise<{ lang: string; slug?: string[] }>;
@@ -40,7 +40,7 @@ export default async function RfcPage({ params }: PageProps) {
   const MDX = page.data.body;
   const hasBodyTitle = page.data.toc.filter((item) => item.depth === 1).length === 1;
   return (
-    <DocsPage full={page.data.full} toc={page.data.toc}>
+    <DocsPage full={page.data.full} toc={page.data.toc} {...pageActionOptions(page)}>
       {slug?.length && !hasBodyTitle ? <DocsTitle>{page.data.title}</DocsTitle> : null}
       <ContentPageActions page={page} />
       <DocsBody>

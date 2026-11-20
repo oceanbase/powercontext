@@ -16,10 +16,9 @@
 
 import type { ReactNode } from 'react';
 import { notFound } from 'next/navigation';
-import { DocsLayout } from 'fumadocs-ui/layouts/docs';
+import { DocsShell } from '@/components/docs-shell';
 import { isLanguage } from '@/lib/i18n';
 import { getPythonSource } from '@/lib/python-source';
-import { baseOptions } from '@/lib/site';
 
 export default async function PythonApiLayout({
   children,
@@ -33,8 +32,8 @@ export default async function PythonApiLayout({
   const pythonSource = getPythonSource(lang);
 
   return (
-    <DocsLayout tree={pythonSource.getPageTree()} {...baseOptions(lang)}>
+    <DocsShell lang={lang} title="Python API" tree={pythonSource.getPageTree()} url={`/${lang}/modules`}>
       {children}
-    </DocsLayout>
+    </DocsShell>
   );
 }

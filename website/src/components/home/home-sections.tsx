@@ -16,6 +16,7 @@
 
 import { ArrowRight, ArrowUpRight, Check, FileText } from 'lucide-react';
 import Link from 'next/link';
+import { buttonClasses } from '@astrafoundry/design/ui';
 import { Tab, Tabs } from 'fumadocs-ui/components/tabs';
 import type { ReactNode } from 'react';
 import type { HomeContent } from '@/lib/home-content';
@@ -251,7 +252,7 @@ export function EcosystemSection({ content, copy, lang }: {
   return (
     <section aria-labelledby="pc-ecosystem-title" className="pc-section">
       <SectionHead id="pc-ecosystem-title" lead={content.lead} title={content.title}>
-        <Link className="pc-button pc-button-quiet" href={`/${lang}/docs/integrations`}>
+        <Link className={buttonClasses('secondary', 'md')} href={`/${lang}/docs/integrations`}>
           {content.all_agents_label} <ArrowRight aria-hidden="true" strokeWidth={2} />
         </Link>
       </SectionHead>
@@ -305,7 +306,7 @@ export function ProofSection({ content }: { content: HomeContent['proof'] }) {
   return (
     <section aria-labelledby="pc-proof-title" className="pc-section">
       <SectionHead id="pc-proof-title" lead={content.lead} title={content.title}>
-        <Link className="pc-button pc-button-quiet" href={normalizeHref(content.link.href)}>
+        <Link className={buttonClasses('secondary', 'md')} href={normalizeHref(content.link.href)}>
           {content.link.label} <ArrowRight aria-hidden="true" strokeWidth={2} />
         </Link>
       </SectionHead>
@@ -328,7 +329,7 @@ export function OnboardingSection({ content, lang }: { content: HomeContent['onb
   return (
     <section aria-labelledby="pc-start-title" className="pc-section">
       <SectionHead id="pc-start-title" lead={content.lead} title={content.title}>
-        <Link className="pc-button pc-button-primary" href={`/${lang}/docs/get-started/quickstart`}>
+        <Link className={buttonClasses('primary', 'lg')} href={`/${lang}/docs/get-started/quickstart`}>
           {content.guide_label} <ArrowRight aria-hidden="true" strokeWidth={2} />
         </Link>
       </SectionHead>
