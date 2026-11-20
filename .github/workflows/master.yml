@@ -177,7 +177,7 @@ jobs:
   quality:
     name: CI preflight
     if: ${{ github.event_name != 'pull_request' || !github.event.pull_request.draft }}
-    timeout-minutes: 30
+    timeout-minutes: 45
     runs-on: powercontext-ci-light
     outputs:
       suites: ${{ steps.select.outputs.suites }}
@@ -202,11 +202,15 @@ jobs:
         run: python3 scripts/ci_changes.py
 
       - name: Check License Header
-        timeout-minutes: 10
+        # Include a cold Go toolchain download and license-eye build.
+        timeout-minutes: 20
         uses: apache/skywalking-eyes/header@a196742f472feaffafea537ce5a2a4c3c53a8de4 # v0.9.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           INSTALL_DIR: ${{ runner.temp }}
+          # Self-hosted runner home caches may be owned by the image build user.
+          GOCACHE: ${{ runner.temp }}/license-go-build
+          GOMODCACHE: ${{ runner.temp }}/license-go-mod
           PATH: ${{ runner.temp }}:/usr/local/go/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
         with:
           config: .licenserc.yaml
@@ -222,11 +226,22 @@ jobs:
       - name: Cache prek environments
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
-          path: ~/.cache/prek
-          key: prek-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.python.outputs.version }}-${{ hashFiles('.pre-commit-config.yaml') }}
+          path: ${{ runner.temp }}/prek
+          key: prek-v2-${{ runner.os }}-${{ runner.arch }}-${{ steps.python.outputs.version }}-${{ hashFiles('.pre-commit-config.yaml') }}
 
       - name: Run checks
+        env:
+          PREK_HOME: ${{ runner.temp }}/prek
         run: make check
+
+      - name: Validate cumulative migration against the PR base
+        if: github.event_name == 'pull_request'
+        env:
+          SCHEMA_BASE: ${{ github.event.pull_request.base.sha }}
+        run: uv run --locked python scripts/schema_release.py check --base-ref "$SCHEMA_BASE"
+
+      - name: Test cumulative schema freezing and replay
+        run: uv run --locked pytest tests/test_schema_release.py tests/test_schema_draft.py -q
 
       - name: Check OpenAPI contract
         run: make contract-test
@@ -237,7 +252,8 @@ jobs:
     if: ${{ !cancelled() && needs.quality.result == 'success' && (fromJSON(needs.quality.outputs.suites || '{}').tests) }}
     # Unit jobs must outlast pytest plus uv cache publication. End-to-end jobs
     # also need time for subprocess tails on internal runners.
-    timeout-minutes: ${{ matrix.suite == 'e2e' && 55 || 50 }}
+    # Python 3.11/3.12 can exceed 55 minutes while the full E2E suite is still progressing.
+    timeout-minutes: ${{ matrix.suite == 'e2e' && 90 || 75 }}
     runs-on: powercontext-ci-standard
     strategy:
       fail-fast: true
@@ -385,7 +401,8 @@ jobs:
   docs-tests:
     needs: [quality]
     if: ${{ !cancelled() && needs.quality.result == 'success' && (fromJSON(needs.quality.outputs.suites || '{}').docs_tests) }}
-    timeout-minutes: 15
+    # Include cold checkout, environment setup, and cache publication.
+    timeout-minutes: 30
     runs-on: powercontext-ci-light
     steps:
       - name: Check out
@@ -847,7 +864,8 @@ jobs:
   dify-tools:
     needs: [quality, tests]
     if: ${{ !cancelled() && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').dify) }}
-    timeout-minutes: 15
+    # Include cold dependency setup and cache publication around acceptance.
+    timeout-minutes: 30
     runs-on: powercontext-ci-light
     steps:
       - name: Check out
@@ -1280,7 +1298,8 @@ jobs:
   openclaw-package:
     needs: [quality, tests]
     if: ${{ !cancelled() && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').openclaw) }}
-    timeout-minutes: 20
+    # Include cold dependency setup and cache publication around acceptance.
+    timeout-minutes: 40
     runs-on: powercontext-ci-light
     env:
       OPENCLAW_VERSION: '2026.8.1'
@@ -1417,7 +1436,8 @@ jobs:
   check-website:
     needs: [quality]
     if: ${{ !cancelled() && needs.quality.result == 'success' && (fromJSON(needs.quality.outputs.suites || '{}').website) }}
-    timeout-minutes: 20
+    # Include cold checkout, environment setup, and cache publication.
+    timeout-minutes: 40
     runs-on: powercontext-ci-standard
     steps:
       - name: Check out
@@ -1692,7 +1712,8 @@ jobs:
     needs: [quality, tests]
     if: ${{ !cancelled() && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').helm) }}
     runs-on: powercontext-ci-light
-    timeout-minutes: 10
+    # Include cold dependency setup and cache publication around acceptance.
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
