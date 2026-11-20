@@ -137,7 +137,7 @@ deadline; unavailable links are not rendered. Pages escape stored text and send 
 does not prepare again, invoke models or write business data. Prepared text does not prove host delivery, model use
 or task benefit.
 
-Migration `v1_5_0_007` adds the independent table and indexes, including nullable UTF-8 `query_text`, without rewriting
+Migration `000` adds the independent table and indexes, including nullable UTF-8 `query_text`, without rewriting
 existing domain records or backfilling past calls. Existing managed databases require explicit migration before startup.
 The table adds no Scope deletion cascade or new permission path to deleted-Scope content. Recovery follows the
 verified-backup workflow; capture provides no table-drop or history-cleanup operation.

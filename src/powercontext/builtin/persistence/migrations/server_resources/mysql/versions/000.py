@@ -16,7 +16,7 @@
 
 from alembic import context
 
-revision = "v1_5_0_007"
+revision = "000"
 down_revision = "v1_5_2_pr2639"
 
 

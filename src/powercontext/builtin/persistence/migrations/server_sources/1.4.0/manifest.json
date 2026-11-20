@@ -52,13 +52,13 @@
       "schemas/sqlite-v1_5_0_005.json",
       "schemas/mysql-v1_5_0_005.json"
     ],
-    "v1_5_0_007": [
-      "schemas/sqlite-v1_5_0_007.json",
-      "schemas/mysql-v1_5_0_007.json"
-    ],
     "v1_5_2_pr2639": [
       "schemas/sqlite-v1_5_2_pr2639.json",
       "schemas/mysql-v1_5_2_pr2639.json"
+    ],
+    "000": [
+      "schemas/sqlite-000.json",
+      "schemas/mysql-000.json"
     ]
   },
   "sqlite_baselines": {
@@ -101,11 +101,11 @@
     "v1_5_0_005": [
       "50bff3a823c596084264f6b8bfbe495677217aa7f419b342966d287387058741"
     ],
-    "v1_5_0_007": [
-      "ecebbef5e9c33c1445a3686a1e6753b7e513c13db70ab8fe79483eceba1930c7"
-    ],
     "v1_5_2_pr2639": [
       "893b1b3ce4893b11f5f68478f54dc8484f696e0e1dc039b8fd01ce56e2dbb478"
+    ],
+    "000": [
+      "ecebbef5e9c33c1445a3686a1e6753b7e513c13db70ab8fe79483eceba1930c7"
     ]
   },
   "affected_objects": [
@@ -413,12 +413,12 @@
       "portable_storage",
       "atomic_memory_evidence_projection"
     ],
-    "v1_5_0_007": [
-      "plugin_artifacts",
+    "v1_5_2_pr2639": [
+      "source_collection",
       "portable_storage",
       "atomic_memory_evidence_projection"
     ],
-    "v1_5_2_pr2639": [
+    "000": [
       "source_collection",
       "portable_storage",
       "atomic_memory_evidence_projection"
@@ -445,7 +445,7 @@
     "schemas/mysql-v1_5_0_003.json",
     "schemas/mysql-v1_5_0_004.json",
     "schemas/mysql-v1_5_0_005.json",
-    "schemas/mysql-v1_5_0_007.json",
+    "schemas/mysql-000.json",
     "schemas/mysql-v1_5_2_pr2639.json"
   ],
   "mysql_history": "mysql",

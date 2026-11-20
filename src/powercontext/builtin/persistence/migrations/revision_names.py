@@ -36,21 +36,24 @@ _LEGACY_NAMES = {
 }
 _NAME = re.compile(r"v(0|[1-9][0-9]*)_(0|[1-9][0-9]*)_(0|[1-9][0-9]*)_([0-9]{3})")
 
-# Each PR introduces at most one logical revision, without a local sequence.
+# Keep previously supported PR names readable; new releases freeze 000 as vX_Y_Z.
 _PR_NAME = re.compile(r"v(0|[1-9][0-9]*)_(0|[1-9][0-9]*)_(0|[1-9][0-9]*)_pr[1-9][0-9]*")
+
+_RELEASE_NAME = re.compile(r"v(0|[1-9][0-9]*)_(0|[1-9][0-9]*)_(0|[1-9][0-9]*)")
 
 
 def describe_revision(revision: str | None) -> RevisionName | None:
     """Describe a database state, not the running binary or its original source.
 
-    New revisions include the registration target release and PR number. Historical release sequences keep their original meaning. Unknown
-    legacy/custom IDs remain opaque; their software version is never guessed.
+    The mutable 000 draft has no software version. Frozen cumulative revisions
+    describe their release; historical sequence and PR names remain readable.
+    Unknown legacy/custom IDs remain opaque; their software version is never guessed.
     """
     if revision is None:
         return None
     name = _LEGACY_NAMES.get(revision, revision)
     legacy_match = _NAME.fullmatch(name)
-    match = _PR_NAME.fullmatch(name) or legacy_match
+    match = _RELEASE_NAME.fullmatch(name) or _PR_NAME.fullmatch(name) or legacy_match
     return {
         "revision": revision,
         "name": name,
