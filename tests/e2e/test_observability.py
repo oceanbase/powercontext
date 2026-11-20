@@ -281,6 +281,9 @@ class _VectorMemoryIndex:
     async def related_ranks(self, connection: AsyncConnection, scope_id: str, request, /):
         return ()
 
+    async def aliased_related_ranks(self, connection: AsyncConnection, scope_id: str, request, /):
+        return ()
+
     async def capture_evidence_many(self, connection, scope_id, revisions, /, *, sources):
         pass
 
