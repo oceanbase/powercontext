@@ -268,6 +268,15 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the complete development workflow. Co
 
 PowerContext is the successor to [PowerMem](https://www.powermem.ai/).
 
+## Community
+
+Join the PowerContext community on Feishu to share tips, ask questions, and explore context management for AI agents.
+Scan the QR code below with Feishu to join the group.
+
+<p align="center">
+  <img src="docs/assets/powercontext-group-qr.png" alt="QR code to join the PowerContext Feishu community" width="280" />
+</p>
+
 ## Contributors
 
 Thank you to everyone who contributes to PowerContext. ❤️
