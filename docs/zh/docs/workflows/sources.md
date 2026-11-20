@@ -20,6 +20,15 @@ Work Contract 和 Task Outcome 也会保留 Source 证据。
 采集成功表示证据已保存，不表示提取成功，也不表示内容一定值得长期保留。
 通过 Source 引用追溯生成结果的输入。不要在同一身份下修改内容并重试采集，将其当作新的观察。
 
+## Source 正文大小上限
+
+单条 Content Source 默认最多 20 万字符。部署可以通过 `POWERCONTEXT_SERVER_SOURCE_CONTENT_MAX_CHARS`（`1` 到
+`1000000`）调整该边界，上限本身保证单条 Source 仍能放进一个 payload 列。`GET /v1/source-limits` 通过
+`source_content_max_chars` 返回生效值，超过该值的采集会返回 `422 invalid_request`，错误消息中会写明当前上限。
+
+调低上限不会重写或隐藏已有证据：此前采集的 Source 仍可通过详情与列表接口读取，也仍可参与处理；只有新的采集会被校验。
+单条采集、批量采集的每一项以及 Working Note 共用同一边界。
+
 ## 选择采集入口
 
 - Agent Prompt Hook：在[接入指南](../integrations/index.md)中选择宿主对应的采集开关。

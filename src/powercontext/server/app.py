@@ -685,6 +685,7 @@ from powercontext.http import (
     SkillPackageFile,
     SkillPackageManifest,
     SourceDefinitionManifest,
+    SourceLimits,
     SourceObservationReceipt,
     SourcePage,
     SourceRecord,
@@ -867,6 +868,7 @@ from powercontext.http._generated.operations import (
     GET_SKILL,
     GET_SKILL_PACKAGE_MANIFEST,
     GET_SOURCE,
+    GET_SOURCE_LIMITS,
     GET_STATS,
     GET_TOPIC_MEMORY,
     GET_TOPIC_MEMORY_PROCESSING_BLOCK,
@@ -952,6 +954,7 @@ from powercontext.http._generated.operations import (
     Operation,
 )
 from powercontext.http._generated.schema import OPENAPI_SCHEMA
+from powercontext.limits import MAX_SOURCE_CONTENT_CHARS, MAX_SOURCE_CONTENT_CHARS_CEILING
 from powercontext.server import mapping
 from powercontext.server.artifact_read_observation import observe_artifact_read
 from powercontext.server.atomic_memory import add_atomic_memory_routes
@@ -1518,6 +1521,7 @@ def create_app(
     app.openapi_version = OPENAPI_VERSION
     app.state.plugin_manager = None
     app.state.plugin_api_max_body_bytes = 32 * 1024 * 1024
+    app.state.source_content_max_chars = MAX_SOURCE_CONTENT_CHARS
     app.state.application = application
     app.state.capability_provider = capability_provider
     app.state.readiness_probe = readiness_probe
@@ -1612,6 +1616,7 @@ def create_app(
     _add_route(app, GET_READINESS, get_readiness)
     _add_route(app, GET_SERVER_INFO, get_server_info)
     _add_route(app, GET_CAPABILITIES, get_capabilities)
+    _add_route(app, GET_SOURCE_LIMITS, get_source_limits)
     _add_route(app, LIST_PLUGINS, list_plugins)
     _add_route(app, GET_PLUGIN, get_plugin)
     _add_route(app, GET_PLUGIN_OPENAPI, get_plugin_openapi)
@@ -2099,6 +2104,15 @@ async def get_capabilities(request: Request) -> Capabilities:
     if added:
         value = value.model_copy(update={"artifact_families": [*value.artifact_families, *added]})
     return value
+
+
+async def get_source_limits(request: Request) -> SourceLimits:
+    """Report the deployment's effective Source capture limit; reads never depend on it."""
+
+    return SourceLimits(
+        source_content_max_chars=request.app.state.source_content_max_chars,
+        source_content_max_chars_ceiling=MAX_SOURCE_CONTENT_CHARS_CEILING,
+    )
 
 
 async def get_server_info(request: Request) -> ServerInfo:
@@ -4028,29 +4042,51 @@ def _require_report_size(estimated_bytes: int, report: Any) -> None:
     )
 
 
+def _require_source_content_length(request: Request, content: str, location: tuple[str | int, ...]) -> None:
+    """Enforce the deployment's effective Content Source limit behind the schema's storage ceiling."""
+
+    limit = request.app.state.source_content_max_chars
+    if len(content) > limit:
+        raise RequestValidationError(
+            [
+                {
+                    "type": "string_too_long",
+                    "loc": location,
+                    "msg": f"Content must not exceed the deployment's {limit}-character Source limit.",
+                }
+            ]
+        )
+
+
 async def capture_content_source(
     request: CaptureContentSourceRequest,
+    http_request: Request,
     application: Annotated[ServerApplication, Depends(_require_application)],
 ) -> CaptureContentSourceResponse:
     _reject_reserved_handoff_receipt_content(request.content)
+    _require_source_content_length(http_request, request.content, ("body", "content"))
     result = await application.sources.for_scope(request.scope_id).capture(mapping.capture_request(request))
     return mapping.capture_response(result)
 
 
 async def capture_content_sources(
     request: CaptureContentSourcesRequest,
+    http_request: Request,
     application: Annotated[ServerApplication, Depends(_require_application)],
 ) -> CaptureContentSourcesResponse:
-    for item in request.sources:
+    for index, item in enumerate(request.sources):
         _reject_reserved_handoff_receipt_content(item.content)
+        _require_source_content_length(http_request, item.content, ("body", "sources", index, "content"))
     results = await application.sources.for_scope(request.scope_id).capture_many(mapping.capture_requests(request))
     return mapping.captures_response(results)
 
 
 async def capture_working_note(
     request: CaptureWorkingNoteRequest,
+    http_request: Request,
     application: Annotated[ServerApplication, Depends(_require_application)],
 ) -> CaptureContentSourceResponse:
+    _require_source_content_length(http_request, request.content, ("body", "content"))
     result = await application.sources.for_scope(request.scope_id).capture_working_note(
         mapping.working_note_capture_request(request)
     )

@@ -112,6 +112,7 @@ MCP 使用 stateless Streamable HTTP，每次工具执行都采用当前请求�
 | `POWERCONTEXT_SERVER_PLUGIN_API_MAX_BODY_BYTES` | `33554432` | 插件接口（`/v1/plugins/{name}/api/...` 及 Dashboard 插件页面的转发）的请求体和响应体上限，替代上一项；插件路由可以声明更小的上限，不能超过此值 |
 | `POWERCONTEXT_SERVER_PLUGIN_HOST_PROCESSES` | `{}` | 按插件名覆盖插件声明的 `host_processes`，JSON 对象，例如 `{"knowledge-base": 4}`；值是每个 Server 进程中该插件宿主进程数的上限 |
 | `POWERCONTEXT_SERVER_PLUGIN_TOTAL_HOST_PROCESSES` | 未设置 | 每个 Server 进程中所有插件的宿主进程总数上限；达到上限时不再为负载增加进程，请求在已有进程上排队。每个插件常驻的第一个进程不受此限制 |
+| `POWERCONTEXT_SERVER_SOURCE_CONTENT_MAX_CHARS` | `200000` | 单条 Content Source 采集的生效字符上限，取值 `1` 到 `1000000`。调低后已有 Source 仍可读取，只有超过新上限的新采集会被拒绝。`GET /v1/source-limits` 通过 `source_content_max_chars` 返回生效值 |
 | `POWERCONTEXT_SERVER_HTTP_MAX_CONCURRENT_REQUESTS` | `64` | 每进程进行中的外部 HTTP 请求上限，包括完整流式响应 |
 | `POWERCONTEXT_SERVER_WORKSPACE` | Server 启动目录 | 本机项目级 Agent Skill 目录的解析根目录 |
 | `POWERCONTEXT_SERVER_MCP_ENABLED` | `true` | 启用 Streamable HTTP MCP |

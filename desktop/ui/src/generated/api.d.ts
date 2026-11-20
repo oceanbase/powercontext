@@ -278,6 +278,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/source-limits": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get effective Source capture limits
+         * @description Report the deployment's effective Content Source capture limit so collectors can validate input before sending it. The value comes from deployment configuration. Storage may already hold larger Sources captured under a higher limit; reads of those Sources stay available.
+         */
+        get: operations["get_source_limits"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/scopes": {
         parameters: {
             query?: never;
@@ -4149,7 +4169,7 @@ export interface components {
         CaptureContentSourceRequest: {
             scope_id: string;
             source_id: string;
-            /** @description Raw integration content. Server-reserved payload schemas, including handoff receipts, are rejected on this generic capture operation and must be created through their dedicated workflow. */
+            /** @description Raw integration content. Server-reserved payload schemas, including handoff receipts, are rejected on this generic capture operation and must be created through their dedicated workflow. The deployment's effective limit is reported by `GET /v1/source-limits` as `source_content_max_chars`. */
             content: string;
             /** @description Caller metadata. The reserved kind value `working_note` is rejected; use the dedicated Working Note capture operation instead. */
             metadata?: {
@@ -6021,6 +6041,12 @@ export interface components {
             kind: "sequence";
             sequence: number;
         };
+        SourceLimits: {
+            /** @description Effective maximum characters accepted in one Content Source capture on this deployment. */
+            source_content_max_chars: number;
+            /** @description Largest limit this build accepts as configuration. Requests above the ceiling fail schema validation before the deployment limit applies. */
+            source_content_max_chars_ceiling: number;
+        };
         /** @description Inclusive one-based lines in adapter-supplied text, at most 200 lines. Never a revision redirect. */
         SourceLineRangeLocator: {
             /**
@@ -7094,6 +7120,30 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Capabilities"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    get_source_limits: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Effective Source limits for this deployment. */
+            200: {
+                headers: {
+                    "X-PowerContext-Request-ID": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SourceLimits"];
                 };
             };
             401: components["responses"]["Unauthorized"];
