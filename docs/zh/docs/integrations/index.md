@@ -93,6 +93,7 @@ Cookie 属性和折行续接内容，再匹配普通赋值。这种保守处理�
 | --- | --- | --- |
 | [Pydantic AI](pydantic-ai.md) | Toolset：Memory 读写和上下文 | `experimental` |
 | [LangChain](langchain.md) | Middleware：上下文和可选 Source 采集 | `master_only` |
+| [Deep Agents](deepagents.md) | 薄适配层：为主 agent 与 subagent 增加召回 | `master_only` |
 | [LangGraph](langgraph.md) | Recall hook 和 Memory 工具 | `master_only` |
 
 ## 评测集成

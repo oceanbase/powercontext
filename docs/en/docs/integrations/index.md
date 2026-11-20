@@ -109,6 +109,7 @@ All 3 adapters are `community`. Install them in the application environment; do 
 | --- | --- | --- |
 | [Pydantic AI](pydantic-ai.md) | Toolset for Memory read/write and context | `experimental` |
 | [LangChain](langchain.md) | Middleware for context and optional Source capture | `master_only` |
+| [Deep Agents](deepagents.md) | Thin adapter adding recall to the agent and its subagents | `master_only` |
 | [LangGraph](langgraph.md) | Recall hook and Memory tools | `master_only` |
 
 ## Evaluation integrations
