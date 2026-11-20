@@ -1,0 +1,41 @@
+docs/en/docs/workflows/knowledge-base.md
+  s_13fec9a57c9104::t_e732dbd08fa315 210-213
+docs/zh/docs/workflows/knowledge-base.md
+  s_13fec9a57c9104::t_e732dbd08fa315 189-192
+tests/knowledge_base/test_identity_storage.py
+  s_13fec9a57c9104::t_e732dbd08fa315 39-42
+  s_13fec9a57c9104::t_cc51c2bb70e281 1-38,43-113
+tests/e2e/test_knowledge_base.py
+  s_13fec9a57c9104::t_876e001e2a5104 71-78,146-147
+plugins/knowledge-base/pc_knowledge_base/store.py
+  s_13fec9a57c9104::t_2d1a0751880cbc 54-55,62,123-139
+plugins/knowledge-base/plugin.py
+  s_13fec9a57c9104::t_2d1a0751880cbc 76-78,80
+plugins/knowledge-base/pc_knowledge_base/service.py
+  s_13fec9a57c9104::t_2d1a0751880cbc 626-630,665
+  s_997ec6f47d92ca::t_a67239bb03efbe 666
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "b75c066646eff4e1aa99d552db7f453249f94280",
+  "prompts": {},
+  "sessions": {
+    "s_13fec9a57c9104": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1617e-79d4-7103-bf67-e341786d4978",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Frey <370805886@qq.com>"
+    },
+    "s_997ec6f47d92ca": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1f6bd-d311-7a02-bae9-45cc99515fce",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "Frey <370805886@qq.com>"
+    }
+  }
+}
