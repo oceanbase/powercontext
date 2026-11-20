@@ -763,7 +763,6 @@ def test_slow_admission_page_does_not_monopolize_other_families(tmp_path, caplog
 @pytest.mark.parametrize("failure", ["io", "timeout", "deadline"])
 def test_blocked_recheck_errors_preserve_spacing_diagnostics_and_explicit_wakes(tmp_path, monkeypatch, caplog, failure):
     caplog.set_level(logging.WARNING, logger=processing.__name__)
-    monkeypatch.setattr(processing, "_DISCOVERY_TIMEOUT_SECONDS", 0.3)
     monkeypatch.setattr(processing, "_ADMISSION_PROBE_TIMEOUT_SECONDS", 0.3)
 
     async def scenario():
