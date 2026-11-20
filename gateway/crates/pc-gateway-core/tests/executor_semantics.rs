@@ -79,6 +79,7 @@ struct FakeGate {
     check_holds: Mutex<VecDeque<Option<Arc<tokio::sync::Notify>>>>,
     results: Mutex<VecDeque<Result<ContextCheckResult, GateError>>>,
     seen: Mutex<Vec<(CheckPhase, String)>>,
+    payload_headers: Mutex<Vec<std::collections::BTreeMap<String, String>>>,
     prepared_seen: Mutex<Vec<Vec<PreparedContextLocation>>>,
     prepare_result: Mutex<Option<Result<PrepareContextResult, GateError>>>,
     prepare_queries: Mutex<Vec<String>>,
@@ -104,6 +105,12 @@ impl GateClient for FakeGate {
         &self,
         request: ContextCheckRequest,
     ) -> impl Future<Output = Result<ContextCheckResult, GateError>> + Send {
+        if let ContextCheckRequest::BeforeSend { payload, .. } = &request {
+            self.payload_headers
+                .lock()
+                .unwrap()
+                .push(payload.headers.clone());
+        }
         let (phase, note) = match &request {
             ContextCheckRequest::BeforeSend { payload, .. } => {
                 (CheckPhase::BeforeSend, payload.body.clone())
@@ -225,6 +232,7 @@ impl Transport for FakeTransport {
 
 fn raw_response() -> SendOutcome {
     SendOutcome::Delivered(pc_gateway_transport::RawResponse {
+        upstream_payload: None,
         status: 200,
         content_type: "application/json".into(),
         response_first_byte_ms: None,
@@ -377,6 +385,7 @@ fn harness(
         check_holds: Mutex::new(VecDeque::new()),
         results: Mutex::new(gate_results.into()),
         seen: Mutex::new(Vec::new()),
+        payload_headers: Mutex::new(Vec::new()),
         prepared_seen: Mutex::new(Vec::new()),
         prepare_result: Mutex::new(None),
         prepare_barrier: Mutex::new(None),
@@ -1698,6 +1707,7 @@ async fn malformed_gate_never_degrades_even_with_passthrough() {
 async fn non_utf8_response_is_never_released() {
     // 上游返回非法 UTF-8 字节：不做有损转换送检（保真缺口），直接不放行。
     let bad = SendOutcome::Delivered(pc_gateway_transport::RawResponse {
+        upstream_payload: None,
         status: 200,
         body: bytes::Bytes::from_static(b"{\"text\":\"\xff\xfe\"}"), // 非法 UTF-8
         content_type: "application/json".into(),
@@ -2897,6 +2907,7 @@ async fn a_late_preparation_from_an_earlier_turn_does_not_replace_the_current_tu
 
 fn delivered(body: serde_json::Value) -> SendOutcome {
     SendOutcome::Delivered(pc_gateway_transport::RawResponse {
+        upstream_payload: None,
         status: 200,
         content_type: "application/json".into(),
         response_first_byte_ms: None,
@@ -4274,6 +4285,50 @@ async fn real_body_timeout_exports_timeout_attempt_and_unknown_usage_without_rel
             }
         }
     }
+}
+
+#[tokio::test]
+async fn subscription_final_bytes_are_checked_and_auth_metadata_stays_outside_content() {
+    use pc_gateway_protocol::{GatewayRenderer, SubscriptionProtocol, SubscriptionRenderer};
+    let (executor, _, transport, gate) = harness(
+        vec![
+            Ok(result(CheckPhase::BeforeSend, CheckDecision::Allow, &[])),
+            Ok(result(CheckPhase::BeforeRelease, CheckDecision::Allow, &[])),
+        ],
+        vec![raw_response()],
+        2,
+    );
+    let mut call = call(DegradePolicy::Pause);
+    call.request.output_limits.max_output_tokens = None;
+    call.headers.extend([
+        ("chatgpt-account-id".into(), "synthetic-account".into()),
+        ("editor-version".into(), "vscode/1.140.0".into()),
+        ("x-msh-device-id".into(), "synthetic-device".into()),
+        ("user-agent".into(), "PowerContextGateway/0.1.0".into()),
+        ("x-future-auth-context".into(), "synthetic-identity".into()),
+    ]);
+    let renderer = SubscriptionRenderer {
+        inner: GatewayRenderer::Responses(Default::default()),
+        subscription: Some(SubscriptionProtocol::Codex),
+    };
+    let outcome = executor
+        .run(request_control(), call, &renderer, &NoopEvidenceSink)
+        .await;
+    assert!(matches!(outcome, ManagedOutcome::Released { .. }));
+    let checks = gate.seen.lock().unwrap();
+    let before_send = &checks[0].1;
+    let value: serde_json::Value = serde_json::from_str(before_send).unwrap();
+    assert_eq!(value["stream"], true);
+    assert_eq!(value["store"], false);
+    assert_eq!(value["instructions"], "You are Codex.");
+    assert_eq!(
+        transport.sends.lock().unwrap()[0].as_ref(),
+        before_send.as_bytes()
+    );
+    assert_eq!(
+        gate.payload_headers.lock().unwrap()[0],
+        std::collections::BTreeMap::from([("content-type".into(), "application/json".into()),])
+    );
 }
 
 // ---------- #2413：为复用缓存前缀的记忆抽取保留回合前缀 ----------

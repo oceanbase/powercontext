@@ -105,6 +105,8 @@ JSON pointer，以及解码后 UTF-8 文本的 `start_byte`、`end_byte` 半开�
 网关不能在请求获准后脱敏，或在响应获准后还原值，再把原批准用于变化后的字节。
 变化后的载荷需要单独准入；本 API 不提供占位符映射，也不授予逆转隐私变换的权限。
 
+响应转换改变提供方字节时，应在 `before_release` 的 `upstream_payload` 中携带原始响应。Core 同时检查原始 JSON 或 Responses SSE 与最终交付载荷；两份正文共用响应字节上限。请先升级 Core，再升级发送此字段的 Gateway。旧版 Core 会拒绝该字段，不会批准放行。
+
 要求完整隐私检查的调用方，只有在 `allow` 且 `coverage.complete=true` 时才能继续对应动作。
 `block`、`withhold` 虽然返回 HTTP 200，但都禁止执行；只判断 HTTP 成功是不够的。
 载体或位置不合法返回 422，权限失败返回 401/403，正文超限返回 413。
