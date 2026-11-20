@@ -164,8 +164,41 @@ html:lang(zh) .pc-hero-title {
   line-height: 1.12;
 }
 
-.pc-hero-title span {
+.pc-hero-title > span {
   display: block;
+}
+
+/* Codex, Claude Code and Pi, overlapping in the line in front of "agents". */
+.pc-hero-agents {
+  display: inline-flex;
+  margin: 0 0.18em;
+  vertical-align: -0.1em;
+}
+
+.pc-hero-agents-row > * {
+  font-size: inherit;
+  width: 0.78em;
+  height: 0.78em;
+  background-color: var(--card);
+}
+
+.pc-hero-agents-row > * + * {
+  margin-left: -0.16em;
+}
+
+/* Marks sit whole on their disc rather than cropped to its edge. */
+.pc-hero-agents-row img {
+  padding: 16%;
+  object-fit: contain;
+}
+
+.pc-hero-agents-row[data-variant='darkLogo'],
+.dark .pc-hero-agents-row[data-variant='logo'] {
+  display: none;
+}
+
+.dark .pc-hero-agents-row[data-variant='darkLogo'] {
+  display: flex;
 }
 
 .pc-hero-lead {
