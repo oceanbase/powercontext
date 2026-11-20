@@ -254,7 +254,7 @@ jobs:
     # also need time for subprocess tails on internal runners.
     # Python 3.11/3.12 can exceed 55 minutes while the full E2E suite is still progressing.
     timeout-minutes: ${{ matrix.suite == 'e2e' && 90 || 75 }}
-    runs-on: powercontext-ci-standard
+    runs-on: powercontext-ci-python
     strategy:
       fail-fast: true
       matrix: ${{ fromJSON(needs.quality.outputs.test-matrix || '{"include":[{"python-version":"3.11","suite":"unit"},{"python-version":"3.12","suite":"unit"},{"python-version":"3.13","suite":"unit"},{"python-version":"3.14","suite":"unit"},{"python-version":"3.11","suite":"e2e","shard-index":0,"shard-count":2},{"python-version":"3.11","suite":"e2e","shard-index":1,"shard-count":2},{"python-version":"3.12","suite":"e2e","shard-index":0,"shard-count":2},{"python-version":"3.12","suite":"e2e","shard-index":1,"shard-count":2},{"python-version":"3.13","suite":"e2e","shard-index":0,"shard-count":2},{"python-version":"3.13","suite":"e2e","shard-index":1,"shard-count":2},{"python-version":"3.14","suite":"e2e","shard-index":0,"shard-count":2},{"python-version":"3.14","suite":"e2e","shard-index":1,"shard-count":2}]}') }}
