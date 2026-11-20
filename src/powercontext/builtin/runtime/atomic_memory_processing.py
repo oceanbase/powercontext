@@ -16,15 +16,14 @@
 
 from __future__ import annotations
 
-import json
 import logging
 import math
 from base64 import urlsafe_b64encode
 from contextlib import asynccontextmanager, nullcontext
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, replace
 from functools import partial
 from hashlib import sha256
-from typing import TYPE_CHECKING, Literal, NoReturn, cast
+from typing import TYPE_CHECKING, Any, Literal, NoReturn, cast
 
 from sqlalchemy import func, literal, select, true, tuple_, update
 from sqlalchemy.exc import OperationalError
@@ -76,7 +75,7 @@ from powercontext.builtin.inference import (
     InvalidInferenceOutputError,
     embed_query,
 )
-from powercontext.builtin.inference.models import ConversationTurn
+from powercontext.builtin.inference.models import ConversationReply, ConversationTurn
 from powercontext.builtin.persistence.atomic_memory_index import (
     DEFAULT_ATOMIC_MEMORY_RELATED_PAGE_SIZE,
     AtomicMemoryIndexError,
@@ -713,32 +712,33 @@ class AtomicMemorySourceWindowProcessor:
             for key in await recall(entry.query):
                 if len(shown) < ONE_PASS_MAX_MEMORIES and key not in shown.values():
                     shown[f"M{len(shown) + 1}"] = key
-        conversation.sent.append(json.dumps([entry.model_dump() for entry in entries.output], ensure_ascii=False))
         message = render_existing_memories({label: workset.items[key] for label, key in shown.items()})
-        if not conversation.fits(message):
+        if not conversation.fits(message, entries):
             return None
-        compared = {read.ref.artifact_id for key in shown.values() for read in workset.items[key].origins}
-        await self._authorize_comparison_basis(scope_id, context, tuple(workset.items[key] for key in shown.values()))
+        basis = tuple(workset.items[key] for key in shown.values())
+        await self._authorize_comparison_basis(scope_id, context, basis)
         operations = await conversation.turn(
-            message, lambda reply: apply_one_pass_operations(workset, reply, shown, extraction_input), entries.history
+            message, lambda reply: apply_one_pass_operations(workset, reply, shown, extraction_input), entries
         )
         workset, created = operations.output
 
         workset = await self._recheck_one_pass(
-            scope_id, context, conversation, workset, created, compared, recall, operations.history, extraction_input
+            scope_id, context, conversation, workset, created, basis, recall, operations, extraction_input
         )
         return self._with_prompt_refs(workset, {}, prompt_refs)
 
     async def _recheck_one_pass(
-        self, scope_id, context, conversation, workset, created, compared, recall, history, extraction_input
+        self, scope_id, context, conversation, workset, created, basis, recall, operations, extraction_input
     ):
         """Decide created memories again beside the memories that only their own text recalls.
 
-        Step 2 compared a created memory with what its entry's query recalled; ``compared`` holds those identities.
+        Step 2 compared a created memory with what its entry's query recalled; ``basis`` holds those memories. Every
+        recheck resends them in the conversation, so their read and write authority is checked again with the new ones.
         """
         pending: dict[str, str] = {}
         unseen: dict[str, dict[str, str]] = {}
-        labelled = len(compared)
+        compared = {read.ref.artifact_id for item in basis for read in item.origins}
+        labelled = len(basis)
         for key in created:
             found = tuple(
                 item
@@ -761,19 +761,22 @@ class AtomicMemorySourceWindowProcessor:
                         for label in batch
                     },
                 )
-                if conversation.fits(message) or len(batch) == 1:
+                if conversation.fits(message, operations) or len(batch) == 1:
                     break
                 batch = dict(list(batch.items())[: len(batch) // 2])
             self._require_budget(
                 conversation.pipeline,
                 extraction_input,
                 "atomic_memory.reconcile",
-                estimated=conversation.estimate(message),
+                estimated=conversation.estimate(message, operations),
             )
             await self._authorize_comparison_basis(
                 scope_id,
                 context,
-                tuple(workset.items[workset.resolve(item)] for label in batch for item in unseen[label].values()),
+                (
+                    *basis,
+                    *(workset.items[workset.resolve(item)] for label in batch for item in unseen[label].values()),
+                ),
             )
             rechecked = await conversation.turn(
                 message,
@@ -783,7 +786,7 @@ class AtomicMemorySourceWindowProcessor:
                     created=batch,
                     unseen={label: unseen[label] for label in batch},
                 ),
-                history,
+                operations,
             )
             workset = rechecked.output
             for label in batch:
@@ -1288,27 +1291,34 @@ class AtomicMemorySourceWindowProcessor:
 
 @dataclass
 class _OnePassConversation:
-    """One window's conversation: its fixed instructions, what was sent so far and the input budget."""
+    """One window's conversation: its fixed instructions and the input budget of each turn.
+
+    A turn's input is the instructions, the transcript of the reply it continues and its new message. Turns that
+    continue the same reply are separate requests, so each is estimated on its own.
+    """
 
     pipeline: AtomicMemoryGenerationPipeline
     instructions: str
     metadata: dict[str, str | int] | None
     input_tokens_limit: int
-    sent: list[str] = field(default_factory=list)
 
-    def estimate(self, message: str) -> int:
-        return self.pipeline.estimator.estimate("\n".join((self.instructions, *self.sent, message)))
+    def estimate(self, message: str, previous: ConversationReply[Any] | None = None) -> int:
+        transcript = () if previous is None else previous.transcript
+        return self.pipeline.estimator.estimate("\n".join((self.instructions, *transcript, message)))
 
-    def fits(self, message: str) -> bool:
-        return self.estimate(message) <= self.input_tokens_limit
+    def fits(self, message: str, previous: ConversationReply[Any] | None = None) -> bool:
+        return self.estimate(message, previous) <= self.input_tokens_limit
 
-    async def turn(self, message, check, history=()):
+    async def turn(self, message, check, previous: ConversationReply[Any] | None = None):
         generator = self.pipeline.conversation
         assert generator is not None  # noqa: S101 - one-pass preparation requires it before the first turn
-        self.sent.append(message)
         result = await generator.generate(
             ConversationTurn(
-                instructions=self.instructions, message=message, check=check, history=history, metadata=self.metadata
+                instructions=self.instructions,
+                message=message,
+                check=check,
+                history=() if previous is None else previous.history,
+                metadata=self.metadata,
             )
         )
         return result.output

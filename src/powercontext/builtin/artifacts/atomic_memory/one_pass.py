@@ -141,7 +141,8 @@ class OnePassEntry(BaseModel):
 
 
 class OnePassEntries(BaseModel):
-    model_config = ConfigDict(extra="ignore", frozen=True)
+    # A reply in another shape is rejected for correction instead of being read as an empty list.
+    model_config = ConfigDict(extra="forbid", frozen=True)
     items: tuple[OnePassEntry, ...] = ()
 
 
@@ -158,7 +159,8 @@ class OnePassOperation(BaseModel):
 
 
 class OnePassOperations(BaseModel):
-    model_config = ConfigDict(extra="ignore", frozen=True)
+    # A reply in another shape is rejected for correction instead of consuming the window with no operation.
+    model_config = ConfigDict(extra="forbid", frozen=True)
     operations: tuple[OnePassOperation, ...] = ()
 
 

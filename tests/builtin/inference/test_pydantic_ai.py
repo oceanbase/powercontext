@@ -1533,5 +1533,10 @@ def test_conversation_turns_share_one_request_prefix_and_correct_a_rejected_repl
         }
         # The rejected reply and the broken rule stay in the conversation for the correction.
         assert "use only the labels shown" in str(sent(requests[2])[-1])
+        # The transcript is the text of the conversation a next turn would resend, corrections included.
+        assert first.output.transcript == ("evidence", "reply 1")
+        assert second.output.transcript[:4] == ("evidence", "reply 1", "memories", "reply 2")
+        assert "use only the labels shown" in second.output.transcript[4]
+        assert second.output.transcript[5:] == ("reply 3",)
 
     asyncio.run(scenario())

@@ -68,7 +68,8 @@
 - **标签而非 ID。** 已有记忆以 M1、M2… 展示，Core 负责映射回 workset key。
 - **回复不合规则时在同一步内纠正。** 每一步的回复先应用到 workset 的副本上；标签未知、缺少证据、
   时间限定词丢失等规则被违反时，规则名称返回给模型重答（次数受现有 `max_requests` 限制），副本丢弃。
-  纠正次数用尽后本窗口失败，不发布部分结果。
+  纠正次数用尽后本窗口失败，不发布部分结果。回复的顶层只接受该步规定的字段：换了字段名的回复
+  （例如用 `candidates` 代替 `operations`）同样返回给模型重答，不会被当作"没有任何操作"而消费掉窗口。
 
 ### 3.2 证据与溯源
 
@@ -101,7 +102,8 @@ revise / merge 的 `compared_ids` 与 `target_ids` 都取目标条目，`reason`
 （同样取前 5 条），找出第 2 步没有展示过的记忆。都没有则不调用；有则在同一对话里追加第 3 步：
 列出这些 create（标签 C1、C2…）和各自的未展示记忆，模型对每条 create 重新给出操作
 （create 表示保留，revise / merge 与目标合并，noop 表示目标已包含该事实）。这一步与逐候选流程的一次比对等价，
-直接用 `workset.apply(候选, 未展示记忆, 操作)` 应用。
+直接用 `workset.apply(候选, 未展示记忆, 操作)` 应用。第 3 步的请求会重发第 2 步展示过的已有记忆，
+因此发送前对这些记忆和新召回的记忆一起重新检查读写权限。
 
 ### 3.5 比对范围
 
@@ -141,8 +143,9 @@ revise / merge 的 `compared_ids` 与 `target_ids` 都取目标条目，`reason`
 
 ### 5.2 预算
 
-所有估算沿用 `atomic_memory_input_tokens_limit` 与管线的 token estimator，估算内容为流程指令加上对话中已发送的
-全部消息。
+所有估算沿用 `atomic_memory_input_tokens_limit` 与管线的 token estimator。每一步估算的是该次请求实际发送的内容：
+流程指令、它所续接的对话全文（此前各步的消息、模型回复和纠正请求，由推理接口随回复一并返回），以及本步的新消息。
+第 3 步拆成多次调用时，每次调用都只续接第 2 步，各自单独估算。
 
 - 第 1 步或第 2 步的输入超出预算时，本窗口改用逐候选流程（§2）处理，结果与默认模式相同。
   第 2 步不拆成多次调用，召回到的已有记忆也不因预算丢弃：逐候选流程在预算不足时本来就会把每次比对的记忆数
@@ -162,7 +165,7 @@ revise / merge 的 `compared_ids` 与 `target_ids` 都取目标条目，`reason`
 
 现有 `StructuredGenerator` 的实现把输出 schema 写进指令，不同输出格式的两次调用因此没有相同的前缀。
 单次整理使用新增的 `PydanticAIConversationGenerator`：输入是 `ConversationTurn`（指令、新消息、此前的对话、
-回复检查函数），回复是纯文本，由检查函数解析并校验，返回 `ConversationReply`（检查结果与可续接的对话）。
+回复检查函数），回复是纯文本，由检查函数解析并校验，返回 `ConversationReply`（检查结果、可续接的对话及其文本）。
 它与现有生成器共用同一套超时、请求次数限制、错误映射和用量上报（`UsageReportingStructuredGenerator`），
 在链路中的名称为 `atomic_memory_one_pass`。不新增日志字段，不记录提示词与模型输出内容。
 
