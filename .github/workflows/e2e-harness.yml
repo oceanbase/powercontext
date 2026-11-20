@@ -347,7 +347,7 @@ jobs:
 
       - name: Save validation reports
         if: always()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        uses: ./.github/actions/upload-ci-diagnostics
         with:
           name: recall-effort-validation-${{ github.sha }}
           path: .powercontext/recall-effort-ci/
@@ -497,7 +497,7 @@ jobs:
 
       - name: Save clean migration reports
         if: always()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        uses: ./.github/actions/upload-ci-diagnostics
         with:
           name: atomic-memory-clean-oceanbase-${{ github.sha }}-shard-${{ matrix.shard }}
           path: ${{ env.MIGRATION_REPORTS }}/
@@ -597,7 +597,7 @@ jobs:
 
       - name: Save native FTS reports
         if: always()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        uses: ./.github/actions/upload-ci-diagnostics
         with:
           name: atomic-memory-native-fts-oceanbase-${{ github.sha }}
           path: ${{ env.MIGRATION_REPORTS }}/
@@ -778,7 +778,7 @@ jobs:
 
       - name: Upload OceanBase native reports
         if: always() && matrix.database == 'oceanbase'
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        uses: ./.github/actions/upload-ci-diagnostics
         with:
           name: oceanbase-native-acceptance-${{ github.sha }}
           path: ${{ runner.temp }}/oceanbase-acceptance/
@@ -800,7 +800,7 @@ jobs:
           always() && matrix.replay &&
           (steps.evidence_scan.outcome != 'success' ||
            steps.acceptance_scenarios.outcome != 'success')
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        uses: ./.github/actions/upload-ci-diagnostics
         with:
           name: e2e-acceptance-diagnostics-${{ matrix.database }}-${{ github.sha }}
           path: ${{ runner.temp }}/powercontext-e2e-diagnostics-${{ matrix.database }}/summary.txt
@@ -810,7 +810,7 @@ jobs:
       - name: Upload replay evidence
         id: replay_evidence
         if: always() && matrix.replay && steps.evidence_scan.outcome == 'success'
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        uses: ./.github/actions/upload-ci-diagnostics
         with:
           name: e2e-acceptance-${{ matrix.database }}-${{ github.sha }}
           path: .powercontext-e2e/${{ matrix.database }}/acceptance
@@ -821,7 +821,7 @@ jobs:
       - name: Upload native acceptance results
         id: native_results
         if: always() && matrix.native
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        uses: ./.github/actions/upload-ci-diagnostics
         with:
           name: oceanbase-acceptance-results-${{ github.sha }}
           path: ${{ runner.temp }}/oceanbase-acceptance/junit.xml

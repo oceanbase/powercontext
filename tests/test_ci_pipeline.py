@@ -34,6 +34,21 @@ ROOT = Path(__file__).parents[1]
 RULES = tomllib.loads((ROOT / ".github/ci-paths.toml").read_text())
 
 
+def test_diagnostic_artifact_recovery_behaviors():
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("Node.js is required to execute the diagnostic artifact recovery tests")
+    result = subprocess.run(
+        [node, "--test", ".github/actions/upload-ci-diagnostics/artifact-state.test.cjs"],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=False,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
 @pytest.mark.skipif(sys.platform == "win32", reason="macOS bundling uses POSIX executables")
 @pytest.mark.parametrize(
     ("failures", "expected_status", "expected_attempts"),
@@ -309,7 +324,11 @@ def test_installation_roles_use_only_two_python_runners():
     verify = next(step for step in job["steps"] if "ci_installation_roles.py" in step.get("run", ""))
     assert not verify.get("continue-on-error")
     assert "if" not in verify
-    reports = next(step for step in job["steps"] if step.get("uses", "").startswith("actions/upload-artifact@"))
+    reports = next(
+        step
+        for step in job["steps"]
+        if step.get("with", {}).get("name") == "installation-roles-py${{ matrix.python-version }}-${{ github.sha }}"
+    )
     assert reports["if"] == "always()"
     assert "summary.json" in reports["with"]["path"]
     assert "logs/*.log" in reports["with"]["path"]

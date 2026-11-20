@@ -4,7 +4,7 @@ Wrap the pinned upstream upload action with at most three attempts. A failed req
 
 Each caller must own a unique artifact name within the workflow run, including its matrix dimensions. The recovery lookup is run-scoped; it cannot distinguish two concurrent upload owners that use the same name. This helper is for diagnostic archives, not build or release handoffs with overwrite requirements.
 
-The workflow needs `actions: read` for recovery. The initial lookup records existing same-name IDs. If it fails, normal uploads can still succeed, but metadata recovery is disabled. After an upload failure, recovery accepts only one new same-name archive with a SHA-256 digest, positive size and an unexpired state. An existing archive cannot turn a failed upload into success. No artifact is overwritten or deleted.
+The workflow needs `actions: read` for recovery. The initial lookup records existing same-name IDs. If it fails, normal uploads can still succeed, but metadata recovery is disabled. After an upload failure, recovery accepts only one new same-name archive with a SHA-256 digest, positive size and an unexpired state. An archive recorded in the initial snapshot cannot turn a failed upload into success. No artifact is overwritten or deleted.
 
 The original upload error remains in the job log. Failed attempts wait eight and twelve seconds before retrying. If no upstream attempt succeeds and no completed archive can be recovered, the composite action fails. Successful empty uploads keep the upstream `warn` / `ignore` behavior and empty outputs.
 
