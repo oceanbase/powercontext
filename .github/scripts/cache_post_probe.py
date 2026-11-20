@@ -44,7 +44,7 @@ def prepare():
         (project / "package.json").write_text('{"private": true}\n')
         (project / "pnpm-lock.yaml").write_text(f"# {IDENTITY}-{label}\nlockfileVersion: '9.0'\n")
         store = (BASE / "cache" / f"pnpm-{label}").as_posix()
-        (project / ".npmrc").write_text(f"store-dir={store}\n")
+        (project / "pnpm-workspace.yaml").write_text(f"storeDir: {json.dumps(store)}\n")
     (BASE / "go.mod").write_text("module example.invalid/cache-post-probe\n\ngo 1.27.0\n")
     values = {
         "UV_CACHE_DIR": BASE / "cache/uv",
