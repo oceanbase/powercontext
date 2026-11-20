@@ -116,9 +116,12 @@ AtomicMemoryReconciliationEvidence = AtomicMemoryEvidence | AtomicMemoryArtifact
 
 class AtomicMemoryReconciliationInput(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
+    # Serialized in this order. The evidence starts with the proposal's Sources, which every comparison of a
+    # candidate from the same Sources repeats, so a provider's prompt cache can reuse them; the proposal and the
+    # related items change with each request and follow.
+    evidence: tuple[AtomicMemoryReconciliationEvidence, ...]
     proposal: AtomicMemoryComparisonItem
     related: tuple[AtomicMemoryComparisonItem, ...]
-    evidence: tuple[AtomicMemoryReconciliationEvidence, ...]
 
 
 class AtomicMemoryReconciliationContent(BaseModel):

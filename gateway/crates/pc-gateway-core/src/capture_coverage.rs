@@ -16,39 +16,16 @@
 
 use serde_json::{json, Value};
 
-#[derive(Default)]
-pub(crate) struct CaptureLosses {
-    pub field_byte_limit: bool,
-    pub transcript_byte_limit: bool,
-    pub unmeasured_projection: bool,
-}
-
-impl CaptureLosses {
-    pub fn declaration(&self) -> Value {
-        let mut reasons = Vec::new();
-        if self.field_byte_limit {
-            reasons.push("field_byte_limit");
-        }
-        if self.transcript_byte_limit {
-            reasons.push("transcript_byte_limit");
-        }
-        if self.unmeasured_projection {
-            reasons.push("unmeasured_projection");
-        }
-        declaration("gateway-turn-text.v1", &reasons)
-    }
-}
-
 fn unit(projection: &str) -> Option<&'static str> {
     match projection {
         "hermes-turn-text.v1" => Some("user_assistant_text_pair"),
         "hermes-precompress-text.v1" => Some("new_user_assistant_window"),
-        "gateway-turn-text.v1" => Some("gateway_turn_projection"),
+        "gateway-turn-text.v1" | "gateway-turn-text.v2" => Some("gateway_turn_projection"),
         _ => None,
     }
 }
 
-fn declaration(projection: &str, reasons: &[&str]) -> Value {
+pub(crate) fn declaration(projection: &str, reasons: &[&str]) -> Value {
     let mut reasons = reasons.to_vec();
     reasons.sort_unstable();
     reasons.dedup();
