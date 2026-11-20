@@ -49,7 +49,8 @@ class _Conversation:
         reply = self.replies.pop(0)
         payload = json.loads(turn.message.split("\n", 1)[0])
         text = json.dumps(reply(payload) if callable(reply) else reply)
-        return GenerationResult(output=ConversationReply(output=turn.check(text), history=(*turn.history, text)))
+        history = (*turn.history, turn.message, text)
+        return GenerationResult(output=ConversationReply(output=turn.check(text), history=history, transcript=history))
 
 
 def _facts(*queries: str) -> dict[str, Any]:
@@ -124,7 +125,7 @@ def test_create_then_revise_keeps_one_identity_and_both_sources(tmp_path: Path) 
         assert {ref.source_id for ref in revised.artifact.lineage.sources} == {"second"}
         first, second, third, fourth = conversation.turns
         # Each later step continues the earlier one under the same instructions.
-        assert first.history == () and second.history[: len(first.history) + 1] == (*first.history, second.history[0])
+        assert first.history == () and second.history[0] == first.message and third.history == ()
         assert first.instructions == second.instructions == third.instructions
         assert json.loads(second.message.split("\n", 1)[0]) == {"existing_memories": []}
         assert [item["text"] for item in json.loads(fourth.message.split("\n", 1)[0])["existing_memories"]] == [
@@ -220,6 +221,114 @@ def test_rejected_operations_leave_the_window_unpublished(tmp_path: Path) -> Non
         assert (await memory.list()).items == ()
 
     _run(tmp_path, conversation, scenario)
+
+
+def test_reply_in_another_shape_is_rejected_instead_of_read_as_no_operation(tmp_path: Path) -> None:
+    conversation = _Conversation(_facts("rollout budget"), {"candidates": [_write("create", BUDGET_100)]})
+
+    async def scenario(contexts, memory) -> None:
+        await contexts.records.capture_source(SCOPE, "content", "first", BUDGET_100, {})
+        with pytest.raises(InvalidInferenceOutputError) as captured:
+            await contexts.process_memory(SCOPE, 1)
+        assert captured.value.operation == "atomic-memory-one-pass"
+        assert (await memory.list()).items == ()
+
+    _run(tmp_path, conversation, scenario)
+
+
+def _input_estimate(turn: ConversationTurn[Any]) -> int:
+    return character_token_estimator().estimate("\n".join((turn.instructions, *turn.history, turn.message)))
+
+
+def test_recheck_budget_counts_the_step_two_reply_it_resends(tmp_path: Path) -> None:
+    def conversation() -> _Conversation:
+        operation = {**_write("create", BUDGET_200), "reason": " ".join(["Keep the new rollout budget."] * 200)}
+        return _Conversation(
+            _facts("unrelated words"),
+            {"operations": [operation]},
+            lambda listed: {"operations": [{**_write("create", BUDGET_200), "id": listed["recheck"][0]["id"]}]},
+        )
+
+    async def prepare(contexts) -> None:
+        await contexts.records.create_atomic_memories(SCOPE, ({"kind": "fact", "text": BUDGET_100},))
+        await contexts.process_memory(SCOPE, 1)
+        await contexts.records.capture_source(SCOPE, "content", "second", BUDGET_200, {})
+
+    measured = conversation()
+
+    async def measure(contexts, memory) -> None:
+        await prepare(contexts)
+        await contexts.process_memory(SCOPE, 1)
+        assert len(measured.turns) == 3
+
+    (tmp_path / "measure").mkdir()
+    _run(tmp_path / "measure", measured, measure)
+    step_two, recheck = (_input_estimate(turn) for turn in measured.turns[1:])
+    # The recheck resends the long step 2 reply, so it is the larger input by more than its own message.
+    assert recheck - step_two > character_token_estimator().estimate(measured.turns[2].message)
+
+    limited = conversation()
+
+    async def scenario(contexts, memory) -> None:
+        await prepare(contexts)
+        with pytest.raises(InvalidInferenceOutputError) as captured:
+            await contexts.process_memory(SCOPE, 1)
+        assert captured.value.operation == "atomic-memory-input-budget"
+        assert len(limited.turns) == 2
+        assert await _texts(memory) == {BUDGET_100}
+
+    _run(tmp_path, limited, scenario, input_tokens_limit=recheck - 1)
+
+
+def test_split_rechecks_are_each_budgeted_as_their_own_request(tmp_path: Path) -> None:
+    former_owner = "Rollout owner for the payments service is the infrastructure team."
+
+    def recheck(listed: dict[str, Any]) -> dict[str, Any]:
+        operations = []
+        for entry in listed["recheck"]:
+            topic = "budget" if "budget" in entry["text"] else "owner"
+            targets = [item["id"] for item in entry["existing_memories"] if topic in item["text"]]
+            operations.append({**_write("revise" if targets else "create", entry["text"], *targets), "id": entry["id"]})
+        return {"operations": operations}
+
+    def conversation() -> _Conversation:
+        return _Conversation(
+            _facts("unrelated words"),
+            {"operations": [_write("create", BUDGET_200), _write("create", OWNER)]},
+            recheck,
+            recheck,
+        )
+
+    async def prepare(contexts) -> None:
+        await contexts.records.create_atomic_memories(
+            SCOPE, ({"kind": "fact", "text": BUDGET_100}, {"kind": "fact", "text": former_owner})
+        )
+        await contexts.process_memory(SCOPE, 2)
+        await contexts.records.capture_source(SCOPE, "content", "second", f"{BUDGET_200} {OWNER}", {})
+
+    measured = conversation()
+
+    async def measure(contexts, memory) -> None:
+        await prepare(contexts)
+        await contexts.process_memory(SCOPE, 1)
+        # Within the budget both created memories are rechecked in one request.
+        assert len(measured.turns) == 3
+
+    (tmp_path / "measure").mkdir()
+    _run(tmp_path / "measure", measured, measure)
+
+    limited = conversation()
+
+    async def scenario(contexts, memory) -> None:
+        await prepare(contexts)
+        await contexts.process_memory(SCOPE, 1)
+        first, second = limited.turns[2:]
+        # Both rechecks continue step 2; the second does not carry the first one's message.
+        assert first.history == second.history and first.message not in second.history
+        assert await _texts(memory) == {BUDGET_200, OWNER}
+
+    # One request for both created memories is one token over; each on its own fits.
+    _run(tmp_path, limited, scenario, input_tokens_limit=_input_estimate(measured.turns[2]) - 1)
 
 
 def test_window_over_the_step_two_budget_is_prepared_per_candidate(tmp_path: Path) -> None:

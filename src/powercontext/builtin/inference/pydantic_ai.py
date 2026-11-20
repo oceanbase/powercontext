@@ -469,8 +469,23 @@ class PydanticAIConversationGenerator:
                 ),
                 self._limits,
             )
-        reply = ConversationReply(output=cast(OutputT, result.output), history=tuple(result.all_messages()))
+        history = tuple(result.all_messages())
+        reply = ConversationReply(output=cast(OutputT, result.output), history=history, transcript=_transcript(history))
         return GenerationResult(output=reply, usage=usage)
+
+
+def _transcript(messages: Sequence[ModelMessage], /) -> tuple[str, ...]:
+    """The text a later turn resends for these messages: prompts, replies and correction requests."""
+
+    texts: list[str] = []
+    for message in messages:
+        for part in message.parts:
+            # A correction request is sent as its rendered response; every other text part is sent as its content.
+            rendered = getattr(part, "model_response", None)
+            content = rendered() if callable(rendered) else getattr(part, "content", None)
+            if isinstance(content, str):
+                texts.append(content)
+    return tuple(texts)
 
 
 async def _run_bounded(

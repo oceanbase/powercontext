@@ -125,7 +125,12 @@ class ConversationTurn(Generic[OutputT]):
 
 @dataclass(frozen=True)
 class ConversationReply(Generic[OutputT]):
-    """A checked reply and the conversation to continue from."""
+    """A checked reply and the conversation to continue from.
+
+    ``transcript`` is the text of every message in ``history``, in order, so a caller can estimate the input of the
+    next turn from what that turn will actually send.
+    """
 
     output: OutputT
     history: tuple[object, ...]
+    transcript: tuple[str, ...] = ()
