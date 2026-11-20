@@ -300,6 +300,8 @@ jobs:
         if: matrix.suite == 'unit'
         env:
           PYTEST_ADDOPTS: --require-dsh-config-runtime --require-claude-code-python-floor
+          # Unit tests also spawn processes and exercise short scheduling deadlines.
+          PYTEST_WORKERS: "2"
         run: make unit-test
 
       - name: Check Source serialization with minimum Pydantic

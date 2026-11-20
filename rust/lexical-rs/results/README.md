@@ -32,6 +32,22 @@ These times do not measure HTTP, database access, inference, complete recall, a 
 
 ## Reproduce
 
+### Reading the recorded cases
+
+The tool's `cases.jsonl` contains raw U+2028 and U+0085 inside a recorded JSON string. They are input characters, not record separators. Python `str.splitlines()` treats them as line boundaries and produces invalid JSON fragments; a consumer that catches decoding errors and skips fragments can lose cases. Split on LF explicitly and surface any JSON error:
+
+```python
+import json
+from pathlib import Path
+
+text = Path("rust/lexical-rs/cases.jsonl").read_text(encoding="utf-8")
+cases = [json.loads(line) for line in text.split("\n") if line]
+```
+
+This reads all 2,033 committed cases without altering their inputs. The separately generated strict corpus uses `ensure_ascii=True`, so its Unicode separators are escaped and do not have this issue.
+
+### Running the checks
+
 Use CPython 3.14 with Unicode 16 and the root project's locked dependencies plus Jieba 0.42.1. Install rust-anything and maturin separately. On Windows explicitly select Rust `1.97.1-x86_64-pc-windows-msvc` (the repository/default toolchain may differ) and put the intended Python environment first on PATH; rust-anything prefers `python3` over `python`.
 
 From the repository root:

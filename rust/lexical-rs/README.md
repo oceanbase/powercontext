@@ -16,6 +16,12 @@ The tested platform is Windows x64 with CPython 3.14.3 and Unicode 16.0.0. The w
 
 Run from the repository root with a CPython 3.14 environment containing the reference dependencies, Jieba0.42.1, pytest, maturin and rust-anything. On Windows select an MSVC Rust toolchain at least 1.97. The tool's Python driver selects `python3` before `python`; ensure these resolve to the intended environment.
 
+This crate's minimum Rust version is 1.97; the measured Windows build used 1.97.1 MSVC. It is independent of the gateway workspace, whose CI pins Rust 1.95.0 and cannot build this crate. Existing CI does not compile the pilot. A future pilot CI job must select its own toolchain rather than inherit the gateway pin. For the measured Windows configuration, explicitly select it before running the commands below:
+
+```powershell
+$env:RUSTUP_TOOLCHAIN = '1.97.1-x86_64-pc-windows-msvc'
+```
+
 ```text
 cargo fetch --locked --manifest-path rust/lexical-rs/Cargo.toml
 python rust/lexical-rs/scripts/prepare.py
@@ -31,6 +37,8 @@ python -m maturin build --locked --release --manifest-path rust/lexical-rs/Cargo
 ```
 
 The tool manifest resolves the reference root relative to this crate. Ordinary recording does not carry surrogates; the strict recording uses codepoint arrays for them. Strict error checks supplement the tool's permissive exception comparison.
+
+The committed `cases.jsonl` contains raw Unicode line separators inside JSON strings. Read records using LF boundaries, not Python `str.splitlines()`; see the [record-reading example](results/README.md#reading-the-recorded-cases).
 
 To run existing tests, add the checkout `src` and this crate's `scripts` to `PYTHONPATH`, then run pytest with `-p native_pytest` and selected paths. The plugin activates native code only in that process and fails if no native calls were observed. It prints the native path/hash. Run `verify.py --installed` in a fresh environment after installing the wheel; importing the extension must not depend on the source package or reference dependencies.
 
