@@ -4,8 +4,8 @@ description: 面向编程 Agent 的共享记忆与会话交接服务。让项目
 home:
   hero:
     title:
-      - 给编程 Agent 的
-      - 共享记忆与交接层。
+      - 让你的 {agents} Agent
+      - 拥有强大的上下文与记忆。
     lead: PowerContext 是本地运行的项目上下文服务，把架构决定、约束、验收依据和任务进度留在项目中。无论切换到 Claude Code、Codex 还是其他协作者，都能直接读取最新状态并接着开发。
     action:
       label: 安装并开始使用
