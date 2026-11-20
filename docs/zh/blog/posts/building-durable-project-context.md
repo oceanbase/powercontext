@@ -29,9 +29,23 @@ pin: false
 
 这就是本文围绕 MiniMax Code 展开的上下文管理问题：怎样把不同形式的输入变成证据，让当前上下文保持有用，并留下足够的已验证状态，让工作能够继续。seekdb 提供检索基础，PowerContext 提供跨会话的项目记忆与工作交接。
 
-[![从多模态输入到验证结果](../../../assets/blog/building-durable-project-context/figure-1.png)](../../../assets/blog/building-durable-project-context/figure-1.png "查看大图")
-
-*图 1｜排查任务从截图、日志和代码出发，经历调查、实现与验证。*
+<figure class="fig" id="fig-figure-1">
+<div class="fig-canvas" style="--fw:960;--fh:340" role="img" aria-label="从多模态输入到验证结果">
+<svg viewBox="0 0 960 340">
+<path class="fig-wire" d="M300 50 L654 50" marker-end="url(#fig-arrow)"/>
+<path class="fig-wire" d="M810 100 L810 234" marker-end="url(#fig-arrow)"/>
+<path class="fig-wire" d="M660 290 L306 290" marker-end="url(#fig-arrow)"/>
+<path class="fig-wire dashed" d="M150 240 L150 106" marker-end="url(#fig-arrow)"/>
+</svg>
+<div class="fig-box start" style="--x:0;--y:0;--w:300;--h:100"><b>输入上下文</b><span>截图、文档、代码与日志</span><span>描述同一个待解决的问题</span></div>
+<div class="fig-box start" style="--x:660;--y:0;--w:300;--h:100"><b>项目范围</b><span>工作区与相关文件</span><span>限定当前任务的范围</span></div>
+<div class="fig-box start" style="--x:660;--y:240;--w:300;--h:100"><b>工具执行</b><span>编辑文件、运行命令</span><span>在浏览器中检查页面状态</span></div>
+<div class="fig-box start" style="--x:0;--y:240;--w:300;--h:100"><b>结果验证</b><span>检查 diff、测试与输出</span><span>迭代修复</span></div>
+<div class="fig-box accent" style="--x:340;--y:110;--w:280;--h:120"><b>MiniMax Code 中的一次闭环</b><span>一张底部导航遮住结算按钮的截图、请求错误日志和代码仓库</span></div>
+<span class="fig-label muted small" style="--x:160;--y:160">迭代</span>
+</div>
+<figcaption>图 1｜排查任务从截图、日志和代码出发，经历调查、实现与验证。</figcaption>
+</figure>
 
 ## 让检索结果始终关联原始材料
 
@@ -51,9 +65,31 @@ pin: false
 
 原件记录发生过什么，检索表示帮助 Agent 找到它。解析器改进后，可以重新生成文本或向量，记录解析器版本，并保留原件供比较。
 
-[![索引始终关联原始材料](../../../assets/blog/building-durable-project-context/figure-2.png)](../../../assets/blog/building-durable-project-context/figure-2.png "查看大图")
-
-*图 2｜来源引用将每份索引表示关联回原始材料。*
+<figure class="fig" id="fig-figure-2">
+<div class="fig-canvas" style="--fw:960;--fh:350" role="img" aria-label="索引始终关联原始材料">
+<svg viewBox="0 0 960 350">
+<path class="fig-wire" d="M210 68 L244 68" marker-end="url(#fig-arrow)"/>
+<path class="fig-wire" d="M460 68 L494 68" marker-end="url(#fig-arrow)"/>
+<path class="fig-wire" d="M710 68 L744 68" marker-end="url(#fig-arrow)"/>
+<path class="fig-wire accent" d="M176 256 L201 256" marker-end="url(#fig-arrow-accent)"/>
+<path class="fig-wire accent" d="M366 256 L391 256" marker-end="url(#fig-arrow-accent)"/>
+<path class="fig-wire accent" d="M556 256 L581 256" marker-end="url(#fig-arrow-accent)"/>
+<path class="fig-wire accent" d="M746 256 L771 256" marker-end="url(#fig-arrow-accent)"/>
+</svg>
+<div class="fig-box start" style="--x:0;--y:0;--w:210;--h:136"><b>1 采集</b><span>截图、文档、日志、代码</span><span>记录任务与来源标识</span></div>
+<div class="fig-box start" style="--x:250;--y:0;--w:210;--h:136"><b>2 解析</b><span>OCR、ASR、视觉理解</span><span>切分并抽取结构化信息</span></div>
+<div class="fig-box start" style="--x:500;--y:0;--w:210;--h:136"><b>3 治理</b><span>去重、版本、敏感字段</span><span>权限映射与有效期</span></div>
+<div class="fig-box start" style="--x:750;--y:0;--w:210;--h:136"><b>4 索引</b><span>元数据、全文、向量</span><span>构建可检索的表示</span></div>
+<div class="fig-panel accent" style="--x:0;--y:176;--w:960;--h:174"><header><b>端到端数据血缘</b></header></div>
+<div class="fig-card center" style="--x:16;--y:228;--w:160;--h:56"><b>Source</b></div>
+<div class="fig-card center" style="--x:206;--y:228;--w:160;--h:56"><b>解析版本</b></div>
+<div class="fig-card center" style="--x:396;--y:228;--w:160;--h:56"><b>分块与向量</b></div>
+<div class="fig-card center" style="--x:586;--y:228;--w:160;--h:56"><b>检索命中</b></div>
+<div class="fig-card center" style="--x:776;--y:228;--w:160;--h:56"><b>输出引用</b></div>
+<span class="fig-label muted small" style="--x:16;--y:304">更新或删除时，同步全文、向量、缓存与访问权限。</span>
+</div>
+<figcaption>图 2｜来源引用将每份索引表示关联回原始材料。</figcaption>
+</figure>
 
 更新也要沿着同一条链路传播。替换后的截图应当与上一版有明确关系。材料被删除或失效时，需要更新其检索索引与缓存，避免它继续以当前证据的身份出现。
 
@@ -75,9 +111,24 @@ OceanBase seekdb 在同一引擎中支持向量、全文、关系和 JSON 数据
 2. 搜索线索：匹配精确错误和标识符，再查找语义相关的页面、组件或问题。
 3. 返回来源：附上核对结果所需的图片区域、日志位置、代码路径和版本。
 
-[![seekdb：多路径检索证据](../../../assets/blog/building-durable-project-context/figure-3.png)](../../../assets/blog/building-durable-project-context/figure-3.png "查看大图")
-
-*图 3｜结构化过滤限定范围，关键词与向量检索分别寻找精确和语义匹配。*
+<figure class="fig" id="fig-figure-3">
+<div class="fig-canvas" style="--fw:960;--fh:330" role="img" aria-label="seekdb：多路径检索证据">
+<svg viewBox="0 0 960 330">
+<path class="fig-wire" d="M250 90 L280 90 Q290 90 290 80 L290 42 Q290 32 300 32 L324 32" marker-end="url(#fig-arrow)"/>
+<path class="fig-wire" d="M250 160 L280 160 Q290 160 290 170 L290 198 Q290 208 300 208 L324 208" marker-end="url(#fig-arrow)"/>
+<path class="fig-wire accent" d="M580 32 L810 32 Q820 32 820 42 L820 64" marker-end="url(#fig-arrow-accent)"/>
+<path class="fig-wire accent" d="M580 208 L810 208 Q820 208 820 198 L820 176" marker-end="url(#fig-arrow-accent)"/>
+</svg>
+<div class="fig-box start" style="--x:0;--y:40;--w:250;--h:170"><b>身份授权、项目、有效版本</b><span>关系与 JSON 元数据：</span><span>租户、资源、时间、类型</span></div>
+<div class="fig-box" style="--x:330;--y:0;--w:250;--h:64"><b>全文 · BM25</b></div>
+<span class="fig-label muted small" style="--x:330;--y:72">函数名、错误码、API 名称</span>
+<div class="fig-box" style="--x:330;--y:176;--w:250;--h:64"><b>向量检索</b></div>
+<span class="fig-label muted small" style="--x:330;--y:248">页面语义、相似需求</span>
+<div class="fig-box accent" style="--x:680;--y:70;--w:280;--h:100"><b>融合与重排</b><span>证据分块 + 来源引用</span></div>
+<span class="fig-label muted small" style="--x:0;--y:300">seekdb 统一存储元数据、文本与向量；解析、授权策略与任务相关性由应用负责。</span>
+</div>
+<figcaption>图 3｜结构化过滤限定范围，关键词与向量检索分别寻找精确和语义匹配。</figcaption>
+</figure>
 
 在这一设计中，解析环节生成待索引的文本或向量，seekdb 负责存储和检索这些表示。应用还需要定义材料与版本、项目、访问规则之间的关系。
 
@@ -94,9 +145,15 @@ OceanBase seekdb 在同一引擎中支持向量、全文、关系和 JSON 数据
 - **检索证据**：当前需要的片段，以及来源引用和版本。
 - **长期记忆**：项目决策、稳定偏好，以及值得复用的经验。
 
-[![四类上下文，分别管理生命周期](../../../assets/blog/building-durable-project-context/figure-4.png)](../../../assets/blog/building-durable-project-context/figure-4.png "查看大图")
-
-*图 4｜约束、任务状态、证据和记忆具有不同的更新与保留规则。*
+<figure class="fig" id="fig-figure-4">
+<div class="fig-canvas" style="--fw:960;--fh:336" role="img" aria-label="四类上下文，分别管理生命周期">
+<div class="fig-box tint-4" style="--x:120;--y:0;--w:720;--h:72"><b>持久约束</b><span>用户目标、项目规则与权限边界；始终遵循当前有效的指令。</span></div>
+<div class="fig-box tint-5" style="--x:80;--y:84;--w:800;--h:72"><b>任务状态</b><span>计划、已验证进展、阻塞与下一步；随任务推进更新，支持交接。</span></div>
+<div class="fig-box tint-3" style="--x:40;--y:168;--w:880;--h:72"><b>检索证据</b><span>本轮所需的分块、引用与版本；在上下文预算内按相关性选取。</span></div>
+<div class="fig-box tint-2" style="--x:0;--y:252;--w:960;--h:72"><b>长期记忆</b><span>稳定偏好、项目决策与排障经验；可追溯、可修订，过时即退役。</span></div>
+</div>
+<figcaption>图 4｜约束、任务状态、证据和记忆具有不同的更新与保留规则。</figcaption>
+</figure>
 
 各类信息变化的节奏不同。任务状态需要随着工作推进而更新。证据需要来源和适用版本。项目发生变化时，长期记忆也需要修订或退役。
 
@@ -116,9 +173,20 @@ MiniMax Code 的上下文管理方式包括记忆控制、上下文使用情况�
 
 PowerContext 将这两类需求分为 Memory 和 Handoff。Memory 保留可复用的项目知识，Handoff 组织某项具体任务的状态，让其他人能够继续。
 
-[![PowerContext 延续项目工作](../../../assets/blog/building-durable-project-context/figure-5.png)](../../../assets/blog/building-durable-project-context/figure-5.png "查看大图")
-
-*图 5｜Memory 延续项目知识，Handoff 延续未完成工作的状态。*
+<figure class="fig" id="fig-figure-5">
+<div class="fig-canvas" style="--fw:960;--fh:330" role="img" aria-label="PowerContext 延续项目工作">
+<svg viewBox="0 0 960 330">
+<path class="fig-wire" d="M300 165 L320 165 Q330 165 330 155 L330 59 Q330 49 340 49 L354 49" marker-end="url(#fig-arrow)"/>
+<path class="fig-wire" d="M300 165 L354 165" marker-end="url(#fig-arrow)"/>
+<path class="fig-wire" d="M300 165 L320 165 Q330 165 330 175 L330 271 Q330 281 340 281 L354 281" marker-end="url(#fig-arrow)"/>
+</svg>
+<div class="fig-box solid start" style="--x:0;--y:0;--w:300;--h:330"><b>PowerContext</b><span>在 harness 之外保留可追溯的项目上下文与交接状态。</span><span>当前代码、实时工具状态与上下文压缩仍由宿主负责。</span></div>
+<div class="fig-card" style="--x:360;--y:0;--w:600;--h:98"><b>Source · Memory</b><span>Source 保存证据；Memory 管理可复用的事实、决策及其修订。</span></div>
+<div class="fig-card" style="--x:360;--y:116;--w:600;--h:98"><b>准备的上下文</b><span>为每次请求检索并挑选历史，限制条目数与总预算，保留精确引用。</span></div>
+<div class="fig-card" style="--x:360;--y:232;--w:600;--h:98"><b>Handoff · Outcome</b><span>交接目标、进展、阻塞与下一步；记录结果以便评审和复用经验。</span></div>
+</div>
+<figcaption>图 5｜Memory 延续项目知识，Handoff 延续未完成工作的状态。</figcaption>
+</figure>
 
 MiniMax Code 插件由 Skill 和原生 MCP 配置组成。Skill 指引 Agent 使用 PowerContext，MCP 负责连接 PowerContext Server。插件按照请求保存上下文，不会自动采集每一段对话。
 
@@ -155,9 +223,29 @@ Server 默认使用本地 SQLite 数据库。持久存储独立于 MiniMax Code 
 - **仍然开放**：尚未测试的屏幕尺寸，以及请求失败的待解线索。
 - **下一步行动**：检查当前差异，完成布局验证，并继续排查请求。
 
-[![跨会话交接，恢复时重新核对](../../../assets/blog/building-durable-project-context/figure-6.png)](../../../assets/blog/building-durable-project-context/figure-6.png "查看大图")
-
-*图 6｜交接记录目标、已验证进展、证据、开放问题和下一步行动。*
+<figure class="fig" id="fig-figure-6">
+<div class="fig-canvas" style="--fw:960;--fh:326" role="img" aria-label="跨会话交接，恢复时重新核对">
+<svg viewBox="0 0 960 326">
+<path class="fig-wire accent" d="M240 92 L314 92" marker-end="url(#fig-arrow-accent)"/>
+<path class="fig-wire accent" d="M640 92 L714 92" marker-end="url(#fig-arrow-accent)"/>
+<path class="fig-wire" d="M168 282 L192 282" marker-end="url(#fig-arrow)"/>
+<path class="fig-wire" d="M366 282 L390 282" marker-end="url(#fig-arrow)"/>
+<path class="fig-wire" d="M564 282 L588 282" marker-end="url(#fig-arrow)"/>
+<path class="fig-wire" d="M762 282 L786 282" marker-end="url(#fig-arrow)"/>
+</svg>
+<div class="fig-box" style="--x:0;--y:60;--w:240;--h:64"><b>调查 Agent</b></div>
+<span class="fig-label muted small wrap" style="--x:0;--y:136;--w:240">整理证据与观察，确认交接</span>
+<div class="fig-card accent" style="--x:320;--y:0;--w:320;--h:184"><b>可检查的交接记录</b><span>目标与范围</span><span>已验证的进展与代码状态</span><span>阻塞、风险与下一步</span><span>证据引用与精确版本</span></div>
+<div class="fig-box" style="--x:720;--y:60;--w:240;--h:64"><b>执行与验证 Agent</b></div>
+<span class="fig-label muted small wrap" style="--x:720;--y:136;--w:240">先复核当前工作区，再执行、测试与确认</span>
+<div class="fig-box fill" style="--x:0;--y:254;--w:168;--h:56"><b>结果</b></div>
+<div class="fig-box fill" style="--x:198;--y:254;--w:168;--h:56"><b>候选经验</b></div>
+<div class="fig-box fill" style="--x:396;--y:254;--w:168;--h:56"><b>人工评审</b></div>
+<div class="fig-box fill" style="--x:594;--y:254;--w:168;--h:56"><b>可复用经验</b></div>
+<div class="fig-box" style="--x:792;--y:254;--w:168;--h:56"><b>显式导出 Skill</b></div>
+</div>
+<figcaption>图 6｜交接记录目标、已验证进展、证据、开放问题和下一步行动。</figcaption>
+</figure>
 
 先准备一份临时交接：
 
@@ -183,9 +271,20 @@ Server 默认使用本地 SQLite 数据库。持久存储独立于 MiniMax Code 
 
 可以选一个用到截图或日志、需要跨会话完成的任务来尝试。检查检索是否指向正确来源、修改是否通过验收，以及恢复工作时是否避免了重复调查已经验证的事项。
 
-[![用真实任务验证收益](../../../assets/blog/building-durable-project-context/figure-7.png)](../../../assets/blog/building-durable-project-context/figure-7.png "查看大图")
-
-*图 7｜通过证据质量、验证结果和恢复所需的工作量评估流程。*
+<figure class="fig" id="fig-figure-7">
+<div class="fig-canvas" style="--fw:960;--fh:330" role="img" aria-label="用真实任务验证收益">
+<svg viewBox="0 0 960 330">
+<path class="fig-wire" d="M300 165 L320 165 Q330 165 330 155 L330 59 Q330 49 340 49 L354 49" marker-end="url(#fig-arrow)"/>
+<path class="fig-wire" d="M300 165 L354 165" marker-end="url(#fig-arrow)"/>
+<path class="fig-wire" d="M300 165 L320 165 Q330 165 330 175 L330 271 Q330 281 340 281 L354 281" marker-end="url(#fig-arrow)"/>
+</svg>
+<div class="fig-box fill start" style="--x:0;--y:0;--w:300;--h:330"><b>用真实任务验证收益</b><span>固定模型、任务集、环境与预算。</span><span>对比四种配置：基线、检索增强、上下文增强、两者结合。</span></div>
+<div class="fig-card" style="--x:360;--y:0;--w:600;--h:98"><b>任务质量</b><span>任务成功率、测试结果与人工修正，失败、超时与重跑都计入指标。</span></div>
+<div class="fig-card" style="--x:360;--y:116;--w:600;--h:98"><b>证据质量</b><span>引用准确性、过期结果与越权检索；检查来源可追溯与版本一致性。</span></div>
+<div class="fig-card" style="--x:360;--y:232;--w:600;--h:98"><b>连续性与成本</b><span>恢复时间、重复排查与输入 token；同时跟踪 p95 端到端延迟与工具错误。</span></div>
+</div>
+<figcaption>图 7｜通过证据质量、验证结果和恢复所需的工作量评估流程。</figcaption>
+</figure>
 
 PowerContext 插件已经上架 MiniMax 官方插件市场。使用前需要准备 MiniMax Code、Python 3.11 或更新版本，以及 `uv`：
 

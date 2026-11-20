@@ -18,7 +18,6 @@ import { ExternalLink } from 'lucide-react';
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import type { ReactNode } from 'react';
-import { buttonVariants } from 'fumadocs-ui/components/ui/button';
 import { DocsDescription, DocsTitle } from 'fumadocs-ui/layouts/docs/page';
 import { HomeLayout } from 'fumadocs-ui/layouts/home';
 import { LocomoComposition, LocomoTradeoffChart, SwePairedChart } from '@/components/benchmark-charts';
@@ -29,6 +28,7 @@ import { getBenchmarkContent } from '@/lib/benchmark-content';
 import { isLanguage } from '@/lib/i18n';
 import { baseOptions } from '@/lib/site';
 import { pageMetadata } from '@/lib/metadata';
+import { buttonClasses } from '@astrafoundry/design/ui';
 
 const pageCopy = {
   en: {
@@ -86,9 +86,9 @@ function ChartTitle({ children, detail }: { children: ReactNode; detail: string 
 
 function SectionHeader({ children, description }: { children: ReactNode; description: string }) {
   return (
-    <header className="prose max-w-3xl">
-      <h2>{children}</h2>
-      <p className="text-fd-muted-foreground">{description}</p>
+    <header className="grid max-w-3xl gap-3">
+      <h2 className="font-display text-3xl leading-tight font-normal tracking-[-0.015em] text-balance">{children}</h2>
+      <p className="text-pretty text-fd-muted-foreground">{description}</p>
     </header>
   );
 }
@@ -110,14 +110,14 @@ export default async function BenchmarksPage({ params }: PageProps) {
         <section>
           <div className="mx-auto grid w-full max-w-(--fd-layout-width) items-center gap-12 px-4 py-16 lg:grid-cols-3 lg:py-20">
             <header className="grid gap-4">
-              <p className="text-fd-primary">{benchmark.hero.label}</p>
-              <DocsTitle>
+              <DocsTitle className="font-display text-4xl leading-[1.05] font-normal tracking-[-0.02em] sm:text-5xl">
+                <span className="sr-only">{benchmark.hero.label}: </span>
                 {benchmark.hero.title.map((line) => <span className="block" key={line}>{line}</span>)}
               </DocsTitle>
               <DocsDescription className="mb-0">{benchmark.hero.lead}</DocsDescription>
               <nav aria-label={benchmark.hero.actions_label} className="flex flex-wrap gap-x-5 gap-y-2 text-sm">
                 {benchmark.hero.actions.map((action) => (
-                  <a className="text-fd-primary hover:underline" href={`#${action.target}`} key={action.target}>{action.label} ↓</a>
+                  <a className="text-fd-muted-foreground underline decoration-1 underline-offset-[0.2em] transition-colors hover:text-fd-foreground" href={`#${action.target}`} key={action.target}>{action.label} ↓</a>
                 ))}
               </nav>
             </header>
@@ -141,7 +141,7 @@ export default async function BenchmarksPage({ params }: PageProps) {
               <div>
                 <ChartTitle detail={text.resultScope}>{text.resultTitle}</ChartTitle>
                 <div className="prose">
-                  <p><strong className="text-fd-primary">{text.resultValue}</strong></p>
+                  <p><strong className="text-primary-text">{text.resultValue}</strong></p>
                   <p className="text-fd-muted-foreground">{text.resultSummary}</p>
                 </div>
               </div>
@@ -161,14 +161,14 @@ export default async function BenchmarksPage({ params }: PageProps) {
             <div className="grid min-w-0 gap-6 lg:col-span-2">
               <p className="text-sm leading-relaxed text-fd-muted-foreground">{plus.provenance_note}</p>
               <div className="grid gap-4 sm:grid-cols-2">
-                <div className="rounded-xl border border-fd-border p-5">
+                <div className="rounded-xl border border-fd-border bg-fd-card p-5">
                   <p className="text-sm text-fd-muted-foreground">{plus.best_label}</p>
-                  <p className="mt-2 text-3xl font-semibold tracking-tight tabular-nums">{`${bestJev.jev}%`}</p>
+                  <p className="mt-2 font-display text-4xl tracking-tight tabular-nums">{`${bestJev.jev}%`}</p>
                   <p className="mt-2 text-xs text-fd-muted-foreground">{bestJev.model} · PowerContext + Jev</p>
                 </div>
-                <div className="rounded-xl border border-fd-primary/20 bg-fd-primary/8 p-5">
+                <div className="rounded-xl border border-fd-border bg-fd-card p-5">
                   <p className="text-sm text-fd-muted-foreground">{plus.gain_label}</p>
-                  <p className="mt-2 text-3xl font-semibold tracking-tight text-fd-primary tabular-nums">{`+${(largestGain.jev - largestGain.baseline).toFixed(3)}`}</p>
+                  <p className="mt-2 font-display text-4xl tracking-tight tabular-nums">{`+${(largestGain.jev - largestGain.baseline).toFixed(3)}`}</p>
                   <p className="mt-2 text-xs text-fd-muted-foreground">{largestGain.model} · {plus.points_label}</p>
                 </div>
               </div>
@@ -187,8 +187,8 @@ export default async function BenchmarksPage({ params }: PageProps) {
                       <tr className="border-b border-fd-border last:border-0" key={row.model}>
                         <th className="whitespace-nowrap px-4 py-5 text-left font-medium" scope="row">{row.model}</th>
                         <td className="px-4 py-5 tabular-nums text-fd-muted-foreground">{`${row.baseline}%`}</td>
-                        <td className="bg-fd-primary/8 px-4 py-5 font-semibold tabular-nums">{`${row.jev}%`}</td>
-                        <td className="whitespace-nowrap px-4 py-5 text-fd-primary tabular-nums">
+                        <td className="bg-primary/8 px-4 py-5 font-semibold tabular-nums">{`${row.jev}%`}</td>
+                        <td className="whitespace-nowrap px-4 py-5 text-primary-text tabular-nums">
                           {`+${(row.jev - row.baseline).toFixed(3)}`}
                           <span className="mt-1 block text-xs text-fd-muted-foreground">{plus.points_label}</span>
                         </td>
@@ -227,7 +227,7 @@ export default async function BenchmarksPage({ params }: PageProps) {
             <div className="grid gap-10 lg:col-span-2">
               {benchmark.sources.groups.map((group) => (
                 <section aria-labelledby={`method-${group.id}`} className="grid gap-4" key={group.id}>
-                  <h3 className="font-medium text-fd-primary" id={`method-${group.id}`}>
+                  <h3 className="font-medium" id={`method-${group.id}`}>
                     {group.title}
                   </h3>
                   <div className="grid gap-7 sm:grid-cols-2">
@@ -243,12 +243,12 @@ export default async function BenchmarksPage({ params }: PageProps) {
             </div>
           </section>
 
-          <section className="mt-16 flex flex-col justify-between gap-7 bg-fd-primary/8 p-8 md:flex-row md:items-center">
+          <section className="mt-16 flex flex-col justify-between gap-7 rounded-3xl border border-fd-border bg-fd-card p-8 md:flex-row md:items-center md:p-10">
             <div className="prose">
               <h2>{benchmark.cta.title}</h2>
               <p className="max-w-2xl text-fd-muted-foreground">{benchmark.cta.lead}</p>
             </div>
-            <a className={buttonVariants({ variant: 'primary' })} href={benchmark.cta.href} rel="noreferrer" target="_blank">
+            <a className={buttonClasses('primary', 'md')} href={benchmark.cta.href} rel="noreferrer" target="_blank">
               {benchmark.cta.label} <ExternalLink aria-hidden="true" className="size-4" />
             </a>
           </section>

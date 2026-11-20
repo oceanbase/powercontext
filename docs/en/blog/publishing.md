@@ -63,9 +63,9 @@ The cover appears in featured stories, article lists, the article header, and so
 
 ## Body figures and language
 
-Text-free covers and illustrations may be shared. Diagrams and charts with explanatory text require separate localized assets, such as `.zh.svg` and `.en.svg`, referenced by the corresponding Markdown language. Both versions must preserve the same data, flows, colors and layout; keep API identifiers, code and product names unchanged. Use Markdown text for section headings instead of heading images.
+Text-free covers and illustrations may be shared. Diagrams with words, such as flowcharts, architecture and state diagrams, are not images: they are static HTML figures built with the site's figure kit, written into each language's Markdown. Their text is real text that follows the theme. Both editions keep the same `id`, structure, colors and layout and change only the words; keep API identifiers, code and product names unchanged. The [`blog-figures` skill](../../../.claude/skills/blog-figures/SKILL.md) is the complete procedure: when a figure is HTML, the parts and what each color means, layout, captions, the layout helper, preview and checks. Use Markdown text for section headings instead of heading images.
 
-When source artwork is explicitly requested, preserve it unchanged in both editions and localize its alternative text and captions. The MiniMax Code article uses the nine original OceanBase figures.
+HTML in a post must be static: `<script>`, `<style>`, `<iframe>`, `<object>`, `<embed>`, `<link>` and `on*` attributes fail the build. A figure is one HTML block, with no blank lines inside it.
 
 Natural-language prompts, code comments, sample questions and link destinations must match the article language. Preserve executable syntax, API identifiers and product names. Original product screenshots may retain their interface language, but must have localized alternative text and captions identifying them as original screenshots. Review image text as well as Markdown before publishing.
 
@@ -83,7 +83,7 @@ The original site navigation, language switch, theme, and footer are reused. Blo
 
 ## Preview and validation
 
-From the repository root, run `make docs` to preview the site. After content edits, restart the preview to regenerate Markdown content. Open the HTTP preview URL; source templates are not standalone web pages.
+From the repository root, run `make docs` to preview the site. After content edits, restart the preview or run `pnpm --dir website exec tsx scripts/generate-blog.ts` to regenerate Markdown content. Open the HTTP preview URL; source templates are not standalone web pages.
 
 Before delivery, run:
 

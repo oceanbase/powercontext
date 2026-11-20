@@ -4,8 +4,8 @@ description: Shared memory and session handoff service for coding agents. Keep p
 home:
   hero:
     title:
-      - Shared memory and handoff
-      - for your coding agents.
+      - Powerful context and memory
+      - for your {agents} agents.
     lead: PowerContext is a local context service that stores your project's decisions, constraints, verified checks, and task progress. Switch between Claude Code, Codex, or teammates and pick up directly from the latest state.
     action:
       label: Install and get started

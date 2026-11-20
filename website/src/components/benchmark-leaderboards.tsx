@@ -60,7 +60,7 @@ function ResultBar({ highlight = false, value }: { highlight?: boolean; value: n
   return (
     <span className="block h-2 bg-fd-muted">
       <span
-        className={`block h-full ${highlight ? 'bg-fd-primary' : 'bg-fd-foreground'}`}
+        className={`block h-full ${highlight ? 'bg-primary' : 'bg-fd-foreground'}`}
         style={{ width: `${value}%` }}
       />
     </span>
@@ -85,7 +85,7 @@ function LocomoResults({ benchmark, lang }: { benchmark: BenchmarkContent; lang:
               <span className="col-span-1 text-right text-xs tabular-nums text-fd-muted-foreground">{row.rank}</span>
               <span className="col-span-4 min-w-0 leading-tight">
                 <a
-                  className={`block truncate text-sm hover:text-fd-primary ${row.highlight ? 'font-medium text-fd-primary' : ''}`}
+                  className={`block truncate text-sm hover:text-fd-foreground ${row.highlight ? 'font-medium text-primary-text' : ''}`}
                   href={row.source}
                   rel="noreferrer"
                   target="_blank"
@@ -94,7 +94,7 @@ function LocomoResults({ benchmark, lang }: { benchmark: BenchmarkContent; lang:
                   {row.name}
                 </a>
                 <span
-                  className={`mt-1 inline-block max-w-full truncate px-1.5 py-0.5 text-xs ${row.highlight ? 'bg-fd-primary/10 text-fd-primary' : 'bg-fd-muted text-fd-muted-foreground'}`}
+                  className={`mt-1 inline-block max-w-full truncate px-1.5 py-0.5 text-xs ${row.highlight ? 'bg-primary/10 text-primary-text' : 'bg-fd-muted text-fd-muted-foreground'}`}
                   title={row.protocol}
                 >
                   {row.evidence}
@@ -103,7 +103,7 @@ function LocomoResults({ benchmark, lang }: { benchmark: BenchmarkContent; lang:
               <span className="col-span-5">
                 <ResultBar highlight={row.highlight} value={percentage(row.score)} />
               </span>
-              <strong className={`col-span-2 text-right text-sm font-medium tabular-nums ${row.highlight ? 'text-fd-primary' : ''}`}>
+              <strong className={`col-span-2 text-right text-sm font-medium tabular-nums ${row.highlight ? 'text-primary-text' : ''}`}>
                 {row.score}
               </strong>
             </li>
@@ -125,16 +125,16 @@ function LocomoPlusResults({ benchmark }: { benchmark: BenchmarkContent }) {
   return (
     <div aria-labelledby="locomo-plus-results-tab" id="locomo-plus-results-panel" role="tabpanel">
       {spotlight && (
-        <section className="mb-6 bg-fd-primary/10 p-4" aria-label={board.spotlight.title}>
+        <section className="mb-6 bg-primary/10 p-4" aria-label={board.spotlight.title}>
           <div className="flex flex-wrap items-baseline justify-between gap-2 text-sm">
             <strong className="font-medium">{board.spotlight.title}</strong>
-            <a className="text-fd-primary underline underline-offset-4" href="#locomo-plus">{board.spotlight.link_label}</a>
+            <a className="text-primary-text underline underline-offset-4" href="#locomo-plus">{board.spotlight.link_label}</a>
           </div>
           <dl className="mt-4 grid grid-cols-2 gap-4">
             {(['baseline', 'jev'] as const).map((kind) => (
               <div key={kind}>
                 <dt className="text-xs text-fd-muted-foreground">{experiment.columns[kind]}</dt>
-                <dd className="mt-1 text-2xl font-medium tabular-nums text-fd-primary">{`${spotlight[kind]}%`}</dd>
+                <dd className="mt-1 text-2xl font-medium tabular-nums text-primary-text">{`${spotlight[kind]}%`}</dd>
               </div>
             ))}
           </dl>
@@ -153,12 +153,12 @@ function LocomoPlusResults({ benchmark }: { benchmark: BenchmarkContent }) {
           {board.rows.map((row) => (
             <li className="grid grid-cols-12 items-center gap-x-2 gap-y-2 py-3" key={row.name}>
               <span className="col-span-5 min-w-0 text-sm font-medium">
-                <a className="hover:text-fd-primary" href={row.source} rel="noreferrer" target="_blank">{row.name}</a>
+                <a className="hover:text-fd-foreground" href={row.source} rel="noreferrer" target="_blank">{row.name}</a>
               </span>
               <span aria-hidden="true" className="col-span-5"><ResultBar value={percentage(row.score)} /></span>
               <strong className="col-span-2 text-right text-sm font-medium tabular-nums">{row.score}</strong>
               <div className="col-span-12 flex flex-wrap items-baseline gap-x-3 gap-y-1 text-xs text-fd-muted-foreground">
-                <a className="bg-fd-muted px-1.5 py-0.5 hover:text-fd-primary" href={row.source} rel="noreferrer" target="_blank">{row.evidence}</a>
+                <a className="bg-fd-muted px-1.5 py-0.5 hover:text-fd-foreground" href={row.source} rel="noreferrer" target="_blank">{row.evidence}</a>
                 <span>{row.protocol}</span>
               </div>
             </li>
@@ -175,7 +175,7 @@ function SweResults({ benchmark, lang }: { benchmark: BenchmarkContent; lang: 'e
 
   return (
     <div aria-labelledby="swe-results-tab" id="swe-results-panel" role="tabpanel">
-      <section className="mb-4 bg-fd-primary/10 p-4" aria-label={board.spotlight.label}>
+      <section className="mb-4 bg-primary/10 p-4" aria-label={board.spotlight.label}>
         <div className="flex flex-col justify-between gap-1 text-sm sm:flex-row">
           <strong className="font-medium">{board.spotlight.label}</strong>
           <span className="text-fd-muted-foreground">{copy[lang].independentRun}</span>
@@ -189,13 +189,13 @@ function SweResults({ benchmark, lang }: { benchmark: BenchmarkContent; lang: 'e
                 className="grid min-h-9 grid-cols-12 items-center gap-1.5 sm:gap-2"
                 key={score.kind}
               >
-                <span className="col-span-5 text-sm text-fd-primary">{score.kind.toUpperCase()} · {score.count} / {benchmark.swe.task_count}</span>
+                <span className="col-span-5 text-sm text-primary-text">{score.kind.toUpperCase()} · {score.count} / {benchmark.swe.task_count}</span>
                 <span className="col-span-5">
                   <span className="block h-2 bg-fd-muted">
-                    <span className={`block h-full ${score.kind === 'on' ? 'bg-fd-primary' : 'bg-fd-primary/40'}`} style={{ width: `${value}%` }} />
+                    <span className={`block h-full ${score.kind === 'on' ? 'bg-primary' : 'bg-primary/40'}`} style={{ width: `${value}%` }} />
                   </span>
                 </span>
-                <strong className="col-span-2 text-right text-sm font-medium tabular-nums text-fd-primary">{value.toFixed(2)}%</strong>
+                <strong className="col-span-2 text-right text-sm font-medium tabular-nums text-primary-text">{value.toFixed(2)}%</strong>
               </div>
             );
           })}

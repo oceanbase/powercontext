@@ -53,7 +53,7 @@ def test_full_size_figure_links_require_exported_image_files() -> None:
     pnpm = shutil.which("pnpm")
     assert pnpm
     output = WEBSITE / "out"
-    image = next((output / "docs-assets/blog").rglob("*.en.svg"))
+    image = next((output / "docs-assets/blog").rglob("*.png"))
     image_url = "/" + image.relative_to(output).as_posix()
     with TemporaryDirectory(prefix="figure-link-check-", dir=output) as directory:
         page = Path(directory) / "index.html"
@@ -93,10 +93,11 @@ def test_exported_blog_and_original_pages() -> None:
             assert (WEBSITE / "out" / cover_url.lstrip("/")).is_file()
             assert 'property="og:image"' in article
             if post["slug"] == "building-durable-project-context":
-                for number in range(1, 10):
-                    original = f"/docs-assets/blog/{post['slug']}/figure-{number}.png"
-                    assert f'src="{original}"' in article
-                assert not re.search(r"building-durable-project-context/figure-\d+\.(?:en|zh)\.svg", article)
+                # Diagrams are HTML figures; the two product screenshots stay images.
+                for number in range(1, 8):
+                    assert f'id="fig-figure-{number}"' in article
+                for number in (8, 9):
+                    assert f'src="/docs-assets/blog/{post["slug"]}/figure-{number}.png"' in article
             for author_id in post["authors"]:
                 author = content[language]["authors"][author_id]
                 assert author["name"] in article
@@ -122,35 +123,17 @@ def test_exported_blog_and_original_pages() -> None:
 def test_blog_language_is_consistent_in_text_examples_and_diagrams() -> None:
     """Catch untranslated prompts/comments and accidental cross-language image reuse."""
     original_images = {
-        # Preserve the supplied MiniMax article artwork in both editions.
-        *(f"building-durable-project-context/figure-{number}.png" for number in range(1, 10)),
+        # Product screenshots keep their interface language in both editions.
+        *(f"building-durable-project-context/figure-{number}.png" for number in (8, 9)),
         "deepseek-harness-powercontext/dsh-web.png",
         "deepseek-harness-powercontext/plugin-list.png",
         "deepseek-harness-powercontext/pc-command.png",
-        # These supplied diagrams are intentionally shared by both locales.
-        "power-system-agent-memory/memory.svg",
-        "power-system-agent-memory/memory-validation.svg",
-        "power-system-agent-memory/task-lifecycle.svg",
-        "power-system-agent-memory/diagnosis-workflow.svg",
-        "power-system-agent-memory/task-recovery.svg",
-        "power-system-agent-memory/power-system-agent-architecture.png",
         # Preserve the reviewed project screenshots, paired by interface language.
         *(
             f"magpie-gateway-powercontext-memory/{name}.{language}.png"
             for name in ("magpie-agents", "magpie-routing", "powercontext-memory", "powercontext-handoff")
             for language in ("en", "zh")
         ),
-        # The Harbor article deliberately shares English architecture figures across editions.
-        "harbor-context-evaluation-harness/coding-verification.png",
-        "harbor-context-evaluation-harness/harbor-integration.png",
-        "harbor-context-evaluation-harness/history-continuation.png",
-        "harbor-context-evaluation-harness/task-batching.png",
-        # The competition article deliberately shares English architecture figures.
-        "three-days-four-thousand-evaluations/trial-and-submission.png",
-        "three-days-four-thousand-evaluations/submission-lifecycle.png",
-        "three-days-four-thousand-evaluations/preparation-and-verifiers.png",
-        "three-days-four-thousand-evaluations/shared-dependencies.png",
-        "three-days-four-thousand-evaluations/recovery-and-delivery.png",
     }
     han = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff]")
     for language in ("en", "zh"):
@@ -177,14 +160,27 @@ def test_blog_language_is_consistent_in_text_examples_and_diagrams() -> None:
                     assert not han.search(svg), f"Untranslated diagram text in {asset}"
 
 
+def test_html_figures_are_paired_and_labelled() -> None:
+    """Every diagram written as an HTML figure exists in both editions, each with an accessible label."""
+    figure = re.compile(
+        r'<figure class="fig" id="([a-z0-9-]+)">\n<div class="fig-canvas" style="--fw:\d+;--fh:\d+" role="img" aria-label="([^"]+)">'
+    )
+    for source in (ROOT / "docs/en/blog/posts").rglob("*.md"):
+        counterpart = ROOT / "docs/zh/blog/posts" / source.name
+        english = figure.findall(source.read_text(encoding="utf-8"))
+        chinese = figure.findall(counterpart.read_text(encoding="utf-8"))
+        assert [name for name, _ in english] == [name for name, _ in chinese], source.name
+        assert len({name for name, _ in english}) == len(english), f"Duplicate figure ids in {source.name}"
+
+
 @pytest.mark.usefixtures("built_blog_site")
 @pytest.mark.parametrize("language", ("en", "zh"))
-def test_power_system_flowcharts_render_as_images(language: str) -> None:
-    """Keep the article's flowcharts visible without requiring a Mermaid renderer."""
+def test_power_system_diagrams_render_as_html_figures(language: str) -> None:
+    """Keep the article's flowcharts visible as text, without a Mermaid renderer or image files."""
     output = WEBSITE / "out"
     article = (output / language / "blog/power-system-agent-memory/index.html").read_text(encoding="utf-8")
-    assert "language-mermaid" not in article, "Flowcharts must render as images, not diagram source"
-    for figure in ("memory-validation", "task-lifecycle", "diagnosis-workflow"):
-        figure_url = f"/docs-assets/blog/power-system-agent-memory/{figure}.svg"
-        assert f'src="{figure_url}"' in article
-        assert (output / figure_url.lstrip("/")).is_file()
+    assert "language-mermaid" not in article, "Flowcharts must render as figures, not diagram source"
+    for name in ("memory-validation", "task-lifecycle", "diagnosis-workflow"):
+        assert f'id="fig-{name}"' in article
+    assert 'marker-end="url(#fig-arrow' in article
+    assert 'id="fig-arrow"' in article, "Arrowheads are defined once per article"

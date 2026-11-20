@@ -14,30 +14,45 @@
  * limitations under the License.
  */
 
-import { MarkdownCopyButton } from 'fumadocs-ui/layouts/docs/page';
+import { CopyPageButton } from './copy-page-button';
 import { getPageMarkdownUrl } from '@/lib/markdown';
 import { source } from '@/lib/source';
+import { isLanguage } from '@/lib/i18n';
 import { absoluteSiteUrl, withBasePath } from '@/lib/urls';
 import { StructuredData } from './structured-data';
 
-export function ContentPageActions({ page }: { page: ReturnType<typeof source.getPages>[number] }) {
+type ContentPage = ReturnType<typeof source.getPages>[number];
+
+/** The page's breadcrumb trail as structured data. */
+export function ContentPageActions({ page }: { page: ContentPage }) {
   const lang = page.locale ?? 'en';
   const parents = page.slugs.flatMap((_, index) => {
     const parent = source.getPage(page.slugs.slice(0, index + 1), lang);
     return parent ? [{ name: parent.data.title, url: absoluteSiteUrl(`${parent.url.replace(/\/$/, '')}/`) }] : [];
   });
   const breadcrumbs = [{ name: 'PowerContext', url: absoluteSiteUrl(lang === 'en' ? '/' : '/zh/') }, ...parents];
-  const markdown = withBasePath(getPageMarkdownUrl(page).url);
-  return <>
+  return (
     <StructuredData data={{
       '@context': 'https://schema.org', '@type': 'BreadcrumbList',
       itemListElement: breadcrumbs.map((item, index) => ({
         '@type': 'ListItem', position: index + 1, name: item.name, item: item.url,
       })),
     }} />
-    <div className="mb-4 flex items-center gap-3 text-sm text-fd-muted-foreground">
-      <MarkdownCopyButton markdownUrl={markdown} />
-      <a href={markdown} className="underline underline-offset-4">{lang === 'zh' ? '查看 Markdown' : 'View Markdown'}</a>
-    </div>
-  </>;
+  );
+}
+
+/**
+ * DocsPage options: no breadcrumb kicker over the title, and the one page
+ * action, Copy page, at the top of the table of contents and in the phone
+ * contents popover.
+ */
+export function pageActionOptions(page: ContentPage) {
+  const lang = page.locale && isLanguage(page.locale) ? page.locale : 'en';
+  const button = <CopyPageButton lang={lang} markdownUrl={withBasePath(getPageMarkdownUrl(page).url)} />;
+  return {
+    // The sidebar already shows where the page sits; no breadcrumb over the title.
+    breadcrumb: { enabled: false },
+    tableOfContent: { header: <div className="pc-toc-actions">{button}</div> },
+    tableOfContentPopover: { footer: <div className="pc-toc-actions">{button}</div> },
+  };
 }

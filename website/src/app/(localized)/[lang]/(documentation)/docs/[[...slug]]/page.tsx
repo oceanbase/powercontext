@@ -21,7 +21,7 @@ import { createPageLink, getMDXComponents } from '@/components/mdx';
 import { isLanguage, languages } from '@/lib/i18n';
 import { source } from '@/lib/source';
 import { contentMetadata } from '@/lib/content-seo';
-import { ContentPageActions } from '@/components/content-page-actions';
+import { ContentPageActions, pageActionOptions } from '@/components/content-page-actions';
 
 interface PageProps {
   params: Promise<{ lang: string; slug?: string[] }>;
@@ -41,7 +41,7 @@ export default async function DocumentationPage({ params }: PageProps) {
   const isOverview = !slug?.length;
   const hasBodyTitle = page.data.toc.some((item) => item.depth === 1);
   return (
-    <DocsPage full={page.data.full} toc={page.data.toc}>
+    <DocsPage full={page.data.full} toc={page.data.toc} {...pageActionOptions(page)}>
       {!hasBodyTitle ? <DocsTitle>{page.data.title}</DocsTitle> : null}
       {isOverview ? <DocsDescription>{page.data.description}</DocsDescription> : null}
       <ContentPageActions page={page} />

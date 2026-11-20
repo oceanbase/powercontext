@@ -18,9 +18,9 @@
 
 import { useEffect, useState } from 'react';
 import { Star } from 'lucide-react';
-import { buttonVariants } from 'fumadocs-ui/components/ui/button';
 import { loadGitHubStars } from '@/lib/github-stars';
 import type { Language } from '@/lib/i18n';
+import { buttonClasses } from '@astrafoundry/design/ui';
 
 export function GitHubStarButton({ url, label, lang, initialCount }: {
   url: string;
@@ -46,11 +46,11 @@ export function GitHubStarButton({ url, label, lang, initialCount }: {
     target="_blank"
     rel="noopener noreferrer"
     aria-label={`${label}${displayCount === null ? '' : ` · ${displayCount} stars`}`}
-    className={buttonVariants({ variant: 'outline', className: 'gap-2 whitespace-nowrap' })}
+    className={buttonClasses('secondary', 'lg')}
   >
     <Star aria-hidden="true" className="size-4" />
     <span className="hidden min-[400px]:inline">{label}</span>
     <span className="min-[400px]:hidden">Star</span>
-    {displayCount !== null && <span className="hidden text-xs font-normal text-fd-muted-foreground tabular-nums sm:inline">{displayCount}</span>}
+    {displayCount !== null && <span className="hidden text-sm font-normal text-muted-foreground tabular-nums sm:inline">{displayCount}</span>}
   </a>;
 }
