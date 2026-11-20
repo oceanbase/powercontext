@@ -53,8 +53,9 @@ profile ID 或 dimension 来绕过不匹配错误。
 
 ## 4. 重建 Topic Memory 向量索引
 
-Topic Memory 可以迁移到当前配置的目标 profile，无需删除其 Artifact。命令会重新嵌入每个活跃 Topic 的
-标题/摘要和每个活跃 chunk，然后激活新的冻结检索形状。权威 Artifact 内容、Topic 与 chunk 的身份、版本和文本均不改变。
+在 SQLite 和嵌入式 SeekDB 上，Topic Memory 可以迁移到当前配置的目标 profile，无需删除其 Artifact。命令会重新嵌入
+每个活跃 Topic 的标题/摘要和每个活跃 chunk，然后激活新的冻结检索形状。权威 Artifact 内容、Topic 与 chunk 的
+身份、版本和文本均不改变。
 
 执行迁移前，停止所有 API、host 和 Worker，并暂停全部 Topic 写入。先检查现有数据库与目标 profile：
 
@@ -62,7 +63,9 @@ Topic Memory 可以迁移到当前配置的目标 profile，无需删除其 Arti
 powercontext server topic-memory-reindex --action dry-run
 ```
 
-默认操作就是 dry-run。它不会初始化 embedding provider、调用模型、创建暂存表或修改数据库。检查就绪后，对同一目标配置执行：
+默认操作就是 dry-run。它不会初始化 embedding provider、调用模型、创建暂存表或修改数据库。托管 OceanBase 不支持
+apply：其只读 dry-run 会报告这个确定性 blocker，并返回 `ready: false`。请保留当前 embedding profile 或新建启用
+向量的部署，不要继续执行 apply。对于 SQLite 和嵌入式 SeekDB，只有检查返回 `ready: true` 后，才对同一目标配置执行：
 
 ```bash
 powercontext server topic-memory-reindex --action apply --maintenance-confirmed --batch-size 25
@@ -76,17 +79,18 @@ apply 命令，即可续用已经完整暂存的版本。只有待处理的 Topi
 
 apply 要求托管存储已经启用向量。初始化时没有 embedding profile 的托管部署没有共享向量表，也没有存储的 profile
 声明，因此命令会在写入任何暂存数据前拒绝执行；请保留该仅 FTS 部署，或新建一个启用向量的部署。对于托管 SQLite 或
-SeekDB 部署，命令会把已接受的 profile 切换作为待完成转换记录到外部维护日志中，而不会改写已经发布的迁移 release
+嵌入式 SeekDB 部署，命令会把已接受的 profile 切换作为待完成转换记录到外部维护日志中，而不会改写已经发布的迁移 release
 checksum；只有配置好的 Server 启动计划接受激活后的存储后，才把该转换标记为完成。维护日志不在默认相邻目录时，
 必须传入部署使用的 `--evidence-dir`；如果所选目录缺少维护日志，apply 会在暂存、推理或写入存储前拒绝执行。
 如果命令在激活提交后中断，请重新执行同一 apply 命令；待完成转换会让它继续完成。
 
-激活前发生失败会保留旧形状和旧活跃向量。OceanBase 与 SeekDB 会保留上一代派生向量表，直到激活后的向量和共享存储声明通过验证。
+激活前发生失败会保留旧形状和旧活跃向量。嵌入式 SeekDB 会保留上一代派生向量表，直到激活后的向量和共享存储声明通过验证。
 如果激活后的验证或清理失败，请在维护模式下重新执行同一 apply 命令，完成验证与恢复后才丢弃上一代数据。
 
 对于托管 Server 存储，Atomic Memory 与 Topic Memory 共享声明的 embedding profile。默认情况下，此命令不会重新嵌入
-Atomic Memory：Atomic 投影不兼容，或 OceanBase Atomic 向量物理列不兼容时，激活会被阻止。如果托管迁移还需要重建
-Atomic Memory，必须在 dry-run 以及每次 apply 或恢复调用中显式添加 `--rebuild-atomic-memory`：
+Atomic Memory：在受支持的 apply backend 上，Atomic 投影不兼容或原生 Atomic 向量物理列不兼容时，激活会被阻止。
+如果 SQLite 或嵌入式 SeekDB 迁移还需要重建 Atomic Memory，必须在 dry-run 以及每次 apply 或恢复调用中显式添加
+`--rebuild-atomic-memory`：
 
 ```bash
 powercontext server topic-memory-reindex --action apply --maintenance-confirmed \

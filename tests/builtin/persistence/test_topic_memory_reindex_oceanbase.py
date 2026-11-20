@@ -320,7 +320,7 @@ def test_supported_native_atomic_rebuilds_remain_ready(
 
 
 @pytest.mark.parametrize("dry_run", [False, True], ids=["apply", "dry-run"])
-def test_managed_oceanbase_dry_run_is_ready_but_apply_is_rejected_before_writes(
+def test_managed_oceanbase_dry_run_and_apply_report_the_same_blocker_before_writes(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
@@ -347,8 +347,8 @@ def test_managed_oceanbase_dry_run_is_ready_but_apply_is_rejected_before_writes(
 
     monkeypatch.setattr(OceanBaseProfile, "open", lambda *_args, **_kwargs: open_profile())
     monkeypatch.setattr(OceanBaseProfile, "open_existing", lambda *_args, **_kwargs: open_profile())
-    provider = AsyncMock(side_effect=AssertionError("a rejected apply must not initialize inference"))
-    writes = AsyncMock(side_effect=AssertionError("a rejected apply must not write storage"))
+    provider = AsyncMock(side_effect=AssertionError("a rejected operation must not initialize inference"))
+    writes = AsyncMock(side_effect=AssertionError("a rejected operation must not write storage"))
     monkeypatch.setattr(server_cli, "_embedding_models", provider)
     monkeypatch.setattr(server_cli, "reindex_topic_memory", writes)
 
@@ -379,15 +379,15 @@ def test_managed_oceanbase_dry_run_is_ready_but_apply_is_rejected_before_writes(
         )
     )
 
-    assert ready is dry_run
+    assert ready is False
     report = json.loads(capsys.readouterr().out)
     assert report["action"] == ("dry-run" if dry_run else "apply")
-    assert report["ready"] is dry_run and report["activated"] is False
+    assert report["ready"] is False and report["activated"] is False
     assert report["atomic_memory_rebuild_required"] is True
-    if dry_run:
-        assert report["errors"] == []
-    else:
-        assert any("managed OceanBase" in error and "not supported" in error for error in report["errors"])
+    assert report["errors"] == [
+        "managed OceanBase Topic Memory reindex apply is not supported; "
+        "keep the current embedding profile or create a new vector-enabled deployment"
+    ]
     provider.assert_not_called()
     writes.assert_not_called()
     connection.exec_driver_sql.assert_not_called()

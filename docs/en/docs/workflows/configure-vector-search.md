@@ -56,9 +56,9 @@ not change a profile ID or dimension just to bypass a mismatch.
 
 ## 4. Reindex Topic Memory
 
-Topic Memory can move to the configured target profile without deleting its Artifacts. The command re-embeds every
-active Topic title/summary and active chunk, then activates the new frozen retrieval shape. Authoritative Artifact
-content, Topic and chunk identities, revisions, and text remain unchanged.
+On SQLite and embedded SeekDB, Topic Memory can move to the configured target profile without deleting its Artifacts.
+The command re-embeds every active Topic title/summary and active chunk, then activates the new frozen retrieval shape.
+Authoritative Artifact content, Topic and chunk identities, revisions, and text remain unchanged.
 
 Stop every API, host, and Worker and pause all Topic writes before applying the migration. Inspect the existing database
 and target profile first:
@@ -68,7 +68,9 @@ powercontext server topic-memory-reindex --action dry-run
 ```
 
 Dry-run is the default. It does not initialize the embedding provider, call the model, create staging tables, or modify
-the database. Apply the same configured target after the inspection is ready:
+the database. Managed OceanBase does not support apply: its read-only dry-run reports that deterministic blocker with
+`ready: false`. Keep the current embedding profile or create a new vector-enabled deployment instead of proceeding to
+apply. For SQLite and embedded SeekDB, apply the same configured target only after a ready inspection:
 
 ```bash
 powercontext server topic-memory-reindex --action apply --maintenance-confirmed --batch-size 25
@@ -83,22 +85,22 @@ change the target profile midway through a run or manually delete its `pc_topic_
 
 Apply requires vector-enabled managed storage. A managed deployment initialized without an embedding profile has no
 shared vector tables or stored profile declaration, so the command rejects it before writing any staging data; keep that
-FTS-only deployment or create a new vector-enabled one. For a managed SQLite or SeekDB deployment, the command records
-the accepted profile switch in the external maintenance journal as a pending transition instead of rewriting the release
-checksums of already-published migrations, and marks it complete only after the configured Server startup plan admits the
+FTS-only deployment or create a new vector-enabled one. For a managed SQLite or embedded SeekDB deployment, the command
+records the accepted profile switch in the external maintenance journal as a pending transition instead of rewriting the
+release checksums of already-published migrations, and marks it complete only after the configured Server startup plan admits the
 activated storage. Pass the deployment's `--evidence-dir` when its journal is outside the default adjacent directory.
 Apply rejects a missing journal in the selected directory before staging, inference, or storage writes. If the command
 stops after activation commits, rerun the same apply command; the pending transition lets it finish.
 
-A failure before activation preserves the old shape and active vectors. OceanBase and SeekDB retain the previous derived
+A failure before activation preserves the old shape and active vectors. Embedded SeekDB retains the previous derived
 vector tables until the activated vectors and shared storage declaration validate. If post-activation validation or
 cleanup fails, rerun the same apply command in maintenance mode so it can validate and finish recovery before discarding
 the previous generation.
 
 For managed Server storage, Atomic Memory and Topic Memory share the declared embedding profile. By default, this
-command does not re-embed Atomic Memory: incompatible Atomic projections or an incompatible OceanBase Atomic vector
-column block activation. If the managed migration must rebuild Atomic Memory too, explicitly add
-`--rebuild-atomic-memory` to both dry-run and every apply or recovery invocation:
+command does not re-embed Atomic Memory: on supported apply backends, incompatible Atomic projections or an
+incompatible native Atomic vector column block activation. If a SQLite or embedded SeekDB migration must rebuild Atomic
+Memory too, explicitly add `--rebuild-atomic-memory` to both dry-run and every apply or recovery invocation:
 
 ```bash
 powercontext server topic-memory-reindex --action apply --maintenance-confirmed \

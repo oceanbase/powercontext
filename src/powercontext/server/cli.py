@@ -703,9 +703,10 @@ async def _topic_memory_reindex(  # noqa: C901 -- Keep ordered maintenance steps
                 backend,
                 rebuild_atomic_memory=rebuild_atomic_memory,
             )
-        if not dry_run and isinstance(database, OceanBaseConfig) and stored_profile is not None:
+        if isinstance(database, OceanBaseConfig) and stored_profile is not None:
             # An unrecorded successful switch invalidates the coordinated migration
-            # evidence. Reject it before staging, inference or journal/storage writes.
+            # evidence. Report the apply blocker during inspection too, and reject
+            # apply before staging, inference or journal/storage writes.
             inspection = inspection.model_copy(
                 update={
                     "ready": False,
