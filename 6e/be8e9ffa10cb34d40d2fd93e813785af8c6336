@@ -1,0 +1,28 @@
+pyproject.toml
+  s_2ef0feea0a110d::t_7665e4d14cb4c8 70-72,166,206
+tests/builtin/persistence/test_sqlite_profile.py
+  s_2ef0feea0a110d::t_57291c4b53c5bb 386
+  s_2ef0feea0a110d::t_5c9b229f36c802 362-385,387-415
+e2e/bub/uv.lock
+  s_2ef0feea0a110d::t_9554aeb91d8850 1781-1785,1830,1868
+evaluation/uv.lock
+  s_2ef0feea0a110d::t_26c0b59ee1eba3 1887-1891,1936,1974
+uv.lock
+  s_2ef0feea0a110d::t_541fc13cbc2b23 3260-3264,3309,3347,4591,4597-4634
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "6ebe8e9ffa10cb34d40d2fd93e813785af8c6336",
+  "prompts": {},
+  "sessions": {
+    "s_2ef0feea0a110d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1a9cf-a4e7-7f63-9c51-1284f7c332e8",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "frf12 <rongfeng.frf@antgroup.com>"
+    }
+  }
+}
