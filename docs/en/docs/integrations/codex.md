@@ -328,9 +328,9 @@ gateway as follows.
 Codex does not send an output limit (`max_output_tokens`). An enforcing Core requires a token budget on the target and
 an output limit on every generation request, so it withholds each Codex request (for example with
 `output_limit_required`), the gateway returns HTTP 400, and the turn fails before the model receives it. Run Core with
-inference protection in `disabled`, `shadow`, or `advisory` mode, with a target for the profile that
-`PC_GATEWAY_UPSTREAM_PROFILE` names (`default` unless set). Core withholds a check for an unknown target in every
-mode. For example:
+inference protection in `disabled`, `shadow`, or `advisory` mode, with a target for the profile named by
+`PC_GATEWAY_UPSTREAM_PROFILE_RESPONSES`. Core withholds a check for an unknown target in every mode. For example,
+the following `default` target requires `PC_GATEWAY_UPSTREAM_PROFILE_RESPONSES=default`:
 
 ```bash
 export POWERCONTEXT_SERVER_INFERENCE_PROTECTION='{
@@ -376,8 +376,7 @@ put the same keys in `~/.codex/powercontext-gateway.config.toml` and start Codex
 
 Export the gateway's `PC_GATEWAY_API_KEY` value as `PC_GATEWAY_KEY` in the environment that starts Codex; Codex sends
 it as the bearer token. While `PC_GATEWAY_KEY` is unset, Codex stops with `Missing environment variable` before it
-sends a request. A gateway on a loopback listener may run without `PC_GATEWAY_API_KEY` and then accepts any token, but
-Codex still needs the variable.
+sends a request. The gateway requires a nonempty `PC_GATEWAY_API_KEY` even on a loopback listener.
 
 In a combined deployment (`PC_GATEWAY_CORE_UDS`), the gateway forwards Core API and MCP requests to Core with the
 client's own credentials, so the plugin can use the gateway's address as its Server URL
@@ -405,11 +404,13 @@ context, MCP tools, and diagnostics keep their own settings.
 Run the gateway in a combined deployment (`PC_GATEWAY_CORE_UDS`), which injects requests that carry a conversation by
 default. Set:
 
-- `PC_GATEWAY_UPSTREAM_URL_RESPONSES` to the target's `endpoint`, and `PC_GATEWAY_UPSTREAM_API_KEY_RESPONSES` to the
-  provider key. The gateway sends to this URL itself, and without it the Responses route returns HTTP 501
-  `responses_route_disabled`.
-- `PC_GATEWAY_API_KEY` to the key that Codex sends as `PC_GATEWAY_KEY`. A non-loopback listener requires it.
-- `PC_GATEWAY_CORE_TOKEN` when Core enforces authentication.
+- `PC_GATEWAY_UPSTREAM_PROFILE_RESPONSES` to the Core `InferenceConfig.protection.targets` profile for the Responses
+  endpoint, protocol, and model (for the example above, `default`). Without this setting, the Responses route returns
+  HTTP 501 `responses_route_disabled`. Do not set `PC_GATEWAY_UPSTREAM_URL*`; legacy URL variables prevent startup.
+- `PC_GATEWAY_UPSTREAM_API_KEY_RESPONSES` to the provider key for that approved target.
+- `PC_GATEWAY_API_KEY` to a nonempty key that Codex sends as `PC_GATEWAY_KEY`.
+- `PC_GATEWAY_CORE_TOKEN` to a distinct Core service identity with both `gateway.invoke` and `scope.read` on the
+  selected Scope. It is required even when Core is in a non-enforcing inference protection mode.
 - `PC_GATEWAY_SEDIMENT=on`, so that the gateway captures each completed turn as a Source.
 - `PC_GATEWAY_DEFAULT_SCOPE` to the Scope this plugin resolves for the workspace. Running `scope_binding.py` without
   `--bind-scope`, as described in [Hand off the current work in one turn](#hand-off-the-current-work-in-one-turn),
