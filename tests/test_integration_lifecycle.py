@@ -19,7 +19,8 @@ helper may import only the standard library. WorkBuddy and Hermes also ship sing
 siblings, so a module they ship may not import a sibling either.
 
 The TypeScript helpers are bundled into, or loaded as source by, plugins that each install their own dependencies, so
-a TypeScript helper may import only Node.js built-in modules.
+a TypeScript helper may import only Node.js built-in modules. Kimi Code and ZCode run JavaScript copies of them without
+a build step, so the generator removes the types, and refuses TypeScript it cannot remove.
 """
 
 from __future__ import annotations
@@ -31,7 +32,7 @@ import sys
 from pathlib import Path
 
 import pytest
-from generate_integration_lifecycle import COPIES
+from generate_integration_lifecycle import COPIES, javascript
 
 from powercontext_integration_lifecycle.user_prompt_submit import UserPromptEvent
 
@@ -72,8 +73,7 @@ def test_typescript_helper_imports_only_node_builtins(module: Path) -> None:
 
 
 def test_plugin_copies_match_their_source() -> None:
-    # `make check` runs the same check. Running it here as well lets the unit test jobs catch a stale copy, as the
-    # shared-files test does for the JavaScript copies.
+    # `make check` runs the same check. Running it here as well lets the unit test jobs catch a stale copy.
     result = subprocess.run(
         [sys.executable, str(ROOT / "scripts/generate_integration_lifecycle.py"), "--check"],
         capture_output=True,
@@ -83,6 +83,40 @@ def test_plugin_copies_match_their_source() -> None:
         timeout=60,
     )
     assert result.returncode == 0, result.stderr
+
+
+@pytest.mark.parametrize(
+    ("typescript", "expected"),
+    [
+        (
+            "export function scrub(text: string, authorization?: string): string {",
+            "export function scrub(text, authorization) {",
+        ),
+        ("] as const", "]"),
+    ],
+)
+def test_javascript_copies_drop_parameter_types_and_const_assertions(typescript: str, expected: str) -> None:
+    assert javascript(TYPESCRIPT_SOURCE / "prompt-privacy.ts", f"{typescript}\n") == f"{expected}\n"
+
+
+@pytest.mark.parametrize(
+    "typescript",
+    [
+        "export function scrub(text: string = ''): string {",
+        "export function first<T>(items: T[]): T {",
+        "export function scrub(options: { limit: number, text: string }): string {",
+        "  return wrap<Error>(value)",
+        "  return wrap<Promise<Error>>(value)",
+        "export type Verdict = 'allow' | 'block'",
+        "const limit: number = 3",
+        "const verdict = value as Verdict",
+        "const scrub = (text: string) => text",
+    ],
+)
+def test_javascript_copies_refuse_typescript_they_cannot_drop(typescript: str) -> None:
+    # Each would otherwise lose code, change its meaning, or leave the copy unloadable.
+    with pytest.raises(SystemExit, match="cannot drop"):
+        javascript(TYPESCRIPT_SOURCE / "prompt-privacy.ts", f"{typescript}\n")
 
 
 def test_prompt_event_repr_leaves_out_the_prompt_and_the_working_directory() -> None:
