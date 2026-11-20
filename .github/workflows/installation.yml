@@ -6,7 +6,7 @@ permissions:
   actions: write
 jobs:
   artifact-probe:
-    runs-on: powercontext-ci-light
+    runs-on: macos-latest
     timeout-minutes: 15
     steps:
     - name: Prepare isolated probes
@@ -223,9 +223,6 @@ jobs:
         (root / ('snapshot-' + label + '.json')).write_text(json.dumps(report, indent=2) + '\n')
         print(json.dumps(report, indent=2))
         PYSNAPSHOT
-    - name: Observe public endpoint connectivity
-      shell: bash
-      run: python3 "$RUNNER_TEMP/artifact-transport-probe/network.py"
     - name: Probe baseline
       id: baseline
       continue-on-error: true
