@@ -682,6 +682,7 @@ class AtomicMemorySourceWindowProcessor:
             else pipeline.input_renderer(extraction_input)
         )
         if not conversation.fits(evidence):
+            _log_one_pass("fallback", conversation, "entries_input_over_budget", conversation.estimate(evidence))
             return None
         workset = AtomicMemoryWindowWorkset()
         await self._authorize_model_input(scope_id, context, eligible, prompt_refs)
@@ -714,6 +715,9 @@ class AtomicMemorySourceWindowProcessor:
                     shown[f"M{len(shown) + 1}"] = key
         message = render_existing_memories({label: workset.items[key] for label, key in shown.items()})
         if not conversation.fits(message, entries):
+            _log_one_pass(
+                "fallback", conversation, "operations_input_over_budget", conversation.estimate(message, entries)
+            )
             return None
         basis = tuple(workset.items[key] for key in shown.values())
         await self._authorize_comparison_basis(scope_id, context, basis)
@@ -725,6 +729,7 @@ class AtomicMemorySourceWindowProcessor:
         workset = await self._recheck_one_pass(
             scope_id, context, conversation, workset, created, basis, recall, operations, extraction_input
         )
+        _log_one_pass("success", conversation)
         return self._with_prompt_refs(workset, {}, prompt_refs)
 
     async def _recheck_one_pass(
@@ -1397,3 +1402,31 @@ def _input_item_count(value: object) -> int | None:
     if isinstance(evidence, (tuple, list)):
         return len(evidence)
     return None
+
+
+def _log_one_pass(
+    outcome: str, conversation: _OnePassConversation, reason: str | None = None, estimated: int | None = None
+) -> None:
+    log_safely(
+        logger,
+        logging.INFO,
+        "One-pass Atomic Memory window prepared"
+        if reason is None
+        else "One-pass Atomic Memory window fell back to per-candidate processing",
+        extra={
+            "event": "atomic_memory.one_pass",
+            "operation": "atomic_memory.one_pass",
+            "unit": "inference",
+            "outcome": outcome,
+            **(
+                {}
+                if reason is None
+                else {
+                    "fallback_reason": reason,
+                    "estimated_input_tokens": estimated,
+                    "token_estimator_id": conversation.pipeline.estimator.profile.estimator_id,
+                    "effective_budget": conversation.input_tokens_limit,
+                }
+            ),
+        },
+    )
