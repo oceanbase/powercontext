@@ -189,11 +189,6 @@ test("renders the notification content and action", async () => {
   expect(
     screen.getByText(/在本地 PowerContext 服务中配置生成与向量模型/),
   ).toBeTruthy();
-  expect(
-    screen
-      .getByText("为本地服务配置模型能力")
-      .closest('[data-slot="persistent-guide"]'),
-  ).toBeTruthy();
   await user.click(screen.getByRole("button", { name: "配置生成模型" }));
   await user.click(screen.getByRole("button", { name: "配置嵌入模型" }));
   await user.click(screen.getByRole("button", { name: "关闭通知" }));

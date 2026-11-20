@@ -38,6 +38,10 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { ActionNotification } from "@/components/ui/action-notification";
+import { PageFeedback } from "@/components/ui/feedback";
+import { ErrorFeedback } from "./ErrorFeedback";
+import { desktopApi } from "../shared/ipc";
+import type { ActiveView, ArtifactReference } from "../generated/ipc";
 
 type MemoryState = "active" | "stopped";
 type MemorySource = "automatic" | "manual";
@@ -53,6 +57,27 @@ type MemoryItem = {
   recalls: number;
   excerpts: string[];
 };
+
+type NativeMemoryItem = {
+  id: string;
+  text: string;
+  reference: ArtifactReference;
+};
+
+function nativeMemoryItem(
+  reference: ArtifactReference,
+  text: string,
+): NativeMemoryItem {
+  return {
+    id: JSON.stringify([
+      reference.family,
+      reference.artifact_id,
+      reference.revision,
+    ]),
+    text,
+    reference,
+  };
+}
 
 const copy = {
   zh: {
@@ -72,6 +97,7 @@ const copy = {
     used: "最近使用",
     recalls: "召回最多",
     result: (count: number) => `${count} 条记忆`,
+    results: (count: number) => `${count} 条结果`,
     recallCount: (count: number) => `召回 ${count} 次`,
     lastUsed: "最近使用",
     details: "记忆详情",
@@ -103,6 +129,14 @@ const copy = {
     contentRequired: "请输入记忆内容",
     cancel: "取消",
     save: "保存到当前空间",
+    saved: "已保存到当前空间",
+    searchPrompt: "输入关键词搜索当前空间的记忆",
+    searching: "正在搜索记忆…",
+    reading: "正在读取记忆…",
+    unavailable: "当前连接暂不支持记忆检索",
+    saving: "正在保存…",
+    saveUnknown: "保存结果未知。请先搜索当前空间，确认这条记忆是否已写入。",
+    allowRetry: "已核对，允许再次提交",
     backToTop: "回到顶部",
   },
   en: {
@@ -122,6 +156,7 @@ const copy = {
     used: "Recently used",
     recalls: "Most recalled",
     result: (count: number) => `${count} memories`,
+    results: (count: number) => `${count} results`,
     recallCount: (count: number) => `${count} recalls`,
     lastUsed: "Last used",
     details: "Memory details",
@@ -153,6 +188,15 @@ const copy = {
     contentRequired: "Enter memory content",
     cancel: "Cancel",
     save: "Save to current space",
+    saved: "Saved to the current space",
+    searchPrompt: "Enter a keyword to search this space",
+    searching: "Searching memories…",
+    reading: "Reading memory…",
+    unavailable: "Memory search is unavailable for this connection",
+    saving: "Saving…",
+    saveUnknown:
+      "The save outcome is unknown. Search this space before submitting the same text again.",
+    allowRetry: "I checked. Allow another submission",
     backToTop: "Back to top",
   },
 } as const;
@@ -478,6 +522,7 @@ export function MemoryWorkspaceContent({
   serviceName,
   serviceEndpoint,
   initialCount = 0,
+  nativeContext,
 }: {
   language: Language;
   scopeTitle: string;
@@ -485,6 +530,7 @@ export function MemoryWorkspaceContent({
   serviceName: string;
   serviceEndpoint: string;
   initialCount?: number;
+  nativeContext?: Pick<ActiveView, "generation" | "report">;
 }) {
   const t = copy[language];
   const [memoriesByScope, setMemoriesByScope] = useState<
@@ -503,10 +549,58 @@ export function MemoryWorkspaceContent({
   const [showBackToTop, setShowBackToTop] = useState(false);
   const [stateNotification, setStateNotification] =
     useState<MemoryState | null>(null);
+  const generation = nativeContext?.generation;
+  const native = generation !== undefined;
+  const operations = nativeContext?.report.supportedOperations;
+  const canSearch = !native || operations?.includes("search_memory");
+  const canRead = !native || operations?.includes("get_artifact_revision");
+  const canSave = !native || operations?.includes("remember_memory");
+  const searchTerm = query.trim();
+  const [search, setSearch] = useState<{
+    term: string;
+    items: NativeMemoryItem[];
+    error?: unknown;
+  }>();
+  const [detail, setDetail] = useState<{
+    id: string;
+    text?: string;
+    error?: unknown;
+  }>();
+  const [savedItems, setSavedItems] = useState<NativeMemoryItem[]>([]);
+  const [saving, setSaving] = useState(false);
+  const [savedNotice, setSavedNotice] = useState(false);
+  const [saveError, setSaveError] = useState<unknown>(null);
+  const [unknownDraft, setUnknownDraft] = useState<string | null>(null);
   const workspaceRef = useRef<HTMLDivElement>(null);
   const headingRef = useRef<HTMLHeadingElement>(null);
   const selectedTriggerRef = useRef<HTMLButtonElement | null>(null);
   const detailScrollRef = useRef<HTMLElement | null>(null);
+
+  useEffect(() => {
+    if (generation === undefined || !canSearch || !searchTerm) return;
+    let current = true;
+    const timer = window.setTimeout(() => {
+      void desktopApi.search(generation, searchTerm).then(
+        ({ hits }) => {
+          if (current) {
+            setSearch({
+              term: searchTerm,
+              items: hits.map((hit) =>
+                nativeMemoryItem(hit.artifact, hit.text),
+              ),
+            });
+          }
+        },
+        (error: unknown) => {
+          if (current) setSearch({ term: searchTerm, items: [], error });
+        },
+      );
+    }, 250);
+    return () => {
+      current = false;
+      window.clearTimeout(timer);
+    };
+  }, [canSearch, generation, searchTerm]);
 
   useEffect(() => {
     setMemoriesByScope((current) =>
@@ -560,6 +654,10 @@ export function MemoryWorkspaceContent({
   }
 
   const visible = useMemo(() => {
+    if (native) {
+      if (!searchTerm) return savedItems;
+      return search?.term === searchTerm ? search.items : [];
+    }
     const normalized = query.trim().toLocaleLowerCase();
     return memories
       .filter((item) => item.state === status || item.id === selectedId)
@@ -573,9 +671,48 @@ export function MemoryWorkspaceContent({
         const field = sort === "used" ? "lastUsedAt" : "createdAt";
         return Date.parse(right[field]) - Date.parse(left[field]);
       });
-  }, [memories, query, selectedId, sort, source, status]);
-  const selected = memories.find((item) => item.id === selectedId) ?? null;
+  }, [
+    memories,
+    native,
+    query,
+    savedItems,
+    search,
+    searchTerm,
+    selectedId,
+    sort,
+    source,
+    status,
+  ]);
+  const selected = (native ? visible : memories).find(
+    (item) => item.id === selectedId,
+  );
+  const previewSelection =
+    selected && !("reference" in selected) ? selected : undefined;
   const selectedIndex = visible.findIndex((item) => item.id === selectedId);
+  const currentDetail = detail?.id === selectedId ? detail : undefined;
+
+  useEffect(() => {
+    if (
+      generation === undefined ||
+      !canRead ||
+      !selected ||
+      !("reference" in selected)
+    )
+      return;
+    let current = true;
+    setDetail(undefined);
+    void desktopApi.atomicEntry(generation, selected.reference).then(
+      (entry) => {
+        if (current) setDetail({ id: selected.id, text: entry.text });
+      },
+      (error: unknown) => {
+        if (current) setDetail({ id: selected.id, error });
+      },
+    );
+    return () => {
+      current = false;
+    };
+  }, [canRead, generation, selected]);
 
   useEffect(() => {
     if (selectedId && selectedIndex < 0) {
@@ -630,9 +767,57 @@ export function MemoryWorkspaceContent({
     setStateNotification(next);
   }
 
-  function addMemory() {
+  function closeEntry() {
+    setAdding(false);
+    setDraft("");
+    setAddSubmitted(false);
+    setSaveError(null);
+  }
+
+  async function addMemory() {
     setAddSubmitted(true);
-    if (!draft.trim()) return;
+    const text = draft.trim();
+    if (!text || !canSave || saving || text === unknownDraft) return;
+    if (generation !== undefined) {
+      setSaving(true);
+      setSaveError(null);
+      try {
+        const outcome = await desktopApi.remember(generation, draft);
+        if (
+          outcome.record.status === "unknown" ||
+          outcome.record.status === "pending"
+        ) {
+          setUnknownDraft(text);
+          return;
+        }
+        if (outcome.record.status === "failed") {
+          setSaveError(outcome.record.error ?? { code: "server" });
+          return;
+        }
+        if (!outcome.result) {
+          setSaveError({ code: "stale_context" });
+          return;
+        }
+        const recorded = outcome.result.records.map((record) =>
+          nativeMemoryItem(record.artifact, record.text),
+        );
+        setSavedItems((current) => [
+          ...recorded,
+          ...current.filter(
+            (item) => !recorded.some((record) => record.id === item.id),
+          ),
+        ]);
+        setQuery("");
+        setSelectedId(canRead ? (recorded[0]?.id ?? null) : null);
+        setSavedNotice(true);
+        closeEntry();
+      } catch (error) {
+        setSaveError(error);
+      } finally {
+        setSaving(false);
+      }
+      return;
+    }
     const now = new Date().toISOString();
     const item: MemoryItem = {
       id: `memory-${Date.now()}`,
@@ -645,9 +830,7 @@ export function MemoryWorkspaceContent({
       excerpts: [draft.trim()],
     };
     updateMemories((current) => [item, ...current]);
-    setDraft("");
-    setAddSubmitted(false);
-    setAdding(false);
+    closeEntry();
     setStatus("active");
     setSelectedId(item.id);
   }
@@ -658,7 +841,9 @@ export function MemoryWorkspaceContent({
         <h2 ref={headingRef} className="memory-page-title" tabIndex={-1}>
           {t.title}
         </h2>
-        <span className="memory-count-badge">{t.result(visible.length)}</span>
+        <span className="memory-count-badge">
+          {native ? t.results(visible.length) : t.result(visible.length)}
+        </span>
       </div>
 
       <section className="memory-toolbar" aria-label={t.search}>
@@ -670,52 +855,59 @@ export function MemoryWorkspaceContent({
             </InputIcon>
             <Input
               adornment="leading"
+              disabled={!canSearch}
               value={query}
               onChange={(event) => setQuery(event.target.value)}
               placeholder={t.search}
             />
           </label>
-          <Select
-            value={status}
-            onValueChange={(value) => setStatus(value as MemoryState)}
-          >
-            <SelectTrigger aria-label={t.status}>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="active">{t.active}</SelectItem>
-              <SelectItem value="stopped">{t.stopped}</SelectItem>
-            </SelectContent>
-          </Select>
-          <Select
-            value={source}
-            onValueChange={(value) => setSource(value as MemorySource | "all")}
-          >
-            <SelectTrigger aria-label={t.source}>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">{t.allSources}</SelectItem>
-              <SelectItem value="automatic">{t.automatic}</SelectItem>
-              <SelectItem value="manual">{t.manual}</SelectItem>
-            </SelectContent>
-          </Select>
-          <Select
-            value={sort}
-            onValueChange={(value) => setSort(value as SortMode)}
-          >
-            <SelectTrigger aria-label={t.sort}>
-              <ListFilter className="memory-sort-icon" aria-hidden="true" />
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="created">{t.created}</SelectItem>
-              <SelectItem value="used">{t.used}</SelectItem>
-              <SelectItem value="recalls">{t.recalls}</SelectItem>
-            </SelectContent>
-          </Select>
+          {!native && (
+            <>
+              <Select
+                value={status}
+                onValueChange={(value) => setStatus(value as MemoryState)}
+              >
+                <SelectTrigger aria-label={t.status}>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="active">{t.active}</SelectItem>
+                  <SelectItem value="stopped">{t.stopped}</SelectItem>
+                </SelectContent>
+              </Select>
+              <Select
+                value={source}
+                onValueChange={(value) =>
+                  setSource(value as MemorySource | "all")
+                }
+              >
+                <SelectTrigger aria-label={t.source}>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">{t.allSources}</SelectItem>
+                  <SelectItem value="automatic">{t.automatic}</SelectItem>
+                  <SelectItem value="manual">{t.manual}</SelectItem>
+                </SelectContent>
+              </Select>
+              <Select
+                value={sort}
+                onValueChange={(value) => setSort(value as SortMode)}
+              >
+                <SelectTrigger aria-label={t.sort}>
+                  <ListFilter className="memory-sort-icon" aria-hidden="true" />
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="created">{t.created}</SelectItem>
+                  <SelectItem value="used">{t.used}</SelectItem>
+                  <SelectItem value="recalls">{t.recalls}</SelectItem>
+                </SelectContent>
+              </Select>
+            </>
+          )}
         </div>
-        <PageActionButton onClick={() => setAdding(true)}>
+        <PageActionButton disabled={!canSave} onClick={() => setAdding(true)}>
           {t.add}
         </PageActionButton>
       </section>
@@ -726,7 +918,17 @@ export function MemoryWorkspaceContent({
         data-detail-expanded={detailsExpanded}
       >
         <section className="memory-list" aria-label={t.title}>
-          {visible.length ? (
+          {native &&
+          searchTerm &&
+          search?.term === searchTerm &&
+          search.error ? (
+            <ErrorFeedback error={search.error} language={language} />
+          ) : native &&
+            searchTerm &&
+            canSearch &&
+            search?.term !== searchTerm ? (
+            <PageFeedback kind="loading" title={t.searching} />
+          ) : visible.length ? (
             <ul>
               {visible.map((item) => (
                 <li key={item.id}>
@@ -734,6 +936,7 @@ export function MemoryWorkspaceContent({
                     variant="row"
                     className="memory-list-row"
                     data-selected={selected?.id === item.id}
+                    disabled={!canRead}
                     onClick={(event) =>
                       selectMemory(item.id, event.currentTarget)
                     }
@@ -743,12 +946,14 @@ export function MemoryWorkspaceContent({
                         <Highlight text={item.text} query={query} />
                       </span>
                     </span>
-                    <span className="memory-row-usage">
-                      <span>{t.recallCount(item.recalls)}</span>
-                      <small>
-                        {t.lastUsed} {formatDate(item.lastUsedAt, language)}
-                      </small>
-                    </span>
+                    {!("reference" in item) && (
+                      <span className="memory-row-usage">
+                        <span>{t.recallCount(item.recalls)}</span>
+                        <small>
+                          {t.lastUsed} {formatDate(item.lastUsedAt, language)}
+                        </small>
+                      </span>
+                    )}
                     <ChevronRight aria-hidden="true" />
                   </Button>
                 </li>
@@ -757,7 +962,17 @@ export function MemoryWorkspaceContent({
           ) : (
             <div className="memory-list-empty">
               <Search aria-hidden="true" />
-              <span>{memories.length === 0 ? t.noData : t.empty}</span>
+              <span>
+                {native
+                  ? !canSearch
+                    ? t.unavailable
+                    : searchTerm
+                      ? t.empty
+                      : t.searchPrompt
+                  : memories.length === 0
+                    ? t.noData
+                    : t.empty}
+              </span>
             </div>
           )}
         </section>
@@ -874,64 +1089,90 @@ export function MemoryWorkspaceContent({
               </div>
             </header>
 
-            <div className="memory-detail-body">
+            <div
+              className="memory-detail-body"
+              data-preview-details={!!previewSelection}
+            >
               <div className="memory-detail-main memory-detail-scroll-region">
                 <section className="memory-detail-section">
                   <h4>{t.memoryContent}</h4>
-                  <p className="memory-detail-text">{selected.text}</p>
-                </section>
-                <section className="memory-excerpts">
-                  <h4>{t.original}</h4>
-                  {selected.excerpts.map((excerpt, index) => (
-                    <MemoryExcerpt
-                      key={`${selected.id}-${index}`}
-                      id={`memory-excerpt-${selected.id}-${index}`}
-                      label={t.excerpt(index + 1)}
-                      excerpt={excerpt}
-                      expandLabel={t.expandExcerpt}
-                      collapseLabel={t.collapseExcerpt}
+                  {native && currentDetail?.error ? (
+                    <ErrorFeedback
+                      error={currentDetail.error}
+                      language={language}
                     />
-                  ))}
+                  ) : native && !currentDetail ? (
+                    <PageFeedback compact kind="loading" title={t.reading} />
+                  ) : (
+                    <p className="memory-detail-text">
+                      {native ? currentDetail?.text : selected.text}
+                    </p>
+                  )}
                 </section>
+                {previewSelection && (
+                  <section className="memory-excerpts">
+                    <h4>{t.original}</h4>
+                    {previewSelection.excerpts.map((excerpt, index) => (
+                      <MemoryExcerpt
+                        key={`${selected.id}-${index}`}
+                        id={`memory-excerpt-${selected.id}-${index}`}
+                        label={t.excerpt(index + 1)}
+                        excerpt={excerpt}
+                        expandLabel={t.expandExcerpt}
+                        collapseLabel={t.collapseExcerpt}
+                      />
+                    ))}
+                  </section>
+                )}
               </div>
 
-              <aside className="memory-detail-properties memory-detail-scroll-region">
-                <h4>{t.basicInfo}</h4>
-                <dl>
-                  <div>
-                    <dt>{t.status}</dt>
-                    <dd>
-                      {selected.state === "active" ? t.active : t.stopped}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt>{t.source}</dt>
-                    <dd>
-                      {selected.source === "automatic" ? t.automatic : t.manual}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt>{t.createdAt}</dt>
-                    <dd>{formatDate(selected.createdAt, language)}</dd>
-                  </div>
-                  <div>
-                    <dt>{t.lastUsed}</dt>
-                    <dd>{formatDate(selected.lastUsedAt, language)}</dd>
-                  </div>
-                  <div>
-                    <dt>{t.recalls}</dt>
-                    <dd>{selected.recalls}</dd>
-                  </div>
-                </dl>
-                <Button
-                  type="button"
-                  variant="secondary"
-                  size="sm"
-                  onClick={() => toggleState(selected)}
-                >
-                  {selected.state === "active" ? t.stop : t.restore}
-                </Button>
-              </aside>
+              {previewSelection && (
+                <aside className="memory-detail-properties memory-detail-scroll-region">
+                  <h4>{t.basicInfo}</h4>
+                  <dl>
+                    <div>
+                      <dt>{t.status}</dt>
+                      <dd>
+                        {previewSelection.state === "active"
+                          ? t.active
+                          : t.stopped}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>{t.source}</dt>
+                      <dd>
+                        {previewSelection.source === "automatic"
+                          ? t.automatic
+                          : t.manual}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>{t.createdAt}</dt>
+                      <dd>
+                        {formatDate(previewSelection.createdAt, language)}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>{t.lastUsed}</dt>
+                      <dd>
+                        {formatDate(previewSelection.lastUsedAt, language)}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>{t.recalls}</dt>
+                      <dd>{previewSelection.recalls}</dd>
+                    </div>
+                  </dl>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => toggleState(previewSelection)}
+                  >
+                    {previewSelection.state === "active" ? t.stop : t.restore}
+                  </Button>
+                </aside>
+              )}
             </div>
           </aside>
         )}
@@ -950,15 +1191,21 @@ export function MemoryWorkspaceContent({
           tone="success"
         />
       )}
+      {savedNotice && (
+        <ActionNotification
+          icon={<CircleCheck />}
+          title={t.saved}
+          closeLabel={t.closeNotification}
+          onClose={() => setSavedNotice(false)}
+          tone="success"
+        />
+      )}
 
       {adding && (
         <Dialog
           open
           onOpenChange={(open) => {
-            if (open) return;
-            setAdding(false);
-            setDraft("");
-            setAddSubmitted(false);
+            if (!open && !saving) closeEntry();
           }}
         >
           <DialogContent>
@@ -966,14 +1213,34 @@ export function MemoryWorkspaceContent({
               className="memory-entry-form contents"
               onSubmit={(event) => {
                 event.preventDefault();
-                addMemory();
+                void addMemory();
               }}
             >
               <DialogHeader>
                 <DialogTitle>{t.newTitle}</DialogTitle>
-                <DialogCloseButton label={t.cancel} />
+                {!saving && <DialogCloseButton label={t.cancel} />}
               </DialogHeader>
               <DialogBody>
+                {unknownDraft === draft.trim() && (
+                  <PageFeedback
+                    compact
+                    kind="warning"
+                    title={t.saveUnknown}
+                    action={
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setUnknownDraft(null)}
+                      >
+                        {t.allowRetry}
+                      </Button>
+                    }
+                  />
+                )}
+                {saveError != null && (
+                  <ErrorFeedback error={saveError} language={language} />
+                )}
                 <dl className="memory-entry-context">
                   <div>
                     <dt>{t.serviceName}</dt>
@@ -993,6 +1260,7 @@ export function MemoryWorkspaceContent({
                   <Textarea
                     id="memory-content"
                     autoFocus
+                    readOnly={saving}
                     aria-invalid={addSubmitted && !draft.trim()}
                     aria-describedby={
                       addSubmitted && !draft.trim()
@@ -1014,15 +1282,17 @@ export function MemoryWorkspaceContent({
                 <Button
                   variant="outline"
                   type="button"
-                  onClick={() => {
-                    setAdding(false);
-                    setDraft("");
-                    setAddSubmitted(false);
-                  }}
+                  disabled={saving}
+                  onClick={closeEntry}
                 >
                   {t.cancel}
                 </Button>
-                <Button type="submit">{t.save}</Button>
+                <Button
+                  type="submit"
+                  disabled={saving || unknownDraft === draft.trim()}
+                >
+                  {saving ? t.saving : t.save}
+                </Button>
               </DialogFooter>
             </form>
           </DialogContent>

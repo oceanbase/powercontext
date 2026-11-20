@@ -16,6 +16,7 @@ type Props = {
   onOpenExistingServer?: () => void;
   onOpenLocalServer?: () => void;
   contextPending?: boolean;
+  preview?: boolean;
 };
 
 /**
@@ -29,6 +30,7 @@ export function MemoryWorkspace({
   onOpenExistingServer,
   onOpenLocalServer,
   contextPending = false,
+  preview = false,
 }: Props) {
   if (!state || contextPending) return null;
 
@@ -52,18 +54,20 @@ export function MemoryWorkspace({
     (profile) => profile.id === active.connectionId,
   );
   const fixtureCount =
-    import.meta.env.DEV && active.scope.scope_id === previewDataScopeId
+    preview && active.scope.scope_id === previewDataScopeId
       ? previewWorkspaceMemoryCount
       : 0;
 
   return (
     <MemoryWorkspaceContent
+      key={preview ? "preview" : active.generation}
       language={language}
       scopeId={active.scope.scope_id}
       scopeTitle={active.scope.title}
       serviceName={activeProfile?.name ?? active.connectionId}
       serviceEndpoint={activeProfile?.endpoint ?? "—"}
       initialCount={fixtureCount}
+      nativeContext={preview ? undefined : active}
     />
   );
 }

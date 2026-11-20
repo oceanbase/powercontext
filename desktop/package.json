@@ -23,7 +23,7 @@
     "tauri": "tauri",
     "desktop:dev": "tauri dev",
     "desktop:build": "tauri build --ci -- --locked",
-    "desktop:build:windows:ci": "tauri build --bundles nsis --ci --features ci-fixtures -- --locked",
+    "desktop:build:macos": "tauri build --config src-tauri/tauri.sparkle.conf.json --ci -- --locked",
     "ipc:check": "cargo run --locked --manifest-path src-tauri/Cargo.toml --example export_ipc -- --check",
     "format:check": "prettier --check ui/src/app ui/src/shared ui/tests scripts vite.config.ts",
     "icons": "node scripts/icons.mjs",

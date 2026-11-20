@@ -14,6 +14,15 @@ import { MemoryWorkspace } from "../src/app/MemoryWorkspace";
 import { MemoryWorkspaceContent } from "../src/app/MemoryWorkspaceContent";
 import { TooltipProvider } from "../src/components/ui/tooltip";
 import type { DesktopState } from "../src/generated/ipc";
+import { desktopApi } from "../src/shared/ipc";
+
+vi.mock("../src/shared/ipc", () => ({
+  desktopApi: {
+    search: vi.fn(),
+    atomicEntry: vi.fn(),
+    remember: vi.fn(),
+  },
+}));
 
 afterEach(() => {
   cleanup();
@@ -55,6 +64,120 @@ const connectedState: DesktopState = {
     },
   },
 };
+
+test("searches, saves and reads exact records in the active native space", async () => {
+  const active = connectedState.active!;
+  const state: DesktopState = {
+    ...connectedState,
+    active: {
+      ...active,
+      report: {
+        ...active.report,
+        supportedOperations: [
+          "search_memory",
+          "get_artifact_revision",
+          "remember_memory",
+        ],
+      },
+    },
+  };
+  const original = {
+    family: "atomic-memory",
+    artifact_id: "existing",
+    revision: 3,
+  };
+  const recorded = {
+    family: "atomic-memory",
+    artifact_id: "recorded",
+    revision: 1,
+  };
+  vi.mocked(desktopApi.search).mockResolvedValue({
+    hits: [
+      {
+        artifact: original,
+        text: "Search result",
+        score: 1,
+        matched_by: ["fts"],
+      },
+    ],
+  });
+  vi.mocked(desktopApi.atomicEntry).mockImplementation(async (_, artifact) => ({
+    artifact,
+    kind: "note",
+    text:
+      artifact.artifact_id === original.artifact_id
+        ? "Exact existing text"
+        : "Exact saved text",
+    source_refs: [],
+  }));
+  vi.mocked(desktopApi.remember).mockResolvedValue({
+    record: {
+      operationId: "write",
+      context: {
+        connectionId: active.connectionId,
+        endpoint: "http://127.0.0.1:8000",
+        serverId: "server",
+        principal: null,
+        generation: active.generation,
+        scopeId: active.scope!.scope_id,
+      },
+      status: "succeeded",
+      references: [recorded],
+      error: null,
+    },
+    result: {
+      changed: true,
+      records: [
+        {
+          artifact: recorded,
+          kind: "note",
+          text: "Saved result",
+          state: "active",
+          state_version: 1,
+          merged_into_id: null,
+        },
+      ],
+    },
+  });
+  const user = userEvent.setup();
+  render(
+    <TooltipProvider>
+      <MemoryWorkspace state={state} language="en" />
+    </TooltipProvider>,
+  );
+
+  await user.type(
+    screen.getByRole("textbox", { name: "Search memories" }),
+    "existing",
+  );
+  await user.click(
+    await screen.findByRole("button", { name: "Search result" }),
+  );
+  expect(await screen.findByText("Exact existing text")).toBeTruthy();
+  expect(desktopApi.search).toHaveBeenCalledWith(active.generation, "existing");
+  expect(desktopApi.atomicEntry).toHaveBeenCalledWith(
+    active.generation,
+    original,
+  );
+
+  await user.click(screen.getByRole("button", { name: "Record memory" }));
+  await user.type(
+    screen.getByRole("textbox", { name: "Memory content" }),
+    "New memory",
+  );
+  await user.click(
+    screen.getByRole("button", { name: "Save to current space" }),
+  );
+  expect(await screen.findByText("Exact saved text")).toBeTruthy();
+  expect(desktopApi.remember).toHaveBeenCalledWith(
+    active.generation,
+    "New memory",
+  );
+  expect(desktopApi.atomicEntry).toHaveBeenCalledWith(
+    active.generation,
+    recorded,
+  );
+});
 
 test("offers a keyboard-accessible return to the top after scrolling", async () => {
   const user = userEvent.setup();
@@ -99,7 +222,6 @@ test("opens, expands, navigates and closes memory details", async () => {
   await user.click(screen.getByRole("button", { name: /用户偏好简洁/ }));
   const details = screen.getByRole("complementary", { name: "记忆详情" });
   expect(within(details).getByText("记忆内容")).toBeTruthy();
-  expect(details.querySelectorAll(".memory-excerpt")).toHaveLength(6);
   await user.click(within(details).getByRole("button", { name: "查看更多" }));
   expect(within(details).getByRole("button", { name: "收起" })).toBeTruthy();
   await user.click(within(details).getByRole("button", { name: "展开详情" }));

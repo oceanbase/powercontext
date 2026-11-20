@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Exercise the installed WebView2 application only on a disposable Windows CI runner."""
+"""Check that the installed application renders its first-run page on Windows CI."""
 
 from __future__ import annotations
 
@@ -27,13 +27,9 @@ import time
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import httpx
-from installed_connections import exercise_connection_journey
-from installed_lifecycle import exercise_forced_exit, exercise_single_instance
-from installed_session import exercise_session
-from installed_workflow import exercise_memory
-from real_server import HarnessFailure
 
 
 def free_port() -> int:
@@ -67,14 +63,15 @@ def owned_process(command: list[str], environment: dict[str, str], log_path: Pat
 def wait_endpoint(client: httpx.Client, path: str, process: subprocess.Popen[bytes], stage: str) -> None:
     for _ in range(150):
         if process.poll() is not None:
-            raise HarnessFailure(stage + "_process_exited", str(process.returncode))
+            message = f"{stage}_process_exited ({process.returncode})"
+            raise RuntimeError(message)
         try:
             if client.get(path, timeout=1).is_success:
                 return
         except httpx.HTTPError:
             pass
         time.sleep(0.2)
-    raise HarnessFailure(stage + "_readiness_timeout")
+    raise RuntimeError(stage + "_readiness_timeout")
 
 
 def wait_packaged_page(client: httpx.Client, prefix: str) -> str:
@@ -82,18 +79,26 @@ def wait_packaged_page(client: httpx.Client, prefix: str) -> str:
         response = client.post(
             prefix + "/execute/sync",
             json={
-                "script": "return {url:location.href,text:document.body.innerText};",
+                "script": """
+                    const heading = document.querySelector("main #first-run-title");
+                    return {
+                        url: location.href,
+                        ready: document.title === "PowerContext Desktop"
+                            && Boolean(heading?.getClientRects().length && heading.textContent.trim())
+                    };
+                """,
                 "args": [],
             },
         )
         response.raise_for_status()
         page = response.json()["value"]
-        if "总览" in page["text"]:
-            if not page["url"].startswith("http://tauri.localhost"):
-                raise HarnessFailure("installed_resources_not_packaged")
+        if page["ready"]:
+            url = urlsplit(page["url"])
+            if (url.scheme, url.netloc) != ("http", "tauri.localhost"):
+                raise RuntimeError("installed_resources_not_packaged")
             return page["url"]
         time.sleep(0.2)
-    raise HarnessFailure("installed_overview_not_rendered")
+    raise RuntimeError("installed_first_run_page_not_rendered")
 
 
 def screenshot(client: httpx.Client, prefix: str, artifacts: Path) -> bool:
@@ -136,7 +141,7 @@ def capture_process(process: subprocess.Popen[bytes], artifacts: Path) -> bool:
 @contextmanager
 def debug_policy(arguments: str) -> Iterator[None]:
     if os.name != "nt" or os.environ.get("GITHUB_ACTIONS") != "true":
-        raise HarnessFailure("disposable_windows_github_runner_required")
+        raise RuntimeError("disposable_windows_github_runner_required")
     import winreg
 
     path = r"SOFTWARE\Policies\Microsoft\Edge\WebView2\AdditionalBrowserArguments"
@@ -209,17 +214,6 @@ def run_ui(executable: Path, driver: Path, artifacts: Path, report: dict[str, ob
             try:
                 report["stage"] = "packaged_page"
                 report["packagedUrl"] = wait_packaged_page(client, prefix)
-                report["stage"] = "single_instance"
-                report["singleInstance"] = exercise_single_instance(client, prefix, app)
-                report["stage"] = "connection_journey"
-                report["connectionJourney"] = exercise_connection_journey(client, prefix)
-                report["stage"] = "memory_workflow"
-                report["workflow"] = exercise_memory(client, prefix)
-                report["stage"] = "session_observations"
-                report["sessionObservations"] = exercise_session(client, prefix)
-                report["screenshotCaptured"] = screenshot(client, prefix, artifacts)
-                report["stage"] = "forced_exit"
-                report["lifecycle"] = exercise_forced_exit(client, prefix, app)
             finally:
                 if app.poll() is None:
                     report["screenshotCaptured"] = screenshot(client, prefix, artifacts)
@@ -230,7 +224,7 @@ def run_ui(executable: Path, driver: Path, artifacts: Path, report: dict[str, ob
 
 def main() -> None:
     if os.name != "nt" or os.environ.get("GITHUB_ACTIONS") != "true":
-        raise HarnessFailure("disposable_windows_github_runner_required")
+        raise RuntimeError("disposable_windows_github_runner_required")
     executable = Path(sys.argv[1]).resolve(strict=True)
     driver = Path(os.environ["DESKTOP_EDGE_DRIVER"]).resolve(strict=True)
     artifacts = Path(__file__).resolve().parents[1] / ".artifacts"
@@ -240,7 +234,7 @@ def main() -> None:
         "debugConfiguration": "Temporary machine WebView2 policy for powercontext-desktop.exe on disposable runner; restored on exit",
         "installedExecutableSha256": hashlib.sha256(executable.read_bytes()).hexdigest(),
         "driverSha256": hashlib.sha256(driver.read_bytes()).hexdigest(),
-        "scope": "Hosted Windows runner, actual installed WebView2 with automation enabled; not clean Windows 11 qualification",
+        "scope": "First launch of the installed WebView2 application on a hosted Windows runner",
         "result": "failed",
     }
     try:

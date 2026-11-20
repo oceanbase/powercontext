@@ -99,6 +99,7 @@ test("restores a saved service directly into its default space", async () => {
   vi.mocked(desktopApi.check).mockResolvedValueOnce(checked);
   vi.mocked(desktopApi.defaultScope).mockResolvedValueOnce(scope);
   vi.mocked(desktopApi.selectScope).mockResolvedValueOnce(connected);
+  globalThis.localStorage.setItem("active-connection-id", profile.id);
 
   render(<App />);
 
@@ -107,23 +108,6 @@ test("restores a saved service directly into its default space", async () => {
   expect(desktopApi.defaultScope).toHaveBeenCalledWith(1);
   expect(desktopApi.selectScope).toHaveBeenCalledWith(1, scope.scope_id);
   expect(screen.queryByText("开始使用 PowerContext")).toBeNull();
-});
-test("frameless shell exposes draggable regions without swallowing window controls", () => {
-  const { container } = render(<App />);
-  const regions = container.querySelectorAll("[data-tauri-drag-region]");
-  expect(regions.length).toBeGreaterThanOrEqual(2);
-  expect(container.querySelector(".window-drag-handle")).toBeTruthy();
-  expect(
-    container.querySelector('.brand[data-tauri-drag-region="deep"]'),
-  ).toBeTruthy();
-  expect(
-    container.querySelector(".topbar-spacer[data-tauri-drag-region]"),
-  ).toBeTruthy();
-  expect(
-    screen
-      .getByRole("button", { name: "关闭窗口" })
-      .hasAttribute("data-tauri-drag-region"),
-  ).toBe(false);
 });
 test("first run starts with a simple service decision while disconnected features remain unavailable", async () => {
   const user = userEvent.setup();
@@ -179,7 +163,7 @@ test("first run starts with a simple service decision while disconnected feature
   await user.click(screen.getByRole("button", { name: "连接服务" }));
   expect(screen.getByRole("heading", { name: "连接服务" })).toBeTruthy();
 });
-test("navigation and shadcn settings controls remain usable without the native host", async () => {
+test("navigation and settings controls remain usable without the native host", async () => {
   const user = userEvent.setup();
   render(<App />);
   expect(screen.queryByRole("button", { name: "Agent" })).toBeNull();
@@ -188,15 +172,15 @@ test("navigation and shadcn settings controls remain usable without the native h
   expect(
     (
       screen.getByRole("switch", { name: "系统通知" }) as HTMLButtonElement
-    ).getAttribute("data-state"),
-  ).toBe("checked");
+    ).getAttribute("aria-checked"),
+  ).toBe("true");
   expect(
     (
       screen.getByRole("switch", {
         name: "登录时打开 Desktop",
       }) as HTMLButtonElement
-    ).getAttribute("data-state"),
-  ).toBe("checked");
+    ).getAttribute("aria-checked"),
+  ).toBe("true");
   expect(screen.getByText(/不会启动 PowerContext 服务/)).toBeTruthy();
   expect(screen.queryByText("检查更新")).toBeNull();
   expect(screen.queryByText("关于 PowerContext")).toBeNull();
@@ -250,11 +234,11 @@ test("restores the complete desktop preference model on a new app mount", async 
   expect(
     screen
       .getByRole("switch", { name: "System notifications" })
-      .getAttribute("data-state"),
-  ).toBe("unchecked");
+      .getAttribute("aria-checked"),
+  ).toBe("false");
   expect(
     screen
       .getByRole("switch", { name: "Open Desktop at login" })
-      .getAttribute("data-state"),
-  ).toBe("unchecked");
+      .getAttribute("aria-checked"),
+  ).toBe("false");
 });

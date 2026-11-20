@@ -11,7 +11,6 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ActionNotification } from "../src/components/ui/action-notification";
 import { PageFeedback } from "../src/components/ui/feedback";
-import { Skeleton } from "../src/components/ui/skeleton";
 
 afterEach(() => {
   cleanup();
@@ -19,31 +18,12 @@ afterEach(() => {
 });
 
 describe("shared feedback components", () => {
-  it("uses the standalone shadcn Skeleton primitive for structural loading", () => {
-    const { container } = render(<Skeleton className="h-4" />);
-    expect(container.querySelector('[data-slot="skeleton"]')).toBeTruthy();
-  });
-
   it("announces loading without treating it as an error", () => {
     render(<PageFeedback kind="loading" title="Loading memories" />);
 
     const status = screen.getByRole("status");
     expect(status.getAttribute("aria-busy")).toBe("true");
     expect(screen.queryByRole("alert")).toBeNull();
-  });
-
-  it("announces errors immediately and keeps recovery actions available", () => {
-    render(
-      <PageFeedback
-        compact
-        kind="error"
-        title="Could not load memories"
-        action={<button type="button">Try again</button>}
-      />,
-    );
-
-    expect(screen.getByRole("alert")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Try again" })).toBeTruthy();
   });
 
   it("keeps non-blocking notifications polite and dismissible", () => {

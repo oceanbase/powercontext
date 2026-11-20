@@ -1058,6 +1058,7 @@ export function ServiceAgentWorkspace({
           state={state}
           language={language}
           onState={onState}
+          preview={model.simulated}
           onClose={() => setConnectOpen(false)}
           title={
             language === "zh"

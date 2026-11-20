@@ -329,7 +329,7 @@ def validate_target(
         f"{target}: native resource smoke missing or mismatched",
     )
     records = [
-        {"id": profile["id"], "evidence": profile["evidence"]}
+        {"id": profile["id"]}
         for profile in profiles
         if not profile["id"].startswith("ci-")
         and profile["serverCommit"] == release["server_source_sha"]

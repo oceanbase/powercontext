@@ -12,7 +12,13 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import type { DesktopState, ScopeDescriptor } from "../generated/ipc";
+import type {
+  DesktopState,
+  ScopeDescriptor,
+  ScopePage,
+} from "../generated/ipc";
+import { desktopApi } from "../shared/ipc";
+import { connectionError } from "./connection-messages";
 import { activeCheckReport, connectionCheckReport } from "./context";
 import { messages, type Language } from "./messages";
 import { previewScopes } from "./preview-data";
@@ -22,6 +28,7 @@ type Props = {
   language: Language;
   loading?: boolean;
   contextPending?: boolean;
+  preview?: boolean;
   onManageConnections: (profileId?: string) => void;
   onSelectConnection?: (profileId: string) => void;
   onSelectScope?: (scope: ScopeDescriptor) => void;
@@ -37,6 +44,7 @@ export function TopBar({
   language,
   loading = false,
   contextPending = false,
+  preview = false,
   onManageConnections,
   onSelectConnection,
   onSelectScope,
@@ -52,7 +60,12 @@ export function TopBar({
     (profile) => profile.id === active?.connectionId,
   );
   const hasService = !!activeProfile;
-  const hasScope = hasService && !!active?.scope;
+  const canListSpaces =
+    !!active?.report.supportedOperations.includes("list_scopes");
+  const hasScopeMenu = hasService && (!!active?.scope || canListSpaces);
+  const scopeTitle =
+    active?.scope?.title ??
+    (language === "zh" ? "选择记忆空间" : "Select a memory space");
   const activeReport = activeCheckReport(state);
   const serviceUnavailable =
     !!activeReport &&
@@ -153,7 +166,7 @@ export function TopBar({
               />
             </DropdownMenuContent>
           </DropdownMenu>
-          {hasScope && (
+          {hasScopeMenu && active && (
             <>
               <span className="context-separator" aria-hidden="true">
                 /
@@ -169,11 +182,13 @@ export function TopBar({
                     ref={scopeTrigger}
                     className="context-switcher scope-switcher"
                     disabled={contextPending}
-                    aria-label={`${language === "zh" ? "当前记忆空间" : "Current memory space"}: ${active?.scope?.title}`}
+                    aria-label={
+                      active.scope
+                        ? `${language === "zh" ? "当前记忆空间" : "Current memory space"}: ${scopeTitle}`
+                        : scopeTitle
+                    }
                   >
-                    <span className="context-switcher-label">
-                      {active?.scope?.title}
-                    </span>
+                    <span className="context-switcher-label">{scopeTitle}</span>
                     <ChevronsUpDown
                       className="context-swap-icon"
                       aria-hidden="true"
@@ -185,7 +200,11 @@ export function TopBar({
                   className="context-menu min-w-[260px] max-w-[360px]"
                 >
                   <ScopeMenu
-                    active={active!.scope!}
+                    key={active.generation}
+                    active={active.scope}
+                    generation={active.generation}
+                    list={canListSpaces && open === "scope"}
+                    preview={preview}
                     language={language}
                     onSelect={(scope) => onSelectScope?.(scope)}
                     onCreate={() => {
@@ -285,33 +304,64 @@ function ConnectionMenu({
 
 function ScopeMenu({
   active,
+  generation,
+  list,
+  preview,
   language,
   onSelect,
   onCreate,
 }: {
-  active: ScopeDescriptor;
+  active: ScopeDescriptor | null;
+  generation: number;
+  list: boolean;
+  preview: boolean;
   language: Language;
   onSelect: (scope: ScopeDescriptor) => void;
   onCreate: () => void;
 }) {
-  // Only the desktop development connection exposes simulated Spaces. A real
-  // service must never receive locally invented choices.
-  const scopes = active.scope_id.startsWith("preview-")
-    ? previewScopes(language)
-    : [active];
+  const [cursor, setCursor] = useState<string | null>(null);
+  const [page, setPage] = useState<ScopePage>();
+  const [error, setError] = useState<unknown>(null);
+  useEffect(() => {
+    if (!list || preview) return;
+    let current = true;
+    setError(null);
+    void desktopApi.scopes(generation, "", cursor).then(
+      (next) => {
+        if (current)
+          setPage((previous) =>
+            cursor && previous
+              ? { ...next, items: [...previous.items, ...next.items] }
+              : next,
+          );
+      },
+      (reason: unknown) => {
+        if (current) setError(reason);
+      },
+    );
+    return () => {
+      current = false;
+    };
+  }, [cursor, generation, list, preview]);
+
+  const scopes = preview ? previewScopes(language) : (page?.items ?? []);
+  const choices =
+    active && !scopes.some((scope) => scope.scope_id === active.scope_id)
+      ? [active, ...scopes]
+      : scopes;
 
   return (
     <>
       <DropdownMenuRadioGroup
-        value={active.scope_id}
+        value={active?.scope_id ?? ""}
         onValueChange={(value) => {
-          const scope = scopes.find(
+          const scope = choices.find(
             (candidate) => candidate.scope_id === value,
           );
           if (scope) onSelect(scope);
         }}
       >
-        {scopes.map((scope) => (
+        {choices.map((scope) => (
           <DropdownMenuRadioItem
             key={scope.scope_id}
             value={scope.scope_id}
@@ -321,14 +371,38 @@ function ScopeMenu({
           </DropdownMenuRadioItem>
         ))}
       </DropdownMenuRadioGroup>
-      <DropdownMenuSeparator className="menu-separator" />
-      <DropdownMenuItem
-        className="menu-item context-menu-create"
-        onSelect={onCreate}
-      >
-        <Plus aria-hidden="true" />
-        {language === "zh" ? "创建记忆空间" : "Create memory space"}
-      </DropdownMenuItem>
+      {error != null && (
+        <DropdownMenuItem disabled>
+          {connectionError(error, language)}
+        </DropdownMenuItem>
+      )}
+      {!preview && list && !page && error == null && (
+        <DropdownMenuItem disabled>
+          {messages[language].loadingScopes}
+        </DropdownMenuItem>
+      )}
+      {page?.next_cursor && (
+        <DropdownMenuItem
+          onSelect={(event) => {
+            event.preventDefault();
+            setCursor(page.next_cursor ?? null);
+          }}
+        >
+          {language === "zh" ? "加载更多空间" : "Load more spaces"}
+        </DropdownMenuItem>
+      )}
+      {preview && (
+        <>
+          <DropdownMenuSeparator className="menu-separator" />
+          <DropdownMenuItem
+            className="menu-item context-menu-create"
+            onSelect={onCreate}
+          >
+            <Plus aria-hidden="true" />
+            {language === "zh" ? "创建记忆空间" : "Create memory space"}
+          </DropdownMenuItem>
+        </>
+      )}
     </>
   );
 }

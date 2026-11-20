@@ -22,11 +22,11 @@ description: 为 Windows x64 和两种 macOS 架构组装身份固定、尚未�
 
 从同一次成功运行下载 `desktop-candidate-<version>-<source_sha>`。汇总任务只接收同一次运行中指定平台任务的产物，不接收内部预览包、测试资格清单或其他运行的上传件。每个目标目录下的安装包为 `powercontext-desktop-<version>-<target>.exe` 或 `.dmg`。同目录还包含 Server 和 Ops 归档、资源目录、配置描述、输入锁文件、生产清单、实际 Server wheel 和烟测记录。目标标识为 `windows-x86_64`、`macos-arm64` 和 `macos-x86_64`。
 
-`desktop-release-candidate.json` 包含 `schema_version: 1`、`version`、`tag`、`source_sha`、`server_source_sha`、`server_version`、`status: unqualified_candidate` 和 `publishable: false`。`contract` 记录桌面端 HTTP 契约摘要、操作集，以及随候选交接的操作与兼容性文件。`targets` 中每个目标有 `package`、`resources`、`provenance`、`qualification` 和 `runtime`。`assets` 中的四种发布角色为 `desktop`、`server_archive`、`server_catalog` 和 `ops_archive`。文件条目包含相对候选根目录的 `name`、字节数 `size` 和小写 `sha256`。Ops 配置描述和 bundle 清单位于 `provenance`，文件名按目标区分。`qualification.producer_ref` 始终指向未取得资格的生产记录。`matching_product_records` 只列出与实际 wheel、源码、契约及操作集匹配的内置资格记录；空列表表示仍需补产品协议资格。即使有匹配记录，也不能视为安装包通过验收。
+`desktop-release-candidate.json` 包含 `schema_version: 1`、`version`、`tag`、`source_sha`、`server_source_sha`、`server_version`、`status: unqualified_candidate` 和 `publishable: false`。`contract` 记录桌面端 HTTP 契约摘要、操作集，以及随候选交接的操作与兼容性文件。`targets` 中每个目标有 `package`、`resources`、`provenance`、`qualification` 和 `runtime`。`assets` 中的四种发布角色为 `desktop`、`server_archive`、`server_catalog` 和 `ops_archive`。文件条目包含相对候选根目录的 `name`、字节数 `size` 和小写 `sha256`。Ops 配置描述和 bundle 清单位于 `provenance`，文件名按目标区分。`qualification.producer_ref` 始终指向未取得资格的生产记录。`matching_product_records` 列出与实际 wheel、源码、契约及操作集匹配的内置资格记录 ID；空列表表示仍需补产品协议资格。即使有匹配记录，也不能视为安装包通过验收。
 
 交接发布时选择 `desktop-candidate-manifest-<version>-<source_sha>`，其中只有字节完全相同的 `desktop-release-candidate.json`。运行摘要列出 `candidate_run_id`、`candidate_full_artifact_id`、`candidate_manifest_artifact_id` 和 `candidate_manifest_sha256`。在发布交接中用清单构件 ID 填写 `candidate_artifact_id`，发布流程即可单独取清单，无需下载大型归档。两种 Actions 构件均保留 14 天。
 
-如需检查完整候选，从可信运行的摘要取得候选清单 SHA-256，再校验下载件：
+如需检查完整候选，从可信运行的摘要取得候选清单 SHA-256，并在该候选对应的 Desktop 源码检出中校验下载件：
 
 ```sh
 uv run --locked --no-dev --group resource-build python scripts/desktop_candidate.py verify --root <下载目录> \

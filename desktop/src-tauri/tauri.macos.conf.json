@@ -1,5 +1,28 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "PowerContext Desktop",
+        "width": 1280,
+        "height": 800,
+        "minWidth": 400,
+        "minHeight": 400,
+        "dragDropEnabled": false,
+        "zoomHotkeysEnabled": false,
+        "decorations": true,
+        "titleBarStyle": "Overlay",
+        "trafficLightPosition": {
+          "x": 16,
+          "y": 17
+        },
+        "hiddenTitle": true,
+        "transparent": true,
+        "create": false
+      }
+    ]
+  },
   "bundle": {
     "targets": [
       "app",

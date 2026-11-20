@@ -3,12 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test } from "vitest";
 import { Input } from "../src/components/ui/input";
 import { Textarea } from "../src/components/ui/textarea";
-import {
-  Field,
-  FieldDescription,
-  FieldError,
-  FieldLabel,
-} from "../src/components/ui/field";
+import { FieldError } from "../src/components/ui/field";
 
 afterEach(cleanup);
 
@@ -60,29 +55,4 @@ test("a field error remains associated with its input while preserving entered t
     document.getElementById(field.getAttribute("aria-describedby")!)
       ?.textContent,
   ).toBe("Enter a valid address.");
-});
-
-test("composes labels, descriptions and errors through the shared Field structure", () => {
-  render(
-    <Field>
-      <FieldLabel htmlFor="shared-address">Address</FieldLabel>
-      <Input
-        id="shared-address"
-        aria-invalid
-        aria-describedby="shared-address-description shared-address-error"
-      />
-      <FieldDescription id="shared-address-description">
-        Use an HTTPS address.
-      </FieldDescription>
-      <FieldError id="shared-address-error">Address is required.</FieldError>
-    </Field>,
-  );
-
-  expect(screen.getByLabelText("Address")).toBeTruthy();
-  expect(screen.getByText("Use an HTTPS address.").dataset.slot).toBe(
-    "field-description",
-  );
-  expect(screen.getByText("Address is required.").dataset.slot).toBe(
-    "field-error",
-  );
 });

@@ -52,12 +52,3 @@ The operation catalog and reachable wire models come from
 `pnpm --dir desktop generate`; IPC declarations come from the Rust `export_ipc`
 example. The native exact-selection projection reuses concrete generated field
 types while preserving the nullable estimator and prohibiting broader selections.
-Neither Server APIs nor historical qualification records are changed.
-
-See [the qualification record](https://github.com/oceanbase/powercontext/blob/master/desktop/VALIDATION.md#current-scope-statistics-qualification)
-for the tested Server/contract/wheel identities and actual validation limits.
-Synthetic tests establish local handling; the built-wheel harness separately
-establishes the observed SQLite protocol behavior. The record also distinguishes
-the exercised macOS ARM64 bundled debug-app journey from Windows installed UI,
-Intel, IME and screen-reader gates. The Windows installed journey compares the
-page's tables with independent real Server responses.

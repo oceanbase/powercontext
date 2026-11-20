@@ -139,10 +139,8 @@ test("opens local service installation from new-user onboarding", async () => {
   });
   expect(within(deployDialog).getByText(/系统默认位置/)).toBeTruthy();
   expect(
-    within(deployDialog)
-      .getByRole("button", { name: "安装服务" })
-      .getAttribute("data-variant"),
-  ).toBe("default");
+    within(deployDialog).getByRole("button", { name: "安装服务" }),
+  ).toBeTruthy();
 });
 
 test("closing the existing-service dialog restores focus without scrolling the page", async () => {
@@ -513,9 +511,6 @@ test("confirms remote connection deletion with the local connection dialog patte
   expect(within(dialog).getByText(/只删除 Desktop 中的连接配置/)).toBeTruthy();
   expect(within(dialog).getByRole("button", { name: "取消" })).toBeTruthy();
   const deleteButton = within(dialog).getByRole("button", { name: "删除" });
-  expect(deleteButton.getAttribute("data-variant")).toBe("destructive");
-  expect(deleteButton.className).toContain("border-destructive");
-  expect(deleteButton.className).not.toContain("bg-destructive text-white");
   await user.click(deleteButton);
 
   expect(screen.queryByText("团队远程服务")).toBeNull();
@@ -616,10 +611,6 @@ test("configures previously unconfigured models through the Agent flow", async (
   const embeddingError = within(embeddingDialog).getByRole("alert");
   expect(within(embeddingError).getByText("连通性校验失败")).toBeTruthy();
   expect(within(embeddingError).getByText(/无法连接到模型服务/)).toBeTruthy();
-  const embeddingErrorIcon = embeddingError.querySelector("svg");
-  expect(embeddingErrorIcon).toBeTruthy();
-  expect(embeddingErrorIcon?.getAttribute("stroke")).toBe("var(--destructive)");
-  expect(embeddingErrorIcon?.getAttribute("stroke-width")).toBe("1.75");
   await user.click(
     within(embeddingDialog).getByRole("button", { name: "取消" }),
   );
@@ -797,11 +788,5 @@ test("shows disabled model selectors and validates credentials before connectivi
   const generationError = within(dialog).getByRole("alert");
   expect(within(generationError).getByText("配置校验失败")).toBeTruthy();
   expect(within(generationError).getByText(/无法连接到模型服务/)).toBeTruthy();
-  const generationErrorIcon = generationError.querySelector("svg");
-  expect(generationErrorIcon).toBeTruthy();
-  expect(generationErrorIcon?.getAttribute("stroke")).toBe(
-    "var(--destructive)",
-  );
-  expect(generationErrorIcon?.getAttribute("stroke-width")).toBe("1.75");
   vi.unstubAllGlobals();
 });

@@ -2115,8 +2115,11 @@ dd {
   flex: 1;
   gap: 0;
   padding: 0;
-  grid-template-columns: minmax(0, 1fr) minmax(240px, 300px);
+  grid-template-columns: var(--memory-detail-columns, minmax(0, 1fr));
   overflow: hidden;
+}
+.memory-detail-body[data-preview-details="true"] {
+  --memory-detail-columns: minmax(0, 1fr) minmax(240px, 300px);
 }
 .memory-workspace-content[data-detail-expanded="true"] .memory-detail-main,
 .memory-workspace-content[data-detail-expanded="true"]

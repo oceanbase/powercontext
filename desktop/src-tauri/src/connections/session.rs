@@ -26,7 +26,7 @@ use crate::{
 };
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     future::Future,
     sync::{Arc, Mutex},
 };
@@ -101,11 +101,10 @@ pub struct CompatibilityProfile {
     pub contract_sha256: String,
     pub artifact_sha256: String,
     pub operations: Vec<String>,
-    pub evidence: String,
-    /// Separate current-client evidence; the original Server qualification remains unchanged.
+    /// Additional client contract digests supported in Bearer mode.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
-    pub authenticated_clients: Option<BTreeMap<String, String>>,
+    pub authenticated_clients: Option<BTreeSet<String>>,
 }
 #[derive(Clone, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
@@ -263,7 +262,7 @@ impl ConnectionManager {
         };
         Self::with_compatibility(profiles, compatibility)
     }
-    /// Supply explicit native qualification evidence, including synthetic test fixtures.
+    /// Supply explicit native compatibility profiles, including synthetic test fixtures.
     /// This constructor is never exposed through IPC or renderer configuration.
     pub fn with_compatibility(
         profiles: ProfileRepository,
@@ -515,7 +514,7 @@ impl ConnectionManager {
                             && contract["contractSha256"].as_str().is_some_and(|digest| {
                                 c.authenticated_clients
                                     .as_ref()
-                                    .is_some_and(|clients| clients.contains_key(digest))
+                                    .is_some_and(|clients| clients.contains(digest))
                             })))
                     && !identity
                         .as_ref()

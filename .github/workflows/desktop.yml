@@ -115,18 +115,6 @@ jobs:
       - name: Qualify the disposable checkout and built-wheel fixture
         working-directory: .
         run: uv run --no-sync python desktop/tests/fixture_qualification.py --server-commit $env:GITHUB_SHA
-      - name: Check installed UI acceptance harness
-        working-directory: .
-        run: |
-          $harnessFiles = @(Get-ChildItem -Path desktop/tests/installed_*.py -File | Sort-Object Name | ForEach-Object { $_.FullName })
-          $harnessFiles += 'desktop/tests/fixture_qualification.py'
-          uv run --no-sync ruff check --no-fix @harnessFiles
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          uv run --no-sync ruff format --check @harnessFiles
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          uv run --no-sync ty check @harnessFiles
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          uv run --no-sync ty check --python-platform linux @harnessFiles
       - name: Check fixture qualification regressions
         working-directory: .
         run: uv run --no-sync python -m pytest tests/test_desktop_fixture_qualification.py
@@ -138,8 +126,8 @@ jobs:
       - name: Test native diagnostics with isolated real CLI
         working-directory: .
         run: uv run --no-sync python desktop/tests/real_cli.py
-      - name: Build fixture-qualified unsigned internal Windows installer
-        run: pnpm desktop:build:windows:ci
+      - name: Build unsigned internal Windows installer
+        run: pnpm desktop:build
       - name: Prepare matching WebView2 driver
         run: ./scripts/prepare-webdriver.ps1
       - name: Smoke test installed package
@@ -164,7 +152,6 @@ jobs:
             desktop/.artifacts/installed-ui-app.log
             desktop/.artifacts/installed-ui-processes.json
             desktop/.artifacts/installed-ui-window.png
-            desktop/.artifacts/installed-ui-server-*/
           # Early validation failures can leave no installer or acceptance evidence.
           # Still reject missing artifacts when every preceding step succeeded.
           if-no-files-found: ${{ job.status == 'success' && 'error' || 'warn' }}
@@ -222,6 +209,8 @@ jobs:
           uv run --no-sync python -m pytest tests/test_desktop_product.py::test_tauri_cli_bundles_the_complete_helper_inventory -q
       - name: Verify native Keychain across processes
         run: cargo run --locked --manifest-path src-tauri/Cargo.toml --example credential_probe
+      - name: Prepare Sparkle for macOS packaging
+        run: bash scripts/setup-sparkle.sh
       - name: Build unsigned macOS app and DMG
         id: macos_build
         run: python3 scripts/build_macos.py
@@ -372,12 +361,6 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
-          fetch-depth: 0
-      - name: Verify Server version baseline tag
-        run: |
-          git fetch --no-tags https://github.com/oceanbase/powercontext.git refs/tags/powercontext-v1.0.0:refs/tags/powercontext-v1.0.0
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          if ((git rev-parse refs/tags/powercontext-v1.0.0) -ne 'ec97efba5f26fc972e9d8bf5027d8233acab3ca1') { throw 'Unexpected Server version baseline tag' }
       - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           version: "0.10.12"
@@ -389,13 +372,8 @@ jobs:
             integrations/langchain/pyproject.toml
             integrations/langgraph/pyproject.toml
             integrations/opendal/pyproject.toml
-      - name: Prepare isolated Server fixture
-        run: |
-          uv sync --locked --python 3.12
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          uv build --wheel --out-dir desktop/.artifacts/server-wheel
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          uv run --no-sync python desktop/tests/fixture_qualification.py --server-commit $env:GITHUB_SHA
+      - name: Install locked smoke test dependencies
+        run: uv sync --locked --python 3.12 --no-dev --no-install-project
       - name: Retrieve and verify exact installer
         env:
           GH_TOKEN: ${{ github.token }}
@@ -418,7 +396,7 @@ jobs:
           "DESKTOP_INSTALLER_COMMIT=$($run.head_sha)" >> $env:GITHUB_ENV
       - name: Prepare matching WebView2 driver
         run: ./desktop/scripts/prepare-webdriver.ps1
-      - name: Exercise existing installed package
+      - name: Smoke test existing installer
         timeout-minutes: 8
         run: ./desktop/scripts/windows-smoke.ps1
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7

@@ -1283,7 +1283,6 @@ fn local_qualification_is_bound_to_the_pinned_catalog_and_observed_resource_dige
         artifact_sha256: "e".repeat(64),
         contract_sha256: "synthetic-fixture".into(),
         operations: vec![],
-        evidence: "Synthetic catalog identity only; not platform qualification".into(),
     }];
     assert_eq!(
         host.0

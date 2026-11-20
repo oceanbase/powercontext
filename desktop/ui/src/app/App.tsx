@@ -211,16 +211,15 @@ export function App() {
       return false;
     currentState.current = next;
     setDesktop(next);
-    if (next.active) {
+    if (!previewMode && next.active?.scope) {
       globalThis.localStorage?.setItem(
         "active-connection-id",
         next.active.connectionId,
       );
-      if (next.active.scope)
-        globalThis.localStorage?.setItem(
-          "active-scope-id",
-          next.active.scope.scope_id,
-        );
+      globalThis.localStorage?.setItem(
+        "active-scope-id",
+        next.active.scope.scope_id,
+      );
     }
     if (previewMode && next.active?.connectionId.startsWith("preview-")) {
       setPreviewConnected(true);
@@ -249,13 +248,14 @@ export function App() {
     const storedConnectionId = globalThis.localStorage?.getItem(
       "active-connection-id",
     );
-    const profile =
-      next.profiles.find((candidate) => candidate.id === storedConnectionId) ??
-      next.profiles[0];
+    const profile = next.profiles.find(
+      (candidate) => candidate.id === storedConnectionId,
+    );
+    if (!next.active && !profile) return next;
+    let checked = next;
     try {
-      const checked = next.active
-        ? next
-        : await desktopApi.check(profile.id, true);
+      if (!next.active && profile)
+        checked = await desktopApi.check(profile.id, true);
       if (!checked.active || !checked.active.report.compatibilityVerified)
         return checked;
       const storedScopeId = globalThis.localStorage?.getItem("active-scope-id");
@@ -277,7 +277,7 @@ export function App() {
         defaultScope.scope_id,
       );
     } catch {
-      return next;
+      return checked;
     }
   }
   async function loadState() {
@@ -489,6 +489,7 @@ export function App() {
           language={language}
           loading={stateLoading}
           contextPending={contextPending}
+          preview={previewMode}
           hideContent={page === "connections" || page === "settings"}
           onManageConnections={(profileId) =>
             navigate("connections", { profileId })
@@ -504,9 +505,11 @@ export function App() {
             void (async () => {
               try {
                 const checked = await desktopApi.check(profileId, true);
+                receiveState(checked);
                 if (
                   !checked.active ||
-                  checked.active.connectionId !== profileId
+                  checked.active.connectionId !== profileId ||
+                  !checked.active.report.compatibilityVerified
                 )
                   throw { code: "compatibility_unverified" };
                 const defaultScope = await desktopApi.defaultScope(
@@ -535,12 +538,12 @@ export function App() {
               scope.scope_id === desktop.active.scope?.scope_id
             )
               return;
-            const generation = desktop.generation + 1;
-            receiveState({
-              ...desktop,
-              generation,
-              active: { ...desktop.active, generation, scope },
-            });
+            connectionPending(true);
+            setNativeError(null);
+            void desktopApi
+              .selectScope(desktop.active.generation, scope.scope_id)
+              .then(receiveState, setNativeError)
+              .finally(() => connectionPending(false));
           }}
           onCreateScope={(trigger) => {
             scopeReturnFocus.current = trigger;
@@ -592,6 +595,7 @@ export function App() {
               onState={receiveState}
               onOpenLocalServer={() => setDeploymentOpen(true)}
               contextPending={contextPending}
+              preview={previewMode}
             />
           )}
           {page === "memories" && (
@@ -603,6 +607,7 @@ export function App() {
               onOpenLocalServer={() => setDeploymentOpen(true)}
               onOpenExistingServer={() => setQuickConnectOpen(true)}
               contextPending={contextPending}
+              preview={previewMode}
             />
           )}
           {page === "connections" && (
@@ -658,10 +663,14 @@ export function App() {
                 setPage("home");
                 setMenu(false);
               }}
-              onCreateSpace={(trigger) => {
-                scopeReturnFocus.current = trigger;
-                setCreateScopeOpen(true);
-              }}
+              onCreateSpace={
+                previewMode
+                  ? (trigger) => {
+                      scopeReturnFocus.current = trigger;
+                      setCreateScopeOpen(true);
+                    }
+                  : undefined
+              }
             />
           )}
           {page === "settings" && (
@@ -733,6 +742,7 @@ export function App() {
           state={displayedDesktop}
           language={language}
           onState={receiveState}
+          preview={previewMode}
           onClose={() => setQuickConnectOpen(false)}
         />
       )}

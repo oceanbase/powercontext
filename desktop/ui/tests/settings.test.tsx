@@ -96,8 +96,6 @@ test("all settings update through one controlled preference model", async () => 
   });
   await user.click(notifications);
   await user.click(launch);
-  expect(notifications.getAttribute("data-state")).toBe("unchecked");
-  expect(launch.getAttribute("data-state")).toBe("unchecked");
-  expect(notifications.className).toContain("h-8");
-  expect(notifications.className).toContain("w-10");
+  expect(notifications.getAttribute("aria-checked")).toBe("false");
+  expect(launch.getAttribute("aria-checked")).toBe("false");
 });

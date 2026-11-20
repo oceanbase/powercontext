@@ -16,11 +16,13 @@ import type {
   ProfileView,
   ScopeDescriptor,
   StatsPeriod,
+  StorageChoice,
 } from "../generated/ipc";
+import { contractSha256 } from "../generated/operations";
 import { desktopApi } from "../shared/ipc";
 import { messages, type Language } from "./messages";
 import { activeCheckReport } from "./context";
-import { connectionError } from "./connection-messages";
+import { connectionError, connectionMessages } from "./connection-messages";
 import { PageFeedback } from "@/components/ui/feedback";
 import {
   Dialog,
@@ -67,6 +69,7 @@ type Props = {
   onState?: (state: DesktopState) => boolean | void;
   onOpenLocalServer: () => void;
   contextPending: boolean;
+  preview?: boolean;
 };
 
 function AgentSetupIllustration() {
@@ -736,33 +739,56 @@ export function QuickConnectDialog({
   state,
   language,
   onState,
+  preview = false,
   onClose,
   title,
-}: Pick<Props, "state" | "language" | "onState"> & {
+}: Pick<Props, "state" | "language" | "onState" | "preview"> & {
   onClose: () => void;
   title?: string;
 }) {
   const [name, setName] = useState("");
   const [endpoint, setEndpoint] = useState("http://127.0.0.1:8000");
+  const [authentication, setAuthentication] =
+    useState<Authentication>("bearer");
+  const [compatibility, setCompatibility] = useState("");
   const [credential, setCredential] = useState("");
+  const [storage, setStorage] = useState<StorageChoice>("persistent");
+  const [savedProfile, setSavedProfile] = useState<ProfileView | null>(null);
   const [credentialVisible, setCredentialVisible] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
   const zh = language === "zh";
+  const t = connectionMessages[language];
   const dialogTitle = title ?? (zh ? "连接服务" : "Connect service");
   const duplicate = state?.profiles.some(
-    (profile) => profile.name.trim() === name.trim(),
+    (profile) =>
+      profile.id !== savedProfile?.id && profile.name.trim() === name.trim(),
   );
+  const requiresCredential = authentication === "bearer";
+  const profiles =
+    state?.compatibilityProfiles.filter(
+      (profile) =>
+        profile.contractSha256 === contractSha256 ||
+        (requiresCredential &&
+          profile.authenticatedClients?.includes(contractSha256)),
+    ) ?? [];
+  const qualified = profiles.some((profile) => profile.id === compatibility);
   const fieldErrors = {
     name: submitted && !name.trim(),
     endpoint: submitted && !endpoint.trim(),
-    credential: submitted && !credential.trim(),
+    credential: submitted && requiresCredential && !credential.trim(),
+    compatibility: submitted && !preview && !qualified,
   };
 
   async function connect() {
     if (busy) return;
-    if (!name.trim() || !endpoint.trim() || !credential.trim()) {
+    if (
+      !name.trim() ||
+      !endpoint.trim() ||
+      (requiresCredential && !credential.trim()) ||
+      (!preview && !qualified)
+    ) {
       setSubmitted(true);
       setError(null);
       return;
@@ -775,9 +801,7 @@ export function QuickConnectDialog({
     setBusy(true);
     setError(null);
     try {
-      const authentication: Authentication = "bearer";
-      if (isTauri() && import.meta.env.DEV) {
-        await new Promise((resolve) => globalThis.setTimeout(resolve, 420));
+      if (preview) {
         onState?.(
           demoConnectedState(
             name.trim(),
@@ -790,24 +814,28 @@ export function QuickConnectDialog({
         return;
       }
       const saved = await desktopApi.save({
-        id: null,
-        revision: null,
+        id: savedProfile?.id ?? null,
+        revision: savedProfile?.revision ?? null,
         name: name.trim(),
         endpoint: endpoint.trim(),
         authentication,
         caPem: null,
-        compatibility: null,
+        compatibility,
         keepCredential: false,
-        credential: credential.trim()
-          ? { secret: credential, storage: "persistent" }
-          : null,
+        credential: requiresCredential ? { secret: credential, storage } : null,
       });
       const profile = saved.profiles.find(
         (candidate) => candidate.name === name.trim(),
       );
       if (!profile) throw { code: "not_found" };
+      setSavedProfile(profile);
+      onState?.(saved);
       const checked = await desktopApi.check(profile.id, true);
-      if (checked.active?.connectionId !== profile.id)
+      onState?.(checked);
+      if (
+        checked.active?.connectionId !== profile.id ||
+        !checked.active.report.compatibilityVerified
+      )
         throw { code: "compatibility_unverified" };
       const defaultScope = await desktopApi.defaultScope(
         checked.active.generation,
@@ -906,59 +934,141 @@ export function QuickConnectDialog({
                 </FieldDescription>
               </Field>
               <Field>
-                <FieldLabel>
-                  {zh ? "凭据" : "Credential"}
-                  <span className="password-field">
-                    <Input
-                      adornment="trailing"
-                      type={credentialVisible ? "text" : "password"}
-                      value={credential}
-                      maxLength={2048}
-                      autoComplete="new-password"
-                      onChange={(event) => {
-                        setCredential(event.target.value);
-                        setError(null);
-                      }}
-                      aria-invalid={fieldErrors.credential || undefined}
-                      aria-describedby={
-                        fieldErrors.credential
-                          ? "connection-credential-error"
-                          : undefined
-                      }
-                    />
-                    <Button
-                      variant="field-icon"
-                      size="icon-sm"
-                      type="button"
-                      className="password-toggle"
-                      aria-label={
-                        credentialVisible
-                          ? zh
-                            ? "隐藏凭据"
-                            : "Hide credential"
-                          : zh
-                            ? "显示凭据"
-                            : "Show credential"
-                      }
-                      aria-pressed={credentialVisible}
-                      onClick={() =>
-                        setCredentialVisible((visible) => !visible)
-                      }
-                    >
-                      {credentialVisible ? (
-                        <Eye aria-hidden="true" />
-                      ) : (
-                        <EyeOff aria-hidden="true" />
-                      )}
-                    </Button>
-                  </span>
+                <FieldLabel htmlFor="quick-connection-authentication">
+                  {t.authentication}
                 </FieldLabel>
-                {fieldErrors.credential && (
-                  <FieldError id="connection-credential-error">
-                    {zh ? "请输入凭据" : "Enter a credential"}
-                  </FieldError>
-                )}
+                <Select
+                  value={authentication}
+                  onValueChange={(value) => {
+                    setAuthentication(value as Authentication);
+                    setCompatibility("");
+                    setError(null);
+                  }}
+                >
+                  <SelectTrigger id="quick-connection-authentication">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="bearer">{t.bearer}</SelectItem>
+                    <SelectItem value="unauthenticated_loopback">
+                      {t.anonymous}
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
               </Field>
+              {!preview && (
+                <Field>
+                  <FieldLabel htmlFor="quick-connection-compatibility">
+                    {t.compatibility}
+                  </FieldLabel>
+                  <Select
+                    value={compatibility}
+                    onValueChange={setCompatibility}
+                  >
+                    <SelectTrigger
+                      id="quick-connection-compatibility"
+                      aria-invalid={fieldErrors.compatibility || undefined}
+                      aria-describedby="quick-connection-compatibility-help"
+                    >
+                      <SelectValue placeholder={t.compatibility} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {profiles.map((profile) => (
+                        <SelectItem key={profile.id} value={profile.id}>
+                          {profile.id}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <FieldDescription id="quick-connection-compatibility-help">
+                    {t.compatibilityHint}
+                  </FieldDescription>
+                  {fieldErrors.compatibility && (
+                    <FieldError>
+                      {zh
+                        ? "请选择已验证兼容配置"
+                        : "Select a verified compatibility profile"}
+                    </FieldError>
+                  )}
+                </Field>
+              )}
+              {requiresCredential && (
+                <Field>
+                  <FieldLabel>
+                    {zh ? "凭据" : "Credential"}
+                    <span className="password-field">
+                      <Input
+                        adornment="trailing"
+                        type={credentialVisible ? "text" : "password"}
+                        value={credential}
+                        maxLength={2048}
+                        autoComplete="new-password"
+                        onChange={(event) => {
+                          setCredential(event.target.value);
+                          setError(null);
+                        }}
+                        aria-invalid={fieldErrors.credential || undefined}
+                        aria-describedby={
+                          fieldErrors.credential
+                            ? "connection-credential-error"
+                            : undefined
+                        }
+                      />
+                      <Button
+                        variant="field-icon"
+                        size="icon-sm"
+                        type="button"
+                        className="password-toggle"
+                        aria-label={
+                          credentialVisible
+                            ? zh
+                              ? "隐藏凭据"
+                              : "Hide credential"
+                            : zh
+                              ? "显示凭据"
+                              : "Show credential"
+                        }
+                        aria-pressed={credentialVisible}
+                        onClick={() =>
+                          setCredentialVisible((visible) => !visible)
+                        }
+                      >
+                        {credentialVisible ? (
+                          <Eye aria-hidden="true" />
+                        ) : (
+                          <EyeOff aria-hidden="true" />
+                        )}
+                      </Button>
+                    </span>
+                  </FieldLabel>
+                  {fieldErrors.credential && (
+                    <FieldError id="connection-credential-error">
+                      {zh ? "请输入凭据" : "Enter a credential"}
+                    </FieldError>
+                  )}
+                </Field>
+              )}
+              {requiresCredential && !preview && (
+                <Field>
+                  <FieldLabel htmlFor="quick-connection-storage">
+                    {t.storage}
+                  </FieldLabel>
+                  <Select
+                    value={storage}
+                    onValueChange={(value) =>
+                      setStorage(value as StorageChoice)
+                    }
+                  >
+                    <SelectTrigger id="quick-connection-storage">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="persistent">{t.persistent}</SelectItem>
+                      <SelectItem value="session_only">{t.session}</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </Field>
+              )}
             </fieldset>
           </DialogBody>
           <DialogFooter>
