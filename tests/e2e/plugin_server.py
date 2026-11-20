@@ -111,6 +111,17 @@ async def running_server(
                             pass
                         await asyncio.sleep(0.1)
                 yield client
+        except BaseException as error:
+            # Capture the original failure before cleanup can terminate the child.
+            try:
+                detail = (directory / "server.log").read_text(encoding="utf-8", errors="replace")[-12000:]
+            except OSError as log_error:
+                detail = f"Server log unavailable: {type(log_error).__name__}"
+            error.add_note(
+                f"Plugin Server diagnostic: pid={process.pid}, port={port}, "
+                f"returncode_before_cleanup={process.returncode}\n{detail}"
+            )
+            raise
         finally:
             if process.returncode is None:
                 process.terminate()
