@@ -34,6 +34,7 @@ from alembic.util.exc import CommandError
 from pydantic import BaseModel, ConfigDict, model_validator
 from sqlalchemy import Connection
 
+from powercontext.builtin.artifacts.memory import EmbeddingProfile
 from powercontext.builtin.persistence.seekdb import SeekDBConfig
 
 from .backup import BackupContext, BackupProvider, BackupRef, ForkBackupProvider
@@ -41,9 +42,15 @@ from .bundle import ALEMBIC_CONTEXT_LOCK, MigrationBundle
 from .connections import BackendIdentity, MaintenanceConnections
 from .models import MigrationError, MigrationPlan, MigrationResult, digest
 from .mysql_schema import MySQLSchema, mysql_inventory, read_revision
+from .profile_transitions import (
+    EmbeddingProfileTransition,
+    accept_embedding_profile_switch,
+    finish_embedding_profile_transition,
+    validate_embedding_profile_transitions,
+    verify_embedding_profile_evidence,
+)
 from .server_baselines import recognize_mysql_server_baseline
 from .sources import MigrationSources
-from .sqlite import verify_release_checksums
 
 BackupPolicy = Literal["auto", "manual", "skip"]
 BackupFactory = Callable[[Connection, BackendIdentity, Path], BackupProvider]
@@ -75,6 +82,12 @@ class _Evidence(BaseModel):
     compatibility_rebuild: dict[str, Any] | None = None
     compatibility_processing_counter: bool = False
     compatibility_complete: bool = True
+    embedding_profile_transitions: list[EmbeddingProfileTransition] = []
+
+    @model_validator(mode="after")
+    def transitions_form_one_switch_chain(self) -> _Evidence:
+        validate_embedding_profile_transitions(self.embedding_profile_transitions)
+        return self
 
     @model_validator(mode="after")
     def validate_backup(self) -> _Evidence:  # noqa: C901 -- Validate the complete durable maintenance record.
@@ -270,8 +283,13 @@ class MySQLMigrationRunner:
             target.write_bytes(content)
         self._validate_history()
         hashes = {name: hashlib.sha256(content).hexdigest() for name, content in resources.items()}
+        self._checksum_hashes = hashes
         self.checksum = digest({"bundle": bundle.checksum, "mysql_history": hashes})
-        self.checksums = {
+        self.checksums = self._effective_checksums(bundle.checksums, hashes)
+
+    @staticmethod
+    def _effective_checksums(checksums: Mapping[str, str], hashes: Mapping[str, str]) -> dict[str, str]:
+        return {
             revision: digest({
                 "revision": checksum,
                 "env": hashes["env.py"],
@@ -281,8 +299,14 @@ class MySQLMigrationRunner:
                     if name.startswith(f"versions/{revision}_") or name == f"versions/{revision}.py"
                 },
             })
-            for revision, checksum in bundle.checksums.items()
+            for revision, checksum in checksums.items()
         }
+
+    def _checksums_for_profile(self, profile: EmbeddingProfile) -> Mapping[str, str]:
+        origin = MigrationBundle(
+            self.bundle.directory, embedding_profile=profile, source_directory=self.bundle.source_directory
+        )
+        return self._effective_checksums(origin.checksums, self._checksum_hashes)
 
     def _validate_history(self) -> None:
         try:
@@ -512,6 +536,7 @@ class MySQLMigrationRunner:
         evidence.pending_revision = None
         evidence.adopting = False
         evidence.release_checksums = self.checksums.copy()
+        evidence.embedding_profile_transitions = []
         journal.write(evidence)
         if evidence.backup_state == "pending":
             raise MigrationError("backup_required", "The backup decision has not completed.")
@@ -787,6 +812,50 @@ class MySQLMigrationRunner:
         self._validate_evidence(evidence)
         self._validate_position(evidence, revision)
 
+    def begin_embedding_profile_transition(self, previous: EmbeddingProfile) -> bool:
+        """Record the accepted intent to switch a complete deployment's profile."""
+        journal = self._profile_journal()
+        evidence = journal.read()
+        if evidence is None:
+            raise MigrationError("recovery_required", "The full Server maintenance evidence is missing.")
+        if evidence.state != "complete":
+            raise MigrationError("recovery_required", "Complete the recorded full Server maintenance first.")
+        target = self.bundle.vector_profile.profile if self.bundle.vector_profile is not None else None
+        if target is None:
+            raise MigrationError(
+                "embedding_profile_mismatch", "A profile switch requires a configured embedding profile."
+            )
+        accepted = accept_embedding_profile_switch(evidence.embedding_profile_transitions, previous, target)
+        if accepted == evidence.embedding_profile_transitions:
+            return False
+        evidence.embedding_profile_transitions = accepted
+        journal.write(evidence)
+        return True
+
+    def complete_embedding_profile_transition(self) -> bool:
+        """Mark the pending managed profile switch as reaching the declared storage."""
+        journal = self._profile_journal()
+        evidence = journal.read()
+        if evidence is None:
+            return False
+        completed = finish_embedding_profile_transition(evidence.embedding_profile_transitions)
+        if completed is None:
+            return False
+        evidence.embedding_profile_transitions = completed
+        journal.write(evidence)
+        return True
+
+    def _profile_journal(self) -> _Journal:
+        identity = self.connections.journal_identity()
+        if identity is None:
+            raise MigrationError(
+                "coordination_required", "Open the maintenance connection before recording a profile switch."
+            )
+        return _Journal(self.evidence_directory, identity)
+
+    def has_maintenance_evidence(self) -> bool:
+        return self._profile_journal().path.exists()
+
     def _validate_evidence(self, evidence: _Evidence | None) -> None:
         if evidence is None:
             return
@@ -795,7 +864,12 @@ class MySQLMigrationRunner:
 
             if not evidence.compatibility_steps or evidence.compatibility_checksum != checksum():
                 raise MigrationError("recovery_required", "Keep the original historical conversion definitions.")
-        verify_release_checksums(evidence.release_checksums, self.checksums)
+        verify_embedding_profile_evidence(
+            evidence.model_dump(mode="json"),
+            profile=self.bundle.vector_profile.profile if self.bundle.vector_profile is not None else None,
+            checksums=self.checksums,
+            checksums_for=self._checksums_for_profile,
+        )
         if evidence.state != "complete" and (
             evidence.bundle_checksum != self.checksum or evidence.configuration_digest != self.configuration_digest
         ):
@@ -916,6 +990,7 @@ class MySQLMigrationRunner:
                 backup_policy=plan.backup_policy,
                 backup_state="pending",
                 release_checksums=previous.release_checksums.copy() if previous else {},
+                embedding_profile_transitions=previous.embedding_profile_transitions.copy() if previous else [],
                 compatibility_steps=plan.compatibility_steps,
                 compatibility_checksum=plan.compatibility_checksum,
                 compatibility_fingerprint=plan.schema_fingerprint if plan.compatibility_steps else None,

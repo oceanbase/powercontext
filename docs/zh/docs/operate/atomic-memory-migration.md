@@ -269,9 +269,10 @@ profile，再在同一个事务中读取最新正式标签。关闭向量时保�
 清除 embedding、profile 和输入摘要。SQLite 的全文辅助索引使用稳定的 Scope/Artifact 身份 token，
 不依赖 `VACUUM` 可能改变的 rowid。
 
-OceanBase 和 seekDB 的向量维度改变时，先在停服状态下清除派生向量、替换原生向量索引并调整
-current 列的维度。该 DDL 可能独立提交，整个过程必须保持维护条件。维度相同但 profile 改变时，
-也会按目标 profile 为全部 active 行重新准备向量；不保留历史向量缓存。
+OceanBase 的向量维度改变时，先在停服状态下清除派生向量、替换原生向量索引并调整 current 列的维度。
+嵌入式 SeekDB 不支持修改现有原生 VECTOR 维度；命令会在向量索引或列 DDL 之前拒绝该切换。请保持当前维度，
+或创建启用向量的新部署。OceanBase 的该 DDL 可能独立提交，整个过程必须保持维护条件。维度相同但 profile
+改变时，也会按目标 profile 为全部 active 行重新准备向量；不保留历史向量缓存。
 
 各行分别提交。中断后可能留下部分投影，保持停写并重复执行相同命令即可；重试会重新准备全部
 active 行，不使用进度表续跑。`--batch-size` 控制每批读取的身份数量（1–1000，默认 100），不是
