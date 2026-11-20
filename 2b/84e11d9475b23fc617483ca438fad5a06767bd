@@ -1,0 +1,61 @@
+.github/workflows/e2e-harness.yml
+  s_13fec9a57c9104::t_e03dd6e73cb002 54
+.github/workflows/gateway.yml
+  s_13fec9a57c9104::t_e03dd6e73cb002 33
+src/powercontext/server/dashboard/content.py
+  s_13fec9a57c9104::t_e03dd6e73cb002 281-282,284
+integrations/dsh/plugins/powercontext/package.json
+  s_13fec9a57c9104::t_e03dd6e73cb002 73
+tests/builtin/runtime/test_model_usage_recorder.py
+  s_13fec9a57c9104::t_e03dd6e73cb002 36
+tests/native/test_installation.py
+  s_13fec9a57c9104::t_e03dd6e73cb002 45,56,253
+integrations/dsh/plugins/powercontext/tests/e2e/call-through.spec.ts
+  s_13fec9a57c9104::t_e03dd6e73cb002 236
+tests/e2e/test_gateway_http1_lifecycle.py
+  s_13fec9a57c9104::t_e03dd6e73cb002 25,32,40,44-64
+  s_13fec9a57c9104::t_ce43e339cfe54f 65-66
+.github/workflows/kimi-code-acceptance.yml
+  s_13fec9a57c9104::t_e03dd6e73cb002 37
+.github/workflows/master.yml
+  s_13fec9a57c9104::t_e03dd6e73cb002 225,238-240,318,413,460,850,916-917,928,957,1009,1054,1090,1147,1245,1283,1374,1695
+integrations/dsh/plugins/powercontext/tests/e2e/handoff-delivery.spec.ts
+  s_13fec9a57c9104::t_e03dd6e73cb002 88
+release/upgrade-support.json
+  s_13fec9a57c9104::t_e03dd6e73cb002 6-7
+integrations/dsh/plugins/powercontext/scripts/e2e-server.mjs
+  s_13fec9a57c9104::t_e03dd6e73cb002 129-131
+.github/workflows/installation.yml
+  s_13fec9a57c9104::t_e03dd6e73cb002 35
+src/powercontext/builtin/persistence/database.py
+  s_13fec9a57c9104::t_e03dd6e73cb002 384-386
+tests/builtin/runtime/test_processing_scheduler.py
+  s_13fec9a57c9104::t_e03dd6e73cb002 763-764,766-767,801
+tests/claude_code_plugin/test_bootstrap.py
+  s_13fec9a57c9104::t_e03dd6e73cb002 595
+tests/e2e/test_gateway_authentication.py
+  s_13fec9a57c9104::t_e03dd6e73cb002 22,37,43-53
+  s_13fec9a57c9104::t_ef1058385b29c9 54-55
+tests/test_ci_pipeline.py
+  s_13fec9a57c9104::t_e03dd6e73cb002 243
+tests/e2e/test_recall_embedding_timeout.py
+  s_13fec9a57c9104::t_e03dd6e73cb002 82-83,89,93,96-97,249,278-280
+integrations/dsh/plugins/powercontext/tests/e2e/unscoped-session.spec.ts
+  s_13fec9a57c9104::t_e03dd6e73cb002 182
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "2b84e11d9475b23fc617483ca438fad5a06767bd",
+  "prompts": {},
+  "sessions": {
+    "s_13fec9a57c9104": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1617e-79d4-7103-bf67-e341786d4978",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Frey <370805886@qq.com>"
+    }
+  }
+}
