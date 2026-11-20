@@ -379,10 +379,10 @@ database before adding Topic tables; it does not treat the maintenance output as
 objects, unexpected business tables and retained Atomic evidence are rejected before writes. This continuation is
 specific to the registered SQLite layout and does not register additional OceanBase or seekDB baselines.
 
-The Topic recovery bundle checksum includes the relative paths and exact contents of all files in its resource
-directory, including the alias-bearing initialization layout. Resource changes invalidate reviewed plans. A retained
-migration journal can only be resumed with its matching resource set; a different checksum requires recovery with
-the original resources, not rewriting the journal checksum to bypass verification.
+The Topic recovery bundle checksum covers the relative paths and exact contents of two resource files:
+`schema.json` and `atomic_maintenance_sqlite_v2.json`. Changes to either file invalidate reviewed plans.
+Documentation files such as `README.md` are excluded. Keep the original journal checksum for recovery.
+The compatibility rules for released schema-only checksums are described below.
 
 The conversion revokes every old processing lease once by advancing its generation, expiring it in UTC, and assigning
 the maintenance-window holder. Repeating an interrupted conversion does not advance that holder again. This follows
