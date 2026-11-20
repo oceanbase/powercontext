@@ -1,0 +1,58 @@
+tests/test_bundle_dependencies.py
+  s_2ef0feea0a110d::t_ded90ff7ae901f 206-208
+  s_2ef0feea0a110d::t_249d52d0829ad8 86,91
+  s_2ef0feea0a110d::t_088d8269afda56 34-36,53,65,67,69,71-72,76-77,80-81,87,128,132-133,151,158,163,167,201-205,209-220,222-225,228
+  s_2ef0feea0a110d::t_3023f4774ef88a 39,43-44,47-49,229-239
+tests/native/test_installation.py
+  s_2ef0feea0a110d::t_2a09bce1927b27 328-329,331-332,338
+tests/test_managed_resource_producer.py
+  s_2ef0feea0a110d::t_450ef43065a3b7 350-351,361-386
+  s_2ef0feea0a110d::t_0e5be46355281e 39,387-397
+  s_2ef0feea0a110d::t_a5e85b3ac5546e 34,331-332,336-337,339,346,356-360
+docs/zh/development/ci-scope.md
+  s_2ef0feea0a110d::t_4ea72c4ac7fa53 140
+scripts/build_intel_managed_wheel.py
+  s_2ef0feea0a110d::t_2a3b0806110c03 354
+gateway/crates/pc-gateway-app/src/connection.rs
+  s_2ef0feea0a110d::t_7b34f9eda47a0a 514-518,567
+.github/workflows/installation.yml
+  s_2ef0feea0a110d::t_2a09bce1927b27 57-59,68-69,73-74,82
+scripts/prepare_managed_resources.py
+  s_2ef0feea0a110d::t_6b5c5e0ede2220 270
+  s_2ef0feea0a110d::t_60f640ebe22eab 267-268,272-275,529
+  s_2ef0feea0a110d::t_ded90ff7ae901f 315-317
+  s_2ef0feea0a110d::t_cf53bb92b08a20 269,271
+  s_2ef0feea0a110d::t_e7c42ae6316dbe 45,281,304-306,308-311,313-314,318
+docs/zh/development/managed-resource-production.md
+  s_2ef0feea0a110d::t_4ea72c4ac7fa53 41-46
+tests/e2e/test_worker_logging.py
+  s_2ef0feea0a110d::t_fa8df912575217 195
+  s_2ef0feea0a110d::t_c02a886f082003 20-21,26,33,99-111,113-122,127,222,232-235,251,254,261,263-275,277-285,309,315,320
+  s_2ef0feea0a110d::t_62cc78e7aa8220 173-194,196-214
+.github/workflows/master.yml
+  s_2ef0feea0a110d::t_9c08ebd22322bb 793-795,812-814,817-819,826,837,844,852,874,883,896,913-926
+docs/en/development/managed-resource-production.md
+  s_2ef0feea0a110d::t_4ea72c4ac7fa53 50-58
+docs/en/development/ci-scope.md
+  s_2ef0feea0a110d::t_4ea72c4ac7fa53 140
+scripts/prepare_bundle_dependencies.py
+  s_2ef0feea0a110d::t_ded90ff7ae901f 89-91,131-139
+  s_2ef0feea0a110d::t_8914ed0d6396b3 16,30,82-88,92-94,97-110,113,152-153,180-181
+  s_2ef0feea0a110d::t_e3b606a079d79e 95-96
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "558f0d5009ba41daf62eb725914f82233e8dceb9",
+  "prompts": {},
+  "sessions": {
+    "s_2ef0feea0a110d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1a9cf-a4e7-7f63-9c51-1284f7c332e8",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "frf12 <rongfeng.frf@antgroup.com>"
+    }
+  }
+}
