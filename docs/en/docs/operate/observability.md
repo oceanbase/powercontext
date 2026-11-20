@@ -162,9 +162,11 @@ window. `outcome` is `success` when the window's operations came from the one co
 input exceeded `atomic_memory_input_tokens_limit` and the window was processed per candidate instead;
 `fallback_reason` is then `entries_input_over_budget` (step 1) or `operations_input_over_budget` (step 2),
 `estimated_input_tokens` is the estimated input of that request, `effective_budget` the limit in effect, and
-`token_estimator_id` the estimator used. A window whose processing fails emits no such event; processing failure
-diagnostics report it. The default mode emits no such event. The event carries no Source, memory, prompt, or response
-content.
+`token_estimator_id` the estimator used. The event reports how the window was prepared, not that it was published:
+`fallback` is logged before per-candidate processing runs and `success` before publication, so a window that fails
+afterwards has still emitted it, and a window that fails during the conversation emits none. Processing failure
+diagnostics report failures. The default mode emits no such event. The event carries no Source, memory, prompt, or
+response content.
 For child cancellation, the supervisor emits `artifact_processing.failed` at `INFO` with outcome/category `cancelled`
 and diagnostic code `worker_cancelled`. Application spans classify mapped diagnostic codes even when sensitive
 exception values are excluded from logs and traces.

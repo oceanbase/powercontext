@@ -152,7 +152,8 @@ prompt 或响应内容。
 `outcome` 为 `success`；某一步的输入超出 `atomic_memory_input_tokens_limit`、窗口改用逐候选流程时为 `fallback`，此时
 `fallback_reason` 为 `entries_input_over_budget`（第 1 步）或 `operations_input_over_budget`（第 2 步），
 `estimated_input_tokens` 是该请求的估算输入，`effective_budget` 是生效的上限，`token_estimator_id` 是所用的估算器。
-处理失败的窗口不输出该事件，由处理失败诊断报告。默认模式不输出该事件。该事件不携带 Source、记忆、prompt 或响应内容。
+该事件报告窗口的准备方式，不表示窗口已发布：`fallback` 在逐候选流程开始前输出，`success` 在发布前输出，此后才失败的窗口
+仍然已经输出过该事件；在对话过程中失败的窗口不输出。失败由处理失败诊断报告。默认模式不输出该事件。该事件不携带 Source、记忆、prompt 或响应内容。
 Child 取消时，supervisor 以 `INFO` 级别输出 `artifact_processing.failed`，outcome/category 为 `cancelled`，
 诊断代码为 `worker_cancelled`。Application spans 根据已映射的诊断代码分类，
 即使敏感 exception values 已从 logs 和 traces 中排除，也保留正确分类。
