@@ -105,3 +105,37 @@ test("a missing artifact fails without retrying or leaving a cached file", async
   assert.equal(requests, 1);
   assert.deepEqual(await readdir(directory), []);
 });
+
+for (const status of [404, 429]) {
+  test(`a primary HTTP ${status} falls back to a verified artifact`, async (t) => {
+    const { info } = await fixture(t, (request, response) => {
+      if (request.url === "/mirror.jar") response.end(artifact);
+      else response.writeHead(status).end("unavailable");
+    });
+    info.fallbackUrls = [new URL("mirror.jar", info.url).href];
+
+    assert.equal(await prepareGenerator(info), info.jar);
+    assert.deepEqual(await readFile(info.jar), artifact);
+  });
+}
+
+test("a mismatched fallback artifact is rejected and cleaned up", async (t) => {
+  const { directory, info } = await fixture(t, (request, response) => {
+    if (request.url === "/mirror.jar") response.end("wrong artifact");
+    else response.writeHead(404).end("unavailable");
+  });
+  info.fallbackUrls = [new URL("mirror.jar", info.url).href];
+
+  await assert.rejects(prepareGenerator(info), /SHA-256 mismatch/);
+  assert.deepEqual(await readdir(directory), []);
+});
+
+test("unavailable primary and fallback leave no cached artifact", async (t) => {
+  const { directory, info } = await fixture(t, (_request, response) => {
+    response.writeHead(404).end("unavailable");
+  });
+  info.fallbackUrls = [new URL("mirror.jar", info.url).href];
+
+  await assert.rejects(prepareGenerator(info), /404/);
+  assert.deepEqual(await readdir(directory), []);
+});
