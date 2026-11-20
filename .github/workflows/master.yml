@@ -317,6 +317,12 @@ jobs:
           cache-bin: false
           cache-on-failure: true
 
+      - name: Build Gateway before parallel end-to-end tests
+        if: matrix.suite == 'e2e'
+        timeout-minutes: 15
+        # Keep cold downloads and compilation outside the concurrent fixture deadlines.
+        run: cargo build --locked --manifest-path gateway/Cargo.toml --target-dir gateway/target -p pc-gateway-app
+
       - name: Run the ZCode service chain with native Hook deadlines
         if: matrix.suite == 'e2e'
         # Preserve the real Hook deadlines without competing with xdist workers.
@@ -325,6 +331,7 @@ jobs:
       - name: Run remaining end-to-end tests
         if: matrix.suite == 'e2e'
         env:
+          CARGO_NET_OFFLINE: "true"
           PYTEST_ADDOPTS: --ignore=tests/e2e/test_zcode_service_chain.py
         run: make e2e-test
 
