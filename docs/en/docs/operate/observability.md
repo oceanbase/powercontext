@@ -156,6 +156,15 @@ cached prefix was used, or `fallback` when normal extraction ran instead; `fallb
 `not_cheaper`, `prefix_size_unknown`, `prefix_unavailable`, `target_mismatch`, `disabled`, `invalid_instruction`, `check_rejected`, `gateway_unavailable`,
 `provider_error`, `gateway_error`, or `invalid_output`. Windows without such a turn emit no event. The event carries no handle, prompt,
 or response content.
+With the `one_pass` processing mode (`POWERCONTEXT_SERVER_RUNTIME_ATOMIC_MEMORY_PROCESSING_MODE`), an INFO
+`atomic_memory.one_pass` event with `operation` `atomic_memory.one_pass` and `unit` `inference` reports each Source
+window. `outcome` is `success` when the window's operations came from the one conversation, or `fallback` when a step's
+input exceeded `atomic_memory_input_tokens_limit` and the window was processed per candidate instead;
+`fallback_reason` is then `entries_input_over_budget` (step 1) or `operations_input_over_budget` (step 2),
+`estimated_input_tokens` is the estimated input of that request, `effective_budget` the limit in effect, and
+`token_estimator_id` the estimator used. A window whose processing fails emits no such event; processing failure
+diagnostics report it. The default mode emits no such event. The event carries no Source, memory, prompt, or response
+content.
 For child cancellation, the supervisor emits `artifact_processing.failed` at `INFO` with outcome/category `cancelled`
 and diagnostic code `worker_cancelled`. Application spans classify mapped diagnostic codes even when sensitive
 exception values are excluded from logs and traces.

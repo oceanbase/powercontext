@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from pathlib import Path
 from typing import Any, Literal
 
@@ -332,7 +333,17 @@ def test_split_rechecks_are_each_budgeted_as_their_own_request(tmp_path: Path) -
     _run(tmp_path, limited, scenario, input_tokens_limit=_input_estimate(measured.turns[2]) - 1)
 
 
-def test_window_over_the_step_two_budget_is_prepared_per_candidate(tmp_path: Path) -> None:
+def _one_pass_events(caplog) -> list[dict[str, object]]:
+    fields = ("outcome", "fallback_reason", "estimated_input_tokens", "effective_budget")
+    return [
+        {field: getattr(record, field) for field in fields if hasattr(record, field)}
+        for record in caplog.records
+        if getattr(record, "event", None) == "atomic_memory.one_pass"
+    ]
+
+
+def test_window_over_the_step_two_budget_is_prepared_per_candidate(tmp_path: Path, caplog) -> None:
+    caplog.set_level(logging.INFO)
     conversation = _Conversation(_facts("rollout budget payments"))
     detail = " ".join(f"condition{index}" for index in range(120))
 
@@ -349,6 +360,51 @@ def test_window_over_the_step_two_budget_is_prepared_per_candidate(tmp_path: Pat
 
     # One comparison of one memory fits this budget; step 1 plus all five memories does not.
     _run(tmp_path, conversation, scenario, input_tokens_limit=4300)
+    (event,) = _one_pass_events(caplog)
+    assert event["outcome"] == "fallback" and event["fallback_reason"] == "operations_input_over_budget"
+    # The operator sees by how much the request exceeded the budget, and none of the evidence or memory text.
+    assert event["effective_budget"] == 4300 and isinstance(estimated := event["estimated_input_tokens"], int)
+    assert estimated > 4300
+    assert not any("condition0" in record.getMessage() for record in caplog.records)
+
+
+def test_window_over_the_step_one_budget_is_prepared_per_candidate(tmp_path: Path, caplog) -> None:
+    caplog.set_level(logging.INFO)
+    measured = _Conversation(_facts("rollout owner"), {"operations": [_write("create", OWNER)]})
+    limited = _Conversation()
+
+    async def scenario(contexts, memory) -> None:
+        await contexts.records.capture_source(SCOPE, "content", "owner", OWNER, {})
+        assert (await contexts.process_memory(SCOPE, 1)).current_cursor == 1
+        assert await _texts(memory) == {OWNER}
+
+    (tmp_path / "measure").mkdir()
+    _run(tmp_path / "measure", measured, scenario)
+    caplog.clear()
+    # Step 1 is one token over; the per-candidate extraction of the same evidence has shorter instructions and fits.
+    limit = _input_estimate(measured.turns[0]) - 1
+    _run(tmp_path, limited, scenario, input_tokens_limit=limit)
+    assert limited.turns == []
+    assert _one_pass_events(caplog) == [
+        {
+            "outcome": "fallback",
+            "fallback_reason": "entries_input_over_budget",
+            "estimated_input_tokens": limit + 1,
+            "effective_budget": limit,
+        }
+    ]
+
+
+def test_window_prepared_in_one_pass_reports_success(tmp_path: Path, caplog) -> None:
+    caplog.set_level(logging.INFO)
+    conversation = _Conversation(_facts("rollout budget"), {"operations": [_write("create", BUDGET_100)]})
+
+    async def scenario(contexts, memory) -> None:
+        await contexts.records.capture_source(SCOPE, "content", "first", BUDGET_100, {})
+        await contexts.process_memory(SCOPE, 1)
+
+    _run(tmp_path, conversation, scenario)
+    assert _one_pass_events(caplog) == [{"outcome": "success"}]
 
 
 def test_default_mode_never_starts_a_conversation(tmp_path: Path) -> None:
