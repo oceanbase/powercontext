@@ -3839,3 +3839,34 @@ uv run --no-sync python desktop/tests/real_server.py \
   --product-qualification sqlite-gateway-batch-capture-477a6c8b-v1 \
   --wheel desktop/.artifacts/gateway-batch-capture/powercontext-1.5.3.dev90+g477a6c8ba-py3-none-any.whl
 ```
+
+## Server 4da4a2c source content limit protocol qualification
+
+`sqlite-source-content-limit-4da4a2c-v1` covers all thirteen Desktop protocol operations against Server source
+`4da4a2c9ae1621d208174f03bbbcb0081beb0c07`. The contract makes the Content Source character limit a deployment
+setting and adds `GET /v1/source-limits`; the Desktop operations and their request or response shapes are unchanged.
+
+- Normalized OpenAPI SHA-256: `be72b23caf1c78611a58f525de337855e54036b4d5f9a7637d6d9796ee70a6ab`.
+- Wheel: `powercontext-0.1.dev2+g4da4a2c9a-py3-none-any.whl`.
+- Wheel SHA-256: `272ae296cd7fb103e66eab7c3f9bb0245e9553f827602582160e097f4f6f3bc6`.
+
+On 2026-11-20, Linux x86_64 (WSL2) with Python 3.14 and that wheel passed static Bearer mode with an enforced token:
+unauthenticated requests returned 401, and the bundled Python client exercised all thirteen operations. The Server ran
+with `POWERCONTEXT_SERVER_SOURCE_CONTENT_MAX_CHARS=64`: `GET /v1/source-limits` reported 64 and the 1,000,000
+character ceiling, a 64-character capture was accepted, and a 65-character capture returned `422 invalid_request`
+naming the limit.
+
+The native `server_probe` was not rebuilt for this record because the validation environment has no Rust toolchain. This
+record therefore establishes HTTP protocol compatibility between the new client contract and the exact wheel; it does not
+establish native-probe, installed-WebView, Windows/macOS or release acceptance.
+
+Reproduce against the recorded artifact:
+
+```sh
+uv build --wheel --out-dir /tmp/pc-wheel-limit
+uv pip install --python /tmp/pc-venv-limit/bin/python \
+  "/tmp/pc-wheel-limit/powercontext-0.1.dev2+g4da4a2c9a-py3-none-any.whl[server,cli]"
+POWERCONTEXT_SERVER_ACCESS_MODE=enforced POWERCONTEXT_SERVER_AUTH_TOKEN=qualification-token \
+  POWERCONTEXT_SERVER_SOURCE_CONTENT_MAX_CHARS=64 \
+  /tmp/pc-venv-limit/bin/powercontext server run --host 127.0.0.1 --port 8232 --no-env-file
+```
