@@ -1,0 +1,41 @@
+{
+  "scope": "fresh process, import and first Han call measured separately",
+  "runs": [
+    {
+      "side": "python",
+      "import_ms": 144.15930001996458,
+      "first_chinese_ms": 335.93880000989884,
+      "result": "pcue4b8ade69687 pcue69687e69cac pcue695b0e68daee5ba93 pcue69fa5e8afa2 pcue58d97e4baace5b882 pcue995bfe6b19fe5a4a7e6a1a5"
+    },
+    {
+      "side": "python",
+      "import_ms": 145.43099998263642,
+      "first_chinese_ms": 331.9093000027351,
+      "result": "pcue4b8ade69687 pcue69687e69cac pcue695b0e68daee5ba93 pcue69fa5e8afa2 pcue58d97e4baace5b882 pcue995bfe6b19fe5a4a7e6a1a5"
+    },
+    {
+      "side": "python",
+      "import_ms": 137.24100001854822,
+      "first_chinese_ms": 325.2502999966964,
+      "result": "pcue4b8ade69687 pcue69687e69cac pcue695b0e68daee5ba93 pcue69fa5e8afa2 pcue58d97e4baace5b882 pcue995bfe6b19fe5a4a7e6a1a5"
+    },
+    {
+      "side": "rust",
+      "import_ms": 2.4616000009700656,
+      "first_chinese_ms": 63.64529998973012,
+      "result": "pcue4b8ade69687 pcue69687e69cac pcue695b0e68daee5ba93 pcue69fa5e8afa2 pcue58d97e4baace5b882 pcue995bfe6b19fe5a4a7e6a1a5"
+    },
+    {
+      "side": "rust",
+      "import_ms": 2.181299962103367,
+      "first_chinese_ms": 60.568800021428615,
+      "result": "pcue4b8ade69687 pcue69687e69cac pcue695b0e68daee5ba93 pcue69fa5e8afa2 pcue58d97e4baace5b882 pcue995bfe6b19fe5a4a7e6a1a5"
+    },
+    {
+      "side": "rust",
+      "import_ms": 1.8893000087700784,
+      "first_chinese_ms": 76.54249999905005,
+      "result": "pcue4b8ade69687 pcue69687e69cac pcue695b0e68daee5ba93 pcue69fa5e8afa2 pcue58d97e4baace5b882 pcue995bfe6b19fe5a4a7e6a1a5"
+    }
+  ]
+}

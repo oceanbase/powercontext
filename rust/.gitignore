@@ -1,0 +1,8 @@
+evidence/
+.venv/
+.wheel-venv/
+**/target/
+**/*.pyd
+**/*.dll
+**/dist/
+**/__pycache__/
