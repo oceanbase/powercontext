@@ -19,8 +19,14 @@ import json
 import os
 from pathlib import Path
 
+import pytest
+
 
 def pytest_configure(config):
+    if os.environ.get("PC_CI_TRACE_SERVER_STARTUP") == "1":
+        from startup_probe import install
+
+        install()
     if not hasattr(config, "workerinput"):
         config.pluginmanager.register(_FailureProbe(config), "ci-immediate-failure-probe")
 
@@ -51,3 +57,35 @@ class _FailureProbe:
         terminal.write_sep("=", f"CI immediate failure: {report.nodeid} [{report.when}]")
         terminal.write_line(text)
         terminal.flush()
+
+
+_CAPTURED_LOG_FIELDS = (
+    "event", "error_code", "error_category", "stage", "binding", "duration_ms", "outcome",
+    "error_type", "exception_type", "queue_wait_ms", "family",
+)
+
+
+@pytest.hookimpl(wrapper=True)
+def pytest_runtest_makereport(item, call):
+    report = yield
+    if not report.failed:
+        return report
+    try:
+        from _pytest.logging import caplog_records_key
+
+        records = item.stash.get(caplog_records_key, {}).get(report.when, [])
+        captured = []
+        for record in records:
+            fields = {"level": record.levelname, "name": record.name, "message": record.getMessage()}
+            for key in _CAPTURED_LOG_FIELDS:
+                value = getattr(record, key, None)
+                if value is None or isinstance(value, (str, int, float, bool)):
+                    if hasattr(record, key):
+                        fields[key] = value
+            captured.append(fields)
+        if captured:
+            report.sections.append(("CI structured captured logs", json.dumps(captured, ensure_ascii=False)))
+    except Exception:
+        # Pytest versions without this stash simply keep their original report.
+        pass
+    return report

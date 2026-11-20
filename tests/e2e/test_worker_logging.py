@@ -143,11 +143,44 @@ def test_worker_stream_close_preserves_output_and_counts_discards(tmp_path, capf
 
 
 def test_worker_completion_does_not_wait_for_slow_log_consumer(tmp_path) -> None:
+    import os
+
+    _phase_trace = tmp_path / "slow-consumer-phases.jsonl"
+
+    def _record_phase(phase: str, **fields: Any) -> None:
+        with _phase_trace.open("a", encoding="utf-8") as output:
+            output.write(
+                json.dumps(
+                    {
+                        "phase": phase,
+                        "monotonic_ns": time.monotonic_ns(),
+                        "pid": os.getpid(),
+                        "side": "parent",
+                        **fields,
+                    },
+                    sort_keys=True,
+                )
+                + "\n"
+            )
+
     script = """
 import asyncio
+import json
 import logging
+import os
 import sys
+import time
 from pathlib import Path
+
+_phase_trace = Path(sys.argv[4])
+def _record_phase(phase, **fields):
+    with _phase_trace.open("a", encoding="utf-8") as output:
+        output.write(json.dumps(
+            {"phase": phase, "monotonic_ns": time.monotonic_ns(), "pid": os.getpid(), "side": "child", **fields},
+            sort_keys=True,
+        ) + "\\n")
+
+_record_phase("child_imports_started")
 from tests.e2e.test_worker_logging import _noisy_logging_worker
 from powercontext.builtin.persistence.supervision import ArtifactProcessingFence
 from powercontext.builtin.runtime.artifact_processing import SpawnArtifactProcessingWorkerLauncher
@@ -156,18 +189,23 @@ from powercontext.builtin.runtime.processing_contracts import (
 )
 from powercontext.server.logging import configure_server_logging, shutdown_server_logging, worker_logging
 from powercontext.server.settings import ServerLoggingConfig
+_record_phase("child_imports_done")
 
 blocked = Path(sys.argv[3])
 original_emit = logging.FileHandler.emit
 def slow_emit(handler, record):
     if not blocked.exists():
         blocked.write_text("blocked", encoding="utf-8")
+        _record_phase("log_consumer_blocked")
         sys.stdin.read(1)
+        _record_phase("log_consumer_unblocked")
     original_emit(handler, record)
 logging.FileHandler.emit = slow_emit
 
 config = ServerLoggingConfig(file=True, directory=Path(sys.argv[1]), format="json")
+_record_phase("configure_logging_start")
 configure_server_logging(config, role="all")
+_record_phase("configure_logging_completed")
 async def run(initializer):
     assignment = ArtifactProcessingWorkAssignment(
         binding_name="memory-source-window", scope_id="success", artifact_family="memory",
@@ -176,21 +214,35 @@ async def run(initializer):
             supervisor_group="global", holder_id="owner", supervisor_generation=1, lease_mode="single-process",
         ),
     )
+    _record_phase("launcher_start")
     handle = await SpawnArtifactProcessingWorkerLauncher(_noisy_logging_worker, initializer=initializer).start(assignment)
+    _record_phase("launcher_returned")
     try:
+        _record_phase("handle_wait_start")
         assert await asyncio.wait_for(handle.wait(), timeout=30) == ArtifactProcessingWorkerCompletion()
+        _record_phase("handle_wait_completed")
     finally:
+        _record_phase("handle_terminate_start")
         await handle.terminate()
+        _record_phase("handle_terminate_completed")
+_record_phase("worker_logging_enter_start")
 with worker_logging(config, role="all") as initializer:
+    _record_phase("worker_logging_entered")
     asyncio.run(run(initializer))
+    _record_phase("worker_logging_exit_start")
+_record_phase("worker_logging_exit_completed")
 Path(sys.argv[2]).write_text("completed", encoding="utf-8")
+_record_phase("completed_marker_written")
+_record_phase("shutdown_start")
 shutdown_server_logging()
+_record_phase("shutdown_completed")
 """
     completed = tmp_path / "completed"
     blocked = tmp_path / "blocked"
     log_directory = tmp_path / "logs"
+    _record_phase("parent_popen_start")
     process = subprocess.Popen(
-        [sys.executable, "-c", script, str(log_directory), str(completed), str(blocked)],
+        [sys.executable, "-c", script, str(log_directory), str(completed), str(blocked), str(_phase_trace)],
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
@@ -198,17 +250,37 @@ shutdown_server_logging()
     )
     try:
         deadline = time.monotonic() + 45
+        _record_phase(
+            "parent_popen_started", child_pid=process.pid, deadline_monotonic_ns=int(deadline * 1_000_000_000)
+        )
         # Hold file writes until the business result is available, then release the sink.
         while not completed.exists() and process.poll() is None and time.monotonic() < deadline:
             time.sleep(0.01)
         finished_without_draining = completed.exists() and blocked.exists()
+        _record_phase(
+            "parent_deadline_snapshot",
+            completed=completed.exists(),
+            blocked=blocked.exists(),
+            process_poll=process.poll(),
+            deadline_reached=time.monotonic() >= deadline,
+            finished_without_draining=finished_without_draining,
+        )
+        _record_phase("parent_communicate_start")
         stdout, stderr = process.communicate(input="\n", timeout=30)
+        _record_phase(
+            "parent_communicate_end",
+            returncode=process.returncode,
+            completed=completed.exists(),
+            blocked=blocked.exists(),
+        )
     finally:
         if process.poll() is None:
+            _record_phase("parent_cleanup_kill")
             process.kill()
             process.communicate(timeout=10)
+            _record_phase("parent_cleanup_communicate_end", returncode=process.returncode)
     assert process.returncode == 0, stderr
-    assert finished_without_draining
+    assert finished_without_draining, _phase_trace.read_text(encoding="utf-8")
     assert completed.read_text(encoding="utf-8") == "completed"
     output = (log_directory / "all.log").read_text(encoding="utf-8")
     assert "Worker observation" in output
