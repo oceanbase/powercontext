@@ -1,0 +1,19 @@
+tests/builtin/runtime/test_artifact_processing.py
+  s_2ef0feea0a110d::t_50d8c30594198c 294,299,415,465,491,624
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "7f80583fe2997e1b3edfcfe832e08898518ab948",
+  "prompts": {},
+  "sessions": {
+    "s_2ef0feea0a110d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1a9cf-a4e7-7f63-9c51-1284f7c332e8",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "frf12 <rongfeng.frf@antgroup.com>"
+    }
+  }
+}
