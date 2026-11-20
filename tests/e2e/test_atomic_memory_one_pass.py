@@ -49,7 +49,8 @@ class _Conversation:
         reply = self.replies.pop(0)
         payload = json.loads(turn.message.split("\n", 1)[0])
         text = json.dumps(reply(payload) if callable(reply) else reply)
-        history = (*turn.history, turn.message, text)
+        # The scripted conversation keeps its history as the texts themselves.
+        history = (*(str(message) for message in turn.history), turn.message, text)
         return GenerationResult(output=ConversationReply(output=turn.check(text), history=history, transcript=history))
 
 
@@ -237,7 +238,7 @@ def test_reply_in_another_shape_is_rejected_instead_of_read_as_no_operation(tmp_
 
 
 def _input_estimate(turn: ConversationTurn[Any]) -> int:
-    return character_token_estimator().estimate("\n".join((turn.instructions, *turn.history, turn.message)))
+    return character_token_estimator().estimate("\n".join((turn.instructions, *map(str, turn.history), turn.message)))
 
 
 def test_recheck_budget_counts_the_step_two_reply_it_resends(tmp_path: Path) -> None:
