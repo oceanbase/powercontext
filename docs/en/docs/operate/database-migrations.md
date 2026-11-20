@@ -240,6 +240,31 @@ unpublished `000` are disposable. Rebuild development databases when `000` chang
 do not replay the edited draft on an already-stamped database or stamp `000` as a release. No
 compatibility bridge from a development draft to the frozen release is provided.
 
+### Transition existing schema PRs
+
+The cumulative workflow applies when a schema PR updates against master. Legacy sequence and PR-based
+revisions already in the master baseline remain immutable, including `v1_5_2_pr2639`. The baseline
+comparison protects their IDs, resources and dependencies; adopting this workflow does not rename them.
+
+An unmerged PR that introduces an unpublished revision such as `v1_5_2_pr2674` must:
+
+1. Update against the latest master and identify only changes not already present in its frozen history
+   or shared draft. Do not copy SQL from a previous release back into the new draft.
+2. Fold those changes into the existing `000`, or create it with `down_revision` pointing to the latest
+   frozen head if no draft exists. Reconcile execution order and dependencies with the cumulative changes.
+3. Replace the superseded unpublished SQLite/native revision entries and draft-owned resource names;
+   update manifests, fingerprints, checkpoints, domain tasks and applicable source/vector/Code registrations
+   together. Preserve every frozen revision and its resources.
+4. Rebuild development databases and plans created from the unpublished revision. Run `make schema-check`,
+   `uv run --locked python scripts/schema_release.py check --base-ref origin/master`, affected migration
+   tests and the selected upgrade acceptance on the merged result before merging.
+
+The PR opening date does not exempt new revisions from the gate. An open PR can merge after adoption by
+following this conversion; it does not have to merge first. A legacy revision already merged into master
+before adoption becomes part of the protected baseline. Published revisions must never be converted to
+`000`; any further changes belong in the next cumulative migration. Release PRs freeze the accumulated
+`000` through the normal release process.
+
 ### Freeze in the release PR
 
 After resolving the release version, run these commands with its actual stable `X.Y.Z`:

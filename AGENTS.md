@@ -93,6 +93,13 @@ Read the migration guide before changing managed storage:
   and pass CI on the merged result. CI validates the chain, checks frozen history against the PR base,
   replays registered SQLite sources and runs the selected installed-release upgrade acceptance.
   Repository administrators must require these checks and an up-to-date branch or merge queue.
+- When adopting the cumulative workflow, keep legacy revisions already in the master baseline unchanged.
+  Unmerged PRs with unpublished sequence/PR-named revisions must update against master and fold only
+  their remaining changes into the shared `000`, creating it after the latest frozen head if absent.
+  Reconcile SQL, resources, fingerprints, native layouts and all source/profile registrations with any
+  existing draft; remove the superseded unpublished entries and rebuild affected development databases.
+  Run baseline comparison and migration CI on the merged result. PR creation time grants no exemption;
+  an open PR need not merge before this policy. Never rename a published revision.
 - Only released-version upgrades are supported. A database or recovery plan created by unpublished `000`
   is disposable: rebuild it when the draft changes or freezes. Do not stamp it as a released revision.
 - Release PRs run `make version-bump VERSION=X.Y.Z`, then `make schema-freeze VERSION=X.Y.Z`.
