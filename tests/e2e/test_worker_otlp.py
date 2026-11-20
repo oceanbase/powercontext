@@ -36,6 +36,7 @@ from powercontext.server.factory import create_server_app
 from powercontext.server.settings import McpConfig, ServerSettings, TracingConfig
 from powercontext.server.telemetry import service_resource
 from powercontext.server.tracing import ServerTracing
+from tests.e2e.server_startup import wait_for_server_startup
 
 OTLPSpanExporter = pytest.importorskip("opentelemetry.exporter.otlp.proto.http.trace_exporter").OTLPSpanExporter
 ExportTraceServiceRequest = pytest.importorskip(
@@ -419,10 +420,7 @@ def _api_server(app):
         thread = threading.Thread(target=server.run, kwargs={"sockets": [listener]}, daemon=True)
         thread.start()
         try:
-            deadline = time.monotonic() + 10
-            while not server.started and thread.is_alive() and time.monotonic() < deadline:
-                time.sleep(0.01)
-            assert server.started
+            wait_for_server_startup(server, thread)
             yield f"http://127.0.0.1:{listener.getsockname()[1]}"
         finally:
             server.should_exit = True

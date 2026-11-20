@@ -44,6 +44,7 @@ from powercontext.builtin.runtime.config import InferenceConfig, RuntimeConfig
 from powercontext.server.configuration import server_settings_context
 from powercontext.server.factory import create_server_app
 from powercontext.server.settings import BearerAuthConfig, ServerSettings
+from tests.e2e.server_startup import SERVER_STARTUP_TIMEOUT_SECONDS
 
 from .host import NativeHost
 from .lifecycle import runtime_faults, server_recovery, session_lifecycle
@@ -86,7 +87,7 @@ def _cli_events(output: str, *, failed: bool) -> list[dict[str, Any]]:
     return events
 
 
-_SERVER_STARTUP_SECONDS = 45
+_SERVER_STARTUP_SECONDS = SERVER_STARTUP_TIMEOUT_SECONDS
 _SERVER_SHUTDOWN_WAIT_SECONDS = 15
 
 
@@ -100,8 +101,7 @@ def serve(app: Any) -> Iterator[str]:
     thread = threading.Thread(target=lambda: server.run(sockets=[listener]), daemon=True)
     thread.start()
     try:
-        # Match RestartableServer: a loaded host can stall a Server's startup, and a thread that exits fails at once.
-        deadline = time.monotonic() + _SERVER_STARTUP_SECONDS
+        deadline = time.monotonic() + SERVER_STARTUP_TIMEOUT_SECONDS
         while not server.started and thread.is_alive() and time.monotonic() < deadline:
             time.sleep(0.05)
         assert server.started, "server_startup_failed"

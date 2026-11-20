@@ -41,6 +41,7 @@ from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.server.factory import create_server_app
 from powercontext.server.settings import McpConfig, ServerSettings
 from tests.e2e.dream_support import atomic_memory_pipeline, memory_source_text
+from tests.e2e.server_startup import wait_for_server_startup
 
 HOOK = Path(__file__).resolve().parents[2] / "integrations/zcode/plugins/powercontext/hooks/user_prompt_submit.mjs"
 # Exceed the Hook's 3-second request limit; Stop has a separate 800 ms network budget.
@@ -412,10 +413,7 @@ def test_zcode_source_is_processed_and_recalled_in_a_new_session(
     thread = threading.Thread(target=server.run, daemon=True)
     thread.start()
     try:
-        deadline = time.monotonic() + 10
-        while not server.started and thread.is_alive() and time.monotonic() < deadline:
-            time.sleep(0.05)
-        assert server.started
+        wait_for_server_startup(server, thread)
         base_url = f"http://127.0.0.1:{port}"
         with httpx.Client(base_url=base_url, timeout=10) as client:
             created = client.post(
