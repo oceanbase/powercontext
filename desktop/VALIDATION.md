@@ -3839,3 +3839,33 @@ uv run --no-sync python desktop/tests/real_server.py \
   --product-qualification sqlite-gateway-batch-capture-477a6c8b-v1 \
   --wheel desktop/.artifacts/gateway-batch-capture/powercontext-1.5.3.dev90+g477a6c8ba-py3-none-any.whl
 ```
+
+## Server 394e8a8 source metadata protocol qualification
+
+`sqlite-source-metadata-394e8a8-v1` covers all thirteen Desktop protocol operations against Server source
+`394e8a86cac2cdd0de085ec3bac452b9427b430e`. The contract adds caller `metadata` to Source detail and list
+responses without changing requests, Source identity, journal ordering or `content_digest`.
+
+- Normalized OpenAPI SHA-256: `60bb4c37b1e89d7a99e654f8a6603ce8e0fecb246528cd9b5b57f78eb4a871e3`.
+- Wheel: `powercontext-0.1.dev2+g394e8a86c-py3-none-any.whl`.
+- Wheel SHA-256: `07eba53a760c93ead81ede1428009236bbb84cbe91d19988f8d5f531d71a44ce`.
+
+On 2026-11-20, Linux x86_64 (WSL2) with Python 3.14 and that wheel passed static Bearer mode with an
+enforced token: unauthenticated requests returned 401, and the bundled Python client exercised all thirteen
+operations through the public HTTP API. Content Source metadata round-tripped through the list and detail
+responses, including nested objects, Unicode, empty metadata and a record whose stored payload predates the
+field.
+
+The native `server_probe` was not rebuilt for this record because the validation environment has no Rust
+toolchain. This record therefore establishes HTTP protocol compatibility between the new client contract and
+the exact wheel; it does not establish native-probe, installed-WebView, Windows/macOS or release acceptance.
+
+Reproduce against the recorded artifact:
+
+```sh
+uv build --wheel --out-dir /tmp/pc-wheel
+uv pip install --python /tmp/pc-venv/bin/python \
+  "/tmp/pc-wheel/powercontext-0.1.dev2+g394e8a86c-py3-none-any.whl[server,cli]"
+POWERCONTEXT_SERVER_ACCESS_MODE=enforced POWERCONTEXT_SERVER_AUTH_TOKEN=qualification-token \
+  /tmp/pc-venv/bin/powercontext server run --host 127.0.0.1 --port 8231 --no-env-file
+```
