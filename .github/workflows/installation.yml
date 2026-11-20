@@ -1,83 +1,289 @@
-name: Script installation
-
-on:
-  workflow_call:
-    inputs:
-      suites:
-        description: Scope already selected by the Main orchestrator
-        required: true
-        type: string
-  workflow_dispatch:
-
+name: Artifact transport validation
+'on':
+  workflow_dispatch: null
 permissions:
-  actions: read
   contents: read
-
-concurrency:
-  group: installation-${{ github.event.pull_request.number || github.ref }}-${{ github.event_name }}
-  cancel-in-progress: true
-
+  actions: write
 jobs:
-  changes:
-    if: ${{ inputs.suites == '' }}
-    uses: ./.github/workflows/ci-changes.yml
-    with:
-      baseline-workflow: installation.yml
-
-  installation:
-    needs: changes
-    if: ${{ !cancelled() && ((inputs.suites == '' && needs.changes.result != 'success') || fromJSON(inputs.suites || needs.changes.outputs.suites || '{}').packaging) }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-    runs-on: ${{ matrix.os == 'ubuntu-latest' && 'powercontext-ci-light' || matrix.os }}
-    timeout-minutes: 20
+  artifact-probe:
+    runs-on: powercontext-ci-light
+    timeout-minutes: 15
     steps:
-      - name: Check out
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          persist-credentials: false
-
-      - name: Set up the environment
-        uses: ./.github/actions/setup-python-env
-        with:
-          shared-cache: ${{ matrix.os == 'ubuntu-latest' && 'true' || 'false' }}
-
-      - name: Build the installation fixture
-        shell: bash
-        env:
-          # Qualify this commit using release-shaped metadata, without publishing it.
-          SETUPTOOLS_SCM_PRETEND_VERSION: "1.2.0"
-        run: uv build --wheel --out-dir dist/installation
-
-      - name: Check shared installer behavior and source resolution
-        shell: bash
-        run: >-
-          uv run --no-sync pytest -q ${{ runner.os == 'Linux' && '-n auto' || '' }}
-          tests/test_installation_contract.py tests/native/test_install_sources.py
-          --durations=20
-          --junitxml "$RUNNER_TEMP/installation-contract.xml"
-          --basetemp "$RUNNER_TEMP/installation-contract-tests"
-
-      - name: Exercise bootstrap, version selection, profiles, and persistent memory
-        shell: bash
-        env:
-          POWERCONTEXT_INSTALL_WHEEL: ${{ github.workspace }}/dist/installation/powercontext-1.2.0-py3-none-any.whl
-        run: >-
-          uv run --no-sync pytest -vv ${{ runner.os == 'Linux' && '-n auto' || '' }}
-          --durations=20 tests/native/test_installation.py
-          --junitxml "$RUNNER_TEMP/installation.xml"
-          --basetemp "$RUNNER_TEMP/installation-tests"
-
-      - name: Upload installation diagnostics
-        if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        with:
-          name: installation-${{ matrix.os }}
-          path: |
-            ${{ runner.temp }}/installation.xml
-            ${{ runner.temp }}/installation-contract.xml
-            ${{ runner.temp }}/installation-tests/**/*.log
-            ${{ runner.temp }}/installation-contract-tests/**/*.log
-          if-no-files-found: ignore
+    - name: Prepare isolated probes
+      shell: bash
+      run: |
+        mkdir -p "$RUNNER_TEMP/artifact-transport-probe/payload"
+        printf "%s" "artifact-probe-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" > "$RUNNER_TEMP/artifact-transport-probe/payload/payload.txt"
+        cat > "$RUNNER_TEMP/artifact-transport-probe/preload.cjs" <<'JS'
+        const fs = require('node:fs');
+        const http = require('node:http');
+        const https = require('node:https');
+        const {syncBuiltinESMExports} = require('node:module');
+        const mode = process.env.PC_ARTIFACT_PROBE_FAULT || '';
+        const receipt = process.env.PC_ARTIFACT_PROBE_RECEIPT;
+        let injected = false;
+        function record(value) {
+          if (receipt) fs.appendFileSync(receipt, JSON.stringify({at: new Date().toISOString(), mode, ...value}) + '\n');
+        }
+        for (const transport of [http, https]) {
+          const original = transport.request;
+          transport.request = function (...args) {
+            const first = args[0];
+            const url = typeof first === 'string' || first instanceof URL ? new URL(first) : null;
+            const options = url ? (typeof args[1] === 'object' ? args[1] : {}) : first;
+            const pathname = options.path || (url && url.pathname) || '';
+            const match = pathname.match(/\/twirp\/[^?]+\/(CreateArtifact|FinalizeArtifact|ListArtifacts|DeleteArtifact)$/);
+            const callbackIndex = args.findLastIndex(value => typeof value === 'function');
+            if (!match || callbackIndex < 0) return original.apply(this, args);
+            const rpc = match[1];
+            const host = options.hostname || options.host || (url && url.hostname);
+            const callback = args[callbackIndex];
+            const start = performance.now();
+            let request;
+            record({phase: 'request', rpc, host});
+            args[callbackIndex] = response => {
+              record({phase: 'response', rpc, host, status: response.statusCode, ms: performance.now() - start});
+              if (!injected && mode === rpc && response.statusCode >= 200 && response.statusCode < 300) {
+                injected = true;
+                let body = '';
+                response.setEncoding('utf8');
+                response.on('data', chunk => { body += chunk; });
+                response.on('end', () => {
+                  let ok = false;
+                  try { ok = JSON.parse(body).ok === true; } catch {}
+                  record({phase: 'fault-after-success', rpc, host, status: response.statusCode, backendOk: ok});
+                  // The server response was received completely; only this client's delivery is lost.
+                  const error = Object.assign(new Error('Controlled artifact response delivery loss'), {code: 'ECONNRESET'});
+                  request.emit('error', error);
+                  request.destroy();
+                });
+              } else {
+                callback(response);
+              }
+            };
+            request = original.apply(this, args);
+            request.on('error', error => record({phase: 'error', rpc, host, code: error.code || null, ms: performance.now() - start}));
+            return request;
+          };
+        }
+        syncBuiltinESMExports();
+        JS
+        cat > "$RUNNER_TEMP/artifact-transport-probe/network.py" <<'PYNET'
+        import json, os, subprocess, time
+        from pathlib import Path
+        root = Path(os.environ['RUNNER_TEMP']) / 'artifact-transport-probe'
+        targets = ['https://results-receiver.actions.githubusercontent.com/', 'https://codeload.github.com/actions/checkout/tar.gz/3d3c42e5aac5ba805825da76410c181273ba90b1']
+        proxy = os.environ.get('https_proxy') or os.environ.get('HTTPS_PROXY')
+        rows = []
+        for attempt in range(3):
+            for target in targets:
+                args = ['curl', '--silent', '--show-error', '--head', '--max-time', '12', '--connect-timeout', '8', '--output', '/dev/null', '--write-out', '%{json}', target]
+                if proxy:
+                    args[1:1] = ['--proxy', proxy]
+                result = subprocess.run(args, capture_output=True, text=True)
+                try:
+                    measured = json.loads(result.stdout)
+                except ValueError:
+                    measured = {}
+                row = {'attempt': attempt + 1, 'at': time.time(), 'target': target, 'proxy_configured': bool(proxy), 'returncode': result.returncode}
+                row.update({key: measured.get(key) for key in ('http_code', 'time_connect', 'time_appconnect', 'time_starttransfer', 'time_total', 'remote_ip')})
+                rows.append(row)
+                print(json.dumps(row), flush=True)
+        (root / 'network.json').write_text(json.dumps(rows, indent=2) + '\n')
+        PYNET
+        cat > "$RUNNER_TEMP/artifact-transport-probe/verify.py" <<'PYVERIFY'
+        import hashlib, io, json, os, time, urllib.error, urllib.parse, urllib.request, zipfile
+        from pathlib import Path
+        root = Path(os.environ['RUNNER_TEMP']) / 'artifact-transport-probe'
+        api = os.environ.get('GITHUB_API_URL', 'https://api.github.com')
+        repository = os.environ['GITHUB_REPOSITORY']
+        run_id = os.environ['GITHUB_RUN_ID']
+        prefix = 'transport-probe-' + run_id + '-' + os.environ['GITHUB_RUN_ATTEMPT'] + '-'
+        class NoRedirect(urllib.request.HTTPRedirectHandler):
+            def redirect_request(self, req, fp, code, msg, headers, newurl):
+                return None
+        opener = urllib.request.build_opener(NoRedirect)
+        def request(path, method='GET'):
+            req = urllib.request.Request(api + path, method=method, headers={'Authorization': 'Bearer ' + os.environ['GH_TOKEN'], 'Accept': 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28'})
+            return opener.open(req, timeout=30)
+        with request('/repos/' + repository + '/actions/runs/' + run_id + '/artifacts?per_page=100') as response:
+            artifacts = json.load(response)['artifacts']
+        if not any(item['name'] == prefix + 'baseline' for item in artifacts):
+            raise RuntimeError('Baseline artifact absent from server listing')
+        receipts = [json.loads(line) for line in (root / 'receipt.jsonl').read_text().splitlines()]
+        report = {'run_id': run_id, 'observed_at': time.time(), 'outcomes': json.loads(os.environ['PROBE_OUTCOMES']), 'rpc_receipts': receipts, 'artifacts': [], 'validation_errors': []}
+        for rpc in ('CreateArtifact', 'FinalizeArtifact'):
+            if not any(row.get('rpc') == rpc and row.get('phase') == 'fault-after-success' and row.get('backendOk') is True for row in receipts):
+                report['validation_errors'].append('Missing successful controlled loss for ' + rpc)
+        for name in ('create_fault', 'finalize_fault'):
+            if report['outcomes'][name] != 'failure':
+                report['validation_errors'].append(name + ' did not fail as injected')
+        if report['outcomes']['baseline'] != 'success':
+            report['validation_errors'].append('Baseline upload was not successful')
+        expected = (root / 'payload' / 'payload.txt').read_bytes()
+        for artifact in artifacts:
+            if not artifact['name'].startswith(prefix):
+                continue
+            aid = artifact['id']
+            item = {key: artifact.get(key) for key in ('id', 'name', 'size_in_bytes', 'digest')}
+            try:
+                try:
+                    response = request('/repos/' + repository + '/actions/artifacts/' + str(aid) + '/zip')
+                except urllib.error.HTTPError as error:
+                    if error.code != 302:
+                        raise
+                    location = error.headers['Location']
+                    item['download_host'] = urllib.parse.urlparse(location).hostname
+                    # The storage request carries no GitHub Authorization header.
+                    response = urllib.request.urlopen(location, timeout=30)
+                with response:
+                    blob = response.read()
+                item['download_sha256'] = hashlib.sha256(blob).hexdigest()
+                with zipfile.ZipFile(io.BytesIO(blob)) as archive:
+                    matches = [name for name in archive.namelist() if name.endswith('payload.txt')]
+                    item['content_matches'] = len(matches) == 1 and archive.read(matches[0]) == expected
+                item['digest_matches'] = artifact.get('digest') in (None, 'sha256:' + item['download_sha256'])
+                if not item['content_matches'] or not item['digest_matches']:
+                    report['validation_errors'].append('Downloaded artifact mismatch: ' + str(aid))
+            except Exception as error:
+                item['verification_error_type'] = type(error).__name__
+                report['validation_errors'].append('Cannot verify artifact: ' + str(aid))
+            finally:
+                try:
+                    with request('/repos/' + repository + '/actions/artifacts/' + str(aid), method='DELETE') as response:
+                        item['cleanup_status'] = response.status
+                except Exception as error:
+                    item['cleanup_error_type'] = type(error).__name__
+                    report['validation_errors'].append('Cannot clean validation artifact: ' + str(aid))
+            report['artifacts'].append(item)
+        (root / 'report.json').write_text(json.dumps(report, indent=2) + '\n')
+        print(json.dumps(report, indent=2))
+        if report['validation_errors']:
+            raise SystemExit(1)
+        PYVERIFY
+    - name: Observe public endpoint connectivity
+      shell: bash
+      run: python3 "$RUNNER_TEMP/artifact-transport-probe/network.py"
+    - name: Probe baseline
+      id: baseline
+      continue-on-error: true
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+      env:
+        NODE_OPTIONS: --require ${{ runner.temp }}/artifact-transport-probe/preload.cjs
+        PC_ARTIFACT_PROBE_FAULT: ''
+        PC_ARTIFACT_PROBE_RECEIPT: ${{ runner.temp }}/artifact-transport-probe/receipt.jsonl
+      with:
+        name: transport-probe-${{ github.run_id }}-${{ github.run_attempt }}-baseline
+        path: ${{ runner.temp }}/artifact-transport-probe/payload/
+        if-no-files-found: error
+        retention-days: 1
+        overwrite: false
+    - name: Probe create_fault
+      id: create_fault
+      continue-on-error: true
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+      env:
+        NODE_OPTIONS: --require ${{ runner.temp }}/artifact-transport-probe/preload.cjs
+        PC_ARTIFACT_PROBE_FAULT: CreateArtifact
+        PC_ARTIFACT_PROBE_RECEIPT: ${{ runner.temp }}/artifact-transport-probe/receipt.jsonl
+      with:
+        name: transport-probe-${{ github.run_id }}-${{ github.run_attempt }}-create-loss
+        path: ${{ runner.temp }}/artifact-transport-probe/payload/
+        if-no-files-found: error
+        retention-days: 1
+        overwrite: false
+    - name: Probe create_replay
+      id: create_replay
+      continue-on-error: true
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+      env:
+        NODE_OPTIONS: --require ${{ runner.temp }}/artifact-transport-probe/preload.cjs
+        PC_ARTIFACT_PROBE_FAULT: ''
+        PC_ARTIFACT_PROBE_RECEIPT: ${{ runner.temp }}/artifact-transport-probe/receipt.jsonl
+      with:
+        name: transport-probe-${{ github.run_id }}-${{ github.run_attempt }}-create-loss
+        path: ${{ runner.temp }}/artifact-transport-probe/payload/
+        if-no-files-found: error
+        retention-days: 1
+        overwrite: false
+    - name: Probe create_recovery
+      id: create_recovery
+      continue-on-error: true
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+      env:
+        NODE_OPTIONS: --require ${{ runner.temp }}/artifact-transport-probe/preload.cjs
+        PC_ARTIFACT_PROBE_FAULT: ''
+        PC_ARTIFACT_PROBE_RECEIPT: ${{ runner.temp }}/artifact-transport-probe/receipt.jsonl
+      with:
+        name: transport-probe-${{ github.run_id }}-${{ github.run_attempt }}-create-loss
+        path: ${{ runner.temp }}/artifact-transport-probe/payload/
+        if-no-files-found: error
+        retention-days: 1
+        overwrite: true
+    - name: Probe finalize_fault
+      id: finalize_fault
+      continue-on-error: true
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+      env:
+        NODE_OPTIONS: --require ${{ runner.temp }}/artifact-transport-probe/preload.cjs
+        PC_ARTIFACT_PROBE_FAULT: FinalizeArtifact
+        PC_ARTIFACT_PROBE_RECEIPT: ${{ runner.temp }}/artifact-transport-probe/receipt.jsonl
+      with:
+        name: transport-probe-${{ github.run_id }}-${{ github.run_attempt }}-finalize-loss
+        path: ${{ runner.temp }}/artifact-transport-probe/payload/
+        if-no-files-found: error
+        retention-days: 1
+        overwrite: false
+    - name: Probe finalize_replay
+      id: finalize_replay
+      continue-on-error: true
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+      env:
+        NODE_OPTIONS: --require ${{ runner.temp }}/artifact-transport-probe/preload.cjs
+        PC_ARTIFACT_PROBE_FAULT: ''
+        PC_ARTIFACT_PROBE_RECEIPT: ${{ runner.temp }}/artifact-transport-probe/receipt.jsonl
+      with:
+        name: transport-probe-${{ github.run_id }}-${{ github.run_attempt }}-finalize-loss
+        path: ${{ runner.temp }}/artifact-transport-probe/payload/
+        if-no-files-found: error
+        retention-days: 1
+        overwrite: false
+    - name: Probe finalize_recovery
+      id: finalize_recovery
+      continue-on-error: true
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+      env:
+        NODE_OPTIONS: --require ${{ runner.temp }}/artifact-transport-probe/preload.cjs
+        PC_ARTIFACT_PROBE_FAULT: ''
+        PC_ARTIFACT_PROBE_RECEIPT: ${{ runner.temp }}/artifact-transport-probe/receipt.jsonl
+      with:
+        name: transport-probe-${{ github.run_id }}-${{ github.run_attempt }}-finalize-loss
+        path: ${{ runner.temp }}/artifact-transport-probe/payload/
+        if-no-files-found: error
+        retention-days: 1
+        overwrite: true
+    - name: Verify server state, download checksums, and cleanup
+      if: always()
+      env:
+        GH_TOKEN: ${{ github.token }}
+        PROBE_OUTCOMES: '{"baseline":"${{ steps.baseline.outcome }}","create_fault":"${{ steps.create_fault.outcome }}","create_replay":"${{
+          steps.create_replay.outcome }}","create_recovery":"${{ steps.create_recovery.outcome }}","finalize_fault":"${{ steps.finalize_fault.outcome
+          }}","finalize_replay":"${{ steps.finalize_replay.outcome }}","finalize_recovery":"${{ steps.finalize_recovery.outcome
+          }}"}'
+      shell: bash
+      run: python3 "$RUNNER_TEMP/artifact-transport-probe/verify.py"
+    - name: Save bounded validation evidence
+      if: always()
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+      with:
+        name: artifact-transport-evidence-${{ github.run_id }}-${{ github.run_attempt }}
+        path: |
+          ${{ runner.temp }}/artifact-transport-probe/report.json
+          ${{ runner.temp }}/artifact-transport-probe/network.json
+          ${{ runner.temp }}/artifact-transport-probe/receipt.jsonl
+        retention-days: 1
+        if-no-files-found: error
+    - name: Keep completed diagnostic pod available for proxy log collection
+      if: always()
+      shell: bash
+      run: sleep 60
