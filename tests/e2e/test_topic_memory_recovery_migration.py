@@ -763,10 +763,16 @@ def test_topic_resource_documentation_does_not_invalidate_plan(atomic_maintenanc
 
 
 @pytest.mark.parametrize("schema_changed", [False, True])
-def test_released_topic_journal_resumes_with_original_backup(tmp_path, monkeypatch, schema_changed):
-
-    path = tmp_path / "legacy.db"
-    config, _ = _legacy(path)
+@pytest.mark.parametrize("source", ["attempts-v0", "atomic-maintenance-sqlite-v1"])
+def test_released_topic_journal_resumes_with_original_backup(tmp_path, monkeypatch, request, schema_changed, source):
+    if source == "atomic-maintenance-sqlite-v1":
+        path, config = request.getfixturevalue("atomic_maintenance_database")
+        # Recreate the released pre-alias initialization layout.
+        with closing(sqlite3.connect(path)) as connection, connection:
+            connection.execute("DROP TABLE pc_atomic_memory_alias")
+    else:
+        path = tmp_path / "legacy.db"
+        config, _ = _legacy(path)
     current_checksum = recovery_migration._resource_checksum
     with monkeypatch.context() as legacy:
         legacy.setattr(
@@ -777,7 +783,9 @@ def test_released_topic_journal_resumes_with_original_backup(tmp_path, monkeypat
         runner = TopicMemoryRecoveryMigrationRunner(config)
 
         def interrupt(_connection, _cursor, statement, _parameters, _context, _executemany):
-            if statement.lstrip().startswith("CREATE TABLE pc_topic_memory_work_budgets_upgrade"):
+            if statement.lstrip().startswith("CREATE TABLE pc_topic_memory_work_budgets") and any(
+                row[1] == "main" and row[2] == str(path) for row in _connection.exec_driver_sql("PRAGMA database_list")
+            ):
                 raise RuntimeError("injected legacy interruption")  # noqa: TRY003
 
         event.listen(Engine, "before_cursor_execute", interrupt)
@@ -788,6 +796,7 @@ def test_released_topic_journal_resumes_with_original_backup(tmp_path, monkeypat
             event.remove(Engine, "before_cursor_execute", interrupt)
     journal = next(runner.directory.rglob("topic-memory-recovery.json"))
     before = json.loads(journal.read_text())
+    assert before["source"] == source
     if schema_changed:
         resources = tmp_path / "resources"
         shutil.copytree(recovery_migration.RESOURCE.parent, resources)

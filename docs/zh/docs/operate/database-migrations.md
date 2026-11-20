@@ -465,7 +465,7 @@ powercontext server db-migrate verify --env-file oceanbase.env \
   --evidence-dir /var/lib/powercontext/migration-state --lock-coordination single-host
 ```
 
-Topic 恢复校验和覆盖 `schema.json` 和 `atomic_maintenance_sqlite_v2.json`，不包含 `README.md`。使用已发布的仅 schema 校验和的日志，只有在冻结 schema 字节完全一致且原始来源不是新增的 atomic maintenance 布局时才能继续恢复。恢复保留原始日志和备份的校验和身份；配置和备份校验仍然适用。
+Topic 恢复校验和覆盖 `schema.json` 和 `atomic_maintenance_sqlite_v2.json`，不包含 `README.md`。使用已发布的仅 schema 校验和的日志，只有在冻结 schema 字节完全一致时才能继续恢复。恢复保留原始日志和备份的校验和身份；配置和备份校验仍然适用。
 
 将 `PLAN_ID` 替换为返回的计划 ID。不能换到空目录绕过恢复错误：中断迁移的证据缺失或不一致时返回 `recovery_required`；选择手动备份或接受不备份风险，也不能授权未知结构或无法证明的 DDL 进度。
 

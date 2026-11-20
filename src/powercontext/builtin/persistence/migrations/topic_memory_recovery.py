@@ -374,10 +374,9 @@ class TopicMemoryRecoveryMigrationRunner:
             or (
                 evidence.get("checksum") != self.checksum
                 and not (
-                    # Released journals bound only the original frozen schema. The
-                    # added alias layout cannot have been their source.
-                    evidence["source"] != "atomic-maintenance-sqlite-v1"
-                    and evidence["checksum"]
+                    # Released journals bound only the original frozen schema.
+                    # The source label is shared by both Atomic maintenance layouts.
+                    evidence["checksum"]
                     == hashlib.sha256(RESOURCE.read_bytes()).hexdigest()
                     == "f28d5c527cf11d8ac37d87ff149a64f2688b80498c3ac814b1db12c42cebf6cc"
                 )
