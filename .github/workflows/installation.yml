@@ -156,11 +156,73 @@ jobs:
                     item['cleanup_error_type'] = type(error).__name__
                     report['validation_errors'].append('Cannot clean validation artifact: ' + str(aid))
             report['artifacts'].append(item)
+
+        snapshots = {name: json.loads((root / ('snapshot-' + name + '.json')).read_text()) for name in ('baseline-before', 'baseline-after', 'create-after-loss', 'finalize-after-loss', 'finalize-after-replay')}
+        report['snapshots'] = snapshots
+        expected_outcomes = {'baseline': 'success', 'baseline_duplicate': 'failure', 'create_fault': 'failure', 'create_replay': 'success', 'finalize_fault': 'failure', 'finalize_replay': 'failure'}
+        for name, expected_outcome in expected_outcomes.items():
+            if report['outcomes'].get(name) != expected_outcome:
+                report['validation_errors'].append('Unexpected outcome for ' + name)
+        for before, after in (('baseline-before', 'baseline-after'), ('finalize-after-loss', 'finalize-after-replay')):
+            first, second = snapshots[before]['artifacts'], snapshots[after]['artifacts']
+            if len(first) != 1 or len(second) != 1 or first[0]['id'] != second[0]['id'] or first[0]['digest'] != second[0]['digest']:
+                report['validation_errors'].append('Original artifact identity changed: ' + before)
+            for item in first + second:
+                if not item.get('digest_matches') or not item.get('content_matches'):
+                    report['validation_errors'].append('Incomplete or unreadable original object: ' + before)
+        report['baseline_duplicate_recoverable'] = any(item['id'] not in {old['id'] for old in snapshots['baseline-before']['artifacts']} and item.get('digest_matches') for item in snapshots['baseline-after']['artifacts'])
+        if report['baseline_duplicate_recoverable']:
+            report['validation_errors'].append('Pre-existing same-name artifact incorrectly recoverable')
+
         (root / 'report.json').write_text(json.dumps(report, indent=2) + '\n')
         print(json.dumps(report, indent=2))
         if report['validation_errors']:
             raise SystemExit(1)
         PYVERIFY
+
+        cat > "$RUNNER_TEMP/artifact-transport-probe/snapshot.py" <<'PYSNAPSHOT'
+        import hashlib, io, json, os, sys, time, urllib.error, urllib.parse, urllib.request, zipfile
+        from pathlib import Path
+        root = Path(os.environ['RUNNER_TEMP']) / 'artifact-transport-probe'
+        api = os.environ.get('GITHUB_API_URL', 'https://api.github.com')
+        repository = os.environ['GITHUB_REPOSITORY']
+        run_id = os.environ['GITHUB_RUN_ID']
+        prefix = 'transport-probe-' + run_id + '-' + os.environ['GITHUB_RUN_ATTEMPT'] + '-'
+        label, suffix = sys.argv[1:3]
+        class NoRedirect(urllib.request.HTTPRedirectHandler):
+            def redirect_request(self, req, fp, code, msg, headers, newurl):
+                return None
+        opener = urllib.request.build_opener(NoRedirect)
+        def request(path):
+            req = urllib.request.Request(api + path, headers={'Authorization': 'Bearer ' + os.environ['GH_TOKEN'], 'Accept': 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28'})
+            return opener.open(req, timeout=30)
+        with request('/repos/' + repository + '/actions/runs/' + run_id + '/artifacts?per_page=100') as response:
+            artifacts = json.load(response)['artifacts']
+        report = {'label': label, 'observed_at': time.time(), 'list_success': True, 'artifacts': []}
+        for artifact in artifacts:
+            if artifact['name'] != prefix + suffix:
+                continue
+            item = {key: artifact.get(key) for key in ('id', 'name', 'size_in_bytes', 'digest', 'expired', 'created_at', 'updated_at')}
+            if artifact.get('digest') and artifact.get('size_in_bytes', 0) > 0:
+                try:
+                    response = request('/repos/' + repository + '/actions/artifacts/' + str(artifact['id']) + '/zip')
+                except urllib.error.HTTPError as error:
+                    if error.code != 302:
+                        raise
+                    location = error.headers['Location']
+                    item['download_host'] = urllib.parse.urlparse(location).hostname
+                    response = urllib.request.urlopen(location, timeout=30)
+                with response:
+                    blob = response.read()
+                item['download_sha256'] = hashlib.sha256(blob).hexdigest()
+                with zipfile.ZipFile(io.BytesIO(blob)) as archive:
+                    matches = [name for name in archive.namelist() if name.endswith('payload.txt')]
+                    item['content_matches'] = len(matches) == 1 and archive.read(matches[0]) == (root / 'payload' / 'payload.txt').read_bytes()
+                item['digest_matches'] = artifact['digest'] == 'sha256:' + item['download_sha256']
+            report['artifacts'].append(item)
+        (root / ('snapshot-' + label + '.json')).write_text(json.dumps(report, indent=2) + '\n')
+        print(json.dumps(report, indent=2))
+        PYSNAPSHOT
     - name: Observe public endpoint connectivity
       shell: bash
       run: python3 "$RUNNER_TEMP/artifact-transport-probe/network.py"
@@ -178,6 +240,32 @@ jobs:
         if-no-files-found: error
         retention-days: 1
         overwrite: false
+    - name: Snapshot baseline-before
+      if: always()
+      env:
+        GH_TOKEN: ${{ github.token }}
+      shell: bash
+      run: python3 "$RUNNER_TEMP/artifact-transport-probe/snapshot.py" baseline-before baseline
+    - name: Probe baseline_duplicate
+      id: baseline_duplicate
+      continue-on-error: true
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+      env:
+        NODE_OPTIONS: --require ${{ runner.temp }}/artifact-transport-probe/preload.cjs
+        PC_ARTIFACT_PROBE_FAULT: ''
+        PC_ARTIFACT_PROBE_RECEIPT: ${{ runner.temp }}/artifact-transport-probe/receipt.jsonl
+      with:
+        name: transport-probe-${{ github.run_id }}-${{ github.run_attempt }}-baseline
+        path: ${{ runner.temp }}/artifact-transport-probe/payload/
+        if-no-files-found: error
+        retention-days: 1
+        overwrite: false
+    - name: Snapshot baseline-after
+      if: always()
+      env:
+        GH_TOKEN: ${{ github.token }}
+      shell: bash
+      run: python3 "$RUNNER_TEMP/artifact-transport-probe/snapshot.py" baseline-after baseline
     - name: Probe create_fault
       id: create_fault
       continue-on-error: true
@@ -192,6 +280,12 @@ jobs:
         if-no-files-found: error
         retention-days: 1
         overwrite: false
+    - name: Snapshot create-after-loss
+      if: always()
+      env:
+        GH_TOKEN: ${{ github.token }}
+      shell: bash
+      run: python3 "$RUNNER_TEMP/artifact-transport-probe/snapshot.py" create-after-loss create-loss
     - name: Probe create_replay
       id: create_replay
       continue-on-error: true
@@ -206,20 +300,6 @@ jobs:
         if-no-files-found: error
         retention-days: 1
         overwrite: false
-    - name: Probe create_recovery
-      id: create_recovery
-      continue-on-error: true
-      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
-      env:
-        NODE_OPTIONS: --require ${{ runner.temp }}/artifact-transport-probe/preload.cjs
-        PC_ARTIFACT_PROBE_FAULT: ''
-        PC_ARTIFACT_PROBE_RECEIPT: ${{ runner.temp }}/artifact-transport-probe/receipt.jsonl
-      with:
-        name: transport-probe-${{ github.run_id }}-${{ github.run_attempt }}-create-loss
-        path: ${{ runner.temp }}/artifact-transport-probe/payload/
-        if-no-files-found: error
-        retention-days: 1
-        overwrite: true
     - name: Probe finalize_fault
       id: finalize_fault
       continue-on-error: true
@@ -234,6 +314,12 @@ jobs:
         if-no-files-found: error
         retention-days: 1
         overwrite: false
+    - name: Snapshot finalize-after-loss
+      if: always()
+      env:
+        GH_TOKEN: ${{ github.token }}
+      shell: bash
+      run: python3 "$RUNNER_TEMP/artifact-transport-probe/snapshot.py" finalize-after-loss finalize-loss
     - name: Probe finalize_replay
       id: finalize_replay
       continue-on-error: true
@@ -248,28 +334,19 @@ jobs:
         if-no-files-found: error
         retention-days: 1
         overwrite: false
-    - name: Probe finalize_recovery
-      id: finalize_recovery
-      continue-on-error: true
-      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+    - name: Snapshot finalize-after-replay
+      if: always()
       env:
-        NODE_OPTIONS: --require ${{ runner.temp }}/artifact-transport-probe/preload.cjs
-        PC_ARTIFACT_PROBE_FAULT: ''
-        PC_ARTIFACT_PROBE_RECEIPT: ${{ runner.temp }}/artifact-transport-probe/receipt.jsonl
-      with:
-        name: transport-probe-${{ github.run_id }}-${{ github.run_attempt }}-finalize-loss
-        path: ${{ runner.temp }}/artifact-transport-probe/payload/
-        if-no-files-found: error
-        retention-days: 1
-        overwrite: true
+        GH_TOKEN: ${{ github.token }}
+      shell: bash
+      run: python3 "$RUNNER_TEMP/artifact-transport-probe/snapshot.py" finalize-after-replay finalize-loss
     - name: Verify server state, download checksums, and cleanup
       if: always()
       env:
         GH_TOKEN: ${{ github.token }}
-        PROBE_OUTCOMES: '{"baseline":"${{ steps.baseline.outcome }}","create_fault":"${{ steps.create_fault.outcome }}","create_replay":"${{
-          steps.create_replay.outcome }}","create_recovery":"${{ steps.create_recovery.outcome }}","finalize_fault":"${{ steps.finalize_fault.outcome
-          }}","finalize_replay":"${{ steps.finalize_replay.outcome }}","finalize_recovery":"${{ steps.finalize_recovery.outcome
-          }}"}'
+        PROBE_OUTCOMES: '{"baseline": "${{ steps.baseline.outcome }}", "baseline_duplicate": "${{ steps.baseline_duplicate.outcome
+          }}", "create_fault": "${{ steps.create_fault.outcome }}", "create_replay": "${{ steps.create_replay.outcome }}",
+          "finalize_fault": "${{ steps.finalize_fault.outcome }}", "finalize_replay": "${{ steps.finalize_replay.outcome }}"}'
       shell: bash
       run: python3 "$RUNNER_TEMP/artifact-transport-probe/verify.py"
     - name: Save bounded validation evidence
@@ -277,10 +354,12 @@ jobs:
       uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
       with:
         name: artifact-transport-evidence-${{ github.run_id }}-${{ github.run_attempt }}
-        path: |
+        path: |-
           ${{ runner.temp }}/artifact-transport-probe/report.json
           ${{ runner.temp }}/artifact-transport-probe/network.json
           ${{ runner.temp }}/artifact-transport-probe/receipt.jsonl
+
+          ${{ runner.temp }}/artifact-transport-probe/snapshot-*.json
         retention-days: 1
         if-no-files-found: error
     - name: Keep completed diagnostic pod available for proxy log collection
