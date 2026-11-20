@@ -52,7 +52,7 @@ def test_registered_mysql_alias_layout_uses_configured_vector_type(dimension):
     )
     bundle = server_bundle(embedding_profile=profile)
     schema = MySQLSchema(bundle)
-    (statement,) = schema.statements("v1_5_2_pr2674")
+    (statement,) = schema.statements("000")
     name, table = _parse_table(statement)
     assert name == "pc_atomic_memory_alias"
     assert table == schema.required(bundle.head)["tables"][name]

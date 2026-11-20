@@ -17,8 +17,8 @@ The design follows [RFC #1771](https://github.com/oceanbase/powercontext/pull/17
 The full Server framework uses two normalization checkpoints before its shared migration chain for the PowerContext
 1.5.2 target (stored compatibility IDs shown below):
 
-- **1.3.0:** `s1300 → s1400 → s1401 → s1402 → v1_4_1_004 → v1_4_1_005 → v1_4_1_006 → v1_5_0_001 → v1_5_0_002 → v1_5_0_003 → v1_5_0_004 → v1_5_0_005 → v1_5_2_pr2639 → v1_5_2_pr2674`.
-- **1.4.0:** `r1400 → s1400 → s1401 → s1402 → v1_4_1_004 → v1_4_1_005 → v1_4_1_006 → v1_5_0_001 → v1_5_0_002 → v1_5_0_003 → v1_5_0_004 → v1_5_0_005 → v1_5_2_pr2639 → v1_5_2_pr2674` through a separate frozen source bridge.
+- **1.3.0:** `s1300 → s1400 → s1401 → s1402 → v1_4_1_004 → v1_4_1_005 → v1_4_1_006 → v1_5_0_001 → v1_5_0_002 → v1_5_0_003 → v1_5_0_004 → v1_5_0_005 → v1_5_2_pr2639 → 000`.
+- **1.4.0:** `r1400 → s1400 → s1401 → s1402 → v1_4_1_004 → v1_4_1_005 → v1_4_1_006 → v1_5_0_001 → v1_5_0_002 → v1_5_0_003 → v1_5_0_004 → v1_5_0_005 → v1_5_2_pr2639 → 000` through a separate frozen source bridge.
 
 Application release numbers and schema revisions are distinct. The 1.4.0 release is not the `s1400` checkpoint:
 its existing Candidate schema is current, but its Topic attempt storage still needs the registered bridge.
@@ -174,13 +174,13 @@ literal mutable draft ID `000`. The following registered names remain unchanged:
 | `v1_5_0_004` | 1.5.0 | 4 | `v1_5_0_004` | Source citation position locators |
 | `v1_5_0_005` | 1.5.0 | 5 | `v1_5_0_005` | Remove previous plugin-framework storage and add nullable Artifact metadata |
 | `v1_5_2_pr2639` | 1.5.2 | PR #2639 | `v1_5_2_pr2639` | Source collection runner and target tables; remove the write plugin registry |
-| `v1_5_2_pr2674` | 1.5.2 | PR #2674 | `v1_5_2_pr2674` | Disposable historical Atomic Memory alias projection |
+| `000` | — | — | `000` | Disposable historical Atomic Memory alias projection |
 
-Both registered source paths reach `v1_5_2_pr2674`; only 1.3.0 is selected for CI upgrade acceptance:
+Both registered source paths reach `000`; only 1.3.0 is selected for CI upgrade acceptance:
 
 ```text
-1.3.0: v1_3_0_000 -> v1_4_1_001 -> v1_4_1_002 -> v1_4_1_003 -> v1_4_1_004 -> v1_4_1_005 -> v1_4_1_006 -> v1_5_0_001 -> v1_5_0_002 -> v1_5_0_003 -> v1_5_0_004 -> v1_5_0_005 -> v1_5_2_pr2639 -> v1_5_2_pr2674
-1.4.0: v1_4_0_000 -> v1_4_1_001 -> v1_4_1_002 -> v1_4_1_003 -> v1_4_1_004 -> v1_4_1_005 -> v1_4_1_006 -> v1_5_0_001 -> v1_5_0_002 -> v1_5_0_003 -> v1_5_0_004 -> v1_5_0_005 -> v1_5_2_pr2639 -> v1_5_2_pr2674
+1.3.0: v1_3_0_000 -> v1_4_1_001 -> v1_4_1_002 -> v1_4_1_003 -> v1_4_1_004 -> v1_4_1_005 -> v1_4_1_006 -> v1_5_0_001 -> v1_5_0_002 -> v1_5_0_003 -> v1_5_0_004 -> v1_5_0_005 -> v1_5_2_pr2639 -> 000
+1.4.0: v1_4_0_000 -> v1_4_1_001 -> v1_4_1_002 -> v1_4_1_003 -> v1_4_1_004 -> v1_4_1_005 -> v1_4_1_006 -> v1_5_0_001 -> v1_5_0_002 -> v1_5_0_003 -> v1_5_0_004 -> v1_5_0_005 -> v1_5_2_pr2639 -> 000
 ```
 
 `status` and `plan` show `source_migration`, `target_migration` and `pending_migrations`

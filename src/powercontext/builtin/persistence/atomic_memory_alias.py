@@ -27,6 +27,7 @@ from powercontext.builtin.persistence.atomic_memory_index import (
     AtomicMemoryIndexError,
     AtomicMemoryRelatedRank,
     atomic_memory_profile_fingerprint,
+    atomic_memory_related_requirement_sql,
     oceanbase_fts_coverage_sql,
     sqlite_fts_coverage_sql,
 )
@@ -52,15 +53,17 @@ async def _matching_aliases(
     conditions = []
     parameters: dict[str, object] = {}
     if request.mode in {"fts", "hybrid"}:
-        terms, required = fts_query_requirements(request.query, floor=request.admission)
+        terms, _ = fts_query_requirements(request.query, floor=request.admission)
         if terms:
+            dialect = "sqlite" if connection.dialect.name == "sqlite" else "mysql"
             coverage, parameters = (
-                sqlite_fts_coverage_sql(terms)
-                if connection.dialect.name == "sqlite"
-                else oceanbase_fts_coverage_sql(terms)
+                sqlite_fts_coverage_sql(terms) if dialect == "sqlite" else oceanbase_fts_coverage_sql(terms)
             )
-            conditions.append(text(f"({coverage}) >= :alias_required"))
-            parameters["alias_required"] = required
+            requirement, requirement_parameters, _ = atomic_memory_related_requirement_sql(
+                len(terms), dialect, floor=request.admission
+            )
+            conditions.append(text(f"({coverage}) >= {requirement}"))
+            parameters.update(requirement_parameters)
     if request.mode in {"vector", "hybrid"}:
         vector = index._require_vectors(request)
         profile = index.profile

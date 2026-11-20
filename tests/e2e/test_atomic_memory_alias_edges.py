@@ -55,9 +55,9 @@ from tests.e2e.test_atomic_memory_related_embedding import (
 )
 
 
-def _request(*, mode="vector", filters=None):
+def _request(*, mode="vector", filters=None, query=OLD):
     return AtomicMemoryRelatedRequest(
-        OLD,
+        query,
         filters or AtomicMemoryIndexFilter(),
         mode=mode,
         query_vector=(1.0, 0.0, 0.0),
@@ -463,5 +463,23 @@ def test_alias_chain_accepts_exactly_64_merge_edges(tmp_path):
             assert len(hits) == 1
             assert hits[0].artifact_ref.artifact_id == extra[-1].artifact_id
             assert hits[0].text == "Depth fixture 62."
+
+    asyncio.run(scenario())
+
+
+def test_long_lexical_query_recalls_short_historical_alias(tmp_path):
+    async def scenario():
+        query = (
+            f"{OLD} Thursday operators should document incident escalation procedures and assign owners. "
+            "Include regional dashboards, alerts, capacity, latency, credentials, approvals and follow-up tickets."
+        )
+        async with open_builtin_contexts(_config(tmp_path), embedding_model=AliasEmbedding()) as contexts:
+            _, successor = await seed_alias(contexts)
+            index = SQLiteAtomicMemoryIndex(PROFILE)
+            request = _request(mode="fts", query=query)
+            async with contexts.database.transaction(consistent_snapshot=True) as connection:
+                assert await index.related_ranks(connection, "project", request) == ()
+                ranks = await index.aliased_related_ranks(connection, "project", request)
+            assert tuple(rank.artifact_ref for rank in ranks) == (successor.ref,)
 
     asyncio.run(scenario())

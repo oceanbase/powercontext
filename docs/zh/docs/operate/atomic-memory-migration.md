@@ -307,7 +307,7 @@ flush token 或链路解析工作量。
 候选元数据以及协调过程中需要保留的状态仍可能随页数增长。
 
 未受管数据库通过受支持的索引初始化创建此派生表。受管 Server 数据库需要通过 `db-migrate --bundle server`
-显式升级到 `v1_5_2_pr2674`；普通启动保持只读，在升级完成前报告 `migration_required`。schema 升级创建空别名表。
+显式升级到 `000`；普通启动保持只读，在升级完成前报告 `migration_required`。schema 升级创建空别名表。
 安装不会回填早先的合并记录：保持停写，
 按上面的维护流程显式重建投影。重建读取每个 merged 身份最新的权威正文 revision，发布前复核 revision/状态以及
 配置的 embedding profile，修复过期别名元数据、清理过期别名并验证结果集合。空投影和 profile 变化时使用配置模型
