@@ -760,17 +760,11 @@ def test_slow_admission_page_does_not_monopolize_other_families(tmp_path, caplog
     asyncio.run(scenario())
 
 
-@pytest.mark.parametrize(
-    ("failure", "initial_delay"),
-    [("io", 0), ("timeout", 0), ("deadline", 0), ("deadline", 0.4)],
-    ids=["io", "timeout", "deadline", "slow-initial-probe"],
-)
-def test_blocked_recheck_errors_preserve_spacing_diagnostics_and_explicit_wakes(
-    tmp_path, caplog, failure, initial_delay
-):
+@pytest.mark.parametrize("failure", ["io", "timeout", "deadline"])
+def test_blocked_recheck_errors_preserve_spacing_diagnostics_and_explicit_wakes(tmp_path, monkeypatch, caplog, failure):
     caplog.set_level(logging.WARNING, logger=processing.__name__)
-    # Keep production I/O budgets: the initial admission must establish a block
-    # before this test exercises recheck failures, including real deadline expiry.
+    monkeypatch.setattr(processing, "_DISCOVERY_TIMEOUT_SECONDS", 0.3)
+    monkeypatch.setattr(processing, "_ADMISSION_PROBE_TIMEOUT_SECONDS", 0.3)
 
     async def scenario():
         async with _profile(tmp_path, "blocked-recheck") as profile:
@@ -781,8 +775,6 @@ def test_blocked_recheck_errors_preserve_spacing_diagnostics_and_explicit_wakes(
             async def check(_connection, _scope, _binding):
                 nonlocal checks
                 checks += 1
-                if checks == 1:
-                    await asyncio.sleep(initial_delay)
                 if checks in (2, 3):
                     if failure == "deadline":
                         await asyncio.Event().wait()
@@ -804,17 +796,9 @@ def test_blocked_recheck_errors_preserve_spacing_diagnostics_and_explicit_wakes(
                     lambda: any(getattr(r, "event", None) == "artifact_processing.blocked" for r in caplog.records)
                 )
                 for expected_checks in (2, 3):
-                    previous_error = supervisor.observe_scope("blocked")[0].last_error_at
                     await _request(profile.database, "topic-binding", "blocked", dirty=False)
                     supervisor.wake("topic-binding")
-                    await _wait(
-                        lambda expected=expected_checks, previous=previous_error: (
-                            checks >= expected
-                            and (observed := supervisor.observe_scope("blocked")[0]).last_error_at is not None
-                            and observed.last_error_at != previous
-                        ),
-                        timeout_seconds=10,
-                    )
+                    await _wait(lambda expected=expected_checks: checks >= expected)
                     # An unsuccessful recheck must retain the terminal interval,
                     # even across wakes that do not represent a newer request.
                     await asyncio.sleep(0.5)

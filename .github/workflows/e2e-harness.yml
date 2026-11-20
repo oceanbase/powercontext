@@ -51,7 +51,7 @@ jobs:
            fromJSON(inputs.suites || needs.changes.outputs.suites || '{}').harness ||
            fromJSON(inputs.suites || needs.changes.outputs.suites || '{}').oceanbase_acceptance) }}
     runs-on: powercontext-ci-light
-    timeout-minutes: 25
+    timeout-minutes: 15
     outputs:
       matrix: ${{ steps.plan.outputs.matrix }}
     steps:
@@ -59,7 +59,6 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
-          filter: blob:none
           persist-credentials: false
 
       - name: Plan selected acceptance work

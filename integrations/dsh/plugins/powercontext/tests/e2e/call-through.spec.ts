@@ -233,7 +233,7 @@ describe('plugin HTTP call-through without a model', () => {
     const resolved = await client.request('get_default_scope')
     expect(resolved.kind).toBe('json')
     scopeId = (resolved.value as { scope_id: string }).scope_id
-  }, 120_000)
+  }, 60_000)
 
   afterAll(async () => {
     await server?.stop()

@@ -207,7 +207,6 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           INSTALL_DIR: ${{ runner.temp }}
-          GOCACHE: ${{ runner.temp }}/go-build
           PATH: ${{ runner.temp }}:/usr/local/go/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
         with:
           config: .licenserc.yaml
@@ -215,8 +214,6 @@ jobs:
 
       - name: Set up the environment
         uses: ./.github/actions/setup-python-env
-        with:
-          shared-cache: 'true'
 
       - name: Resolve Python version for hook cache
         id: python
@@ -225,7 +222,7 @@ jobs:
       - name: Cache prek environments
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
-          path: ${{ runner.temp }}/prek
+          path: ~/.cache/prek
           key: prek-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.python.outputs.version }}-${{ hashFiles('.pre-commit-config.yaml') }}
 
       - name: Run checks
@@ -238,9 +235,9 @@ jobs:
     name: tests (${{ matrix.python-version }}, ${{ matrix.suite }})
     needs: [quality]
     if: ${{ !cancelled() && needs.quality.result == 'success' && (fromJSON(needs.quality.outputs.suites || '{}').tests) }}
-    # Unit jobs need room for a progressing suite on slower internal runners and
-    # cache publication. End-to-end jobs also need time for subprocess tails.
-    timeout-minutes: ${{ matrix.suite == 'e2e' && 75 || 70 }}
+    # Unit jobs must outlast pytest plus uv cache publication. End-to-end jobs
+    # also need time for subprocess tails on internal runners.
+    timeout-minutes: ${{ matrix.suite == 'e2e' && 55 || 50 }}
     runs-on: powercontext-ci-standard
     strategy:
       fail-fast: true
@@ -304,26 +301,6 @@ jobs:
           cache-bin: false
           cache-on-failure: true
 
-      - name: Build Gateway before parallel end-to-end tests
-        if: matrix.suite == 'e2e'
-        timeout-minutes: 15
-        run: |
-          mkdir -p .artifacts/gateway-build
-          # bash pipefail keeps compiler errors fatal while tee preserves all output.
-          cargo build --locked --manifest-path gateway/Cargo.toml \
-            --target-dir gateway/target -p pc-gateway-app --verbose \
-            2>&1 | tee .artifacts/gateway-build/build.log
-          test -x "$GITHUB_WORKSPACE/gateway/target/debug/pc-gateway"
-          echo "POWERCONTEXT_TEST_GATEWAY_BINARY=$GITHUB_WORKSPACE/gateway/target/debug/pc-gateway" >> "$GITHUB_ENV"
-
-      - name: Upload Gateway build log
-        if: always() && matrix.suite == 'e2e'
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: gateway-build-python-${{ matrix.python-version }}
-          path: .artifacts/gateway-build/build.log
-          if-no-files-found: ignore
-
       - name: Run the ZCode service chain with native Hook deadlines
         if: matrix.suite == 'e2e'
         # Preserve the real Hook deadlines without competing with xdist workers.
@@ -338,7 +315,7 @@ jobs:
   isolated-installations:
     needs: [quality, tests]
     if: ${{ !cancelled() && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').packaging) }}
-    timeout-minutes: 30
+    timeout-minutes: 20
     runs-on: powercontext-ci-light
     strategy:
       fail-fast: true
@@ -433,7 +410,7 @@ jobs:
   worker-observability:
     needs: [quality, tests]
     if: ${{ !cancelled() && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').observability) }}
-    timeout-minutes: 25
+    timeout-minutes: 15
     runs-on: powercontext-ci-light
     steps:
       - name: Check out
@@ -480,7 +457,7 @@ jobs:
   evaluation-tests:
     needs: [quality, tests]
     if: ${{ !cancelled() && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').evaluation) }}
-    timeout-minutes: 30
+    timeout-minutes: 20
     runs-on: powercontext-ci-light
     steps:
       - name: Check out
@@ -870,7 +847,7 @@ jobs:
   dify-tools:
     needs: [quality, tests]
     if: ${{ !cancelled() && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').dify) }}
-    timeout-minutes: 25
+    timeout-minutes: 15
     runs-on: powercontext-ci-light
     steps:
       - name: Check out
@@ -936,11 +913,8 @@ jobs:
           go-version-file: .artifacts/dify-daemon/go.mod
           cache-dependency-path: .artifacts/dify-daemon/go.sum
 
-      - name: Set up Node for host compatibility probes
-        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version-file: .mise.toml
-          package-manager-cache: false
+      - name: Set up project tools
+        uses: jdx/mise-action@d5574b52816a478f9d4e6529a3f6ff17a8a36785 # v5.2.8
 
       - name: Check daemon serialization, host casting, Workflow selectors and SDK HTTP readback
         env:
@@ -951,7 +925,7 @@ jobs:
   hermes-skills:
     needs: [quality, tests]
     if: ${{ !cancelled() && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').hermes) }}
-    timeout-minutes: 25
+    timeout-minutes: 15
     runs-on: powercontext-ci-light
     steps:
       - name: Check out
@@ -980,7 +954,7 @@ jobs:
   dsh-package:
     needs: [quality, tests]
     if: ${{ !cancelled() && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').dsh) }}
-    timeout-minutes: 40
+    timeout-minutes: 30
     runs-on: powercontext-ci-light
     steps:
       - name: Check out
@@ -1032,7 +1006,7 @@ jobs:
   cindy-package:
     needs: [quality, tests]
     if: ${{ !cancelled() && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').cindy) }}
-    timeout-minutes: 25
+    timeout-minutes: 15
     runs-on: powercontext-ci-light
     steps:
       - name: Check out
@@ -1077,7 +1051,7 @@ jobs:
   pi-package:
     needs: [quality, tests]
     if: ${{ !cancelled() && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').pi) }}
-    timeout-minutes: 30
+    timeout-minutes: 20
     runs-on: powercontext-ci-light
     steps:
       - name: Check out
@@ -1113,7 +1087,7 @@ jobs:
   opencode-package:
     needs: [quality, tests]
     if: ${{ !cancelled() && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').opencode) }}
-    timeout-minutes: 30
+    timeout-minutes: 20
     runs-on: powercontext-ci-light
     env:
       OPENCODE_VERSION: '1.19.5'
@@ -1136,8 +1110,6 @@ jobs:
         run: make opencode-test
 
       - name: Install the pinned OpenCode host
-        env:
-          XDG_CACHE_HOME: ${{ runner.temp }}/opencode-host-cache
         run: |
           package="opencode-$(node -p 'process.platform + "-" + process.arch')"
           # OpenCode's default x64 build needs AVX2; its own installer falls back to the baseline build without it.
@@ -1172,7 +1144,7 @@ jobs:
   codex-host:
     needs: [quality, tests]
     if: ${{ !cancelled() && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').codex) }}
-    timeout-minutes: 30
+    timeout-minutes: 20
     runs-on: powercontext-ci-light
     env:
       CODEX_VERSION: '0.167.2'
@@ -1182,8 +1154,6 @@ jobs:
           persist-credentials: false
       - name: Set up the Python environment
         uses: ./.github/actions/setup-python-env
-        with:
-          shared-cache: 'true'
 
       - uses: jdx/mise-action@d5574b52816a478f9d4e6529a3f6ff17a8a36785 # v5.2.8
       - name: Install the pinned Codex host
@@ -1272,7 +1242,7 @@ jobs:
   bub-host:
     needs: [quality, tests]
     if: ${{ !cancelled() && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').bub) }}
-    timeout-minutes: 30
+    timeout-minutes: 20
     runs-on: powercontext-ci-light
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -1310,7 +1280,7 @@ jobs:
   openclaw-package:
     needs: [quality, tests]
     if: ${{ !cancelled() && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').openclaw) }}
-    timeout-minutes: 30
+    timeout-minutes: 20
     runs-on: powercontext-ci-light
     env:
       OPENCLAW_VERSION: '2026.8.1'
@@ -1401,7 +1371,7 @@ jobs:
   opendal-package:
     needs: [quality, tests]
     if: ${{ !cancelled() && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').opendal) }}
-    timeout-minutes: 30
+    timeout-minutes: 20
     runs-on: powercontext-ci-light
     steps:
       - name: Check out
@@ -1428,10 +1398,6 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
-
-      - name: Use a writable mise runtime cache
-        shell: bash
-        run: echo "MISE_CACHE_DIR=$RUNNER_TEMP/mise-cache" >> "$GITHUB_ENV"
 
       - name: Set up website tools
         uses: jdx/mise-action@d5574b52816a478f9d4e6529a3f6ff17a8a36785 # v5.2.8
@@ -1726,7 +1692,7 @@ jobs:
     needs: [quality, tests]
     if: ${{ !cancelled() && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').helm) }}
     runs-on: powercontext-ci-light
-    timeout-minutes: 20
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:

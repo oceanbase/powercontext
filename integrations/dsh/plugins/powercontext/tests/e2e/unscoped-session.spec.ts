@@ -179,7 +179,7 @@ describe('plugin runtime with header.cwd === undefined', () => {
       }),
     })
     scopeId = String((await response.json() as { scope_id: string }).scope_id)
-  }, 120_000)
+  }, 60_000)
 
   afterAll(async () => {
     await server?.stop()

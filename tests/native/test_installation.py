@@ -42,14 +42,7 @@ pytestmark = pytest.mark.skipif(not WHEEL, reason="set POWERCONTEXT_INSTALL_WHEE
 
 
 def run(
-    command: list[str],
-    root: Path,
-    env: dict[str, str],
-    name: str,
-    *,
-    stdin: str = "",
-    success: bool = True,
-    timeout: float = 300,
+    command: list[str], root: Path, env: dict[str, str], name: str, *, stdin: str = "", success: bool = True
 ) -> str:
     with (root / f"{name}.log").open("w", encoding="utf-8") as log:
         result = subprocess.run(
@@ -60,7 +53,7 @@ def run(
             text=True,
             stdout=log,
             stderr=subprocess.STDOUT,
-            timeout=timeout,
+            timeout=300,
             check=False,
         )
     output = (root / f"{name}.log").read_text(encoding="utf-8", errors="replace")
@@ -257,8 +250,7 @@ def test_install_configure_remember_and_reinstall(tmp_path: Path, environment: s
             UV_PYTHON_INSTALL_MIRROR="https://127.0.0.1:9/unavailable",
             POWERCONTEXT_UV_INSTALLER_URL="https://127.0.0.1:9/unavailable",
         )
-    # Cold installation downloads uv, Python and runtime packages before exercising the CLI.
-    run(installer, tmp_path, env, "install", timeout=600)
+    run(installer, tmp_path, env, "install")
     if environment.startswith("bootstrap"):
         python3 = Path(env["UV_PYTHON_BIN_DIR"]) / ("python3.exe" if sys.platform == "win32" else "python3")
         run(
