@@ -959,6 +959,17 @@ def _is_complete_prompt_hook(script: Path) -> bool:
     if not script.is_file():
         return False
     source = script.read_text(encoding="utf-8")
+    # The hooks put their plugin root on sys.path, so a hook can run the prompt flow from a plugin module. Only the
+    # module that provides the flow counts: other hooks import its HTTP helpers without running the flow.
+    modules = [
+        script.parents[1].joinpath(*node.module.split(".")).with_suffix(".py")
+        for node in ast.walk(ast.parse(source))
+        if isinstance(node, ast.ImportFrom)
+        and node.level == 0
+        and node.module is not None
+        and any(alias.name == "run_user_prompt_submit" for alias in node.names)
+    ]
+    source = "\n".join([source, *(module.read_text(encoding="utf-8") for module in modules if module.is_file())])
     return all(marker in source for marker in ("/v1/context/prepare", "/v1/sources/content", "/v1/memory/flush"))
 
 
