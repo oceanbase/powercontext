@@ -325,12 +325,17 @@ def test_latest_exact_versions_and_client_profile(tmp_path: Path) -> None:
     }
     config = tmp_path / "uv.toml"
     config.write_text('[pip]\nresolution = "lowest-direct"\n', encoding="utf-8")
+    home_dir = tmp_path / "home"
+    home_dir.mkdir()
     env.update(
+        HOME=str(home_dir),
+        USERPROFILE=str(home_dir),
         PYTHONIOENCODING="utf-8",
         UV_CONFIG_FILE=str(config),
         UV_TOOL_DIR=str(tmp_path / "tools"),
         UV_TOOL_BIN_DIR=str(tmp_path / "bin with spaces"),
         UV_CACHE_DIR=str(tmp_path / "cache"),
+        UV_PYTHON_INSTALL_DIR=str(tmp_path / "python"),
         UV_NO_PROGRESS="1",
         POWERCONTEXT_HOME=str(tmp_path / "state"),
     )

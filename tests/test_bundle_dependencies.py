@@ -31,22 +31,26 @@ import pytest
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts/prepare_bundle_dependencies.py"
 
 
-def source_distribution(path: Path, *, name: str = "jieba", version: str = "0.42.1") -> None:
+def source_distribution(
+    path: Path, *, name: str = "jieba", version: str = "0.42.1", backend_name: str = "fixture_backend"
+) -> None:
     # A real local PEP 517 backend needs no downloaded build dependencies.
     backend = """from pathlib import Path
+import os
 import zipfile
 
 def build_wheel(wheel_directory, config_settings=None, metadata_directory=None):
-    filename = "jieba-0.42.1-py3-none-any.whl"
+    version = os.environ.get("FIXTURE_WHEEL_VERSION", "0.42.1")
+    filename = f"jieba-{version}-py3-none-any.whl"
     with zipfile.ZipFile(Path(wheel_directory) / filename, "w") as wheel:
         wheel.writestr("jieba/__init__.py", "value = 'locked source'\\n")
-        wheel.writestr("jieba-0.42.1.dist-info/METADATA", "Metadata-Version: 2.1\\nName: jieba\\nVersion: 0.42.1\\n")
-        wheel.writestr("jieba-0.42.1.dist-info/WHEEL", "Wheel-Version: 1.0\\nGenerator: fixture\\nRoot-Is-Purelib: true\\nTag: py3-none-any\\n")
-        wheel.writestr("jieba-0.42.1.dist-info/RECORD", "")
+        wheel.writestr(f"jieba-{version}.dist-info/METADATA", f"Metadata-Version: 2.1\\nName: jieba\\nVersion: {version}\\n")
+        wheel.writestr(f"jieba-{version}.dist-info/WHEEL", "Wheel-Version: 1.0\\nGenerator: fixture\\nRoot-Is-Purelib: true\\nTag: py3-none-any\\n")
+        wheel.writestr(f"jieba-{version}.dist-info/RECORD", "")
     return filename
 """
     content = {
-        "pyproject.toml": '[build-system]\nrequires = []\nbuild-backend = "fixture_backend"\nbackend-path = ["."]\n',
+        "pyproject.toml": f'[build-system]\nrequires = []\nbuild-backend = "{backend_name}"\nbackend-path = ["."]\n',
         "fixture_backend.py": backend,
         "PKG-INFO": "Metadata-Version: 2.1\nName: jieba\nVersion: 0.42.1\n",
     }
@@ -58,32 +62,33 @@ def build_wheel(wheel_directory, config_settings=None, metadata_directory=None):
             archive.addfile(info, io.BytesIO(payload))
 
 
-def wheel_distribution(path: Path) -> None:
+def wheel_distribution(path: Path, *, name: str = "plugin_fixture", version: str = "1.0") -> None:
     with zipfile.ZipFile(path, "w") as wheel:
-        wheel.writestr("plugin_fixture/__init__.py", "value = 1\n")
+        wheel.writestr(f"{name}/__init__.py", "value = 'prebuilt wheel'\n")
         wheel.writestr(
-            "plugin_fixture-1.0.dist-info/METADATA", "Metadata-Version: 2.1\nName: plugin-fixture\nVersion: 1.0\n"
+            f"{name}-{version}.dist-info/METADATA", f"Metadata-Version: 2.1\nName: {name}\nVersion: {version}\n"
         )
-        wheel.writestr("plugin_fixture-1.0.dist-info/WHEEL", "Wheel-Version: 1.0\nTag: py3-none-any\n")
-        wheel.writestr("plugin_fixture-1.0.dist-info/RECORD", "")
+        wheel.writestr(f"{name}-{version}.dist-info/WHEEL", "Wheel-Version: 1.0\nTag: py3-none-any\n")
+        wheel.writestr(f"{name}-{version}.dist-info/RECORD", "")
 
 
 @pytest.fixture
-def bundle(tmp_path: Path):
+def bundle(tmp_path: Path, request):
+    name, version = getattr(request, "param", ("jieba", "0.42.1"))
     downloads = tmp_path / "index"
     downloads.mkdir()
-    source = downloads / "jieba-0.42.1.tar.gz"
-    source_distribution(source)
+    source = downloads / f"{name}-{version}.tar.gz"
+    source_distribution(source, name=name, version=version)
     wheel = downloads / "plugin_fixture-1.0-py3-none-any.whl"
     wheel_distribution(wheel)
     work = tmp_path / "bundle"
     work.mkdir()
-    for name, package, artifact in [
-        ("upstream-requirements.lock", "jieba==0.42.1", source),
+    for export_name, package, artifact in [
+        ("upstream-requirements.lock", f"{name}=={version}", source),
         ("upstream-plugin-requirements.lock", "plugin-fixture==1.0", wheel),
     ]:
         digest = hashlib.sha256(artifact.read_bytes()).hexdigest()
-        (work / name).write_text(f"{package} --hash=sha256:{digest}\n")
+        (work / export_name).write_text(f"{package} --hash=sha256:{digest}\n")
     python = tmp_path / "builder/bin/python"
     subprocess.run([sys.executable, "-m", "venv", str(python.parent.parent)], check=True)
     env = {**os.environ, "PIP_NO_INDEX": "1", "PIP_FIND_LINKS": str(downloads), "PIP_DISABLE_PIP_VERSION_CHECK": "1"}
@@ -120,9 +125,12 @@ def install(bundle, *, name: str = "consumer") -> subprocess.CompletedProcess[st
     )
 
 
+@pytest.mark.parametrize("bundle", [("jieba", "0.42.1"), ("jieba", "0.43.0"), ("source_only", "1.0")], indirect=True)
 def test_locked_source_build_installs_offline_with_derived_wheel_hash(bundle):
     work, python, env = bundle
     original = (work / "upstream-requirements.lock").read_bytes()
+    requirement = original.decode().split()[0]
+    package, version = requirement.split("==")
     old = subprocess.run(
         [
             str(python),
@@ -140,23 +148,23 @@ def test_locked_source_build_installs_offline_with_derived_wheel_hash(bundle):
         capture_output=True,
         text=True,
     )
-    assert old.returncode != 0 and "No matching distribution found for jieba" in old.stderr
+    assert old.returncode != 0 and "No matching distribution found" in old.stderr
     for stage in ("download", "build"):
         result = run_stage(bundle, stage)
         assert result.returncode == 0, result.stdout + result.stderr
     assert (work / "upstream-requirements.lock").read_bytes() == original
     (wheel,) = (work / "wheelhouse").glob("*.whl")
     digest = hashlib.sha256(wheel.read_bytes()).hexdigest()
-    assert f"jieba==0.42.1 --hash=sha256:{digest}" in (work / "requirements.lock").read_text()
+    assert f"{package.replace('_', '-')}=={version} --hash=sha256:{digest}" in (work / "requirements.lock").read_text()
     assert f"sha256:{digest}" not in original.decode()
     result = install(bundle)
     assert result.returncode == 0, result.stdout + result.stderr
     value = subprocess.check_output(
-        [str(work.parent / "consumer/bin/python"), "-c", "import jieba; print(jieba.value)"], text=True
+        [str(work.parent / "consumer/bin/python"), "-c", f"import {package}; print({package}.value)"], text=True
     )
     assert value.strip() == "locked source"
     provenance = json.loads((work / "dependency-provenance.json").read_text())
-    assert provenance["dependencies"][0]["sources"][0]["filename"] == "jieba-0.42.1.tar.gz"
+    assert provenance["dependencies"][0]["sources"][0]["filename"] == f"{package}-{version}.tar.gz"
 
 
 def test_wrong_locked_source_hash_is_rejected(bundle):
@@ -190,14 +198,43 @@ def test_modified_built_wheel_is_rejected_by_offline_installer(bundle):
     assert result.returncode != 0 and "HASHES" in result.stderr.upper()
 
 
-def test_jieba_exception_keeps_other_source_distributions_disabled(bundle):
+def test_compatible_locked_wheel_is_preferred_over_source(bundle):
     work, _python, env = bundle
-    unsupported = Path(env["PIP_FIND_LINKS"]) / "source_only-1.0.tar.gz"
-    source_distribution(unsupported, name="source_only", version="1.0")
-    digest = hashlib.sha256(unsupported.read_bytes()).hexdigest()
-    with (work / "upstream-requirements.lock").open("a") as requirements:
-        requirements.write(f"source-only==1.0 --hash=sha256:{digest}\n")
+    wheel = Path(env["PIP_FIND_LINKS"]) / "jieba-0.42.1-py3-none-any.whl"
+    wheel_distribution(wheel, name="jieba", version="0.42.1")
+    requirements = work / "upstream-requirements.lock"
+    requirements.write_text(
+        requirements.read_text().rstrip() + f" --hash=sha256:{hashlib.sha256(wheel.read_bytes()).hexdigest()}\n"
+    )
+    for stage in ("download", "build"):
+        result = run_stage(bundle, stage)
+        assert result.returncode == 0, result.stdout + result.stderr
+    result = install(bundle)
+    assert result.returncode == 0, result.stdout + result.stderr
+    value = subprocess.check_output(
+        [str(work.parent / "consumer/bin/python"), "-c", "import jieba; print(jieba.value)"], text=True
+    )
+    assert value.strip() == "prebuilt wheel"
+
+
+def test_missing_source_backend_fails_without_publishing_install_lock(bundle):
+    work, _python, env = bundle
+    source = Path(env["PIP_FIND_LINKS"]) / "source_only-1.0.tar.gz"
+    source_distribution(source, name="source_only", version="1.0", backend_name="unavailable_fixture_backend")
+    digest = hashlib.sha256(source.read_bytes()).hexdigest()
+    (work / "upstream-requirements.lock").write_text(f"source-only==1.0 --hash=sha256:{digest}\n")
     result = run_stage(bundle, "download")
     assert result.returncode != 0
-    assert "No matching distribution found for source-only" in result.stderr
+    assert "unavailable_fixture_backend" in result.stderr
+    assert not (work / "requirements.lock").exists()
+
+
+def test_source_build_cannot_publish_a_different_package_version(bundle):
+    work, _python, env = bundle
+    result = run_stage(bundle, "download")
+    assert result.returncode == 0, result.stdout + result.stderr
+    env["FIXTURE_WHEEL_VERSION"] = "9.9"
+    result = run_stage(bundle, "build")
+    assert result.returncode != 0
+    assert "closure" in result.stderr or "inconsistent version" in result.stdout + result.stderr
     assert not (work / "requirements.lock").exists()

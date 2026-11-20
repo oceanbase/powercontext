@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Download locked bundle inputs, then build the approved source dependency offline."""
+"""Download locked bundle inputs, then build missing dependency wheels offline."""
 
 # ruff: noqa: TRY003, S603 - fixed packaging tools and explicit bundle paths
 
@@ -27,6 +27,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tarfile
 import zipfile
 from email.parser import BytesParser
 from pathlib import Path
@@ -78,10 +79,38 @@ def wheel_identity(path: Path) -> dict[str, Any]:
         metadata_files = [name for name in archive.namelist() if name.endswith(".dist-info/METADATA")]
         if len(metadata_files) != 1:
             raise ValueError(f"Expected one wheel metadata file: {path.name}")
-        metadata = BytesParser().parsebytes(archive.read(metadata_files[0]))
+        content = archive.read(metadata_files[0])
+    return artifact_identity(path, content)
+
+
+def source_identity(path: Path) -> dict[str, Any]:
+    if path.name.endswith(".tar.gz"):
+        with tarfile.open(path) as archive:
+            members = [
+                item for item in archive.getmembers() if item.name.count("/") == 1 and item.name.endswith("/PKG-INFO")
+            ]
+            if len(members) != 1 or not members[0].isfile():
+                raise ValueError(f"Expected one source metadata file: {path.name}")
+            stream = archive.extractfile(members[0])
+            if stream is None:
+                raise ValueError(f"Source metadata cannot be read: {path.name}")
+            content = stream.read()
+    elif path.suffix == ".zip":
+        with zipfile.ZipFile(path) as archive:
+            names = [name for name in archive.namelist() if name.count("/") == 1 and name.endswith("/PKG-INFO")]
+            if len(names) != 1:
+                raise ValueError(f"Expected one source metadata file: {path.name}")
+            content = archive.read(names[0])
+    else:
+        raise ValueError(f"Unsupported source archive format: {path.name}")
+    return artifact_identity(path, content)
+
+
+def artifact_identity(path: Path, content: bytes) -> dict[str, Any]:
+    metadata = BytesParser().parsebytes(content)
     name, version = metadata.get("Name"), metadata.get("Version")
     if not name or not version:
-        raise ValueError(f"Wheel has no package identity: {path.name}")
+        raise ValueError(f"Artifact has no package identity: {path.name}")
     return {
         "name": re.sub(r"[-_.]+", "-", name).lower(),
         "version": version,
@@ -95,14 +124,19 @@ def download(work: Path) -> None:
     for upstream, directory, _wheelhouse, _requirements in DEPENDENCIES:
         exported = work / upstream
         contents = exported.read_text(encoding="utf-8")
-        allowed_source = re.search(r"(?m)^jieba==0\.42\.1(?:\s|;|$)", contents) is not None
         destination = work / directory
         if destination.exists() and any(destination.iterdir()):
             raise ValueError(f"Dependency download destination must be empty: {destination}")
         destination.mkdir(parents=True, exist_ok=True)
-        command = [sys.executable, "-m", "pip", "download", "--require-hashes", "--only-binary=:all:"]
-        if allowed_source:
-            command += ["--no-binary=jieba", "--no-build-isolation"]
+        command = [
+            sys.executable,
+            "-m",
+            "pip",
+            "download",
+            "--require-hashes",
+            "--prefer-binary",
+            "--no-build-isolation",
+        ]
         command += ["--dest", str(destination), "--requirement", str(exported)]
         subprocess.run(command, check=True)
         accepted_hashes = set(re.findall(r"--hash=sha256:([0-9a-f]{64})", contents))
@@ -114,10 +148,9 @@ def download(work: Path) -> None:
             if path.suffix == ".whl":
                 item = wheel_identity(path)
                 item["kind"] = "wheel"
-            elif path.name == "jieba-0.42.1.tar.gz" and allowed_source:
-                item = {"name": "jieba", "version": "0.42.1", "filename": path.name, "sha256": digest, "kind": "sdist"}
             else:
-                raise ValueError(f"No source build is configured for {path.name}")
+                item = source_identity(path)
+                item["kind"] = "sdist"
             artifacts.append(item)
         records.append({"requirements": upstream, "requirements_sha256": sha256(exported), "sources": artifacts})
     write_json(work / "dependency-downloads.json", {"dependencies": records})
@@ -144,8 +177,8 @@ def build(work: Path) -> None:  # noqa: C901 - ordered input verification, sourc
             if item["kind"] == "wheel":
                 shutil.copyfile(source, destination / source.name)
                 continue
-            if (item["name"], item["version"], source.name) != ("jieba", "0.42.1", "jieba-0.42.1.tar.gz"):
-                raise ValueError("Only the locked jieba 0.42.1 source build is configured")
+            if item["kind"] != "sdist":
+                raise ValueError(f"Unsupported dependency input kind: {item['kind']}")
             subprocess.run(
                 [
                     sys.executable,

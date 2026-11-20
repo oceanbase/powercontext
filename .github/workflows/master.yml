@@ -790,6 +790,9 @@ jobs:
     if: ${{ !cancelled() && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').tests) }}
     timeout-minutes: 20
     runs-on: windows-latest
+    env:
+      PYTHONPATH: ${{ github.workspace }}/.github/scripts
+      PYTEST_ADDOPTS: -p pytest_ci_diagnostics
     steps:
       - name: Check out
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -806,16 +809,21 @@ jobs:
           tests/builtin/runtime/test_artifact_processing.py
 
       - name: Verify spawned worker lifecycle on Windows
-        run: uv run --locked --no-sync pytest -q tests/builtin/runtime/test_artifact_processing.py
+        run: >-
+          uv run --locked --no-sync pytest -q tests/builtin/runtime/test_artifact_processing.py
+          --junitxml="${{ runner.temp }}/pytest-diagnostics/worker-lifecycle.xml"
 
       - name: Verify spawned worker logging on Windows
-        run: uv run --locked --no-sync pytest -q tests/e2e/test_worker_logging.py
+        run: >-
+          uv run --locked --no-sync pytest -q tests/e2e/test_worker_logging.py
+          --junitxml="${{ runner.temp }}/pytest-diagnostics/worker-logging.xml"
 
       - name: Verify subprocess diagnostics and process probes on Windows
         run: >-
           uv run --locked --no-sync python -m pytest -q
           tests/e2e/test_database_bootstrap.py tests/test_upgrade_release_gate.py
           -k "scenario_runner or scenario_diagnostics or vanished_descendant"
+          --junitxml="${{ runner.temp }}/pytest-diagnostics/process-diagnostics.xml"
 
       - name: Verify offline ownership migration on Windows
         run: >-
@@ -826,12 +834,14 @@ jobs:
           tests/e2e/test_ownership_maintenance_dispatch.py
           tests/e2e/test_owner_recovery_http.py::test_offline_migration_preserves_external_owner_evidence
           tests/e2e/test_candidate_ownership_migration.py
+          --junitxml="${{ runner.temp }}/pytest-diagnostics/ownership-migration.xml"
 
       - name: Verify bootstrap receipt persistence and failure recovery on Windows
         run: >-
           uv run --locked --no-sync pytest -q
           tests/claude_code_plugin/test_bootstrap.py
           tests/codex_plugin/test_bootstrap.py
+          --junitxml="${{ runner.temp }}/pytest-diagnostics/bootstrap.xml"
 
       - name: Verify unsupported native indexing is skipped on Windows
         run: >-
@@ -839,6 +849,7 @@ jobs:
           tests/builtin/test_native_code.py
           tests/builtin/test_native_code_multilanguage.py
           tests/e2e/test_native_code_multilanguage.py
+          --junitxml="${{ runner.temp }}/pytest-diagnostics/native-indexing.xml"
 
       - name: Verify Codex resolves and launches cmd shims on Windows
         run: >-
@@ -860,6 +871,7 @@ jobs:
           tests/test_system_cli.py::test_codex_batch_install_rejects_unsafe_returned_marketplace
           tests/test_system_cli.py::test_codex_batch_runners_reject_unsafe_executable_path
           tests/test_system_cli.py::test_codex_native_executable_preserves_arguments
+          --junitxml="${{ runner.temp }}/pytest-diagnostics/codex-cmd-shims.xml"
 
       - name: Verify installation failures preserve user content on Windows
         run: >-
@@ -868,6 +880,7 @@ jobs:
           tests/test_opencode_installation.py
           tests/test_cli_zcode.py::test_zcode_upgrade_rejects_missing_packaged_reference_and_preserves_installation
           tests/test_setup_rollback.py
+          --junitxml="${{ runner.temp }}/pytest-diagnostics/installation-failures.xml"
 
       - name: Exercise fixtures without Windows long-path support
         shell: pwsh
@@ -880,6 +893,7 @@ jobs:
           tests/builtin/portability/test_bundle.py
           tests/test_archive_cli.py
           tests/e2e/test_portable_archive.py
+          --junitxml="${{ runner.temp }}/pytest-diagnostics/archive-portability.xml"
 
       # Keep pytest's default temporary root: a short --basetemp would hide
       # regressions in the nested checkout fixtures covered by issue #1501.
@@ -896,6 +910,20 @@ jobs:
           tests/test_service.py
           tests/test_service_bootstrap.py
           tests/test_service_environment.py
+          --junitxml="${{ runner.temp }}/pytest-diagnostics/portability.xml"
+
+      - name: Collect Windows process diagnostics
+        if: always()
+        run: uv run --locked --no-sync python .github/scripts/collect_pytest_diagnostics.py
+
+      - name: Upload Windows test diagnostics
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: windows-unit-portability-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/pytest-diagnostics/
+          if-no-files-found: warn
+          retention-days: 7
 
   dify-tools:
     needs: [quality, tests]

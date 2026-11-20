@@ -511,7 +511,11 @@ mod tests {
                     async move { next.run(req).await }
                 },
             ));
-            let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+            // Avoid address reuse interfering with the listener-closure probe.
+            let socket = tokio::net::TcpSocket::new_v4().unwrap();
+            socket.set_reuseaddr(false).unwrap();
+            socket.bind("127.0.0.1:0".parse().unwrap()).unwrap();
+            let listener = socket.listen(128).unwrap();
             let addr = listener.local_addr().unwrap();
             let (shutdown, signal) = tokio::sync::oneshot::channel();
             let coordinated = Arc::new(Notify::new());
@@ -560,7 +564,7 @@ mod tests {
             tokio::task::yield_now().await;
             assert!(
                 std::net::TcpStream::connect_timeout(&addr, Duration::from_millis(100)).is_err(),
-                "listener must be closed"
+                "listener must be closed ({mode}, {addr})"
             );
             assert_eq!(observation.snapshot().stop_reason, None);
             assert!(!server.is_finished(), "{mode}");
