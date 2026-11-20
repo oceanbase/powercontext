@@ -147,6 +147,7 @@ def test_worker_completion_does_not_wait_for_slow_log_consumer(tmp_path) -> None
 import asyncio
 import logging
 import sys
+import time
 from pathlib import Path
 from tests.e2e.test_worker_logging import _noisy_logging_worker
 from powercontext.builtin.persistence.supervision import ArtifactProcessingFence
@@ -168,6 +169,12 @@ logging.FileHandler.emit = slow_emit
 
 config = ServerLoggingConfig(file=True, directory=Path(sys.argv[1]), format="json")
 configure_server_logging(config, role="all")
+logging.getLogger("powercontext.worker.probe").info("Preparing blocked log consumer")
+startup_deadline = time.monotonic() + 60
+while not blocked.exists() and time.monotonic() < startup_deadline:
+    time.sleep(0.01)
+assert blocked.exists(), "Log consumer did not become blocked"
+Path(sys.argv[4]).write_text("ready", encoding="utf-8")
 async def run(initializer):
     assignment = ArtifactProcessingWorkAssignment(
         binding_name="memory-source-window", scope_id="success", artifact_family="memory",
@@ -188,26 +195,33 @@ shutdown_server_logging()
 """
     completed = tmp_path / "completed"
     blocked = tmp_path / "blocked"
+    ready = tmp_path / "ready"
     log_directory = tmp_path / "logs"
     process = subprocess.Popen(
-        [sys.executable, "-c", script, str(log_directory), str(completed), str(blocked)],
+        [sys.executable, "-c", script, str(log_directory), str(completed), str(blocked), str(ready)],
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
     )
     try:
-        deadline = time.monotonic() + 45
-        # Hold file writes until the business result is available, then release the sink.
-        while not completed.exists() and process.poll() is None and time.monotonic() < deadline:
+        startup_deadline = time.monotonic() + 60
+        while not ready.exists() and process.poll() is None and time.monotonic() < startup_deadline:
             time.sleep(0.01)
-        finished_without_draining = completed.exists() and blocked.exists()
+        prepared = ready.exists()
+        if prepared:
+            deadline = time.monotonic() + 45
+            # Start observing after imports and sink setup, without draining file writes.
+            while not completed.exists() and process.poll() is None and time.monotonic() < deadline:
+                time.sleep(0.01)
+        finished_without_draining = prepared and completed.exists() and blocked.exists()
         stdout, stderr = process.communicate(input="\n", timeout=30)
     finally:
         if process.poll() is None:
             process.kill()
             process.communicate(timeout=10)
     assert process.returncode == 0, stderr
+    assert prepared, "Child did not finish imports and block the log consumer"
     assert finished_without_draining
     assert completed.read_text(encoding="utf-8") == "completed"
     output = (log_directory / "all.log").read_text(encoding="utf-8")
@@ -443,12 +457,14 @@ def test_supervisor_traces_preserve_spawned_worker_failure_semantics(
                 lease_mode="single-process",
                 tracing=tracing,
             ) as supervisor:
-                async with asyncio.timeout(30):
+                # Await real spawn imports and exported results, not a worker execution SLA.
+                async with asyncio.timeout(60):
                     while not any(  # noqa: ASYNC110 - bounded polling of exported observations
                         span.name == "artifact_processing.worker" for span in exporter.get_finished_spans()
                     ):
                         await asyncio.sleep(0.01)
-                    if outcome == "blocked":
+                if outcome == "blocked":
+                    async with asyncio.timeout(30):
                         # The worker span can end before the supervisor handles the result.
                         while not supervisor.family_status["memory"]["blocked"]:  # noqa: ASYNC110 - bounded polling
                             await asyncio.sleep(0.01)

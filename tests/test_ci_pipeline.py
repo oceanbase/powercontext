@@ -230,13 +230,13 @@ def test_ci_runs_serial_e2e_once_and_keeps_the_local_full_e2e_entrypoint():
     )
     parallel = next(step for step in steps if step.get("name") == "Run remaining end-to-end tests")
     assert serial["if"] == "matrix.suite == 'e2e' && matrix.shard-index == 0"
-    assert serial["run"] == "make e2e-test-serial"
+    assert "make e2e-test-serial " in serial["run"]
     assert "--ci-shard" not in serial["run"]
     assert parallel["if"] == "matrix.suite == 'e2e'"
     assert parallel["env"]["PYTEST_ADDOPTS"] == (
         "--ci-shard-index=${{ matrix.shard-index }} --ci-shard-count=${{ matrix.shard-count }}"
     )
-    assert parallel["run"] == "make e2e-test-parallel"
+    assert "make e2e-test-parallel " in parallel["run"]
     make = shutil.which("make")
     if make is None:
         pytest.skip("make is required to inspect the local E2E entrypoint")

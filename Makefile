@@ -51,6 +51,7 @@ workflow-actions-check: ## Verify third-party GitHub Actions use immutable commi
 
 # pytest-xdist worker count; set PYTEST_WORKERS=0 to disable parallel workers.
 PYTEST_WORKERS ?= auto
+PYTEST_ARGS ?=
 
 # Fixed Hook deadlines must not compete with unrelated xdist CPU and disk work.
 SERIAL_E2E_TESTS := tests/e2e/test_zcode_service_chain.py
@@ -63,7 +64,7 @@ test: ## Test the code with pytest
 
 .PHONY: unit-test
 unit-test: ## Run tests that do not cross the Server boundary end to end.
-	@uv run python -m pytest -n $(PYTEST_WORKERS) --doctest-modules --ignore=tests/e2e
+	@uv run python -m pytest -n $(PYTEST_WORKERS) --doctest-modules --ignore=tests/e2e $(PYTEST_ARGS)
 
 .PHONY: e2e-test
 e2e-test: ## Run CLI to Client SDK to Server end-to-end tests.
@@ -72,11 +73,11 @@ e2e-test: ## Run CLI to Client SDK to Server end-to-end tests.
 
 .PHONY: e2e-test-parallel
 e2e-test-parallel: ## Run end-to-end tests that can share xdist workers.
-	@uv run python -m pytest -n $(PYTEST_WORKERS) tests/e2e $(addprefix --ignore=,$(SERIAL_E2E_TESTS))
+	@uv run python -m pytest -n $(PYTEST_WORKERS) tests/e2e $(addprefix --ignore=,$(SERIAL_E2E_TESTS)) $(PYTEST_ARGS)
 
 .PHONY: e2e-test-serial
 e2e-test-serial: ## Run service-chain tests with native Hook deadlines without xdist contention.
-	@uv run python -m pytest -n 0 $(SERIAL_E2E_TESTS)
+	@uv run python -m pytest -n 0 $(SERIAL_E2E_TESTS) $(PYTEST_ARGS)
 
 .PHONY: gateway-tck
 gateway-tck: ## Check gateway protocol behavior against pinned upstream compatibility suites.

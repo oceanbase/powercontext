@@ -43,6 +43,7 @@ from powercontext.builtin.runtime.artifact_processing import (
 )
 
 BINDING = "topic-memory-source-window"
+SPAWN_STARTUP_TIMEOUT_SECONDS = 60.0
 SPAWN_TEST_TIMEOUT_SECONDS = 10.0
 
 
@@ -232,9 +233,11 @@ def test_cancelled_wait_keeps_reaping_owned_until_exit_status_is_published(
         try:
 
             async def child_is_ready():
+                assert process.exitcode is None, f"Worker exited before readiness: {process.exitcode}"
                 return ready.exists()
 
-            await _wait_until(child_is_ready, timeout_seconds=SPAWN_TEST_TIMEOUT_SECONDS)
+            # Importing the spawned child is setup, before the cancellation boundary.
+            await _wait_until(child_is_ready, timeout_seconds=SPAWN_STARTUP_TIMEOUT_SECONDS)
             monkeypatch.setattr(os, "waitpid", gate.waitpid)
             monkeypatch.setattr(process, "join", gate.join)
             waiter = asyncio.create_task(handle.wait())

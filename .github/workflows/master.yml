@@ -261,7 +261,7 @@ jobs:
     timeout-minutes: ${{ matrix.suite == 'e2e' && 55 || 50 }}
     runs-on: powercontext-ci-standard
     strategy:
-      fail-fast: true
+      fail-fast: false
       matrix: ${{ fromJSON(needs.quality.outputs.test-matrix || '{"include":[{"python-version":"3.11","suite":"unit"},{"python-version":"3.12","suite":"unit"},{"python-version":"3.13","suite":"unit"},{"python-version":"3.14","suite":"unit"},{"python-version":"3.11","suite":"e2e","shard-index":0,"shard-count":2},{"python-version":"3.11","suite":"e2e","shard-index":1,"shard-count":2},{"python-version":"3.12","suite":"e2e","shard-index":0,"shard-count":2},{"python-version":"3.12","suite":"e2e","shard-index":1,"shard-count":2},{"python-version":"3.13","suite":"e2e","shard-index":0,"shard-count":2},{"python-version":"3.13","suite":"e2e","shard-index":1,"shard-count":2},{"python-version":"3.14","suite":"e2e","shard-index":0,"shard-count":2},{"python-version":"3.14","suite":"e2e","shard-index":1,"shard-count":2}]}') }}
     defaults:
       run:
@@ -271,6 +271,11 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
+
+      - name: Record runner resources during tests
+        run: |
+          mkdir -p "$RUNNER_TEMP/pytest-diagnostics"
+          python3 .github/scripts/ci_resource_sampler.py > "$RUNNER_TEMP/pytest-diagnostics/resource-sampler.log" 2>&1 &
 
       - name: Set up the environment
         uses: ./.github/actions/setup-python-env
@@ -305,7 +310,9 @@ jobs:
         if: matrix.suite == 'unit'
         env:
           PYTEST_ADDOPTS: --require-dsh-config-runtime --require-claude-code-python-floor
-        run: make unit-test
+        run: |
+          PYTHONPATH="$PWD/.github/scripts${PYTHONPATH:+:$PYTHONPATH}" \
+            make unit-test PYTEST_ARGS="-p pytest_ci_diagnostics --junitxml=$RUNNER_TEMP/pytest-diagnostics/unit.xml"
 
       - name: Check Source serialization with minimum Pydantic
         if: matrix.suite == 'unit' && matrix.python-version == '3.11'
@@ -326,13 +333,17 @@ jobs:
       - name: Run the ZCode service chain with native Hook deadlines
         if: matrix.suite == 'e2e' && matrix.shard-index == 0
         # Preserve the real Hook deadlines without competing with xdist workers.
-        run: make e2e-test-serial
+        run: |
+          PYTHONPATH="$PWD/.github/scripts${PYTHONPATH:+:$PYTHONPATH}" \
+            make e2e-test-serial PYTEST_ARGS="-p pytest_ci_diagnostics --junitxml=$RUNNER_TEMP/pytest-diagnostics/serial.xml"
 
       - name: Run remaining end-to-end tests
         if: matrix.suite == 'e2e'
         env:
           PYTEST_ADDOPTS: --ci-shard-index=${{ matrix.shard-index }} --ci-shard-count=${{ matrix.shard-count }}
-        run: make e2e-test-parallel
+        run: |
+          PYTHONPATH="$PWD/.github/scripts${PYTHONPATH:+:$PYTHONPATH}" \
+            make e2e-test-parallel PYTEST_ARGS="-p pytest_ci_diagnostics --junitxml=$RUNNER_TEMP/pytest-diagnostics/e2e.xml"
 
       - name: Save Gateway dependencies and compilation
         if: (success() || failure()) && steps.cargo-cache.outputs.cache-backend == 's3' && steps.cargo-cache.outputs.cache-hit != 'true'
@@ -340,6 +351,19 @@ jobs:
         with:
           path: ${{ steps.cargo-cache.outputs.cache-path }}
           key: ${{ steps.cargo-cache.outputs.cache-key }}
+
+      - name: Preserve pytest and process diagnostics
+        if: always()
+        run: python3 .github/scripts/collect_pytest_diagnostics.py
+
+      - name: Save Python test evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: python-tests-${{ matrix.python-version }}-${{ matrix.suite }}-${{ matrix.shard-index || 0 }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/pytest-diagnostics/
+          if-no-files-found: warn
+          retention-days: 7
 
   isolated-installations:
     needs: [quality, tests]
