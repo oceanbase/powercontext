@@ -11,7 +11,6 @@ jobs:
     env:
       PROBE_MODE: upgrade
       PYTHONUNBUFFERED: '1'
-      MIGRATION_REPORTS: ${{ runner.temp }}/ob-startup-probe
       OCEANBASE_IMAGE: ghcr.io/oceanbase/oceanbase-ce:4.3.5.6-106000012026040916
       PC_UPGRADE_OCEANBASE_URL: mysql+aoceanbase://root%40test:powercontext-e2e@127.0.0.1:2881/pc_upgrade_test?charset=utf8mb4
       PC_UPGRADE_OCEANBASE_FRESH_URL: mysql+aoceanbase://root%40test:powercontext-e2e@127.0.0.1:2881/pc_upgrade_fresh?charset=utf8mb4
@@ -215,7 +214,6 @@ jobs:
     env:
       PROBE_MODE: background
       PYTHONUNBUFFERED: '1'
-      MIGRATION_REPORTS: ${{ runner.temp }}/ob-startup-probe
       OCEANBASE_IMAGE: ghcr.io/oceanbase/oceanbase-ce:4.3.5.6-106000012026040916
       POWERCONTEXT_TEST_MIGRATION_OCEANBASE_URL: mysql+aoceanbase://root%40test:powercontext-e2e@127.0.0.1:2881/powercontext_test?charset=utf8mb4
       OCEANBASE_CI_CONTAINER: atomic-memory-clean-oceanbase
