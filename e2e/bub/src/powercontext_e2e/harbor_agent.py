@@ -23,7 +23,7 @@ from pathlib import Path
 from typing import Any, override
 
 from harbor.agents.installed import acp as harbor_acp
-from harbor.environments.base import BaseEnvironment
+from harbor.environments.base import BaseEnvironment, OutputStream
 from harbor.models.agent.context import AgentContext
 
 AGENT_ID = "powercontext-bub-acp"
@@ -54,6 +54,8 @@ STEP_FAILURE_MARKER = "/logs/agent/powercontext-step-failed"
 STEP_TESTS_DIR = "/tests"
 PYPI_INDEX_URL = "https://pypi.org/simple"
 PIP_INDEX_SETTING = "POWERCONTEXT_E2E_PIP_INDEX_URL"
+PYTHON_INDEX_SETTING = "POWERCONTEXT_E2E_PYTHON_INDEX_URL"
+DEBIAN_MIRROR_SETTING = "POWERCONTEXT_E2E_DEBIAN_MIRROR_URL"
 
 
 class PowerContextBubAcpAgent(harbor_acp.AcpAgent):
@@ -105,20 +107,30 @@ class PowerContextBubAcpAgent(harbor_acp.AcpAgent):
 
     @override
     async def install(self, environment: BaseEnvironment) -> None:
+        index = environ.get(PYTHON_INDEX_SETTING)
+        # Keep the task's package route consistent through pip, uv tool install, and Bub's child uv commands.
+        install_env = {"PIP_INDEX_URL": index, "UV_INDEX_URL": index} if index else {}
         constraint = self.logs_dir / "harbor-acp-constraints.txt"
         constraint.write_text(f"{HARBOR_ACP_SDK_REQUIREMENT}\n", encoding="utf-8")
         await environment.upload_file(source_path=constraint, target_path=HARBOR_ACP_CONSTRAINT)
-        await self.exec_as_root(
+        dependencies = self._build_dependencies_command("uvx")
+        if mirror := environ.get(DEBIAN_MIRROR_SETTING):
+            dependencies = f"{_debian_mirror_command(mirror)} || exit $?; {dependencies}"
+        await self._install_phase(
             environment,
-            command=self._build_dependencies_command("uvx"),
+            phase="dependencies",
+            command=dependencies,
             env={
                 "DEBIAN_FRONTEND": "noninteractive",
                 "PIP_INDEX_URL": pip_index_url(),
                 "PIP_CONSTRAINT": HARBOR_ACP_CONSTRAINT,
+                **install_env,
             },
         )
-        await self.exec_as_root(environment, command=_install_bub_command(powercontext=self._powercontext))
-        await self.exec_as_root(environment, command=_install_acp_server_command())
+        await self._install_phase(
+            environment, phase="bub", command=_install_bub_command(powercontext=self._powercontext), env=install_env
+        )
+        await self._install_phase(environment, phase="acp", command=_install_acp_server_command(), env=install_env)
         agent_user = shlex.quote(str(environment.default_user or "root"))
         await self.exec_as_root(
             environment,
@@ -142,6 +154,25 @@ class PowerContextBubAcpAgent(harbor_acp.AcpAgent):
         )
         self._selected_distribution_kind = "uvx"
 
+    async def _install_phase(
+        self, environment: BaseEnvironment, *, phase: str, command: str, env: dict[str, str]
+    ) -> None:
+        setup = self.logs_dir / "setup"
+        setup.mkdir(parents=True, exist_ok=True)
+        with (
+            (setup / f"{phase}.stdout.log").open("w", encoding="utf-8") as stdout,
+            (setup / f"{phase}.stderr.log").open("w", encoding="utf-8") as stderr,
+        ):
+
+            async def record_output(text: str, stream: OutputStream) -> None:
+                output = stdout if stream == "stdout" else stderr
+                output.write(text)
+                output.flush()
+
+            # Stream before Harbor truncates exception text, also retaining output received before cancellation.
+            with environment.scoped_output_callback(record_output):
+                await self.exec_as_root(environment, command=command, env=env)
+
 
 def pip_index_url() -> str:
     """Return the index Harbor's ACP runtime install uses for pip, overriding any the task image configured.
@@ -153,6 +184,26 @@ def pip_index_url() -> str:
     """
 
     return environ.get(PIP_INDEX_SETTING) or PYPI_INDEX_URL
+
+
+def _debian_mirror_command(mirror: str) -> str:
+    """Route Debian's default repositories through an explicitly configured mirror, without changing suites."""
+
+    return (
+        "(set -eu; if [ -r /etc/os-release ]; then . /etc/os-release || exit $?; "
+        'if [ "${ID:-}" = debian ]; then '
+        "temporary=$(mktemp) || exit $?; trap 'rm -f \"$temporary\"' EXIT; "
+        "for sources in /etc/apt/sources.list /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources; do "
+        '[ -f "$sources" ] || continue; '
+        f"awk -v mirror={shlex.quote(mirror.rstrip('/'))} "
+        '\'($1 == "URIs:" || $1 == "deb" || $1 == "deb-src") { '
+        "for (i = 1; i <= NF; i++) { "
+        "if ($i ~ /^https?:\\/\\/deb[.]debian[.]org\\/debian(-security)?\\/?$/) { "
+        'suffix = $i; sub(/^https?:\\/\\/deb[.]debian[.]org/, "", suffix); $i = mirror suffix '
+        "} } } { print }' "
+        '"$sources" > "$temporary" || exit $?; cat "$temporary" > "$sources" || exit $?; '
+        "done; fi; fi)"
+    )
 
 
 async def clear_step_tests(environment: BaseEnvironment) -> None:

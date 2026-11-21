@@ -23,9 +23,11 @@ import os
 import shutil
 import socket
 import subprocess
+import sys
 import threading
 import time
 import urllib.request
+from contextlib import contextmanager
 from pathlib import Path
 from types import SimpleNamespace
 from typing import NamedTuple
@@ -203,6 +205,50 @@ def test_agent_proxy_is_forwarded_by_reference_only_when_configured(monkeypatch,
 
 def _host_proxy_settings() -> dict[str, str]:
     return {name: value for name, value in os.environ.items() if name.lower() in ("http_proxy", "https_proxy")}
+
+
+@pytest.mark.parametrize("proxy", [None, "http://proxy.invalid:3128"])
+def test_explicit_python_index_bypasses_task_proxy_without_losing_private_routes(
+    monkeypatch, tmp_path: Path, proxy: str | None
+) -> None:
+    index = "https://user:pass@packages.example.test/simple"
+    monkeypatch.setenv("POWERCONTEXT_E2E_PYTHON_INDEX_URL", index)
+    if proxy is not None:
+        monkeypatch.setenv("POWERCONTEXT_E2E_AGENT_PROXY_URL", proxy)
+
+    config = _config(_task("project-database-decision"), tmp_path)
+    env = _agent_env(config)
+
+    for name in ("NO_PROXY", "no_proxy"):
+        assert set(env[name].split(",")) == {
+            "127.0.0.1",
+            "localhost",
+            "host-gateway",
+            "powercontext",
+            "packages.example.test",
+        }
+    assert index not in config.model_dump_json()
+    assert "user:pass" not in config.model_dump_json()
+    if proxy is not None:
+        assert resolve_env_vars(env)["HTTPS_PROXY"] == proxy
+
+
+def test_explicit_debian_mirror_keeps_both_package_routes_direct(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("POWERCONTEXT_E2E_AGENT_PROXY_URL", "http://proxy.invalid:3128")
+    monkeypatch.setenv("POWERCONTEXT_E2E_PYTHON_INDEX_URL", "https://python.example.test/simple")
+    monkeypatch.setenv("POWERCONTEXT_E2E_DEBIAN_MIRROR_URL", "https://debian.example.test")
+
+    env = _agent_env(_config(_task("project-database-decision"), tmp_path))
+
+    for name in ("NO_PROXY", "no_proxy"):
+        assert set(env[name].split(",")) == {
+            "127.0.0.1",
+            "localhost",
+            "host-gateway",
+            "powercontext",
+            "python.example.test",
+            "debian.example.test",
+        }
 
 
 def test_batch_job_binds_scopes_per_invocation_instead_of_per_job(monkeypatch, tmp_path: Path) -> None:
@@ -425,6 +471,16 @@ class _RecordingEnvironment:
         self.commands: list[str] = []
         self.envs: list[dict[str, str]] = []
         self._failing = failing
+        self.output_callback = None
+
+    @contextmanager
+    def scoped_output_callback(self, callback):
+        previous = self.output_callback
+        self.output_callback = callback
+        try:
+            yield
+        finally:
+            self.output_callback = previous
 
     async def exec(self, command: str, **kwargs: object) -> ExecResult:
         self.commands.append(command)
@@ -465,6 +521,147 @@ def test_bub_runtime_install_uses_its_own_index_and_compatible_harbor_sdk(
     constraint_path = install_env["PIP_CONSTRAINT"]
     assert f"upload harbor-acp-constraints.txt {constraint_path}" in environment.commands
     assert (tmp_path / "harbor-acp-constraints.txt").read_text(encoding="utf-8") == "agent-client-protocol==0.10.0\n"
+    for command, env in zip(environment.commands, environment.envs, strict=True):
+        if " tool install " in command or "/bub install " in command:
+            assert "UV_INDEX_URL" not in env
+
+
+def test_explicit_python_index_reaches_runtime_bub_and_acp_installs(monkeypatch, tmp_path: Path) -> None:
+    index = "https://packages.example.test/simple"
+    monkeypatch.setenv("POWERCONTEXT_E2E_PYTHON_INDEX_URL", index)
+    monkeypatch.setenv("POWERCONTEXT_E2E_PIP_INDEX_URL", "https://old-pip.example.test/simple")
+    monkeypatch.setenv("PIP_INDEX_URL", "http://127.0.0.1:3141/simple")
+    monkeypatch.setenv("UV_INDEX_URL", "http://127.0.0.1:3141/simple")
+    environment = _RecordingEnvironment()
+
+    asyncio.run(PowerContextBubAcpAgent(logs_dir=tmp_path, powercontext=False).install(environment))
+
+    for installer in ("pip install", " tool install ", "/bub install "):
+        (env,) = [
+            env for command, env in zip(environment.commands, environment.envs, strict=True) if installer in command
+        ]
+        assert env["PIP_INDEX_URL"] == index
+        assert env["UV_INDEX_URL"] == index
+
+
+@pytest.mark.parametrize("outcome", ["success", "failure", "cancel"])
+def test_bub_setup_retains_complete_output_without_changing_outcome(tmp_path: Path, outcome: str) -> None:
+    stdout = "package progress\n" * 200 + "final stdout diagnostic\n"
+    stderr = "package warning\n" * 200 + "final stderr diagnostic\n"
+
+    class OutputEnvironment(_RecordingEnvironment):
+        async def exec(self, command: str, **kwargs: object) -> ExecResult:
+            await super().exec(command, **kwargs)
+            completed = subprocess.run(  # noqa: S603 - fixed Python output/exit fixture, no task command is executed
+                [
+                    sys.executable,
+                    "-c",
+                    "import sys; sys.stdout.write('package progress\\n' * 200 + 'final stdout diagnostic\\n'); "
+                    "sys.stderr.write('package warning\\n' * 200 + 'final stderr diagnostic\\n'); "
+                    f"sys.exit({100 if outcome == 'failure' else 0})",
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            if self.output_callback is not None:
+                for text, stream in ((completed.stdout, "stdout"), (completed.stderr, "stderr")):
+                    await self.output_callback(text[:1000], stream)
+                    await self.output_callback(text[1000:], stream)
+            if outcome == "cancel":
+                raise asyncio.CancelledError
+            return ExecResult(stdout=completed.stdout, stderr=completed.stderr, return_code=completed.returncode)
+
+    agent = PowerContextBubAcpAgent(logs_dir=tmp_path, powercontext=False)
+    environment = OutputEnvironment()
+    if outcome == "failure":
+        with pytest.raises(NonZeroAgentExitCodeError, match=r"exit 100"):
+            asyncio.run(agent.install(environment))
+    elif outcome == "cancel":
+        with pytest.raises(asyncio.CancelledError):
+            asyncio.run(agent.install(environment))
+    else:
+        asyncio.run(agent.install(environment))
+
+    phases = ("dependencies", "bub", "acp") if outcome == "success" else ("dependencies",)
+    for phase in phases:
+        assert (tmp_path / "setup" / f"{phase}.stdout.log").read_text(encoding="utf-8") == stdout
+        assert (tmp_path / "setup" / f"{phase}.stderr.log").read_text(encoding="utf-8") == stderr
+
+
+@pytest.mark.parametrize(("distribution", "suite"), [("debian", "bookworm"), ("debian", "trixie"), ("ubuntu", "noble")])
+def test_debian_mirror_changes_only_default_repository_uris(tmp_path: Path, distribution: str, suite: str) -> None:
+    apt = tmp_path / "apt"
+    sources = apt / "sources.list.d"
+    sources.mkdir(parents=True)
+    os_release = tmp_path / "os-release"
+    os_release.write_text(f"ID={distribution}\nVERSION_CODENAME={suite}\n", encoding="utf-8")
+    original = {
+        apt
+        / "sources.list": f"# http://deb.debian.org/debian is the default\ndeb http://deb.debian.org/debian {suite} main\n",
+        sources / "security.list": f"deb-src https://deb.debian.org/debian-security/ {suite}-security main\n",
+        sources / "debian.sources": (
+            "Types: deb\nURIs: http://deb.debian.org/debian https://custom.test/debian\n"
+            f"Suites: {suite} {suite}-updates\nComponents: main\nSigned-By: /usr/share/keyrings/debian.gpg\n"
+        ),
+        sources / "custom.list": f"deb https://custom.test/debian {suite} main\n",
+    }
+    for path, content in original.items():
+        path.write_text(content, encoding="utf-8")
+    command = harbor_agent._debian_mirror_command("https://mirror.example.test/")
+    command = command.replace("/etc/apt", str(apt)).replace("/etc/os-release", str(os_release))
+
+    shell = shutil.which("sh")
+    assert shell is not None
+    subprocess.run([shell, "-c", command], check=True)  # noqa: S603 - adapter script against isolated fixture files
+
+    for path, content in original.items():
+        expected = content
+        if distribution == "debian" and path.name != "custom.list":
+            expected = "\n".join(
+                line
+                if line.startswith("#")
+                else line.replace("http://deb.debian.org", "https://mirror.example.test").replace(
+                    "https://deb.debian.org", "https://mirror.example.test"
+                )
+                for line in content.split("\n")
+            )
+        assert path.read_text(encoding="utf-8") == expected
+
+
+@pytest.mark.parametrize("preparation_fails", [False, True])
+def test_debian_mirror_preserves_install_shell_options_and_preparation_failure(
+    monkeypatch, tmp_path: Path, preparation_fails: bool
+) -> None:
+    apt = tmp_path / "apt"
+    apt.mkdir()
+    (apt / "sources.list").write_text("deb http://deb.debian.org/debian trixie main\n", encoding="utf-8")
+    os_release = tmp_path / "os-release"
+    os_release.write_text("ID=debian\n", encoding="utf-8")
+    monkeypatch.setenv("POWERCONTEXT_E2E_DEBIAN_MIRROR_URL", "https://mirror.example.test")
+    monkeypatch.delenv("HARBOR_TEST_UNSET", raising=False)
+    environment = _RecordingEnvironment()
+    agent = PowerContextBubAcpAgent(logs_dir=tmp_path, powercontext=False)
+    monkeypatch.setattr(agent, "_build_dependencies_command", lambda _: 'printf "installed:%s\\n" "$HARBOR_TEST_UNSET"')
+    asyncio.run(agent.install(environment))
+    (command,) = [command for command in environment.commands if "HARBOR_TEST_UNSET" in command]
+    command = command.replace("/etc/apt", str(apt)).replace("/etc/os-release", str(os_release))
+    if preparation_fails:
+        bin_dir = tmp_path / "bin"
+        bin_dir.mkdir()
+        awk = bin_dir / "awk"
+        awk.write_text("#!/bin/sh\nexit 42\n", encoding="utf-8")
+        awk.chmod(0o755)
+        monkeypatch.setenv("PATH", f"{bin_dir}:{os.environ['PATH']}")
+
+    shell = shutil.which("bash")
+    assert shell is not None
+    completed = subprocess.run(  # noqa: S603 - adapter script against isolated fixture files
+        [shell, "-c", command], capture_output=True, text=True, check=False
+    )
+
+    assert completed.returncode == (42 if preparation_fails else 0), completed.stderr
+    assert completed.stdout == ("" if preparation_fails else "installed:\n")
 
 
 def _opencode_agent(tmp_path: Path, *, powercontext: bool) -> PowerContextOpenCodeAgent:
