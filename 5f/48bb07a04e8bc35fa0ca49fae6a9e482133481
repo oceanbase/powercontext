@@ -1,0 +1,19 @@
+src/powercontext/builtin/persistence/atomic_memory_index.py
+  s_2ef0feea0a110d::t_e529be7bb31bdd 1159-1166,1182
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "5f48bb07a04e8bc35fa0ca49fae6a9e482133481",
+  "prompts": {},
+  "sessions": {
+    "s_2ef0feea0a110d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1a9cf-a4e7-7f63-9c51-1284f7c332e8",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "frf12 <rongfeng.frf@antgroup.com>"
+    }
+  }
+}
