@@ -1,83 +1,78 @@
-name: Script installation
+name: Windows worker log diagnostic
 
 on:
-  workflow_call:
-    inputs:
-      suites:
-        description: Scope already selected by the Main orchestrator
-        required: true
-        type: string
   workflow_dispatch:
 
 permissions:
   actions: read
   contents: read
 
-concurrency:
-  group: installation-${{ github.event.pull_request.number || github.ref }}-${{ github.event_name }}
-  cancel-in-progress: true
-
 jobs:
-  changes:
-    if: ${{ inputs.suites == '' }}
-    uses: ./.github/workflows/ci-changes.yml
-    with:
-      baseline-workflow: installation.yml
-
-  installation:
-    needs: changes
-    if: ${{ !cancelled() && ((inputs.suites == '' && needs.changes.result != 'success') || fromJSON(inputs.suites || needs.changes.outputs.suites || '{}').packaging) }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-    runs-on: ${{ matrix.os == 'ubuntu-latest' && 'powercontext-ci-light' || matrix.os }}
-    timeout-minutes: 20
+  windows-log-probe:
+    runs-on: windows-latest
+    timeout-minutes: 15
     steps:
-      - name: Check out
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Check out diagnostic source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
-
-      - name: Set up the environment
+      - name: Set up the original Windows environment
         uses: ./.github/actions/setup-python-env
         with:
-          shared-cache: ${{ matrix.os == 'ubuntu-latest' && 'true' || 'false' }}
+          python-version: '3.12'
+          save-cache: 'false'
+      - name: Prepare private interpreter stack sampler
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force "$env:RUNNER_TEMP/probe-site" | Out-Null
+          New-Item -ItemType Directory -Force "$env:RUNNER_TEMP/windows-log-probe/stacks" | Out-Null
+          @'
+          import atexit
+          import faulthandler
+          import json
+          import os
+          import sys
+          import time
+          from pathlib import Path
 
-      - name: Build the installation fixture
-        shell: bash
+          root = os.environ.get("PC_CI_WINDOWS_STACKS")
+          if root:
+              directory = Path(root)
+              directory.mkdir(parents=True, exist_ok=True)
+              output = (directory / f"process-{os.getpid()}.log").open("w", encoding="utf-8")
+              output.write(json.dumps({"pid": os.getpid(), "ppid": os.getppid(), "time_ns": time.time_ns(), "argv": sys.argv}) + "\n")
+              output.flush()
+              atexit.register(output.close)
+              atexit.register(faulthandler.cancel_dump_traceback_later)
+              faulthandler.dump_traceback_later(10, repeat=True, file=output)
+          '@ | Set-Content -Encoding utf8 "$env:RUNNER_TEMP/probe-site/sitecustomize.py"
+          git rev-parse HEAD
+          Get-FileHash tests/e2e/test_worker_logging.py -Algorithm SHA256
+          uv run --locked --no-sync python --version
+      - name: Repeat unchanged slow-consumer regression with early stacks
+        shell: pwsh
         env:
-          # Qualify this commit using release-shaped metadata, without publishing it.
-          SETUPTOOLS_SCM_PRETEND_VERSION: "1.2.0"
-        run: uv build --wheel --out-dir dist/installation
-
-      - name: Check shared installer behavior and source resolution
-        shell: bash
-        run: >-
-          uv run --no-sync pytest -q ${{ runner.os == 'Linux' && '-n auto' || '' }}
-          tests/test_installation_contract.py tests/native/test_install_sources.py
-          --durations=20
-          --junitxml "$RUNNER_TEMP/installation-contract.xml"
-          --basetemp "$RUNNER_TEMP/installation-contract-tests"
-
-      - name: Exercise bootstrap, version selection, profiles, and persistent memory
-        shell: bash
-        env:
-          POWERCONTEXT_INSTALL_WHEEL: ${{ github.workspace }}/dist/installation/powercontext-1.2.0-py3-none-any.whl
-        run: >-
-          uv run --no-sync pytest -vv ${{ runner.os == 'Linux' && '-n auto' || '' }}
-          --durations=20 tests/native/test_installation.py
-          --junitxml "$RUNNER_TEMP/installation.xml"
-          --basetemp "$RUNNER_TEMP/installation-tests"
-
-      - name: Upload installation diagnostics
+          PC_CI_WINDOWS_STACKS: ${{ runner.temp }}/windows-log-probe/stacks
+          PYTHONPATH: ${{ runner.temp }}/probe-site;${{ github.workspace }}/.github/scripts
+          PYTEST_ADDOPTS: -p pytest_ci_diagnostics
+        run: |
+          $results = @()
+          foreach ($iteration in 1..2) {
+            $casePath = "$env:RUNNER_TEMP/windows-log-probe/case-$iteration"
+            uv run --locked --no-sync pytest -q tests/e2e/test_worker_logging.py::test_worker_completion_does_not_wait_for_slow_log_consumer --basetemp="$casePath" --junitxml="$env:RUNNER_TEMP/windows-log-probe/case-$iteration.xml" --durations=5
+            $results += [PSCustomObject]@{ iteration = $iteration; exit_code = $LASTEXITCODE }
+          }
+          if (($results | Where-Object { $_.exit_code -ne 0 }).Count -eq 0) {
+            uv run --locked --no-sync pytest -q tests/e2e/test_worker_logging.py --basetemp="$env:RUNNER_TEMP/windows-log-probe/full-file" --junitxml="$env:RUNNER_TEMP/windows-log-probe/full-file.xml" --durations=10
+            $results += [PSCustomObject]@{ iteration = 'full-file'; exit_code = $LASTEXITCODE }
+          }
+          $results | ConvertTo-Json | Set-Content -Encoding utf8 "$env:RUNNER_TEMP/windows-log-probe/results.json"
+          exit 0
+      - name: Save independent diagnosis evidence
         if: always()
         uses: ./.github/actions/upload-ci-diagnostics
         with:
-          name: installation-${{ matrix.os }}
-          path: |
-            ${{ runner.temp }}/installation.xml
-            ${{ runner.temp }}/installation-contract.xml
-            ${{ runner.temp }}/installation-tests/**/*.log
-            ${{ runner.temp }}/installation-contract-tests/**/*.log
-          if-no-files-found: ignore
+          name: windows-log-probe-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/windows-log-probe/
+          if-no-files-found: error
+          retention-days: 2
