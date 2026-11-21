@@ -18,7 +18,7 @@ import { Alert, Button, Flex, Form, Input, Modal, Segmented, Table, Typography, 
 import { InboxOutlined, UploadOutlined } from "@oceanbase/icons";
 import { useImport } from "../hooks";
 import { Failure } from "../components/Feedback";
-import type { Receipt } from "../types";
+import type { ImportResult } from "../types";
 export function Import({ scope }: { scope: string }) {
   const [open, setOpen] = useState(false);
   const [mode, setMode] = useState("upload");
@@ -26,10 +26,13 @@ export function Import({ scope }: { scope: string }) {
   const [intent, setIntent] = useState<{ root: string; paths: string[]; idempotency_key: string }>();
   const [form] = Form.useForm();
   const mutation = useImport(scope);
+  const [results, setResults] = useState<ImportResult[]>();
+  const uncertain = results?.some((row) => row.accepted === null);
   const close = () => {
     if (!mutation.isPending) {
       setOpen(false);
       setFiles([]);
+      setResults(undefined);
       setIntent(undefined);
       form.resetFields();
       mutation.reset();
@@ -38,7 +41,7 @@ export function Import({ scope }: { scope: string }) {
   const submit = async () => {
     try {
       if (mode === "upload") {
-        if (files.length) await mutation.mutateAsync({ files });
+        if (files.length) setResults(await mutation.mutateAsync({ files, previous: results }));
       } else {
         const values = await form.validateFields();
         const body = intent ?? {
@@ -50,7 +53,7 @@ export function Import({ scope }: { scope: string }) {
           idempotency_key: crypto.randomUUID(),
         };
         setIntent(body);
-        await mutation.mutateAsync(body);
+        setResults(await mutation.mutateAsync(body));
       }
     } catch {
       /* Form or mutation renders the error in this pinned import dialog. */
@@ -69,16 +72,16 @@ export function Import({ scope }: { scope: string }) {
         footer={
           <Flex justify="end" gap="small">
             <Button onClick={close} disabled={mutation.isPending}>
-              {mutation.data ? "完成" : "取消"}
+              {uncertain ? "关闭" : results ? "完成" : "取消"}
             </Button>
-            {!mutation.data && (
+            {(!results || uncertain) && (
               <Button
                 type="primary"
                 loading={mutation.isPending}
                 disabled={mode === "upload" && !files.length}
                 onClick={submit}
               >
-                开始导入
+                {uncertain ? "重试待确认文件" : "开始导入"}
               </Button>
             )}
           </Flex>
@@ -88,7 +91,7 @@ export function Import({ scope }: { scope: string }) {
       >
         <Flex vertical gap="middle">
           <Failure error={mutation.error} />
-          {!mutation.data && (
+          {!results && (
             <>
               <Segmented
                 value={mode}
@@ -151,22 +154,24 @@ export function Import({ scope }: { scope: string }) {
               </Typography.Text>
             </>
           )}
-          {mutation.data && (
+          {results && (
             <>
               <Alert
-                type={mutation.data.every((row) => row.accepted) ? "success" : "warning"}
+                type={results.every((row) => row.accepted) ? "success" : "warning"}
                 showIcon
-                message={`已接受 ${mutation.data.filter((row) => row.accepted).length} / ${mutation.data.length} 个文件`}
-                description="接受导入不代表解析完成。关闭窗口后会继续跟踪处理状态；完成后更新文档，并提示重新检索。"
+                message={`已接受 ${results.filter((row) => row.accepted).length} / ${results.length} 个文件`}
+                description={uncertain
+                  ? "部分文件可能已受理。在此窗口重试会沿用原文件和请求编号；关闭后可查看处理记录。"
+                  : "接受导入不代表解析完成。关闭窗口后会继续跟踪处理状态；完成后更新文档，并提示重新检索。"}
               />
-              <Table<Receipt>
+              <Table<ImportResult>
                 size="small"
                 rowKey={(_, i) => String(i)}
-                dataSource={mutation.data}
+                dataSource={results}
                 pagination={false}
                 columns={[
                   { title: "文件", dataIndex: "path" },
-                  { title: "结果", render: (_, row) => (row.accepted ? "已接受" : "未接受") },
+                  { title: "结果", render: (_, row) => (row.accepted === null ? "结果待确认" : row.accepted ? "已接受" : "未接受") },
                   { title: "说明", dataIndex: "error" },
                 ]}
               />

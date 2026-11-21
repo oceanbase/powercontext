@@ -93,6 +93,8 @@ with original polygons, reading order and confidence. Both paths use heading-awa
 splits. Default limits are 360 characters and 40-character overlap; complete embedding input is checked against the tokenizer limit.
 Markdown HTML blocks, including HTML tables, retain their literal content and source lines in chunks.
 
+In the Dashboard, an upload with no definitive receipt is marked as unconfirmed. Retry those files in the open import dialog to reuse their original bytes and idempotency keys. Files with definitive receipts are skipped.
+
 For browser uploads, send file bytes to:
 
 ```text

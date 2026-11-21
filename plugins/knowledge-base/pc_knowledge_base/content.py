@@ -184,7 +184,13 @@ def parse_image(data):
     with Image.open(io.BytesIO(data)) as source:
         if source.width * source.height > 25_000_000:
             raise ContentError("Image exceeds 25 million pixels")  # noqa: TRY003
-        image = np.asarray(source.convert("RGB"))[:, :, ::-1]
+        if source.has_transparency_data:
+            rgba = source.convert("RGBA")
+            rgb = Image.new("RGB", source.size, "white")
+            rgb.paste(rgba, mask=rgba.getchannel("A"))
+        else:
+            rgb = source.convert("RGB")
+        image = np.asarray(rgb)[:, :, ::-1]
     result = RapidOCR()(image)
     if not isinstance(result, RapidOCROutput):
         raise TypeError("OCR must return detection and recognition results")  # noqa: TRY003

@@ -25,9 +25,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "plugins" / "knowle
 from pc_knowledge_base.content import parse
 
 
-def test_ocr_retains_text_and_image_provenance():
+@pytest.mark.parametrize(("mode", "background"), [("RGB", "white"), ("RGBA", (0, 0, 0, 0))])
+def test_ocr_retains_text_and_image_provenance(mode, background):
     pytest.importorskip("rapidocr")
-    image = Image.new("RGB", (1000, 240), "white")
+    image = Image.new(mode, (1000, 240), background)
     draw = ImageDraw.Draw(image)
     draw.text((30, 40), "Verify backups before restarting.", font=ImageFont.load_default(size=36), fill="black")
     buffer = io.BytesIO()
@@ -35,3 +36,4 @@ def test_ocr_retains_text_and_image_provenance():
     blocks = parse(buffer.getvalue(), "checklist.png", {"max_chars": 360, "overlap": 40})
     assert "backups" in " ".join(b["text"].lower() for b in blocks)
     assert all(b["locator"]["polygon"] and b["locator"]["confidence"] > 0 for b in blocks)
+    assert all((b["locator"]["image_width"], b["locator"]["image_height"]) == image.size for b in blocks)

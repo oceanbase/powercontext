@@ -19,6 +19,7 @@ import os
 import shutil
 from contextlib import asynccontextmanager
 from pathlib import Path
+from urllib.parse import parse_qs, urlsplit
 
 import pytest
 
@@ -370,5 +371,91 @@ def test_dashboard_cross_library_retrieval_chunk_removal_and_forget(tmp_path):
                 },
             )
             assert all(hit["document"]["artifact_id"] != forgotten[0]["ref"]["artifact_id"] for hit in result["hits"])
+
+    asyncio.run(scenario())
+
+
+def test_dashboard_html_table_hit_has_visible_cell_text_without_embedding_html(tmp_path):
+    async def scenario():
+        async with dashboard(tmp_path) as (call, page, frame, origin, expect):
+            space = (await call("GET", "/me/default-space"))["space_scope_id"]
+            kb = await library(call, "Table search", space)
+            await upload(
+                call,
+                tmp_path,
+                kb,
+                "guide.md",
+                "<table><tr><td>Quartz</td><td>Check the backups &amp; logs</td></tr></table>",
+            )
+            await page.goto(origin + "/dashboard/plugins/knowledge-base")
+            await select_library(frame, "Table search")
+            await frame.get_by_role("tab", name="检索测试", exact=True).click()
+            await frame.get_by_role("textbox", name="检索问题").fill("Quartz")
+            await frame.get_by_role("button", name="检索", exact=True).click()
+            hit = frame.locator(".markdown-body")
+            await expect(hit).to_contain_text("Quartz Check the backups & logs")
+            await expect(hit.locator("table")).to_have_count(0)
+            await frame.get_by_role("button", name="定位分块", exact=True).click()
+            await expect(frame.locator(".reader-content .markdown-body")).to_contain_text(
+                "Quartz Check the backups & logs"
+            )
+
+    asyncio.run(scenario())
+
+
+def test_dashboard_retries_only_uncertain_upload_with_original_key_and_bytes(tmp_path):
+    async def scenario():
+        async with dashboard(tmp_path) as (call, page, frame, origin, expect):
+            space = (await call("GET", "/me/default-space"))["space_scope_id"]
+            kb = await library(call, "Upload replay", space)
+            scope = kb["scope_id"]
+            await page.goto(origin + "/dashboard/plugins/knowledge-base")
+            await select_library(frame, "Upload replay")
+            submissions = {}
+            request_ids = []
+
+            async def intercept(route):
+                args = parse_qs(urlsplit(route.request.url).query)
+                path = args["relative_path"][0]
+                calls = submissions.setdefault(path, [])
+                calls.append((args["idempotency_key"][0], route.request.post_data_buffer))
+                if path != "lost.md":
+                    await route.continue_()
+                    return
+                if len(calls) == 2:
+                    await route.fulfill(status=403, json={"error": {"message": "Retry denied"}})
+                    return
+                response = await route.fetch()
+                assert response.ok
+                request_ids.append((await response.json())["request_id"])
+                if len(calls) == 1:
+                    await route.abort("connectionreset")
+                else:
+                    await route.fulfill(response=response)
+
+            await page.route(f"**/{scope}/uploads?*", intercept)
+            await frame.get_by_role("button", name="导入文档", exact=True).click()
+            await frame.locator('input[type="file"]').set_input_files([
+                {"name": name, "mimeType": "text/plain", "buffer": name.encode()}
+                for name in ("ok.md", "invalid.txt", "lost.md")
+            ])
+            await frame.get_by_role("button", name="开始导入", exact=True).click()
+            dialog = frame.get_by_role("dialog")
+            row = dialog.get_by_role("row")
+            await expect(row.filter(has_text="lost.md")).to_contain_text("结果待确认")
+            await expect(row.filter(has_text="invalid.txt")).to_contain_text("未接受")
+            await expect(row.filter(has_text="ok.md")).to_contain_text("已接受")
+            await dialog.get_by_role("button", name="重试待确认文件", exact=True).click()
+            await expect(row.filter(has_text="lost.md")).to_contain_text("Retry denied")
+            await expect(row.filter(has_text="lost.md")).to_contain_text("结果待确认")
+            await dialog.get_by_role("button", name="重试待确认文件", exact=True).click()
+            await expect(dialog.get_by_role("alert")).to_contain_text("已接受 2 / 3 个文件")
+            await expect(row.filter(has_text="lost.md")).to_contain_text("已接受")
+            assert len(submissions["ok.md"]) == len(submissions["invalid.txt"]) == 1
+            first, denied_retry, replay = submissions["lost.md"]
+            assert first == denied_retry == replay and first[1] == b"lost.md"
+            assert len(request_ids) == 2 and request_ids[0] == request_ids[1]
+            records = (await call("GET", f"/scopes/{scope}/documents"))["requests"]
+            assert [r["request_id"] for r in records if r["relative_path"] == "lost.md"] == request_ids[:1]
 
     asyncio.run(scenario())

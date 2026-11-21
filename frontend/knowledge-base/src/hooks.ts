@@ -14,8 +14,8 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 import { useInfiniteQuery, useMutation, useQueries, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
-import { isForbidden, service } from "./services";
-import type { KB, Target, Edit } from "./types";
+import { ApiError, isForbidden, service } from "./services";
+import type { KB, Target, Edit, ImportResult } from "./types";
 export const keys = {
   processing: ["processing-requests"],
   documentChanges: (scope: string) => ["document-changes", scope],
@@ -143,7 +143,9 @@ export function useImport(scope: string) {
   const client = useQueryClient();
   return useMutation({
     mutationFn: async (
-      input: { files: { file: File; key: string }[] } | { root: string; paths: string[]; idempotency_key: string },
+      input:
+        | { files: { file: File; key: string }[]; previous?: ImportResult[] }
+        | { root: string; paths: string[]; idempotency_key: string },
     ) => {
       if ("root" in input) {
         const receipts = (await service.imports(scope, input)).items;
@@ -152,15 +154,27 @@ export function useImport(scope: string) {
         }
         return receipts;
       }
-      const receipts = [];
-      for (const { file, key } of input.files) {
+      const receipts: ImportResult[] = [];
+      // The dialog freezes file order and keys once submission starts.
+      for (const [index, { file, key }] of input.files.entries()) {
+        const previous = input.previous?.[index];
+        if (previous && previous.accepted !== null) {
+          receipts.push(previous);
+          continue;
+        }
+        const path = file.webkitRelativePath || file.name;
         try {
-          const receipt = { ...(await service.upload(scope, file, key)), path: file.webkitRelativePath || file.name };
+          const receipt = await service.upload(scope, file, key);
+          if (typeof receipt?.accepted !== "boolean" || (receipt.accepted && (!receipt.request_id || !receipt.document_id)))
+            throw new Error("未收到有效的导入回执");
           // Track each acceptance immediately, even if later files are slow or this view is unmounted.
           if (receipt.accepted) trackProcessing(client, scope, receipt);
-          receipts.push(receipt);
+          receipts.push({ ...receipt, path });
         } catch (error) {
-          receipts.push({ path: file.name, accepted: false, error: String(error) });
+          // A rejected retry cannot disprove acceptance of the original submission.
+          const rejected = !previous && error instanceof ApiError &&
+            error.status >= 400 && error.status < 500 && error.status !== 408;
+          receipts.push({ path, accepted: rejected ? false : null, error: String(error) });
         }
       }
       return receipts;

@@ -17,6 +17,15 @@ import { useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Flex, Segmented, Typography } from "@oceanbase/design";
+// A template keeps raw markup inert. Only text nodes enter the React tree.
+function htmlText(html: string) {
+  const template = document.createElement("template");
+  template.innerHTML = html;
+  const fragment = template.content;
+  fragment.querySelectorAll("script, style, template, noscript, head, iframe, [hidden]").forEach((node) => node.remove());
+  fragment.querySelectorAll("br, p, div, li, th, td, tr").forEach((node) => node.after(" "));
+  return fragment.textContent || "";
+}
 export function Markdown({ text, controls = true }: { text: string; controls?: boolean }) {
   const [mode, setMode] = useState("preview");
   return (
@@ -40,6 +49,7 @@ export function Markdown({ text, controls = true }: { text: string; controls?: b
         <article className="markdown-body">
           <ReactMarkdown
             remarkPlugins={[remarkGfm]}
+            remarkRehypeOptions={{ handlers: { html: (_, node) => ({ type: "text", value: htmlText(node.value) }) } }}
             skipHtml
             components={{
               a: ({ href, children }) =>

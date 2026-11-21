@@ -264,6 +264,11 @@ def test_reader_permission_loss_invalidates_cached_search_hits_on_return(tmp_pat
 
             # A hit also reads its document title. A denial there invalidates the result without opening the reader.
             head_path = f"/artifacts/{kb['scope_id']}/{receipt['document_id']}"
+            # Start a new session so the card needs its own head read instead of sharing the reader's in-flight read.
+            await page.reload()
+            await select_library(frame, "Search access")
+            await frame.get_by_role("tab", name="检索测试", exact=True).click()
+            await question.fill("Quartz")
             await page.route(f"**{head_path}", deny)
             async with page.expect_response(lambda r: r.url.endswith(head_path) and r.status == 403):
                 await search.click()
