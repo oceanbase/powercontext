@@ -44,6 +44,8 @@ from powercontext.builtin.runtime.artifact_processing import (
 
 BINDING = "topic-memory-source-window"
 SPAWN_STARTUP_TIMEOUT_SECONDS = 60.0
+# Completion includes cold imports and natural exit, before any ready-state fault boundary.
+SPAWN_COMPLETION_TIMEOUT_SECONDS = 60.0
 SPAWN_TEST_TIMEOUT_SECONDS = 10.0
 
 
@@ -193,7 +195,7 @@ def test_spawn_launcher_runs_a_real_child_process() -> None:
         handle = await SpawnArtifactProcessingWorkerLauncher(_spawn_success).start(assignment)
         try:
             assert (
-                await asyncio.wait_for(handle.wait(), timeout=SPAWN_TEST_TIMEOUT_SECONDS)
+                await asyncio.wait_for(handle.wait(), timeout=SPAWN_COMPLETION_TIMEOUT_SECONDS)
                 == ArtifactProcessingWorkerCompletion()
             )
         finally:

@@ -64,6 +64,9 @@ from powercontext.builtin.sources import SourceCursor
 from powercontext.sources import SourceRef
 from tests.e2e.dream_support import atomic_memory_pipeline, memory_source_text
 
+# Observe cold child imports, execution, and natural exit separately from fault deadlines.
+_WORKER_LIFECYCLE_TIMEOUT_SECONDS = 60
+
 
 def _open_sqlite(config: BuiltinConfig, *, tables):
     assert isinstance(config.database, SQLiteConfig)
@@ -441,7 +444,7 @@ def test_spawned_family_restores_trusted_identity_and_persists_noop_ack(tmp_path
             launcher = SpawnArtifactProcessingWorkerLauncher(partial(run_family_worker, spec))
             worker = await launcher.start(assignment)
             try:
-                result = await asyncio.wait_for(worker.wait(), timeout=30)
+                result = await asyncio.wait_for(worker.wait(), timeout=_WORKER_LIFECYCLE_TIMEOUT_SECONDS)
                 assert result.outcome == "succeeded"
                 assert result.noop is True
             finally:

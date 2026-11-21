@@ -60,6 +60,9 @@ from powercontext.server.logging import worker_logging
 from powercontext.server.settings import ServerLoggingConfig
 from tests.e2e.dream_support import atomic_memory_pipeline
 
+# Observe cold child imports, execution, and natural exit separately from fault deadlines.
+_WORKER_LIFECYCLE_TIMEOUT_SECONDS = 60
+
 
 class _InferenceServer(ThreadingHTTPServer):
     requests: list[tuple[str, dict[str, Any]]]
@@ -242,7 +245,7 @@ def test_spawned_worker_restores_custom_prompt_and_counts_actual_requests_once(
             for worker_run in range(1, 3):
                 worker = await launcher.start(assignment)
                 try:
-                    result = await asyncio.wait_for(worker.wait(), timeout=45)
+                    result = await asyncio.wait_for(worker.wait(), timeout=_WORKER_LIFECYCLE_TIMEOUT_SECONDS)
                     assert result.outcome == "succeeded", result
                 finally:
                     await worker.terminate()
