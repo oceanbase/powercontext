@@ -167,3 +167,59 @@ def test_worker_diagnostic_failure_does_not_replace_original_timeout(tmp_path, m
             worker_timeout_diagnostics.record_worker_timeout(request, unwritable)
             raise
     assert raised.value is timeout
+
+
+@pytest.mark.parametrize(
+    ("outcome", "enabled", "writable"),
+    [("failed", True, True), ("passed", True, True), ("failed", False, True), ("failed", True, False)],
+    ids=["failure-retained", "success-not-copied", "disabled-not-copied", "copy-error-keeps-failure"],
+)
+def test_seekdb_failure_logs_survive_fixture_cleanup(pytester, monkeypatch, outcome, enabled, writable):
+    scripts = Path(__file__).resolve().parents[1] / ".github" / "scripts"
+    monkeypatch.setenv("PYTHONPATH", os.pathsep.join(filter(None, (str(scripts), os.environ.get("PYTHONPATH")))))
+    monkeypatch.setenv("RUNNER_TEMP", str(pytester.path / "runner-temp"))
+    monkeypatch.setenv("POWERCONTEXT_TEST_MIGRATION_SEEKDB", "1" if enabled else "0")
+    destination = pytester.path / "retained-native"
+    monkeypatch.setenv("POWERCONTEXT_TEST_SEEKDB_DIAGNOSTICS", str(destination))
+    if not writable:
+        destination.touch()
+    pytester.makeconftest(
+        """
+        from pathlib import Path
+        from tempfile import TemporaryDirectory
+        import pytest
+
+        @pytest.fixture
+        def short_tmp_path():
+            with TemporaryDirectory(prefix="pc-") as directory:
+                path = Path(directory)
+                Path("original-directory").write_text(directory)
+                yield path
+        """
+    )
+    pytester.makepyfile(
+        f"""
+        def test_native_failure(short_tmp_path):
+            logs = short_tmp_path / "seekdb" / "log"
+            logs.mkdir(parents=True)
+            (logs / "seekdb.log").write_bytes(b"current native diagnostic\\n")
+            (logs / "seekdb.log.202611210001").write_bytes(b"original allocator diagnostic\\n")
+            (short_tmp_path / "database-data").write_bytes(b"do not collect database data")
+            assert {outcome == "passed"}, "controlled native failure"
+        """
+    )
+    result = pytester.runpytest_subprocess("-p", "pytest_ci_diagnostics", "-q")
+    assert result.ret == (pytest.ExitCode.OK if outcome == "passed" else pytest.ExitCode.TESTS_FAILED)
+    if outcome == "failed":
+        result.stdout.fnmatch_lines(["*controlled native failure*"])
+    original = Path((pytester.path / "original-directory").read_text())
+    assert not original.exists(), "Diagnostic preservation must not prevent the fixture's normal cleanup"
+    retained = sorted(destination.rglob("*")) if destination.is_dir() else []
+    files = {path.name: path.read_bytes() for path in retained if path.is_file()}
+    if outcome == "failed" and enabled and writable:
+        assert files == {
+            "seekdb.log": b"current native diagnostic\n",
+            "seekdb.log.202611210001": b"original allocator diagnostic\n",
+        }
+    else:
+        assert files == {}

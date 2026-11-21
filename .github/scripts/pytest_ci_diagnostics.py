@@ -17,6 +17,7 @@
 import datetime
 import json
 import os
+import shutil
 from pathlib import Path
 
 import pytest
@@ -70,11 +71,47 @@ _CAPTURED_LOG_FIELDS = (
 )
 
 
+def _retain_seekdb_native_logs(item, report):
+    destination = os.environ.get("POWERCONTEXT_TEST_SEEKDB_DIAGNOSTICS")
+    root = item.funcargs.get("short_tmp_path")
+    if (
+        report.when not in {"setup", "call"}
+        or os.environ.get("POWERCONTEXT_TEST_MIGRATION_SEEKDB") != "1"
+        or not destination
+        or not isinstance(root, Path)
+    ):
+        return
+    try:
+        root = root.resolve()
+        retained = Path(destination).resolve() / root.name
+        if retained.is_relative_to(root):
+            report.sections.append((
+                "CI SeekDB native log preservation",
+                "Capture directory is inside the test database",
+            ))
+            return
+        count = 0
+        # Preserve every existing rotation before short_tmp_path removes the
+        # failed instance; a later workflow archive can otherwise be empty.
+        for source in root.rglob("seekdb.log*"):
+            if source.is_symlink() or not source.is_file() or not source.resolve().is_relative_to(root):
+                continue
+            target = retained / source.relative_to(root)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source, target)
+            count += 1
+        if count:
+            report.sections.append(("CI retained SeekDB native logs", f"Preserved {count} native log files"))
+    except (OSError, ValueError) as error:
+        report.sections.append(("CI SeekDB native log preservation", f"Capture failed: {type(error).__name__}"))
+
+
 @pytest.hookimpl(wrapper=True)
 def pytest_runtest_makereport(item, call):
     report = yield
     if not report.failed:
         return report
+    _retain_seekdb_native_logs(item, report)
     try:
         from _pytest.logging import caplog_records_key
 
