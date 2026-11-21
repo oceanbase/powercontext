@@ -67,10 +67,13 @@ cindy = [
   "integrations/dsh/plugins/powercontext/pnpm-lock.yaml", "integrations/dsh/plugins/powercontext/pnpm-workspace.yaml",
   "integrations/dsh/plugins/powercontext/tsconfig.json",
 ]
-# The Pi service chain reuses the cross-host Pi RPC client and the ZCode acceptance wire fixtures.
+# The Pi service chain reuses the cross-host Pi RPC client and the ZCode acceptance wire fixtures; the Pi gateway chain
+# also reuses the Responses host model and the gateway and UDS Server fixtures.
 pi = [
   "integrations/pi/**", "tests/*pi_*", "tests/e2e/cross_host_work_continuity/pi.py",
   "tests/e2e/zcode_acceptance/protocol.py", "tests/e2e/zcode_acceptance/runner.py",
+  "tests/e2e/host_models/responses.py", "tests/e2e/host_models/script.py",
+  "tests/e2e/test_gateway_authentication.py", "tests/e2e/test_server_uds.py",
 ]
 # The OpenCode service chain reuses the ZCode acceptance wire fixtures.
 opencode = [
