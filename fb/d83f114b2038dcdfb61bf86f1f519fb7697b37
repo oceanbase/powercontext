@@ -1,0 +1,37 @@
+tests/builtin/runtime/test_topic_memory_terminal_frontier.py
+  s_2ef0feea0a110d::t_039a83db7d4806 48-50,292
+tests/builtin/runtime/test_worker_prompt_usage.py
+  s_2ef0feea0a110d::t_039a83db7d4806 63-65,248
+tests/builtin/artifacts/profile/test_scheduler.py
+  s_2ef0feea0a110d::t_039a83db7d4806 37-39,99
+tests/e2e/test_extraction_diagnostics.py
+  s_2ef0feea0a110d::t_039a83db7d4806 47-49,131
+tests/builtin/runtime/test_family_processing.py
+  s_2ef0feea0a110d::t_039a83db7d4806 67-69,447
+tests/e2e/test_observability.py
+  s_2ef0feea0a110d::t_039a83db7d4806 85-87,1185-1189,1229-1231,1257,1273-1275
+tests/builtin/runtime/test_topic_memory_processing.py
+  s_2ef0feea0a110d::t_039a83db7d4806 157-162,882,2736,2797,2969
+tests/builtin/runtime/test_artifact_processing.py
+  s_2ef0feea0a110d::t_039a83db7d4806 47-48,198
+tests/builtin/runtime/test_extraction_diagnostics.py
+  s_2ef0feea0a110d::t_039a83db7d4806 37-39,60-61,89
+tests/e2e/test_worker_otlp.py
+  s_2ef0feea0a110d::t_039a83db7d4806 41-43,219,303,454,503
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "fbd83f114b2038dcdfb61bf86f1f519fb7697b37",
+  "prompts": {},
+  "sessions": {
+    "s_2ef0feea0a110d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1a9cf-a4e7-7f63-9c51-1284f7c332e8",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "frf12 <rongfeng.frf@antgroup.com>"
+    }
+  }
+}
