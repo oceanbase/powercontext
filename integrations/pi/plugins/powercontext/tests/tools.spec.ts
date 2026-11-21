@@ -41,6 +41,7 @@ function createRuntime(fetch: FetchFn): PluginRuntime {
       scopeId: undefined,
       authorization: undefined,
       capturePrompts: true,
+      promptRecall: true,
       requestTimeoutMs: 1000,
       httpBudgetMs: 4000,
       maxBytes: 8000,
@@ -121,6 +122,23 @@ describe('Pi native tool surface', () => {
       'pc_external_import',
     ]))
     expect(tools.map((tool) => tool.name)).not.toContain('pc_call')
+  })
+
+  it('offers the prepare tool only while prompt recall is on', () => {
+    const names = (promptRecall: boolean) => {
+      const registered: Array<{ name: string }> = []
+      const runtime = createRuntime(vi.fn())
+      registerTools(
+        { registerTool: (tool: { name: string }) => registered.push(tool) } as never,
+        { ...runtime, config: { ...runtime.config, promptRecall } },
+      )
+      return registered.map((tool) => tool.name)
+    }
+    expect(names(true)).toContain('pc_prepare_context')
+    const withoutRecall = names(false)
+    // Its result carries a prepared-context block that Core rejects behind the gateway; the other tools stay.
+    expect(withoutRecall).not.toContain('pc_prepare_context')
+    expect(new Set(withoutRecall)).toEqual(new Set(names(true).filter((name) => name !== 'pc_prepare_context')))
   })
 
   it('requires confirmation for explicit durable writes and refuses them without a UI', async () => {

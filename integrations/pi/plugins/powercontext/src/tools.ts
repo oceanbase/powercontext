@@ -503,22 +503,26 @@ export function registerTools(pi: ExtensionAPI, runtime: PluginRuntime): void {
     mutates: true,
   })
 
-  registerOperationTool(pi, runtime, {
-    name: 'pc_prepare_context',
-    label: 'PowerContext Prepare Context',
-    description:
-      'Retrieve bounded, query-specific PowerContext when additional assembled context is needed. ' +
-      'Automatic recall already attempts this on supported lifecycle events; do not repeat it routinely ' +
-      'or to satisfy an explicit save. A returned context value is not proof of host injection. Empty ' +
-      'context is normal; use only the evidence actually returned.',
-    parameters: Type.Object({ query: Type.String({ description: 'Question to retrieve context for.' }) }),
-    operationId: 'prepare_context',
-    payload: (params) => ({
-      query: params.query,
-      max_bytes: runtime.config.maxBytes,
-      ...(runtime.config.contextAssembly !== undefined ? { assembly: runtime.config.contextAssembly } : {}),
-    }),
-  })
+  // A prepare result carries a prepared-context block. Behind the gateway it stays in the session history, and Core
+  // rejects every later request that carries a block the gateway did not inject, so offer the tool only with recall.
+  if (runtime.config.promptRecall) {
+    registerOperationTool(pi, runtime, {
+      name: 'pc_prepare_context',
+      label: 'PowerContext Prepare Context',
+      description:
+        'Retrieve bounded, query-specific PowerContext when additional assembled context is needed. ' +
+        'Automatic recall already attempts this on supported lifecycle events; do not repeat it routinely ' +
+        'or to satisfy an explicit save. A returned context value is not proof of host injection. Empty ' +
+        'context is normal; use only the evidence actually returned.',
+      parameters: Type.Object({ query: Type.String({ description: 'Question to retrieve context for.' }) }),
+      operationId: 'prepare_context',
+      payload: (params) => ({
+        query: params.query,
+        max_bytes: runtime.config.maxBytes,
+        ...(runtime.config.contextAssembly !== undefined ? { assembly: runtime.config.contextAssembly } : {}),
+      }),
+    })
+  }
 
   registerOperationTool(pi, runtime, {
     name: 'pc_capture_source',

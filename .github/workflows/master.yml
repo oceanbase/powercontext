@@ -1094,13 +1094,21 @@ jobs:
       - name: Test Pi package
         run: make pi-test
 
+      - name: Cache Gateway dependencies and compilation
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          workspaces: gateway -> target
+          shared-key: gateway
+          cache-bin: false
+          cache-on-failure: true
+
       - name: Verify Pi guidance adapter requests and results
         run: uv run pytest "tests/test_integration_guidance_evaluation.py::test_native_adapter_handoff_uses_real_request_mapping_and_response_envelopes[pi]"
 
-      - name: Run Pi with the PowerContext extension against a real Server
+      - name: Run Pi with the PowerContext extension against a real Server and gateway
         env:
           POWERCONTEXT_TEST_PI_HOST: "1"
-        run: uv run pytest tests/e2e/test_pi_service_chain.py
+        run: uv run pytest tests/e2e/test_pi_service_chain.py tests/e2e/test_pi_gateway_chain.py
 
   opencode-package:
     needs: [quality, tests]
