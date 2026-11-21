@@ -1,0 +1,29 @@
+pyproject.toml
+  s_895ef4248301fe::t_d90f14337bcf46 196
+integrations/deepagents/examples/quickstart.py
+  s_895ef4248301fe::t_fbb39345644d16 36,59,62
+integrations/deepagents/examples/full_flow.py
+  s_895ef4248301fe::t_fbb39345644d16 44,63,66
+tests/deepagents_adapter/test_adapter.py
+  s_895ef4248301fe::t_d90f14337bcf46 30,34-35,65,69,148,152-153,601-603
+e2e/bub/uv.lock
+  s_895ef4248301fe::t_2103ceb922b86b 1818,1823
+evaluation/uv.lock
+  s_895ef4248301fe::t_3b668c4a624d3e 1924,1929
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "7e0253de9ce76724c39b02d34e81e976b59aed4e",
+  "prompts": {},
+  "sessions": {
+    "s_895ef4248301fe": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1fedd-6a1a-7f90-86c3-0b9d9c408e28",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "Frey <370805886@qq.com>"
+    }
+  }
+}
