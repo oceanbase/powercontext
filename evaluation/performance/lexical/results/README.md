@@ -23,7 +23,7 @@ These times do not measure HTTP, database access, inference, complete recall, a 
 - Negative controls reject an intentionally wrong result and a package with the native module absent. A wrong binary hash was also rejected during the trial. The strict checks supplement the tool's permissive exception comparison; exception messages are not part of this trial's promise.
 - Existing behavior tests: 13 passed with 20 actual native calls through the test-only plugin. No existing assertions changed. Cargo: two algorithm tests passed; locked fmt/test/clippy checks passed with Rust 1.97.1 MSVC.
 - A separate maturin release wheel was installed into a clean environment and verified with Python `-I`. The same strict checks passed without importing the PowerContext source package, Jieba or Pydantic. `validation.json` records the direct-extension and installed-wheel identities separately; they are different builds. The wheel and native binaries are not committed.
-- Ruff check, Ruff format and `uv run --locked ty check rust/lexical-rs` passed. Prek was run on the changed files. Its file/content hooks passed; its whole-repository ty hook remains failing on Windows. Running ty with `--exclude rust` reports the same 93 diagnostics in existing files, including unavailable POSIX APIs and a checked-out symlink represented as plain text. The pilot's own type check passes; this is not a claim that the full repository check is green.
+- Ruff check, Ruff format and `uv run --locked ty check evaluation/performance/lexical` passed. Prek was run on the changed files. Its file/content hooks passed; its whole-repository ty hook remains failing on Windows. Running ty with `--exclude evaluation/performance/lexical` reports the same 93 diagnostics in existing files, including unavailable POSIX APIs and a checked-out symlink represented as plain text. The pilot's own type check passes; this is not a claim that the full repository check is green.
 - Final independent review has not completed. These are executor measurements and checks, not reviewer approval. Full pytest, tox, all `make check` targets, real backend/host acceptance and production rollout were not executed.
 
 ## Cold observations
@@ -40,7 +40,7 @@ The tool's `cases.jsonl` contains raw U+2028 and U+0085 inside a recorded JSON s
 import json
 from pathlib import Path
 
-text = Path("rust/lexical-rs/cases.jsonl").read_text(encoding="utf-8")
+text = Path("evaluation/performance/lexical/cases.jsonl").read_text(encoding="utf-8")
 cases = [json.loads(line) for line in text.split("\n") if line]
 ```
 
@@ -55,16 +55,16 @@ The 1.95.0 MSVC build was separately validated on Windows CPython 3.14.3: fmt, l
 From the repository root:
 
 ```text
-cargo fetch --locked --manifest-path rust/lexical-rs/Cargo.toml
-python rust/lexical-rs/scripts/prepare.py
-rust-anything build rust/lexical-rs
-python rust/lexical-rs/scripts/verify.py
-rust-anything diff rust/lexical-rs
-rust-anything gate rust/lexical-rs
-python rust/lexical-rs/scripts/benchmark.py
+cargo fetch --locked --manifest-path evaluation/performance/lexical/Cargo.toml
+python evaluation/performance/lexical/scripts/prepare.py
+rust-anything build evaluation/performance/lexical
+python evaluation/performance/lexical/scripts/verify.py
+rust-anything diff evaluation/performance/lexical
+rust-anything gate evaluation/performance/lexical
+python evaluation/performance/lexical/scripts/benchmark.py
 ```
 
-For existing tests set PYTHONPATH to the checkout's `src` and `rust/lexical-rs/scripts`, then run:
+For existing tests set PYTHONPATH to the checkout's `src` and `evaluation/performance/lexical/scripts`, then run:
 
 ```text
 python -m pytest -p native_pytest tests/builtin/artifacts/test_text_search_admission.py tests/builtin/artifacts/topic_memory/test_chunking.py -q
@@ -73,10 +73,10 @@ python -m pytest -p native_pytest tests/builtin/artifacts/test_text_search_admis
 For packaging:
 
 ```text
-python -m maturin build --locked --release --manifest-path rust/lexical-rs/Cargo.toml --out output/lexical-pilot/wheels
+python -m maturin build --locked --release --manifest-path evaluation/performance/lexical/Cargo.toml --out output/lexical-pilot/wheels
 python -m venv output/lexical-pilot/clean-runtime
 ```
 
-Install the resulting wheel with that new environment's pip (or `uv pip install --python <new-python> <wheel>`), then use its Python to run `-I rust/lexical-rs/scripts/verify.py --installed`. `prepare.py` must run first to generate the strict corpus. Generated evidence lives in ignored `output/lexical-pilot/`.
+Install the resulting wheel with that new environment's pip (or `uv pip install --python <new-python> <wheel>`), then use its Python to run `-I evaluation/performance/lexical/scripts/verify.py --installed`. `prepare.py` must run first to generate the strict corpus. Generated evidence lives in ignored `output/lexical-pilot/`.
 
 Only fixed-default-dictionary `analyze_text(str) -> str` on Windows CPython 3.14/Unicode 16 is covered. Other Python/Unicode versions, operating systems, free-threaded Python, custom dictionary mutation, spans/offsets and production backend selection require separate validation. `Requires-Python` is restricted to 3.14; an abi3 tag is not a broader support claim.

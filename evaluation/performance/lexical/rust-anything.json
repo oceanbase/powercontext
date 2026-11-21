@@ -1,6 +1,6 @@
 {
   "schema": "rust-anything/bridge@1",
-  "root": "../..",
+  "root": "../../..",
   "unit": "src/powercontext/builtin/artifacts/search.py",
   "language": "python",
   "kind": "pyo3",

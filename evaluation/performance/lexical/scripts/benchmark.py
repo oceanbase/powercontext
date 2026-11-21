@@ -24,7 +24,7 @@ import time
 from pathlib import Path
 
 CRATE = Path(__file__).resolve().parents[1]
-ROOT = CRATE.parents[1]
+ROOT = CRATE.parents[2]
 sys.path[:0] = [str(ROOT / "src"), str(CRATE / "python")]
 
 

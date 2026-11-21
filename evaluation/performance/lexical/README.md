@@ -1,5 +1,7 @@
 # PowerContext lexical analyzer pilot
 
+This suite owns the compatibility checks and offline performance measurements for an experimental native lexical analyzer. The candidate extension, corpora, scripts and measurement evidence live together under `evaluation/performance/lexical/`, following the repository's grouping by responsibility.
+
 This experimental extension implements only `analyze_text(str) -> str`. It does not change the PowerContext default runtime, database projections, query admission, offsets, gateway or root Python packaging. It is a local compatibility and performance trial.
 
 The tested platform is Windows x64 with CPython 3.14.3 and Unicode 16.0.0. The wheel's `Requires-Python` is restricted to 3.14. Other Python versions, operating systems and free-threaded interpreters have not been validated. The generated ABI tag alone is not a support claim.
@@ -23,17 +25,17 @@ $env:RUSTUP_TOOLCHAIN = '1.95.0-x86_64-pc-windows-msvc'
 ```
 
 ```text
-cargo fetch --locked --manifest-path rust/lexical-rs/Cargo.toml
-python rust/lexical-rs/scripts/prepare.py
-rust-anything record rust/lexical-rs --count 200 --inputs output/lexical-pilot/inputs.jsonl
-cargo test --locked --manifest-path rust/lexical-rs/Cargo.toml
-rust-anything build rust/lexical-rs
-python rust/lexical-rs/scripts/verify.py
-rust-anything diff rust/lexical-rs
-rust-anything bench rust/lexical-rs
-rust-anything gate rust/lexical-rs
-python rust/lexical-rs/scripts/benchmark.py
-python -m maturin build --locked --release --manifest-path rust/lexical-rs/Cargo.toml --out output/lexical-pilot/wheels
+cargo fetch --locked --manifest-path evaluation/performance/lexical/Cargo.toml
+python evaluation/performance/lexical/scripts/prepare.py
+rust-anything record evaluation/performance/lexical --count 200 --inputs output/lexical-pilot/inputs.jsonl
+cargo test --locked --manifest-path evaluation/performance/lexical/Cargo.toml
+rust-anything build evaluation/performance/lexical
+python evaluation/performance/lexical/scripts/verify.py
+rust-anything diff evaluation/performance/lexical
+rust-anything bench evaluation/performance/lexical
+rust-anything gate evaluation/performance/lexical
+python evaluation/performance/lexical/scripts/benchmark.py
+python -m maturin build --locked --release --manifest-path evaluation/performance/lexical/Cargo.toml --out output/lexical-pilot/wheels
 ```
 
 The tool manifest resolves the reference root relative to this crate. Ordinary recording does not carry surrogates; the strict recording uses codepoint arrays for them. Strict error checks supplement the tool's permissive exception comparison.
@@ -44,6 +46,6 @@ To run existing tests, add the checkout `src` and this crate's `scripts` to `PYT
 
 ## Evidence and limitations
 
-See `../PORT-PLAN.md`, `../DECISIONS.md`, `../PORT-STATUS.md` and [the published results](results/README.md). Measurement samples and reference corpus paths are checked in under `results/`. Reproduction generates strict recordings, raw tool output, negative controls and native identities in the repository's ignored `output/lexical-pilot/` directory.
+See [plan](PORT-PLAN.md), [decisions](DECISIONS.md), [status](PORT-STATUS.md) and [the published results](results/README.md). Measurement samples and reference corpus paths are checked in under `results/`. Reproduction generates strict recordings, raw tool output, negative controls and native identities in the repository's ignored `output/lexical-pilot/` directory.
 
 Data describes the fixed default analyzer only; private tokenizer mutation and custom dictionaries are outside the trial. Full Python/platform coverage, the complete Server request chain, root SDK wheel integration and release readiness are not established by this pilot.

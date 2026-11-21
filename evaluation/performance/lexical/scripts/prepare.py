@@ -26,7 +26,7 @@ from pathlib import Path
 import jieba
 
 CRATE = Path(__file__).resolve().parents[1]
-ROOT = CRATE.parents[1]
+ROOT = CRATE.parents[2]
 sys.path.insert(0, str(ROOT / "src"))
 
 

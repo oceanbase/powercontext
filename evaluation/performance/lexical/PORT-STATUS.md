@@ -8,4 +8,4 @@ Tool diff: 2033/2033. Strict unique inputs: N=2645, R=2645, F=0, E=0; 2648 execu
 
 Warm offline single-thread medians including bridge: Chinese documents 8.85x, English documents 3.88x (final rerun; raw initial and final samples retained); no full request-chain speedup claim. Other Python/Unicode versions, platforms and production packaging are unverified.
 
-Published measurement samples, source identities, limits and reproduction instructions: [results](lexical-rs/results/README.md). Additional task-local logs are generated in `output/lexical-pilot/` and are not required to read the published report. This is a technically validated local trial; independent acceptance, default integration, CI, merge and release approval remain separate.
+Published measurement samples, source identities, limits and reproduction instructions: [results](results/README.md). Additional task-local logs are generated in `output/lexical-pilot/` and are not required to read the published report. This is a technically validated local trial; independent acceptance, default integration, CI, merge and release approval remain separate.

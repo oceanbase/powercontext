@@ -27,7 +27,7 @@ import unicodedata
 from pathlib import Path
 
 CRATE = Path(__file__).resolve().parents[1]
-ROOT = CRATE.parents[1]
+ROOT = CRATE.parents[2]
 
 
 def outcome(function, value):
