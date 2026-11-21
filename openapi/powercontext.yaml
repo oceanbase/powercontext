@@ -605,6 +605,32 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "503":
           $ref: "#/components/responses/Unavailable"
+  /v1/source-limits:
+    get:
+      tags: [sources]
+      summary: Get effective Source capture limits
+      description: >-
+        Report the deployment's effective Content Source capture limit so collectors can validate input before
+        sending it. The value comes from deployment configuration. Storage may already hold larger Sources captured
+        under a higher limit; reads of those Sources stay available.
+      operationId: get_source_limits
+      x-powercontext-access: {action: server.observe, resource: {type: server}}
+      responses:
+        "200":
+          description: Effective Source limits for this deployment.
+          headers:
+            X-PowerContext-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SourceLimits"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "503":
+          $ref: "#/components/responses/Unavailable"
   /v1/scopes:
     get:
       tags: [scopes]
@@ -9382,10 +9408,11 @@ components:
         content:
           type: string
           minLength: 1
-          maxLength: 200000
+          maxLength: 1000000
           description: >-
             Raw integration content. Server-reserved payload schemas, including handoff receipts, are rejected on
-            this generic capture operation and must be created through their dedicated workflow.
+            this generic capture operation and must be created through their dedicated workflow. The deployment's
+            effective limit is reported by `GET /v1/source-limits` as `source_content_max_chars`.
         metadata:
           type: object
           additionalProperties: true
@@ -9405,7 +9432,7 @@ components:
         content:
           type: string
           minLength: 1
-          maxLength: 200000
+          maxLength: 1000000
           description: Raw integration content, under the rules of the single ContentSource capture operation.
         metadata:
           type: object
@@ -9472,7 +9499,7 @@ components:
         content:
           type: string
           minLength: 1
-          maxLength: 200000
+          maxLength: 1000000
           pattern: '.*\S.*'
         session_id:
           type: string
@@ -13946,6 +13973,23 @@ components:
         sequence:
           type: integer
           minimum: 0
+    SourceLimits:
+      type: object
+      additionalProperties: false
+      required: [source_content_max_chars, source_content_max_chars_ceiling]
+      properties:
+        source_content_max_chars:
+          type: integer
+          minimum: 1
+          maximum: 1000000
+          description: Effective maximum characters accepted in one Content Source capture on this deployment.
+        source_content_max_chars_ceiling:
+          type: integer
+          minimum: 1
+          maximum: 1000000
+          description: >-
+            Largest limit this build accepts as configuration. Requests above the ceiling fail schema validation
+            before the deployment limit applies.
     SourceLineRangeLocator:
       type: object
       additionalProperties: false

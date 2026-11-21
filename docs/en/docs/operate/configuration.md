@@ -127,6 +127,7 @@ still occupies an HTTP slot until it finishes; reserve other slots for concurren
 | `POWERCONTEXT_SERVER_PLUGIN_API_MAX_BODY_BYTES` | `33554432` | Request and response body limit of plugin routes (`/v1/plugins/{name}/api/...` and their Dashboard page forwarding), in place of the previous setting; a plugin route may declare a lower limit, never a higher one |
 | `POWERCONTEXT_SERVER_PLUGIN_HOST_PROCESSES` | `{}` | JSON object overriding plugins' declared `host_processes` by plugin name, such as `{"knowledge-base": 4}`; each value is the most host processes of that plugin in each Server process |
 | `POWERCONTEXT_SERVER_PLUGIN_TOTAL_HOST_PROCESSES` | unset | The most host processes of all plugins in each Server process; at the limit, no process is added for load and requests queue on existing ones. Each plugin's first, always-running process is exempt |
+| `POWERCONTEXT_SERVER_SOURCE_CONTENT_MAX_CHARS` | `200000` | Effective maximum characters accepted in one Content Source capture; `1` to `1000000`. Lowering it keeps existing Sources readable and only rejects new captures over the new limit. `GET /v1/source-limits` reports the effective value as `source_content_max_chars` |
 | `POWERCONTEXT_SERVER_HTTP_MAX_CONCURRENT_REQUESTS` | `64` | Per-process external HTTP requests in flight, including full streaming responses |
 | `POWERCONTEXT_SERVER_WORKSPACE` | Server startup directory | Resolution root for local project Agent Skill folders |
 | `POWERCONTEXT_SERVER_MCP_ENABLED` | `true` | Enable Streamable HTTP MCP |

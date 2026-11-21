@@ -21,6 +21,17 @@ A successful capture means evidence was stored; it does not mean extraction succ
 keeping. Use Source references to trace a generated result back to its input. Do not retry a capture with changed
 content under the same identity as if it were a new observation.
 
+## Source content size
+
+One Content Source accepts at most 200,000 characters by default. A deployment can change that boundary with
+`POWERCONTEXT_SERVER_SOURCE_CONTENT_MAX_CHARS` (`1` to `1000000`); the ceiling keeps one Source inside a single payload
+column. `GET /v1/source-limits` reports the effective value as `source_content_max_chars`, and a capture over it returns
+`422 invalid_request` with an error message naming the limit.
+
+Lowering the limit never rewrites or hides existing evidence: Sources captured earlier stay readable through the detail
+and list endpoints and remain eligible for processing, while only new captures are validated. The same boundary applies
+to a single capture, every item of a batch, and Working Notes.
+
 ## Choose a capture path
 
 - Agent prompt hooks: use the host-specific capture switch in [Connect Agents](../integrations/index.md).

@@ -217,6 +217,7 @@ from powercontext.http._generated.models import (
     SkillPackageDownload,
     SkillPackageManifest,
     SourceDefinitionManifest,
+    SourceLimits,
     SourceObservationReceipt,
     SourcePage,
     SourceRecord,
@@ -700,6 +701,30 @@ GET_CAPABILITIES = Operation[None, Capabilities](
     responses={
         200: {
             "description": "Behavior enabled by the assembled runtime.",
+            "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+        },
+        401: {"$ref": "#/components/responses/Unauthorized"},
+        403: {"$ref": "#/components/responses/Forbidden"},
+        503: {"$ref": "#/components/responses/Unavailable"},
+    },
+    access=AccessRequirement(action="server.observe", resource="server", scope_id_field=None, resolver="static"),
+)
+
+GET_SOURCE_LIMITS = Operation[None, SourceLimits](
+    method="GET",
+    path="/v1/source-limits",
+    operation_id="get_source_limits",
+    request_type=None,
+    request_location=None,
+    path_parameters=(),
+    response_type=SourceLimits,
+    success_status=200,
+    summary="Get effective Source capture limits",
+    tags=("sources",),
+    scope_mode="none",
+    responses={
+        200: {
+            "description": "Effective Source limits for this deployment.",
             "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
         },
         401: {"$ref": "#/components/responses/Unauthorized"},
