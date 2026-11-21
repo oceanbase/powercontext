@@ -1,0 +1,20 @@
+{
+  "schema": "evidence-admission.v19.remaining-execution.v1",
+  "generation_admission_and_scoring": "unchanged_v18_inherited_files_verified_byte_for_byte",
+  "original_identity_hash": "526b940c4f2699f69cadc077e6a6407b9b0f233cf02bad86a002b9cd3e6ce2aa",
+  "original_preparation_hash": "1e2700339c8d0a1e44321b5fe5f8c05fced26126a43df2b3836270acdcb7cbab",
+  "original_state_hash": "edf2fe610a3ad168647f8d1076b4568adb77e5e66edab6a6e7cbd4ae87728a7e",
+  "original_preflight_hash": "176440e1077cb6d7dea64931c9783568679e0d54e17aeea5e6fdd9c02df76d9e",
+  "remaining_calls_hash": "48c45f242730dec0379699ad6c72ca64561e90b168a6e87290a5b53a0d754742",
+  "original_records_hash": "eb820ecf2b1ccc7a734014869a2018db66adebd53ea4fead70f9245e99778b02",
+  "attempted_prefix": 4,
+  "remaining_calls": 467,
+  "budget_scope": "cumulative_v9_onward_known_peak_upper_plus_every_unknown_full_context_reserve_plus_next_request_reserve",
+  "approved_budget_default_cny": "5.00",
+  "budget_change": "requires_explicit_user_authorization_recorded_separately_at_preparation_no_implicit_increase",
+  "unknown_usage": "never_zero_never_release_reserve_never_retry_the_original_fourth_call",
+  "quality_failure": "retain_original_output_and_continue_independent_frozen_calls_without_retry",
+  "new_unknown_usage": "stop_this_continuation_without_automatic_resume",
+  "report": "combined_471_call_plan_original_unknown_call_keeps_execution_incomplete_and_insufficient_evidence",
+  "production_behavior_change": false
+}

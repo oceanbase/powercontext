@@ -1,0 +1,118 @@
+{
+  "schema": "evidence-admission.v16.contract.v1",
+  "baseline_commit": "87c70714",
+  "scope": "evaluation_only",
+  "fact_selection_policy_changed": false,
+  "output_protocol": "protected-inline-cell-reference-v1",
+  "hypothesis": "protect byte-sensitive clusters and code spans while leaving ordinary Unicode prose verbatim without cell wrappers",
+  "cell_rule": {
+    "code_spans": "nonempty single-backtick pairs, inner bytes intact",
+    "unicode": "CRLF, CR, combining clusters, marks/modifiers/variation/ZWJ chains, regional flags and symbol-category So cells; ordinary Unicode letters and punctuation remain literal prose",
+    "plain_ascii": "no cells outside code spans",
+    "whole_leaf_fallback": false,
+    "label_agnostic": true,
+    "full_uax29_segmentation_claimed": false,
+    "plain_unicode_prose": "no copy cells outside protected clusters and code spans; no normalization or evidence removal"
+  },
+  "wire": "typed string segments inline; evidence bytes appear once, no cell value table",
+  "aliases": "all supplied evidence, independently of cell presence",
+  "normalization": "none_before_persistence",
+  "atomicity": "independently changeable assertions, including shared subjects; allow multiple copy parts per fact; never auto-split responses",
+  "copy_limits": {
+    "candidate_bytes": 8192,
+    "parts": 16,
+    "candidates": 64
+  },
+  "datasets": {
+    "synthetic-v1": 900,
+    "validation-v2": 360,
+    "validation-v3": 360
+  },
+  "candidate_samples": 324,
+  "candidate_required_claims": 495,
+  "budgets": [
+    2048,
+    4096,
+    8192
+  ],
+  "repetitions": 3,
+  "resource_limits": {
+    "per_call": "frozen budget",
+    "cumulative": "8 times frozen budget",
+    "calls": 16
+  },
+  "offline_gate": {
+    "all_sample_identities_present": true,
+    "single_identity_across_datasets": true,
+    "selection_and_wire_roundtrip_unchanged": true,
+    "all_arm_budget_rejections": 0,
+    "candidate_executable_required_claims": 495,
+    "nondeterministic_groups": 0,
+    "historical_v15_selection_status_coverage_regressions": 0,
+    "historical_v15_executable_regressions": 0
+  },
+  "stopping": "Any failed completed phase ends v15 with insufficient_evidence; no parameter changes or provider calls after offline failure. Complete and retain all three offline datasets for the planned comparison.",
+  "online": {
+    "enabled_by_default": false,
+    "minimal_cases": [
+      "exact-literals",
+      "unicode-boundaries"
+    ],
+    "budget": 4096,
+    "arm": "bounded-fragments-v3",
+    "repetition": 0,
+    "per_case_requests": 1,
+    "requires": [
+      "offline_gate_passed",
+      "actual_HEAD_blob_verification",
+      "SDK_Pipeline_preflight",
+      "full_conditional_budget_carry_forward",
+      "runtime_rate_verification",
+      "bound_semantic_review_before_next_case"
+    ],
+    "provider": "openai-compatible",
+    "model": "deepseek-v4-flash",
+    "base_url": "https://api.deepseek.com",
+    "thinking": {
+      "type": "disabled"
+    },
+    "temperature": 0,
+    "max_output_tokens": 2048,
+    "retries": 0,
+    "copy_units_cover_minimal_required_literals": true
+  },
+  "formal_comparison": "not automatically authorized by minimal live success",
+  "final_decisions": [
+    "bounded_projection_follow_up_required",
+    "no_production_change",
+    "insufficient_evidence"
+  ],
+  "production_authorized": false,
+  "identity_contract": {
+    "preparation": "all existing frozen dependencies, runtime code, v16 core, tests, protocol and engineering history; no execution-code exclusions",
+    "execution": "not_reached_after_known_minimal_failure",
+    "core_changes_after_offline": "invalidate the comparison; never reuse acceptance under a different core identity"
+  },
+  "budget_carry_forward": {
+    "scope": "user_confirmed_v9_and_later",
+    "approved_total_cny": "5.00",
+    "prior_known_upper_charge_cny": "0.090520",
+    "remaining_conditional_cny": "4.909480",
+    "pre_approval_v5_unknown_usage_excluded_from_this_budget_but_retained_in_history": true
+  },
+  "historical_v15_identity_hash": "a44d21c112e5a269d31c1c5d1ce2dc3cef2123a40ff325f02c4d5a8266c37938",
+  "historical_comparison_sha256": {
+    "synthetic-v1": "f4aa6d21997a95da1a5e0307bab95e2eb15a2870f65d72ce85b0ade472ff3988",
+    "validation-v2": "2354ee1b133b293ac73ad759e275f0b4fb2daeae612fd72c0eb2ad2cd832fef5",
+    "validation-v3": "e9130ae2e4f362151c51957d30ce3bda3594a4e387d0d5dc8489d1784f6ee7c7"
+  },
+  "known_before_formal_comparison": {
+    "case": "unicode-boundaries",
+    "budget": 4096,
+    "observed_requests": 3,
+    "frozen_request_limit": 1,
+    "goal_passed": false,
+    "consequence": "complete_planned_offline_matrix_then_insufficient_evidence; no SDK or provider stage in this version",
+    "development_record_sha256": "4adaf018900424d7cf2c652f3ad79c33ec867e5773eac39040635c07ca438fc9"
+  }
+}

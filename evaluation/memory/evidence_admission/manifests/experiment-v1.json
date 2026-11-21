@@ -1,0 +1,30 @@
+{
+  "schema_version": "evidence-admission.experiment.v1",
+  "arms": [
+    "complete-projection-v1",
+    "window-reduction-v1",
+    "bounded-fragments-v1"
+  ],
+  "budgets": [
+    2048,
+    4096,
+    8192
+  ],
+  "fragment_bytes": 512,
+  "ordering": "source-field-original-order-v1",
+  "selection": "field-fair-head-tail-mid-largest-gap-v1",
+  "estimator": "character:weighted@1",
+  "repetitions": 3,
+  "live_repetitions": 3,
+  "model_settings": {
+    "temperature": 0
+  },
+  "max_requests_per_call": 1,
+  "max_output_tokens": 2048,
+  "timeout_seconds": 60,
+  "concurrency": 1,
+  "normalization": "none",
+  "fixture_sha256": "a2328bcac39aee107a6f82cb3e0b6404449b7e1ef7a8e1cee789a724553c8968",
+  "catalog_sha256": "8b05926dae654dcd7c473b678f4d84d51a75ccdff1ed458ae0a33d1e51123776",
+  "decision_sha256": "b3466c00f4f47ef0ecad741b0b632f18ac6bd54d159ab99ffd3d7afa82f81248"
+}

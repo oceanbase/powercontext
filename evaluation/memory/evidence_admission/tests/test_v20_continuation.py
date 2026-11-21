@@ -1,0 +1,507 @@
+# Copyright (c) 2026 OceanBase.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""No-resend and protected-budget regressions for a continuation using the real native SDK."""
+
+from __future__ import annotations
+
+import asyncio
+import copy
+import json
+import multiprocessing
+import os
+from decimal import Decimal
+
+import httpx
+import pytest
+
+from powercontext_eval_evidence_admission.manifests import EvaluationError, read_json
+from powercontext_eval_evidence_admission.models import digest
+from powercontext_eval_evidence_admission.v9_preflight.workflow import mock_response
+from powercontext_eval_evidence_admission.v18 import core
+from powercontext_eval_evidence_admission.v18.adapter import extract
+from powercontext_eval_evidence_admission.v18.workflow import calls_for, recorder, reservation
+from powercontext_eval_evidence_admission.v20 import workflow
+
+
+def _terminate_v20_before_scoring(directory, rejected=False, during_state_write=False):
+    def terminate(*_args, **_kwargs):
+        os._exit(91)
+
+    response = mock_response()
+    response["model"] = "deepseek-flash"
+    response["choices"][0]["message"]["content"] = '{"candidates":[]}'
+    if rejected:
+        response["choices"][0]["message"]["content"] = json.dumps(
+            {
+                "candidates": [
+                    {
+                        "kind": "fact",
+                        "text": "Synthetic rejection.",
+                        "description": "Synthetic rejection.",
+                        "evidence_ids": ["not-supplied"],
+                    }
+                ]
+            }
+        )
+    if during_state_write:
+        replace = os.replace
+
+        def interrupt_state_write(source, target):
+            if target == directory / "state.json":
+                state = read_json(source)
+                if state["state"] == "scoring_pending" and state["records"][-1]["scoring_state"] == "complete":
+                    os._exit(91)
+            replace(source, target)
+
+        os.replace = interrupt_state_write
+    else:
+        workflow.score_output = terminate
+
+    def respond(_request):
+        if during_state_write:
+            with (directory / "mock-requests.txt").open("a", encoding="utf-8") as stream:
+                stream.write("request\n")
+        return httpx.Response(200, json=response)
+
+    asyncio.run(
+        workflow.run_next(
+            directory,
+            transport=httpx.MockTransport(respond),
+        )
+    )
+
+
+def test_attempted_unknown_usage_is_excluded_from_remaining_plan():
+    manifest = {"rows": [{"row_id": "row", "sample": {"input_hashes": ["a", "b", "c"]}}]}
+    calls = calls_for(manifest)
+    attempted = [{"call_id": digest(calls[0]), **calls[0], "known_charge_cny": None}]
+    assert workflow.remaining_calls(manifest, attempted) == calls[1:]
+    with pytest.raises(EvaluationError, match="exact_attempted_prefix"):
+        workflow.remaining_calls(manifest, [{**attempted[0], "call_id": digest(calls[1])}])
+    with pytest.raises(EvaluationError, match="input_binding"):
+        workflow.remaining_calls(manifest, [{**attempted[0], "input_hash": "changed"}])
+
+
+def test_every_unknown_keeps_full_context_reserve_and_known_cost_is_not_reset():
+    state = {"known_charge_cny": "0.005214", "records": [{"known_charge_cny": None}]}
+    assert workflow.budget_available(state, "5") == Decimal("2.770600")
+    assert workflow.budget_available(state, "15") == Decimal("12.770600")
+    state["records"].append({"known_charge_cny": None})
+    assert workflow.budget_available(state, "5") == Decimal("0.657064") < reservation()
+
+
+def test_actual_parent_prefix_excludes_all_120_attempts_and_reserves_both_unknowns():
+    manifest = {"rows": [{"row_id": "row", "sample": {"input_hashes": [str(i) for i in range(471)]}}]}
+    calls = calls_for(manifest)
+    records = [
+        {"call_id": digest(call), **call, "known_charge_cny": None if i in {3, 119} else "0"}
+        for i, call in enumerate(calls[:120])
+    ]
+    assert workflow.remaining_calls(manifest, records) == calls[120:]
+    assert len(workflow.remaining_calls(manifest, records)) == 351
+    assert workflow.budget_available({"known_charge_cny": "0.578252", "records": records}, "20") == Decimal("15.084026")
+
+
+def test_budget_increase_cannot_reuse_default_twenty_yuan_authorization(tmp_path):
+    with pytest.raises(EvaluationError, match="explicit_authorization"):
+        workflow.prepare(tmp_path / "absent", tmp_path / "new", approved_total="25")
+
+
+@pytest.mark.parametrize("budget", ["NaN", "Infinity", "-1", "101", "invalid"])
+def test_invalid_budget_rejected_before_reading_private_sources(tmp_path, budget):
+    with pytest.raises(EvaluationError, match="invalid_budget"):
+        workflow.prepare(tmp_path / "absent", tmp_path / "new", approved_total=budget)
+
+
+@pytest.fixture
+def continuation(tmp_path, monkeypatch):
+    async def build():
+        source = tmp_path / "old"
+        case = core.suite_for("synthetic-v1").cases[0]
+        rows, hashes = [], {}
+        for arm in core.ARMS:
+            row, values = await core.prepare_one("synthetic-v1", case, arm, 4096, 0)
+            rows.append(row)
+            core.dump(source / "inputs" / (row["row_id"] + ".json"), [v.model_dump(mode="json") for v in values])
+            call = calls_for({"rows": [row]})[0]
+            record = {}
+            response = mock_response()
+            response["model"] = "deepseek-flash"
+            response["choices"][0]["message"]["content"] = '{"candidates":[]}'
+            await extract(
+                values[0],
+                api_key="offline-not-a-credential",
+                record=record,
+                save=recorder(tmp_path / "old-mock-preflight", digest(call)),
+                transport=httpx.MockTransport(lambda request, body=response: httpx.Response(200, json=body)),
+            )
+            hashes[digest(call)] = record["request_facts"]["http_request_hash"]
+        snapshot = core.identity()
+        manifest = {
+            "schema": "offline-regression",
+            "identity": snapshot,
+            "identity_hash": digest(snapshot),
+            "rows": rows,
+            "expected_rows": 3,
+            "reliability_passed": True,
+            "nondeterministic_groups": 0,
+            "paired_identity_mismatches": 0,
+            "generation_performed": False,
+        }
+        calls = calls_for(manifest)
+        old = {
+            "call_id": digest(calls[0]),
+            **calls[0],
+            "known_charge_cny": None,
+            "provider_usage": None,
+            "outcome": "output_or_inference_failed",
+            "pipeline_returned": False,
+        }
+        state = {
+            "state": "unknown_usage_stopped",
+            "records": [old],
+            "known_charge_cny": "0",
+            "mode": "live",
+            "freeze": {"identity_hash": digest(snapshot)},
+            "next_call": 0,
+        }
+        preflight = {"passed": True, "preparation_hash": digest(manifest), "request_hashes": hashes}
+        p = copy.deepcopy(workflow.policy())
+        p.update(
+            original_identity_hash=digest(snapshot),
+            original_preparation_hash=digest(manifest),
+            original_state_hash=digest(state),
+            original_preflight_hash=digest(preflight),
+            original_records_hash=digest(state["records"]),
+            attempted_prefix=1,
+            remaining_calls=2,
+            remaining_calls_hash=digest(calls[1:]),
+        )
+        monkeypatch.setattr(workflow, "policy", lambda: p)
+        core.dump(source / "preparation.json", manifest)
+        core.dump(source / "state.json", state)
+        core.dump(source / "preflight.json", preflight)
+        directory = tmp_path / "new"
+        workflow.prepare(source, directory, approved_total="5.00")
+        await workflow.preflight(directory)
+        current = read_json(directory / "state.json")
+        current.update(state="ready", mode="offline", preflight_hash=digest(read_json(directory / "preflight.json")))
+        core.dump(directory / "state.json", current)
+        return directory, source
+
+    return asyncio.run(build())
+
+
+def test_native_continuation_never_resends_unknown_prefix_and_history_stays_immutable(continuation):
+    directory, source = continuation
+    original = (source / "state.json").read_bytes()
+    seen = []
+
+    def respond(request):
+        seen.append(request)
+        response = mock_response()
+        response["model"] = "deepseek-flash"
+        response["choices"][0]["message"]["content"] = '{"candidates":[]}'
+        return httpx.Response(200, json=response)
+
+    async def run():
+        assert (await workflow.run_next(directory, transport=httpx.MockTransport(respond)))["state"] == "ready"
+        assert (await workflow.run_next(directory, transport=httpx.MockTransport(respond)))["state"] == "ready"
+        assert (await workflow.run_next(directory, transport=httpx.MockTransport(respond)))["state"] == "finished"
+        with pytest.raises(EvaluationError, match="no_resend"):
+            await workflow.run_next(directory, transport=httpx.MockTransport(respond))
+
+    asyncio.run(run())
+    assert len(seen) == 2
+    records = read_json(directory / "state.json")["records"]
+    assert len(records) == len({r["call_id"] for r in records}) == 3
+    assert records[0]["known_charge_cny"] is None
+    assert (source / "state.json").read_bytes() == original
+
+
+def test_second_unknown_usage_stops_without_resending_and_keeps_reserve(continuation):
+    directory, _ = continuation
+
+    def fail(request):
+        raise httpx.ConnectError("private error must not appear in report", request=request)
+
+    result = asyncio.run(workflow.run_next(directory, transport=httpx.MockTransport(fail)))
+    assert result["state"] == "unknown_usage_stopped"
+    assert result["new_attempted_calls"] == 1
+    assert Decimal(result["protected_available_cny"]) < reservation()
+    record = read_json(directory / "state.json")["records"][-1]
+    assert record["failure_category"] == "provider_unavailable"
+    assert "private error" not in json.dumps(record)
+    with pytest.raises(EvaluationError, match="no_resend"):
+        asyncio.run(workflow.run_next(directory, transport=httpx.MockTransport(fail)))
+
+
+def test_budget_guard_includes_inherited_unknown_before_any_transport(continuation):
+    directory, _ = continuation
+    state = read_json(directory / "state.json")
+    state["known_charge_cny"] = "1"
+    core.dump(directory / "state.json", state)
+
+    def forbidden(request):
+        pytest.fail("budget guard sent a request")
+
+    result = asyncio.run(workflow.run_next(directory, transport=httpx.MockTransport(forbidden)))
+    assert result["state"] == "budget_stopped" and result["new_attempted_calls"] == 0
+
+
+def test_scoring_failure_preserves_received_usage_and_stops(continuation, monkeypatch):
+    directory, _ = continuation
+
+    def bad_score(*args):
+        raise ValueError("private evaluator failure")
+
+    monkeypatch.setattr(workflow, "score_output", bad_score)
+    response = mock_response()
+    response["model"] = "deepseek-flash"
+    response["choices"][0]["message"]["content"] = '{"candidates":[]}'
+    result = asyncio.run(
+        workflow.run_next(directory, transport=httpx.MockTransport(lambda request: httpx.Response(200, json=response)))
+    )
+    assert result["state"] == "audit_failed" and result["new_attempted_calls"] == 1
+    last = read_json(directory / "state.json")["records"][-1]
+    assert last["known_charge_cny"] is not None and last["provider_usage"] is not None
+
+
+@pytest.mark.parametrize("rejected", [False, True], ids=["accepted", "citation-rejected"])
+def test_scoring_interruption_resumes_without_resending_or_double_charging(continuation, rejected):
+    directory, _ = continuation
+    process = multiprocessing.get_context("fork").Process(
+        target=_terminate_v20_before_scoring, args=(directory, rejected)
+    )
+    process.start()
+    process.join(60)
+    assert process.exitcode == 91
+
+    pending = read_json(directory / "state.json")
+    assert pending["state"] == "scoring_pending"
+    assert pending["next_call"] == 1
+    assert len(pending["records"]) == 2
+    assert pending["records"][-1]["score_required"] is True
+    assert pending["records"][-1]["scoring_state"] == "pending"
+    assert pending["records"][-1]["score"] is None
+    recorded_charge = pending["known_charge_cny"]
+
+    def reject_resend(_request):
+        pytest.fail("scoring recovery must not resend the provider request")
+
+    resumed = asyncio.run(workflow.run_next(directory, transport=httpx.MockTransport(reject_resend)))
+    recovered = read_json(directory / "state.json")
+    assert resumed["state"] == recovered["state"] == "ready"
+    assert recovered["next_call"] == 2
+    assert recovered["known_charge_cny"] == recorded_charge
+    assert len(recovered["records"]) == 2
+    assert recovered["records"][-1]["scoring_state"] == "complete"
+    assert recovered["records"][-1]["score"] is not None
+    assert recovered["records"][-1]["outcome"] == ("output_or_inference_failed" if rejected else "returned")
+    assert recovered["records"][-1]["score"]["invalid_support_candidates"] == int(rejected)
+
+
+@pytest.mark.parametrize("rejected", [False, True], ids=["accepted", "citation-rejected"])
+def test_scoring_recovery_rejects_changed_parsed_output(continuation, rejected):
+    directory, _ = continuation
+    process = multiprocessing.get_context("fork").Process(
+        target=_terminate_v20_before_scoring, args=(directory, rejected)
+    )
+    process.start()
+    process.join(60)
+    assert process.exitcode == 91
+    pending = read_json(directory / "state.json")
+    record = pending["records"][-1]
+    manifest = read_json(directory / "preparation.json")
+    row = next(r for r in manifest["rows"] if r["row_id"] == record["row_id"])
+    case = next(c for c in core.suite_for(row["dataset"]).cases if c.case_id == row["case"])
+    value = read_json(directory / "inputs" / (row["row_id"] + ".json"))[record["input_index"]]
+    core.dump(
+        directory / "audit" / (record["call_id"] + ".parsed.json"),
+        {
+            "candidates": [
+                {
+                    "kind": "fact",
+                    "text": case.required[0].text,
+                    "description": case.required[0].text,
+                    "evidence_ids": [value["evidence"][0]["evidence_id"]],
+                }
+            ]
+        },
+    )
+
+    def reject_resend(_request):
+        pytest.fail("changed scoring evidence must not trigger a provider request")
+
+    result = asyncio.run(workflow.run_next(directory, transport=httpx.MockTransport(reject_resend)))
+    state = read_json(directory / "state.json")
+    assert result["state"] == "audit_failed"
+    assert state["known_charge_cny"] == pending["known_charge_cny"]
+    assert state["next_call"] == pending["next_call"]
+    assert state["records"][-1]["score"] is None
+    assert state["records"][-1]["scoring_state"] == "failed"
+    assert not (directory / "audit" / (record["call_id"] + ".review.json")).exists()
+
+
+@pytest.mark.parametrize("change", ["missing_binding", "response", "request", "output", "missing_parsed"])
+def test_scoring_recovery_requires_preserved_output_binding(continuation, change):
+    directory, _ = continuation
+    process = multiprocessing.get_context("fork").Process(target=_terminate_v20_before_scoring, args=(directory,))
+    process.start()
+    process.join(60)
+    assert process.exitcode == 91
+    pending = read_json(directory / "state.json")
+    record = pending["records"][-1]
+    audit = directory / "audit"
+    if change == "missing_binding":
+        record.pop("parsed_output_hash", None)
+        core.dump(directory / "state.json", pending)
+    elif change == "response":
+        path = audit / (record["call_id"] + ".response-bytes.json")
+        path.write_bytes(path.read_bytes() + b" ")
+    elif change == "request":
+        path = audit / (record["call_id"] + ".request.json")
+        request = read_json(path)
+        request["model"] = "changed"
+        core.dump(path, request)
+    elif change == "missing_parsed":
+        (audit / (record["call_id"] + ".parsed.json")).unlink()
+    else:
+        core.dump(
+            audit / (record["call_id"] + ".output.json"),
+            {
+                "candidates": [
+                    {
+                        "kind": "fact",
+                        "text": "Changed.",
+                        "description": "Changed.",
+                        "evidence_ids": ["changed"],
+                    }
+                ]
+            },
+        )
+
+    def reject_resend(_request):
+        pytest.fail("unverifiable scoring evidence must not trigger a provider request")
+
+    result = asyncio.run(workflow.run_next(directory, transport=httpx.MockTransport(reject_resend)))
+    state = read_json(directory / "state.json")
+    assert result["state"] == "audit_failed"
+    assert state["known_charge_cny"] == pending["known_charge_cny"]
+    assert state["next_call"] == pending["next_call"]
+    assert state["records"][-1]["score"] is None
+    if change == "missing_binding":
+        assert state["records"][-1]["failure_category"] == "scoring_output_binding_unavailable"
+
+
+@pytest.mark.parametrize("change", ["unchanged", "score", "parsed"])
+def test_completed_score_recovery_checks_binding_before_advancing(continuation, change):
+    directory, _ = continuation
+    response = mock_response()
+    response["model"] = "deepseek-flash"
+    response["choices"][0]["message"]["content"] = '{"candidates":[]}'
+    asyncio.run(
+        workflow.run_next(directory, transport=httpx.MockTransport(lambda _request: httpx.Response(200, json=response)))
+    )
+    state = read_json(directory / "state.json")
+    record = state["records"][-1]
+    # Persisted score followed by a crash before the ready/next-call write.
+    state.update(state="scoring_pending", in_flight=record["call_id"], next_call=state["next_call"] - 1)
+    if change == "score":
+        record["score"]["retained_atoms"] = 1
+    elif change == "parsed":
+        core.dump(
+            directory / "audit" / (record["call_id"] + ".parsed.json"),
+            {
+                "candidates": [
+                    {
+                        "kind": "fact",
+                        "text": "Changed.",
+                        "description": "Changed.",
+                        "evidence_ids": ["changed"],
+                    }
+                ]
+            },
+        )
+    core.dump(directory / "state.json", state)
+
+    def reject_resend(_request):
+        pytest.fail("completed scoring recovery must not resend")
+
+    result = asyncio.run(workflow.run_next(directory, transport=httpx.MockTransport(reject_resend)))
+    recovered = read_json(directory / "state.json")
+    assert result["state"] == ("ready" if change == "unchanged" else "audit_failed")
+    assert recovered["next_call"] == state["next_call"] + int(change == "unchanged")
+    assert recovered["known_charge_cny"] == state["known_charge_cny"]
+    if change != "unchanged":
+        assert recovered["records"][-1]["score"] is None
+
+
+@pytest.mark.parametrize("rejected", [False, True], ids=["accepted", "citation-rejected"])
+def test_interrupted_score_state_publication_recovers_with_orphaned_files(continuation, rejected):
+    directory, source = continuation
+    original = (source / "state.json").read_bytes()
+    recorded_charge = None
+    receipt = None
+    for _ in range(2):
+        process = multiprocessing.get_context("fork").Process(
+            target=_terminate_v20_before_scoring, args=(directory, rejected, True)
+        )
+        process.start()
+        try:
+            process.join(60)
+            assert process.exitcode == 91
+        finally:
+            if process.is_alive():
+                process.kill()
+                process.join(10)
+
+        pending = read_json(directory / "state.json")
+        assert pending["state"] == "scoring_pending"
+        assert pending["next_call"] == 1
+        assert len(pending["records"]) == 2
+        assert pending["records"][-1]["scoring_state"] == "pending"
+        assert pending["records"][-1]["score"] is None
+        assert (directory / "mock-requests.txt").read_text().splitlines() == ["request"]
+        current_receipt = (directory / "audit" / (pending["in_flight"] + ".review.json")).read_bytes()
+        if recorded_charge is None:
+            recorded_charge = pending["known_charge_cny"]
+            receipt = current_receipt
+        assert pending["known_charge_cny"] == recorded_charge
+        assert current_receipt == receipt
+
+    # Old fixed-name files are not authoritative and must not require manual removal.
+    stale = directory / "state.json.tmp"
+    if not stale.exists():
+        stale.write_bytes(b"incomplete legacy temporary state")
+    stale_bytes = stale.read_bytes()
+
+    def reject_resend(_request):
+        pytest.fail("state-write recovery must not resend the provider request")
+
+    resumed = asyncio.run(workflow.run_next(directory, transport=httpx.MockTransport(reject_resend)))
+    recovered = read_json(directory / "state.json")
+    assert resumed["state"] == recovered["state"] == "ready"
+    assert recovered["next_call"] == 2
+    assert len(recovered["records"]) == 2
+    assert recovered["known_charge_cny"] == recorded_charge
+    assert recovered["records"][-1]["scoring_state"] == "complete"
+    assert recovered["records"][-1]["score"] is not None
+    assert recovered["records"][-1]["outcome"] == ("output_or_inference_failed" if rejected else "returned")
+    assert recovered["records"][-1]["score"]["invalid_support_candidates"] == int(rejected)
+    assert (directory / "mock-requests.txt").read_text().splitlines() == ["request"]
+    assert (directory / "audit" / (pending["in_flight"] + ".review.json")).read_bytes() == receipt
+    assert (source / "state.json").read_bytes() == original
+    assert stale.read_bytes() == stale_bytes

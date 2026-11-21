@@ -77,14 +77,15 @@ gateway-tck: ## Check gateway protocol behavior against pinned upstream compatib
 	@uv run --no-project --python 3.11 python tests/e2e/gateway_tck.py $(ARGS)
 
 .PHONY: evaluation-unit-test
-evaluation-unit-test: ## Run the evaluation unit tests, the work-continuity and agent tool recovery suites included.
+evaluation-unit-test: ## Run evaluation suites and runtime-dependent recovery/budget tests.
 	@uv sync --project evaluation --frozen --extra capture-ownership
 	@uv run --project evaluation --extra capture-ownership pytest -c evaluation/pyproject.toml \
 		evaluation/artifact_evolution/tests \
 		evaluation/coding/swebench_pro/tests/unit \
 		evaluation/coding/work_continuity/tests/unit \
 		evaluation/memory/longmemeval_v2/tests \
-		evaluation/memory/capture_ownership/tests -m "not live" -q
+		evaluation/memory/capture_ownership/tests \
+		evaluation/memory/evidence_admission/tests -m "not live" -q
 	@# Agent tool recovery and prepared-context budgets use the runtime in the root project environment.
 	@uv run --frozen pytest evaluation/agent_tool_recovery/tests evaluation/memory/prepared_context_budget/tests -q
 

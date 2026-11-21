@@ -1,0 +1,37 @@
+{
+  "schema": "evidence-admission.live-policy.v2",
+  "candidate": "bounded-fragments-v3",
+  "required_datasets": [
+    "synthetic-v1",
+    "validation-v2",
+    "validation-v3"
+  ],
+  "required_retention": 1.0,
+  "exact_literal_retention": 1.0,
+  "require_preparation_pass": true,
+  "require_all_arm_generation_coverage": true,
+  "require_matching_provider_model_endpoint": true,
+  "require_matching_prepared_inputs": true,
+  "require_original_and_audited_runs": true,
+  "require_committed_live_freeze": true,
+  "require_complete_reported_usage": true,
+  "critical_unsupported_max": 0,
+  "false_attribution_max": 0,
+  "invalid_support_max": 0,
+  "unresolved_max": 0,
+  "generation_comparison": "report_all_identity_losses_including_impossible_cases",
+  "smoke": {
+    "dataset": "synthetic-v1",
+    "cases": [
+      "small-complete",
+      "single-source-overflow"
+    ],
+    "budgets": [
+      4096
+    ],
+    "repetitions": 1,
+    "formal_matrix": false
+  },
+  "require_audited_smoke": true,
+  "require_valid_references_in_all_smoke_arms": true
+}

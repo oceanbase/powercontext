@@ -1,0 +1,19 @@
+{
+  "schema": "evidence-admission.decision.v1",
+  "required_retention": 1.0,
+  "exact_literal_retention": 1.0,
+  "critical_unsupported_max": 0,
+  "false_attribution_max": 0,
+  "invalid_support_max": 0,
+  "unresolved_max": 0,
+  "require_deterministic_input": true,
+  "require_disclosed_omissions": true,
+  "require_cancellation_without_publication": true,
+  "require_reproducible_one_source_improvement": true,
+  "require_live_coverage": true,
+  "require_committed_freeze": true,
+  "near_duplicate": {
+    "version": "character-bigram-jaccard-v1",
+    "threshold": 0.85
+  }
+}

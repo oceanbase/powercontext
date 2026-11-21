@@ -1,0 +1,90 @@
+{
+  "schema": "evidence-admission.v9-live.contract.v1",
+  "revision": "preserve-native-json-order-v2",
+  "input_persistence": "preserve_native_object_order_for_identical_sdk_user_text_canonical_identity_hashes_unchanged",
+  "scope": "paired_evaluation_runner_not_production",
+  "max_calls": 102,
+  "max_output_tokens": 2048,
+  "concurrency": 1,
+  "retries": 0,
+  "actual_input_budget": "stop_after_usage_above_sample_budget_preserve_frozen_character_estimator_gate_separately",
+  "first_pair": {
+    "case": "exact-literals",
+    "budget": 4096,
+    "repetition": 0
+  },
+  "review": {
+    "default_reviewer": "assistant",
+    "independent_human_review": false,
+    "candidate_identity": "case_sample_call_output_candidate_index_and_hash",
+    "semantic_match": "explicit_entailed_atom_ids_not_substring_approval",
+    "support": "cited_request_local_source_field_and_whole_atom_byte_span_plus_explicit_semantic_review",
+    "atomicity": "one_independently_reusable_assertion_per_candidate",
+    "literal_match": "exact_utf8_bytes_in_semantically_approved_candidate",
+    "unreviewed": "unresolved_never_pass",
+    "legacy_score": "unchanged_score_generation_without_new_semantic_overrides",
+    "persistence": "not_exercised_pre_persistence_bytes_only",
+    "eligible": "reference_required_content_fits",
+    "ineligible": "report_partial_coverage_never_complete_success",
+    "advance": "candidate_complete_if_eligible_no_unsupported_or_nonatomic_candidates_no_literal_loss",
+    "baseline_failure": "record_quality_failures_do_not_require_baseline_perfection",
+    "contract_conflict": "report_legacy_and_atom_scores_separately_never_relabel"
+  },
+  "literal_atoms": [
+    {
+      "id": "deployment-command",
+      "text": "Deploy with `deployctl --region cn-2 --retries 03`",
+      "literal_index": 0
+    },
+    {
+      "id": "deployment-config-path",
+      "text": "configuration path `/srv/synthetic/app.toml`",
+      "literal_index": 1
+    },
+    {
+      "id": "deployment-job",
+      "text": "job `batch_A-17`",
+      "literal_index": 2
+    },
+    {
+      "id": "deployment-limit",
+      "text": "limit `0.075`",
+      "literal_index": 3
+    }
+  ],
+  "unicode_atoms": [
+    {
+      "id": "unicode-release-check",
+      "text": "用户要求：发布前检查中文说明、emoji 👩🏽‍💻 和组合字符 é。\r\n",
+      "literal_indexes": [
+        0,
+        1,
+        2
+      ]
+    },
+    {
+      "id": "unicode-preserve-newline",
+      "text": "下一步保留原始换行。",
+      "literal_indexes": []
+    }
+  ],
+  "billing_envelope": {
+    "currency": "CNY",
+    "checked_date": "2026-10-27",
+    "source": "https://api-docs.deepseek.com/zh-cn/quick_start/pricing/",
+    "limit_source": "https://api-docs.deepseek.com/zh-cn/api/create-chat-completion/",
+    "input_token_bound": 1048576,
+    "input_bound_basis": "conservative_2_power_20_interpretation_of_documented_1M_context",
+    "output_token_bound": 2048,
+    "input_cny_per_million": "2",
+    "output_cny_per_million": "8",
+    "cache_assumption": "all_misses_peak_price",
+    "claim": "conditional_upper_charge_under_frozen_token_and_price_contract_not_provider_account_spend_cap",
+    "unknown_usage": "retain_reservation_and_stop",
+    "interrupted_reservation": "never_resend_or_release_automatically",
+    "budget_insufficient": "stop_before_attempt_or_http",
+    "price_currency_or_usage_contract_change": "stop_requires_new_contract"
+  },
+  "live_authorized_by_contract": false,
+  "production_authorized": false
+}

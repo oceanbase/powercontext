@@ -281,5 +281,12 @@ dev-*.db-shm
 # pnpm package store is a local cache, never committed.
 .pnpm-store/
 powercontext/gateway/
+
+# Repository-local test temporaries can contain databases and absolute symlinks.
+.pytest-tmp/
+
+# Evidence-admission reports, run records, and historical result bundles are
+# published as separately checksummed artifacts rather than committed with code.
+evaluation/memory/evidence_admission/results/
 !integrations/dsh/plugins/dsh-pet/lib/
 !integrations/dsh/plugins/dsh-pet/lib/index.js
