@@ -101,7 +101,7 @@ PC_GATEWAY_UPSTREAM_API_KEY_CHAT=... \
 # base prompt; read and validated at startup), PC_GATEWAY_SEDIMENT=on (capture after release),
 # PC_GATEWAY_MAX_CONCURRENT / PC_GATEWAY_MAX_BODY_BYTES.
 # PC_GATEWAY_UPSTREAM_PROFILE_RESPONSES=<profile> explicitly enables the Responses route.
-# PC_GATEWAY_CORE_TOKEN (bearer for Core when authentication is enabled).
+# PC_GATEWAY_CORE_TOKEN is required even for UDS and Core deployments without authentication.
 # PC_GATEWAY_PREFIX_EXTRACTION=on (with PC_GATEWAY_SEDIMENT=on: keep each Responses turn's prefix in memory for
 # 30 minutes and serve POST /gateway/v1/extract, so Core extracts memory over the provider's prompt cache).
 ```
@@ -109,6 +109,10 @@ PC_GATEWAY_UPSTREAM_API_KEY_CHAT=... \
 Core `InferenceConfig.protection.targets[<profile>]` owns the endpoint, model and protocol. Configure
 an authenticated service principal with both `gateway.invoke` and `scope.read` on the chosen Scope,
 and pass its bearer token as `PC_GATEWAY_CORE_TOKEN` (UDS alone does not authenticate).
+Each route selects one profile per Gateway instance: Chat uses `PC_GATEWAY_UPSTREAM_PROFILE`,
+and Responses uses `PC_GATEWAY_UPSTREAM_PROFILE_RESPONSES` when enabled. A request for a different
+model is rejected before sending, including when privacy enforcement is disabled. Deploy separately
+configured Gateway instances if one route must serve multiple models.
 For a TCP Core link, privileged target resolution requires HTTPS, except for HTTP to literal
 loopback IP addresses such as `PC_GATEWAY_CORE_BASE=http://127.0.0.1:8000` or `http://[::1]:8000`.
 Plain HTTP hostnames, including `http://localhost:8000`, are rejected: DNS resolution does not

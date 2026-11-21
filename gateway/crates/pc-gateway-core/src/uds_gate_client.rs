@@ -127,6 +127,14 @@ impl UdsGateClient {
         prefer_pool: bool,
         resolve_target: bool,
     ) -> Result<(u16, Vec<u8>), RpcFailure> {
+        if self.token.as_ref().is_some_and(|token| {
+            reqwest::header::HeaderValue::from_str(&format!("Bearer {token}")).is_err()
+        }) {
+            return Err(RpcFailure {
+                error: GateError::Malformed("invalid Core bearer token".into()),
+                handed_off: false,
+            });
+        }
         let mut leased = LeasedConnection::new(self.clone());
         let stream = leased.acquire(prefer_pool).await.map_err(|e| RpcFailure {
             error: GateError::GateUnavailable(format!("uds connect: {}", e.kind())),
@@ -137,9 +145,12 @@ impl UdsGateClient {
         let body = body.unwrap_or(&[]);
         let mut head = format!(
             "{method} {path} HTTP/1.1\r\nHost: powercontext\r\nContent-Type: application/json\r\n\
-             x-powercontext-scope-mode: current\r\nx-powercontext-resolve-target: {resolve_target}\r\nContent-Length: {}\r\n",
+             x-powercontext-scope-mode: current\r\nContent-Length: {}\r\n",
             body.len()
         );
+        if resolve_target {
+            head.push_str("x-powercontext-resolve-target: true\r\n");
+        }
         if let Some(t) = &self.token {
             head.push_str(&format!("Authorization: Bearer {t}\r\n"));
         }

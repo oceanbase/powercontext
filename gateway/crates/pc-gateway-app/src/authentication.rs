@@ -64,7 +64,7 @@ pub fn authenticate(expected: &str, headers: &HeaderMap) -> bool {
         && bool::from(expected.as_bytes().ct_eq(credential.as_bytes()))
 }
 
-fn is_bearer_token(value: &str) -> bool {
+pub(crate) fn is_bearer_token(value: &str) -> bool {
     // RFC 6750: at least one token character followed by optional '=' padding.
     let token = value.trim_end_matches('=');
     !token.is_empty()

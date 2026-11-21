@@ -461,18 +461,22 @@ async fn ingress_model(
         }
     };
     // P1 review：未配置的上游禁用路由（不默认到任何第三方）。
-    if let Format::Responses = format {
-        if state.responses_profile_name.is_none() {
-            return (
-                StatusCode::NOT_IMPLEMENTED,
-                Json(serde_json::json!({
-                    "error": "responses_route_disabled",
-                    "hint": "set PC_GATEWAY_UPSTREAM_PROFILE_RESPONSES to enable this route"
-                })),
-            )
-                .into_response();
-        }
-    }
+    let target_profile = match format {
+        Format::Chat => state.chat_profile_name.clone(),
+        Format::Responses => match &state.responses_profile_name {
+            Some(profile) => profile.clone(),
+            None => {
+                return (
+                    StatusCode::NOT_IMPLEMENTED,
+                    Json(serde_json::json!({
+                        "error": "responses_route_disabled",
+                        "hint": "set PC_GATEWAY_UPSTREAM_PROFILE_RESPONSES to enable this route"
+                    })),
+                )
+                    .into_response()
+            }
+        },
+    };
     let renderer = match format {
         Format::Chat => pc_gateway_protocol::GatewayRenderer::Chat(Default::default()),
         Format::Responses => pc_gateway_protocol::GatewayRenderer::Responses(Default::default()),
@@ -481,10 +485,7 @@ async fn ingress_model(
     let conversation = conversation_id(&headers, &format);
     let call = ManagedCall {
         scope_id: state.default_scope.clone(),
-        target_profile: match format {
-            Format::Chat => state.chat_profile_name.clone(),
-            Format::Responses => state.responses_profile_name.clone().unwrap_or_default(),
-        },
+        target_profile,
         request: canonical,
         target_protocol: match format {
             Format::Chat => "openai-chat".into(),

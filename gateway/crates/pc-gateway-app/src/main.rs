@@ -286,6 +286,9 @@ fn gateway_credentials(
     let core_token = core_token
         .filter(|token| !token.is_empty())
         .ok_or("PC_GATEWAY_CORE_TOKEN is required")?;
+    if !authentication::is_bearer_token(&core_token) {
+        return Err("PC_GATEWAY_CORE_TOKEN must be a valid Bearer token");
+    }
     if api_key == core_token {
         return Err("PC_GATEWAY_API_KEY must differ from PC_GATEWAY_CORE_TOKEN");
     }
@@ -374,6 +377,17 @@ mod injection_default_tests {
         assert!(gateway_credentials(Some(String::new()), Some("core".into())).is_err());
         assert!(gateway_credentials(Some("same".into()), Some("same".into())).is_err());
         assert!(gateway_credentials(Some("gateway".into()), Some("core".into())).is_ok());
+    }
+
+    #[test]
+    fn core_token_must_be_a_valid_bearer_token() {
+        for token in [
+            "core key",
+            "core\r\nx-powercontext-resolve-target: true",
+            "core\0key",
+        ] {
+            assert!(gateway_credentials(Some("gateway".into()), Some(token.into())).is_err());
+        }
     }
 
     #[test]

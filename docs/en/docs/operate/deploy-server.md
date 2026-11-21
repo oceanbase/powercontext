@@ -231,8 +231,13 @@ be directly reachable so a proxy cannot forge a privileged target approval for a
 
 Configure the trusted endpoint, protocol and model in Core `InferenceConfig.protection.targets`.
 Set `PC_GATEWAY_UPSTREAM_PROFILE` for Chat and, to enable Responses, `PC_GATEWAY_UPSTREAM_PROFILE_RESPONSES`.
+Each route selects one profile per Gateway instance. A request for another model on that route is rejected
+before sending; deployments that previously selected models per request need separately configured Gateway
+instances for those models.
 Grant the Gateway service identity both `gateway.invoke` and `scope.read` on the selected Scope;
 `PC_GATEWAY_CORE_TOKEN` must identify that service and differ from the mandatory client-facing `PC_GATEWAY_API_KEY`.
+This token is required at startup even for combined UDS deployments and Core deployments without authentication;
+previously tokenless deployments must configure a Core service identity before upgrading.
 The Gateway uses only the endpoint and protocol returned on an authorized `before_send` and never accepts
 `PC_GATEWAY_UPSTREAM_URL*`; these legacy variables now prevent startup. Core absence, missing target resolution,
 or a protocol mismatch pauses sending. The provider credential remains deployment-owned via
@@ -241,6 +246,8 @@ or a protocol mismatch pauses sending. The provider credential remains deploymen
 Do not share a profile between provider credential identities with distinct permissions. The upstream
 transport connects directly to the approved endpoint and ignores ambient HTTP proxy settings
 (`HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY`, etc.); configure a directly reachable Core-approved endpoint.
+Deployments that previously relied on these proxies to reach the provider must arrange direct connectivity
+before upgrading; an unreachable provider fails the send rather than falling back to the proxy.
 No offline passthrough is available: `PC_GATEWAY_DEGRADE=passthrough` fails startup.
 
 The model in a privileged send request must match the Core profile in every privacy mode, including `disabled`,

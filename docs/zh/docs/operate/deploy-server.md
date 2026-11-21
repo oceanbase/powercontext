@@ -210,14 +210,18 @@ Rust 可执行程序、联合 launcher、网关配置、私有通道认证、私
 
 模型入口的可信 endpoint、协议和模型由 Core `InferenceConfig.protection.targets` 配置。
 Chat 入口选择 `PC_GATEWAY_UPSTREAM_PROFILE`；需要启用 Responses 入口时再设置
-`PC_GATEWAY_UPSTREAM_PROFILE_RESPONSES`。Gateway 服务身份必须在对应 Scope 同时获授
+`PC_GATEWAY_UPSTREAM_PROFILE_RESPONSES`。每个 Gateway 实例的每个入口只选择一个 profile；同一入口中
+请求其他模型会在发送前被拒绝。此前按请求选择模型的部署需要为这些模型分别配置 Gateway 实例。
+Gateway 服务身份必须在对应 Scope 同时获授
 `gateway.invoke` 和 `scope.read`；`PC_GATEWAY_CORE_TOKEN` 必须代表该服务身份，且不能与面向客户端的必填
-`PC_GATEWAY_API_KEY` 相同。网关只使用获准 `before_send` 返回的 endpoint 和协议；旧的
+`PC_GATEWAY_API_KEY` 相同。即使是 UDS 组合部署或未启用鉴权的 Core 部署，启动时也必须提供该 token；
+此前未配置 token 的部署需在升级前配置 Core 服务身份。网关只使用获准 `before_send` 返回的 endpoint 和协议；旧的
 `PC_GATEWAY_UPSTREAM_URL*` 变量会导致启动失败，Core 不可用、缺少目标解析或协议不匹配时不发送。
 服务商凭据仍由部署方通过 `PC_GATEWAY_UPSTREAM_API_KEY_CHAT` / `PC_GATEWAY_UPSTREAM_API_KEY_RESPONSES`
 （或共用的 `PC_GATEWAY_UPSTREAM_API_KEY`）管理；此阶段 Core **不校验**账号/区域身份。权限不同的凭据身份
 不能共用一个 profile。上游传输直连 Core 批准的 endpoint，不使用进程环境中的 HTTP 代理设置
 （如 `HTTP_PROXY`、`HTTPS_PROXY`、`ALL_PROXY`）；请配置可直达的 Core 批准目标。
+此前依靠这些代理连接服务商的部署，升级前必须提供直连能力；无法直连时发送会失败，不会回退使用代理。
 离线直通不可用；`PC_GATEWAY_DEGRADE=passthrough` 会导致启动失败。
 
 特权发送请求中的模型在所有隐私模式下都必须匹配 Core profile，包括 `disabled`、`shadow` 和 `advisory`。
