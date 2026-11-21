@@ -359,6 +359,60 @@ def test_cancelled_checkout_does_not_keep_the_only_pool_slot(tmp_path, monkeypat
     asyncio.run(scenario())
 
 
+def test_cancelled_sqlite_connection_initialization_does_not_leave_a_worker_running(tmp_path) -> None:
+    async def scenario() -> None:
+        entered = asyncio.Event()
+        release = asyncio.Event()
+        driver: aiosqlite.Connection | None = None
+        config = SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'initialization.db'}")
+
+        async def hold_admission(connection) -> None:
+            nonlocal driver
+            driver = connection
+            entered.set()
+            await release.wait()
+
+        def hold_new_connection(dbapi_connection, _record) -> None:
+            dbapi_connection.run_async(hold_admission)
+
+        try:
+            async with SQLiteProfile.open(config, tables=()) as profile:
+                database = profile.database
+                event.listen(database.engine.sync_engine, "connect", hold_new_connection)
+                try:
+                    # Occupy the warm connection so this checkout creates a real
+                    # driver, then cancel before the pool finishes admitting it.
+                    async with database.transaction():
+
+                        async def operation() -> None:
+                            async with database.statistics_transaction(30):
+                                pytest.fail("Cancelled connection initialization reached the transaction")
+
+                        pending = asyncio.create_task(operation())
+                        try:
+                            await asyncio.wait_for(entered.wait(), 5)
+                            pending.cancel()
+                            with pytest.raises(asyncio.CancelledError):
+                                await pending
+                        finally:
+                            pending.cancel()
+                            await asyncio.gather(pending, return_exceptions=True)
+                finally:
+                    event.remove(database.engine.sync_engine, "connect", hold_new_connection)
+                await database.ping()
+            assert driver is not None
+            await asyncio.to_thread(driver._thread.join, 2)
+            assert not driver._thread.is_alive(), "Cancelled initialization left SQLite's worker running"
+        finally:
+            release.set()
+            if driver is not None:
+                # A regression must report the orphan without keeping pytest alive.
+                await driver.close()
+                await asyncio.to_thread(driver._thread.join, 2)
+
+    asyncio.run(scenario())
+
+
 @pytest.mark.parametrize("in_memory", [False, True], ids=["file", "memory"])
 def test_interrupted_write_cannot_commit_earlier_work(tmp_path, in_memory) -> None:
     """An interrupted write rolls SQLite's whole native transaction back.

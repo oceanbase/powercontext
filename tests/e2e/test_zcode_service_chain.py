@@ -41,6 +41,7 @@ from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.server.factory import create_server_app
 from powercontext.server.settings import McpConfig, ServerSettings
 from tests.e2e.dream_support import atomic_memory_pipeline, memory_source_text
+from tests.e2e.server_startup import wait_for_server_startup
 
 HOOK = Path(__file__).resolve().parents[2] / "integrations/zcode/plugins/powercontext/hooks/user_prompt_submit.mjs"
 # Exceed the Hook's 3-second request limit; Stop has a separate 800 ms network budget.
@@ -405,17 +406,14 @@ def test_zcode_source_is_processed_and_recalled_in_a_new_session(
         app.middleware("http")(_delay_first_capture_response())
     app.middleware("http")(_http_timing(hook_timeline))
 
-    with socket.socket() as socket_probe:
-        socket_probe.bind(("127.0.0.1", 0))
-        port = socket_probe.getsockname()[1]
+    listener = socket.socket()
+    listener.bind(("127.0.0.1", 0))
+    port = listener.getsockname()[1]
     server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port, log_level="error"))
-    thread = threading.Thread(target=server.run, daemon=True)
+    thread = threading.Thread(target=server.run, kwargs={"sockets": [listener]}, daemon=True)
     thread.start()
     try:
-        deadline = time.monotonic() + 10
-        while not server.started and thread.is_alive() and time.monotonic() < deadline:
-            time.sleep(0.05)
-        assert server.started
+        wait_for_server_startup(server, thread)
         base_url = f"http://127.0.0.1:{port}"
         with httpx.Client(base_url=base_url, timeout=10) as client:
             created = client.post(
@@ -612,3 +610,4 @@ def test_zcode_source_is_processed_and_recalled_in_a_new_session(
         thread.join(timeout=10)
         hook_timeline("test_end")
         assert not thread.is_alive()
+        listener.close()

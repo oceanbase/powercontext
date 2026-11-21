@@ -257,7 +257,8 @@ jobs:
     needs: prepare
     if: ${{ !inputs.skip_upgrade_acceptance }}
     runs-on: ${{ inputs.internal_runner && 'powercontext-ci-standard' || 'ubuntu-24.04' }}
-    timeout-minutes: ${{ matrix.backend == 'oceanbase' && 75 || 60 }}
+    # Include cold provisioning, separate installs, full acceptance and evidence cleanup.
+    timeout-minutes: 120
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}

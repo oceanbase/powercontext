@@ -54,7 +54,9 @@ jobs:
       - name: Check shared installer behavior and source resolution
         shell: bash
         run: >-
-          uv run --no-sync pytest -q tests/test_installation_contract.py tests/native/test_install_sources.py
+          uv run --no-sync pytest -q ${{ runner.os == 'Linux' && '-n auto' || '' }}
+          tests/test_installation_contract.py tests/native/test_install_sources.py
+          --durations=20
           --junitxml "$RUNNER_TEMP/installation-contract.xml"
           --basetemp "$RUNNER_TEMP/installation-contract-tests"
 
@@ -63,17 +65,19 @@ jobs:
         env:
           POWERCONTEXT_INSTALL_WHEEL: ${{ github.workspace }}/dist/installation/powercontext-1.2.0-py3-none-any.whl
         run: >-
-          uv run --no-sync pytest -vv --durations=20 tests/native/test_installation.py
+          uv run --no-sync pytest -vv ${{ runner.os == 'Linux' && '-n auto' || '' }}
+          --durations=20 tests/native/test_installation.py
           --junitxml "$RUNNER_TEMP/installation.xml"
           --basetemp "$RUNNER_TEMP/installation-tests"
 
-      - name: Upload installation diagnostics after failure
-        if: failure()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+      - name: Upload installation diagnostics
+        if: always()
+        uses: ./.github/actions/upload-ci-diagnostics
         with:
           name: installation-${{ matrix.os }}
           path: |
             ${{ runner.temp }}/installation.xml
             ${{ runner.temp }}/installation-contract.xml
             ${{ runner.temp }}/installation-tests/**/*.log
+            ${{ runner.temp }}/installation-contract-tests/**/*.log
           if-no-files-found: ignore

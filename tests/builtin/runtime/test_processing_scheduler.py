@@ -204,11 +204,15 @@ def test_success_without_durable_acknowledgement_is_a_failure_and_retries(tmp_pa
         async with _profile(tmp_path, "no-ack") as profile:
             await _request(profile.database, "memory-binding", "scope")
             attempts = 0
+            allow_retry_acknowledgement = asyncio.Event()
 
             async def forget_once(_work):
                 nonlocal attempts
                 attempts += 1
-                return ArtifactProcessingWorkerCompletion() if attempts == 1 else None
+                if attempts == 1:
+                    return ArtifactProcessingWorkerCompletion()
+                # Keep the failed attempt observable even after its retry starts.
+                await allow_retry_acknowledgement.wait()
 
             launcher = _Launcher(profile.database, on_work=forget_once)
             async with ArtifactProcessingSupervisor(
@@ -220,7 +224,10 @@ def test_success_without_durable_acknowledgement_is_a_failure_and_retries(tmp_pa
                 retry_jitter=lambda: 1,
             ) as supervisor:
                 await _wait(lambda: supervisor.family_status["memory"]["failed"] == 1)
+                await _wait(lambda: attempts == 2)
+                assert supervisor.family_status["memory"]["completed"] == 0
                 assert (await _intent(profile.database, "memory-binding", "scope")).handled_generation == 0
+                allow_retry_acknowledgement.set()
                 await _wait(lambda: supervisor.family_status["memory"]["completed"] == 1)
                 assert attempts == 2
                 assert (await _intent(profile.database, "memory-binding", "scope")).handled_generation == 1
@@ -629,9 +636,9 @@ def test_overflow_flush_cannot_advance_retry_and_cached_failures_cannot_extend_g
                 assert len(attempts["overflow"]) == 1
                 # Cached retries keep failing, but cannot keep shifting the
                 # finite overflow cohort's gate beyond the original deadline.
-                await _wait(lambda: supervisor.family_status["memory"]["completed"] == 1, timeout_seconds=1.5)
+                await _wait(lambda: supervisor.family_status["memory"]["completed"] == 1)
                 assert len(attempts["cached"]) >= 3
-                await _wait(lambda: len(attempts["overflow"]) >= 2, timeout_seconds=1.5)
+                await _wait(lambda: len(attempts["overflow"]) >= 2)
                 assert attempts["overflow"][1] - attempts["overflow"][0] >= 0.78
                 assert supervisor.max_resident <= 1 + 4 + 1
                 assert (await _intent(profile.database, "memory-binding", "healthy-tail")).handled_generation == 1
@@ -763,7 +770,6 @@ def test_slow_admission_page_does_not_monopolize_other_families(tmp_path, caplog
 @pytest.mark.parametrize("failure", ["io", "timeout", "deadline"])
 def test_blocked_recheck_errors_preserve_spacing_diagnostics_and_explicit_wakes(tmp_path, monkeypatch, caplog, failure):
     caplog.set_level(logging.WARNING, logger=processing.__name__)
-    monkeypatch.setattr(processing, "_DISCOVERY_TIMEOUT_SECONDS", 0.3)
     monkeypatch.setattr(processing, "_ADMISSION_PROBE_TIMEOUT_SECONDS", 0.3)
 
     async def scenario():

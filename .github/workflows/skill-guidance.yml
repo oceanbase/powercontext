@@ -48,6 +48,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          tool_dir=/opt/powercontext-ci-tools/skill-up/0.12.0
+          if [[ "$RUNNER_OS" == Linux && "$RUNNER_ENVIRONMENT" == self-hosted && -x "$tool_dir/skill-up" ]] && \
+              [[ "$("$tool_dir/skill-up" --version)" == 'skill-up version 0.12.0' ]]; then
+            echo "$tool_dir" >> "$GITHUB_PATH"
+            exit 0
+          fi
           mkdir -p "$RUNNER_TEMP/skill-up"
           cd "$RUNNER_TEMP/skill-up"
           curl -fsSL https://github.com/alibaba/skill-up/releases/download/v0.12.0/skill-up_0.12.0_linux_amd64.tar.gz -o skill-up.tar.gz

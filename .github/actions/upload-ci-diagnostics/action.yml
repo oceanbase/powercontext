@@ -1,0 +1,136 @@
+name: Upload CI diagnostics
+description: Preserve diagnostic archives through transient upload failures without replacing existing artifacts
+inputs:
+  name:
+    description: Artifact name, unique to this upload owner in the workflow run
+    required: true
+  path:
+    description: Files and directories to upload
+    required: true
+  if-no-files-found:
+    description: 'Behavior when no files match: warn, error, or ignore'
+    default: warn
+  retention-days:
+    description: Retention duration; 0 uses the repository default
+    default: '0'
+  include-hidden-files:
+    description: Include hidden files
+    default: 'false'
+  compression-level:
+    description: ZIP compression level
+    default: '6'
+outputs:
+  artifact-id:
+    description: Uploaded or recovered artifact ID
+    value: ${{ steps.upload1.outputs.artifact-id || steps.recover1.outputs.artifact-id || steps.upload2.outputs.artifact-id
+      || steps.recover2.outputs.artifact-id || steps.upload3.outputs.artifact-id || steps.recover3.outputs.artifact-id }}
+  artifact-url:
+    description: Artifact download page
+    value: ${{ steps.upload1.outputs.artifact-url || steps.recover1.outputs.artifact-url || steps.upload2.outputs.artifact-url
+      || steps.recover2.outputs.artifact-url || steps.upload3.outputs.artifact-url || steps.recover3.outputs.artifact-url
+      }}
+  artifact-digest:
+    description: SHA-256 digest of the uploaded archive
+    value: ${{ steps.upload1.outputs.artifact-digest || steps.recover1.outputs.artifact-digest || steps.upload2.outputs.artifact-digest
+      || steps.recover2.outputs.artifact-digest || steps.upload3.outputs.artifact-digest || steps.recover3.outputs.artifact-digest
+      }}
+runs:
+  using: composite
+  steps:
+  - name: Snapshot existing artifact identities
+    id: baseline
+    if: always()
+    continue-on-error: true
+    uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd
+    env:
+      DIAGNOSTIC_ACTION_PATH: ${{ github.action_path }}
+      DIAGNOSTIC_ARTIFACT_NAME: ${{ inputs.name }}
+    with:
+      script: 'await require(process.env.DIAGNOSTIC_ACTION_PATH + ''/artifact-state.cjs'')({github, context, core, mode: ''snapshot''});'
+  - name: Upload diagnostics (attempt 1)
+    id: upload1
+    if: always()
+    continue-on-error: true
+    uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+    with:
+      name: ${{ inputs.name }}
+      path: ${{ inputs.path }}
+      if-no-files-found: ${{ inputs.if-no-files-found }}
+      retention-days: ${{ inputs.retention-days }}
+      include-hidden-files: ${{ inputs.include-hidden-files }}
+      compression-level: ${{ inputs.compression-level }}
+  - name: Recover completed upload (attempt 1)
+    id: recover1
+    if: always() && steps.upload1.outcome == 'failure'
+    continue-on-error: true
+    uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd
+    env:
+      DIAGNOSTIC_ACTION_PATH: ${{ github.action_path }}
+      DIAGNOSTIC_ARTIFACT_NAME: ${{ inputs.name }}
+      DIAGNOSTIC_BASELINE_KNOWN: ${{ steps.baseline.outputs.known }}
+      DIAGNOSTIC_BASELINE_IDS: ${{ steps.baseline.outputs.ids }}
+      DIAGNOSTIC_RETRY_DELAY_MS: '8000'
+    with:
+      script: 'await require(process.env.DIAGNOSTIC_ACTION_PATH + ''/artifact-state.cjs'')({github, context, core, mode: ''recover''});'
+  - name: Upload diagnostics (attempt 2)
+    id: upload2
+    if: always() && steps.upload1.outcome == 'failure' && steps.recover1.outputs.recovered != 'true'
+    continue-on-error: true
+    uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+    with:
+      name: ${{ inputs.name }}
+      path: ${{ inputs.path }}
+      if-no-files-found: ${{ inputs.if-no-files-found }}
+      retention-days: ${{ inputs.retention-days }}
+      include-hidden-files: ${{ inputs.include-hidden-files }}
+      compression-level: ${{ inputs.compression-level }}
+  - name: Recover completed upload (attempt 2)
+    id: recover2
+    if: always() && steps.upload2.outcome == 'failure'
+    continue-on-error: true
+    uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd
+    env:
+      DIAGNOSTIC_ACTION_PATH: ${{ github.action_path }}
+      DIAGNOSTIC_ARTIFACT_NAME: ${{ inputs.name }}
+      DIAGNOSTIC_BASELINE_KNOWN: ${{ steps.baseline.outputs.known }}
+      DIAGNOSTIC_BASELINE_IDS: ${{ steps.baseline.outputs.ids }}
+      DIAGNOSTIC_RETRY_DELAY_MS: '12000'
+    with:
+      script: 'await require(process.env.DIAGNOSTIC_ACTION_PATH + ''/artifact-state.cjs'')({github, context, core, mode: ''recover''});'
+  - name: Upload diagnostics (attempt 3)
+    id: upload3
+    if: always() && steps.upload2.outcome == 'failure' && steps.recover2.outputs.recovered != 'true'
+    continue-on-error: true
+    uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+    with:
+      name: ${{ inputs.name }}
+      path: ${{ inputs.path }}
+      if-no-files-found: ${{ inputs.if-no-files-found }}
+      retention-days: ${{ inputs.retention-days }}
+      include-hidden-files: ${{ inputs.include-hidden-files }}
+      compression-level: ${{ inputs.compression-level }}
+  - name: Recover completed upload (attempt 3)
+    id: recover3
+    if: always() && steps.upload3.outcome == 'failure'
+    continue-on-error: true
+    uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd
+    env:
+      DIAGNOSTIC_ACTION_PATH: ${{ github.action_path }}
+      DIAGNOSTIC_ARTIFACT_NAME: ${{ inputs.name }}
+      DIAGNOSTIC_BASELINE_KNOWN: ${{ steps.baseline.outputs.known }}
+      DIAGNOSTIC_BASELINE_IDS: ${{ steps.baseline.outputs.ids }}
+      DIAGNOSTIC_RETRY_DELAY_MS: '0'
+    with:
+      script: 'await require(process.env.DIAGNOSTIC_ACTION_PATH + ''/artifact-state.cjs'')({github, context, core, mode: ''recover''});'
+  - name: Require a successful or recovered upload
+    if: always()
+    shell: bash
+    env:
+      UPLOAD_SUCCEEDED: ${{ steps.upload1.outcome == 'success' || steps.recover1.outputs.recovered == 'true' || steps.upload2.outcome
+        == 'success' || steps.recover2.outputs.recovered == 'true' || steps.upload3.outcome == 'success' || steps.recover3.outputs.recovered
+        == 'true' }}
+    run: |
+      if [ "$UPLOAD_SUCCEEDED" != "true" ]; then
+        echo "::error::Diagnostic artifact upload did not complete; see the original upload errors above."
+        exit 1
+      fi

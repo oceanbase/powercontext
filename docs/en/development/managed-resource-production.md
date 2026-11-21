@@ -47,12 +47,15 @@ The executing producer's Git revision and script digests are recorded separately
 
 Runtime dependencies are exported from that source's locked `ops` and `cli` extras (`ops` includes `server`). Preparation
 selects compatible wheels using the pinned interpreter's actual tags and environment markers, then verifies the
-original `uv.lock` sizes and hashes. Only `jieba==0.42.1` may use a locked sdist: it has no upstream wheel. Its source
-hash is checked before building with the exact hash-pinned tools in `scripts/managed_resource_build_tools.json`,
-without build isolation or backend dependency downloads. The project wheel is the other explicit source build.
-On Intel macOS, the exact locked `cryptography==50.0.0` is an additional source-build exception described below.
-Other source-only dependencies fail clearly instead of enabling an implicit build. The resulting target wheel closure
-is frozen as exact versions and individual wheel hashes in `requirements.lock`.
+original `uv.lock` sizes and hashes. If no compatible wheel exists, a locked sdist can be built with the exact
+hash-pinned tools in `scripts/managed_resource_build_tools.json`. Source identity and hashes are checked first;
+the build uses no index or build isolation and does not install backend dependencies. A missing or incompatible
+backend fails the build rather than fetching extra tools. This supports sources compatible with the fixed builder,
+including `jieba`, without a package/version allowlist; it does not promise arbitrary backend or native compilation support.
+The project wheel is also built from the fixed source. Intel macOS cryptography retains the separate native recipe
+described below, with its accepted package/version read from `scripts/managed_resource_intel_build.json`; an incompatible
+version requires an explicit recipe update. Every resulting wheel name/version must match the selected locked dependencies
+and requested project version before exact versions and individual wheel hashes are frozen in `requirements.lock`.
 
 Preparation may access the network. Final resource production uses only that verified wheelhouse, offline mode,
 binary-only installation, and `--require-hashes`. Source builds are not claimed to be reproducible across arbitrary
