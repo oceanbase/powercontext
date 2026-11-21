@@ -16,6 +16,8 @@ Use this guide to install PowerContext and run a personal Server. For your first
 
 Windows CLI, Server, and personal-service support is experimental. Each Agent host has its own requirements. Embedded seekDB is unavailable on Windows. Bash examples below require a Bash shell.
 
+PowerContext includes a native lexical analyzer. Compatible wheels support CPython 3.11–3.14 on Linux x86_64/arm64, macOS x86_64/arm64 and Windows x86_64. Wheel installation needs no compiler. Source installation requires Rust 1.95.0 and a platform C toolchain; on Windows use MSVC. The normal built-in search path uses the native analyzer automatically. Package metadata excludes Python 3.15 and newer until their Unicode behavior is implemented and verified.
+
 ## Install with the recommended script
 
 The script installs the CLI and local Server in an isolated uv tool environment. It reuses compatible Python and uv, or installs the missing prerequisites in your user directory. You do not need administrator privileges.

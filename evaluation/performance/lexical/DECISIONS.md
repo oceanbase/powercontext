@@ -1,11 +1,11 @@
-# Lexical pilot decisions
+# Lexical analyzer implementation
 
-## 2026-11-20: Independent native extension trial
+The production extension lives under the owning Artifact module, while compatibility corpora and benchmarks live under evaluation. The root Hatchling backend packages it as `powercontext._lexical`; maturin is an internal build dependency, not a separately published runtime dependency. The default search export directly uses the native function.
 
-Keep the root Python application and default behavior unchanged. A separate experimental PyO3 wheel tests the narrow analyze_text boundary before selecting production packaging. Gateway has a different owner and is not used as an extension workspace.
+Version-specific casefold, word and assignment tables preserve CPython 3.11–3.14 Unicode behavior. Rust normalization is pinned to Unicode 16. For older interpreters, characters unassigned in that interpreter split normalization runs, preserving their inert starter behavior. The binding reads the Unicode version once at module initialization; text processing uses Rust without Python analyzer callbacks.
 
-Unicode and Jieba dictionary behavior are compatibility inputs. Use explicit source assets and versions; a Rust dependency with a similar name is not evidence of equivalence. Runtime input conversion must handle Python surrogate strings or report a verified incompatibility.
+The effective Jieba dictionaries match despite different raw files. Python counts a duplicate B超 row, contributing three to its total frequency. A NUL dictionary entry restores this weight in Rust without a reachable match in Han-only input. HMM remains disabled.
 
-## Fixed dictionary and scalar-only adaptation
+The PyString entry converts surrogate code points to nonword boundaries and releases the GIL for computation. This applies only to the string projection contract. Span-producing helpers retain their Python implementation and offset behavior.
 
-The effective Jieba dictionaries match; their raw bytes differ because Python repeats B超. Rust adds frequency 3 to NUL, which cannot match a Han-only run, preserving the reference total 60101967. Unicode16 casefold and word classification are exported as data, not Python runtime callbacks. The adapted PyString entry replaces surrogate codepoints with nonword separators and detaches Rust computation from the GIL; this is limited to analyze_text without spans.
+Source builds use a locked Cargo graph and Rust 1.95.0. Stable source-root remapping and deterministic Windows linking preserve the release gate's byte-for-byte wheel content comparison after source-distribution rebuilds. Linux wheel auditing retains bundled shared libraries at their relative path depth when the extension moves into the root package.

@@ -1,11 +1,13 @@
 # Migration status
 
-| Unit | Technical evidence | Independent final verification | Reference | Default integration |
-| --- | --- | --- | --- | --- |
-| analyze_text | PASS for bounded Windows CPython3.14/Unicode16 pilot | Pending; final independent review has not completed | 5b557788c33b57b8ef55a3f3446ee72d693270a4 | Not enabled |
+| Unit | Runtime integration | Local verification | Delivery status |
+| --- | --- | --- | --- |
+| `analyze_text(str) -> str` | Default entry point directly calls Rust in `powercontext._lexical`; old Python wrapper removed | CPython 3.11–3.14 installed-wheel comparisons: zero mismatches; independent 4,924,563 comparisons: zero mismatches; focused pytest: 447 passed, 44 skipped | Windows root wheel and sdist rebuild checked; GitHub platform matrix pending |
 
-Tool diff: 2033/2033. Strict unique inputs: N=2645, R=2645, F=0, E=0; 2648 executions include three repeated independent expectations. Existing tests in native process: 13 passed, 20 native calls. Tool gate passed; independent wheel installed and strictly verified in a clean environment.
+Production source belongs to `src/powercontext/builtin/artifacts/lexical/`. Source builds use Rust 1.95.0, matching gateway. Root wheels include the native module without an opt-in plugin or a separately installed analyzer package. Python support is explicitly 3.11–3.14 pending future Unicode-version support.
 
-Warm offline single-thread medians including bridge: Chinese documents 8.85x, English documents 3.88x (final rerun; raw initial and final samples retained); no full request-chain speedup claim. Other Python/Unicode versions, platforms and production packaging are unverified.
+Warm installed-default analyzer medians including the bridge: Chinese documents **11.90×**, English documents **3.33×**, repeated short queries **8.24×**. These are analyzer throughput measurements; no whole-server acceleration claim is made.
 
-Published measurement samples, source identities, limits and reproduction instructions: [results](results/README.md). Additional task-local logs are generated in `output/lexical-pilot/` and are not required to read the published report. This is a technically validated local trial; independent acceptance, default integration, CI, merge and release approval remain separate.
+The Python span/query helpers retain their existing responsibilities. Schema and analyzer projection version are unchanged. Real installed SQLite close/reopen/search smoke passed on 3.11 and 3.14; 3.12/3.13 smoke is blocked by independently reproduced Windows stdlib asyncio initialization. Cross-platform wheel execution, Docker execution, CI and merge/release approval remain separate.
+
+See the [production report](results/production.md), [raw measurement samples](results/production-benchmark.json), and [validation summaries](results/production-validation.json). Historical experimental evidence is indexed separately in [results](results/README.md).

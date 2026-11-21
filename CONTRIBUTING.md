@@ -76,6 +76,8 @@ git clone git@github.com:YOUR_NAME/powercontext.git
 cd powercontext
 ```
 
+Before installing from source, install Rust 1.95.0 and a platform C toolchain (MSVC on Windows, Xcode Command Line Tools on macOS, or GCC/Clang on Linux). The root build compiles the lexical analyzer in `src/powercontext/builtin/artifacts/lexical/`. Select `1.95.0-x86_64-pc-windows-msvc` on Windows; other platforms use `1.95.0`. Compatible published wheels include the extension and need no compiler.
+
 Then install the development environment and Git hooks:
 
 ```bash

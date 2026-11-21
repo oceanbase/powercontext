@@ -1,4 +1,6 @@
-# Lexical pilot measurements
+# Historical lexical experiment measurements
+
+These measurements describe the isolated experiment. Production integration evidence is recorded in [production results](production.md).
 
 Measured on 2026-11-20, Intel Core Ultra 5 225H, Windows x64, CPython 3.14.3 / Unicode 16.0.0, Rust 1.97.1 MSVC, release profile. The Python reference is the unmodified `analyze_text` in `src/powercontext/builtin/artifacts/search.py`; its hash is in `reference.json`. The original reference commit `5b557788c33b57b8ef55a3f3446ee72d693270a4` has the same tracked tree as PR base `6763b07661846c19934044184995adf9183c28cc`.
 
@@ -14,7 +16,7 @@ One thread; verify exact outputs before timing; warm both implementations; alter
 
 `benchmark.json` contains every timing sample and the tested native binary hash. This is a desktop wall-clock microbenchmark: CPU affinity, clock rate and other system activity are not controlled. The initial trial on the same workloads measured 7.53x / 4.24x / 7.29x respectively; all those samples and its different binary identity are retained in `benchmark-initial.json`. The final table is the post-packaging-cleanup rerun, not a selection of the best sample. The rerun was performed after the pilot build and hook commands completed. Variation in absolute times and ratios limits precision; the evidence supports a local improvement, not a fixed production speedup.
 
-These times do not measure HTTP, database access, inference, complete recall, a host integration or end-to-end PowerContext latency. The default application still runs Python, so installing the normal PowerContext wheel gains no acceleration from this PR.
+These times do not measure HTTP, database access, inference, complete recall, a host integration or end-to-end PowerContext latency. The measured experiment did not integrate the extension into the normal PowerContext wheel.
 
 ## Behavior and packaging validation
 

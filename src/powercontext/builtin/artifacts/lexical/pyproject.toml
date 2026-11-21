@@ -18,12 +18,10 @@ requires = ["maturin>=1.16,<2"]
 build-backend = "maturin"
 
 [project]
-name = "pc-lexical-pilot"
+name = "powercontext-lexical-build"
 version = "0.1.0"
-requires-python = ">=3.14,<3.15"
-description = "Experimental Unicode16 analyzer; not a PowerContext default backend"
+requires-python = ">=3.11,<3.15"
 license = "Apache-2.0"
 
 [tool.maturin]
-python-source = "python"
-module-name = "pc_lexical_pilot._native"
+module-name = "_lexical"

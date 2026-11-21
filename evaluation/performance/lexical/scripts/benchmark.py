@@ -15,8 +15,8 @@
 
 """Compare the same public text in one thread, including the native call boundary."""
 
+import argparse
 import hashlib
-import importlib
 import json
 import statistics
 import sys
@@ -25,18 +25,26 @@ from pathlib import Path
 
 CRATE = Path(__file__).resolve().parents[1]
 ROOT = CRATE.parents[2]
-sys.path[:0] = [str(ROOT / "src"), str(CRATE / "python")]
 
 
 def main():
-    _native = importlib.import_module("pc_lexical_pilot._native")
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--output", type=Path, default=ROOT / "output/lexical-production/benchmark.json")
+    args = parser.parse_args()
+    from powercontext.builtin.artifacts.search import analyze_text_with_spans
+
+    def python_reference(value):
+        return " ".join(term for term, _start, _end in analyze_text_with_spans(value))
+
+    from powercontext import _lexical as _native
+
     if _native.__file__ is None:
         message = "Native module has no build identity"
         raise RuntimeError(message)
 
     from powercontext.builtin.artifacts.search import analyze_text
 
-    metadata = json.loads((ROOT / "output/lexical-pilot/reference.json").read_text(encoding="utf-8"))
+    metadata = json.loads((CRATE / "results/reference.json").read_text(encoding="utf-8"))
     groups = {
         locale: [
             (ROOT / path).read_text(encoding="utf-8")[:16000]
@@ -49,12 +57,12 @@ def main():
     rows = []
     for name, texts in groups.items():
         for text in texts:
-            if analyze_text(text) != _native.analyze_text(text):
+            if python_reference(text) != analyze_text(text):
                 message = "Do not time mismatching behavior"
                 raise AssertionError(message)
         timings = {"python": [], "rust": []}
         for number in range(9):
-            order = [("python", analyze_text), ("rust", _native.analyze_text)]
+            order = [("python", python_reference), ("rust", analyze_text)]
             for side, function in order[:: 1 if number % 2 else -1]:
                 started = time.perf_counter()
                 outputs = [function(text) for text in texts]
@@ -81,7 +89,8 @@ def main():
         "python": sys.version,
         "results": rows,
     }
-    (ROOT / "output/lexical-pilot/benchmark.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    args.output.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
     print(json.dumps(report, indent=2))
 
 

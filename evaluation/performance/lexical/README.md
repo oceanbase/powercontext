@@ -1,51 +1,41 @@
-# PowerContext lexical analyzer pilot
+# Native lexical analyzer verification
 
-This suite owns the compatibility checks and offline performance measurements for an experimental native lexical analyzer. The candidate extension, corpora, scripts and measurement evidence live together under `evaluation/performance/lexical/`, following the repository's grouping by responsibility.
+This suite verifies and measures the production `powercontext.builtin.artifacts.search.analyze_text(str) -> str` entry point. Its Rust implementation belongs to `src/powercontext/builtin/artifacts/lexical/`; corpora, comparison scripts and measurement evidence belong here.
 
-This experimental extension implements only `analyze_text(str) -> str`. It does not change the PowerContext default runtime, database projections, query admission, offsets, gateway or root Python packaging. It is a local compatibility and performance trial.
+Normal PowerContext wheels include `powercontext._lexical`. The search module imports its function directly. No plugin, backend setting or Python fallback is required. The retained Python span analyzer provides query/span behavior and an independent output reference. Database projections, analyzer version, query admission and public signatures are unchanged.
 
-The tested platform is Windows x64 with CPython 3.14.3 and Unicode 16.0.0. The wheel's `Requires-Python` is restricted to 3.14. Other Python versions, operating systems and free-threaded interpreters have not been validated. The generated ABI tag alone is not a support claim.
+## Build and verify
 
-## Compatibility
-
-- NFC precedes casefold. Casefold and Python word-character tables are exported from Unicode16; the Rust normalization crate is pinned to the same Unicode version.
-- Only the explicit Han ranges are passed to Jieba with HMM disabled. The effective dictionaries of jieba0.42.1 and jieba-rs0.11.0 are compared before exporting data. Python's duplicate `B超` row adds 3 to its total frequency; a NUL entry outside the Han input domain restores that weight without adding a reachable match.
-- Word order, duplicates, apostrophes, reserved prefixes, byte-length thresholds and SHA256 terms follow the reference.
-- The PyString entry converts lone surrogates to nonword boundaries before Rust processing. This adaptation is valid only for this string-output contract, which discards offsets. rust-anything `refresh` overwrites the adapted bindings and requires reapplying and validating this change.
-- The extension calls no original Python analyzer and has no fallback. It is selected only in explicit probe/test processes.
-
-## Reproduce
-
-Run from the repository root with a CPython 3.14 environment containing the reference dependencies, Jieba0.42.1, pytest, maturin and rust-anything. Select Rust 1.95.0, matching the gateway CI version; on Windows use the MSVC target. The tool's Python driver selects `python3` before `python`; ensure these resolve to the intended environment.
-
-This independent crate declares Rust 1.95 and uses the same 1.95.0 toolchain version as the gateway. Existing CI does not compile the pilot; a future pilot job must explicitly select that toolchain too. The published timing samples were measured with 1.97.1 MSVC and remain evidence for that build, not performance measurements of 1.95.0. Select the shared version before running the commands below:
+Source builds require Rust 1.95.0, matching gateway, and a platform C toolchain. On Windows select the MSVC toolchain. Hatchling builds the extension through maturin and includes it in the root `cp311-abi3` platform wheel. Installing a compatible wheel requires no compiler. The source distribution includes the hook, locked crate and Unicode data.
 
 ```powershell
 $env:RUSTUP_TOOLCHAIN = '1.95.0-x86_64-pc-windows-msvc'
+uv sync --frozen
+uv run --no-sync pytest tests/builtin/artifacts/test_native_lexical.py -q
+cargo fmt --manifest-path src/powercontext/builtin/artifacts/lexical/Cargo.toml --all --check
+cargo clippy --locked --manifest-path src/powercontext/builtin/artifacts/lexical/Cargo.toml --all-targets -- -D warnings
+cargo test --locked --manifest-path src/powercontext/builtin/artifacts/lexical/Cargo.toml
+uv build --out-dir output/lexical-production/dist
 ```
+
+Install the root wheel with the `builtin` extra in a fresh Python environment, then use that environment's interpreter for these commands. `-I` excludes checkout import injection; scripts do not prepend `src` or activate a test backend.
 
 ```text
-cargo fetch --locked --manifest-path evaluation/performance/lexical/Cargo.toml
-python evaluation/performance/lexical/scripts/prepare.py
-rust-anything record evaluation/performance/lexical --count 200 --inputs output/lexical-pilot/inputs.jsonl
-cargo test --locked --manifest-path evaluation/performance/lexical/Cargo.toml
-rust-anything build evaluation/performance/lexical
-python evaluation/performance/lexical/scripts/verify.py
-rust-anything diff evaluation/performance/lexical
-rust-anything bench evaluation/performance/lexical
-rust-anything gate evaluation/performance/lexical
-python evaluation/performance/lexical/scripts/benchmark.py
-python -m maturin build --locked --release --manifest-path evaluation/performance/lexical/Cargo.toml --out output/lexical-pilot/wheels
+python -I evaluation/performance/lexical/scripts/verify.py --output output/lexical-production/validation.json
+python -I scripts/ci_role_smoke.py builtin
+python -I evaluation/performance/lexical/scripts/benchmark.py --output output/lexical-production/benchmark.json
 ```
 
-The tool manifest resolves the reference root relative to this crate. Ordinary recording does not carry surrogates; the strict recording uses codepoint arrays for them. Strict error checks supplement the tool's permissive exception comparison.
+Run correctness checks on CPython 3.11, 3.12, 3.13 and 3.14. The verifier compares the real default native function with the running interpreter's Python span implementation, covering the frozen corpus, all casefold/decomposition characters, all supported Unicode word-range edges, surrogate strings, seeded mixed inputs and public documents. It also checks native identity and non-string errors. Read `cases.jsonl` using LF boundaries, because Unicode line separators occur inside recorded strings.
 
-The committed `cases.jsonl` contains raw Unicode line separators inside JSON strings. Read records using LF boundaries, not Python `str.splitlines()`; see the [record-reading example](results/README.md#reading-the-recorded-cases).
+## Compatibility inputs
 
-To run existing tests, add the checkout `src` and this crate's `scripts` to `PYTHONPATH`, then run pytest with `-p native_pytest` and selected paths. The plugin activates native code only in that process and fails if no native calls were observed. It prints the native path/hash. Run `verify.py --installed` in a fresh environment after installing the wheel; importing the extension must not depend on the source package or reference dependencies.
+Unicode 14, 15, 15.1 and 16 tables come from the corresponding CPython versions. Regenerate each table with that interpreter using `scripts/generate_lexical_unicode.py`. NFC precedes casefold. Characters unassigned in older versions remain normalization boundaries. Jieba uses the fixed 0.42.1 effective dictionary, Han-only input and HMM disabled; a frequency correction of three preserves the reference total despite its duplicate dictionary row.
 
-## Evidence and limitations
+Lone surrogates become nonword boundaries during native conversion. This preserves this projection-only contract; it does not provide character offsets. Private tokenizer mutation and custom dictionaries are outside the fixed analyzer contract.
 
-See [plan](PORT-PLAN.md), [decisions](DECISIONS.md), [status](PORT-STATUS.md) and [the published results](results/README.md). Measurement samples and reference corpus paths are checked in under `results/`. Reproduction generates strict recordings, raw tool output, negative controls and native identities in the repository's ignored `output/lexical-pilot/` directory.
+## Measurements
 
-Data describes the fixed default analyzer only; private tokenizer mutation and custom dictionaries are outside the trial. Full Python/platform coverage, the complete Server request chain, root SDK wheel integration and release readiness are not established by this pilot.
+The benchmark compares the retained Python projection with the installed production entry point, including the native call boundary and output allocation. It checks equality before alternating measurement order over nine warm, single-thread rounds. Document loading is outside timing. These measurements describe analyzer throughput, not full HTTP, inference, database or host latency.
+
+See [production results](results/production.md) for installation and timing evidence. The JSON files dated 2026-11-20 and [their report](results/README.md) retain the bounded experiment's original identities and measurements; they do not establish the production build's performance or platform support.

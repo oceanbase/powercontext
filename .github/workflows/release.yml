@@ -107,6 +107,12 @@ jobs:
       skip_upgrade_acceptance: ${{ github.event_name == 'workflow_dispatch' && inputs.skip_upgrade_acceptance }}
       internal_runner: false
 
+  native-wheel-build:
+    needs: resolve-release
+    uses: ./.github/workflows/native-wheels.yml
+    with:
+      source_ref: ${{ needs.resolve-release.outputs.source_sha }}
+
   dsh-release-build:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
@@ -227,14 +233,28 @@ jobs:
   pypi-publish:
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    needs: [release-build, dsh-release-build]
+    needs: [release-build, native-wheel-build, dsh-release-build]
     permissions:
       id-token: write
     steps:
-      - name: Download release distributions
+      - name: Download accepted candidate distributions
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           name: release-dists
+          path: candidate-dist/
+
+      # The single Linux candidate remains upgrade evidence. Publish its accepted
+      # sdist with the portable wheels, avoiding a duplicate platform wheel.
+      - name: Stage the accepted source distribution
+        run: |
+          mkdir -p dist
+          cp candidate-dist/*.tar.gz dist/
+
+      - name: Download verified platform wheels
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          pattern: native-wheels-*
+          merge-multiple: true
           path: dist/
 
       - name: Publish release distributions to PyPI
@@ -243,14 +263,28 @@ jobs:
   release-assets:
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    needs: [resolve-release, release-build, dsh-release-build]
+    needs: [resolve-release, release-build, native-wheel-build, dsh-release-build]
     permissions:
       contents: write
     steps:
-      - name: Download release distributions
+      - name: Download accepted candidate distributions
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           name: release-dists
+          path: candidate-dist/
+
+      # The single Linux candidate remains upgrade evidence. Publish its accepted
+      # sdist with the portable wheels, avoiding a duplicate platform wheel.
+      - name: Stage the accepted source distribution
+        run: |
+          mkdir -p dist
+          cp candidate-dist/*.tar.gz dist/
+
+      - name: Download verified platform wheels
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          pattern: native-wheels-*
+          merge-multiple: true
           path: dist/
 
       - name: Upload GitHub Release assets

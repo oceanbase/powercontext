@@ -357,6 +357,11 @@ jobs:
         with:
           version: "0.10.12"
 
+      - name: Set up native analyzer toolchain
+        run: |
+          rustup toolchain install 1.95.0 --profile minimal
+          echo "RUSTUP_TOOLCHAIN=1.95.0" >> "$GITHUB_ENV"
+
       - name: Build one wheel for all installation roles
         run: |
           uv build --wheel --python "$(command -v python)" --out-dir "$RUNNER_TEMP/role-wheel"
@@ -1530,6 +1535,16 @@ jobs:
       targets: '["linux-x86_64"]'
       concurrency_suffix: linux
 
+  native-wheel-validation:
+    needs: [quality, tests]
+    if: >-
+      ${{ !cancelled() && needs.quality.result == 'success' &&
+          contains(fromJSON('["success","skipped"]'), needs.tests.result) &&
+          (fromJSON(needs.quality.outputs.suites || '{}').packaging) }}
+    uses: ./.github/workflows/native-wheels.yml
+    with:
+      suites: ${{ needs.quality.outputs.suites }}
+
   script-installation:
     needs: [quality, tests]
     if: >-
@@ -1620,6 +1635,7 @@ jobs:
       - quality
       - tests
       - isolated-installations
+      - native-wheel-validation
       - docs-tests
       - worker-observability
       - evaluation-tests

@@ -13,135 +13,128 @@
 # limitations under the License.
 
 
-"""Strict recorded outputs, error classes, native identity and missing-module control."""
+"""Compare the installed default Rust analyzer with the retained Python span contract."""
 
 import argparse
 import hashlib
-import importlib
+import importlib.machinery
+import inspect
 import json
-import shutil
-import subprocess
+import random
 import sys
-import tempfile
 import unicodedata
 from pathlib import Path
 
-CRATE = Path(__file__).resolve().parents[1]
-ROOT = CRATE.parents[2]
+EVALUATION = Path(__file__).resolve().parents[1]
+ROOT = EVALUATION.parents[2]
 
 
-def outcome(function, value):
-    try:
-        result = function(value)
-        return {"ok": result, "type": type(result).__name__}
-    except Exception as error:
-        return {"error": type(error).__name__}
+def python_reference(value):
+    from powercontext.builtin.artifacts.search import analyze_text_with_spans
+
+    return " ".join(term for term, _start, _end in analyze_text_with_spans(value))
 
 
-def compare(actual, expected):
-    if actual != expected:
-        raise AssertionError({"actual": actual, "expected": expected})
-
-
-def load_native(args):
-    if unicodedata.unidata_version != "16.0.0":
-        message = "This pilot verifies Unicode16 only"
-        raise RuntimeError(message)
-    if not args.installed:
-        sys.path.insert(0, str(CRATE / "python"))
-    package = importlib.import_module("pc_lexical_pilot")
-    native = importlib.import_module("pc_lexical_pilot._native")
-    if native.__file__ is None:
-        message = "Native module has no build identity"
-        raise RuntimeError(message)
-    native_path = Path(native.__file__).resolve()
-    if native_path.suffix not in [".pyd", ".so"]:
-        message = "Expected a real native module"
-        raise AssertionError(message)
-    native_sha = hashlib.sha256(native_path.read_bytes()).hexdigest()
-    if args.expected_native_sha and native_sha != args.expected_native_sha:
-        message = "Unexpected native build identity"
-        raise AssertionError(message)
-    if package.analyze_text is not native.analyze_text:
-        message = "Expected direct native function, no Python fallback wrapper"
-        raise AssertionError(message)
-    return package, native_path, native_sha
+def inputs():
+    rows = [json.loads(line) for line in (EVALUATION / "cases.jsonl").read_text(encoding="utf-8").split("\n") if line]
+    texts = [row["args"][0] for row in rows]
+    texts += [
+        "",
+        "a\ud800b",
+        "中文\udfff文本",
+        "\ud800\udc00",
+        "a\ud800\u0301b",
+        "a\U0001e4ec\u0300",
+        "a\U0001e5ee\u0300",
+        "\u1c89\u1c8a",
+        "ǰ",
+    ]
+    for boundary in ["㐀", "\u4dbf", "\u9fd6", "\u9fff", "\uf900", "\U00020000", "\U0002fa1f"]:
+        texts += [f"丁丁丁{boundary}", f"{boundary}丁丁丁", f"丁丁丁{boundary}丁丁丁"]
+    # Every casefold/decomposition and every word-range edge exercises the running
+    # interpreter's Unicode contract, including code points newer than that version.
+    for number in range(0x110000):
+        char = chr(number)
+        if char.casefold() != char or unicodedata.decomposition(char):
+            texts.append(char + "'XYZ " + char)
+    crate = ROOT / "src/powercontext/builtin/artifacts/lexical/data"
+    edges = set()
+    for table in sorted(crate.glob("unicode*.json")):
+        data = json.loads(table.read_text(encoding="utf-8"))
+        for start, end in data["word_ranges"]:
+            edges.update([max(0, start - 1), start, end, min(0x10FFFF, end + 1)])
+    texts += ["a" + chr(number) + "b" for number in sorted(edges)]
+    rng = random.Random(90210)  # noqa: S311 - reproducible compatibility corpus.
+    alphabet = [
+        *"中文南京长江数据ABCabc0123_' ",
+        "ǰ",
+        "ß",
+        "İ",
+        "é",
+        "\u0301",
+        "\U00020000",
+        "\ud800",
+        "\udfff",
+        "\u200d",
+        "😀",
+        "\U0001e4ec",
+        "\U0001e5ee",
+        "\u0300",
+        "\u1c89",
+    ]
+    texts += ["".join(rng.choices(alphabet, k=rng.randrange(1, 100))) for _ in range(1000)]
+    metadata = json.loads((EVALUATION / "results/reference.json").read_text(encoding="utf-8"))
+    texts += [(ROOT / path).read_text(encoding="utf-8")[:16000] for path in metadata["doc_paths"]]
+    return list(dict.fromkeys(texts))
 
 
 def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--installed", action="store_true")
-    parser.add_argument("--expected-native-sha")
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--output", type=Path)
     args = parser.parse_args()
-    package, native_path, native_sha = load_native(args)
-    rows = [
-        json.loads(line)
-        for line in (ROOT / "output/lexical-pilot/strict-cases.jsonl").read_text(encoding="utf-8").splitlines()
-    ]
+    from powercontext import _lexical
+    from powercontext.builtin.artifacts.search import analyze_text
+
+    if not inspect.isbuiltin(analyze_text) or analyze_text is not _lexical.analyze_text:
+        message = "Default analyzer must be the native function"
+        raise AssertionError(message)
+    path = Path(_lexical.__file__).resolve()
+    if not any(str(path).endswith(suffix) for suffix in importlib.machinery.EXTENSION_SUFFIXES):
+        message = "Analyzer module must be a native extension"
+        raise AssertionError(message)
+    texts = inputs()
     mismatches = []
-    for number, row in enumerate(rows):
-        value = "".join(map(chr, row["codepoints"]))
-        expected = {**row["expected"], "type": "str"}
-        actual = outcome(package.analyze_text, value)
+    for number, text in enumerate(texts):
+        actual = analyze_text(text)
+        expected = python_reference(text)
         if actual != expected:
             mismatches.append({
                 "case": number,
-                "codepoints": row["codepoints"][:100],
+                "codepoints": list(map(ord, text)),
                 "actual": actual,
                 "expected": expected,
             })
     for value in [None, True, 1, 1.5, [], {}, b"x"]:
-        compare(outcome(package.analyze_text, value), {"error": "TypeError"})
-
-    class Text(str):
-        pass
-
-    compare(outcome(package.analyze_text, Text("ABC ab ABC")), {"ok": "abc pcu6162 abc", "type": "str"})
-    # Independent expected values catch an oracle/wrapper that makes both sides wrong.
-    compare(outcome(package.analyze_text, "a\ud800b"), {"ok": "pcu61 pcu62", "type": "str"})
-    compare(outcome(package.analyze_text, "\ud800\udc00"), {"ok": "", "type": "str"})
-    compare(outcome(package.analyze_text, "ǰ"), {"ok": "pcu6a", "type": "str"})
-    try:
-        compare(outcome(package.analyze_text, "abc"), {"ok": "intentionally wrong", "type": "str"})
-    except AssertionError:
-        mutation_detected = True
-    else:
-        message = "Strict comparator accepted an intentionally wrong result"
-        raise AssertionError(message)
-    with tempfile.TemporaryDirectory(prefix="pc-native-negative-") as directory:
-        copied = Path(directory) / "pc_lexical_pilot"
-        copied.mkdir()
-        shutil.copy2(Path(package.__file__), copied / "__init__.py")
-        program = "import sys;sys.path.insert(0,sys.argv[1]);\ntry:\n import pc_lexical_pilot\nexcept ImportError:\n print('native unavailable: rejected')\nelse:\n raise SystemExit(3)"
-        result = subprocess.run(  # noqa: S603 - fixed program and task-owned temporary package.
-            [sys.executable, "-I", "-c", program, directory], capture_output=True, text=True
-        )
-        if result.returncode != 0 or "rejected" not in result.stdout:
-            message = "Missing native module did not fail closed"
+        try:
+            analyze_text(value)
+        except TypeError:
+            pass
+        else:
+            message = "Native analyzer accepted a non-string"
             raise AssertionError(message)
     report = {
         "python": sys.version,
         "unicode": unicodedata.unidata_version,
-        "native_path": str(native_path),
-        "native_sha256": native_sha,
-        "recorded_string_cases": len(rows),
-        "passed_strings": len(rows) - len(mismatches),
-        "mismatches": mismatches[:10],
-        "type_error_cases": 7,
-        "str_subclass_cases": 1,
-        "independent_expected_cases": 3,
-        "total_executions": len(rows) + 11,
-        "repeated_independent_executions": 3,
-        "N": len(rows) + 8,
-        "R": len(rows) + 8,
-        "F": 0,
-        "E": 0,
-        "incorrect_result_detected": mutation_detected,
-        "missing_native_rejected": True,
-        "scope": "isolated native analyze_text; default production route unchanged",
+        "native": str(path),
+        "native_sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+        "default_is_native": True,
+        "cases": len(texts),
+        "mismatches": mismatches,
+        "non_string_type_errors": 7,
     }
-    path = ROOT / "output/lexical-pilot" / ("installed-strict.json" if args.installed else "strict.json")
-    path.write_text(json.dumps(report, ensure_ascii=True, indent=2), encoding="utf-8")
+    if args.output:
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        args.output.write_text(json.dumps(report, ensure_ascii=True, indent=2) + "\n", encoding="utf-8")
     print(json.dumps(report, ensure_ascii=True, indent=2))
     if mismatches:
         raise SystemExit(1)

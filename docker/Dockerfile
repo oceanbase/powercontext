@@ -3,11 +3,23 @@
 FROM docker.io/astral/uv:0.10.12 AS uv
 
 
+FROM rust:1.95.0-slim-bookworm AS rust
+
 FROM python:3.11-slim-bookworm AS builder
 
 COPY --from=uv /uv /uvx /bin/
+COPY --from=rust /usr/local/cargo /usr/local/cargo
+COPY --from=rust /usr/local/rustup /usr/local/rustup
 
-ENV UV_COMPILE_BYTECODE=1 \
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends build-essential pkg-config \
+    && rm -rf /var/lib/apt/lists/*
+
+ENV RUSTUP_HOME=/usr/local/rustup \
+    CARGO_HOME=/usr/local/cargo \
+    PATH="/usr/local/cargo/bin:$PATH" \
+    RUSTUP_TOOLCHAIN=1.95.0 \
+    UV_COMPILE_BYTECODE=1 \
     UV_CONCURRENT_DOWNLOADS=4 \
     UV_HTTP_RETRIES=5 \
     UV_LINK_MODE=copy \
@@ -17,6 +29,7 @@ WORKDIR /app
 
 COPY pyproject.toml uv.lock README.md LICENSE ./
 COPY src/ ./src/
+COPY scripts/build_lexical.py ./scripts/build_lexical.py
 
 ARG POWERCONTEXT_VERSION
 
