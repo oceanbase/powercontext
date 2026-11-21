@@ -366,7 +366,7 @@ jobs:
       ${{ !cancelled() && contains(fromJSON('["schedule","workflow_dispatch"]'), github.event_name) && (github.event_name != 'workflow_dispatch' || inputs.suite != 'recall-effort') &&
           ((inputs.suites == '' && needs.changes.result != 'success') || fromJSON(inputs.suites || needs.changes.outputs.suites || '{}').database) }}
     runs-on: powercontext-ci-standard
-    # Test steps total 255m; reserve 40m for image pull, setup, diagnostics and artifact upload.
+    # Test steps total 260m; reserve 35m for image pull, setup, diagnostics and artifact upload.
     timeout-minutes: 295
     strategy:
       fail-fast: false
@@ -445,11 +445,12 @@ jobs:
             tests/e2e/test_atomic_memory_grant_migration.py
 
       - name: Test concurrent managed startup without skips
-        # The process deadline includes full Server startup, assertions and shutdown.
+        # Full Server migration was still building indexes at the old 300s process deadline.
+        # Use the same complete-lifecycle budget as background Server acceptance.
         timeout-minutes: 15
         run: |
           uv run --locked --extra server python scripts/run_atomic_memory_clean_migration.py \
-            oceanbase --test-timeout 300 --shard "${{ matrix.shard }}/6" --durations .github/oceanbase-migration-durations.json --output "$MIGRATION_REPORTS/startup-snapshot" --tests \
+            oceanbase --test-timeout 600 --shard "${{ matrix.shard }}/6" --durations .github/oceanbase-migration-durations.json --output "$MIGRATION_REPORTS/startup-snapshot" --tests \
             tests/e2e/test_managed_startup_read_consistency.py
           test "$(wc -l < "$MIGRATION_REPORTS/startup-snapshot/nodes.txt")" -eq 3
 
@@ -457,10 +458,11 @@ jobs:
         env:
           POWERCONTEXT_TEST_ATOMIC_MEMORY_FTS_PATH: legacy
         # Each shard receives at most ceil(collected cases / shards), independent of duration estimates.
+        # HTTP cases prepare the full Server schema; include its complete lifecycle without changing query deadlines.
         timeout-minutes: 45
         run: |
           uv run --locked python scripts/run_atomic_memory_clean_migration.py \
-            oceanbase --test-timeout 300 --shard "${{ matrix.shard }}/6" --durations .github/oceanbase-migration-durations.json --output "$MIGRATION_REPORTS/long-query" --tests \
+            oceanbase --test-timeout 600 --shard "${{ matrix.shard }}/6" --durations .github/oceanbase-migration-durations.json --output "$MIGRATION_REPORTS/long-query" --tests \
             tests/e2e/test_atomic_artifact_search_http.py \
             tests/e2e/test_atomic_memory_long_fts_query.py \
             tests/e2e/test_atomic_memory_fts_coverage.py
