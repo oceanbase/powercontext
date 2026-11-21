@@ -930,7 +930,7 @@ def test_unconfigured_sdk_worker_does_not_enable_global_logging(capfd) -> None:
 
 @pytest.mark.parametrize("file_logging", [False, True])
 def test_server_composition_initializes_logging_in_the_real_family_worker(
-    capfd, tmp_path, monkeypatch, file_logging
+    capfd, caplog, tmp_path, monkeypatch, file_logging
 ) -> None:
     completed = threading.Event()
     scope_id: str | None = None
@@ -962,7 +962,7 @@ def test_server_composition_initializes_logging_in_the_real_family_worker(
     handler.addFilter(OperationalContextFilter(role="all"))
     handler.addFilter(observe_completion)
     monkeypatch.setattr(parent_logger, "handlers", [handler])
-    monkeypatch.setattr(parent_logger, "level", logging.INFO)
+    caplog.set_level(logging.INFO, logger="powercontext")
     monkeypatch.setattr(parent_logger, "propagate", False)
     app = create_server_app(
         settings=ServerSettings(
