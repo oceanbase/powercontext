@@ -15,27 +15,70 @@
  */
 
 import sharp from "sharp";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { access, mkdir, readFile, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { execFileSync } from "node:child_process";
 const root = new URL("../", import.meta.url);
-const source = new URL("../website/assets/powercontext-color.png", root);
 const output = new URL("src-tauri/icons/", root);
 const temporary = new URL(".artifacts/icon-generation/", root);
+const canonicalSource = new URL(
+  "../website/assets/powercontext-color.png",
+  root,
+);
+const packagedSource = new URL("brand.png", output);
+const iconSize = 240;
+const tileSize = 192;
+const tileInset = (iconSize - tileSize) / 2;
+const markSize = 134;
+const markInset = (iconSize - markSize) / 2;
 await mkdir(temporary, { recursive: true });
 await mkdir(output, { recursive: true });
+const source = await access(canonicalSource).then(
+  () => canonicalSource,
+  () => packagedSource,
+);
 // Extract the project's square mark, never a screenshot or third-party logo.
 const brand = await sharp(fileURLToPath(source))
-  .extract({ left: 0, top: 0, width: 240, height: 240 })
+  .extract({ left: 0, top: 0, width: iconSize, height: iconSize })
   .png()
   .toBuffer();
 await writeFile(new URL("brand.png", temporary), brand);
+// Keep the tile inside the canvas so its visible footprint matches neighboring
+// macOS icons instead of filling every pixel available to the launcher.
+const appIcon = await sharp({
+  create: {
+    width: iconSize,
+    height: iconSize,
+    channels: 4,
+    background: { r: 0, g: 0, b: 0, alpha: 0 },
+  },
+})
+  .composite([
+    {
+      input: Buffer.from(
+        `<svg width="${tileSize}" height="${tileSize}" xmlns="http://www.w3.org/2000/svg"><rect width="${tileSize}" height="${tileSize}" rx="42" fill="#fff"/></svg>`,
+      ),
+      left: tileInset,
+      top: tileInset,
+    },
+    {
+      input: await sharp(brand)
+        .resize(markSize, markSize, { fit: "contain" })
+        .png()
+        .toBuffer(),
+      left: markInset,
+      top: markInset,
+    },
+  ])
+  .png()
+  .toBuffer();
+await writeFile(new URL("app-icon.png", temporary), appIcon);
 execFileSync(
   process.execPath,
   [
     fileURLToPath(new URL("node_modules/@tauri-apps/cli/tauri.js", root)),
     "icon",
-    fileURLToPath(new URL("brand.png", temporary)),
+    fileURLToPath(new URL("app-icon.png", temporary)),
     "--output",
     fileURLToPath(new URL("derived/", temporary)),
   ],

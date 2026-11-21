@@ -1,0 +1,5 @@
+{
+  "build": {
+    "beforeDevCommand": "pnpm dev:preview"
+  }
+}

@@ -164,7 +164,6 @@ def draft_handoff(root: Path) -> tuple[dict[str, Any], dict[str, Any]]:
                 "server": {
                     "kind": "qualified-product-server",
                     "id": QUALIFICATION_ID,
-                    "report": REPORT,
                     "wheel_sha256": WHEEL_SHA,
                     "contract_sha256": CONTRACT_SHA,
                     "source_sha": SERVER_SOURCE,

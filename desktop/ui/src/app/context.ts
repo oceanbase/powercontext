@@ -59,16 +59,33 @@ export function identityVerified(report: CheckReport | undefined): boolean {
 export function activeCheckReport(state: DesktopState | null) {
   const active = state?.active;
   if (!active) return undefined;
-  const profile = state?.profiles.find(
-    (item) => item.id === active.connectionId,
-  );
-  if (profile && profile.revision !== active.report.revision) return undefined;
-  const latest = state?.reports.find(
+  return connectionCheckReport(state, active.connectionId);
+}
+
+export function connectionCheckReport(
+  state: DesktopState | null,
+  connectionId: string,
+) {
+  if (!state) return undefined;
+  const profile = state?.profiles.find((item) => item.id === connectionId);
+  if (!profile) {
+    return state.active?.connectionId === connectionId
+      ? state.active.report
+      : undefined;
+  }
+  const reports = state.reports.filter(
     (item) =>
-      item.connectionId === active.connectionId &&
-      item.revision === active.report.revision,
+      item.connectionId === connectionId && item.revision === profile.revision,
   );
-  return latest && latest.checkedAt >= active.report.checkedAt
-    ? latest
-    : active.report;
+  if (
+    state.active?.connectionId === connectionId &&
+    state.active.report.revision === profile.revision
+  ) {
+    reports.push(state.active.report);
+  }
+  return reports.reduce<(typeof reports)[number] | undefined>(
+    (latest, report) =>
+      !latest || report.checkedAt > latest.checkedAt ? report : latest,
+    undefined,
+  );
 }

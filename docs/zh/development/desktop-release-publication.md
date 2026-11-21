@@ -48,7 +48,7 @@ Server 目录清单使用最终的 `https://github.com/oceanbase/powercontext/re
 | 根 | `format_version: 1`、`kind: "qualified-desktop-release"`、`release_tag`、Desktop `source_sha`、`candidate_run_id`、`candidate_artifact_id`、`candidate_manifest_sha256`、按目标 ID 索引的 `targets`。 |
 | 各目标 | `assets` 按 `desktop`、`server_archive`、`server_catalog`、`ops_archive`、`ops_provision`、`ops_bundle_manifest` 索引；各项有 `name`、整数字节数 `size`、小写 `sha256`。`candidate_asset_sha256` 按相同角色记录原始候选摘要。 |
 | 各目标的 `qualification` | `kind: "installed-product"`、`signing`（`authenticode`、`developer-id-notarized-stapled` 或 `linux-qualified`）、`clean_machine_provisioning: "passed"`、全量最终 `asset_sha256`、`installed_catalog_sha256`、`installed_ops_provision_sha256`、`installed_ops_bundle_manifest_sha256`、`os_version`、`webview_version`、`server_version`、`runtime_version`（固定 Python 版本）、`limitations`、`report`（上游 issue、评论或 Actions run URL）以及 `server`。 |
-| `qualification.server` | `kind: "qualified-product-server"`、候选清单中匹配的产品资格 `id`、上游 `report` URL、`wheel_sha256`、`contract_sha256`、确切的 Server `source_sha`（可以与 Desktop 提交不同）。 |
+| `qualification.server` | `kind: "qualified-product-server"`、候选清单中匹配的产品资格 `id`、`wheel_sha256`、`contract_sha256`、确切的 Server `source_sha`（可以与 Desktop 提交不同）。 |
 
 审核人应检查 Windows 签名者和 macOS Developer ID、公证结果确实覆盖最终安装包及所需可执行资源。
 流程会拒绝字节仍与未签名候选相同的 Windows/macOS 安装包。兼容记录必须覆盖实际 Server wheel 和 Desktop 操作。09-A 没有匹配的产品资格记录时，

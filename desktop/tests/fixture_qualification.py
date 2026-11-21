@@ -45,7 +45,6 @@ def build_profile(desktop: Path, server_commit: str) -> dict[str, Any]:
         "contractSha256": contract_digest,
         "artifactSha256": hashlib.sha256(wheels[0].read_bytes()).hexdigest(),
         "operations": sorted(contract["operations"]),
-        "evidence": "Disposable checkout and built-wheel CI fixture; not production or release qualification",
     }
 
 

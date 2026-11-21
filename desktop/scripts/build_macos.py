@@ -29,6 +29,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 DESKTOP = Path(__file__).resolve().parents[1]
+SPARKLE_CONFIG = ["--config", "src-tauri/tauri.sparkle.conf.json"]
 
 
 def capture_macos_state(artifacts: Path, attempt: int) -> None:
@@ -100,7 +101,7 @@ def main() -> int:
     pnpm = shutil.which("pnpm")
     if not pnpm:
         sys.exit("pnpm is required for macOS packaging")
-    command = [pnpm, "tauri", "build", "--ci", "--verbose", "--", "--locked"]
+    command = [pnpm, "tauri", "build", "--ci", "--verbose", *SPARKLE_CONFIG, "--", "--locked"]
     with (artifacts / "macos-build.log").open("w", encoding="utf-8") as log:
         for attempt in range(1, 4):
             print(f"macOS packaging attempt {attempt}/3", flush=True)
@@ -142,7 +143,7 @@ def main() -> int:
                     output_file.write("retried=true\n")
             print("Retrying busy DMG packaging without recompilation.", flush=True)
             time.sleep(attempt * 5)
-            command = [pnpm, "tauri", "bundle", "--ci", "--verbose"]
+            command = [pnpm, "tauri", "bundle", "--ci", "--verbose", *SPARKLE_CONFIG]
     return 1
 
 

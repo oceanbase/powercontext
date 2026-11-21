@@ -152,7 +152,6 @@ class Bundle:
     targets: dict[str, dict[str, Asset]]
     assets: dict[str, Asset]
     qualification_reports: dict[str, str]
-    server_reports: dict[str, str]
     server_source_sha: str
     candidate_sha256: str
 
@@ -270,7 +269,6 @@ def validate_server_qualification(
         not ref.lower().startswith(("ci-", "fixture", "unqualified", "candidate")),
         f"{target}: fixture or unqualified Server is not publishable",
     )
-    matching(server["report"], REPORT, "Server qualification report URL")
     require(
         any(record["id"] == ref for record in origin["qualification"]["matching_product_records"]),
         f"{target}: Desktop does not carry a matching product qualification for this Server",
@@ -340,7 +338,6 @@ def validate_bundle(
     assets = {manifest_asset.name: manifest_asset, candidate_asset.name: candidate_asset}
     names = {MANIFEST.casefold(), CANDIDATE.casefold(), PROVISIONING.casefold(), CHECKSUMS.casefold()}
     reports = {}
-    server_reports = {}
     for target, record in records.items():
         origin = candidate_targets[target]
         originals = candidate_assets(origin, target, version)
@@ -370,7 +367,6 @@ def validate_bundle(
             assets[asset.name] = asset
         targets[target] = final
         reports[target] = validate_platform(qualification, target, final)
-        server_reports[target] = qualification["server"]["report"]
         validate_catalog(root, tag, target, final, qualification)
         validate_provision(root, target, final)
 
@@ -389,7 +385,6 @@ def validate_bundle(
         targets,
         assets,
         reports,
-        server_reports,
         candidate["server_source_sha"],
         candidate_asset.sha256,
     )

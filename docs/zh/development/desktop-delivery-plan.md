@@ -156,4 +156,4 @@ Desktop 支持 macOS 原生 Keychain、WKWebView 本地页面和 `.app` / `.dmg`
 CI 配置覆盖 Apple Silicon 和 Intel；实际通过情况必须以运行结果为准。
 当前产物用于内部验证。Developer ID 签名、公证、干净机器安装、输入法、辅助功能和应用内 Keychain 提示仍需单独验收。
 
-当前契约的协议验收记录为 `sqlite-atomic-d9a78567-v1`。部署相应 Server 源码后，在连接页明确选择此配置并重新检查连接，才能选择 Scope。真实 SQLite Server 的四种连接/认证模式已验收；精确源码、wheel 与契约标识见 [验收记录](https://github.com/oceanbase/powercontext/blob/master/desktop/VALIDATION.md#server-d9a78567-protocol-qualification)。这不表示任意远端 Server 已验证，也不代替平台发布验收。
+部署与 `sqlite-atomic-d9a78567-v1` 匹配的 Server 后，在连接页选择该配置并重新检查连接，才能选择 Scope。

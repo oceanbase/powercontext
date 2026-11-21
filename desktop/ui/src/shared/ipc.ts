@@ -32,6 +32,7 @@ import type {
   DesktopState,
   ProfileInput,
   ScopePage,
+  ScopeDescriptor,
   SessionSummary,
 } from "../generated/ipc";
 export async function getFoundationInfo(): Promise<FoundationInfo | null> {
@@ -40,6 +41,8 @@ export async function getFoundationInfo(): Promise<FoundationInfo | null> {
 }
 
 export const desktopApi = {
+  setMenuLanguage: (language: "zh" | "en") =>
+    invoke<void>("set_menu_language", { language }),
   observeRuntimeLiveness: (generation: number) =>
     invoke<RuntimeFact<HealthResponse>>("observe_runtime_liveness", {
       generation,
@@ -86,6 +89,8 @@ export const desktopApi = {
     invoke<DesktopState>("invalidate_profile", { id }),
   scopes: (generation: number, query: string, cursor: string | null) =>
     invoke<ScopePage>("list_scopes", { generation, query, cursor }),
+  defaultScope: (generation: number) =>
+    invoke<ScopeDescriptor>("default_scope", { generation }),
   cancelScopes: (generation: number) =>
     invoke<void>("cancel_scope_reads", { generation }),
   selectScope: (generation: number, id: string) =>

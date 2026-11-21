@@ -14,111 +14,191 @@
  * limitations under the License.
  */
 
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { Field, FieldError, FieldLabel } from "@/components/ui/field";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { isTauri } from "@tauri-apps/api/core";
+import { resolvePreviewMode } from "./preview-mode";
+import { getCurrentWindow } from "@tauri-apps/api/window";
+import { Brain, Home, Server, Settings } from "lucide-react";
 import { messages, type Language } from "./messages";
-import { getFoundationInfo, desktopApi } from "../shared/ipc";
-import type {
-  FoundationInfo,
-  DesktopState,
-  WriteRecord,
-} from "../generated/ipc";
+import { desktopApi } from "../shared/ipc";
+import type { DesktopState } from "../generated/ipc";
 import logo from "../../../src-tauri/icons/brand.png";
-import homeIcon from "../assets/overview.svg";
-import connectionsIcon from "../assets/connections.svg";
-import memoryIcon from "../assets/memory.svg";
-import settingsIcon from "../assets/settings.svg";
-import observationIcon from "../assets/retrieval.svg";
 
-import { useLocalServer } from "./useLocalServer";
-import { opsApi } from "../shared/ops";
 import { TopBar } from "./TopBar";
-import { Overview } from "./Overview";
-import { Statistics } from "./Statistics";
+import { Overview, QuickConnectDialog } from "./Overview";
+import { MemoryWorkspace } from "./MemoryWorkspace";
+import { SettingsPage } from "./SettingsPage";
 import {
-  MemoryWorkspace,
-  SubmittedDraftRecovery,
-  type SubmittedDraft,
-} from "./MemoryWorkspace";
-import { LocalServerSettings } from "./LocalServerSettings";
-import { Help } from "./Help";
-import { Diagnostics } from "./Diagnostics";
-import { Connections } from "./Connections";
-import { Scopes } from "./Scopes";
-import { Observation, type ObservationTab } from "./Observation";
-import { Runtime } from "./Runtime";
-import { SessionView } from "./SessionView";
+  loadDesktopPreferences,
+  saveDesktopPreferences,
+  type DesktopPreferences,
+} from "./desktop-preferences";
+import { ServiceAgentWorkspace } from "./ServiceAgentWorkspace";
+import { LocalServiceDeploymentDialog } from "./LocalServiceDeploymentDialog";
 import { connectionMessages } from "./connection-messages";
-import { memoryMessages } from "./memory-messages";
-import { PageFeedback, ErrorFeedback } from "./PageFeedback";
+import { ErrorFeedback } from "./ErrorFeedback";
+import { PageFeedback } from "@/components/ui/feedback";
+import {
+  Dialog,
+  DialogBody,
+  DialogCloseButton,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { activeCheckReport } from "./context";
-import { Modal } from "./Modal";
 import { useConfirmation } from "./useConfirmation";
+import {
+  previewDesktopState,
+  previewDataScopeId,
+  previewDisconnectedState,
+  previewEmptyScopeId,
+  previewLocalConnectionId,
+  previewRemoteConnectionId,
+  previewScopes,
+  previewServiceAgents,
+} from "./preview-data";
+import { buildServiceAgentWorkspaceModel } from "./service-agent-model";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import {
+  canShowStartupGuide,
+  getProgressiveGuideStep,
+  hasAnyConfiguredModel,
+  ProgressiveSetupGuide,
+  StartupSuccessNotification,
+  type ProgressiveGuideStep,
+} from "./ProgressiveSetupGuide";
 
 type Page = "home" | "connections" | "memories" | "observation" | "settings";
-type Theme = "light" | "dark" | "system";
 export function App() {
-  const localServer = useLocalServer();
-  const [connectingLocal, setConnectingLocal] = useState(false);
-  const [language, setLanguage] = useState<Language>("zh");
-  const [theme, setTheme] = useState<Theme>("system");
+  const usesNativeWindowControls =
+    document.documentElement.dataset.platform === "macos";
+  const [preferences, setPreferences] = useState(loadDesktopPreferences);
+  const { language, theme } = preferences;
+  function updatePreference<Key extends keyof DesktopPreferences>(
+    key: Key,
+    value: DesktopPreferences[Key],
+  ) {
+    setPreferences((current) => {
+      const next = { ...current, [key]: value };
+      saveDesktopPreferences(next);
+      return next;
+    });
+  }
   const [page, setPage] = useState<Page>("home");
-  const [guideDismissed, setGuideDismissed] = useState(false);
-  const [observationTab, setObservationTab] =
-    useState<ObservationTab>("runtime");
+  const [, setServiceSetupMode] = useState<"local" | "existing" | null>(null);
   const [menu, setMenu] = useState(false);
-  const [host, setHost] = useState<FoundationInfo | null>(null);
+  const [startOnLogin, setStartOnLogin] = useState(
+    () => globalThis.localStorage?.getItem("start-on-login") === "true",
+  );
+  const [startupDisabledByUser, setStartupDisabledByUser] = useState(
+    () =>
+      globalThis.localStorage?.getItem("startup-disabled-by-user") === "true",
+  );
+  const [configuredModels, setConfiguredModels] = useState({
+    generation: false,
+    embedding: false,
+  });
+  const [previousGuideEndedAt, setPreviousGuideEndedAt] = useState<
+    number | null
+  >(() => {
+    const stored = globalThis.localStorage?.getItem("guide-last-ended-at");
+    return stored ? Number(stored) : null;
+  });
+  const [guideClock, setGuideClock] = useState(() => Date.now());
+  const [dismissedGuideStep, setDismissedGuideStep] =
+    useState<ProgressiveGuideStep>(null);
+  const [startupGuideDismissCount, setStartupGuideDismissCount] = useState(() =>
+    Math.min(
+      2,
+      Math.max(
+        0,
+        Number(
+          globalThis.localStorage?.getItem("startup-guide-dismiss-count") ?? 0,
+        ) || 0,
+      ),
+    ),
+  );
+  const [startupGuideDismissedAt, setStartupGuideDismissedAt] = useState<
+    number | null
+  >(() => {
+    const stored = globalThis.localStorage?.getItem(
+      "startup-guide-dismissed-at",
+    );
+    return stored ? Number(stored) : null;
+  });
+  const [startupSuccessVisible, setStartupSuccessVisible] = useState(false);
+  const [modelConfigurationRequest, setModelConfigurationRequest] = useState<
+    "generation" | "embedding" | null
+  >(null);
   const [desktop, setDesktop] = useState<DesktopState | null>(null);
+  const browserPreviewState = resolvePreviewMode(
+    import.meta.env.DEV,
+    import.meta.env.MODE,
+    globalThis.location?.search ?? "",
+  );
+  const browserPreviewMode = browserPreviewState !== null;
+  const browserPreviewConnected =
+    browserPreviewState === "connected" ||
+    browserPreviewState === "remote-only" ||
+    browserPreviewState === "local-only";
+  const previewMode = browserPreviewMode;
+  const [previewConnected, setPreviewConnected] = useState(
+    browserPreviewConnected,
+  );
+  const [previewConnectionId, setPreviewConnectionId] = useState(
+    browserPreviewState === "remote-only"
+      ? previewRemoteConnectionId
+      : previewLocalConnectionId,
+  );
+  const [previewScopeId, setPreviewScopeId] = useState(
+    browserPreviewConnected ? previewDataScopeId : previewEmptyScopeId,
+  );
+  const displayedDesktop = useMemo(
+    () =>
+      previewMode
+        ? previewConnected
+          ? previewDesktopState(
+              desktop,
+              language,
+              previewConnectionId,
+              previewScopeId,
+              browserPreviewState === "remote-only"
+                ? [previewRemoteConnectionId]
+                : browserPreviewState === "local-only"
+                  ? [previewLocalConnectionId]
+                  : undefined,
+            )
+          : previewDisconnectedState(desktop)
+        : desktop,
+    [
+      desktop,
+      language,
+      previewConnected,
+      previewConnectionId,
+      previewMode,
+      previewScopeId,
+      browserPreviewState,
+    ],
+  );
   const currentState = useRef<DesktopState | null>(null);
   const [nativeError, setNativeError] = useState<unknown>(null);
   const [stateError, setStateError] = useState<unknown>(null);
   const [stateLoading, setStateLoading] = useState(true);
   const stateRequest = useRef(0);
   const [dirty, setDirty] = useState(false);
-  const uiIntent = useRef(0);
-  function editorDirty(next: boolean) {
-    uiIntent.current++;
-    setDirty(next);
-  }
-  const [submittedDrafts, setSubmittedDrafts] = useState<SubmittedDraft[]>([]);
-  const submissionSequence = useRef(0);
-  function beginSubmission(text: string, target: SubmittedDraft["target"]) {
-    const id = ++submissionSequence.current;
-    setSubmittedDrafts((current) => [
-      ...current,
-      { id, text, target, phase: "pending" },
-    ]);
-    return (record: WriteRecord | null) => {
-      // Update only a retained intent. Explicit discard removes its identity,
-      // so late receipts cannot revive it or clear a different submission.
-      setSubmittedDrafts((current) =>
-        current.flatMap((draft) => {
-          if (draft.id !== id) return [draft];
-          if (record?.status === "succeeded") return [];
-          return [
-            {
-              ...draft,
-              target: record?.context ?? draft.target,
-              phase: record?.status ?? "unconfirmed",
-            },
-          ];
-        }),
-      );
-    };
-  }
-  const [connectionDraftReset, setConnectionDraftReset] = useState(0);
-  const [scopeOpen, setScopeOpen] = useState(false);
-  const [refreshing, setRefreshing] = useState(false);
+  const [createScopeOpen, setCreateScopeOpen] = useState(false);
+  const [deploymentOpen, setDeploymentOpen] = useState(false);
+  const [quickConnectOpen, setQuickConnectOpen] = useState(false);
   const [connectionSelection, setConnectionSelection] = useState<{
     id: string;
     request: number;
   } | null>(null);
   const [pendingConnections, setPendingConnections] = useState(0);
-  const [pendingScopes, setPendingScopes] = useState(0);
-  const contextPending = pendingConnections > 0 || pendingScopes > 0;
-  function scopePending(pending: boolean) {
-    if (pending) setNativeError(null);
-    setPendingScopes((current) => current + (pending ? 1 : -1));
-  }
+  const contextPending = pendingConnections > 0;
   function connectionPending(pending: boolean) {
     // Pending operations may finish after their editor has unmounted.
     setPendingConnections((current) => current + (pending ? 1 : -1));
@@ -131,39 +211,81 @@ export function App() {
       return false;
     currentState.current = next;
     setDesktop(next);
+    if (!previewMode && next.active?.scope) {
+      globalThis.localStorage?.setItem(
+        "active-connection-id",
+        next.active.connectionId,
+      );
+      globalThis.localStorage?.setItem(
+        "active-scope-id",
+        next.active.scope.scope_id,
+      );
+    }
+    if (previewMode && next.active?.connectionId.startsWith("preview-")) {
+      setPreviewConnected(true);
+      setPreviewConnectionId(next.active.connectionId);
+      setPreviewScopeId(next.active.scope?.scope_id ?? previewEmptyScopeId);
+    }
     return true;
   }
   const { confirm, confirmation } = useConfirmation(language);
   async function confirmSwitch() {
-    if (
-      (dirty || submittedDrafts.length > 0) &&
-      !(await confirm(
-        submittedDrafts.length > 0
-          ? memoryMessages[language].discardAllSubmittedConfirm
-          : connectionMessages[language].discard,
-      ))
-    )
+    if (dirty && !(await confirm(connectionMessages[language].discard)))
       return false;
-    setSubmittedDrafts([]);
     return true;
   }
-  const activeProfile = desktop?.profiles.find(
-    (p) => p.id === desktop.active?.connectionId,
+  const activeProfile = displayedDesktop?.profiles.find(
+    (p) => p.id === displayedDesktop.active?.connectionId,
   );
-  const activeReport = activeCheckReport(desktop);
+  const activeReport = activeCheckReport(displayedDesktop);
   const heading = useRef<HTMLHeadingElement>(null);
   const localServerHeading = useRef<HTMLHeadingElement>(null);
   const settingsSection = useRef<"local-server" | undefined>(undefined);
   const scopeReturnFocus = useRef<HTMLElement | null>(null);
-  const scopeToMemory = useRef(false);
   const t = messages[language];
-  const ct = connectionMessages[language];
+  async function restoreSavedContext(next: DesktopState) {
+    if (next.active?.scope || next.profiles.length === 0) return next;
+    const storedConnectionId = globalThis.localStorage?.getItem(
+      "active-connection-id",
+    );
+    const profile = next.profiles.find(
+      (candidate) => candidate.id === storedConnectionId,
+    );
+    if (!next.active && !profile) return next;
+    let checked = next;
+    try {
+      if (!next.active && profile)
+        checked = await desktopApi.check(profile.id, true);
+      if (!checked.active || !checked.active.report.compatibilityVerified)
+        return checked;
+      const storedScopeId = globalThis.localStorage?.getItem("active-scope-id");
+      if (storedScopeId) {
+        try {
+          return await desktopApi.selectScope(
+            checked.active.generation,
+            storedScopeId,
+          );
+        } catch {
+          // A removed or inaccessible previous Space falls back to the service default.
+        }
+      }
+      const defaultScope = await desktopApi.defaultScope(
+        checked.active.generation,
+      );
+      return await desktopApi.selectScope(
+        checked.active.generation,
+        defaultScope.scope_id,
+      );
+    } catch {
+      return checked;
+    }
+  }
   async function loadState() {
     const request = ++stateRequest.current;
     setStateLoading(true);
     setStateError(null);
     try {
-      receiveState(await desktopApi.state());
+      receiveState(await restoreSavedContext(await desktopApi.state()));
     } catch (error) {
       if (request === stateRequest.current) setStateError(error);
     } finally {
@@ -171,30 +293,34 @@ export function App() {
     }
   }
   useEffect(() => {
+    if (browserPreviewMode) {
+      setStateLoading(false);
+      setStateError(null);
+      return;
+    }
     void loadState();
-    getFoundationInfo()
-      .then(setHost)
-      .catch(() => setHost(null));
   }, []);
   useEffect(() => {
     document.documentElement.lang = language === "zh" ? "zh-CN" : "en";
+    if (isTauri()) void desktopApi.setMenuLanguage?.(language);
   }, [language]);
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
   }, [theme]);
+  useEffect(() => {
+    const timer = globalThis.setInterval(
+      () => setGuideClock(Date.now()),
+      30_000,
+    );
+    return () => globalThis.clearInterval(timer);
+  }, []);
   useLayoutEffect(() => {
     const localServer =
-      page === "settings" && settingsSection.current === "local-server";
+      page === "connections" && settingsSection.current === "local-server";
     const target = localServer ? localServerHeading.current : heading.current;
     target?.focus();
     if (localServer) target?.scrollIntoView?.({ block: "start" });
   }, [page, connectionSelection]);
-  function openScopes(trigger: HTMLElement, toMemory = false) {
-    uiIntent.current++;
-    scopeReturnFocus.current = trigger;
-    scopeToMemory.current = toMemory;
-    setScopeOpen(true);
-  }
   async function navigate(
     next: Page,
     target?: { section?: "local-server"; profileId?: string },
@@ -204,7 +330,6 @@ export function App() {
       !(await confirmSwitch())
     )
       return;
-    uiIntent.current++;
     settingsSection.current = target?.section;
     setConnectionSelection((current) =>
       target?.profileId === undefined
@@ -215,38 +340,43 @@ export function App() {
     setPage(next);
     setMenu(false);
   }
-  async function disconnect() {
-    if (!(await confirmSwitch())) return;
-    connectionPending(true);
-    void desktopApi
-      .disconnect()
-      .then(receiveState)
-      .catch(setNativeError)
-      .finally(() => connectionPending(false));
-  }
-  async function refresh() {
-    setRefreshing(true);
-    setNativeError(null);
-    connectionPending(true);
-    try {
-      receiveState(
-        desktop?.active
-          ? await desktopApi.check(desktop.active.connectionId, false)
-          : await desktopApi.state(),
-      );
-    } catch (e) {
-      setNativeError(e);
-      try {
-        receiveState(await desktopApi.state());
-      } catch {
-        /* Preserve the original check failure. */
-      }
-    } finally {
-      connectionPending(false);
-      setRefreshing(false);
-    }
-  }
   const ready = activeReport?.readiness.value?.status === "ready";
+  const localServiceReady =
+    ready &&
+    !!activeProfile &&
+    (activeProfile.endpoint.includes("127.0.0.1") ||
+      activeProfile.endpoint.includes("localhost"));
+  const serviceAgentModel = useMemo(
+    () =>
+      buildServiceAgentWorkspaceModel(displayedDesktop, {
+        simulated: previewMode,
+        agentsByServiceId: previewMode
+          ? previewServiceAgents(language)
+          : undefined,
+      }),
+    [displayedDesktop, language, previewMode],
+  );
+  const localAgentConfigured = serviceAgentModel.services.some(
+    (service) => service.kind === "local" && service.agents.length > 0,
+  );
+  const startupPrerequisitesMet = localServiceReady && localAgentConfigured;
+  const startupGuideAllowed = canShowStartupGuide({
+    prerequisitesMet: startupPrerequisitesMet,
+    startOnLogin,
+    disabledByUser: startupDisabledByUser,
+    dismissCount: startupGuideDismissCount,
+    dismissedAt: startupGuideDismissedAt,
+    now: guideClock,
+  });
+  const progressiveGuideStep = getProgressiveGuideStep({
+    prerequisitesMet: startupPrerequisitesMet,
+    startupGuideAllowed,
+    anyModelConfigured: hasAnyConfiguredModel(configuredModels),
+    previousGuideEndedAt,
+    now: guideClock,
+  });
+  const visibleGuideStep =
+    progressiveGuideStep === dismissedGuideStep ? null : progressiveGuideStep;
   return (
     <div className="app">
       <a className="skip" href="#main">
@@ -254,93 +384,179 @@ export function App() {
       </a>
       <header className="mobile-bar">
         <span>PowerContext</span>
-        <button
+        <Button
+          variant="ghost"
+          size="sm"
           aria-expanded={menu}
           aria-controls="navigation"
           onClick={() => setMenu(!menu)}
         >
           {t.menu}
-        </button>
+        </Button>
       </header>
       <aside id="navigation" className={menu ? "sidebar open" : "sidebar"}>
-        <div className="brand">
+        <div className="window-chrome">
+          {!usesNativeWindowControls && (
+            <div className="window-controls">
+              <button
+                aria-label={language === "zh" ? "关闭窗口" : "Close window"}
+                onClick={() => void getCurrentWindow().close()}
+              >
+                <svg
+                  className="window-control-icon"
+                  viewBox="0 0 12 12"
+                  aria-hidden="true"
+                >
+                  <path d="M3.25 3.25 8.75 8.75M8.75 3.25 3.25 8.75" />
+                </svg>
+              </button>
+              <button
+                aria-label={
+                  language === "zh" ? "最小化窗口" : "Minimize window"
+                }
+                onClick={() => void getCurrentWindow().minimize()}
+              >
+                <svg
+                  className="window-control-icon"
+                  viewBox="0 0 12 12"
+                  aria-hidden="true"
+                >
+                  <path d="M3 6h6" />
+                </svg>
+              </button>
+              <button
+                aria-label={
+                  language === "zh" ? "最大化窗口" : "Maximize window"
+                }
+                onClick={() => void getCurrentWindow().toggleMaximize()}
+              >
+                <svg
+                  className="window-control-icon window-control-icon-maximize"
+                  viewBox="0 0 12 12"
+                  aria-hidden="true"
+                >
+                  <path d="M2.75 2.75H7.7L2.75 7.7ZM9.25 9.25H4.3l4.95-4.95Z" />
+                </svg>
+              </button>
+            </div>
+          )}
+          <div
+            className="window-drag-handle"
+            data-tauri-drag-region
+            aria-hidden="true"
+          />
+        </div>
+        <div className="brand" data-tauri-drag-region="deep">
           <img src={logo} alt="" />
           <strong>PowerContext</strong>
           <span className="brand-sub">{t.brandSub}</span>
         </div>
-        <span className="brand-badge">{t.foundation}</span>
         <nav aria-label={t.menu}>
-          {(["home", "connections", "memories", "observation"] as const).map(
-            (item, index) => (
-              <button
-                key={item}
-                aria-current={page === item ? "page" : undefined}
-                onClick={() => navigate(item)}
-              >
-                <img
-                  className="nav-symbol"
-                  alt=""
-                  src={
-                    [homeIcon, connectionsIcon, memoryIcon, observationIcon][
-                      index
-                    ]
-                  }
-                />
-                {t[item]}
-              </button>
-            ),
-          )}
+          {(
+            [
+              ["home", Home],
+              ["memories", Brain],
+              ["connections", Server],
+            ] as const
+          ).map(([item, Icon]) => (
+            <Button
+              variant="navigation"
+              size="sm"
+              key={item}
+              aria-current={page === item ? "page" : undefined}
+              onClick={() => navigate(item)}
+            >
+              <Icon className="nav-symbol" aria-hidden="true" />
+              {t[item]}
+            </Button>
+          ))}
         </nav>
         <div className="sidebar-bottom">
-          <button
+          <Button
+            variant="navigation"
+            size="sm"
             aria-current={page === "settings" ? "page" : undefined}
             onClick={() => navigate("settings")}
           >
-            <img className="nav-symbol" alt="" src={settingsIcon} />
+            <Settings className="nav-symbol" aria-hidden="true" />
             {t.settings}
-          </button>
-          <div className="sidebar-status">
-            <p className="status">
-              <span aria-hidden="true" className="dot" />
-              {activeProfile?.name ??
-                (stateLoading
-                  ? t.loadingState
-                  : desktop
-                    ? t.disconnected
-                    : t.stateUnavailable)}
-            </p>
-            <p className="caption">{t.sidebarRunning}</p>
-          </div>
+          </Button>
         </div>
       </aside>
       <div className="content">
         <TopBar
-          state={desktop}
+          state={displayedDesktop}
           language={language}
           loading={stateLoading}
           contextPending={contextPending}
+          preview={previewMode}
+          hideContent={page === "connections" || page === "settings"}
           onManageConnections={(profileId) =>
             navigate("connections", { profileId })
           }
-          onOpenScopes={openScopes}
-          onDisconnect={disconnect}
+          onSelectConnection={(profileId) => {
+            if (profileId === displayedDesktop?.active?.connectionId) return;
+            if (previewMode && profileId.startsWith("preview-")) {
+              setPreviewConnectionId(profileId);
+              setPreviewScopeId(previewEmptyScopeId);
+              return;
+            }
+            connectionPending(true);
+            void (async () => {
+              try {
+                const checked = await desktopApi.check(profileId, true);
+                receiveState(checked);
+                if (
+                  !checked.active ||
+                  checked.active.connectionId !== profileId ||
+                  !checked.active.report.compatibilityVerified
+                )
+                  throw { code: "compatibility_unverified" };
+                const defaultScope = await desktopApi.defaultScope(
+                  checked.active.generation,
+                );
+                receiveState(
+                  await desktopApi.selectScope(
+                    checked.active.generation,
+                    defaultScope.scope_id,
+                  ),
+                );
+              } catch (error) {
+                setNativeError(error);
+              } finally {
+                connectionPending(false);
+              }
+            })();
+          }}
+          onSelectScope={(scope) => {
+            if (previewMode && scope.scope_id.startsWith("preview-")) {
+              setPreviewScopeId(scope.scope_id);
+              return;
+            }
+            if (
+              !desktop?.active ||
+              scope.scope_id === desktop.active.scope?.scope_id
+            )
+              return;
+            connectionPending(true);
+            setNativeError(null);
+            void desktopApi
+              .selectScope(desktop.active.generation, scope.scope_id)
+              .then(receiveState, setNativeError)
+              .finally(() => connectionPending(false));
+          }}
+          onCreateScope={(trigger) => {
+            scopeReturnFocus.current = trigger;
+            setCreateScopeOpen(true);
+          }}
         />
         <main id="main">
           <h1 className="sr-only" tabIndex={-1} ref={heading}>
             {t[page]}
           </h1>
           {contextPending && (
-            <PageFeedback
-              kind="loading"
-              title={
-                pendingScopes > 0 ? t.selectingScope : t.connectionUpdating
-              }
-            >
-              <p>
-                {pendingScopes > 0
-                  ? t.scopeUpdatingHint
-                  : t.connectionUpdatingHint}
-              </p>
+            <PageFeedback kind="loading" title={t.connectionUpdating}>
+              <p>{t.connectionUpdatingHint}</p>
             </PageFeedback>
           )}
           {stateLoading && (
@@ -352,7 +568,9 @@ export function App() {
               language={language}
               title={t.stateFailed}
               action={
-                <button onClick={() => void loadState()}>{t.retryState}</button>
+                <Button variant="outline" onClick={() => void loadState()}>
+                  {t.retryState}
+                </Button>
               }
             />
           )}
@@ -361,292 +579,374 @@ export function App() {
               error={nativeError}
               language={language}
               action={
-                <button onClick={() => navigate("connections")}>
+                <Button
+                  variant="outline"
+                  onClick={() => navigate("connections")}
+                >
                   {t.manageConnections}
-                </button>
+                </Button>
               }
             />
-          )}
-          {page === "memories" && desktop?.active && (
-            <div className="context-line">
-              <span>{activeProfile?.name}</span>
-              <span aria-hidden="true">·</span>
-              <span>{activeProfile?.endpoint}</span>
-              <span aria-hidden="true">·</span>
-              <span>{desktop.active.scope?.title ?? t.noScopeSelected}</span>
-              {desktop.active.scope && (
-                <code>{desktop.active.scope.scope_id}</code>
-              )}
-              <span className={ready ? "badge success" : "badge subtle"}>
-                {ready ? t.serviceReady : t.unverified}
-              </span>
-            </div>
-          )}
-          {page === "home" && !desktop?.active && (
-            <div className="actions">
-              <button
-                onClick={() =>
-                  navigate("settings", { section: "local-server" })
-                }
-              >
-                {t.setUpLocally}
-              </button>
-            </div>
           )}
           {page === "home" && (
             <Overview
-              state={desktop}
+              state={displayedDesktop}
               language={language}
-              onNavigate={navigate}
-              onOpenLocalServer={() =>
-                navigate("settings", { section: "local-server" })
-              }
-              onOpenProfile={(profileId) =>
-                navigate("connections", { profileId })
-              }
-              onOpenScopes={(trigger) => openScopes(trigger, true)}
-              stateLoading={stateLoading}
+              onState={receiveState}
+              onOpenLocalServer={() => setDeploymentOpen(true)}
               contextPending={contextPending}
-              guideDismissed={guideDismissed}
-              onGuideDismissedChange={setGuideDismissed}
-              refreshing={refreshing}
-              onRefresh={() => void refresh()}
+              preview={previewMode}
             />
           )}
           {page === "memories" && (
-            <>
-              {submittedDrafts
-                .filter(
-                  (draft) =>
-                    draft.target.generation !== desktop?.active?.generation,
-                )
-                .map((draft) => (
-                  <SubmittedDraftRecovery
-                    key={draft.id}
-                    draft={draft}
-                    language={language}
-                    onDiscard={() =>
-                      setSubmittedDrafts((current) =>
-                        current.filter((item) => item.id !== draft.id),
-                      )
-                    }
-                  />
-                ))}
-              <MemoryWorkspace
-                key={`memory-${desktop?.active?.generation ?? "none"}`}
-                state={desktop}
-                language={language}
-                onState={receiveState}
-                onDirty={editorDirty}
-                onSubmission={beginSubmission}
-                onManageConnections={() => navigate("connections")}
-                onOpenScopes={openScopes}
-                onOpenLocalServer={() =>
-                  navigate("settings", { section: "local-server" })
-                }
-                contextPending={contextPending}
-              />
-            </>
-          )}
-          {page === "connections" && (
-            <Connections
-              key={connectionSelection?.request ?? 0}
-              initialProfileId={connectionSelection?.id}
-              state={desktop}
+            <MemoryWorkspace
+              key={`memory-${displayedDesktop?.active?.connectionId ?? "none"}`}
+              state={displayedDesktop}
               language={language}
-              onState={receiveState}
-              onDirty={editorDirty}
-              onPendingChange={connectionPending}
-              onActivated={(trigger) => openScopes(trigger, true)}
-              discardDraft={connectionDraftReset}
+              onManageConnections={() => navigate("connections")}
+              onOpenLocalServer={() => setDeploymentOpen(true)}
+              onOpenExistingServer={() => setQuickConnectOpen(true)}
+              contextPending={contextPending}
+              preview={previewMode}
             />
           )}
-          {page === "observation" && (
-            <Observation
+          {page === "connections" && (
+            <ServiceAgentWorkspace
+              state={displayedDesktop}
               language={language}
-              tab={observationTab}
-              onTabChange={setObservationTab}
-              panels={{
-                runtime: (
-                  <Runtime
-                    language={language}
-                    active={desktop?.active ?? null}
-                    contextPending={contextPending}
-                    onManage={() =>
-                      navigate("settings", { section: "local-server" })
-                    }
-                  />
-                ),
-                inventory: (
-                  <Statistics
-                    key={`statistics-${desktop?.active?.generation ?? "none"}`}
-                    state={desktop}
-                    language={language}
-                    onState={receiveState}
-                    contextPending={contextPending}
-                  />
-                ),
-                session: (
-                  <SessionView
-                    key={`${desktop?.generation ?? "none"}-${contextPending}`}
-                    language={language}
-                  />
-                ),
+              onState={receiveState}
+              model={serviceAgentModel}
+              startOnLogin={startOnLogin}
+              onStartOnLoginChange={(enabled) => {
+                setStartOnLogin(enabled);
+                globalThis.localStorage?.setItem(
+                  "start-on-login",
+                  String(enabled),
+                );
+                if (enabled) {
+                  const endedAt = Date.now();
+                  setPreviousGuideEndedAt(endedAt);
+                  setGuideClock(endedAt);
+                  globalThis.localStorage?.setItem(
+                    "guide-last-ended-at",
+                    String(endedAt),
+                  );
+                } else {
+                  setStartupDisabledByUser(true);
+                  globalThis.localStorage?.setItem(
+                    "startup-disabled-by-user",
+                    "true",
+                  );
+                  setPreviousGuideEndedAt(null);
+                  globalThis.localStorage?.removeItem("guide-last-ended-at");
+                }
               }}
+              configuredModels={configuredModels}
+              onConfiguredModelsChange={setConfiguredModels}
+              modelConfigurationRequest={modelConfigurationRequest}
+              onModelConfigurationRequestHandled={() =>
+                setModelConfigurationRequest(null)
+              }
+              onDeployLocal={() => {
+                setServiceSetupMode("local");
+                if (previewMode)
+                  receiveState(
+                    previewDesktopState(
+                      desktop,
+                      language,
+                      previewLocalConnectionId,
+                      previewEmptyScopeId,
+                    ),
+                  );
+              }}
+              onDeploymentComplete={() => {
+                setPage("home");
+                setMenu(false);
+              }}
+              onCreateSpace={
+                previewMode
+                  ? (trigger) => {
+                      scopeReturnFocus.current = trigger;
+                      setCreateScopeOpen(true);
+                    }
+                  : undefined
+              }
             />
           )}
           {page === "settings" && (
-            <div className="stack settings">
-              <section className="card">
-                <div className="setting-row">
-                  <label htmlFor="language">{t.language}</label>
-                  <select
-                    id="language"
-                    value={language}
-                    onChange={(e) => setLanguage(e.target.value as Language)}
-                  >
-                    <option value="zh">简体中文</option>
-                    <option value="en">English</option>
-                  </select>
-                </div>
-                <div className="setting-row">
-                  <label htmlFor="theme">{t.theme}</label>
-                  <select
-                    id="theme"
-                    value={theme}
-                    onChange={(e) => setTheme(e.target.value as Theme)}
-                  >
-                    <option value="system">{t.system}</option>
-                    <option value="light">{t.light}</option>
-                    <option value="dark">{t.dark}</option>
-                  </select>
-                </div>
-              </section>
-              <LocalServerSettings
-                controller={localServer}
-                connecting={connectingLocal}
-                connectionAvailable={
-                  !!desktop && !stateLoading && !contextPending
-                }
-                onBeforeApply={async (plan) => {
-                  const intent = uiIntent.current;
-                  if (
-                    activeProfile &&
-                    plan.target.endpoint &&
-                    new URL(activeProfile.endpoint).origin ===
-                      new URL(plan.target.endpoint).origin
-                  ) {
-                    if (!(await confirmSwitch())) return false;
-                    connectionPending(true);
-                    try {
-                      receiveState(
-                        await desktopApi.invalidate(activeProfile.id),
-                      );
-                      if (intent === uiIntent.current) setDirty(false);
-                    } catch (error) {
-                      setNativeError(error);
-                      return false;
-                    } finally {
-                      connectionPending(false);
-                    }
-                  }
-                  return true;
-                }}
-                onConnect={async () => {
-                  const intent = uiIntent.current;
-                  if (!desktop || connectingLocal || !(await confirmSwitch()))
-                    return;
-                  if (intent !== uiIntent.current) return;
-                  setConnectingLocal(true);
-                  connectionPending(true);
-                  setNativeError(null);
-                  try {
-                    const next = await opsApi.connect(desktop.generation);
-                    const accepted = receiveState(next);
-                    if (
-                      accepted &&
-                      next.active?.scope &&
-                      intent === uiIntent.current
-                    ) {
-                      setDirty(false);
-                      setPage("memories");
-                    }
-                  } catch (error) {
-                    setNativeError(error);
-                    try {
-                      receiveState(await desktopApi.state());
-                    } catch {
-                      /* Keep the connection error visible. */
-                    }
-                  } finally {
-                    setConnectingLocal(false);
-                    connectionPending(false);
-                  }
-                }}
-                language={language}
-                headingRef={localServerHeading}
-                onManageConnections={() => navigate("connections")}
-              />
-              <Help language={language} />
-              <Diagnostics language={language} />
-              <section className="card">
-                <h2>{t.version}</h2>
-                <dl>
-                  <div>
-                    <dt>{t.version}</dt>
-                    <dd>{host?.version ?? t.unknown}</dd>
-                  </div>
-                  <div>
-                    <dt>{t.native}</dt>
-                    <dd role="status">
-                      {host ? t.nativeReady : t.unavailable}
-                    </dd>
-                  </div>
-                </dl>
-                <p>{t.boundary}</p>
-              </section>
-            </div>
+            <SettingsPage
+              preferences={preferences}
+              onPreferenceChange={updatePreference}
+            />
           )}
         </main>
       </div>
-      {scopeOpen && (
-        <Modal
-          label={ct.scope}
-          onClose={() => setScopeOpen(false)}
+      {createScopeOpen && (
+        <CreateSpaceDialog
+          language={language}
+          state={desktop}
+          onClose={() => setCreateScopeOpen(false)}
+          onCreated={(scope) => {
+            if (!desktop?.active) return;
+            const generation = desktop.generation + 1;
+            receiveState({
+              ...desktop,
+              generation,
+              active: { ...desktop.active, generation, scope },
+            });
+            setCreateScopeOpen(false);
+          }}
           returnFocus={() => scopeReturnFocus.current}
-        >
-          <div className="modal-heading">
-            <h2>{ct.scope}</h2>
-            <button onClick={() => setScopeOpen(false)}>{t.closeDialog}</button>
-          </div>
-          <Scopes
-            key={`scopes-${desktop?.active?.generation ?? "none"}`}
-            state={desktop}
-            language={language}
-            onState={receiveState}
-            confirmSwitch={confirmSwitch}
-            onPendingChange={scopePending}
-            onSelectionError={setNativeError}
-            onSelected={() => {
-              if (page === "connections" && dirty)
-                setConnectionDraftReset((current) => current + 1);
-              setDirty(false);
-              setScopeOpen(false);
-              if (scopeToMemory.current) {
-                scopeReturnFocus.current = null;
-                setPage("memories");
-              }
-            }}
-            hideHeading
-            onManageConnections={() => {
-              scopeReturnFocus.current = heading.current;
-              setScopeOpen(false);
-              navigate("connections");
-            }}
-          />
-        </Modal>
+        />
       )}
+      {deploymentOpen && (
+        <LocalServiceDeploymentDialog
+          language={language}
+          onClose={() => setDeploymentOpen(false)}
+          run={async (signal) => {
+            if (signal.aborted) return;
+            if (!previewMode)
+              throw new Error(
+                language === "zh"
+                  ? "当前构建尚未接入本机安装执行器。"
+                  : "This build is not connected to the local installer yet.",
+              );
+            await new Promise<void>((resolve, reject) => {
+              const timer = window.setTimeout(resolve, 650);
+              signal.addEventListener(
+                "abort",
+                () => {
+                  window.clearTimeout(timer);
+                  reject(new DOMException("Cancelled", "AbortError"));
+                },
+                { once: true },
+              );
+            });
+          }}
+          onComplete={() => {
+            receiveState(
+              previewDesktopState(
+                desktop,
+                language,
+                previewLocalConnectionId,
+                previewEmptyScopeId,
+              ),
+            );
+            setDeploymentOpen(false);
+            setMenu(false);
+          }}
+        />
+      )}
+      {quickConnectOpen && (
+        <QuickConnectDialog
+          state={displayedDesktop}
+          language={language}
+          onState={receiveState}
+          preview={previewMode}
+          onClose={() => setQuickConnectOpen(false)}
+        />
+      )}
+      {startupSuccessVisible ? (
+        <StartupSuccessNotification
+          language={language}
+          onClose={() => setStartupSuccessVisible(false)}
+        />
+      ) : visibleGuideStep ? (
+        <ProgressiveSetupGuide
+          step={visibleGuideStep}
+          language={language}
+          onClose={() => {
+            if (visibleGuideStep !== "startup") {
+              setDismissedGuideStep(visibleGuideStep);
+              return;
+            }
+            const nextCount = Math.min(2, startupGuideDismissCount + 1);
+            const dismissedAt = Date.now();
+            setStartupGuideDismissCount(nextCount);
+            setStartupGuideDismissedAt(dismissedAt);
+            setPreviousGuideEndedAt(dismissedAt);
+            setGuideClock(dismissedAt);
+            globalThis.localStorage?.setItem(
+              "startup-guide-dismiss-count",
+              String(nextCount),
+            );
+            globalThis.localStorage?.setItem(
+              "startup-guide-dismissed-at",
+              String(dismissedAt),
+            );
+            globalThis.localStorage?.setItem(
+              "guide-last-ended-at",
+              String(dismissedAt),
+            );
+          }}
+          onAction={() => {
+            setDismissedGuideStep(null);
+            if (visibleGuideStep === "startup") {
+              const completedAt = Date.now();
+              setStartOnLogin(true);
+              setPreviousGuideEndedAt(completedAt);
+              setGuideClock(completedAt);
+              globalThis.localStorage?.setItem("start-on-login", "true");
+              globalThis.localStorage?.setItem(
+                "guide-last-ended-at",
+                String(completedAt),
+              );
+              globalThis.localStorage?.removeItem(
+                "startup-guide-dismiss-count",
+              );
+              globalThis.localStorage?.removeItem("startup-guide-dismissed-at");
+              setStartupSuccessVisible(true);
+              return;
+            }
+            setModelConfigurationRequest("generation");
+            void navigate("connections");
+          }}
+          onSecondaryAction={() => {
+            setDismissedGuideStep(null);
+            setModelConfigurationRequest("embedding");
+            void navigate("connections");
+          }}
+        />
+      ) : null}
       {confirmation}
     </div>
+  );
+}
+
+export function CreateSpaceDialog({
+  language,
+  state,
+  onClose,
+  onCreated,
+  returnFocus,
+}: {
+  language: Language;
+  state: DesktopState | null;
+  onClose: () => void;
+  onCreated: (scope: import("../generated/ipc").ScopeDescriptor) => void;
+  returnFocus: () => HTMLElement | null;
+}) {
+  const zh = language === "zh";
+  const [title, setTitle] = useState("");
+  const [submitted, setSubmitted] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const previewScope = state?.active?.scope?.scope_id.startsWith("preview-");
+  const normalizedTitle = title.trim();
+  const existingScopes = previewScope
+    ? [
+        ...previewScopes(language),
+        ...(state?.active?.scope ? [state.active.scope] : []),
+      ]
+    : state?.active?.scope
+      ? [state.active.scope]
+      : [];
+  const duplicateTitle = existingScopes.some(
+    (scope) => scope.title.trim() === normalizedTitle,
+  );
+  const titleError = submitted
+    ? !normalizedTitle
+      ? zh
+        ? "请输入空间名称"
+        : "Enter a space name"
+      : duplicateTitle
+        ? zh
+          ? "当前连接下已存在同名空间"
+          : "A space with this name already exists in this connection"
+        : null
+    : null;
+
+  async function create() {
+    if (busy) return;
+    if (!normalizedTitle || duplicateTitle) {
+      setSubmitted(true);
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      if (!previewScope) {
+        setError(
+          zh
+            ? "当前服务尚未提供创建记忆空间的能力"
+            : "This service does not provide memory-space creation yet",
+        );
+        return;
+      }
+      await new Promise((resolve) => globalThis.setTimeout(resolve, 180));
+      const id = `preview-created-${Date.now()}`;
+      onCreated({
+        scope_id: id,
+        title: normalizedTitle,
+        summary: "",
+        parent_scope_id: null,
+        context_references: [],
+        external_references: [],
+        version: 1,
+      });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
+      <DialogContent returnFocus={returnFocus}>
+        <form
+          className="quick-connect-form create-space-form contents"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void create();
+          }}
+        >
+          <DialogHeader>
+            <DialogTitle>
+              {zh ? "创建记忆空间" : "Create memory space"}
+            </DialogTitle>
+            <DialogCloseButton label={zh ? "关闭弹窗" : "Close dialog"} />
+          </DialogHeader>
+          <DialogBody>
+            {error && <PageFeedback compact kind="error" title={error} />}
+            <fieldset disabled={busy} className="form-fields">
+              <Field>
+                <FieldLabel>
+                  {zh ? "空间名称" : "Space name"}
+                  <Input
+                    autoFocus
+                    value={title}
+                    maxLength={128}
+                    aria-invalid={titleError ? true : undefined}
+                    aria-describedby={
+                      titleError ? "space-title-error" : undefined
+                    }
+                    onChange={(event) => {
+                      setTitle(event.target.value);
+                      setError(null);
+                    }}
+                  />
+                </FieldLabel>
+                {titleError && (
+                  <FieldError id="space-title-error">{titleError}</FieldError>
+                )}
+              </Field>
+            </fieldset>
+          </DialogBody>
+          <DialogFooter>
+            <Button type="button" variant="outline" size="sm" onClick={onClose}>
+              {zh ? "取消" : "Cancel"}
+            </Button>
+            <Button type="submit" size="sm" disabled={busy}>
+              {busy
+                ? zh
+                  ? "正在创建…"
+                  : "Creating…"
+                : zh
+                  ? "创建空间"
+                  : "Create space"}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }
