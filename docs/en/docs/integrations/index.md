@@ -68,6 +68,23 @@ when updating a plugin; this policy adds credential checks without changing capt
 | ZCode | `UserPromptSubmit` text | `POWERCONTEXT_ZCODE_CAPTURE_PROMPTS=false` |
 | Kimi Code (experimental) | Text parts of `UserPromptSubmit` | setup `--no-capture-prompts` |
 
+The in-process Python adapters apply the same recognition and handling to their automatic paths without changing
+their capture defaults:
+
+| Adapter | Automatic input boundary | Checked automatic capture | Capture default |
+| --- | --- | --- | --- |
+| Hermes | `prefetch` and `queue_prefetch` query | Completed-turn Source | On; `POWERCONTEXT_HERMES_CAPTURE_TURNS=false` |
+| LangChain | Latest human message | Completed-turn Source | Off; `PowerContextMiddleware(auto_capture=True)` |
+| LangGraph | Latest human message | None; LangGraph captures only through explicit tools | Not applicable |
+| Pydantic AI | Latest textual user prompt | `user_prompt` event | Off; `POWERCONTEXT_PYDANTIC_AI_CAPTURE_EVENTS=true` |
+
+A recognized credential in the user text or the assistant reply skips the whole completed turn (Hermes, LangChain),
+because the turn Source stores both; a recognized credential in the user prompt skips the `user_prompt` event
+(Pydantic AI). Pydantic AI model-response and tool events keep their key-based and known-credential redaction, and
+Hermes pre-compression capture keeps its own redaction. The configured Server credential is the adapter's token, or
+Hermes's Authorization value. A skip is logged at debug level with the reason `sensitive_content` and without the
+rejected text; a completed-turn skip also names the side, user or assistant, that contained the credential.
+
 Before automatic capture, these adapters recognize conventional credential assignments (API/access keys
 and tokens, AWS-style access key IDs, client/private keys, secrets, passwords, passphrases, authorization
 and cookies), Bearer values of at least eight token characters, common provider/Stripe/GitHub/Slack token

@@ -65,7 +65,9 @@ instead of calling a synchronous method inside its event loop.
 For every model step, the middleware:
 
 1. reads the latest human message without changing state;
-2. calls `/v1/context/prepare` with the resolved scope and configured byte limit. The query is the message, trimmed;
+2. calls `/v1/context/prepare` with the resolved scope and configured byte limit. The query is the message, trimmed,
+   with recognized credentials replaced by `[REDACTED]` as described in
+   [automatic prompt privacy](index.md#automatic-prompt-privacy);
    a message longer than 8,192 characters or 8,192 UTF-8 bytes recalls from its most recent text, cut to the last
    8,192 characters and then to the last 8,192 bytes;
 3. appends a separate text block to the current system message;
@@ -90,8 +92,9 @@ not store the recalled system block, tool outputs, or intermediate tool-calling 
 
 Capture creates Source evidence, not an inferred Memory entry. The configured scheduler or an explicit
 `flush_memory` operation performs the normal Source-to-Memory extraction later. This keeps lineage intact and avoids
-treating raw model output as an already reviewed durable fact. Captured content is bounded but is not guaranteed to be
-free of secrets, so applications must apply their own input and output policy before opting in.
+treating raw model output as an already reviewed durable fact. A turn whose user message or assistant response
+contains a recognized credential is skipped as a whole. Detection is best effort, so captured content is not
+guaranteed to be free of secrets; applications must apply their own input and output policy before opting in.
 
 LangChain does not run `after_agent` when a model or tool aborts the run, so a failed run without a final response is
 not captured.

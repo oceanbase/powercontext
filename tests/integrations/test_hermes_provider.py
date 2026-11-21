@@ -269,7 +269,8 @@ def test_evaluation_trace_redacts_a_credential_the_query_bound_cuts_through(tmp_
         client_factory=lambda _config: client,
     )
     provider.initialize("session-1", hermes_home=str(tmp_path), agent_identity="coder", user_id="user-7")
-    # The query keeps the last 8,192 characters, so the cut drops ``api_key=`` and leaves the bare value.
+    # The query keeps the last 8,192 characters, so bounding before scrubbing would drop ``api_key=`` and leave the
+    # bare value.
     prompt = ("api_key=synthetic-value-2084 " + "filler " * 3000)[:8200]
 
     provider.prefetch(prompt)
@@ -282,10 +283,69 @@ def test_evaluation_trace_redacts_a_credential_the_query_bound_cuts_through(tmp_
         for line in path.read_text(encoding="utf-8").splitlines()
     ]
     injections = [event for event in events if event["event_type"] == "powercontext_injection"]
-    assert client.calls[0][1][1].startswith("synthetic-value-2084 ")
+    assert len(client.calls) == 1
+    assert "synthetic-value-2084" not in client.calls[0][1][1]
     assert len(injections) == 1
     assert prompt.endswith(injections[0]["query"][-100:])
     assert "synthetic-value-2084" not in json.dumps(events)
+
+
+def test_evaluation_trace_keeps_the_plugin_redaction(tmp_path, hermes_modules):
+    provider_module, _cli_module = hermes_modules
+    client = FakeClient()
+    provider = provider_module.PowerContextMemoryProvider(
+        {"evaluation_trace": True},
+        client_factory=lambda _config: client,
+    )
+    provider.initialize("session-1", hermes_home=str(tmp_path), agent_identity="coder", user_id="user-7")
+
+    # The plugin's own rule takes a value from the unindented next line; the shared rule keeps a value on its line and
+    # does not recognize this one.
+    provider.prefetch("X-Api-Key:\nsynthetic-header-2084")
+    provider.shutdown()
+
+    trace_dir = tmp_path / "powercontext" / "evaluation-trace"
+    trace = "".join(path.read_text(encoding="utf-8") for path in (trace_dir / "sessions").glob("*.jsonl"))
+    assert "powercontext_injection" in trace
+    assert "synthetic-header-2084" not in trace
+
+
+PROMPT_PRIVACY_CASES = json.loads(
+    (Path(__file__).resolve().parents[2] / "tests/fixtures/automatic_prompt_privacy.json").read_text(encoding="utf-8")
+)["cases"]
+
+
+@pytest.mark.parametrize(
+    "case",
+    [case for case in PROMPT_PRIVACY_CASES if case["sensitive"]],
+    ids=[case["id"] for case in PROMPT_PRIVACY_CASES if case["sensitive"]],
+)
+def test_evaluation_trace_redacts_every_credential_the_recall_query_redacts(tmp_path, hermes_modules, case):
+    provider_module, _cli_module = hermes_modules
+
+    class EchoingClient(FakeClient):
+        authorization = case.get("authorization")
+
+        def prepare_context(self, scope_id, query, *, max_bytes):
+            super().prepare_context(scope_id, query, max_bytes=max_bytes)
+            # Recalled content can repeat a credential stored before this policy applied.
+            return {"status": "ready", "content": f"Remembered: {case['prompt']}"}
+
+    client = EchoingClient()
+    provider = provider_module.PowerContextMemoryProvider(
+        {"evaluation_trace": True},
+        client_factory=lambda _config: client,
+    )
+    provider.initialize("session-1", hermes_home=str(tmp_path), agent_identity="coder", user_id="user-7")
+
+    provider.prefetch(case["prompt"])
+    provider.shutdown()
+
+    trace_dir = tmp_path / "powercontext" / "evaluation-trace"
+    trace = "".join(path.read_text(encoding="utf-8") for path in (trace_dir / "sessions").glob("*.jsonl"))
+    assert "powercontext_injection" in trace
+    for marker in ("synthetic-value-2084", "synthetic_value_2084", "SyntheticValue2084"):
+        assert marker not in trace
 
 
 def test_evaluation_trace_slash_command_reads_named_session(tmp_path, hermes_modules):
