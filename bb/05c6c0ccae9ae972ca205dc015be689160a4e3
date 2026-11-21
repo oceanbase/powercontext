@@ -1,0 +1,31 @@
+frontend/knowledge-base/src/components/ProcessingWatcher.tsx
+  s_13fec9a57c9104::t_c2346b387bee22 20,28,31
+frontend/knowledge-base/src/pages/Reader.tsx
+  s_13fec9a57c9104::t_c2346b387bee22 30,50,55,73-79
+frontend/knowledge-base/src/hooks.ts
+  s_13fec9a57c9104::t_c2346b387bee22 17,61
+plugins/knowledge-base/ui/app.js
+  s_13fec9a57c9104::t_c2346b387bee22 16-17,20-21,23-27,29,40,46,48,61-63,80-82,139-141,143,148,180,235,237,254,256,263,265,271,274,277,280,283,287,291,298,300-301,303,306,311,314,316,319,322,326,329,331-334,337,340-341,346,351,353,355,358-359,372,374,376,385,391,397,403,405-408,410,421,424,436-437,442,445,448,468,472,481,484,487,498,503,509,514,520,523,527,534-554,574-592,594-595,597,599,601,603,606-609,614-617,622-623,625
+tests/e2e/test_knowledge_base_dashboard_lifecycle.py
+  s_13fec9a57c9104::t_33f4c069d6963a 25-26,37-47,185-232,234
+frontend/knowledge-base/src/services.ts
+  s_13fec9a57c9104::t_c2346b387bee22 54
+frontend/knowledge-base/src/pages/Documents.tsx
+  s_13fec9a57c9104::t_c2346b387bee22 21,36
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "bb05c6c0ccae9ae972ca205dc015be689160a4e3",
+  "prompts": {},
+  "sessions": {
+    "s_13fec9a57c9104": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1617e-79d4-7103-bf67-e341786d4978",
+        "model": "gpt-6.2-astra"
+      },
+      "human_author": "Frey <370805886@qq.com>"
+    }
+  }
+}
