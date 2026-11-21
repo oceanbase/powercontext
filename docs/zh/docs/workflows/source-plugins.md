@@ -182,6 +182,12 @@ async def collect(self, request: CollectRequest) -> CollectResult:
 - Server 每次加载插件版本时调用 `upgrade(ctx)`（见[编写插件](../develop/plugins.md)）；设备不调用 `upgrade`，插件自己的
   本地文件在 `setup` 中检查和迁移。
 
+## Agent 客户端的插件分工
+
+Agent Plugin 负责宿主专属的客户端接入：配置、认证、Skill、Hook 和用户提示。Source 插件负责采集用户明确选择的历史或外部
+资料，并通过 Source Runner 提交。宿主通过公共 MCP 发现能力、选择资料和目标 Scope，再添加采集目标。管理员负责加载可信插件代码
+和部署 Runtime。原生 Hook 和清单差异留在宿主适配层；可复用的数据采集逻辑放在 Source 插件中。
+
 ## 从旧的 Source 插件框架迁移
 
 `/v1/source-management/*`、`powercontext source load`、`powercontext.yml` 和 `write.yml` 已移除：
@@ -194,3 +200,27 @@ async def collect(self, request: CollectRequest) -> CollectResult:
   数据库；不要手工删除记录来绕过检查。没有加载过 write 插件的数据库不受影响。
 - 旧管理服务里的采集实例和配置不迁移，升级后通过上面的目标接口重新配置。已经采集的 Source 和它们的类型定义保留，改写
   后的插件继续声明同名同版本的定义，已保存的 Source 就能继续读取。
+
+## Codex 历史会话
+
+仓库提供两个选择启用的 Source 插件，位于 `integrations/codex/`：`source_plugin/`（安装名 `codex-history`）读取指定
+JSONL 会话，`memory_source_plugin/`（安装名 `codex-memory-history`）读取 `memories/` 下指定文件或目录。将插件目录复制到
+Server 插件目录。若由另一台设备采集，该设备 Runner 也要安装相同插件。执行采集的进程必须设置 `CODEX_HOME`，指向该机器的
+Codex 主目录。
+
+只选择用户打算导入的文件。会话目标路径相对于 `CODEX_HOME/sessions/`；已有 Memory 的 `path` 相对于
+`CODEX_HOME/memories/`：
+
+```javascript
+pc_source_add({"scope_id":"SCOPE_ID", "runner":"server", "capability":"codex-history",
+               "parameters":{"session_file":"2026/09/13/rollout.jsonl"}})
+pc_source_add({"scope_id":"SCOPE_ID", "runner":"server", "capability":"codex-memory-history",
+               "parameters":{"path":"MEMORY.md"}})
+```
+
+文件在其他机器时，将 `server` 换成设备 Runner 名称。会话插件将真实用户 Prompt 保存为单独的 `codex-session-prompt` Source 类型，
+并排除助手回复及宿主生成的上下文；两个插件都会在提交前脱敏已知密钥。独立 Source 类型可避免脱敏后的历史导入与同一 Prompt 的
+实时 `content` 记录冲突。Memory 插件还记录原文件哈希和是否执行过脱敏。
+
+创建目标后即开始采集。若只需导入一次，等待目标状态显示成功后停用；重新启用可恢复跟踪。Memory 插件的本地预览命令见
+[导入已有 Codex Memory](import-codex-memory.md)。

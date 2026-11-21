@@ -77,3 +77,9 @@ credentials 或 token placeholders。不要把 bearer token 写入 `mcp.json`。
 
 当某个 Agent 支持 Agent Plugin skills 和 MCP configuration，并且你只需要显式的
 Memory 与 Handoff 操作而不是专属 integration 时，可以使用这个 package。
+
+## 与 Source 插件配合
+
+Agent Plugin 负责客户端接入；历史数据读取由 [Source 插件](../workflows/source-plugins.md#agent-客户端的插件分工)负责。
+宿主通过公共 MCP 发现采集能力、显式选择资料和 Scope、添加目标并查询或启停。加载可信代码和部署 Runtime 由管理员完成。
+新增 agent 客户端沿用此分工，优先复用本包的 Skill 与 MCP 配置；原生 Hook、认证和清单差异留在宿主适配层。
