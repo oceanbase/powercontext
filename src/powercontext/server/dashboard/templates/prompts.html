@@ -15,9 +15,9 @@ limitations under the License.
 -->
 
 {% from 'components/page-heading.html' import page_heading %}
-{% macro prompt_editor_form(draft_etag, draft_mode, draft_instructions, defaults, saved_mode, saved_text, saved_custom, demonstrations_count, can_return_to_auto, is_draft) %}
+{% macro prompt_editor_form(draft_etag, draft_mode, draft_instructions, defaults, saved_mode, saved_text, saved_custom, demonstrations_count, can_return_to_auto, is_draft, is_saved=false) %}
 {% set form_action = '/dashboard/prompts/profile-generate' ~ ('?lang=' ~ language if 'lang' in request.query_params else '') %}
-<form method="post" action="{{ form_action }}" data-profile-prompt-editor data-scope="{{ scope }}" class="mt-3">
+<form method="post" action="{{ form_action }}" data-profile-prompt-editor data-scope="{{ scope }}" data-prompt-saved="{{ '1' if is_saved else '0' }}" class="mt-3">
   <h2 class="section-title">{{ t.prompt_editor_title }}</h2>
   <input type="hidden" name="scope" value="{{ scope }}">
   <input type="hidden" name="expected_etag" value="{{ draft_etag or '' }}">
@@ -50,6 +50,7 @@ limitations under the License.
     me().run(form => {
       const scope = form.dataset.scope;
       const textarea = form.querySelector('textarea[name="instructions"]');
+      const etagInput = form.querySelector('input[name="expected_etag"]');
       const instructionsField = form.querySelector('[data-prompt-instructions-field]');
       const saveButton = form.querySelector('[data-prompt-save]');
       const radios = Array.from(form.querySelectorAll('input[name="mode"]'));
@@ -57,33 +58,92 @@ limitations under the License.
       const savedMode = {{ saved_mode | tojson }};
       const savedText = {{ saved_text | tojson }};
       const hasDraft = {{ is_draft | tojson }};
+      const promptSaved = form.dataset.promptSaved === '1';
       const message = {{ t.prompt_unsaved_changes | tojson }};
+      const storageKey = scope ? `powercontext:profile-prompt-draft:${scope}` : '';
       const normalize = value => value.replace(/\r\n/g, '\n');
       const currentMode = () => (radios.find(radio => radio.checked) || {}).value || 'auto';
+      const readStoredDraft = () => {
+        if (!storageKey) return null;
+        try {
+          const raw = window.sessionStorage.getItem(storageKey);
+          if (!raw) return null;
+          const parsed = JSON.parse(raw);
+          if (!parsed || parsed.scope !== scope || (parsed.mode !== 'auto' && parsed.mode !== 'custom')) return null;
+          return parsed;
+        } catch {
+          return null;
+        }
+      };
+      const clearStoredDraft = () => {
+        if (!storageKey) return;
+        try { window.sessionStorage.removeItem(storageKey); } catch {}
+      };
+      let restoredDraft = false;
       // The Custom text outlives a switch to Auto, so toggling back never loses typing.
       let customText = hasDraft ? normalize(textarea.value) : (normalize(textarea.value) || defaults);
-      const sync = () => {
-        const custom = currentMode() === 'custom';
-        textarea.readOnly = !custom;
-        if (instructionsField) instructionsField.hidden = !custom;
-        if (saveButton) saveButton.disabled = !custom && savedMode === 'auto' && !hasDraft;
-        if (custom && !hasDraft && !normalize(textarea.value).trim()) textarea.value = customText || defaults;
-        if (custom && hasDraft && !normalize(textarea.value).trim() && normalize(customText).trim()) textarea.value = customText;
-      };
-      radios.forEach(radio => radio.addEventListener('change', () => {
-        if (currentMode() === 'auto') customText = normalize(textarea.value) || customText;
-        else if (!normalize(textarea.value).trim()) textarea.value = customText || defaults;
-        sync();
-      }));
-      textarea.addEventListener('input', () => { if (currentMode() === 'custom') customText = normalize(textarea.value); });
+      if (promptSaved) {
+        clearStoredDraft();
+      } else if (!hasDraft) {
+        const stored = readStoredDraft();
+        if (stored) {
+          const storedText = typeof stored.instructions === 'string' ? normalize(stored.instructions) : '';
+          const storedDirty = stored.mode !== savedMode
+            || (savedMode === 'custom' ? storedText !== normalize(savedText) : storedText !== normalize(defaults));
+          if (storedDirty) {
+            const targetRadio = radios.find(radio => radio.value === stored.mode);
+            if (targetRadio) targetRadio.checked = true;
+            customText = storedText;
+            textarea.value = storedText;
+            if (etagInput && typeof stored.expectedEtag === 'string') etagInput.value = stored.expectedEtag;
+            const details = form.closest('details.prompt-record');
+            if (details) details.open = true;
+            restoredDraft = true;
+          } else {
+            clearStoredDraft();
+          }
+        }
+      }
       // Dirty checks both mode changes and typed Custom text retained across toggling to Auto.
       const dirty = () => {
         if (!form.isConnected || form.dataset.scope !== scope) return false;
         if (currentMode() !== savedMode) return true;
         const normalized = normalize(customText);
         if (savedMode === 'custom') return normalized !== normalize(savedText);
-        return hasDraft ? normalized.trim() !== '' : normalized !== normalize(defaults);
+        return (hasDraft || restoredDraft) ? normalized.trim() !== '' : normalized !== normalize(defaults);
       };
+      const persistDraft = () => {
+        if (!storageKey || !form.isConnected || form.dataset.scope !== scope) return;
+        if (!dirty()) { clearStoredDraft(); return; }
+        try {
+          window.sessionStorage.setItem(storageKey, JSON.stringify({
+            scope,
+            mode: currentMode(),
+            instructions: normalize(customText),
+            expectedEtag: etagInput ? etagInput.value : '',
+          }));
+        } catch {}
+      };
+      const sync = () => {
+        const custom = currentMode() === 'custom';
+        textarea.readOnly = !custom;
+        if (instructionsField) instructionsField.hidden = !custom;
+        if (saveButton) saveButton.disabled = !custom && savedMode === 'auto' && !hasDraft && !restoredDraft;
+        if (custom && !hasDraft && !restoredDraft && !normalize(textarea.value).trim()) textarea.value = customText || defaults;
+        if (custom && (hasDraft || restoredDraft) && !normalize(textarea.value).trim() && normalize(customText).trim()) textarea.value = customText;
+      };
+      radios.forEach(radio => radio.addEventListener('change', () => {
+        if (currentMode() === 'auto') customText = normalize(textarea.value) || customText;
+        else if (!normalize(textarea.value).trim()) textarea.value = customText || defaults;
+        sync();
+        persistDraft();
+      }));
+      textarea.addEventListener('input', () => {
+        if (currentMode() === 'custom') {
+          customText = normalize(textarea.value);
+          persistDraft();
+        }
+      });
       let submitting = false;
       const markSubmitting = () => { submitting = true; };
       const resetSubmitting = () => { submitting = false; };
@@ -97,7 +157,7 @@ limitations under the License.
         if (!form.isConnected) { cleanup(); return; }
         const source = event.detail && event.detail.elt;
         if (submitting || (source && form.contains(source)) || !dirty()) return;
-        if (window.confirm(message)) return;
+        if (window.confirm(message)) { clearStoredDraft(); return; }
         event.preventDefault();
         // A blocked Scope switch must not leave the selector showing a Scope the page is not on.
         const selector = source && source.querySelector ? source.querySelector('select#scope') : null;
@@ -129,13 +189,16 @@ limitations under the License.
       // Cancel discards the draft: restore the saved values, then follow the link without prompting.
       const cancel = form.querySelector('[data-prompt-cancel]');
       if (cancel) cancel.addEventListener('click', () => {
+        clearStoredDraft();
         const savedRadio = radios.find(radio => radio.value === savedMode);
         if (savedRadio) savedRadio.checked = true;
         textarea.value = savedMode === 'custom' ? savedText : defaults;
         customText = savedMode === 'custom' ? savedText : defaults;
+        restoredDraft = false;
         sync();
       });
       sync();
+      if (hasDraft) persistDraft();
     });
   </script>
 </form>
@@ -202,7 +265,8 @@ limitations under the License.
   saved_custom,
   prompt.effective.demonstrations|length if saved_custom else 0,
   prompt.artifact and prompt.mode == 'custom',
-  has_scope_draft
+  has_scope_draft,
+  prompt_saved
 ) }}
 {% endif %}
 {% else %}

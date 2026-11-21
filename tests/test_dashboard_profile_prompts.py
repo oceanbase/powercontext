@@ -1360,3 +1360,127 @@ def test_race_capability_error_code_translates_to_actionable_message(
     assert rejected.status_code == 422, rejected.text
     assert CATALOGS["en"]["prompt_write_error_capability_disabled"] in rejected.text
     assert CATALOGS["en"]["prompt_write_error_invalid_request"] not in rejected.text
+
+
+def test_browser_back_forward_preserves_scope_specific_draft(dashboard: TestClient) -> None:
+    """Verify unsaved Custom instructions survive HTMX Back/Forward without leaking across Scopes."""
+    import os
+
+    playwright = pytest.importorskip("playwright.sync_api")
+    _set_prompt_registry(dashboard, supported=frozenset({"profile.generate"}))
+    scope_a = create_scope(dashboard, "History draft Alpha")["scope_id"]
+    scope_b = create_scope(dashboard, "History draft Beta")["scope_id"]
+
+    with playwright.sync_playwright() as runtime:
+        channel = os.environ.get("POWERCONTEXT_TEST_BROWSER_CHANNEL")
+        try:
+            browser = runtime.chromium.launch(channel=channel)
+        except playwright.Error as error:
+            if "Executable doesn't exist" in str(error) and not channel:
+                for fallback in ("chrome", "msedge"):
+                    try:
+                        browser = runtime.chromium.launch(channel=fallback)
+                        break
+                    except playwright.Error:
+                        continue
+                else:
+                    pytest.skip("Install Playwright Chromium or set POWERCONTEXT_TEST_BROWSER_CHANNEL")
+            elif "Executable doesn't exist" in str(error):
+                pytest.skip("Install Playwright Chromium or set POWERCONTEXT_TEST_BROWSER_CHANNEL")
+            else:
+                raise
+
+        try:
+            page = browser.new_page()
+            errors: list[Any] = []
+            page.on("pageerror", lambda error: errors.append(error))
+
+            def serve(route: Any) -> None:
+                request = route.request
+                req_headers = {
+                    key: value
+                    for key, value in request.headers.items()
+                    if key.lower() not in {"host", "content-length"}
+                }
+                response = dashboard.request(
+                    request.method,
+                    request.url,
+                    content=request.post_data_buffer,
+                    headers=req_headers,
+                )
+                headers = {
+                    key: value
+                    for key, value in response.headers.items()
+                    if key.lower() not in {"content-length", "content-encoding", "transfer-encoding"}
+                }
+                route.fulfill(status=response.status_code, headers=headers, body=response.content)
+
+            page.route("http://testserver/**", serve)
+
+            # 1. Open Home, follow the Prompts navigation link, expand Profile generation, edit Custom.
+            page.goto(f"http://testserver/dashboard/home?scope={scope_a}&lang=en", wait_until="domcontentloaded")
+            page.locator('a[href*="/dashboard/prompts"]').first.click()
+            page.wait_for_url("**/dashboard/prompts**")
+            profile_details = page.locator("details.prompt-record", has_text="profile.generate").first
+            profile_details.locator(":scope > summary").click()
+
+            form = profile_details.locator("form[data-profile-prompt-editor]")
+            form.locator('label.form-selectgroup-item:has(input[value="custom"])').click()
+            textarea = form.locator('textarea[name="instructions"]')
+            assert textarea.is_visible()
+            draft_a = "Preserve these Scope A instructions across Back and Forward."
+            textarea.fill(draft_a)
+
+            # 2. Browser Back -> Forward restores the draft and re-opens the Profile generation card.
+            page.go_back(wait_until="domcontentloaded")
+            page.wait_for_url("**/dashboard/home**")
+            page.go_forward(wait_until="domcontentloaded")
+            page.wait_for_url("**/dashboard/prompts**")
+
+            restored_details = page.locator("details.prompt-record", has_text="profile.generate").first
+            assert restored_details.evaluate("el => el.open") is True
+            restored_form = restored_details.locator("form[data-profile-prompt-editor]")
+            assert restored_form.locator('input[name="mode"][value="custom"]').is_checked()
+            assert restored_form.locator('textarea[name="instructions"]').is_visible()
+            assert restored_form.locator('textarea[name="instructions"]').input_value() == draft_a
+            assert restored_form.locator("[data-prompt-save]").is_enabled()
+
+            # 3. Scope B stays isolated and does not receive Scope A's draft.
+            page.goto(
+                f"http://testserver/dashboard/prompts?scope={scope_b}&prompt_key=profile.generate&lang=en",
+                wait_until="domcontentloaded",
+            )
+            scope_b_form = page.locator("form[data-profile-prompt-editor]")
+            assert scope_b_form.locator('input[name="mode"][value="auto"]').is_checked()
+            assert draft_a not in scope_b_form.locator('textarea[name="instructions"]').input_value()
+
+            # 4. Returning to Scope A still has draft_a; Cancel clears it so Back/Forward won't resurrect it.
+            page.goto(
+                f"http://testserver/dashboard/prompts?scope={scope_a}&prompt_key=profile.generate&lang=en",
+                wait_until="domcontentloaded",
+            )
+            scope_a_form = page.locator("form[data-profile-prompt-editor]")
+            assert scope_a_form.locator('textarea[name="instructions"]').input_value() == draft_a
+            scope_a_form.locator("[data-prompt-cancel]").click()
+            page.wait_for_load_state("domcontentloaded")
+            assert page.locator('form[data-profile-prompt-editor] input[name="mode"][value="auto"]').is_checked()
+
+            # 5. Saving clears stored draft so subsequent Back/Forward reflects the saved revision.
+            page.locator(
+                'form[data-profile-prompt-editor] label.form-selectgroup-item:has(input[value="custom"])'
+            ).click()
+            saved_text = "Committed Scope A custom instructions."
+            page.locator('form[data-profile-prompt-editor] textarea[name="instructions"]').fill(saved_text)
+            page.locator("form[data-profile-prompt-editor] [data-prompt-save]").click()
+            page.locator(".alert-success").wait_for(state="visible")
+            assert page.locator("form[data-profile-prompt-editor]").get_attribute("data-prompt-saved") == "1"
+            assert (
+                page.evaluate(
+                    "scope => window.sessionStorage.getItem(`powercontext:profile-prompt-draft:${scope}`)",
+                    scope_a,
+                )
+                is None
+            )
+            assert not errors
+        finally:
+            browser.close()
