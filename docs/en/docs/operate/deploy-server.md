@@ -198,11 +198,9 @@ UDS configurations. The configuration wizard also produces TCP configurations. A
 HTTP(S) URL when the Core uses UDS. Remote Skill Receiver endpoints retain their HTTPS or loopback-peer requirement;
 direct UDS does not supply a loopback peer and does not waive that check.
 
-Automatic Source deployment with `POWERCONTEXT_SERVER_SOURCE_PLUGINS_DIR` or
-`POWERCONTEXT_SERVER_SOURCE_MANAGEMENT_AUTOSTART` requires `POWERCONTEXT_SERVER_PUBLIC_URL` pointing to the proxy
-when the Server uses UDS. The collect manager and runtimes connect through that URL; missing configuration is rejected
-before deployment credentials or processes are created. `source load --kind write` accepts the same setting or an explicit
-`--server-url`. These commands do not infer a TCP endpoint from `HTTP_PORT` in UDS mode.
+When the Server uses UDS, `powercontext source-agent` on a device connects to it through the proxy's HTTP(S) URL given
+with `--server`; it does not infer a TCP endpoint from `HTTP_PORT`. The Server's own collection runner runs inside the
+Server and needs no address.
 
 This listener provides the Core transport for the [Rust Gateway design (RFC #2199)](https://github.com/oceanbase/powercontext/pull/2199).
 The Rust executable, joint launcher, gateway settings, private channel authentication, private routes, and gateway state
@@ -331,6 +329,70 @@ buffer an entire MCP stream to force a uniform error status.
 These are per-body and per-class concurrency limits. They do not measure retained bytes or establish a process
 RSS ceiling. Process-wide retained-byte accounting and output-capacity discovery belong to the remaining
 [G5-B work in #2464](https://github.com/oceanbase/powercontext/issues/2464).
+
+### Memory extraction over the cached prefix
+
+When the gateway runs on the same host as the Server, Atomic Memory extraction for a captured turn can reuse the
+provider's prompt cache for the agent's conversation instead of sending the transcript again. It is off by default and
+needs both sides:
+
+- **Gateway:** `PC_GATEWAY_PREFIX_EXTRACTION=on` together with capture (`PC_GATEWAY_SEDIMENT=on`). For a Responses
+  conversation, the gateway keeps the exact request it sent and the response output of each turn's final response in
+  memory, for at most 30 minutes, at most 64 turns and at most 64 MiB in total; the oldest are dropped first, and a
+  turn dropped before extraction goes through normal extraction. It records an opaque handle in the captured Source's metadata,
+  with the input and output token counts of that final response.
+  The request and response never enter the Source, evidence, or logs. The captured Source records the turn in full
+  (projection `gateway-turn-text.v2`): no field is truncated and no step is omitted, and every argument field of a tool
+  call, tool outputs and errors, other messages, and unrecognized items are included. Only the provider's encrypted
+  reasoning, IDs, and other transport metadata are left out, and binary data becomes a placeholder with its size.
+  Injected memory blocks are not in the Source. A Source holds at most 50,000 tokens by Core's character estimate, or
+  the Server's effective Atomic Memory input limit (`POWERCONTEXT_SERVER_RUNTIME_ATOMIC_MEMORY_INPUT_TOKENS_LIMIT`,
+  default 64,000) when that is lower. The gateway reads the limit from the Server at startup; restart the gateway
+  after changing it.
+  That limit covers the whole extraction input, which also holds the instructions and the Source metadata. When it is
+  set near or below 50,000, a Source close to the limit exceeds it together with them, and Atomic Memory processing
+  of that Source fails on every attempt.
+  A larger turn is captured as consecutive Sources that end at step boundaries. Their metadata `turn` names the turn
+  and the part, and the handle is on the last part. The gateway writes every part of a turn to the Server in one batch
+  request (`POST /v1/sources/content/batch`): the Server stores all of them or none, and rejects the whole batch when
+  the turn is already stored with different content, keeping the first record. The first part always has the turn's
+  own Source ID, so this holds when a retried turn splits into a different number of parts. Capture therefore requires a Server
+  that offers batch capture. When the Server's capabilities do not report
+  `context_protection.limits.capture_batch_sources`, the gateway logs an error at startup and does not capture turns;
+  other requests are unaffected. A turn with more parts than that limit is not captured either.
+- **Server:** `POWERCONTEXT_SERVER_INFERENCE_PREFIX_EXTRACTION_GATEWAY_URL` set to the gateway's listen address, and
+  `POWERCONTEXT_SERVER_INFERENCE_PREFIX_EXTRACTION_GATEWAY_HEADERS` set to `{"Authorization": "Bearer <PC_GATEWAY_API_KEY>"}`
+  when the gateway requires a key. A generation model is still required, because normal extraction is the fallback.
+
+Cached input is not free: the provider still bills it at a reduced rate. When a processing window holds exactly one
+such turn, the Server first estimates both requests. The prefixed request costs Core's instruction plus the final
+response's output tokens at the full rate, plus the cached input tokens multiplied by
+`POWERCONTEXT_SERVER_INFERENCE_PREFIX_EXTRACTION_CACHED_INPUT_RATIO` (default `0.1`). Normal extraction costs its
+instructions plus the Source evidence. The window must hold exactly one whole turn: one Source, or every part of one
+turn in order. A turn whose parts do not fit one extraction input together is therefore extracted part by part through
+normal extraction: the first attempt on such a window exceeds the input budget, so `/v1/memory/flush` returns an error
+and the window shrinks, and later attempts process the parts one at a time; automatic processing retries after its
+backoff. The Server uses the prefix only when that estimate is lower. This usually
+holds for turns with substantial tool output, and stops holding as a long conversation's prefix grows. It then sends its extraction instruction, the output schema,
+and the Source's provenance to `POST /gateway/v1/extract`. The gateway appends them as one user message after the
+kept request and response, sets `tool_choice` to `none`, and sends it to the agent's own target and account. Fields
+that would change the cached prefix, such as tools, `prompt_cache_key`, reasoning settings, and a response format, are
+not changed. The request passes the Server's normal `before_send` and `before_release` checks. The prefix holds the
+memory blocks the gateway injected; the extraction instruction states that content between `BEGIN_POWERCONTEXT_*` and
+`END_POWERCONTEXT_*` markers is not evidence for the turn. An enforcing Server withholds a
+request that replays the provider's encrypted reasoning, so with Codex and similar clients extraction then falls back
+to normal extraction. It is not injected and is not captured. The Server validates the reply with the same schema
+and rules as normal extraction. The Server waits for this request as long as for normal extraction,
+`POWERCONTEXT_SERVER_INFERENCE_GENERATION_TIMEOUT_SECONDS` (default 30 seconds), and the gateway applies its
+180-second deadline from the start of request intake. After a timeout the Server falls back to normal extraction,
+and the provider may still bill the prefixed request that was already sent.
+
+Any other case falls back to normal extraction: a window that is not exactly one whole turn or has no handle, a prefix that is not
+estimated to cost less or whose size is unknown, an expired or unknown
+handle, a target mismatch, a withheld or blocked check, a provider or gateway error, or a reply that fails validation.
+Each attempt is logged as `atomic_memory.prefixed_extraction`; see
+[Logs, metrics, and tracing](observability.md#operational-fields-and-correlation). Model usage, including cached input
+tokens, is reported like any other generation.
 
 ## Run with Docker
 

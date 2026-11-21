@@ -232,9 +232,7 @@ extra-paths = [
     "./desktop/tests",
     "./deploy/observability",
     "./integrations/claude-code/plugins/powercontext",
-    "./integrations/claude-code/plugins/powercontext/scripts",
     "./integrations/codex/plugins/powercontext",
-    "./integrations/codex/plugins/powercontext/scripts",
     "./integrations/workbuddy/plugins/powercontext",
     "./integrations/workbuddy/plugins/powercontext/hooks",
     "./integrations/workbuddy/plugins/powercontext/scripts",
@@ -299,12 +297,15 @@ fix = true
 [tool.ruff.per-file-target-version]
 # Claude Code runs these hooks with the host's python3, often the macOS system Python 3.9.
 "integrations/claude-code/plugins/powercontext/**/*.py" = "py39"
-# The plugins ship generated copies of these modules. Ruff must check each copy like its source, or a fix that it
-# applies to a copy makes the copy drift.
+# The plugins and SDK adapters ship generated copies of these modules. Ruff must check each copy like its source, or a
+# fix that it applies to a copy makes the copy drift.
 "src/powercontext_integration_lifecycle/**/*.py" = "py39"
 "integrations/codex/plugins/powercontext/powercontext_lifecycle/**/*.py" = "py39"
-"integrations/hermes/plugins/powercontext/powercontext_client_config.py" = "py39"
+"integrations/hermes/plugins/powercontext/{powercontext_client_config,prepared_context}.py" = "py39"
 "integrations/workbuddy/plugins/powercontext/hooks/{powercontext_client_config,prepared_context,prompt_privacy}.py" = "py39"
+"integrations/langchain/src/powercontext_langchain/_prepared_context.py" = "py39"
+"integrations/langgraph/src/powercontext_langgraph/_prepared_context.py" = "py39"
+"integrations/pydantic-ai/src/powercontext_pydantic_ai/_prepared_context.py" = "py39"
 
 [tool.ruff.lint]
 select = [

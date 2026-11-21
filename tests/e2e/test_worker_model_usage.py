@@ -33,7 +33,7 @@ from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.runtime.config import InferenceConfig, RuntimeConfig
 from powercontext.builtin.runtime.processing_contracts import WorkerEntrypoint
 from powercontext.server.factory import create_server_app
-from powercontext.server.settings import McpConfig, ServerSettings, TracingConfig
+from powercontext.server.settings import McpConfig, ServerLoggingConfig, ServerSettings, TracingConfig
 from powercontext.server.worker_tracing import WorkerTracing
 
 
@@ -49,8 +49,8 @@ class _UsageFaultWorker:
         if self.failure == "crash":
             os._exit(1)
 
-        async def failed_write(*_args, **_kwargs):
-            raise RuntimeError("controlled statistics write failure")  # noqa: TRY003
+        async def failed_write(_repository, connection, *_args, **_kwargs):
+            await connection.exec_driver_sql("SELECT 1 FROM private_usage_fixture_table")
 
         original_offer = _ModelUsageRecorder.offer
 
@@ -145,8 +145,10 @@ def test_builtin_worker_usage_losses_reach_server_metrics(tmp_path, monkeypatch,
     with _model_server() as endpoint:
         monkeypatch.setenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", endpoint + "/v1/traces")
         monkeypatch.setenv("OTEL_EXPORTER_OTLP_TRACES_TIMEOUT", "0.2")
+        log_directory = tmp_path / "logs"
         app = create_server_app(
             settings=ServerSettings(
+                logging=ServerLoggingConfig(file=True, directory=log_directory, format="json"),
                 database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'usage.db'}"),
                 inference=InferenceConfig(
                     generation_model="openai-chat:fixture", generation_base_url=endpoint + "/model"
@@ -189,3 +191,21 @@ def test_builtin_worker_usage_losses_reach_server_metrics(tmp_path, monkeypatch,
             repeated = client.get("/metrics").text
             for name in ("model_usage_dropped_records_total", "model_usage_write_failures_total"):
                 assert _sample(repeated, name) == _sample(text, name)
+
+        log_text = (log_directory / "all.log").read_text(encoding="utf-8")
+        records = [json.loads(line) for line in log_text.splitlines()]
+        child_usage = [
+            record
+            for record in records
+            if record.get("event") == "model_usage.accounting.failed" and record.get("service_role") == "worker"
+        ]
+        queue_event = next(record for record in child_usage if record["failure_location"] == "queue_full")
+        write_event = next(record for record in child_usage if record["failure_location"] == "write")
+        assert queue_event["worker_id"] == write_event["worker_id"]
+        assert queue_event["request_generation"] == write_event["request_generation"]
+        assert write_event["processing_stage"] == "usage_accounting"
+        assert write_event["failure_reason"] == "storage_failure"
+        assert write_event["cause_exception_type"] == "OperationalError"
+        assert write_event["family"] == family
+        assert "request_id" not in write_event and "exception" not in write_event
+        assert "private_usage_fixture_table" not in json.dumps(child_usage)

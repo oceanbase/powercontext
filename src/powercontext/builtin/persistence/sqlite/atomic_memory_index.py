@@ -42,10 +42,15 @@ from powercontext.builtin.persistence.atomic_memory_index import (
     atomic_memory_body_select,
     atomic_memory_channel_hits,
     atomic_memory_channel_ranks,
+    atomic_memory_checked_vector_ranks,
     atomic_memory_filter_sql,
+    atomic_memory_hybrid_ranks,
     atomic_memory_page_from_ranks,
     atomic_memory_page_slice,
     atomic_memory_profile_fingerprint,
+    atomic_memory_related_hybrid_sql,
+    atomic_memory_related_requirement_sql,
+    atomic_memory_related_vector_sql,
     atomic_memory_vector_sql,
     combine_atomic_memory_related_ranks,
     sqlite_fts_coverage_sql,
@@ -57,6 +62,13 @@ from powercontext.builtin.persistence.atomic_memory_index_schema import (
 from powercontext.builtin.persistence.schema import create_tables
 
 _FTS_TABLE = "pc_atomic_memory_current_fts"
+# Range probes use the current table's Scope-leading key. A shared corpus must
+# intersect Scope postings; a single-Scope corpus needs no identity expansion.
+_FTS_MATCH_SQL = (
+    "CASE WHEN EXISTS (SELECT 1 FROM pc_atomic_memory_current WHERE scope_id < :scope_id "
+    "UNION ALL SELECT 1 FROM pc_atomic_memory_current WHERE scope_id > :scope_id LIMIT 1) "
+    "THEN :fts_scope_query ELSE :fts_query END"
+)
 
 
 _FTS_COLUMNS = (
@@ -337,88 +349,51 @@ class SQLiteAtomicMemoryIndex(RelationalAtomicMemoryIndex):
         cursor: AtomicMemoryRelatedCursor | None = None,
         /,
     ) -> AtomicMemoryRelatedPage | None:
-        self.validate_request(request)
-        eligibility, parameters = atomic_memory_filter_sql(request.filters, "sqlite")
-        parameters["scope_id"] = scope_id
-        ranks = (
-            await self._related_ranks(connection, scope_id, request, eligibility, parameters)
-            if cursor is None
-            else cursor.ranks
-        )
+        if cursor is None:
+            ranks = await self.related_ranks(connection, scope_id, request)
+        else:
+            self.validate_request(request)
+            ranks = cursor.ranks
         sliced = atomic_memory_page_slice(ranks, cursor, request.page_size)
         if sliced is None:
             return None
         page_ranks, next_cursor = sliced
         return await self._related_page_from_ranks(connection, scope_id, page_ranks, next_cursor)
 
-    async def _related_ranks(
-        self,
-        connection: AsyncConnection,
-        scope_id: str,
-        request: AtomicMemoryRelatedRequest,
-        eligibility: str,
-        parameters: dict[str, object],
+    async def related_ranks(
+        self, connection: AsyncConnection, scope_id: str, request: AtomicMemoryRelatedRequest, /
     ) -> tuple[AtomicMemoryRelatedRank, ...]:
-        """Rank the complete eligible set once; later pages never re-rank it."""
-
+        """Observe complete ranks once; bodies and authority are admitted per page."""
+        self.validate_request(request)
+        eligibility, parameters = atomic_memory_filter_sql(request.filters, "sqlite")
+        parameters["scope_id"] = scope_id
+        if request.mode != "fts":
+            self._prepare_related_vectors(request, parameters)
+        lexical = (
+            self._related_fts_rank_sql(scope_id, request, eligibility, parameters) if request.mode != "vector" else None
+        )
         if request.mode == "fts":
-            return await self._related_fts_ranks(connection, scope_id, request, eligibility, parameters)
-        if request.mode == "vector":
-            return await self._related_vector_ranks(connection, request, eligibility, parameters)
-        return await self._related_hybrid_ranks(connection, scope_id, request, eligibility, parameters)
-
-    async def _related_fts_ranks(
-        self,
-        connection: AsyncConnection,
-        scope_id: str,
-        request: AtomicMemoryRelatedRequest,
-        eligibility: str,
-        parameters: dict[str, object],
-    ) -> tuple[AtomicMemoryRelatedRank, ...]:
-        rank_sql = self._related_fts_rank_sql(scope_id, request, eligibility, parameters)
-        if rank_sql is None:
-            return ()
-        sql = f"{rank_sql} ORDER BY score DESC, artifact_id"
-        rows = tuple((await connection.execute(text(sql), parameters)).mappings())
-        return atomic_memory_channel_ranks(rows)
-
-    async def _related_vector_ranks(
-        self,
-        connection: AsyncConnection,
-        request: AtomicMemoryRelatedRequest,
-        eligibility: str,
-        parameters: dict[str, object],
-    ) -> tuple[AtomicMemoryRelatedRank, ...]:
-        await self._require_related_vectors(connection, request, eligibility, parameters)
-        sql = self._related_vector_rank_sql(eligibility)
-        rows = tuple((await connection.execute(text(sql), parameters)).mappings())
-        return atomic_memory_channel_ranks(rows, vector=True)
+            if lexical is None:
+                return ()
+            rows = (
+                await connection.execute(text(f"{lexical} ORDER BY score DESC, artifact_id"), parameters)
+            ).mappings()
+            return atomic_memory_channel_ranks(rows)
+        vector = self._related_vector_rank_sql(eligibility)
+        statement = text(atomic_memory_related_hybrid_sql(lexical, vector) if lexical is not None else vector)
+        rows = (await connection.execute(statement, parameters)).mappings()
+        if lexical is not None:
+            return atomic_memory_hybrid_ranks(rows)
+        vectors = atomic_memory_checked_vector_ranks(rows)
+        return combine_atomic_memory_related_ranks((), vectors) if request.mode == "hybrid" else vectors
 
     def _related_vector_rank_sql(self, eligibility: str) -> str:
-        return (
-            "WITH ranked AS (SELECT artifact_id, revision, state_version, kind, "  # noqa: S608
-            "vec_distance_l2(embedding, :query_vector) AS distance "
-            "FROM pc_atomic_memory_current WHERE scope_id = :scope_id "
-            f"AND ({eligibility}) AND embedding IS NOT NULL AND embedding_input_hash IS NOT NULL "
-            "AND profile_fingerprint = :profile AND projection_format = :projection_format "
-            "AND LENGTH(embedding) = :embedding_bytes) "
-            "SELECT * FROM ranked WHERE distance <= :max_distance ORDER BY distance, artifact_id"
+        invalid = (
+            "embedding IS NULL OR embedding_input_hash IS NULL "
+            "OR profile_fingerprint IS NULL OR profile_fingerprint <> :profile "
+            "OR projection_format <> :projection_format OR LENGTH(embedding) <> :embedding_bytes"
         )
-
-    async def _related_hybrid_ranks(
-        self,
-        connection: AsyncConnection,
-        scope_id: str,
-        request: AtomicMemoryRelatedRequest,
-        eligibility: str,
-        parameters: dict[str, object],
-    ) -> tuple[AtomicMemoryRelatedRank, ...]:
-        await self._require_related_vectors(connection, request, eligibility, parameters)
-        fts_ranks = await self._related_fts_ranks(connection, scope_id, request, eligibility, parameters)
-        rows = tuple(
-            (await connection.execute(text(self._related_vector_rank_sql(eligibility)), parameters)).mappings()
-        )
-        return combine_atomic_memory_related_ranks(fts_ranks, atomic_memory_channel_ranks(rows, vector=True))
+        return atomic_memory_related_vector_sql(eligibility, "vec_distance_l2(embedding, :query_vector)", invalid)
 
     def _related_fts_rank_sql(
         self,
@@ -430,30 +405,28 @@ class SQLiteAtomicMemoryIndex(RelationalAtomicMemoryIndex):
         match_query = fts_match_query(request.query)
         if match_query is None:
             return None
-        terms, required = fts_query_requirements(request.query, floor=request.admission)
+        terms = fts_query_requirements(request.query, floor=request.admission)[0]
         coverage, coverage_parameters = sqlite_fts_coverage_sql(terms)
-        parameters.update(coverage_parameters)
+        requirement, requirement_parameters, _ = atomic_memory_related_requirement_sql(
+            len(terms), "sqlite", floor=request.admission
+        )
+        parameters.update(coverage_parameters, **requirement_parameters)
         grouped = f"searchable_text:({match_query})"
         parameters.update(
             fts_query=grouped,
             fts_scope_query=f'({grouped}) AND identity_token:"i{scope_id.encode("utf-8").hex()}x"*',
-            fts_required=required,
         )
         rank = f"bm25({_FTS_TABLE}, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0)"
         return (
             f"SELECT artifact_id, revision, state_version, kind, -{rank} AS score, "  # noqa: S608
             f"{rank} AS raw_score, 'sqlite_bm25' AS score_metric FROM {_FTS_TABLE} "
-            f"WHERE {_FTS_TABLE} MATCH (CASE WHEN EXISTS (SELECT 1 "
-            "FROM pc_atomic_memory_current WHERE scope_id = :scope_id LIMIT 1 OFFSET 64) "
-            "THEN :fts_query ELSE :fts_scope_query END) AND scope_id = :scope_id "
-            f"AND ({eligibility}) AND {coverage} >= :fts_required"
+            f"WHERE {_FTS_TABLE} MATCH ({_FTS_MATCH_SQL}) AND scope_id = :scope_id "
+            f"AND ({eligibility}) AND {coverage} >= {requirement}"
         )
 
-    async def _require_related_vectors(
+    def _prepare_related_vectors(
         self,
-        connection: AsyncConnection,
         request: AtomicMemoryRelatedRequest,
-        eligibility: str,
         parameters: dict[str, object],
     ) -> None:
         query_vector = self._require_vectors(request)
@@ -467,19 +440,6 @@ class SQLiteAtomicMemoryIndex(RelationalAtomicMemoryIndex):
             embedding_bytes=profile.dimension * 4,
             max_distance=request.max_distance,
         )
-        invalid = await connection.scalar(
-            text(
-                "SELECT COUNT(*) FROM pc_atomic_memory_current WHERE scope_id = :scope_id "  # noqa: S608
-                f"AND ({eligibility}) AND (embedding IS NULL OR embedding_input_hash IS NULL "
-                "OR profile_fingerprint IS NULL OR profile_fingerprint <> :profile "
-                "OR projection_format <> :projection_format OR LENGTH(embedding) <> :embedding_bytes)"
-            ),
-            parameters,
-        )
-        if invalid:
-            raise AtomicMemoryIndexError(
-                "incomplete-vector", "Eligible Atomic Memory vectors are incomplete or use another profile"
-            )
 
     async def _related_page_from_ranks(
         self,
@@ -531,17 +491,13 @@ class SQLiteAtomicMemoryIndex(RelationalAtomicMemoryIndex):
                     fts_scope_query=f'({grouped}) AND identity_token:"i{scope_id.encode("utf-8").hex()}x"*',
                     fts_required=required,
                 )
-                # Prefix expansion is cheap only for a small Scope. The PK probe
-                # reads at most 65 identities; both branches have identical ranks.
                 rank = f"bm25({_FTS_TABLE}, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0)"
                 rows = (
                     await connection.execute(
                         text(
                             f"SELECT {_HIT_COLUMNS}, -{rank} AS score, "  # noqa: S608
                             f"{rank} AS raw_score, 'sqlite_bm25' AS score_metric FROM {_FTS_TABLE} "
-                            f"WHERE {_FTS_TABLE} MATCH (CASE WHEN EXISTS (SELECT 1 "
-                            "FROM pc_atomic_memory_current WHERE scope_id = :scope_id LIMIT 1 OFFSET 64) "
-                            "THEN :fts_query ELSE :fts_scope_query END) AND scope_id = :scope_id "
+                            f"WHERE {_FTS_TABLE} MATCH ({_FTS_MATCH_SQL}) AND scope_id = :scope_id "
                             f"AND ({eligibility}) AND {coverage} >= :fts_required "
                             f"ORDER BY score DESC, artifact_id{limit_sql}"
                         ),

@@ -34,13 +34,16 @@ PowerContext 进程启动时从环境变量读取配置。当前工作目录存�
 | `POWERCONTEXT_SERVER_RUNTIME_ATOMIC_MEMORY_RELATED_MAX_DISTANCE` | `1.0` | 相关记忆向量枚举及同窗口先前候选的最大精确 L2 距离，非负；不用于普通有 limit 的搜索 |
 | `POWERCONTEXT_SERVER_RUNTIME_ATOMIC_MEMORY_RELATED_FTS_FALLBACK` | `false` | 显式允许相关召回在查询向量不可用、profile 不匹配或向量投影不完整时改用全文枚举；不改变普通搜索的错误处理 |
 | `POWERCONTEXT_SERVER_RUNTIME_ATOMIC_MEMORY_COMPARISON_BATCH_SIZE` | `20` | 每次相关记忆判断最多比较的对象数，正整数；不是总候选上限 |
-| `POWERCONTEXT_SERVER_RUNTIME_ATOMIC_MEMORY_INPUT_TOKENS_LIMIT` | `24000` | 每次抽取或判断输入的估算 token 上限，包含指令和完整输入，正整数 |
+| `POWERCONTEXT_SERVER_RUNTIME_ATOMIC_MEMORY_INPUT_TOKENS_LIMIT` | `64000` | 每次抽取或判断输入的估算 token 上限，包含指令和完整输入，正整数 |
 
 未配置 secret 不会生成随机进程密钥。更换 secret 或 key ID 后，旧 token 无法验证，应重新预览。
 带 token 的恢复遇到变化会返回 `preview_stale`，不会自动重新解释意图；重试预算也不处理提交结果未知的连接失败。
 
 Source 处理先生成候选，再枚举满足权限、标签及检索资格的相关 active 记忆。fts 枚举全部合格匹配，vector 枚举
-阈值内全部结果，hybrid 合并两者。总候选不会按 comparison batch size 或 token 限额截断。
+阈值内全部结果，hybrid 合并两者。词法相关性同时衡量两侧：记忆包含的候选不同词数达到候选不同词数的词法
+准入阈值，或者不少于最少匹配词数且覆盖该记忆自身索引词（含 kind）的覆盖比例，即算相关，因此较长的候选
+仍能找到同一事实的较短记忆。普通搜索和 `prepare_context` 仍只按查询词计算阈值。总候选不会按 comparison
+batch size 或 token 限额截断。
 比较输入过大时缩小单批，直到所有候选都处理完；连单个对象或完整抽取输入都超预算时窗口失败，不部分提交或推进 cursor。
 开启 fallback 会改变相关召回依据，应显式选择；默认错误会保留当前窗口供排查和重试。
 
@@ -104,6 +107,8 @@ MCP 使用 stateless Streamable HTTP，每次工具执行都采用当前请求�
 | `POWERCONTEXT_SERVER_HTTP_UDS` | 未设置 | Linux/macOS 上 `server run` 的 HTTP Unix socket 路径；仅监听 UDS，不创建 TCP listener；必须是绝对路径，不含 `..` 或 NUL，按文件系统编码计算不超过 103 字节 |
 | `POWERCONTEXT_SERVER_HTTP_UDS_EXTERNAL_SCHEME` | 未设置 | 私有 UDS 上可信代理的外部协议，只接受 `http` 或 `https`，必须同时设置 `HTTP_UDS`；仅在可信代理终止 TLS 时设置 `https`。仍忽略转发的协议与客户端 IP header |
 | `POWERCONTEXT_SERVER_HTTP_MAX_REQUEST_BODY_BYTES` | `16777216` | 解析前允许的外部 HTTP 请求体字节数，包括分块上传 |
+| `POWERCONTEXT_SERVER_PLUGINS_DIR` | 未设置 | 插件目录，每个子目录是一个插件；见[编写插件](../develop/plugins.md) |
+| `POWERCONTEXT_SERVER_PLUGINS_RESCAN_SECONDS` | `60` | 每个 Server 进程扫描插件目录的间隔秒数，新增、修改和删除的插件在两个间隔内生效；`0` 关闭扫描，插件只在启动时加载 |
 | `POWERCONTEXT_SERVER_PLUGIN_API_MAX_BODY_BYTES` | `33554432` | 插件接口（`/v1/plugins/{name}/api/...` 及 Dashboard 插件页面的转发）的请求体和响应体上限，替代上一项；插件路由可以声明更小的上限，不能超过此值 |
 | `POWERCONTEXT_SERVER_PLUGIN_HOST_PROCESSES` | `{}` | 按插件名覆盖插件声明的 `host_processes`，JSON 对象，例如 `{"knowledge-base": 4}`；值是每个 Server 进程中该插件宿主进程数的上限 |
 | `POWERCONTEXT_SERVER_PLUGIN_TOTAL_HOST_PROCESSES` | 未设置 | 每个 Server 进程中所有插件的宿主进程总数上限；达到上限时不再为负载增加进程，请求在已有进程上排队。每个插件常驻的第一个进程不受此限制 |
@@ -204,6 +209,9 @@ MCP 使用 stateless Streamable HTTP，每次工具执行都采用当前请求�
 | `POWERCONTEXT_SERVER_INFERENCE_GENERATION_STREAMING` | `disabled` | `auto` 时，仅模型名前缀为 `anthropic`、`openai`、`openai-chat`、`openai-responses` 的 generation 模型改用流式请求并在本地聚合为完整响应。其他前缀仍走非流式。`disabled` 时全部保持非流式请求 |
 | `POWERCONTEXT_SERVER_INFERENCE_GENERATION_STREAM_IDLE_TIMEOUT_SECONDS` | `60` | 流式聚合时的最大空闲秒数：覆盖等待流建立并收到首个模型事件，以及相邻模型事件（正文、思考、工具调用）之间的间隔。供应商心跳不重置这个计时，超过即按超时处理 |
 | `POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL_CONTEXT_WINDOW_TOKENS` | `125000` | Topic 处理预算使用的 generation model 总上下文窗口 |
+| `POWERCONTEXT_SERVER_INFERENCE_PREFIX_EXTRACTION_GATEWAY_URL` | 未设置 | 同一主机上网关的 base URL；为单个网关回合复用其缓存前缀抽取 Atomic Memory，失败时回退到普通抽取。需要 `GENERATION_MODEL`。参见[复用缓存前缀抽取记忆](deploy-server.md#复用缓存前缀抽取记忆) |
+| `POWERCONTEXT_SERVER_INFERENCE_PREFIX_EXTRACTION_CACHED_INPUT_RATIO` | `0.1` | Agent 目标上命中缓存的输入 token 相对未命中缓存的价格比例，大于 0 且不超过 1；只有估算复用前缀比普通抽取更便宜时才复用 |
+| `POWERCONTEXT_SERVER_INFERENCE_PREFIX_EXTRACTION_GATEWAY_HEADERS` | `{}` | 发往网关的静态 header JSON 对象，例如网关的 `Authorization` 密钥；值为 secret |
 | `POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_MODEL` | 未设置 | Pydantic AI embedding model；必须同时设置 profile ID 和 dimension |
 | `POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_BASE_URL` | provider 默认值 | 自定义 OpenAI-compatible embeddings base URL |
 | `POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_HEADERS` | `{}` | embedding client 静态 header JSON object；value 按 secret 处理 |
@@ -587,7 +595,10 @@ URL 必须使用 `mysql+aoceanbase` 驱动、明确的端口，并设置 `charse
 
 Atomic Memory 会在连接的 OceanBase 或 seekDB 引擎支持时，使用原生 `minimum_should_match` 过滤；旧版引擎继续使用
 完整词 `LOCATE` 覆盖检查。能力检测不会把查询超时、权限错误或连接错误当作功能不支持。两条路径使用相同的分析、去重后的
-查询词和准入阈值，也适用于恢复探测与完整关联记忆枚举。超过 256 个不同词的查询，仅在确认版本为 OceanBase 4.6 或更新版本时使用
+查询词和准入阈值，也适用于恢复探测与完整关联记忆枚举。关联记忆枚举的原生路径还会匹配与候选共享至少
+最少匹配词数、且短到可低于候选阈值入选的记忆，再对这些记忆做完整词覆盖检查。候选较长时，几乎所有记忆
+都满足这个长度条件，因此几乎每条共享这么多词的记忆都要做完整词覆盖检查。
+超过 256 个不同词的查询，仅在确认版本为 OceanBase 4.6 或更新版本时使用
 原生过滤；更早的 OceanBase、seekDB 和无法识别版本的引擎继续使用完整词覆盖检查，因为 OceanBase CE 4.4.2.1 虽然接受原生语法，
 但超过该词数时可能忽略匹配阈值。查询包含 `com` 等被 SPACE 分词器省略的 Analyzer 词时，检索、完整枚举和恢复探测
 也会保留完整词覆盖检查，阈值仍按所有不同的 Analyzer 词计算。该选择无需新增配置、表或索引迁移，沿用现有 `SPACE` 全文索引。

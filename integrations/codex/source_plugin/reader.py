@@ -59,8 +59,13 @@ class ImportedPrompt:
     turn_id: str | None = None
     timestamp: str | None = None
 
-    def source_id_for_scope(self, scope_id: str) -> str:
-        identity = "\0".join((scope_id, self.session_id or "", self.turn_id or "", self.content))
+    def source_id_for_scope(self, scope_id: str, *, content: str | None = None) -> str:
+        identity = "\0".join((
+            scope_id,
+            self.session_id or "",
+            self.turn_id or "",
+            self.content if content is None else content,
+        ))
         return f"codex-user-prompt:{sha256(identity.encode()).hexdigest()}"
 
 

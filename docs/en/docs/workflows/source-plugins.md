@@ -1,246 +1,262 @@
 ---
 title: Source plugins
-description: Load trusted local plugins for synchronous writes or ongoing Source collection through the public MCP.
+description: Provide your own Source types with Source plugins, and collect continuously through the Server's runner or runners on devices, by assigned targets.
 ---
 
 # Source plugins
 
-Hosts connect to the PowerContext Server's public `/mcp`. A `write` capability saves supplied content synchronously inside Server. A `collect` capability runs in a separate Runtime; the shared management service tracks targets and lifecycle state.
+Source plugins live in the same plugin directory as Artifact plugins (`POWERCONTEXT_SERVER_PLUGINS_DIR`): `plugin.py`
+assigns a `SourcePlugin` to `plugin`, and the directory name is the plugin name. A Source plugin can:
 
-Loading code is a deployment operation requiring `server.admin`. Install trusted plugin code and dependencies in the Python environment that executes them: Server for write, the Runtime machine for collect. Credential files must be regular files, not symlinks; on Linux, set permissions to `600` (`chmod 600 /path/to/token`).
+- **Only provide Source types**: it declares `definitions`; callers submit content through the existing Source write API,
+  and the Server runs `resolve` and the Projections before storing it.
+- **Collect**: it also declares `collect`, `target`, and `setup`. Runners collect: the Server has its own runner named
+  `server`, and devices run `powercontext source-agent`. Users assign collection targets to a runner, and the runner
+  fetches its targets on a schedule and submits the results.
 
-Before starting, prepare a Server with authentication and PC Access enabled, an existing Scope, and separate deployment administrator and ordinary host credentials. Replace paths, addresses, and `SCOPE_ID` with actual values. MCP examples use `tool_name(parameters)` shorthand for the `name` and `arguments` of a `/mcp` `tools/call`. Use discovery results for capability names, versions, and input fields.
+Source plugins load, update, and unload like Artifact plugins; see [Write a plugin](../develop/plugins.md). Runnable
+examples are in `examples/source_plugins/` in the repository.
 
-| Operation | PC permission |
+## Permissions
+
+| Operation | Required permission |
 | --- | --- |
-| Discover capabilities or instances; query targets | `scope.read` on the relevant Scope |
-| Write or add a collect target | `scope.contribute` and `scope.read` on the relevant Scope |
-| Enable/disable a target; read its control view | `scope.contribute` on the relevant Scope |
-| Load plugins; configure/control instances; read instance control views | `server.admin` |
+| List runners and their capabilities (`pc_source_runners`) | Authenticated |
+| Read a Scope's targets and status (`pc_source_status`) | `scope.read` on the Scope |
+| Register a runner | Authenticated |
+| Add a target to a device runner, change its parameters, or enable it again | `scope.contribute` on the Scope, and being the principal that registered the runner or having `server.admin` |
+| Disable or delete a target of a device runner | `scope.contribute` on the Scope |
+| Add, change, disable, or delete targets of the `server` runner | `server.admin` |
+| Transfer a target to another runner (`pc_source_target_transfer`) | As for adding it to the destination runner; `server.admin` when the source runner is `server` |
+| Sync a device runner and submit Sources and checkpoints | The subject that registered the runner, and `scope.contribute` on the target Scope |
+| Change a runner's display name | `server.admin` |
+| Delete a runner record | The subject that registered it, or `server.admin` |
 
-Plugins manage credentials for external systems; these do not replace PC permissions. Hosts only connect to Server and do not need a collect Runtime installed.
+A device runner collects with its device's credential, network position, and local files, so the principal that
+registered it decides what it collects: a user with only write permission on a Scope cannot assign targets to another
+user's device, but can disable or delete targets that write into their Scope. A runner shared by a team gets its targets
+from the account that runs it or from `server.admin`.
 
-## Load a write plugin
+The `server` runner reaches external systems with credentials from the Server environment, so deciding what it collects
+is an operator decision and requires `server.admin`. Plugins read their own credentials for external systems (for
+example from environment variables); those do not replace PowerContext permissions. A target's parameters are stored
+centrally, shown to the Scope's readers, and exported with the Scope, so they cannot hold credentials: a target with a
+value under a parameter named `api_key` or `password`, or ending in `_token`, `_secret`, and the like, is refused with
+`invalid_parameters`. Absolute paths on the runner are fine as parameters.
 
-Prepare a Python package exporting `definitions` and write `capabilities`, and a configuration file:
+## Only provide Source types
 
-```yaml
-id: local-tickets
-entry: .
+`examples/source_plugins/images` declares one Source type and nothing else:
+
+```python
+plugin = SourcePlugin(version="1.0.0", definitions=(ImageDefinition(),))
 ```
 
-Save this as `write.yml` in the plugin directory; entry `.` selects its `__init__.py`. On the Server machine, run from that directory:
+Once the directory is in the plugin directory, callers submit through the generic Source API:
 
-```sh
-powercontext source load --kind write --config ./write.yml \
-  --server-url http://127.0.0.1:8000 --credential-file /run/secrets/pc-admin
+```bash
+curl -X POST "$SERVER/v1/scopes/$SCOPE/sources" -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"source_type": "example-image", "content": {"media_type": "image/png", "data_base64": "..."}}'
 ```
 
-Server imports executable code, validates inputs and Definition/Projection contracts, and publishes capabilities only after successful registration. It persists the entry and imports it again on restart. Identical loads reuse the registration. Currently, code updates through a controlled Server restart must preserve the entry, capabilities, and Definition/Projection declarations; Python hot replacement is not supported. Changing declared versions or input/output schemas makes restoration fail because the persisted contract differs. Restarting does not perform a contract upgrade.
+The Server validates the input, runs `resolve` and the Projections in the plugin's host process, and deduplicates by
+Source identity.
 
-A host with `scope.read` and `scope.contribute` on the selected Scope calls:
+## Collect on the Server
+
+`examples/source_plugins/tickets` collects tickets from a JSON file on the runner's machine:
+
+```python
+plugin = SourcePlugin(
+    version="1.0.0",
+    definitions=(TicketDefinition(),),
+    collect=Collect(schedule=Interval(seconds=10)),
+    target=TargetSpec(
+        description="Collect tickets from a JSON file on the runner",
+        parameters=TicketFile,
+        identity={"file": ("strip",)},
+    ),
+    setup=setup,
+)
+```
+
+An administrator assigns a target to the `server` runner (MCP examples use the `tool(arguments)` shorthand):
 
 ```javascript
-pc_source_capabilities({"scope_id":"SCOPE_ID"})
-pc_source_add({
-  "scope_id":"SCOPE_ID","capability":"ticket.write","capability_version":"1",
-  "input":{"namespace":"support","project":"demo","ticket_id":"A","title":"Recovery","body":"Service restored"}
-})
+pc_source_runners()
+pc_source_add({"scope_id": "SCOPE_ID", "runner": "server", "capability": "tickets",
+               "parameters": {"file": "/srv/data/tickets.json"}})
 ```
 
-Write does not take `instance_id`. Returned `result.source_refs` identify saved Sources and Projections. Write creates no persistent request and uses neither collect targets nor checkpoints. Identical content under the same Source identity is reused; different content under that identity conflicts. The ticket example derives identity from the complete snapshot. Timeouts mean the result is unconfirmed, not that nothing was saved. Complete add arguments are limited to 1 MiB of JSON and materialized observations to 4 MiB, including Base64 expansion. Oversized input fails rather than being truncated.
+A new target is collected right away, and then on the plugin's `schedule`. Each collection runs in a Supervisor Worker
+for the enabled `server` targets of one Scope; the returned Sources, each target's new checkpoint, and its status are
+stored in one transaction.
 
-## Load collect on a running Server
+## Collect on a device
 
-Enable authentication and PC Access, and configure a trusted instance directory in the Server environment file:
+Put a copy of the same plugin on the device and run the runner with a credential that has `scope.contribute` on the
+target Scopes:
 
-```dotenv
-POWERCONTEXT_SERVER_SOURCE_PLUGINS_DIR=/srv/powercontext/source-plugins
-POWERCONTEXT_SERVER_ACCESS='{"mode":"enforced"}'
+```bash
+export POWERCONTEXT_SOURCE_AGENT_TOKEN=...      # the runner's credential
+powercontext source-agent --server https://memory.example.com --plugins /opt/robot/plugins
 ```
 
-Restart Server after initial configuration. Automatic deployment creates separate management and execution credentials without editing user identity files. Startup scans direct child directories for `powercontext.yml`; subsequent additions require an explicit load. This scan deploys collect instances; load write plugins explicitly with `--kind write` as above. Local collect deployment requires Linux: `source_management.process_mode="background"` (the default) uses background processes; `"local-service"` additionally requires an available systemd user service manager (`systemctl --user`). Neither mode supports local deployment on macOS or Windows. This restriction concerns collect process management, not Server-local synchronous write plugins.
+- **Name**: a runner registers with the Server when it first starts. The Server decides its name, which is unique across
+  the deployment and never changes; targets are assigned to runners by name. The name `server` is reserved for the
+  Server's own runner. Administrators can also give a runner a display name.
+  - By default the runner suggests a name (`--suggest-name`, the host name unless given). The Server uses it when nobody
+    has it and assigns another one otherwise, such as `robot-7-2`. The runner keeps the decided name in its state
+    directory (`--state-dir`, the PowerContext data directory by default) and reuses it after a restart. It exits with an
+    error when the state directory is not writable.
+  - Deployments that keep no state, such as containers and CI, set the name with `--name robot-7`: the name is registered
+    when it does not exist, reused when the same credential registered it, and the start fails when another credential
+    did. This way reads and writes no state directory. The default way also works with the state directory on a
+    persistent volume.
+  - One credential can register several runners, but each device should have a credential of its own. Only the subject
+    that registered a runner syncs and submits under its name.
+  - After the state is lost (a reinstall, a cleared directory), a default start registers a new name; move the old
+    targets to it with `pc_source_target_transfer`, or start with the same credential and `--name` set to the old name.
+    Delete the state file before cloning a machine image, or two devices use the same name.
+  - A device that moves to a credential of another subject cannot keep its name: register a new runner, transfer the
+    targets, and delete the old record.
+- The runner syncs every 30 seconds (`--interval`): it reports the plugins and versions it loaded and fetches every
+  target assigned to it across Scopes. New targets are collected right away; the others follow the plugin's `schedule`.
+- For each target the runner submits the Sources first and then the new checkpoint and status, with the old checkpoint
+  as the expected value. If anything fails in between, the checkpoint does not advance; the next collection repeats the
+  same content, and the Server deduplicates it by Source identity.
+- When a target is changed, disabled, transferred, or deleted while it is being collected, the Server refuses that
+  checkpoint commit (`target_changed`). The runner discards the result and collects again under the new configuration
+  after its next sync; Sources already submitted stay.
+- A plugin that fails to load, a `collect` that raises, or an item of the wrong shape affects only that plugin or target;
+  the other plugins and targets keep collecting. The Server shows only fixed error codes and the error's type name; the
+  full error is in the device's log.
+- Every Source plugin used on devices must also be in the Server's plugin directory: capability descriptions, parameter
+  schemas, and Projections follow the version the Server loaded.
 
-An instance directory keeps `__init__.py`, `definition.py`, data files, and `powercontext.yml` together:
-
-```yaml
-id: my-tickets
-plugin: .
-scope_ids: [SCOPE_ID]
-config:
-  file: tickets.json
-  poll_interval: 10
-```
-
-Scopes must exist, and configured scope selection does not grant PC permissions. The plugin's `Config` validates business parameters; the plugin controls collection timing.
-
-On the Server machine, using the same environment file:
-
-```sh
-powercontext source load --config /srv/powercontext/source-plugins/my-tickets/powercontext.yml \
-  --env-file ./pc.env
-```
-
-Load registers Definitions, grants execution permissions, registers the instance, and starts its Runtime. Repeating an identical load preserves the process and enabled state; changing the code entry or business configuration requires an explicit update. The manager owns the deployed instance's Scope selection and targets; repeating load does not overwrite them from the file.
-
-Hosts establish ongoing collection through the public MCP:
+Targets can be assigned only to registered runners, so start the runner once and then assign it a target:
 
 ```javascript
-pc_source_instances({"scope_id":"SCOPE_ID"})
-pc_source_add({
-  "scope_id":"SCOPE_ID","instance_id":"my-tickets",
-  "capability":"tickets.item","capability_version":"1","input":{"id":"A"}
-})
-pc_source_status({"scope_id":"SCOPE_ID","target_id":"TARGET_ID"})
+pc_source_add({"scope_id": "SCOPE_ID", "runner": "robot-7", "capability": "ticket-chat",
+               "parameters": {"file": "/var/lib/robot/chats.json"}})
 ```
 
-Add and repeated add return the target identity and control state, without Source references or submission time. Status includes only the manager's most recently received successful submission report: `source_refs` contains one reference, paired with `last_submitted_at`. Before any report, the reference array is empty and no submission time is available. Reports replace this state in arrival order; it is neither a completed batch nor a history of collected Sources. The manager does not accumulate historical references, and a lost report does not undo a saved Source. Plugins retain the real SourceRef in each submission receipt and use checkpoints for collection progress. Repeated add reuses the same target without restarting collection or re-enabling a disabled one. Optional manifest `targets` only initialize the first deployment; subsequent target state belongs to the manager.
-
-## Remote collect Runtimes
-
-Prepare the code on its execution machine and add this deployment block:
-
-```yaml
-deployment:
-  server:
-    url: https://pc.example.com
-    credential_file: /run/secrets/pc-admin
-  management_url: https://source-manager.example.com
-  execution_credential_file: /run/secrets/pc-worker
-  state_dir: ./instance-state
-```
-
-Run `powercontext source load --config ./powercontext.yml` there. Server and the manager must already be reachable; non-local connections require HTTPS. Deployment and Runtime identities must differ, and the Runtime identity must not have `server.admin`. The command starts a local Runtime; it does not distribute code or execute remote shells. Explicitly choose `deployment.start: local-service` for systemd user services.
-
-Ordinary background processes do not restart automatically after a machine reboot. Restart an already deployed instance using the Runtime configuration returned by load, without registering it again:
-
-```sh
-powercontext source runtime start --config /path/to/runtime-config.json
-powercontext source runtime status --config /path/to/runtime-config.json
-```
-
-For systemd supervision, add `--system-service` to the start/status commands above. A live process only confirms that Runtime is running; also check instance availability and actual Source submissions through MCP.
-
-## Extend an instance's Scopes
-
-When only adding Scopes, first grant the execution identity the corresponding permissions through the Access API. Then submit the complete instance registration with `update=true` to `POST /v1/source-management/configure`, extending `scope_ids` without changing other configuration. The instance can keep running with its existing Context and checkpoints. Hosts with permission on the new Scope can then add targets. Editing the manifest and repeating load does not perform this expansion.
-
-## Disable and update
-
-An administrator disables the instance and checks its control state:
+## Manage targets
 
 ```javascript
-pc_source_instance_set_enabled({"instance_id":"my-tickets","enabled":false})
-pc_source_instances({"instance_id":"my-tickets","view":"control"})
+pc_source_status({"scope_id": "SCOPE_ID"})
+pc_source_target_set_enabled({"scope_id": "SCOPE_ID", "target_id": "...", "enabled": false})
+pc_source_target_transfer({"scope_id": "SCOPE_ID", "target_id": "...", "runner": "robot-8"})
+pc_source_target_delete({"scope_id": "SCOPE_ID", "target_id": "..."})
 ```
 
-After `actual=stopped`, stop the outer Runtime on its execution machine using the configuration path returned at deployment or saved in its private state directory:
+- **Deduplication**: the Server validates `parameters` against the plugin version it loaded and computes the target key
+  from the `identity` parameters after their declared normalization steps. When a target with the same key exists for
+  the same Scope, runner, and capability, identical parameters return the existing target and different ones a
+  conflict.
+- **Changes**: parameters outside the identity and enablement can change; identity parameters cannot
+  (`identity_immutable`). To collect another object, add a target, so a checkpoint always belongs to one external object.
+- **Disabling and deleting**: a disabled target is no longer synced to its runner and keeps its checkpoint, resuming
+  where it left off; deleting also deletes the checkpoint, and collected Sources stay.
+- **Transferring**: a target can be reassigned to another registered runner. Its ID stays the same and its checkpoint is
+  kept, so the new runner continues where the old one stopped. Add `"reset_checkpoint": true` when the new device's data
+  differs, to collect from the beginning. A target for the same object already on the destination runner is a conflict.
+- **Deleting a runner**: a runner that still has targets cannot be deleted; transfer or delete its targets first.
+- **Configuration version**: every change of parameters or enablement, every transfer, and every checkpoint reset
+  increases the target's `config_version`. A runner submits results with the version it collected under, and a commit
+  with another version is refused. A change, transfer, or deletion applies only to the state the request read: when two
+  requests change one target at the same time, the later one gets `409 conflict` and is repeated after reading the
+  target again.
+- **Status**: each target records the latest attempt, the latest success, consecutive failures, and the latest error. A
+  runner's `last_seen_at` later than a target's `updated_at` means the runner has fetched the latest configuration.
 
-```sh
-powercontext source runtime stop --config /path/to/runtime-config.json
-powercontext source load --update --config /path/to/powercontext.yml
+## The collection contract
+
+```python
+async def collect(self, request: CollectRequest) -> CollectResult:
+    result = CollectResult()
+    for target in request.targets:
+        ...
+        result.add(target, items, checkpoint=new_checkpoint, has_more=False)
+        # When only this target fails: result.fail(target, code="...", message="...")
+    return result
 ```
 
-For local automatic deployment, keep the same `--env-file`. Stopping a system service requires `--system-service`. When reducing Scopes, changing business configuration, or upgrading code, preserve the instance ID, state directory, and compatible Definition, capability, target identity, and checkpoint contracts. `source load --update` requires the old Runtime to have exited. The replacement stays disabled until an administrator explicitly sets `enabled=true`. Ordinary load does not implicitly upgrade.
+- One call covers one Scope and at most `max_targets` enabled targets; with more targets, they rotate: targets whose
+  last call returned `has_more` go first, then the least recently attempted.
+- Returning more items than `max_items` in total, or a target that was not requested, fails the whole call without
+  truncation. Targets missing from the result keep their checkpoints.
+- `fail` fails only that target: its checkpoint stays and its status records the error, while the other targets in the
+  call still commit. A `collect` that raises fails the whole call: every target of the call is recorded as
+  `collect_failed`, with only the error's type name as the message.
+- Put blocking reads in `await asyncio.to_thread(...)`. On a device `ctx.storage` is unavailable; `ctx.center` exists
+  only on a device, and `ctx.center.call_plugin(method, path, json=..., content=...)` calls the plugin's own routes on
+  the Server, for example to upload a large file before submitting a Source that refers to it.
 
-To stop collecting one item without affecting the whole instance, control its target:
+## Versions and upgrades
 
-```javascript
-pc_source_target_set_enabled({"scope_id":"SCOPE_ID","target_id":"TARGET_ID","enabled":false})
-pc_source_status({"scope_id":"SCOPE_ID","target_id":"TARGET_ID","view":"control"})
-```
+`SourcePlugin` declares `version` (PEP 440) and an optional `min_compatible_version` (default: `version`). When a
+device's plugin version satisfies `Server min_compatible_version <= device version <= Server version`, the Server accepts
+its syncs, Sources, checkpoints, and `call_plugin` requests; otherwise it returns `plugin_version_incompatible`, sync
+withholds that plugin's targets, and `pc_source_runners` shows it as incompatible.
 
-`stopping` means the stop intent is saved; `stopped` means Runtime has confirmed the stop. Set `enabled` to `true` to resume; this does not enable a disabled instance. A disconnected manager does not prove that collection stopped. Disabling preserves Sources, targets, and checkpoints. Source saving, checkpoint updates, and submission reports are separate operations.
+- **Upgrade the Server first, then devices.** Device versions newer than the Server's are rejected too. With several
+  Server instances, finish upgrading all of them first.
+- Target parameters follow the Server version's schema and may carry fields older devices do not know, so parameter
+  models must not set `extra="forbid"`. When new parameters must take effect on every device, raise
+  `min_compatible_version`.
+- The Server calls `upgrade(ctx)` every time it loads a plugin version (see [Write a plugin](../develop/plugins.md));
+  devices do not call `upgrade`, and plugins check and migrate their own local files in `setup`.
 
-The current implementation has no complete unload command that deletes an instance registration and its targets. `runtime stop` stops execution while preserving management records and saved data. Stopping Server or deleting a plugin directory does not uninstall the independent services.
+## Plugin responsibilities for Agent clients
 
-## Troubleshooting
+Agent Plugins own host-specific client integration: configuration, authentication, Skills, hooks, and user prompts. Source
+plugins acquire explicitly selected historical or external data and submit it through the Source runner. Hosts discover
+capabilities through public MCP, select the material and destination Scope, and add targets. Administrators load trusted
+plugin code and deploy Runtimes. Keep native hooks and manifest differences in host adapters; put reusable data acquisition
+in Source plugins.
 
-| Symptom | Check or action |
-| --- | --- |
-| Startup logs report `background-unsupported` or `service-unavailable` | Local collect deployment requires Linux; `local-service` also requires a working `systemctl --user`. Check the execution platform and selected process mode. |
-| Manager disconnected | Collect can continue with synchronized targets; new management calls may fail. Built-in and loaded write capabilities do not depend on the manager. |
-| Runtime restarts while the manager is unreachable | Wait for target synchronization; do not fall back to initial targets in the file. |
-| A target produces no new Sources | Check that collection logic is still running, its schedule, external credentials, and Scope permissions. A live process does not prove successful collection. |
-| State remains stopping | Check the original Runtime and management connection; disconnection does not confirm a stop. |
-| A saved Source is absent from target status | Submission reports may be lost. Target status is not a complete inventory of Server data; do not rewind checkpoints on that basis. |
-| An agent does not use saved content | Check that collection and host Scopes match, then check downstream Projection, Artifact, and indexing processing. |
+## Migrating from the previous Source plugin framework
 
-An ongoing collector maintains its own loop in `apply`. After `apply` exits, new targets or reconnection do not restart it. To run it again, explicitly disable the instance, confirm it has stopped, then enable it.
+`/v1/source-management/*`, `powercontext source load`, `powercontext.yml`, and `write.yml` are removed:
 
-## Runnable examples
-
-The repository's `examples/source_plugins` groups examples by source: tickets, ticket/chat and images. Each directory contains its code and loading configuration. The tickets example shares one Definition and Projection implementation across write and collect: use `write.yml` for Server-local synchronous writes or `powercontext.yml` for managed collection. Loading and MCP usage are documented in `examples/source_plugins/README.zh.md`.
-
-Keep generated credentials, databases, logs, and process state on the deployment machine. Commit plugin code, configuration templates without sensitive values, and synthetic example data.
-
-## Plugin responsibilities for agent clients
-
-Agent clients use two plugin layers; domain behavior remains owned by the Server:
-
-| Plugin | Responsibility | Interface |
-| --- | --- | --- |
-| Agent Plugin | Native host configuration, authentication, skills, live hooks and user feedback | Public Server MCP and existing client interfaces |
-| Source plugin | History decoding, external collection, Source identity, submission and progress | SourceDefinition, Connector, PluginContext and public Source MCP |
-
-New clients should reuse the [shared Agent Plugin](../integrations/agent-plugin.md). Where a host needs native hooks or a different
-manifest, provide a thin adapter under `integrations/<host>/`. Keep historical format parsing in an adjacent Source plugin;
-do not add host-specific import branches to the core CLI. Agent Plugins use `pc_source_capabilities`, `pc_source_instances`,
-`pc_source_add`, status and enablement tools to access Source capabilities. They do not start collector processes or duplicate
-Memory, Handoff or persistence logic. A reusable protocol does not establish compatibility with every host.
-
-The built-in `content` Definition can be reused by collect plugins. Registration accepts only its exact built-in manifest; submitted payloads and projections must match an ordinary Content capture reconstructed by the Server. Worker-supplied system flags and working-note captures are rejected. Other active Definitions cannot be replaced through registration.
+- Rewrite a write plugin as a `SourcePlugin` that declares `definitions`, and put it in the plugin directory.
+- Rewrite a collect plugin as a `SourcePlugin` that declares `collect`, `target`, and `setup`; target identity computed
+  on the device becomes the `identity` declaration.
+- When the database lists write plugins (after `source load --kind write`), the migration refuses to upgrade with
+  `unsupported_plugin_data` and leaves the database unchanged. The previous version has no operation that removes these
+  registrations, so such a database currently has no supported in-place upgrade path: keep using the previous version,
+  or move to a new database; do not delete the records by hand to bypass the check. Databases that never loaded a write
+  plugin are unaffected.
+- Collection instances and configuration of the previous management service are not migrated; configure them again
+  through the target APIs above. Collected Sources and their type definitions are kept, and a rewritten plugin that
+  keeps declaring definitions of the same name and version keeps the saved Sources readable.
 
 ## Codex session history
 
-The Codex collect plugin lives in `integrations/codex/source_plugin/`, with `__init__.py` as its entry point.
-An administrator prepares the checkout, PowerContext Python environment and independent management service on the Linux machine
-holding the history files, then follows the local or remote collect deployment steps above. macOS and Windows cannot currently
-start managed collect Runtimes locally; explicitly selected files can instead be placed in the configured directory on a Linux Runtime.
+The repository provides two opt-in Source plugins under `integrations/codex/`: `source_plugin/` (installed as
+`codex-history`) reads one selected JSONL session, and `memory_source_plugin/` (installed as `codex-memory-history`) reads a
+selected file or directory under `memories/`. Copy each plugin directory to the Server's plugin directory. Device runners
+that collect from another machine need the same plugin directory. The process that runs collection must have `CODEX_HOME`
+set to the Codex home on that machine.
 
-Edit the adjacent `powercontext.yml`, replacing `SCOPE_ID` and `config.codex_home` (the Codex home on the execution machine), then run:
-
-```sh
-powercontext source load --config /path/to/powercontext/integrations/codex/source_plugin/powercontext.yml \
-  --env-file /path/to/pc.env
-```
-
-The manifest has no initial targets; loading the instance does not read history. Explicitly select a JSONL path relative to
-`codex_home/sessions/` and a destination Scope:
+Choose only the files the user intends to import. For a session, the target parameter is a path relative to
+`CODEX_HOME/sessions/`; for existing memory, `path` is relative to `CODEX_HOME/memories/`:
 
 ```javascript
-pc_source_capabilities({"scope_id":"SCOPE_ID"})
-pc_source_instances({"scope_id":"SCOPE_ID"})
-pc_source_add({
-  "scope_id":"SCOPE_ID","instance_id":"codex-history",
-  "capability":"codex.session-history","capability_version":"1",
-  "input":{"session_file":"2026/09/13/rollout.jsonl"}
-})
+pc_source_add({"scope_id":"SCOPE_ID", "runner":"server", "capability":"codex-history",
+               "parameters":{"session_file":"2026/09/13/rollout.jsonl"}})
+pc_source_add({"scope_id":"SCOPE_ID", "runner":"server", "capability":"codex-memory-history",
+               "parameters":{"path":"MEMORY.md"}})
 ```
 
-The target Scope is the explicitly authorized destination. The plugin does not infer a default Scope or traverse other sessions.
-Absolute paths, paths outside the configured directory and symlinks pointing outside it are rejected. While enabled, the target
-rereads its selected file at `poll_interval` and also collects newly appended prompts. For a one-time import, disable it with
-`pc_source_target_set_enabled` after confirming submission.
+Use a device runner name instead of `server` when the files are on another machine. The history plugin collects real user
+prompts as the separate `codex-session-prompt` Source type and excludes assistant replies and host-generated context. Both
+plugins redact known secrets before submission. The separate Source type keeps a redacted history import from conflicting
+with an existing live `content` capture of the same prompt. The memory plugin records the original file hash and whether
+redaction changed the captured text.
 
-Only real user prompts are saved. Assistant replies, AGENTS/environment messages, internal execution notifications and Page context
-are excluded. Secrets are redacted using the execution environment and the configured Codex home's `auth.json`. Empty text and
-text exceeding 200,000 characters are omitted. Sources retain the built-in `content` type and the identity and metadata used by
-the live Codex hook. Identical identity and content reuse the existing Source. Different content under the same identity conflicts,
-including redacted history overlapping an existing raw capture; the plugin neither overwrites evidence nor treats a conflict as success. Source conflicts and invalid-observation refusals remain visible as rejected batch items. Collection continues with later prompts and subsequent polls; rejected batches retain their previous checkpoint and safely resubmit accepted items.
-
-The framework stores progress in an instance/Scope checkpoint on the destination Server and advances it only after a complete
-successful batch. Retrying can resubmit already saved items, which the Server deduplicates by Source identity. A malformed file
-submits none of that file's partially decoded prompts. Each poll fully decodes the selected files and retains accepted Source IDs
-for the instance/Scope. Read cost grows with selected file size and checkpoint size with cumulative prompt count; this is not an
-append-byte incremental reader.
-
-The historical `powercontext import-sessions` CLI is removed. Existing Content Sources remain readable and reusable.
-The old Codex home `.powercontext/session-import/codex.json` file is not migrated into framework checkpoints; initial collection
-relies on Server idempotency. Automatic session/workspace Scope resolution and `--dry-run` from the old CLI are not part of this
-collect capability: each target requires an explicitly selected Scope. Successful collection means Sources are saved;
-Memory extraction still follows the Server's independent processing configuration.
-
-## Existing Codex Memory
-
-`.codex/memories` uses the separate `codex.memory-history` capability to retain derived files and version evidence. It supports one-shot import on macOS/Linux and managed collection on Linux. See [Import existing Codex Memory](import-codex-memory.md).
+Target creation starts collection. To make an import one-time, wait for a successful target status and disable the target;
+re-enable it to resume tracking. The memory plugin also has a local preview command described in
+[Import Existing Codex Memory](import-codex-memory.md).

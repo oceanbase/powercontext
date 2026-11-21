@@ -21,7 +21,7 @@ import json
 import logging
 import secrets
 from collections.abc import Awaitable, Callable, Mapping
-from contextlib import AbstractContextManager, nullcontext
+from contextlib import AbstractAsyncContextManager, AbstractContextManager, nullcontext
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Literal, cast
@@ -967,16 +967,49 @@ class RelationalContexts:
         request: CommitConnectorCheckpoint,
         /,
     ) -> ConnectorCheckpointState:
-        """Commit one worker checkpoint only when its starting value still matches."""
+        """Commit one worker checkpoint only when its starting value still matches.
 
+        A binding that is a collection target is committed only by the target's runner, for the
+        configuration version it collected under. That check, the checkpoint, and the reported
+        status share this transaction, so a target that was changed, transferred, disabled, or
+        deleted meanwhile keeps its checkpoint, and a deleted target's checkpoint is not recreated.
+        """
+
+        from powercontext.builtin.persistence.source_collection import (
+            TARGET_CHECKPOINT_VERSION,
+            SourceCollectionRepository,
+        )
+
+        binding = request.binding
+        targets = SourceCollectionRepository()
         async with self.database.transaction() as connection:
+            target = None
+            commit = request.collection
+            # A commit also counts as a target's when it claims to be one, so that a deleted target's
+            # checkpoint is refused instead of being stored as an ordinary Connector checkpoint.
+            claimed = binding.connector_version == TARGET_CHECKPOINT_VERSION or (
+                commit is not None and commit.config_version is not None
+            )
+            if claimed or await targets.is_target(connection, binding.scope_id, binding.binding_id):
+                target = await targets.committable_by(connection, binding, commit)
+            if target is not None and commit is not None and commit.succeeded is not None:
+                # Written before the checkpoint: a first checkpoint is inserted under a savepoint, and on
+                # SQLite releasing a savepoint that opened the transaction would commit the insert alone.
+                await targets.record_status(
+                    connection,
+                    target.scope_id,
+                    target.target_id,
+                    target.runner,
+                    error_code=None if commit.succeeded else commit.error_code or "collection_failed",
+                    error_message=None if commit.succeeded else commit.error_message,
+                )
             await self.repositories.connector_checkpoints.save(
                 connection,
-                request.binding,
+                binding,
                 request.checkpoint,
                 expected=request.expected,
             )
-        return ConnectorCheckpointState(binding=request.binding, checkpoint=request.checkpoint)
+        return ConnectorCheckpointState(binding=binding, checkpoint=request.checkpoint)
 
     async def estimate_recall_tokens(
         self,
@@ -1575,6 +1608,7 @@ class RelationalContexts:
         *,
         processing: ScopeInvocation | None = None,
         on_commit: ExperienceCommitHook | None = None,
+        commit_lock: AbstractAsyncContextManager[None] | None = None,
     ) -> ExperienceIncubationResult:
         """Process one independent Task Outcome Source window for Review."""
 
@@ -1584,7 +1618,7 @@ class RelationalContexts:
         return await _RelationalExperienceIncubator(
             services=services,
             lock=self._state_for(services.scope_id).scope_locks.setdefault("experience", asyncio.Lock()),
-        ).flush(limit=limit, processing=processing, on_commit=on_commit)
+        ).flush(limit=limit, processing=processing, on_commit=on_commit, commit_lock=commit_lock)
 
     async def get(
         self,
@@ -1864,7 +1898,9 @@ class _RelationalExperienceIncubator:
         limit: int,
         processing: ScopeInvocation | None = None,
         on_commit: ExperienceCommitHook | None = None,
+        commit_lock: AbstractAsyncContextManager[None] | None = None,
     ) -> ExperienceIncubationResult:
+        commit_lock = nullcontext() if commit_lock is None else commit_lock
         async with self._lock:
             async with self._services.database.transaction() as connection:
                 if processing is not None:
@@ -1901,7 +1937,7 @@ class _RelationalExperienceIncubator:
             action = transition.actions[0]
             eligible_rows = tuple(row for row in rows if is_generation_eligible(row.value))
             if not eligible_rows:
-                async with self._services.database.transaction() as connection:
+                async with commit_lock, self._services.database.transaction() as connection:
                     if processing is not None:
                         await processing.guard(connection)
                     await self._services.repositories.cursors.save(
@@ -1926,7 +1962,7 @@ class _RelationalExperienceIncubator:
             _validate_experience_plans(plans, eligible_rows)
             candidate_ids: list[str] = []
             candidates: list[Candidate[ExperienceContent]] = []
-            async with self._services.database.transaction() as connection:
+            async with commit_lock, self._services.database.transaction() as connection:
                 if processing is not None:
                     await processing.guard(connection)
                 review = self._services.review(connection)

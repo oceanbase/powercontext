@@ -1,238 +1,226 @@
 ---
 title: Source 插件
-description: 加载可信本地插件，通过公共 MCP 同步写入或持续采集 Source。
+description: 用 Source 插件提供自己的 Source 类型，并由 Server 或设备上的 runner 按分配的目标持续采集。
 ---
 
 # Source 插件
 
-宿主始终连接 PowerContext Server 的公共 `/mcp`。`write` 在 Server 内同步保存宿主提供的内容；`collect` 由独立 Runtime 采集外部资料，共享管理服务负责目标与启停状态。
+Source 插件与 Artifact 插件放在同一个插件目录中（`POWERCONTEXT_SERVER_PLUGINS_DIR`），`plugin.py` 把一个
+`SourcePlugin` 赋给 `plugin`，目录名就是插件名。它可以：
 
-加载代码是拥有 `server.admin` 权限的部署操作。插件代码和依赖须在执行它的 Python 环境可用：write 在 Server 机器，collect 在 Runtime 机器。只加载受信任的代码。凭据文件须为普通文件，不能是符号链接；Linux 下将权限设为 `600`（`chmod 600 /path/to/token`）。
+- **只提供 Source 类型**：声明 `definitions`，调用方通过现有的 Source 写入接口提交内容，Server 执行 `resolve` 和
+  Projection 后保存。
+- **采集**：再声明 `collect`、`target` 和 `setup`。采集由 runner 执行：Server 自带名为 `server` 的 runner，设备上运行
+  `powercontext source-agent`。用户把采集目标分配给某个 runner，runner 定时取回自己的目标并提交结果。
 
-开始前，准备已启用鉴权和 PC Access 的 Server、已有 Scope，以及分开的部署管理员和普通宿主凭据。本文示例中的路径、地址和 `SCOPE_ID` 需替换为实际值；MCP 示例采用 `工具名(参数)` 简写，对应 `/mcp` 的 `tools/call` 中的 `name` 和 `arguments`。能力名称、版本和输入字段以发现结果为准。
+插件的加载、更新和移除与 Artifact 插件相同，见[编写插件](../develop/plugins.md)。可运行的示例在仓库的
+`examples/source_plugins/` 中。
 
-| 操作 | PC 权限 |
+## 权限
+
+| 操作 | 需要的权限 |
 | --- | --- |
-| 发现能力、实例和查询目标 | 对应 Scope 的 `scope.read` |
-| write、添加 collect 目标 | 对应 Scope 的 `scope.contribute` 和 `scope.read` |
-| 启停目标、读取目标 control 视图 | 对应 Scope 的 `scope.contribute` |
-| 加载插件、配置或启停实例、读取实例 control 视图 | `server.admin` |
+| 列出 runner 和它们的能力（`pc_source_runners`） | 已登录 |
+| 查看 Scope 的目标与状态（`pc_source_status`） | 该 Scope 的 `scope.read` |
+| 注册 runner | 已登录 |
+| 给设备 runner 新增目标、修改参数、重新启用目标 | 该 Scope 的 `scope.contribute`，并且是注册这台 runner 的主体或具备 `server.admin` |
+| 停用、删除设备 runner 的目标 | 该 Scope 的 `scope.contribute` |
+| 给 `server` runner 新增、修改、停用、删除目标 | `server.admin` |
+| 把目标转移给另一台 runner（`pc_source_target_transfer`） | 与在目的 runner 上新增相同；原 runner 是 `server` 时需要 `server.admin` |
+| 设备 runner 同步、提交 Source 和 checkpoint | 注册这台 runner 的主体，以及目标 Scope 的 `scope.contribute` |
+| 修改 runner 的显示名 | `server.admin` |
+| 删除 runner 记录 | 注册它的主体，或 `server.admin` |
 
-插件访问外部系统的凭据由插件管理，不替代 PC 权限。宿主只连接 Server，不需要安装 collect Runtime。
+设备 runner 用设备的凭据、网络位置和本机文件采集，所以让它采集什么由注册它的主体决定：只有某个 Scope 写权限的用户
+不能给别人的设备分配目标，但可以停用或删除写入自己 Scope 的目标。团队共用的 runner 由运行它的账号或 `server.admin`
+分配目标。`server` runner 用 Server 环境中的凭据访问外部系统，决定它采集什么等同于运维决定，所以需要 `server.admin`。插件访问
+外部系统的凭据由插件自己读取（例如环境变量），不替代 PowerContext 的权限。目标的参数保存在中心、对 Scope 的读者可见，
+并随 Scope 一起导出，所以不能放凭据：名为 `api_key`、`password` 或以 `_token`、`_secret` 等结尾的参数有值时，目标会被
+`invalid_parameters` 拒绝。runner 上的绝对路径可以作为参数。
 
-## 加载 write
+## 只提供 Source 类型
 
-准备包含 `definitions` 和 write `capabilities` 的本地插件，以及部署配置：
+`examples/source_plugins/images` 只声明了一个 Source 类型：
 
-```yaml
-id: local-tickets
-entry: .
+```python
+plugin = SourcePlugin(version="1.0.0", definitions=(ImageDefinition(),))
 ```
 
-将配置保存为插件目录中的 `write.yml`，入口 `.` 指向同目录的 `__init__.py`。管理员在该目录执行：
+把目录放进插件目录后，调用方用通用 Source 接口提交：
 
-```sh
-powercontext source load --kind write --config ./write.yml \
-  --server-url http://127.0.0.1:8000 --credential-file /run/secrets/pc-admin
+```bash
+curl -X POST "$SERVER/v1/scopes/$SCOPE/sources" -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"source_type": "example-image", "content": {"media_type": "image/png", "data_base64": "..."}}'
 ```
 
-Server 实际导入代码、校验输入模型和 Definition/Projection 契约，注册成功后公开能力。它持久保存入口，重启重新导入。一致配置重复加载可复用。当前仅支持保持入口、能力和 Definition/Projection 声明不变的代码更新，通过受控重启 Server 生效；不做进程内 Python 热替换。修改声明中的版本、输入或输出 schema 后，重启会因持久契约不一致而恢复失败，不能用重启完成契约升级。
+Server 在插件的宿主进程中校验输入、执行 `resolve` 和 Projection，按 Source 身份去重。
 
-宿主使用具有目标 Scope 的 `scope.read` 和 `scope.contribute` 权限的身份调用：
+## 由 Server 采集
+
+`examples/source_plugins/tickets` 从 runner 本机的 JSON 文件采集工单：
+
+```python
+plugin = SourcePlugin(
+    version="1.0.0",
+    definitions=(TicketDefinition(),),
+    collect=Collect(schedule=Interval(seconds=10)),
+    target=TargetSpec(
+        description="Collect tickets from a JSON file on the runner",
+        parameters=TicketFile,
+        identity={"file": ("strip",)},
+    ),
+    setup=setup,
+)
+```
+
+管理员给 `server` runner 分配一个目标（MCP 示例采用 `工具名(参数)` 简写）：
 
 ```javascript
-pc_source_capabilities({"scope_id":"SCOPE_ID"})
-pc_source_add({
-  "scope_id":"SCOPE_ID","capability":"ticket.write","capability_version":"1",
-  "input":{"namespace":"support","project":"demo","ticket_id":"A","title":"故障恢复","body":"服务已恢复"}
-})
+pc_source_runners()
+pc_source_add({"scope_id": "SCOPE_ID", "runner": "server", "capability": "tickets",
+               "parameters": {"file": "/srv/data/tickets.json"}})
 ```
 
-write 不传 `instance_id`。返回 `result.source_refs` 表示真实 Source/Projection 已保存。write 不创建持久请求，也不使用 collect 目标或 checkpoint。相同身份和相同内容复用，同身份不同内容冲突；工单示例按完整快照计算身份。超时表示结果未确认，不能认定未保存。完整 add 参数 JSON 上限为 1 MiB，物化 observation 上限为 4 MiB，包含 Base64 膨胀；超限报错，不截断。
+新目标立即采集一次，之后按插件的 `schedule` 采集。每次采集在 Supervisor Worker 中执行，处理一个 Scope 中分配给
+`server` 的已启用目标；返回的 Source、各目标新的 checkpoint 和状态在一个事务中保存。
 
-## 在运行中的 Server 上加载 collect
+## 由设备采集
 
-Server 的环境文件中启用鉴权、PC Access，并指定可信实例目录：
+设备上放一份同一插件，用一个对目标 Scope 有 `scope.contribute` 的凭据运行 runner：
 
-```dotenv
-POWERCONTEXT_SERVER_SOURCE_PLUGINS_DIR=/srv/powercontext/source-plugins
-POWERCONTEXT_SERVER_ACCESS='{"mode":"enforced"}'
+```bash
+export POWERCONTEXT_SOURCE_AGENT_TOKEN=...      # runner 的凭据
+powercontext source-agent --server https://memory.example.com --plugins /opt/robot/plugins
 ```
 
-首次配置后重启 Server。自动部署创建独立管理和执行凭据，不修改用户身份文件。Server 启动扫描直接子目录的 `powercontext.yml`；之后新增实例显式 load，不持续扫描。此自动扫描用于 collect；write 使用前述 `--kind write` 显式加载。本地 collect 部署要求 Linux：`source_management.process_mode="background"`（默认）使用后台进程；`"local-service"` 还要求可用的 systemd 用户服务管理器（`systemctl --user`）。两种模式均不支持在 macOS 或 Windows 上本地部署。此限制针对 collect 进程管理，不针对 Server 内同步执行的 write 插件。
+- **名字**：runner 第一次启动时向 Server 注册，名字由 Server 确定，在整个部署中唯一，之后不能修改；目标按名字分配给
+  runner。名字 `server` 保留给 Server 自带的 runner。管理员可以另外给 runner 设置显示名。
+  - 默认方式：runner 向 Server 提议一个名字（`--suggest-name`，默认是主机名）。名字没被占用时 Server 采用它，否则另外分配
+    一个，例如 `robot-7-2`。runner 把确定的名字保存在状态目录（`--state-dir`，默认是 PowerContext 数据目录）里，重启后
+    沿用。状态目录不可写时 runner 报错退出。
+  - 容器和 CI 这类不保留状态的部署，用 `--name robot-7` 指定名字：名字不存在时注册，已经由同一个凭据注册过时沿用，被
+    其他凭据注册过时启动失败。这种方式不读写状态目录。也可以继续用默认方式，把状态目录挂载到持久卷上。
+  - 一个凭据可以注册多台 runner，但建议每台设备用自己的凭据。只有注册 runner 的那个主体能以它的名字同步和提交。
+  - 状态丢失（重装、清空目录）后，按默认方式启动会注册一个新名字，用 `pc_source_target_transfer` 把原来的目标转移过去；
+    或者用同一个凭据以 `--name` 指定原来的名字。克隆机器镜像前删除状态文件，否则两台设备会用同一个名字。
+  - 设备换用另一个主体的凭据时，原来的名字不能沿用：注册新的 runner，转移目标，再删除旧记录。
+- runner 每 30 秒（`--interval`）同步一次：上报加载的插件和版本，取回分配给自己的全部目标（跨 Scope）。新目标立即
+  采集，其余按插件的 `schedule` 采集。
+- 每个目标先提交 Source，再以旧 checkpoint 为期望值提交新的 checkpoint 和状态。中途失败时 checkpoint 不前进，下次
+  重新采集同样的内容，Server 按 Source 身份去重。
+- 目标在采集期间被修改、停用、转移或删除时，Server 拒绝这次 checkpoint 提交（`target_changed`），runner 丢弃结果，下次
+  同步后按新的配置重新采集；已经提交的 Source 保留。
+- 一个插件加载失败、`collect` 抛出异常或返回了错误的条目，只影响这个插件或这个目标，其他插件和目标照常采集。Server 上
+  只显示固定的错误码和异常类型名，完整的错误信息在设备的日志里。
+- 设备上使用的每个 Source 插件都要同时部署在 Server 的插件目录中：能力的说明、参数格式和 Projection 都以 Server 加载的
+  版本为准。
 
-实例目录就近放置 `__init__.py`、`definition.py`、资料文件和 `powercontext.yml`，例如：
-
-```yaml
-id: my-tickets
-plugin: .
-scope_ids: [SCOPE_ID]
-config:
-  file: tickets.json
-  poll_interval: 10
-```
-
-Scope 须已存在，配置里的范围不替代 PC 权限。业务参数由插件的 `Config` 校验，采集节奏由插件决定。
-
-```sh
-powercontext source load --config /srv/powercontext/source-plugins/my-tickets/powercontext.yml \
-  --env-file ./pc.env
-```
-
-命令在 Server 所在机器使用相同环境配置执行，完成 Definition 注册、Scope 授权、实例登记和 Runtime 启动。重复加载一致配置保留启停状态和进程；修改代码入口或业务配置须显式更新。已部署实例的 Scope 范围与目标以管理服务记录为准，重复 load 不用文件覆盖它们。
-
-宿主通过公共 MCP 建立持续采集目标：
+目标只能分配给已经注册的 runner，所以先启动一次 runner，再给它分配目标：
 
 ```javascript
-pc_source_instances({"scope_id":"SCOPE_ID"})
-pc_source_add({
-  "scope_id":"SCOPE_ID","instance_id":"my-tickets",
-  "capability":"tickets.item","capability_version":"1","input":{"id":"A"}
-})
-pc_source_status({"scope_id":"SCOPE_ID","target_id":"TARGET_ID"})
+pc_source_add({"scope_id": "SCOPE_ID", "runner": "robot-7", "capability": "ticket-chat",
+               "parameters": {"file": "/var/lib/robot/chats.json"}})
 ```
 
-add 和重复 add 返回目标身份及控制状态，不携带 Source 引用和提交时间。状态查询只携带管理服务最近收到的一次成功提交报告：`source_refs` 包含一个引用，`last_submitted_at` 是同一报告的提交时间；尚未收到报告时，引用为空数组，也没有提交时间。报告按接收顺序覆盖，这既不表示一批已完成，也不是已采集 Source 的历史清单。管理服务不累计历史引用，报告丢失不撤销已保存的 Source。插件仍从每次真实提交回执取得 SourceRef，并用 checkpoint 管理采集进度。相同目标重复 add 复用，不重启采集，也不恢复已停用目标。可选 `targets` 清单只用于首次初始化，后续以管理服务记录为准。
-
-## 远端 collect Runtime
-
-在执行机器准备插件代码，并在其清单中增加：
-
-```yaml
-deployment:
-  server:
-    url: https://pc.example.com
-    credential_file: /run/secrets/pc-admin
-  management_url: https://source-manager.example.com
-  execution_credential_file: /run/secrets/pc-worker
-  state_dir: ./instance-state
-```
-
-在该机器执行 `powercontext source load --config ./powercontext.yml`。Server 和管理服务须已可达；非本机连接要求 HTTPS。管理员和 Runtime 使用不同身份，Runtime 身份不能具有 `server.admin`。命令启动本机 Runtime，不分发代码或执行远程 shell。显式设置 `deployment.start: local-service` 可使用 systemd 用户服务。
-
-普通后台进程不会在机器重启后自动拉起。已部署实例可使用 load 输出的 Runtime 配置重新启动，无需重新登记：
-
-```sh
-powercontext source runtime start --config /path/to/runtime-config.json
-powercontext source runtime status --config /path/to/runtime-config.json
-```
-
-使用 systemd 托管时，上述 start/status 命令增加 `--system-service`。进程在线只表示 Runtime 存活，还需通过 MCP 查看实例可用性和实际 Source 提交。
-
-## 扩展实例的 Scope
-
-仅增加 Scope 且其他配置不变时，管理员先通过 Access 接口授予执行身份相应权限，再向 `POST /v1/source-management/configure` 提交完整实例登记和 `update=true`，扩展 `scope_ids`。实例可以保持运行，原 Context 与 checkpoint 保留；宿主取得新 Scope 权限后即可添加目标。修改清单后重复 load 不会完成这项扩展。
-
-## 停用和更新
-
-管理员通过 MCP 停用整个实例：
+## 管理目标
 
 ```javascript
-pc_source_instance_set_enabled({"instance_id":"my-tickets","enabled":false})
-pc_source_instances({"instance_id":"my-tickets","view":"control"})
+pc_source_status({"scope_id": "SCOPE_ID"})
+pc_source_target_set_enabled({"scope_id": "SCOPE_ID", "target_id": "...", "enabled": false})
+pc_source_target_transfer({"scope_id": "SCOPE_ID", "target_id": "...", "runner": "robot-8"})
+pc_source_target_delete({"scope_id": "SCOPE_ID", "target_id": "..."})
 ```
 
-等到 `actual=stopped` 后，在执行机器停止外层 Runtime，使用部署输出或私有状态目录中的配置路径：
+- **去重**：Server 按自己加载的插件版本校验 `parameters`，并用 `identity` 中的参数（经过声明的规范化步骤）计算目标键。
+  同一 Scope、runner、能力下键相同的目标已存在时，参数相同返回已有目标，参数不同返回冲突。
+- **修改**：可以修改不参与唯一性的参数和启停；唯一性参数不能修改（返回 `identity_immutable`），要采集另一个对象就新增
+  目标，这样 checkpoint 总是对应同一个外部对象。
+- **停用与删除**：停用的目标不再同步给 runner，checkpoint 保留，恢复后从原位置继续；删除同时删除 checkpoint，已采集的
+  Source 保留。
+- **转移**：把目标改派给另一台已注册的 runner，目标 ID 不变，checkpoint 默认保留，新 runner 从原位置继续。新设备上的
+  数据与原设备不同时加上 `"reset_checkpoint": true`，从头采集。目的 runner 上已有相同对象的目标时返回冲突。
+- **删除 runner**：runner 名下还有目标时不能删除，先转移或删除这些目标。
+- **配置版本**：每次修改参数、启停、转移或清空 checkpoint，目标的 `config_version` 加一；runner 提交结果时带上采集时的
+  版本，版本不一致的提交会被拒绝。修改、转移和删除只作用于请求读到的那个状态：两个请求同时改一个目标时，后到的返回
+  `409 conflict`，重新读取后再操作。
+- **状态**：每个目标记录最近尝试时间、最近成功时间、连续失败次数和最近错误。runner 的 `last_seen_at` 晚于目标的
+  `updated_at`，说明 runner 已经取到最新配置。
 
-```sh
-powercontext source runtime stop --config /path/to/runtime-config.json
-powercontext source load --update --config /path/to/powercontext.yml
+## 插件的采集契约
+
+```python
+async def collect(self, request: CollectRequest) -> CollectResult:
+    result = CollectResult()
+    for target in request.targets:
+        ...
+        result.add(target, items, checkpoint=new_checkpoint, has_more=False)
+        # 只有这个目标失败时：result.fail(target, code="...", message="...")
+    return result
 ```
 
-本机自动部署的 load 仍须带相同 `--env-file`；系统服务 stop 带 `--system-service`。缩减 Scope、修改业务配置或升级代码时，保留实例 ID、状态目录和兼容的 Definition、能力、目标身份及 checkpoint。`source load --update` 必须确认旧 Runtime 已退出；成功后仍停用，管理员显式 `enabled=true` 才恢复采集。普通 load 不隐式升级。
+- 一次调用对应一个 Scope，最多 `max_targets` 个已启用目标；目标较多时轮转，上次返回 `has_more` 的目标优先，其余按
+  最近尝试时间从早到晚。
+- 返回的条目总数超过 `max_items`，或返回了请求中没有的目标，整次调用失败，不截断。没有出现在结果中的目标 checkpoint
+  不变。
+- `fail` 只让这个目标失败：它的 checkpoint 不变、状态记录错误，同一次调用中其他目标照常提交。`collect` 抛出异常时整次
+  调用失败，这次调用的每个目标都记录为 `collect_failed`，错误信息只有异常类型名。
+- 阻塞的读取放进 `await asyncio.to_thread(...)`。在设备上 `ctx.storage` 不可用；`ctx.center` 只在设备上存在，可以用
+  `ctx.center.call_plugin(method, path, json=..., content=...)` 调用插件自己在 Server 上的路由，例如先上传大文件，再
+  提交引用它的 Source。
 
-只停止某份资料时，控制对应目标，不影响整个实例：
+## 版本与升级
 
-```javascript
-pc_source_target_set_enabled({"scope_id":"SCOPE_ID","target_id":"TARGET_ID","enabled":false})
-pc_source_status({"scope_id":"SCOPE_ID","target_id":"TARGET_ID","view":"control"})
-```
+`SourcePlugin` 声明 `version`（PEP 440）和可选的 `min_compatible_version`（默认等于 `version`）。设备上的插件版本满足
+`Server 的 min_compatible_version <= 设备版本 <= Server 的 version` 时，Server 接受它的同步、Source、checkpoint 和
+`call_plugin` 请求；否则返回 `plugin_version_incompatible`，同步时不下发该插件的目标，`pc_source_runners` 中显示为
+不兼容。
 
-`stopping` 表示停止意图已保存，`stopped` 表示 Runtime 已确认停止。恢复时将 `enabled` 设为 `true`；这不会自动启用已停用的实例。管理失联不等于业务停止。Source、目标和 checkpoint 不随停用删除；Source 保存和 checkpoint/报告提交是独立动作。
-
-当前实现尚无删除实例登记及所属目标的完整卸载命令。`runtime stop` 只停止执行进程，保留管理记录和已保存数据；停止 Server 或删除插件目录也不等于卸载独立服务。
-
-## 常见问题
-
-| 现象 | 检查和处理 |
-| --- | --- |
-| 启动日志出现 `background-unsupported` 或 `service-unavailable` | 本地 collect 部署要求 Linux；`local-service` 还需要可用的 `systemctl --user`。检查执行平台和进程模式。 |
-| 管理服务断线 | 已同步的 collect 可继续；新管理调用可能失败。内置及已加载的 write 不依赖管理服务。 |
-| Runtime 重启后管理服务不可达 | 等待重新同步目标，不从文件初始 targets 回退采集。 |
-| 目标长期没有新 Source | 检查插件采集逻辑是否仍运行、采集节奏、外部凭据和 Scope 权限；进程在线不保证采集成功。 |
-| 一直处于 stopping | 检查原 Runtime 与管理连接，不能把断线当成停止完成。 |
-| Source 已保存但目标状态没有引用 | 提交报告可能丢失；目标状态不是 Server 全部数据的清单，不应因此回退 checkpoint。 |
-| Agent 没使用已保存的资料 | 核对采集 Scope 与宿主当前 Scope，以及后续 Projection、Artifact 和索引处理。 |
-
-持续采集插件应在 `apply` 中保持自己的循环。`apply` 结束后，新目标或通信重连不会自动重跑它；需要重新运行时，显式停用并确认停止，再启用。
-
-## 可运行示例
-
-仓库 `examples/source_plugins` 按工单、工单/聊天、图片组织示例，每个目录就近放置代码和加载配置。工单示例共用一份 Definition 和 Projection：`write.yml` 用于 Server 内同步写入，`powercontext.yml` 用于托管采集。加载和 MCP 调用步骤见 `examples/source_plugins/README.zh.md`。
-
-凭据、数据库、日志和生成的进程状态留在部署机器；只提交插件代码、无敏感信息的配置模板和合成示例资料。
+- **先升级 Server，再升级设备**。比 Server 新的设备版本同样被拒绝。Server 有多个实例时，先让所有实例完成升级。
+- 目标参数按 Server 版本的格式填写，可能带有旧设备不认识的字段，所以参数模型不能设置 `extra="forbid"`。新参数必须在
+  所有设备上生效时，提高 `min_compatible_version`。
+- Server 每次加载插件版本时调用 `upgrade(ctx)`（见[编写插件](../develop/plugins.md)）；设备不调用 `upgrade`，插件自己的
+  本地文件在 `setup` 中检查和迁移。
 
 ## Agent 客户端的插件分工
 
-Agent 客户端接入使用两类插件，领域行为仍由 Server 负责：
+Agent Plugin 负责宿主专属的客户端接入：配置、认证、Skill、Hook 和用户提示。Source 插件负责采集用户明确选择的历史或外部
+资料，并通过 Source Runner 提交。宿主通过公共 MCP 发现能力、选择资料和目标 Scope，再添加采集目标。管理员负责加载可信插件代码
+和部署 Runtime。原生 Hook 和清单差异留在宿主适配层；可复用的数据采集逻辑放在 Source 插件中。
 
-| 插件 | 职责 | 接口 |
-| --- | --- | --- |
-| Agent Plugin | 宿主原生配置、认证、Skill、实时 Hook 和用户提示 | Server 公共 MCP 与已有客户端接口 |
-| Source 插件 | 历史文件解析、外部数据采集、Source 身份与提交、采集进度 | SourceDefinition、Connector、PluginContext 和公共 Source MCP |
+## 从旧的 Source 插件框架迁移
 
-新客户端优先复用[共享 Agent Plugin](../integrations/agent-plugin.md)。需要宿主原生 Hook 或不同清单格式时，
-在 `integrations/<host>/` 提供薄适配层。历史格式解析放在相邻的 Source 插件中；不在核心 CLI 增加按宿主分支的导入命令。
-Agent Plugin 通过 `pc_source_capabilities`、`pc_source_instances`、`pc_source_add` 和状态、启停工具使用 Source 能力，
-不直接启动采集进程，不重复实现 Memory、Handoff 或持久化逻辑。通用协议允许复用，不表示所有宿主已经完成兼容性验证。
+`/v1/source-management/*`、`powercontext source load`、`powercontext.yml` 和 `write.yml` 已移除：
 
-collect 插件可以复用内置 `content` Definition。登记仅接受完全一致的内置 manifest；提交的 payload 和 Projection 必须与 Server 重建的普通 Content capture 一致。插件不能注入系统字段或提交 Working Note。其他活跃 Definition 仍不能通过登记覆盖。
+- write 插件改写为只声明 `definitions` 的 `SourcePlugin`，放进插件目录。
+- collect 插件改写为声明 `collect`、`target` 和 `setup` 的 `SourcePlugin`；原来在设备上计算的目标身份改为 `identity`
+  声明。
+- 数据库中登记过 write 插件（执行过 `source load --kind write`）时，迁移以 `unsupported_plugin_data` 拒绝升级，数据库
+  保持不变。旧版本没有删除这些登记的操作，所以这样的数据库目前没有受支持的原地升级路径：继续使用旧版本，或者改用新的
+  数据库；不要手工删除记录来绕过检查。没有加载过 write 插件的数据库不受影响。
+- 旧管理服务里的采集实例和配置不迁移，升级后通过上面的目标接口重新配置。已经采集的 Source 和它们的类型定义保留，改写
+  后的插件继续声明同名同版本的定义，已保存的 Source 就能继续读取。
 
 ## Codex 历史会话
 
-Codex collect 插件位于 `integrations/codex/source_plugin/`，入口为该目录的 `__init__.py`。
-管理员在持有历史文件的 Linux 执行机器上准备仓库代码、PowerContext Python 环境和独立管理服务，
-按前述本机或远端 collect 部署流程加载。macOS 和 Windows 目前不能本地启动托管 collect Runtime；
-可以将用户显式选择的文件放在 Linux Runtime 的配置目录中采集。
+仓库提供两个选择启用的 Source 插件，位于 `integrations/codex/`：`source_plugin/`（安装名 `codex-history`）读取指定
+JSONL 会话，`memory_source_plugin/`（安装名 `codex-memory-history`）读取 `memories/` 下指定文件或目录。将插件目录复制到
+Server 插件目录。若由另一台设备采集，该设备 Runner 也要安装相同插件。执行采集的进程必须设置 `CODEX_HOME`，指向该机器的
+Codex 主目录。
 
-先编辑同目录 `powercontext.yml`，替换 `SCOPE_ID` 和 `config.codex_home`（必须指向执行机器上的 Codex home），再执行：
-
-```sh
-powercontext source load --config /path/to/powercontext/integrations/codex/source_plugin/powercontext.yml \
-  --env-file /path/to/pc.env
-```
-
-清单没有初始目标；加载实例本身不会读取历史。用户显式选择相对于 `codex_home/sessions/` 的 JSONL 文件和目标 Scope：
+只选择用户打算导入的文件。会话目标路径相对于 `CODEX_HOME/sessions/`；已有 Memory 的 `path` 相对于
+`CODEX_HOME/memories/`：
 
 ```javascript
-pc_source_capabilities({"scope_id":"SCOPE_ID"})
-pc_source_instances({"scope_id":"SCOPE_ID"})
-pc_source_add({
-  "scope_id":"SCOPE_ID","instance_id":"codex-history",
-  "capability":"codex.session-history","capability_version":"1",
-  "input":{"session_file":"2026/09/13/rollout.jsonl"}
-})
+pc_source_add({"scope_id":"SCOPE_ID", "runner":"server", "capability":"codex-history",
+               "parameters":{"session_file":"2026/09/13/rollout.jsonl"}})
+pc_source_add({"scope_id":"SCOPE_ID", "runner":"server", "capability":"codex-memory-history",
+               "parameters":{"path":"MEMORY.md"}})
 ```
 
-目标 Scope 是用户显式授权的导入目的地。插件不推断默认 Scope，也不遍历其他 session；
-绝对路径、越界路径和指向目录外的符号链接会被拒绝。目标启用期间按 `poll_interval` 重读选定文件，
-也会采集该文件后续新增的 Prompt；仅需一次导入时，确认提交后通过 `pc_source_target_set_enabled` 停用。
+文件在其他机器时，将 `server` 换成设备 Runner 名称。会话插件将真实用户 Prompt 保存为单独的 `codex-session-prompt` Source 类型，
+并排除助手回复及宿主生成的上下文；两个插件都会在提交前脱敏已知密钥。独立 Source 类型可避免脱敏后的历史导入与同一 Prompt 的
+实时 `content` 记录冲突。Memory 插件还记录原文件哈希和是否执行过脱敏。
 
-插件仅保存真实用户 Prompt，排除 assistant 回复、AGENTS/environment、内部执行通知与 Page 上下文，
-使用执行机器的环境及所配置 Codex home 的 `auth.json` 脱敏。空文本与超过 200,000 字符的文本不导入。
-Source 保持内置 `content` 类型，身份和 metadata 与 Codex 实时 Hook 一致；相同身份和内容会复用既有 Source。
-同身份内容不同会冲突，包括已有原始内容而历史文本被脱敏的情况；插件不会覆盖既有证据或将冲突当作成功。 Source 冲突及无效 observation 会作为批次中的 rejected 项保留；采集继续处理后续 Prompt 和后续轮询。存在拒绝项的批次不推进 checkpoint，重试时按身份复用已保存的项。
-
-进度由框架保存在目标 Server 的 instance/Scope checkpoint 中，只在批次完整成功后推进。
-失败后重新运行可能重交已经保存的项，服务端按 Source 身份去重。单个文件格式错误时不提交该文件的部分解析结果。
-每轮会完整解析所选文件，并保存该 instance/Scope 已接受的 Source ID 集合；读取成本随所选文件大小增长，
-checkpoint 大小随累计 Prompt 数增长，不承诺按追加字节增量读取。
-
-历史 CLI `powercontext import-sessions` 不再提供。已有 Content Source 保持可读、可复用；
-旧 Codex home 下的 `.powercontext/session-import/codex.json` 不迁入框架 checkpoint，首次采集依赖 Server 幂等检查。
-旧 CLI 的自动 session/workspace Scope 解析和 `--dry-run` 不属于此 collect 能力，目标需逐个显式指定 Scope。
-采集成功只表示 Source 已保存；Memory 提取仍遵循 Server 的独立处理配置。
-
-## 已有 Codex Memory
-
-`.codex/memories` 使用独立的 `codex.memory-history` 能力，按文件保留派生资料和版本证据。支持 macOS/Linux 一次性导入及 Linux 托管采集，步骤见[导入已有 Codex Memory](import-codex-memory.md)。
+创建目标后即开始采集。若只需导入一次，等待目标状态显示成功后停用；重新启用可恢复跟踪。Memory 插件的本地预览命令见
+[导入已有 Codex Memory](import-codex-memory.md)。

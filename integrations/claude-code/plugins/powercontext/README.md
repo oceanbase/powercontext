@@ -32,10 +32,13 @@ Scope is resolved by the Server from an explicit override, the current session
 or workspace binding, and finally the Server default. Bindings let multiple
 agents share the same Scope without deriving identities locally.
 
-The plugin defaults to `http://127.0.0.1:8000`. Its Hook and MCP transport share
-`POWERCONTEXT_CLAUDE_AUTHORIZATION` when optional bearer authentication is
-enabled. Prompt capture can be disabled through the plugin's `capture_prompts`
-option or by setting `POWERCONTEXT_CLAUDE_CAPTURE_PROMPTS=false`.
+The plugin defaults to `http://127.0.0.1:8000`. When optional bearer
+authentication is enabled, its Hook and its MCP `headersHelper`
+(`scripts/mcp_headers.py`) share the credential that setup saves for the
+configured Server. `POWERCONTEXT_CLAUDE_AUTHORIZATION` overrides it for the
+Hook and reaches MCP only when nothing is saved; rerun setup to rotate it.
+Prompt capture can be disabled through the plugin's `capture_prompts` option
+or by setting `POWERCONTEXT_CLAUDE_CAPTURE_PROMPTS=false`.
 
 HTTPS and loopback HTTP work by default. To persist an explicit non-loopback
 HTTP endpoint for this host:

@@ -1,6 +1,6 @@
 {
-  "description": "SessionStart payloads that Claude Code 2.1.277 passed to the plugin's hook in headless runs, one per lifecycle. The session ID, working directory, transcript path, and prompt IDs follow the characterization fixture; every other key and value is as the host sent it.",
-  "payloads": {
+  "description": "Payloads that Claude Code 2.1.277 passed to the plugin's hooks in headless claude -p runs: SessionStart once for each lifecycle, and UserPromptSubmit. The session ID, working directory, transcript path, prompt IDs, and prompt follow the characterization fixture; every other key and value is as the host sent it.",
+  "SessionStart": {
     "startup": {
       "session_id": "session-a",
       "transcript_path": "$HOME/.claude/projects/workspace/session-a.jsonl",
@@ -39,5 +39,14 @@
       "prompt_cache_likely_expired": true,
       "estimated_cache_write_usd": 0.0058
     }
+  },
+  "UserPromptSubmit": {
+    "session_id": "session-a",
+    "transcript_path": "$HOME/.claude/projects/workspace/session-a.jsonl",
+    "cwd": "$CWD",
+    "prompt_id": "prompt-1",
+    "permission_mode": "default",
+    "hook_event_name": "UserPromptSubmit",
+    "prompt": "Which service owns the retry budget?"
   }
 }

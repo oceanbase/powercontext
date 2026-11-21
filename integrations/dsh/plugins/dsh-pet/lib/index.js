@@ -419,6 +419,17 @@ const OPERATIONS = {
 		successStatuses: [202],
 		emptyStatuses: []
 	},
+	capture_content_sources: {
+		method: "POST",
+		path: "/v1/sources/content/batch",
+		location: "body",
+		scopeMode: "current",
+		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [202],
+		emptyStatuses: []
+	},
 	capture_working_note: {
 		method: "POST",
 		path: "/v1/sources/working-notes",
@@ -667,6 +678,127 @@ const OPERATIONS = {
 		location: null,
 		scopeMode: "none",
 		pathParameters: ["name"],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	get_plugin_openapi: {
+		method: "GET",
+		path: "/v1/plugins/{name}/openapi.json",
+		location: null,
+		scopeMode: "none",
+		pathParameters: ["name"],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	pc_source_runners: {
+		method: "GET",
+		path: "/v1/source-runners",
+		location: null,
+		scopeMode: "none",
+		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	register_source_runner: {
+		method: "POST",
+		path: "/v1/source-runners",
+		location: "body",
+		scopeMode: "none",
+		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [201, 200],
+		emptyStatuses: []
+	},
+	sync_source_runner: {
+		method: "POST",
+		path: "/v1/source-runners/{runner}/sync",
+		location: "body",
+		scopeMode: "none",
+		pathParameters: ["runner"],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	update_source_runner: {
+		method: "PATCH",
+		path: "/v1/source-runners/{runner}",
+		location: "body",
+		scopeMode: "none",
+		pathParameters: ["runner"],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	delete_source_runner: {
+		method: "DELETE",
+		path: "/v1/source-runners/{runner}",
+		location: null,
+		scopeMode: "none",
+		pathParameters: ["runner"],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [204],
+		emptyStatuses: [204]
+	},
+	pc_source_status: {
+		method: "GET",
+		path: "/v1/scopes/{scope_id}/source-targets",
+		location: null,
+		scopeMode: "none",
+		pathParameters: ["scope_id"],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	pc_source_add: {
+		method: "POST",
+		path: "/v1/scopes/{scope_id}/source-targets",
+		location: "body",
+		scopeMode: "none",
+		pathParameters: ["scope_id"],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [201, 200],
+		emptyStatuses: []
+	},
+	pc_source_target_set_enabled: {
+		method: "PATCH",
+		path: "/v1/scopes/{scope_id}/source-targets/{target_id}",
+		location: "body",
+		scopeMode: "none",
+		pathParameters: ["scope_id", "target_id"],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	pc_source_target_delete: {
+		method: "DELETE",
+		path: "/v1/scopes/{scope_id}/source-targets/{target_id}",
+		location: null,
+		scopeMode: "none",
+		pathParameters: ["scope_id", "target_id"],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [204],
+		emptyStatuses: [204]
+	},
+	pc_source_target_transfer: {
+		method: "POST",
+		path: "/v1/scopes/{scope_id}/source-targets/{target_id}/transfer",
+		location: "body",
+		scopeMode: "none",
+		pathParameters: ["scope_id", "target_id"],
 		queryParams: [],
 		headerParams: [],
 		successStatuses: [200],
@@ -1689,160 +1821,6 @@ const OPERATIONS = {
 		successStatuses: [200],
 		emptyStatuses: []
 	},
-	pc_source_capabilities: {
-		method: "POST",
-		path: "/v1/source-management/capabilities",
-		location: "body",
-		scopeMode: "none",
-		pathParameters: [],
-		queryParams: [],
-		headerParams: [],
-		successStatuses: [200],
-		emptyStatuses: []
-	},
-	pc_source_add: {
-		method: "POST",
-		path: "/v1/source-management/add",
-		location: "body",
-		scopeMode: "none",
-		pathParameters: [],
-		queryParams: [],
-		headerParams: [],
-		successStatuses: [200],
-		emptyStatuses: []
-	},
-	pc_source_status: {
-		method: "POST",
-		path: "/v1/source-management/status",
-		location: "body",
-		scopeMode: "none",
-		pathParameters: [],
-		queryParams: [],
-		headerParams: [],
-		successStatuses: [200],
-		emptyStatuses: []
-	},
-	pc_source_target_set_enabled: {
-		method: "POST",
-		path: "/v1/source-management/target-set-enabled",
-		location: "body",
-		scopeMode: "none",
-		pathParameters: [],
-		queryParams: [],
-		headerParams: [],
-		successStatuses: [200],
-		emptyStatuses: []
-	},
-	pc_source_instances: {
-		method: "POST",
-		path: "/v1/source-management/instances",
-		location: "body",
-		scopeMode: "none",
-		pathParameters: [],
-		queryParams: [],
-		headerParams: [],
-		successStatuses: [200],
-		emptyStatuses: []
-	},
-	pc_source_instance_set_enabled: {
-		method: "POST",
-		path: "/v1/source-management/instance-set-enabled",
-		location: "body",
-		scopeMode: "none",
-		pathParameters: [],
-		queryParams: [],
-		headerParams: [],
-		successStatuses: [200],
-		emptyStatuses: []
-	},
-	source_configure: {
-		method: "POST",
-		path: "/v1/source-management/configure",
-		location: "body",
-		scopeMode: "none",
-		pathParameters: [],
-		queryParams: [],
-		headerParams: [],
-		successStatuses: [200],
-		emptyStatuses: []
-	},
-	load_source_write_plugin: {
-		method: "POST",
-		path: "/v1/source-management/write/load",
-		location: "body",
-		scopeMode: "none",
-		pathParameters: [],
-		queryParams: [],
-		headerParams: [],
-		successStatuses: [200],
-		emptyStatuses: []
-	},
-	source_channel_open: {
-		method: "POST",
-		path: "/v1/source-management/channel/open",
-		location: "body",
-		scopeMode: "none",
-		pathParameters: [],
-		queryParams: [],
-		headerParams: [],
-		successStatuses: [200],
-		emptyStatuses: []
-	},
-	source_channel_catalog: {
-		method: "POST",
-		path: "/v1/source-management/channel/catalog",
-		location: "body",
-		scopeMode: "none",
-		pathParameters: [],
-		queryParams: [],
-		headerParams: [],
-		successStatuses: [200],
-		emptyStatuses: []
-	},
-	source_channel_poll: {
-		method: "POST",
-		path: "/v1/source-management/channel/poll",
-		location: "body",
-		scopeMode: "none",
-		pathParameters: [],
-		queryParams: [],
-		headerParams: [],
-		successStatuses: [200],
-		emptyStatuses: []
-	},
-	source_channel_reply: {
-		method: "POST",
-		path: "/v1/source-management/channel/reply",
-		location: "body",
-		scopeMode: "none",
-		pathParameters: [],
-		queryParams: [],
-		headerParams: [],
-		successStatuses: [200],
-		emptyStatuses: []
-	},
-	source_channel_close: {
-		method: "POST",
-		path: "/v1/source-management/channel/close",
-		location: "body",
-		scopeMode: "none",
-		pathParameters: [],
-		queryParams: [],
-		headerParams: [],
-		successStatuses: [200],
-		emptyStatuses: []
-	},
-	source_instance_exchange: {
-		method: "POST",
-		path: "/v1/source-management/instances/{instance_id}/{operation}",
-		location: "body",
-		scopeMode: "none",
-		pathParameters: ["instance_id", "operation"],
-		queryParams: [],
-		headerParams: [],
-		successStatuses: [200],
-		emptyStatuses: []
-	},
 	plan_access_ownership: {
 		method: "POST",
 		path: "/v1/access/ownership/plan",
@@ -1890,6 +1868,17 @@ function normalizeServerUrl(value$1, allowInsecureHttp = false, name$1 = "PowerC
 	const loopback = host === "localhost" || host === "::1" || octets.length === 4 && octets[0] === "127" && octets.every((octet) => /^\d{1,3}$/.test(octet) && Number(octet) <= 255);
 	if (url.protocol === "http:" && !loopback && !allowInsecureHttp) throw new Error(`${name$1} must use HTTPS outside loopback; explicitly enable allow_insecure_http to permit plaintext HTTP`);
 	return url.toString().replace(/\/+$/, "").replace(/\/mcp$/, "").replace(/\/+$/, "");
+}
+
+//#endregion
+//#region src/trace-context.ts
+/** Invalid observation metadata is ignored without changing memory behavior. */
+function traceContextHeaders(value$1) {
+	const parent = value$1?.traceparent;
+	if (typeof parent !== "string") return {};
+	const match = /^00-([a-f0-9]{32})-([a-f0-9]{16})-([a-f0-9]{2})$/.exec(parent);
+	if (!match || /^0+$/.test(match[1]) || /^0+$/.test(match[2])) return {};
+	return { traceparent: parent };
 }
 
 //#endregion
@@ -2038,6 +2027,7 @@ var PowerContextClient = class {
 		if (!(id in OPERATIONS)) throw new UnknownOperationError(id);
 		const spec = OPERATIONS[id];
 		const prepared = prepareRequest(spec, payload);
+		Object.assign(prepared.headers, traceContextHeaders(options.traceContext));
 		const url = `${this.baseUrl}${prepared.path}${prepared.query}`;
 		const init = this.buildInit(spec, prepared, signal, this.requestTimeoutMsFor(id));
 		if (init.signal?.aborted) throw new RequestNotSentError(prepared.path, this.transportCause(void 0, init.signal));
@@ -2200,13 +2190,13 @@ function boundedRecallQuery(prompt) {
 }
 
 //#endregion
-//#region src/secrets.ts
+//#region src/prompt-privacy.ts
 const SECRET_PATTERNS = [
 	/-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----[\s\S]*?(?:-----END [A-Z0-9 ]*PRIVATE KEY-----|$)/giu,
-	/(?<![\w-])["']?\b(?:authorization|proxy-authorization|cookie|set-cookie)\b["']?[ \t]*[:=][ \t]*[^\r\n]*(?:\r?\n[ \t]+[^\r\n]*)*/giu,
-	/(?<![\w-])["']?\b(?:api[_ -]?key|access[_ -]?(?:key|token)|client[_ -]?secret|secret(?:[_ -]?key)?|private[_ -]?key|password|passwd|passphrase|token|authorization|cookie)\b["']?\s*[:=]\s*(?:"[^"\r\n]*"|'[^'\r\n]*'|`[^`\r\n]*`|[^\s,;}\]]+)/giu,
-	/(?<![\w-])bearer\s+[A-Za-z0-9._~+/=-]{8,}(?![\w-])/giu,
-	/(?<![\w-])(?:sk-[A-Za-z0-9][A-Za-z0-9_-]{7,}|github_pat_[A-Za-z0-9_]{8,}|gh[pousr]_[A-Za-z0-9_]{8,}|xox[baprs]-[A-Za-z0-9-]{8,})(?![\w-])/giu
+	/(?<![\w-])["']?(?:HTTP(?:_[A-Za-z0-9]+)*_|(?:[A-Za-z0-9]+-)*)(?:authorization|cookie)\b["'`*]*[ \t]*[:=]\**(?![ \t]*(?:true|false|yes|no|on|off|null|none|(?:\$\{\{[^{}\r\n]*\}\}|\$\{[A-Za-z_][A-Za-z0-9_]*\})|"(?:\$\{\{[^{}\r\n]*\}\}|\$\{[A-Za-z_][A-Za-z0-9_]*\})"|'(?:\$\{\{[^{}\r\n]*\}\}|\$\{[A-Za-z_][A-Za-z0-9_]*\})')[`")'\]}]*[,.;]?[ \t\f\v\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]*(?:$|\r?\n(?![ \t])))[ \t]*[^\r\n]*(?:\r?\n[ \t]+[^\r\n]*)*/giu,
+	/(?<![\w-])["']?(?!(?:bos|eos|pad|unk|sep|cls|mask)_token\b)[\w-]*?(?:api[_ -]?key|access[_ -]?(?:key(?:[_-]id)?|token)|client[_ -]?secret|secret(?:[_ -]?key)?|private[_ -]?key|password|passwd|passphrase|token|authorization|cookie)\b["'`*]*[\s \t\f\v\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]*[:=]\**(?![ \t\f\v\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]*(?:\r?\n[ \t\f\v\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]+)?(?:true|false|yes|no|on|off|null|none|(?:\$\{\{[^{}\r\n]*\}\}|\$\{[A-Za-z_][A-Za-z0-9_]*\})|"(?:\$\{\{[^{}\r\n]*\}\}|\$\{[A-Za-z_][A-Za-z0-9_]*\})"|'(?:\$\{\{[^{}\r\n]*\}\}|\$\{[A-Za-z_][A-Za-z0-9_]*\})')(?:[\s,;)\]}`'" \t\f\v\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]|\.(?![^\s \t\f\v\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff])|$))[ \t\f\v\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]*(?:\r?\n[ \t\f\v\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]+)?(?:(?:bearer|basic)[ \t\f\v\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]+)?(?:"[^"\r\n]*"|'[^'\r\n]*'|`[^`\r\n]*`|[^\s,;}\] \t\f\v\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]+)/giu,
+	/(?<![\w-])bearer[\s \t\f\v\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]+[A-Za-z0-9._~+/=-]{8,}(?![\w-])/giu,
+	/(?<![\w-])(?:sk-[A-Za-z0-9][A-Za-z0-9_-]{7,}|[sr]k_(?:live|test)_[A-Za-z0-9]{16,}|github_pat_[A-Za-z0-9_]{8,}|gh[pousr]_[A-Za-z0-9_]{8,}|xox[baprs]-[A-Za-z0-9-]{8,})(?![\w-])/giu
 ];
 /** Return text with recognized credential-shaped values replaced. */
 function scrubSecrets(text, authorization) {

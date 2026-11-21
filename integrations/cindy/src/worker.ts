@@ -18,7 +18,7 @@ import { createInterface } from 'node:readline'
 import { PowerContextClient, combineSignals, type FetchFn, type JsonObject } from '../../dsh/plugins/powercontext/src/client.ts'
 import { MAX_SOURCE_LENGTH, RequestNotSentError, ServerResponseError } from '../../dsh/plugins/powercontext/src/errors.ts'
 import { validatePreparedContext } from '../../dsh/plugins/powercontext/src/prepared-context.ts'
-import { containsSecret } from '../../dsh/plugins/powercontext/src/secrets.ts'
+import { containsSecret } from '../../dsh/plugins/powercontext/src/prompt-privacy.ts'
 import { normalizeServerUrl } from '../../dsh/plugins/powercontext/src/transport.ts'
 
 export const CONTEXT_START = '<!-- powercontext:cindy-context:v1 -->'

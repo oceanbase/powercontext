@@ -91,6 +91,21 @@ def test_capabilities_reports_unconfigured_extraction_without_claiming_health(tm
         client.portal.call(read_with_sdk)
 
 
+@pytest.mark.parametrize("configured", [None, 24_000])
+def test_capabilities_report_the_effective_atomic_memory_input_limit(tmp_path, configured: int | None) -> None:
+    runtime = RuntimeConfig() if configured is None else RuntimeConfig(atomic_memory_input_tokens_limit=configured)
+    app = create_server_app(
+        settings=ServerSettings(
+            database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'limit.db'}"),
+            mcp=McpConfig(enabled=False),
+            runtime=runtime,
+        )
+    )
+    with TestClient(app) as client:
+        limits = client.get("/v1/capabilities").json()["context_protection"]["limits"]
+        assert limits["atomic_memory_input_tokens"] == (configured or 64_000)
+
+
 @pytest.mark.parametrize(
     ("failure", "category", "stage"),
     [
