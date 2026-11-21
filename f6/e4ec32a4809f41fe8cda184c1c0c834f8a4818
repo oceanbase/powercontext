@@ -1,0 +1,31 @@
+tests/test_ci_pytest_diagnostics.py
+  s_2ef0feea0a110d::t_2b99e1093a624e 19-20,22,80-81,103-104,114-118,140-143,148-157,159-169
+  s_2ef0feea0a110d::t_a25b9e62ac32b5 85,133-135
+  s_2ef0feea0a110d::t_48a6a526b72813 158
+  s_2ef0feea0a110d::t_90f0486e1828ac 62-79,82-84,86-102,105-113,119-132,136-139,144-147
+tests/e2e/worker_timeout_diagnostics.py
+  s_2ef0feea0a110d::t_90f0486e1828ac 1-16,23,96
+  s_2ef0feea0a110d::t_2b99e1093a624e 128-130
+  s_2ef0feea0a110d::t_4eee22bd3a93a3 70
+  s_2ef0feea0a110d::t_58e7b2401662c1 108-110
+  s_2ef0feea0a110d::t_8a067cba477d06 17,19-22,24-69,71-87,89-95,97,99-104,112-127
+  s_2ef0feea0a110d::t_e1d90d0242c8b0 18,88,98,105-107,111
+tests/e2e/test_topic_memory_head_conflict.py
+  s_2ef0feea0a110d::t_8a067cba477d06 42,110,154-164
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "f6e4ec32a4809f41fe8cda184c1c0c834f8a4818",
+  "prompts": {},
+  "sessions": {
+    "s_2ef0feea0a110d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1a9cf-a4e7-7f63-9c51-1284f7c332e8",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "frf12 <rongfeng.frf@antgroup.com>"
+    }
+  }
+}

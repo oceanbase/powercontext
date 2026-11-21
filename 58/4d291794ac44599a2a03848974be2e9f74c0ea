@@ -1,0 +1,22 @@
+tests/builtin/runtime/test_worker_prompt_usage.py
+  s_2ef0feea0a110d::t_b7204c9ff1bd58 186-188
+  s_2ef0feea0a110d::t_94766b6f0dfcfb 59-60,160,171,239-240,242,271-280,316-319
+tests/builtin/runtime/test_artifact_processing.py
+  s_2ef0feea0a110d::t_5cd3751e672a07 549,573
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "584d291794ac44599a2a03848974be2e9f74c0ea",
+  "prompts": {},
+  "sessions": {
+    "s_2ef0feea0a110d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1a9cf-a4e7-7f63-9c51-1284f7c332e8",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "frf12 <rongfeng.frf@antgroup.com>"
+    }
+  }
+}

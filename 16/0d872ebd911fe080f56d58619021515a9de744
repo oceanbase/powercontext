@@ -1,0 +1,25 @@
+.github/actions/cache-pnpm/action.yml
+  s_2ef0feea0a110d::t_1d10e6d836999b 25,30-34,49-63,68-75
+.github/actions/setup-go/action.yml
+  s_2ef0feea0a110d::t_6caeac5f2f757e 48,51,56-63
+.github/actions/setup-python-env/action.yml
+  s_2ef0feea0a110d::t_42f1cc0056047f 34,40,49-54,57,61-62,65-99,109,112
+tests/test_ci_action_resolution.py
+  s_2ef0feea0a110d::t_b836cacc332c41 21,159-184
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "160d872ebd911fe080f56d58619021515a9de744",
+  "prompts": {},
+  "sessions": {
+    "s_2ef0feea0a110d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1a9cf-a4e7-7f63-9c51-1284f7c332e8",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "frf12 <rongfeng.frf@antgroup.com>"
+    }
+  }
+}

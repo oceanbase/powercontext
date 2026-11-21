@@ -1,0 +1,44 @@
+.github/workflows/gateway.yml
+  s_2ef0feea0a110d::t_5c09dd83f49c96 110
+.github/workflows/kimi-code-acceptance.yml
+  s_2ef0feea0a110d::t_5c09dd83f49c96 165
+.github/workflows/desktop.yml
+  s_2ef0feea0a110d::t_5c09dd83f49c96 230
+.github/workflows/candidate-schema-replay.yml
+  s_2ef0feea0a110d::t_5c09dd83f49c96 83
+.github/workflows/zcode-acceptance.yml
+  s_2ef0feea0a110d::t_5c09dd83f49c96 171
+.github/workflows/seekdb-lock-probe.yml
+  s_2ef0feea0a110d::t_5c09dd83f49c96 56
+.github/workflows/native-service.yml
+  s_2ef0feea0a110d::t_5c09dd83f49c96 84,140,222
+.github/workflows/e2e-harness.yml
+  s_2ef0feea0a110d::t_5c09dd83f49c96 350,500,600,781,803,813,824
+tests/test_ci_pipeline.py
+  s_2ef0feea0a110d::t_cace4b2ddbad57 37-51
+  s_2ef0feea0a110d::t_7ef7ac8516870e 327-331
+.github/workflows/installation.yml
+  s_2ef0feea0a110d::t_5c09dd83f49c96 75
+.github/workflows/capture-release-schema.yml
+  s_2ef0feea0a110d::t_5c09dd83f49c96 65
+.github/workflows/managed-resource-candidates.yml
+  s_2ef0feea0a110d::t_5c09dd83f49c96 195
+.github/actions/upload-ci-diagnostics/README.md
+  s_2ef0feea0a110d::t_f176722af1f82e 7
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "41e452c1f0006270ac3e2dd06988cd2f1943024a",
+  "prompts": {},
+  "sessions": {
+    "s_2ef0feea0a110d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1a9cf-a4e7-7f63-9c51-1284f7c332e8",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "frf12 <rongfeng.frf@antgroup.com>"
+    }
+  }
+}

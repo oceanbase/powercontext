@@ -1,0 +1,33 @@
+tests/e2e/test_bootstrap_host_service_chain.py
+  s_2ef0feea0a110d::t_eab4a9e6d6bedd 40,90
+tests/e2e/test_worker_otlp.py
+  s_2ef0feea0a110d::t_8ad2042b7f2759 39,423
+tests/e2e/real_experience_skill/harness.py
+  s_2ef0feea0a110d::t_9ef0a638338615 99
+  s_2ef0feea0a110d::t_8878364ea9b03f 2055-2059
+tests/e2e/test_zcode_service_chain.py
+  s_2ef0feea0a110d::t_8ad2042b7f2759 44,416
+tests/e2e/zcode_acceptance/runner.py
+  s_2ef0feea0a110d::t_0e94de163a4d82 47,104
+  s_2ef0feea0a110d::t_84036beacf00fb 90
+tests/e2e/test_real_experience_skill_harness.py
+  s_2ef0feea0a110d::t_dd3e63dcff2427 200
+tests/e2e/test_cindy_mcp_chain.py
+  s_2ef0feea0a110d::t_0e94de163a4d82 42,97
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "ba80ca2acf745936da6459381548e041881a085e",
+  "prompts": {},
+  "sessions": {
+    "s_2ef0feea0a110d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1a9cf-a4e7-7f63-9c51-1284f7c332e8",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "frf12 <rongfeng.frf@antgroup.com>"
+    }
+  }
+}
