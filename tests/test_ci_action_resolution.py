@@ -169,7 +169,7 @@ def test_automatic_cache_save_paths_survive_nested_post_context() -> None:
             return
         action = yaml.safe_load(path.read_text())
         scope = (*callers, str(path.parent.relative_to(ROOT)))
-        for step in action["runs"]["steps"]:
+        for step in action["runs"].get("steps", []):
             uses = step.get("uses", "")
             if uses.split("@", 1)[0] in {"actions/cache", "runs-on/cache"}:
                 cache_path = step["with"]["path"]
