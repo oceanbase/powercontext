@@ -1,0 +1,71 @@
+integrations/deepagents/pyproject.toml
+  s_c9a4a0576849ae::t_7e0da64942c8ad 1-33
+docs/en/docs/integrations/capabilities.md
+  s_c9a4a0576849ae::t_7e0da64942c8ad 45
+integrations/deepagents/src/powercontext_deepagents/adapter.py
+  s_c9a4a0576849ae::t_7e0da64942c8ad 1-212
+tests/deepagents_adapter/test_adapter.py
+  s_c9a4a0576849ae::t_7e0da64942c8ad 1-703
+integrations/capabilities.toml
+  s_c9a4a0576849ae::t_7e0da64942c8ad 903-914,1090-1099
+  s_c9a4a0576849ae::t_edf76329d7beb1 902,1100
+integrations/deepagents/examples/full_flow.py
+  s_c9a4a0576849ae::t_7e0da64942c8ad 1-112
+integrations/deepagents/examples/quickstart.py
+  s_c9a4a0576849ae::t_7e0da64942c8ad 1-80
+integrations/deepagents/src/powercontext_deepagents/__init__.py
+  s_c9a4a0576849ae::t_7e0da64942c8ad 1-23
+docs/zh/docs/integrations/capabilities.md
+  s_c9a4a0576849ae::t_7e0da64942c8ad 45
+docs/en/docs/integrations/meta.json
+  s_c9a4a0576849ae::t_7e0da64942c8ad 26
+docs/zh/rfcs/2570-knowledge-base.md
+  s_c9a4a0576849ae::t_7e0da64942c8ad 1-423
+docs/zh/docs/integrations/deepagents.md
+  s_c9a4a0576849ae::t_7e0da64942c8ad 1-135
+scripts/integration_manifest.py
+  s_c9a4a0576849ae::t_7e0da64942c8ad 109,679-691
+  s_c9a4a0576849ae::t_f238c98c986d1a 692-693
+docs/zh/docs/integrations/meta.json
+  s_c9a4a0576849ae::t_7e0da64942c8ad 26
+integrations/deepagents/README.md
+  s_c9a4a0576849ae::t_7e0da64942c8ad 1-42
+integrations/deepagents/LICENSE
+  s_c9a4a0576849ae::t_7e0da64942c8ad 1-202
+docs/en/docs/integrations/deepagents.md
+  s_c9a4a0576849ae::t_7e0da64942c8ad 1-144
+pyproject.toml
+  s_c9a4a0576849ae::t_7e0da64942c8ad 199,219
+docs/en/rfcs/2570-knowledge-base.md
+  s_c9a4a0576849ae::t_7e0da64942c8ad 1-499
+docs/en/docs/integrations/index.md
+  s_c9a4a0576849ae::t_7e0da64942c8ad 137
+docs/zh/docs/integrations/index.md
+  s_c9a4a0576849ae::t_7e0da64942c8ad 116
+uv.lock
+  s_13fec9a57c9104::t_d418bb45da42a9 2,824-841,1049-1057,1128-1166,1990,1997-2011,2013,2018,2021,2033,2035-2050,2070,2075,2077,2102,2112,2114,2119,2125,2127,2145,2154,2156,2161,2166,2179,2181,3502,3732,3806-3820,4042-4062
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "676caf51b2f71669e375ca6f5dc28d68a98e81bc",
+  "prompts": {},
+  "sessions": {
+    "s_13fec9a57c9104": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1617e-79d4-7103-bf67-e341786d4978",
+        "model": "gpt-6.2-astra"
+      },
+      "human_author": "Frey <370805886@qq.com>"
+    },
+    "s_c9a4a0576849ae": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1fe52-4c3b-7751-a2f9-187cbe66ec18",
+        "model": "gpt-6.2-astra"
+      },
+      "human_author": "Frey <370805886@qq.com>"
+    }
+  }
+}
