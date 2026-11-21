@@ -16,7 +16,7 @@
 
 import { randomUUID } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
-import { authorization, diagnostic, Failure, loadSettings, MAX_CONTEXT_BYTES, preparedText, request, resolveScope } from '../shared/runtime.mjs'
+import { authorization, diagnostic, Failure, loadSettings, MAX_CONTEXT_BYTES, preparedText, promptRecall, request, resolveScope } from '../shared/runtime.mjs'
 import { startObservation } from '../shared/observations.mjs'
 import { scrubSecrets } from '../shared/prompt-privacy.mjs'
 
@@ -61,9 +61,14 @@ async function run(input) {
   const prompt = promptText(input.prompt)
   if (!prompt.trim()) return
   const settings = loadSettings({ credentials: false })
+  const recall = promptRecall()
   try {
     observation = startObservation(input, settings, () => diagnostic('observation', new Failure('runtime_unavailable')))
   } catch { diagnostic('observation', new Failure('runtime_unavailable')) }
+  if (!recall && !settings.capturePrompts) {
+    for (const name of ['scope', 'prepare', 'capture', 'injection']) observation?.record(name, 'skipped', { reason: 'disabled' })
+    return
+  }
   let scopeId
   try {
     settings.authorization = authorization(settings.useToken)
@@ -75,17 +80,19 @@ async function run(input) {
   }
   let context = ''
   const safePrompt = scrubSecrets(prompt, settings.authorization)
-  try {
-    const { value } = await request(settings, 'POST', '/v1/context/prepare', {
-      scope_id: scopeId, query: boundedQuery(safePrompt), max_bytes: MAX_CONTEXT_BYTES,
-    }, signal)
-    context = preparedText(value)
-    observation?.record('prepare', context ? 'ready' : 'empty', { content_bytes: value.content_bytes })
-  } catch (error) { observation?.fail('prepare', error); diagnostic('context_prepare', error) }
-  const binding = 'PowerContext current-request binding metadata:\n' +
-    JSON.stringify({ schema: 'powercontext.kimi-code.request-binding.v1', scope_id: scopeId,
-      cwd: input.cwd, scope_script: fileURLToPath(new URL('../scripts/scope.mjs', import.meta.url)) }) + '\n\n'
-  prepared = binding + context
+  if (recall) {
+    try {
+      const { value } = await request(settings, 'POST', '/v1/context/prepare', {
+        scope_id: scopeId, query: boundedQuery(safePrompt), max_bytes: MAX_CONTEXT_BYTES,
+      }, signal)
+      context = preparedText(value)
+      observation?.record('prepare', context ? 'ready' : 'empty', { content_bytes: value.content_bytes })
+    } catch (error) { observation?.fail('prepare', error); diagnostic('context_prepare', error) }
+    const binding = 'PowerContext current-request binding metadata:\n' +
+      JSON.stringify({ schema: 'powercontext.kimi-code.request-binding.v1', scope_id: scopeId,
+        cwd: input.cwd, scope_script: fileURLToPath(new URL('../scripts/scope.mjs', import.meta.url)) }) + '\n\n'
+    prepared = binding + context
+  } else observation?.record('prepare', 'skipped', { reason: 'disabled' })
   if (settings.capturePrompts && prompt.length <= MAX_SOURCE_CHARACTERS && safePrompt === prompt && !signal.aborted) {
     const sourceId = 'kimi-user-prompt:' + randomUUID()
     try {
@@ -106,7 +113,8 @@ async function run(input) {
       prompt.length > MAX_SOURCE_CHARACTERS ? 'too_large' : signal.aborted ? 'deadline_exceeded' : 'sensitive' })
   }
   emit(prepared)
-  observation?.record('injection', context ? 'emitted' : 'skipped', context ? { content_bytes: Buffer.byteLength(context) } : { reason: 'no_context' })
+  observation?.record('injection', context ? 'emitted' : 'skipped',
+    context ? { content_bytes: Buffer.byteLength(context) } : { reason: recall ? 'no_context' : 'disabled' })
 }
 
 try {

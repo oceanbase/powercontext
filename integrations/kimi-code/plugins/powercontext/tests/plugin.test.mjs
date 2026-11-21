@@ -110,6 +110,7 @@ async function fixture(t, overrides = {}, settings = {}, listenHost = '127.0.0.1
     environment = {}) {
     const env = { ...process.env, KIMI_CODE_HOME: home, ...environment }
     if (!Object.hasOwn(environment, 'POWERCONTEXT_KIMI_TOKEN')) delete env.POWERCONTEXT_KIMI_TOKEN
+    if (!Object.hasOwn(environment, 'POWERCONTEXT_KIMI_PROMPT_RECALL')) delete env.POWERCONTEXT_KIMI_PROMPT_RECALL
     const child = spawn(process.execPath, [join(installed, 'hooks/user_prompt_submit.mjs')], { cwd: installed,
       env, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] })
     let stdout = '', stderr = ''
@@ -192,6 +193,47 @@ test('disabled capture still supplies context', async t => {
   const f = await fixture(t, {}, { capture_prompts: false })
   assert.match((await f.invoke()).output.message, /Historical context/)
   assert.deepEqual(f.captures, [])
+})
+
+test('prompt recall off prepares and injects nothing while capture keeps its setting', async t => {
+  const f = await fixture(t)
+  const { stdout, stderr } = await f.invoke(undefined, { POWERCONTEXT_KIMI_PROMPT_RECALL: 'false' })
+  // Not even the binding note: the gateway that carries the model traffic injects context instead.
+  assert.equal(stdout, '')
+  assert.equal(stderr, '')
+  assert.deepEqual(f.requests.map(item => item.path), ['/v1/scope-bindings/resolve', '/v1/sources/content'])
+  assert.equal(f.captures[0].content, prompt)
+  const observed = await f.status()
+  assert.deepEqual(observed.stages.prepare, { state: 'skipped', reason: 'disabled' })
+  assert.equal(observed.stages.capture.state, 'accepted')
+  assert.deepEqual(observed.stages.injection, { state: 'skipped', reason: 'disabled' })
+  for (const value of ['0', 'no', ' OFF ']) {
+    assert.equal((await f.invoke(undefined, { POWERCONTEXT_KIMI_PROMPT_RECALL: value })).stdout, '')
+  }
+  assert.ok(f.requests.every(item => item.path !== '/v1/context/prepare'))
+  for (const value of ['true', '1', '']) {
+    assert.match((await f.invoke(undefined, { POWERCONTEXT_KIMI_PROMPT_RECALL: value })).output.message, /Historical context/)
+  }
+})
+
+test('prompt recall and capture both off send no request for a prompt', async t => {
+  const f = await fixture(t, {}, { capture_prompts: false, scope_id: null })
+  const { stdout, stderr } = await f.invoke(undefined, { POWERCONTEXT_KIMI_PROMPT_RECALL: 'false' })
+  assert.equal(stdout, '')
+  assert.equal(stderr, '')
+  assert.deepEqual(f.requests, [])
+  const observed = await f.status()
+  for (const name of ['scope', 'prepare', 'capture', 'injection']) {
+    assert.deepEqual(observed.stages[name], { state: 'skipped', reason: 'disabled' }, name)
+  }
+})
+
+test('an invalid prompt recall value sends nothing and reports the setting', async t => {
+  const f = await fixture(t)
+  const { stdout, stderr } = await f.invoke(undefined, { POWERCONTEXT_KIMI_PROMPT_RECALL: 'sometimes' })
+  assert.equal(stdout, '')
+  assert.deepEqual(f.requests, [])
+  assert.equal(JSON.parse(stderr).outcome, 'invalid_settings')
 })
 
 test('doctor discovers paginated MCP tools without domain operations and reports missing tools', async t => {
