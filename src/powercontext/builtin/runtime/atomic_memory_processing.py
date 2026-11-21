@@ -42,6 +42,7 @@ from powercontext.builtin.artifacts.atomic_memory.reconciliation import (
     ATOMIC_MEMORY_RECONCILIATION_INSTRUCTIONS,
     AtomicMemoryArtifactEvidence,
     AtomicMemoryReconciliationOutput,
+    AtomicMemoryRevisionIdentityError,
     AtomicMemoryWindowWorkset,
     AtomicMemoryWorkingItem,
     RedundantAtomicMemoryRevisionError,
@@ -597,6 +598,9 @@ class AtomicMemorySourceWindowProcessor:
                         )
                     except RedundantAtomicMemoryRevisionError as error:
                         key = workset.recover_redundant_revision(key, related, error)
+                    except AtomicMemoryRevisionIdentityError:
+                        # Keep the proposal and all targets as they stood before this comparison.
+                        pass
                     del pending[:selected_count]
                     compared_keys.update(workset.resolve(item) for item in looked)
                     reconciled = True
