@@ -1,0 +1,29 @@
+src/powercontext/builtin/persistence/oceanbase/fulltext_index.py
+  s_2ef0feea0a110d::t_4ac68ff7a86c7c 1-58
+tests/builtin/persistence/test_oceanbase_fulltext_index.py
+  s_2ef0feea0a110d::t_4ac68ff7a86c7c 1-169
+src/powercontext/builtin/persistence/oceanbase/atomic_memory_index.py
+  s_2ef0feea0a110d::t_4ac68ff7a86c7c 63,175
+src/powercontext/builtin/persistence/oceanbase/experience_index.py
+  s_2ef0feea0a110d::t_4ac68ff7a86c7c 22,44,59
+src/powercontext/builtin/persistence/oceanbase/topic_memory_index.py
+  s_2ef0feea0a110d::t_4ac68ff7a86c7c 60,153-154
+release/upgrade-support.json
+  s_2ef0feea0a110d::t_e1666489f38013 6-7
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "09c159b58cd6650f635c6b15f656517ea5e3df44",
+  "prompts": {},
+  "sessions": {
+    "s_2ef0feea0a110d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1a9cf-a4e7-7f63-9c51-1284f7c332e8",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "frf12 <rongfeng.frf@antgroup.com>"
+    }
+  }
+}
