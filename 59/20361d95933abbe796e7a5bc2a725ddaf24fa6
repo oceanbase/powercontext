@@ -1,0 +1,44 @@
+tests/knowledge_base/test_content_store.py
+  s_c9a4a0576849ae::t_076b024ebdcd76 47-56
+docs/en/docs/workflows/knowledge-base.md
+  s_c9a4a0576849ae::t_20b109f503cb6a 128
+tests/e2e/test_knowledge_base.py
+  s_c9a4a0576849ae::t_076b024ebdcd76 71,141,252,303-304
+  s_c9a4a0576849ae::t_20b109f503cb6a 72-73,179-181
+docs/zh/docs/workflows/knowledge-base.md
+  s_c9a4a0576849ae::t_20b109f503cb6a 112
+tests/e2e/test_knowledge_base_retries.py
+  s_c9a4a0576849ae::t_20b109f503cb6a 74-76
+tests/e2e/test_knowledge_base_dashboard_lifecycle.py
+  s_c9a4a0576849ae::t_076b024ebdcd76 25-26,55-57,99-100,104-118,127-135
+frontend/knowledge-base/src/components/ProcessingWatcher.tsx
+  s_c9a4a0576849ae::t_cb03287edde768 18,31,44
+frontend/knowledge-base/src/hooks.ts
+  s_c9a4a0576849ae::t_9789ba7ccfb5c3 16,21-22,31-40,93,170,241
+frontend/knowledge-base/src/pages/Retrieval.tsx
+  s_c9a4a0576849ae::t_4f168ab07dbde9 40
+frontend/knowledge-base/src/types.ts
+  s_c9a4a0576849ae::t_6758b7ee110396 45
+plugins/knowledge-base/pc_knowledge_base/content.py
+  s_c9a4a0576849ae::t_4cb60221ff6e2a 112-113
+plugins/knowledge-base/pc_knowledge_base/service.py
+  s_c9a4a0576849ae::t_31e7e7ded21b4d 432,669-670
+plugins/knowledge-base/ui/app.js
+  s_c9a4a0576849ae::t_40c67dab70bf14 16-17,20-21,23-27,29-30,37,46,48,61-63,80-82,137,139-141,143,148,161-163,180,235,237,248,254,256-257,263,265,268,271,274,277,280,283,287,291,298,300-301,303,306,311,314,316,319,322,326,329,331-334,337,340-341,346,351,353,355,358-359,372,374,376,379-385,391,394,397,403,405-408,410,421,424,427,436-437,442,445,448,468,472,481,484,487,494,497-498,503,509,514,517,520,523,527,534-554,574-595,597-599,601,603,606-611,614-617,622-625
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "5920361d95933abbe796e7a5bc2a725ddaf24fa6",
+  "prompts": {},
+  "sessions": {
+    "s_c9a4a0576849ae": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1fe52-4c3b-7751-a2f9-187cbe66ec18",
+        "model": "gpt-6.2-astra"
+      },
+      "human_author": "Frey <370805886@qq.com>"
+    }
+  }
+}
