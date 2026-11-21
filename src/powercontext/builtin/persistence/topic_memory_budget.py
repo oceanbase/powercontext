@@ -53,9 +53,9 @@ MAX_TOPIC_MEMORY_WORK_TOKENS = 64_000_000
 # measured against the *generated* proposals' secondary candidates, so the next
 # generation can be narrow enough to fit the stage limit. Invalid generated content
 # must leave the Window pending, and a fresh bounded attempt may generate valid content.
-# Such a code is kept on the row for diagnosis but must not end the frontier: the window
-# that hit it is the only way forward for every later Source in the Scope. The ceilings
-# above still bound how many retries it may spend.
+# Such a code is kept on the row for diagnosis until the next attempt begins, but must
+# not end the frontier: the window that hit it is the only way forward for every later
+# Source in the Scope. The ceilings above still bound how many retries it may spend.
 RECOVERABLE_TOPIC_MEMORY_REJECTIONS = frozenset({
     "related_history_limit",
     "invalid_topic_placeholder",
@@ -88,8 +88,9 @@ def exhausted_reason(row: Mapping[Any, Any]) -> str:
     if code and code not in RECOVERABLE_TOPIC_MEMORY_REJECTIONS:
         return code
     if _spent_attempts(row) >= MAX_TOPIC_MEMORY_WORK_ATTEMPTS:
-        # Name the rejection that kept recurring; the ceiling only says how many
-        # attempts were spent on it.
+        # A recoverable code survives only the attempt that recorded it (``begin``
+        # clears it), so it is named only when the final attempt ended with it;
+        # the ceiling only says how many attempts were spent on it.
         return code or "window_attempt_limit"
     if row["requests"] >= MAX_TOPIC_MEMORY_WORK_REQUESTS or row["tokens"] >= MAX_TOPIC_MEMORY_WORK_TOKENS:
         return "window_provider_budget_exceeded"
@@ -286,6 +287,8 @@ class TopicMemoryWorkBudget:
             elif reason := exhausted_reason(row):
                 await connection.execute(update(table).where(*self._key()).values(failure_code=reason))
             else:
+                # Not exhausted, so any recorded code is recoverable: it described the
+                # previous attempt, and the new attempt must earn its own.
                 await connection.execute(
                     update(table)
                     .where(*self._key())
@@ -293,6 +296,7 @@ class TopicMemoryWorkBudget:
                         attempts=_spent_attempts(row) + 1,
                         attempt_id=self.attempt_id,
                         source_through=max(self.source_through, row["source_through"]),
+                        failure_code="",
                     )
                 )
             if not reason:
