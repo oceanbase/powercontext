@@ -1540,15 +1540,19 @@ def test_save_compare_and_revision_preserve_scroll_position(dashboard: TestClien
 
             rev_link = page.locator("#revision-history a.btn", has_text="Revision 1").first
             rev_link.scroll_into_view_if_needed()
+            y_before_rev = page.evaluate("window.scrollY")
             rev_link.click()
             page.wait_for_url("**prompt_revision=1**")
             page.wait_for_timeout(150)
-            assert page.evaluate("window.scrollY") > 200
-            card_top = page.locator("#prompt-record-profile-generate").evaluate(
-                "el => Math.round(el.getBoundingClientRect().top)"
-            )
-            assert abs(card_top) < 120
+            y_after_rev = page.evaluate("window.scrollY")
+            assert y_after_rev > 400
+            assert abs(y_after_rev - y_before_rev) < 600
+            assert page.locator("#revision-history").evaluate("el => el.open") is True
+            rev_box = page.locator("#revision-history").evaluate("el => el.getBoundingClientRect()")
+            assert rev_box["top"] < 800
+            assert rev_box["bottom"] > 0
             assert "compare=" not in page.url
+            assert "#" not in page.url
             assert not errors
         finally:
             browser.close()
