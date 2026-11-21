@@ -497,6 +497,8 @@ class AcceptanceRun:
                 base_url=self.base_url,
                 headers={"Authorization": "Bearer " + token},
                 timeout=15,
+                # Do not carry examiner idle sockets across native host runs.
+                limits=httpx.Limits(max_connections=100, max_keepalive_connections=0),
             )
         )
         self.summary["repository_commit"] = subprocess.check_output(
