@@ -933,9 +933,26 @@ def test_server_composition_initializes_logging_in_the_real_family_worker(
     capfd, tmp_path, monkeypatch, file_logging
 ) -> None:
     completed = threading.Event()
+    scope_id: str | None = None
+    worker_id: str | None = None
 
     def observe_completion(record: logging.LogRecord) -> bool:
-        if getattr(record, "event", None) in {"artifact_processing.worker.acknowledged", "artifact_processing.failed"}:
+        nonlocal worker_id
+        event = getattr(record, "event", None)
+        if (
+            event == "artifact_processing.dispatched"
+            and worker_id is None
+            and getattr(record, "family", None) == "memory"
+            and getattr(record, "scope", None) == scope_id
+        ):
+            worker_id = getattr(record, "worker_id", None)
+        # Control-plane discovery/admission failures do not finish a Worker.
+        # Observe the dispatched attempt before closing the Server lifecycle.
+        if (
+            worker_id is not None
+            and getattr(record, "worker_id", None) == worker_id
+            and event in {"artifact_processing.worker.acknowledged", "artifact_processing.failed"}
+        ):
             completed.set()
         return True
 
@@ -971,7 +988,11 @@ def test_server_composition_initializes_logging_in_the_real_family_worker(
     worker_records = (
         _json_records((tmp_path / "logs" / "all.log").read_text(encoding="utf-8")) if file_logging else records
     )
-    child = [record for record in worker_records if record.get("event") == "artifact_processing.worker.started"]
+    child = [
+        record
+        for record in worker_records
+        if record.get("event") == "artifact_processing.worker.started" and record.get("worker_id") == worker_id
+    ]
     assert child, "Server must configure logging in its actual built-in child, not a substituted entrypoint"
     assert child[0]["service_role"] == "worker" and child[0]["family"] == "memory"
     assert "request_id" not in child[0]
@@ -979,6 +1000,7 @@ def test_server_composition_initializes_logging_in_the_real_family_worker(
         record
         for record in records
         if record.get("event") in {"artifact_processing.worker.acknowledged", "artifact_processing.failed"}
+        and record.get("worker_id") == worker_id
     ]
     assert controller
     assert controller[0]["worker_id"] == child[0]["worker_id"]
