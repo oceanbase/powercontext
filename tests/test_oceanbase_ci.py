@@ -185,7 +185,7 @@ def test_duration_assignment_balances_work_and_includes_unknown_nodes():
     assert assigned_nodes(nodes, 1, 3, None) == nodes[1::3]
 
 
-@pytest.mark.parametrize("shards", [2, 3])
+@pytest.mark.parametrize("shards", [2, 3, 6])
 def test_duration_estimates_cannot_exceed_the_per_shard_case_budget(shards):
     nodes = ["slow", *(f"fast-{index}" for index in range(11)), "unmeasured"]
     durations = dict.fromkeys(nodes[:-1], 1.0)
@@ -196,16 +196,17 @@ def test_duration_estimates_cannot_exceed_the_per_shard_case_budget(shards):
 
 
 @pytest.mark.parametrize("corruption", [None, "missing", "duplicate", "incomplete", "collection"])
-def test_balanced_shards_must_cover_every_collected_node_exactly_once(tmp_path, corruption):
+@pytest.mark.parametrize("shards", [2, 6])
+def test_balanced_shards_must_cover_every_collected_node_exactly_once(tmp_path, corruption, shards):
     nodes = ["slow", "fast", "new"]
     durations = {"slow": 100.0, "fast": 1.0}
     paths = []
-    for index in range(2):
-        passed = assigned_nodes(nodes, index, 2, durations)
+    for index in range(shards):
+        passed = assigned_nodes(nodes, index, shards, durations)
         report = {
             "backend": "oceanbase",
             "shard_index": index,
-            "shard_count": 2,
+            "shard_count": shards,
             "complete": True,
             "collected_nodes": nodes.copy(),
             "passed_nodes": passed,
@@ -224,9 +225,9 @@ def test_balanced_shards_must_cover_every_collected_node_exactly_once(tmp_path, 
         paths.append(path)
     if corruption:
         with pytest.raises(ValueError):
-            verify_group(paths, 2, durations)
+            verify_group(paths, shards, durations)
     else:
-        assert verify_group(paths, 2, durations) == len(nodes)
+        assert verify_group(paths, shards, durations) == len(nodes)
 
 
 def test_invalid_duration_baseline_cannot_silently_change_scheduling(tmp_path):

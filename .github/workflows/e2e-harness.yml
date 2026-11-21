@@ -360,7 +360,7 @@ jobs:
         run: timeout 30s docker rm --force recall-effort-oceanbase || true
 
   atomic-memory-clean-oceanbase-shards:
-    name: Atomic Memory clean migration (OceanBase shard ${{ matrix.shard }}/2)
+    name: Atomic Memory clean migration (OceanBase shard ${{ matrix.shard }}/6)
     needs: changes
     if: >-
       ${{ !cancelled() && contains(fromJSON('["schedule","workflow_dispatch"]'), github.event_name) && (github.event_name != 'workflow_dispatch' || inputs.suite != 'recall-effort') &&
@@ -371,7 +371,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [0, 1]
+        shard: [0, 1, 2, 3, 4, 5]
     env:
       OCEANBASE_CI_CONTAINER: atomic-memory-clean-oceanbase
       OCEANBASE_IMAGE: ghcr.io/oceanbase/oceanbase-ce:4.3.5.6-106000012026040916
@@ -416,7 +416,7 @@ jobs:
         timeout-minutes: 10
         run: |
           uv run --locked python scripts/run_atomic_memory_clean_migration.py \
-            oceanbase --shard "${{ matrix.shard }}/2" --durations .github/oceanbase-migration-durations.json --output "$MIGRATION_REPORTS/scope-search" --tests \
+            oceanbase --shard "${{ matrix.shard }}/6" --durations .github/oceanbase-migration-durations.json --output "$MIGRATION_REPORTS/scope-search" --tests \
             tests/e2e/test_scope_search_migration.py
 
       - name: Test background listener lifecycle without skips
@@ -425,44 +425,42 @@ jobs:
         timeout-minutes: 15
         run: |
           uv run --locked --extra server python scripts/run_atomic_memory_clean_migration.py \
-            oceanbase --test-timeout 600 --shard "${{ matrix.shard }}/2" --durations .github/oceanbase-migration-durations.json --output "$MIGRATION_REPORTS/background-metrics" --tests \
+            oceanbase --test-timeout 600 --shard "${{ matrix.shard }}/6" --durations .github/oceanbase-migration-durations.json --output "$MIGRATION_REPORTS/background-metrics" --tests \
             tests/e2e/test_background_metrics.py
 
       - name: Run clean migration evidence and vectors without skips
-        # At most 17 cases: 17 * (360s + 10s grace) + 190s collection < 110m.
+        # Each process includes native startup and cleanup; six shards share the collected cases.
         timeout-minutes: 110
         run: |
           uv run --locked python scripts/run_atomic_memory_clean_migration.py \
-            oceanbase --test-timeout 360 --shard "${{ matrix.shard }}/2" --durations .github/oceanbase-migration-durations.json --output "$MIGRATION_REPORTS/clean-migration" --tests \
+            oceanbase --test-timeout 360 --shard "${{ matrix.shard }}/6" --durations .github/oceanbase-migration-durations.json --output "$MIGRATION_REPORTS/clean-migration" --tests \
             tests/e2e/test_atomic_memory_migration_evidence.py tests/e2e/test_atomic_memory_migration_vector.py
 
       - name: Run grant migration with full Server schema cleanup without skips
         # Grant cases prepare a full Server schema; the process deadline includes DROP DATABASE.
-        # At most 7 cases: 7 * (480s + 10s grace) + 190s collection < 65m.
         timeout-minutes: 65
         run: |
           uv run --locked python scripts/run_atomic_memory_clean_migration.py \
-            oceanbase --test-timeout 480 --shard "${{ matrix.shard }}/2" --durations .github/oceanbase-migration-durations.json --output "$MIGRATION_REPORTS/grant-migration" --tests \
+            oceanbase --test-timeout 480 --shard "${{ matrix.shard }}/6" --durations .github/oceanbase-migration-durations.json --output "$MIGRATION_REPORTS/grant-migration" --tests \
             tests/e2e/test_atomic_memory_grant_migration.py
 
       - name: Test concurrent managed startup without skips
-        # Up to two full Server cases (300s each), plus collection (180s).
+        # The process deadline includes full Server startup, assertions and shutdown.
         timeout-minutes: 15
         run: |
           uv run --locked --extra server python scripts/run_atomic_memory_clean_migration.py \
-            oceanbase --test-timeout 300 --shard "${{ matrix.shard }}/2" --durations .github/oceanbase-migration-durations.json --output "$MIGRATION_REPORTS/startup-snapshot" --tests \
+            oceanbase --test-timeout 300 --shard "${{ matrix.shard }}/6" --durations .github/oceanbase-migration-durations.json --output "$MIGRATION_REPORTS/startup-snapshot" --tests \
             tests/e2e/test_managed_startup_read_consistency.py
           test "$(wc -l < "$MIGRATION_REPORTS/startup-snapshot/nodes.txt")" -eq 3
 
       - name: Test long-query retrieval and admission without skips
         env:
           POWERCONTEXT_TEST_ATOMIC_MEMORY_FTS_PATH: legacy
-        # The count cap keeps 16 cases within 8 per shard, independent of duration estimates.
-        # 8 * (300s + 10s grace) + 190s collection < 45m.
+        # Each shard receives at most ceil(collected cases / shards), independent of duration estimates.
         timeout-minutes: 45
         run: |
           uv run --locked python scripts/run_atomic_memory_clean_migration.py \
-            oceanbase --test-timeout 300 --shard "${{ matrix.shard }}/2" --durations .github/oceanbase-migration-durations.json --output "$MIGRATION_REPORTS/long-query" --tests \
+            oceanbase --test-timeout 300 --shard "${{ matrix.shard }}/6" --durations .github/oceanbase-migration-durations.json --output "$MIGRATION_REPORTS/long-query" --tests \
             tests/e2e/test_atomic_artifact_search_http.py \
             tests/e2e/test_atomic_memory_long_fts_query.py \
             tests/e2e/test_atomic_memory_fts_coverage.py
@@ -647,7 +645,7 @@ jobs:
       - name: Verify complete execution coverage
         run: >-
           python scripts/check_atomic_memory_migration_shards.py
-          --reports "${{ runner.temp }}/atomic-memory-clean-oceanbase-shards" --shards 2 --durations .github/oceanbase-migration-durations.json
+          --reports "${{ runner.temp }}/atomic-memory-clean-oceanbase-shards" --shards 6 --durations .github/oceanbase-migration-durations.json
 
   acceptance:
     needs: validate
