@@ -43,6 +43,16 @@ from powercontext.server.dashboard.pagination import PAGE_SIZE
 from powercontext.server.dashboard.plugin_pages import plugin_pages
 from powercontext.server.dashboard.preferences import CATALOGS, presentation, remember_language
 from powercontext.server.dashboard.presenters import set_scope, source_view
+from powercontext.server.dashboard.prompts_editor import (
+    MAX_BODY_BYTES,
+    PROMPT_KEY,
+    Rejection,
+    Submission,
+    parse_submission,
+    precheck,
+    read_error_write_code,
+    submit,
+)
 from powercontext.server.dashboard.review import load_review, load_review_inspection, submit_review
 from powercontext.server.dashboard.session import login_response, same_origin
 
@@ -366,6 +376,11 @@ def initial_context(request: Request, page: str) -> dict[str, Any]:
         "history": None,
         "prompt_key": None,
         "prompt_opened": None,
+        "profile_prompt_can_admin": False,
+        "prompt_saved": False,
+        "prompt_conflict": False,
+        "prompt_draft": None,
+        "prompt_write_error": None,
         "return_to": collection_return(
             request.query_params.get("return_to"),
             request.query_params.get("scope", ""),
@@ -808,6 +823,90 @@ async def method_generation(request: Request) -> Response:
         return render(request, ctx)
     finally:
         await api.client.aclose()
+
+
+@router.post("/prompts/profile-generate")
+async def profile_prompt_save(request: Request) -> Response:
+    """Save or replace the profile.generate Prompt configuration."""
+    ctx = initial_context(request, "prompts")
+    if not same_origin(request):
+        ctx.update(page_error=ReadError(403, "cross_origin_request"), status=403)
+        return render(request, ctx)
+    if len(await request.body()) > MAX_BODY_BYTES:
+        ctx.update(status=413, prompt_key=PROMPT_KEY, prompt_write_error="instructions_too_long")
+        api = DashboardAPI(request)
+        try:
+            descriptor = await default_scope(api, ctx)
+            if ctx["scope"]:
+                await scope_context(api, ctx, descriptor)
+                await load_content(api, request, ctx)
+        except ReadError as error:
+            if error.status == 401:
+                return login_response(request=request)
+        finally:
+            await api.client.aclose()
+        return render(request, ctx)
+    submission = parse_submission(await request.form())
+    ctx["scope"] = submission.scope or ctx["scope"]
+    api = DashboardAPI(request)
+    try:
+        await scope_context(api, ctx)
+        current = await precheck(request, api, submission)
+        result = current if isinstance(current, Rejection) else await submit(api, submission, current)
+        if isinstance(result, Rejection):
+            return await _profile_prompt_rejected(request, api, ctx, submission, result)
+        return RedirectResponse(_profile_prompt_saved_url(request, ctx, submission, result), status_code=303)
+    except ReadError as error:
+        if error.status == 401:
+            return login_response(request=request)
+        return await _profile_prompt_rejected(
+            request,
+            api,
+            ctx,
+            submission,
+            Rejection(status=error.status, extra={"prompt_write_error": read_error_write_code(error)}),
+        )
+    finally:
+        await api.client.aclose()
+
+
+async def _profile_prompt_rejected(
+    request: Request, api: DashboardAPI, ctx: dict[str, Any], submission: Submission, rejection: Rejection
+) -> Response:
+    """Show the editor again with the draft, aimed at the latest head, and say why nothing was written."""
+    if rejection.login:
+        return login_response(request=request)
+    ctx.update(
+        status=rejection.status,
+        prompt_key=PROMPT_KEY,
+        prompt_draft=submission.draft(rejection.reconcile_etag),
+        **rejection.extra,
+    )
+    try:
+        if ctx["scope"] and not ctx["scope_descriptor"]:
+            await scope_context(api, ctx)
+        await load_content(api, request, ctx)
+    except ReadError as error:
+        if error.status == 401:
+            return login_response(request=request)
+    return render(request, ctx)
+
+
+def _profile_prompt_saved_url(
+    request: Request, ctx: dict[str, Any], submission: Submission, revision: int | None
+) -> str:
+    """Return to the Prompt page, carrying the saved revision so the page can confirm it by reading it back."""
+    params: dict[str, Any] = {
+        "scope": submission.scope,
+        "period": ctx["period"],
+        "prompt_key": PROMPT_KEY,
+        "prompt_saved": "1",
+    }
+    if revision is not None:
+        params["prompt_saved_revision"] = revision
+    if ctx["language"] != "zh" or request.query_params.get("lang"):
+        params["lang"] = ctx["language"]
+    return "/dashboard/prompts?" + urlencode(params)
 
 
 @router.get("/{page}")

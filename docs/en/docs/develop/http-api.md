@@ -105,9 +105,9 @@ curl --fail \
 ## Scope-owned operational Prompts
 
 Operational Prompts use `family=prompt` and the same Scope access boundary as other Artifacts. Under enforced Access,
-creation and demonstration generation require `scope.contribute`; reading a head, exact revision, or revision history
-requires `artifact.read`; replacing a Prompt requires `artifact.write`. Scope read roles inherit Prompt read/use access,
-and the creator owns the logical Prompt. Direct Prompt sharing has no grantable roles.
+creation, replacement, switching to Auto, demonstration generation, and restoration all require `scope.admin`; reading a
+head, exact revision, or revision history requires `artifact.read`. Scope read roles inherit Prompt read/use access.
+Direct Prompt sharing has no grantable roles.
 
 `GET /v1/scopes/{scope_id}/prompts/{prompt_key}` reads the current configuration without saving a revision or calling
 an inference provider. It requires `scope.read` and, when a saved Prompt exists, `artifact.read`. The response includes:
@@ -124,8 +124,15 @@ Disabled operations remain readable. Externally injected components return null 
 they manage their own prompts. The read response is not a Prompt write payload: saving Auto still uses empty
 `instructions` and `demonstrations` in `powercontext.prompt.v1` content.
 
-The `/prompts` page shows Auto instructions read-only. Switching to Custom starts from those defaults and preserves
-unsaved custom instructions and demonstrations when toggling modes. The deployed default remains available for comparison.
+The `/dashboard/prompts` page shows all configured Prompts. For `profile.generate`, it also provides an editor
+accessible from **Profile → Generation prompt**: select a Scope, view Auto/Custom mode, effective instructions,
+built-in defaults, capability status, and any saved revision; switch to Custom starting from built-in defaults;
+save a new Revision without calling inference, enabling generation, or reprocessing Sources. Creation conflicts
+(`409`) and revision conflicts (`412`) preserve the draft and target the latest revision ETag for reconciliation. Write
+access requires current `scope.admin` in enforced mode; `disabled` mode allows reads and writes without
+enforcement. The editor allows saving Custom instructions only when the `profile.generate` capability is `supported`;
+a `disabled` capability stays readable without Custom writes, while existing Custom configurations can still return to Auto. Externally managed
+Prompts without instructions are shown as unavailable. Other Prompt keys remain read-only in the Dashboard.
 
 Use `GET /v1/scopes/{scope_id}/artifacts/prompt/{prompt_key}/revisions` to list immutable history and
 `POST /v1/scopes/{scope_id}/prompts/{prompt_key}/demonstrations` to generate editable suggestions. Suggestions are not

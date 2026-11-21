@@ -33,7 +33,7 @@ limitations under the License.
         {{ read_error(page_error, t.method_generation_failed if page == 'methods' and request.method == 'POST' else '') }}
       {% elif plugin_page %}
         {% include 'plugin.html' %}
-      {% elif (not scope_descriptor and not record_only and page not in ['runtime','observability']) or page == 'entry' %}
+      {% elif (not scope_descriptor and not record_only and not prompt_draft and page not in ['runtime','observability']) or page == 'entry' %}
         {% include 'entry.html' %}
       {% else %}
         {% include page ~ '.html' %}
@@ -50,7 +50,7 @@ limitations under the License.
         if (sourceFeedback) me(sourceFeedback).attribute('hidden', '');
       });
       workspace.on('htmx:beforeSwap', event => {
-        if ([401, 403, 404, 409, 410, 413, 422, 500, 503].includes(event.detail.xhr.status) && event.detail.xhr.getResponseHeader('X-Dashboard-HTML') === '1') {
+        if ([401, 403, 404, 409, 410, 412, 413, 422, 500, 503].includes(event.detail.xhr.status) && event.detail.xhr.getResponseHeader('X-Dashboard-HTML') === '1') {
           if (event.detail.target?.id === 'notes-browser') {
             event.detail.target = workspace;
             event.detail.selectOverride = '#workspace';
