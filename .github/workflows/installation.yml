@@ -28,6 +28,7 @@ jobs:
     - name: Install private observation scripts
       run: |
         mkdir -p "$RUNNER_TEMP/ob-startup-probe"
+        echo "MIGRATION_REPORTS=$RUNNER_TEMP/ob-startup-probe" >> "$GITHUB_ENV"
         cat > "$RUNNER_TEMP/ob-startup-probe/sitecustomize.py" <<'PYPROBE'
         """Private startup sampler: stack locations only, no locals, SQL, or payloads."""
         import os
@@ -231,6 +232,7 @@ jobs:
     - name: Install private observation scripts
       run: |
         mkdir -p "$RUNNER_TEMP/ob-startup-probe"
+        echo "MIGRATION_REPORTS=$RUNNER_TEMP/ob-startup-probe" >> "$GITHUB_ENV"
         cat > "$RUNNER_TEMP/ob-startup-probe/sitecustomize.py" <<'PYPROBE'
         """Private startup sampler: stack locations only, no locals, SQL, or payloads."""
         import os
