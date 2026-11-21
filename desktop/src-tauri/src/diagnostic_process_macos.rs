@@ -405,8 +405,9 @@ mod tests {
             let directory = tempfile::tempdir().unwrap();
             let child_pid_file = directory.path().join("child.pid");
             let grandchild_pid_file = directory.path().join("grandchild.pid");
+            // Publish complete identities before cancellation can kill their writers.
             let script = format!(
-                "sh -c 'sleep 30 & echo $! > \"{grandchild}\"; wait' & echo $! > '{child}'; while [ ! -s '{grandchild}' ]; do sleep 0.01; done; wait",
+                "sh -c 'sleep 30 & echo $! > \"{grandchild}.pending\"; mv \"{grandchild}.pending\" \"{grandchild}\"; wait' & echo $! > '{child}.pending'; mv '{child}.pending' '{child}'; while [ ! -s '{grandchild}' ]; do sleep 0.01; done; wait",
                 child = child_pid_file.display(),
                 grandchild = grandchild_pid_file.display(),
             );
@@ -417,9 +418,23 @@ mod tests {
                 let grandchild_pid_file = grandchild_pid_file.clone();
                 Some(std::thread::spawn(move || {
                     let deadline = Instant::now() + Duration::from_secs(2);
-                    while (!child_pid_file.exists() || !grandchild_pid_file.exists())
-                        && Instant::now() < deadline
-                    {
+                    loop {
+                        let ready =
+                            [&child_pid_file, &grandchild_pid_file]
+                                .into_iter()
+                                .all(|path| {
+                                    std::fs::read_to_string(path)
+                                        .ok()
+                                        .and_then(|text| text.trim().parse::<i32>().ok())
+                                        .is_some()
+                                });
+                        if ready {
+                            break;
+                        }
+                        assert!(
+                            Instant::now() < deadline,
+                            "descendant PIDs were not published"
+                        );
                         std::thread::sleep(Duration::from_millis(10));
                     }
                     flag.store(true, Ordering::Relaxed);
