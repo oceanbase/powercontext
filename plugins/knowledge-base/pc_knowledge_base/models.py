@@ -91,6 +91,12 @@ class Retrieve(Model):
 class BatchChunks(Model):
     chunk_ids: list[str] = Field(min_length=1, max_length=100)
 
+    @model_validator(mode="after")
+    def validate_unique_ids(self):
+        if len(set(self.chunk_ids)) != len(self.chunk_ids):
+            raise ValueError("chunk_ids must be unique")  # noqa: TRY003
+        return self
+
 
 class ChunkEdit(Model):
     operation: Literal["edit_chunk", "remove_chunk", "remove_chunks"]

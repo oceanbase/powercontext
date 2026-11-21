@@ -27,7 +27,7 @@ from tests.e2e.test_knowledge_base import FIXTURE_EMBEDDING, PLUGIN, P
 
 
 @asynccontextmanager
-async def dashboard(tmp_path, extra_plugin=""):
+async def dashboard(tmp_path, extra_plugin="", *, extra_env=None):
     playwright = pytest.importorskip("playwright.async_api")
     plugins = tmp_path / "plugins"
     shutil.copytree(PLUGIN, plugins / "knowledge-base")
@@ -40,6 +40,7 @@ async def dashboard(tmp_path, extra_plugin=""):
             extra_env={
                 "POWERCONTEXT_KB_DATA_DIR": str(tmp_path / "data"),
                 "POWERCONTEXT_SERVER_DASHBOARD_ENABLED": "true",
+                **(extra_env or {}),
             },
         ) as client,
         playwright.async_playwright() as pw,

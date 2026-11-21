@@ -123,11 +123,20 @@ export function useImport(scope: string) {
     mutationFn: async (
       input: { files: { file: File; key: string }[] } | { root: string; paths: string[]; idempotency_key: string },
     ) => {
-      if ("root" in input) return (await service.imports(scope, input)).items;
+      if ("root" in input) {
+        const receipts = (await service.imports(scope, input)).items;
+        for (const receipt of receipts) {
+          if (receipt.accepted) trackProcessing(client, scope, receipt);
+        }
+        return receipts;
+      }
       const receipts = [];
       for (const { file, key } of input.files) {
         try {
-          receipts.push({ ...(await service.upload(scope, file, key)), path: file.webkitRelativePath || file.name });
+          const receipt = { ...(await service.upload(scope, file, key)), path: file.webkitRelativePath || file.name };
+          // Track each acceptance immediately, even if later files are slow or this view is unmounted.
+          if (receipt.accepted) trackProcessing(client, scope, receipt);
+          receipts.push(receipt);
         } catch (error) {
           receipts.push({ path: file.name, accepted: false, error: String(error) });
         }

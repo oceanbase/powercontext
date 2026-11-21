@@ -127,7 +127,7 @@ export function Import({ scope }: { scope: string }) {
                     rules={[{ required: true, message: "请输入允许导入的 Server 目录" }]}
                     extra="需要位于管理员配置的允许导入目录内。"
                   >
-                    <Input placeholder="/data/documents" />
+                    <Input aria-label="Server 目录" placeholder="/data/documents" />
                   </Form.Item>
                   <Form.Item
                     name="paths"
@@ -142,7 +142,7 @@ export function Import({ scope }: { scope: string }) {
                       },
                     ]}
                   >
-                    <Input.TextArea rows={6} placeholder={"README.md\noperations/restart.md"} />
+                    <Input.TextArea aria-label="相对文件路径" rows={6} placeholder={"README.md\noperations/restart.md"} />
                   </Form.Item>
                 </Form>
               )}
@@ -157,7 +157,7 @@ export function Import({ scope }: { scope: string }) {
                 type={mutation.data.every((row) => row.accepted) ? "success" : "warning"}
                 showIcon
                 message={`已接受 ${mutation.data.filter((row) => row.accepted).length} / ${mutation.data.length} 个文件`}
-                description="接受导入不代表解析完成。关闭窗口后，可刷新文档列表查看结果。"
+                description="接受导入不代表解析完成。关闭窗口后会继续跟踪处理状态；完成后更新文档，并提示重新检索。"
               />
               <Table<Receipt>
                 size="small"

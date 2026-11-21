@@ -16,8 +16,105 @@
 
 import asyncio
 
+import pytest
+
 from tests.e2e.plugin_server import ADMIN_AUTHORIZATION_VALUE, wait_for
 from tests.e2e.test_knowledge_base_dashboard import dashboard, library, select_library, upload
+
+
+@pytest.mark.parametrize("method", ["upload", "local"])
+def test_dashboard_import_completion_invalidates_retrieval_after_tab_navigation(tmp_path, method):
+    root = tmp_path / "documents"
+    root.mkdir()
+    original = "# Quartz\n\nOriginal instructions before import"
+    updated = "# Quartz\n\nUpdated instructions after import"
+    (root / "same.md").write_text(original)
+    hold = tmp_path / "hold"
+    gate = f"""
+from pathlib import Path
+import time
+_original_parse = _service.parse
+def _gated_parse(*args, **kwargs):
+    while Path({str(hold)!r}).exists():
+        time.sleep(0.05)
+    return _original_parse(*args, **kwargs)
+_service.parse = _gated_parse
+"""
+
+    async def scenario():
+        async with dashboard(tmp_path, gate, extra_env={"POWERCONTEXT_KB_IMPORT_ROOTS": str(root)}) as (
+            call,
+            page,
+            frame,
+            origin,
+            expect,
+        ):
+            space = (await call("GET", "/me/default-space"))["space_scope_id"]
+            kb = await library(call, "Import publication", space)
+            scope = kb["scope_id"]
+            if method == "upload":
+                await upload(call, tmp_path, kb, "same.md", original)
+            else:
+                initial = await call(
+                    "POST",
+                    f"/scopes/{scope}/imports",
+                    json={"root": str(root), "paths": ["same.md"], "idempotency_key": "original"},
+                )
+                await wait_for(
+                    lambda: call("GET", f"/scopes/{scope}/imports/{initial['items'][0]['request_id']}"),
+                    lambda result: result["state"] == "completed",
+                    log=tmp_path / "server.log",
+                )
+            await page.goto(origin + "/dashboard/plugins/knowledge-base")
+            await select_library(frame, "Import publication")
+            await frame.get_by_role("button", name="导入文档", exact=True).click()
+            if method == "upload":
+                await frame.locator('input[type="file"]').set_input_files([
+                    {"name": "same.md", "mimeType": "text/markdown", "buffer": updated.encode()},
+                    {"name": "invalid.txt", "mimeType": "text/plain", "buffer": b"unsupported"},
+                ])
+            else:
+                (root / "same.md").write_text(updated)
+                await frame.get_by_text("Server 本地目录", exact=True).click()
+                await frame.get_by_role("textbox", name="Server 目录").fill(str(root))
+                await frame.get_by_role("textbox", name="相对文件路径").fill("same.md\nmissing.md")
+            hold.touch()
+            try:
+                async with page.expect_response(
+                    lambda response: (
+                        response.request.method == "POST"
+                        and response.url.split("?")[0].endswith("/uploads" if method == "upload" else "/imports")
+                    )
+                ) as response:
+                    await frame.get_by_role("button", name="开始导入", exact=True).click()
+                receipt = await (await response.value).json()
+                if method == "local":
+                    receipt = receipt["items"][0]
+                assert receipt["accepted"]
+                await expect(frame.get_by_role("alert")).to_contain_text("已接受 1 / 2 个文件")
+                await frame.get_by_role("button", name="完成", exact=True).click()
+                await frame.get_by_role("tab", name="检索测试", exact=True).click()
+                await frame.get_by_role("textbox", name="检索问题").fill("Quartz")
+                await frame.get_by_role("button", name="检索", exact=True).click()
+                await expect(frame.locator(".markdown-body")).to_contain_text("Original instructions")
+            finally:
+                hold.unlink(missing_ok=True)
+            result = await wait_for(
+                lambda: call("GET", f"/scopes/{scope}/imports/{receipt['request_id']}"),
+                lambda result: result["state"] == "completed",
+                log=tmp_path / "server.log",
+            )
+            assert result["current_revision"] == 2
+            await expect(frame.get_by_text("内容或检索条件已变化，请重新检索。", exact=True)).to_be_visible(  # noqa: RUF001
+                timeout=12000
+            )
+            await expect(frame.locator(".markdown-body")).to_have_count(0)
+            await expect(frame.get_by_role("textbox", name="检索问题")).to_have_value("Quartz")
+            await frame.get_by_role("button", name="检索", exact=True).click()
+            await expect(frame.locator(".markdown-body")).to_contain_text("Updated instructions")
+            await expect(frame.locator(".markdown-body")).not_to_contain_text("Original instructions")
+
+    asyncio.run(scenario())
 
 
 def test_dashboard_reprocess_tracks_committed_revision(tmp_path):

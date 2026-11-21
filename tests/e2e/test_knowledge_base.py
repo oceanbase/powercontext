@@ -145,6 +145,13 @@ def test_knowledge_base_import_edit_forget_and_space_selection(tmp_path, real_mo
             content = await call("GET", chunks + "/" + chunk["chunk_id"])
             batch = await call("POST", chunks + "/batch-get", json={"chunk_ids": [chunk["chunk_id"]]})
             assert batch["items"] == [content]
+            duplicate = await client.post(
+                P + chunks + "/batch-get", json={"chunk_ids": [chunk["chunk_id"], chunk["chunk_id"]]}
+            )
+            assert duplicate.status_code == 422, duplicate.text
+            selected = [item["chunk_id"] for item in reversed(listing["items"][:2])]
+            batch = await call("POST", chunks + "/batch-get", json={"chunk_ids": selected})
+            assert [item["chunk_id"] for item in batch["items"]] == selected
             assert content["text"]
             results = await call(
                 "POST", "/retrieve", json={"space_scope_id": space, "query": "重启之前检查什么", "scope_ids": [scope]}
