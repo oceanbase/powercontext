@@ -83,6 +83,8 @@ from powercontext.server.tracing import ServerTracing
 
 _PRIVATE = "private worker source/query/credential sentinel"
 _MULTILINE_MESSAGE = "child record\ncontinued café"
+# Completion observations include cold spawn imports and natural process exit.
+_WORKER_LIFECYCLE_TIMEOUT_SECONDS = 60.0
 
 
 def _file_logging_probe(initializer: WorkerLogging) -> None:
@@ -154,7 +156,7 @@ def test_worker_stream_close_preserves_output_and_counts_discards(tmp_path, capf
             )
             process.start()
         try:
-            process.join(timeout=30)
+            process.join(timeout=_WORKER_LIFECYCLE_TIMEOUT_SECONDS)
             assert process.exitcode == 0
         finally:
             if process.is_alive():
@@ -349,7 +351,7 @@ def test_terminated_worker_does_not_interrupt_shared_log_output(tmp_path, capfd)
             assignment
         )
         try:
-            async with asyncio.timeout(30):
+            async with asyncio.timeout(_WORKER_LIFECYCLE_TIMEOUT_SECONDS):
                 while True:
                     output = (tmp_path / "background.log").read_text(encoding="utf-8")
                     if any(record.get("event") == "probe.ready" for record in _json_records(output)):
@@ -368,7 +370,10 @@ def test_terminated_worker_does_not_interrupt_shared_log_output(tmp_path, capfd)
             )
         )
         try:
-            assert await asyncio.wait_for(surviving.wait(), timeout=30) == ArtifactProcessingWorkerCompletion()
+            assert (
+                await asyncio.wait_for(surviving.wait(), timeout=_WORKER_LIFECYCLE_TIMEOUT_SECONDS)
+                == ArtifactProcessingWorkerCompletion()
+            )
         finally:
             await surviving.terminate()
 
@@ -393,7 +398,7 @@ import logging
 import multiprocessing
 import sys
 from pathlib import Path
-from tests.e2e.test_worker_logging import _file_logging_probe
+from tests.e2e.test_worker_logging import _WORKER_LIFECYCLE_TIMEOUT_SECONDS, _file_logging_probe
 from powercontext.server.logging import configure_server_logging, shutdown_server_logging, worker_logging
 from powercontext.server.settings import ServerLoggingConfig
 
@@ -405,7 +410,7 @@ with worker_logging(config, role="all") as initializer:
         process = multiprocessing.get_context("spawn").Process(target=_file_logging_probe, args=(child_initializer,))
         process.start()
     try:
-        process.join(timeout=30)
+        process.join(timeout=_WORKER_LIFECYCLE_TIMEOUT_SECONDS)
         assert process.exitcode == 0
     finally:
         if process.is_alive():
@@ -420,7 +425,7 @@ shutdown_server_logging()
         check=True,
         capture_output=True,
         text=True,
-        timeout=60,
+        timeout=_WORKER_LIFECYCLE_TIMEOUT_SECONDS + 30,
     )
     assert result.stdout == "" and result.stderr == ""
     output = (tmp_path / "all.log").read_text(encoding="utf-8")
@@ -559,7 +564,7 @@ def test_supervisor_traces_preserve_spawned_worker_failure_semantics(
                 tracing=tracing,
             ) as supervisor:
                 # Await real spawn imports and exported results, not a worker execution SLA.
-                async with asyncio.timeout(60):
+                async with asyncio.timeout(_WORKER_LIFECYCLE_TIMEOUT_SECONDS):
                     while not any(  # noqa: ASYNC110 - bounded polling of exported observations
                         span.name == "artifact_processing.worker" for span in exporter.get_finished_spans()
                     ):
@@ -642,7 +647,7 @@ def test_supervisor_logs_isolate_request_identity_and_preserve_child_cancellatio
                 ):
                     assert current_request_id() == "unrelated-parent-request"
                     parent_logger.info("Caller observation", extra={"event": "caller.observed"})
-                    async with asyncio.timeout(30):
+                    async with asyncio.timeout(_WORKER_LIFECYCLE_TIMEOUT_SECONDS):
                         while not any(  # noqa: ASYNC110 - bounded polling of supervisor output
                             record.get("event") == "artifact_processing.failed"
                             for record in _json_records(output.getvalue())
@@ -715,10 +720,13 @@ def test_spawned_worker_logs_execution_identity_and_redacted_outcome(capfd, outc
             ).start(assignment)
             try:
                 if outcome == "success":
-                    assert await asyncio.wait_for(handle.wait(), timeout=30) == ArtifactProcessingWorkerCompletion()
+                    assert (
+                        await asyncio.wait_for(handle.wait(), timeout=_WORKER_LIFECYCLE_TIMEOUT_SECONDS)
+                        == ArtifactProcessingWorkerCompletion()
+                    )
                 else:
                     with pytest.raises(RuntimeError):
-                        await asyncio.wait_for(handle.wait(), timeout=30)
+                        await asyncio.wait_for(handle.wait(), timeout=_WORKER_LIFECYCLE_TIMEOUT_SECONDS)
             finally:
                 await handle.terminate()
         finally:
@@ -763,7 +771,7 @@ def test_spawned_worker_preserves_blocked_diagnostics_and_control_result(capfd, 
         ).start(assignment)
         try:
             with pytest.raises(RuntimeError) as raised:
-                await asyncio.wait_for(handle.wait(), timeout=30)
+                await asyncio.wait_for(handle.wait(), timeout=_WORKER_LIFECYCLE_TIMEOUT_SECONDS)
             failure = getattr(raised.value, "failure", None)
             assert isinstance(failure, ArtifactProcessingWorkerFailure)
             assert failure.stage == "topic_memory" and failure.error_code == "window_attempt_limit"
@@ -831,7 +839,10 @@ def test_spawned_code_stage_preserves_worker_correlation(capfd, log_format) -> N
             _logging_worker, initializer=WorkerLogging(ServerLoggingConfig(format=log_format, level="DEBUG"))
         ).start(assignment)
         try:
-            assert await asyncio.wait_for(handle.wait(), timeout=30) == ArtifactProcessingWorkerCompletion()
+            assert (
+                await asyncio.wait_for(handle.wait(), timeout=_WORKER_LIFECYCLE_TIMEOUT_SECONDS)
+                == ArtifactProcessingWorkerCompletion()
+            )
         finally:
             await handle.terminate()
 
@@ -876,7 +887,10 @@ def test_worker_logging_bootstrap_failure_does_not_change_completion(capfd) -> N
             assignment
         )
         try:
-            assert await asyncio.wait_for(handle.wait(), timeout=30) == ArtifactProcessingWorkerCompletion()
+            assert (
+                await asyncio.wait_for(handle.wait(), timeout=_WORKER_LIFECYCLE_TIMEOUT_SECONDS)
+                == ArtifactProcessingWorkerCompletion()
+            )
         finally:
             await handle.terminate()
 
@@ -902,7 +916,10 @@ def test_unconfigured_sdk_worker_does_not_enable_global_logging(capfd) -> None:
         )
         handle = await SpawnArtifactProcessingWorkerLauncher(_logging_worker).start(assignment)
         try:
-            assert await asyncio.wait_for(handle.wait(), timeout=30) == ArtifactProcessingWorkerCompletion()
+            assert (
+                await asyncio.wait_for(handle.wait(), timeout=_WORKER_LIFECYCLE_TIMEOUT_SECONDS)
+                == ArtifactProcessingWorkerCompletion()
+            )
         finally:
             await handle.terminate()
 
@@ -947,7 +964,9 @@ def test_server_composition_initializes_logging_in_the_real_family_worker(
         assert response.status_code == 202
         # Do not reset/truncate fd capture while spawned processes still write
         # through inherited descriptors. Observe completion without consuming it.
-        assert completed.wait(timeout=60), "The real family worker must report completion"
+        assert completed.wait(timeout=_WORKER_LIFECYCLE_TIMEOUT_SECONDS), (
+            "The real family worker must report completion"
+        )
     records = _json_records(capfd.readouterr().out)
     worker_records = (
         _json_records((tmp_path / "logs" / "all.log").read_text(encoding="utf-8")) if file_logging else records
@@ -989,7 +1008,9 @@ def test_concurrent_spawned_workers_share_file_output(tmp_path, capfd, log_forma
         ]
         handles = await asyncio.gather(*(launcher.start(assignment) for assignment in assignments))
         try:
-            results = await asyncio.wait_for(asyncio.gather(*(handle.wait() for handle in handles)), timeout=30)
+            results = await asyncio.wait_for(
+                asyncio.gather(*(handle.wait() for handle in handles)), timeout=_WORKER_LIFECYCLE_TIMEOUT_SECONDS
+            )
             assert results == [ArtifactProcessingWorkerCompletion()] * 3
         finally:
             await asyncio.gather(*(handle.terminate() for handle in handles))
