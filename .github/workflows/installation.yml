@@ -1,83 +1,429 @@
-name: Script installation
-
-on:
-  workflow_call:
-    inputs:
-      suites:
-        description: Scope already selected by the Main orchestrator
-        required: true
-        type: string
-  workflow_dispatch:
-
+name: OceanBase startup diagnosis
+'on':
+  workflow_dispatch: {}
 permissions:
-  actions: read
   contents: read
-
-concurrency:
-  group: installation-${{ github.event.pull_request.number || github.ref }}-${{ github.event_name }}
-  cancel-in-progress: true
-
+  actions: read
 jobs:
-  changes:
-    if: ${{ inputs.suites == '' }}
-    uses: ./.github/workflows/ci-changes.yml
-    with:
-      baseline-workflow: installation.yml
-
-  installation:
-    needs: changes
-    if: ${{ !cancelled() && ((inputs.suites == '' && needs.changes.result != 'success') || fromJSON(inputs.suites || needs.changes.outputs.suites || '{}').packaging) }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-    runs-on: ${{ matrix.os == 'ubuntu-latest' && 'powercontext-ci-light' || matrix.os }}
-    timeout-minutes: 20
+  upgrade:
+    runs-on: powercontext-ci-standard
+    timeout-minutes: 75
+    env:
+      PROBE_MODE: upgrade
+      PYTHONUNBUFFERED: '1'
+      MIGRATION_REPORTS: ${{ runner.temp }}/ob-startup-probe
+      OCEANBASE_IMAGE: ghcr.io/oceanbase/oceanbase-ce:4.3.5.6-106000012026040916
+      PC_UPGRADE_OCEANBASE_URL: mysql+aoceanbase://root%40test:powercontext-e2e@127.0.0.1:2881/pc_upgrade_test?charset=utf8mb4
+      PC_UPGRADE_OCEANBASE_FRESH_URL: mysql+aoceanbase://root%40test:powercontext-e2e@127.0.0.1:2881/pc_upgrade_fresh?charset=utf8mb4
     steps:
-      - name: Check out
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          persist-credentials: false
+    - name: Check out exact source
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      with:
+        ref: 44f93be0f4c43a161651a089160d5f5054782cb1
+        persist-credentials: false
+    - name: Set up original environment
+      uses: ./.github/actions/setup-python-env
+      with:
+        python-version: '3.12'
+    - name: Install private observation scripts
+      run: |
+        mkdir -p "$RUNNER_TEMP/ob-startup-probe"
+        cat > "$RUNNER_TEMP/ob-startup-probe/sitecustomize.py" <<'PYPROBE'
+        """Private startup sampler: stack locations only, no locals, SQL, or payloads."""
+        import os
+        import sys
+        import time
+        import json
+        import threading
+        from pathlib import Path
 
-      - name: Set up the environment
-        uses: ./.github/actions/setup-python-env
-        with:
-          shared-cache: ${{ matrix.os == 'ubuntu-latest' && 'true' || 'false' }}
+        _directory = Path(os.environ['PC_STARTUP_PROBE_DIR'])
+        _directory.mkdir(parents=True, exist_ok=True)
+        _output = _directory / ('python-' + str(os.getpid()) + '.jsonl')
+        _lock = threading.Lock()
 
-      - name: Build the installation fixture
-        shell: bash
-        env:
-          # Qualify this commit using release-shaped metadata, without publishing it.
-          SETUPTOOLS_SCM_PRETEND_VERSION: "1.2.0"
-        run: uv build --wheel --out-dir dist/installation
+        def _write(kind, **fields):
+            with _lock, _output.open('a') as out:
+                out.write(json.dumps({'at': time.time(), 'pid': os.getpid(), 'ppid': os.getppid(), 'kind': kind, **fields}) + '\n')
 
-      - name: Check shared installer behavior and source resolution
-        shell: bash
-        run: >-
-          uv run --no-sync pytest -q ${{ runner.os == 'Linux' && '-n auto' || '' }}
-          tests/test_installation_contract.py tests/native/test_install_sources.py
-          --durations=20
-          --junitxml "$RUNNER_TEMP/installation-contract.xml"
-          --basetemp "$RUNNER_TEMP/installation-contract-tests"
+        def _stack(frame):
+            values = []
+            while frame is not None:
+                values.append({'file': frame.f_code.co_filename, 'line': frame.f_lineno, 'function': frame.f_code.co_name})
+                frame = frame.f_back
+            return values
 
-      - name: Exercise bootstrap, version selection, profiles, and persistent memory
-        shell: bash
-        env:
-          POWERCONTEXT_INSTALL_WHEEL: ${{ github.workspace }}/dist/installation/powercontext-1.2.0-py3-none-any.whl
-        run: >-
-          uv run --no-sync pytest -vv ${{ runner.os == 'Linux' && '-n auto' || '' }}
-          --durations=20 tests/native/test_installation.py
-          --junitxml "$RUNNER_TEMP/installation.xml"
-          --basetemp "$RUNNER_TEMP/installation-tests"
+        _write('startup', version=sys.version.split()[0], executable=sys.executable, argv0=sys.argv[0])
 
-      - name: Upload installation diagnostics
-        if: always()
-        uses: ./.github/actions/upload-ci-diagnostics
-        with:
-          name: installation-${{ matrix.os }}
-          path: |
-            ${{ runner.temp }}/installation.xml
-            ${{ runner.temp }}/installation-contract.xml
-            ${{ runner.temp }}/installation-tests/**/*.log
-            ${{ runner.temp }}/installation-contract-tests/**/*.log
-          if-no-files-found: ignore
+        def _sample_threads():
+            while True:
+                _write('threads', threads=[{'thread': ident, 'stack': _stack(frame)} for ident, frame in sys._current_frames().items()])
+                time.sleep(5)
+
+        threading.Thread(target=_sample_threads, name='private-startup-sampler', daemon=True).start()
+        import asyncio
+        _original_run = asyncio.Runner.run
+
+        def _run(self, coro, *, context=None):
+            loop = self.get_loop()
+            def sample():
+                tasks = []
+                for task in asyncio.all_tasks(loop):
+                    chain = []
+                    awaitable = task.get_coro()
+                    visited = set()
+                    while awaitable is not None and id(awaitable) not in visited:
+                        visited.add(id(awaitable))
+                        frame = getattr(awaitable, 'cr_frame', None) or getattr(awaitable, 'gi_frame', None) or getattr(awaitable, 'ag_frame', None)
+                        if frame is not None:
+                            chain.append({'file': frame.f_code.co_filename, 'line': frame.f_lineno, 'function': frame.f_code.co_name})
+                        awaitable = getattr(awaitable, 'cr_await', None) or getattr(awaitable, 'gi_yieldfrom', None) or getattr(awaitable, 'ag_await', None)
+                    tasks.append({'done': task.done(), 'cancelled': task.cancelled(), 'await_chain': chain})
+                _write('async_tasks', tasks=tasks)
+                if not loop.is_closed():
+                    loop.call_later(5, sample)
+            loop.call_soon(sample)
+            return _original_run(self, coro, context=context)
+
+        asyncio.Runner.run = _run
+
+        # The controlled model fixture uses stdlib HTTPServer in the parent pytest
+        # process. Observe request completion without reading request/response content.
+        import http.server
+        _original_handle = http.server.BaseHTTPRequestHandler.handle_one_request
+
+        def _handle(self):
+            _write('fixture_http_started')
+            try:
+                return _original_handle(self)
+            finally:
+                path = getattr(self, 'path', '')
+                _write('fixture_http_finished', route='embeddings' if path.endswith('/embeddings') else 'other', status=getattr(self, 'command', None))
+
+        http.server.BaseHTTPRequestHandler.handle_one_request = _handle
+        PYPROBE
+        cat > "$RUNNER_TEMP/ob-startup-probe/run_probe.py" <<'PYPROBE'
+        """Private original-case runner, with diagnostics installed only in this job."""
+        import hashlib
+        import json
+        import os
+        from pathlib import Path
+        import shutil
+        import subprocess
+        import sys
+        import threading
+        import time
+
+        root = Path.cwd()
+        base = Path(os.environ['RUNNER_TEMP']) / 'ob-startup-probe'
+        base.mkdir(exist_ok=True)
+        os.environ['PC_STARTUP_PROBE_DIR'] = str(base / 'python')
+        hook = base / 'sitecustomize.py'
+
+        def install(python):
+            result = subprocess.run([str(python), '-c', 'import sysconfig; print(sysconfig.get_path("purelib"))'], capture_output=True, text=True, check=True)
+            shutil.copyfile(hook, Path(result.stdout.strip()) / 'sitecustomize.py')
+
+        install(sys.executable)
+        mode = os.environ['PROBE_MODE']
+        container = 'upgrade-oceanbase' if mode == 'upgrade' else 'atomic-memory-clean-oceanbase'
+        finished = threading.Event()
+
+        def sample_database():
+            command = ['docker', 'exec', container, 'timeout', '--kill-after=1s', '6s', 'obclient', '-h127.0.0.1', '-P2881', '-uroot@test', '-ppowercontext-e2e', '--batch', '--skip-column-names', '-Doceanbase', '--init-command=SET ob_query_timeout=5000000', '-e', 'SELECT ID, USER, DB, COMMAND, TIME, STATE FROM information_schema.PROCESSLIST LIMIT 100; SELECT TENANT_ID, TRANS_ID, TYPE, LMODE, REQUEST, CTIME, BLOCK FROM oceanbase.GV$OB_LOCKS LIMIT 100; SELECT TENANT_ID, SESSION_ID, STATE, ACTIVE_TIME, EXPIRE_TIME FROM oceanbase.GV$OB_TRANSACTION_SCHEDULERS LIMIT 100;']
+            while not finished.is_set():
+                started = time.time()
+                try:
+                    result = subprocess.run(command, capture_output=True, text=True, timeout=8)
+                    data = {'at': started, 'elapsed': time.time()-started, 'returncode': result.returncode, 'states': result.stdout, 'error_type': 'probe_failed' if result.returncode else None}
+                except subprocess.TimeoutExpired:
+                    data = {'at': started, 'elapsed': time.time()-started, 'error_type': 'timeout'}
+                with (base/'database.jsonl').open('a') as out:out.write(json.dumps(data)+'\n')
+                finished.wait(5)
+
+        sampler = threading.Thread(target=sample_database, daemon=True)
+        sampler.start()
+        try:
+            head = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
+            (base/'identity.json').write_text(json.dumps({'source_head': head, 'mode': mode, 'run_id': os.environ['GITHUB_RUN_ID'], 'runner': os.environ['RUNNER_NAME']}, indent=2)+'\n')
+            if mode == 'upgrade':
+                assert head == '44f93be0f4c43a161651a089160d5f5054782cb1'
+                prepared = Path(os.environ['RUNNER_TEMP']) / 'upgrade-prepared'
+                plan = json.loads((prepared/'plan.json').read_text())
+                assert plan['source_sha'] == head and plan['workflow_run_id'] == '44836587301'
+                for name, digest in plan['artifacts'].items():
+                    assert hashlib.sha256((prepared/'inputs'/name).read_bytes()).hexdigest() == digest
+                shutil.copyfile(prepared/'plan.json', base/'original-plan.json')
+                sys.path.insert(0, str(root/'scripts'))
+                import upgrade_release_gate as gate
+                original = gate.run_owned
+                def observed(command, **kwargs):
+                    result = original(command, **kwargs)
+                    if command[:3] == ['uv', 'pip', 'install']:
+                        install(command[command.index('--python')+1])
+                    return result
+                gate.run_owned = observed
+                # Run the original case implementation with the original verified inputs.
+                # This private result is diagnostic evidence, not a new release authorization.
+                result = gate.run_case(root, prepared/'inputs'/plan['target_wheel'], plan['resolved_matrix']['required_cases'][11], base/'acceptance')
+                (base/'case-result.json').write_text(json.dumps(result, indent=2)+'\n')
+            else:
+                assert head == '160d872ebd911fe080f56d58619021515a9de744'
+                install(root/'.venv/bin/python')
+                command = ['uv', 'run', '--locked', '--extra', 'server', 'python', 'scripts/run_atomic_memory_clean_migration.py', 'oceanbase', '--test-timeout', '600', '--shard', '0/2', '--durations', '.github/oceanbase-migration-durations.json', '--output', str(base/'background-metrics'), '--tests', 'tests/e2e/test_background_metrics.py']
+                result = subprocess.run(command)
+                raise SystemExit(result.returncode)
+        finally:
+            finished.set()
+            sampler.join(9)
+        PYPROBE
+    - name: Reuse exact prepared distributions
+      uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+      with:
+        name: upgrade-prepared
+        run-id: '44836587301'
+        github-token: ${{ github.token }}
+        repository: oceanbase/powercontext
+        path: ${{ runner.temp }}/upgrade-prepared/
+    - name: Start original isolated OceanBase environment
+      uses: ./.github/actions/setup-upgrade-oceanbase
+    - name: Run unchanged acceptance with startup observations
+      run: uv run --locked python "$RUNNER_TEMP/ob-startup-probe/run_probe.py"
+    - name: Retain bounded database diagnostics
+      if: always()
+      run: |
+        mkdir -p "$RUNNER_TEMP/ob-startup-probe"
+        python scripts/oceanbase_ci.py collect --container upgrade-oceanbase --output "$RUNNER_TEMP/ob-startup-probe/database-final" || true
+        timeout 15s docker logs upgrade-oceanbase > "$RUNNER_TEMP/ob-startup-probe/oceanbase.log" 2>&1 || true
+        timeout 15s docker inspect --format '{{json .State}}' upgrade-oceanbase > "$RUNNER_TEMP/ob-startup-probe/oceanbase-state.json" 2>&1 || true
+        timeout 15s docker stats --no-stream upgrade-oceanbase > "$RUNNER_TEMP/ob-startup-probe/container-stats.txt" 2>&1 || true
+    - name: Save private observation evidence
+      if: always()
+      uses: ./.github/actions/upload-ci-diagnostics
+      with:
+        name: ob-startup-upgrade-${{ github.run_id }}
+        path: ${{ runner.temp }}/ob-startup-probe/
+        if-no-files-found: error
+        retention-days: 7
+    - name: Stop owned container
+      if: always()
+      run: timeout 30s docker rm --force upgrade-oceanbase || true
+  background:
+    runs-on: powercontext-ci-standard
+    timeout-minutes: 295
+    env:
+      PROBE_MODE: background
+      PYTHONUNBUFFERED: '1'
+      MIGRATION_REPORTS: ${{ runner.temp }}/ob-startup-probe
+      OCEANBASE_IMAGE: ghcr.io/oceanbase/oceanbase-ce:4.3.5.6-106000012026040916
+      POWERCONTEXT_TEST_MIGRATION_OCEANBASE_URL: mysql+aoceanbase://root%40test:powercontext-e2e@127.0.0.1:2881/powercontext_test?charset=utf8mb4
+      OCEANBASE_CI_CONTAINER: atomic-memory-clean-oceanbase
+    steps:
+    - name: Check out exact source
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      with:
+        ref: 160d872ebd911fe080f56d58619021515a9de744
+        persist-credentials: false
+    - name: Set up original environment
+      uses: ./.github/actions/setup-python-env
+      with:
+        python-version: '3.12'
+    - name: Install private observation scripts
+      run: |
+        mkdir -p "$RUNNER_TEMP/ob-startup-probe"
+        cat > "$RUNNER_TEMP/ob-startup-probe/sitecustomize.py" <<'PYPROBE'
+        """Private startup sampler: stack locations only, no locals, SQL, or payloads."""
+        import os
+        import sys
+        import time
+        import json
+        import threading
+        from pathlib import Path
+
+        _directory = Path(os.environ['PC_STARTUP_PROBE_DIR'])
+        _directory.mkdir(parents=True, exist_ok=True)
+        _output = _directory / ('python-' + str(os.getpid()) + '.jsonl')
+        _lock = threading.Lock()
+
+        def _write(kind, **fields):
+            with _lock, _output.open('a') as out:
+                out.write(json.dumps({'at': time.time(), 'pid': os.getpid(), 'ppid': os.getppid(), 'kind': kind, **fields}) + '\n')
+
+        def _stack(frame):
+            values = []
+            while frame is not None:
+                values.append({'file': frame.f_code.co_filename, 'line': frame.f_lineno, 'function': frame.f_code.co_name})
+                frame = frame.f_back
+            return values
+
+        _write('startup', version=sys.version.split()[0], executable=sys.executable, argv0=sys.argv[0])
+
+        def _sample_threads():
+            while True:
+                _write('threads', threads=[{'thread': ident, 'stack': _stack(frame)} for ident, frame in sys._current_frames().items()])
+                time.sleep(5)
+
+        threading.Thread(target=_sample_threads, name='private-startup-sampler', daemon=True).start()
+        import asyncio
+        _original_run = asyncio.Runner.run
+
+        def _run(self, coro, *, context=None):
+            loop = self.get_loop()
+            def sample():
+                tasks = []
+                for task in asyncio.all_tasks(loop):
+                    chain = []
+                    awaitable = task.get_coro()
+                    visited = set()
+                    while awaitable is not None and id(awaitable) not in visited:
+                        visited.add(id(awaitable))
+                        frame = getattr(awaitable, 'cr_frame', None) or getattr(awaitable, 'gi_frame', None) or getattr(awaitable, 'ag_frame', None)
+                        if frame is not None:
+                            chain.append({'file': frame.f_code.co_filename, 'line': frame.f_lineno, 'function': frame.f_code.co_name})
+                        awaitable = getattr(awaitable, 'cr_await', None) or getattr(awaitable, 'gi_yieldfrom', None) or getattr(awaitable, 'ag_await', None)
+                    tasks.append({'done': task.done(), 'cancelled': task.cancelled(), 'await_chain': chain})
+                _write('async_tasks', tasks=tasks)
+                if not loop.is_closed():
+                    loop.call_later(5, sample)
+            loop.call_soon(sample)
+            return _original_run(self, coro, context=context)
+
+        asyncio.Runner.run = _run
+
+        # The controlled model fixture uses stdlib HTTPServer in the parent pytest
+        # process. Observe request completion without reading request/response content.
+        import http.server
+        _original_handle = http.server.BaseHTTPRequestHandler.handle_one_request
+
+        def _handle(self):
+            _write('fixture_http_started')
+            try:
+                return _original_handle(self)
+            finally:
+                path = getattr(self, 'path', '')
+                _write('fixture_http_finished', route='embeddings' if path.endswith('/embeddings') else 'other', status=getattr(self, 'command', None))
+
+        http.server.BaseHTTPRequestHandler.handle_one_request = _handle
+        PYPROBE
+        cat > "$RUNNER_TEMP/ob-startup-probe/run_probe.py" <<'PYPROBE'
+        """Private original-case runner, with diagnostics installed only in this job."""
+        import hashlib
+        import json
+        import os
+        from pathlib import Path
+        import shutil
+        import subprocess
+        import sys
+        import threading
+        import time
+
+        root = Path.cwd()
+        base = Path(os.environ['RUNNER_TEMP']) / 'ob-startup-probe'
+        base.mkdir(exist_ok=True)
+        os.environ['PC_STARTUP_PROBE_DIR'] = str(base / 'python')
+        hook = base / 'sitecustomize.py'
+
+        def install(python):
+            result = subprocess.run([str(python), '-c', 'import sysconfig; print(sysconfig.get_path("purelib"))'], capture_output=True, text=True, check=True)
+            shutil.copyfile(hook, Path(result.stdout.strip()) / 'sitecustomize.py')
+
+        install(sys.executable)
+        mode = os.environ['PROBE_MODE']
+        container = 'upgrade-oceanbase' if mode == 'upgrade' else 'atomic-memory-clean-oceanbase'
+        finished = threading.Event()
+
+        def sample_database():
+            command = ['docker', 'exec', container, 'timeout', '--kill-after=1s', '6s', 'obclient', '-h127.0.0.1', '-P2881', '-uroot@test', '-ppowercontext-e2e', '--batch', '--skip-column-names', '-Doceanbase', '--init-command=SET ob_query_timeout=5000000', '-e', 'SELECT ID, USER, DB, COMMAND, TIME, STATE FROM information_schema.PROCESSLIST LIMIT 100; SELECT TENANT_ID, TRANS_ID, TYPE, LMODE, REQUEST, CTIME, BLOCK FROM oceanbase.GV$OB_LOCKS LIMIT 100; SELECT TENANT_ID, SESSION_ID, STATE, ACTIVE_TIME, EXPIRE_TIME FROM oceanbase.GV$OB_TRANSACTION_SCHEDULERS LIMIT 100;']
+            while not finished.is_set():
+                started = time.time()
+                try:
+                    result = subprocess.run(command, capture_output=True, text=True, timeout=8)
+                    data = {'at': started, 'elapsed': time.time()-started, 'returncode': result.returncode, 'states': result.stdout, 'error_type': 'probe_failed' if result.returncode else None}
+                except subprocess.TimeoutExpired:
+                    data = {'at': started, 'elapsed': time.time()-started, 'error_type': 'timeout'}
+                with (base/'database.jsonl').open('a') as out:out.write(json.dumps(data)+'\n')
+                finished.wait(5)
+
+        sampler = threading.Thread(target=sample_database, daemon=True)
+        sampler.start()
+        try:
+            head = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
+            (base/'identity.json').write_text(json.dumps({'source_head': head, 'mode': mode, 'run_id': os.environ['GITHUB_RUN_ID'], 'runner': os.environ['RUNNER_NAME']}, indent=2)+'\n')
+            if mode == 'upgrade':
+                assert head == '44f93be0f4c43a161651a089160d5f5054782cb1'
+                prepared = Path(os.environ['RUNNER_TEMP']) / 'upgrade-prepared'
+                plan = json.loads((prepared/'plan.json').read_text())
+                assert plan['source_sha'] == head and plan['workflow_run_id'] == '44836587301'
+                for name, digest in plan['artifacts'].items():
+                    assert hashlib.sha256((prepared/'inputs'/name).read_bytes()).hexdigest() == digest
+                shutil.copyfile(prepared/'plan.json', base/'original-plan.json')
+                sys.path.insert(0, str(root/'scripts'))
+                import upgrade_release_gate as gate
+                original = gate.run_owned
+                def observed(command, **kwargs):
+                    result = original(command, **kwargs)
+                    if command[:3] == ['uv', 'pip', 'install']:
+                        install(command[command.index('--python')+1])
+                    return result
+                gate.run_owned = observed
+                # Run the original case implementation with the original verified inputs.
+                # This private result is diagnostic evidence, not a new release authorization.
+                result = gate.run_case(root, prepared/'inputs'/plan['target_wheel'], plan['resolved_matrix']['required_cases'][11], base/'acceptance')
+                (base/'case-result.json').write_text(json.dumps(result, indent=2)+'\n')
+            else:
+                assert head == '160d872ebd911fe080f56d58619021515a9de744'
+                install(root/'.venv/bin/python')
+                command = ['uv', 'run', '--locked', '--extra', 'server', 'python', 'scripts/run_atomic_memory_clean_migration.py', 'oceanbase', '--test-timeout', '600', '--shard', '0/2', '--durations', '.github/oceanbase-migration-durations.json', '--output', str(base/'background-metrics'), '--tests', 'tests/e2e/test_background_metrics.py']
+                result = subprocess.run(command)
+                raise SystemExit(result.returncode)
+        finally:
+            finished.set()
+            sampler.join(9)
+        PYPROBE
+    - name: Pull the OceanBase image
+      timeout-minutes: 11
+      run: |
+        export OCEANBASE_IMAGE="${PC_CI_OCEANBASE_435_IMAGE:-$OCEANBASE_IMAGE}"
+        if ! timeout --kill-after=5s 15s docker image inspect "$OCEANBASE_IMAGE" >/dev/null 2>&1; then
+          timeout --kill-after=10s 600s docker pull "$OCEANBASE_IMAGE"
+        fi
+    - name: Start the isolated OceanBase test instance
+      timeout-minutes: 14
+      run: |
+        export OCEANBASE_IMAGE="${PC_CI_OCEANBASE_435_IMAGE:-$OCEANBASE_IMAGE}"
+        timeout --kill-after=10s 180s docker run --pull never --detach --name atomic-memory-clean-oceanbase \
+          --publish 127.0.0.1:2881:2881 \
+          --ulimit nofile=65536:65536 \
+          --env MODE=slim \
+          --env OB_DATABASE=powercontext_test \
+          --env OB_TENANT_PASSWORD=powercontext-e2e \
+          "$OCEANBASE_IMAGE"
+        python scripts/oceanbase_ci.py wait --container atomic-memory-clean-oceanbase \
+          --output "$MIGRATION_REPORTS/startup"
+    - name: Test interrupted Scope search migrations without skips
+      timeout-minutes: 10
+      run: |
+        uv run --locked python scripts/run_atomic_memory_clean_migration.py \
+          oceanbase --shard "0/2" --durations .github/oceanbase-migration-durations.json --output "$MIGRATION_REPORTS/scope-search" --tests \
+          tests/e2e/test_scope_search_migration.py
+    - name: Run unchanged acceptance with startup observations
+      run: uv run --locked python "$RUNNER_TEMP/ob-startup-probe/run_probe.py"
+    - name: Retain bounded database diagnostics
+      if: always()
+      run: |
+        mkdir -p "$RUNNER_TEMP/ob-startup-probe"
+        python scripts/oceanbase_ci.py collect --container atomic-memory-clean-oceanbase --output "$RUNNER_TEMP/ob-startup-probe/database-final" || true
+        timeout 15s docker logs atomic-memory-clean-oceanbase > "$RUNNER_TEMP/ob-startup-probe/oceanbase.log" 2>&1 || true
+        timeout 15s docker inspect --format '{{json .State}}' atomic-memory-clean-oceanbase > "$RUNNER_TEMP/ob-startup-probe/oceanbase-state.json" 2>&1 || true
+        timeout 15s docker stats --no-stream atomic-memory-clean-oceanbase > "$RUNNER_TEMP/ob-startup-probe/container-stats.txt" 2>&1 || true
+    - name: Save private observation evidence
+      if: always()
+      uses: ./.github/actions/upload-ci-diagnostics
+      with:
+        name: ob-startup-background-${{ github.run_id }}
+        path: ${{ runner.temp }}/ob-startup-probe/
+        if-no-files-found: error
+        retention-days: 7
+    - name: Stop owned container
+      if: always()
+      run: timeout 30s docker rm --force atomic-memory-clean-oceanbase || true
