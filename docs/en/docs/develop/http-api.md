@@ -128,10 +128,10 @@ The `/dashboard/prompts` page shows all configured Prompts. For `profile.generat
 accessible from **Profile → Generation prompt**: select a Scope, view Auto/Custom mode, effective instructions,
 built-in defaults, capability status, and any saved revision; switch to Custom starting from built-in defaults;
 save a new Revision without calling inference, enabling generation, or reprocessing Sources. Creation conflicts
-(`409`) and revision conflicts (`412`) preserve the draft and display the current ETag for reconciliation. Write
+(`409`) and revision conflicts (`412`) preserve the draft and target the latest revision ETag for reconciliation. Write
 access requires current `scope.admin` in enforced mode; `disabled` mode allows reads and writes without
-enforcement. The editor appears only when the `profile.generate` capability is `supported` (or an existing Custom
-head is saved); a `disabled` capability stays readable but cannot be edited from the Dashboard. Externally managed
+enforcement. The editor allows saving Custom instructions only when the `profile.generate` capability is `supported`;
+a `disabled` capability stays readable without Custom writes, while existing Custom configurations can still return to Auto. Externally managed
 Prompts without instructions are shown as unavailable. Other Prompt keys remain read-only in the Dashboard.
 
 Use `GET /v1/scopes/{scope_id}/artifacts/prompt/{prompt_key}/revisions` to list immutable history and

@@ -50,6 +50,7 @@ from powercontext.server.dashboard.prompts_editor import (
     Submission,
     parse_submission,
     precheck,
+    read_error_write_code,
     submit,
 )
 from powercontext.server.dashboard.review import load_review, load_review_inspection, submit_review
@@ -832,7 +833,19 @@ async def profile_prompt_save(request: Request) -> Response:
         ctx.update(page_error=ReadError(403, "cross_origin_request"), status=403)
         return render(request, ctx)
     if len(await request.body()) > MAX_BODY_BYTES:
-        return Response(status_code=413)
+        ctx.update(status=413, prompt_key=PROMPT_KEY, prompt_write_error="instructions_too_long")
+        api = DashboardAPI(request)
+        try:
+            descriptor = await default_scope(api, ctx)
+            if ctx["scope"]:
+                await scope_context(api, ctx, descriptor)
+                await load_content(api, request, ctx)
+        except ReadError as error:
+            if error.status == 401:
+                return login_response(request=request)
+        finally:
+            await api.client.aclose()
+        return render(request, ctx)
     submission = parse_submission(await request.form())
     ctx["scope"] = submission.scope or ctx["scope"]
     api = DashboardAPI(request)
@@ -846,8 +859,13 @@ async def profile_prompt_save(request: Request) -> Response:
     except ReadError as error:
         if error.status == 401:
             return login_response(request=request)
-        ctx.update(prompt_draft=submission.draft(), prompt_key=PROMPT_KEY, page_error=error, status=error.status)
-        return render(request, ctx)
+        return await _profile_prompt_rejected(
+            request,
+            api,
+            ctx,
+            submission,
+            Rejection(status=error.status, extra={"prompt_write_error": read_error_write_code(error)}),
+        )
     finally:
         await api.client.aclose()
 
@@ -864,7 +882,13 @@ async def _profile_prompt_rejected(
         prompt_draft=submission.draft(rejection.reconcile_etag),
         **rejection.extra,
     )
-    await load_content(api, request, ctx)
+    try:
+        if ctx["scope"] and not ctx["scope_descriptor"]:
+            await scope_context(api, ctx)
+        await load_content(api, request, ctx)
+    except ReadError as error:
+        if error.status == 401:
+            return login_response(request=request)
     return render(request, ctx)
 
 

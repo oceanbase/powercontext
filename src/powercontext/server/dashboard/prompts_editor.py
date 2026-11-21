@@ -31,10 +31,9 @@ from powercontext.server.dashboard.api import DashboardAPI, segment
 from powercontext.server.dashboard.revisions import _can_replace
 
 PROMPT_KEY = "profile.generate"
-MAX_BODY_BYTES = 256_000
+MAX_BODY_BYTES = 512_000
 MAX_INSTRUCTIONS = 32_768
 SCHEMA_VERSION = "powercontext.prompt.v1"
-EDITABLE_STATUSES = {"supported", "ready", "enabled"}
 MODES = {"auto", "custom"}
 
 
@@ -96,11 +95,9 @@ def validation_error(submission: Submission) -> str | None:
 
 
 def capability_error(submission: Submission, current: dict[str, Any]) -> str | None:
-    """Refuse new Custom text while generation cannot use it. Returning to Auto stays allowed."""
+    """Refuse Custom writes whenever generation cannot use custom prompts. Returning to Auto stays allowed."""
 
-    if submission.mode != "custom" or current.get("status") in EDITABLE_STATUSES:
-        return None
-    if current.get("artifact") and current.get("mode") == "custom":
+    if submission.mode != "custom" or current.get("status") == "supported":
         return None
     return f"capability_{current.get('status', 'unsupported')}"
 
@@ -125,6 +122,16 @@ def _content(submission: Submission, current: dict[str, Any]) -> dict[str, Any]:
         "instructions": submission.instructions if custom else "",
         "demonstrations": keep,
     }
+
+
+def read_error_write_code(error: Any) -> str:
+    """Map an upstream ReadError during save to a Dashboard prompt write error code."""
+
+    if getattr(error, "status", None) == 403:
+        return "forbidden"
+    if getattr(error, "status", None) == 422 and getattr(error, "code", None):
+        return str(error.code)
+    return "service_unavailable"
 
 
 def _write_failure(response: Any) -> Rejection:

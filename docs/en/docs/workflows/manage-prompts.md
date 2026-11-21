@@ -38,11 +38,11 @@ page includes an editor for `profile.generate`, accessible from **Profile → Ge
 view Auto/Custom mode, effective instructions, built-in defaults, capability status, and any saved revision; switch to
 Custom starting from built-in defaults; save a new Revision. Saving does not call inference, enable generation, or
 reprocess historical Sources. Write access requires current `scope.admin` in enforced mode; `disabled` mode allows
-reads and writes without enforcement. The editor appears only when the capability is `supported` (or an existing
-Custom head is saved); a `disabled` capability stays readable but cannot be edited from the Dashboard, and an
+reads and writes without enforcement. Saving Custom instructions requires the `supported` capability; a `disabled`
+capability stays readable without Custom writes (existing Custom configurations can still return to Auto), and an
 externally managed Prompt without instructions is shown as unavailable. Editing instructions preserves existing
 demonstrations. Creation conflicts (`409`) and revision conflicts (`412`) preserve the draft and
-display the current ETag for reconciliation. Returning to Auto explicitly saves empty `instructions` and
+target the latest revision ETag for reconciliation. Returning to Auto explicitly saves empty `instructions` and
 `demonstrations` to use deployed defaults. Revision history is immutable; prior content can be restored as a new
 Revision. Other Prompt keys remain read-only in the Dashboard.
 

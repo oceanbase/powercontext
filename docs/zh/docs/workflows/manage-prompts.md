@@ -66,9 +66,9 @@ curl --fail --request PUT \
 可从 **Profile → 画像生成提示词** 进入：选择 Scope，查看 Auto/Custom 模式、当前生效指令、内置默认值、
 能力状态及已保存版本；首次切换到 Custom 以内置默认值为起点；保存新版本不会调用推理、启用生成或重处理历史
 Source。enforced 模式下写入需要当前 `scope.admin`；`disabled` 模式无强制检查。只有能力状态为
-`supported`（或已保存 Custom 版本）时才显示编辑器；能力为 `disabled` 时仍可查看，但不能在 Dashboard 编辑；
+`supported` 时才允许保存 Custom 指令；能力为 `disabled` 时仍可查看且已有 Custom 配置仍可切回 Auto，但不能在 Dashboard 保存新的 Custom 指令；
 没有指令的外部管理 Prompt 显示为不可用。编辑指令会保留已有 demonstrations。创建冲突（`409`）和版本冲突（`412`）会保留草稿并
-显示当前 ETag 供协调修改。切换回 Auto 时显式保存空 `instructions` 和 `demonstrations` 以使用部署内置默认值。
+把提交目标对准最新 ETag 供协调修改。切换回 Auto 时显式保存空 `instructions` 和 `demonstrations` 以使用部署内置默认值。
 版本历史不可变，历史内容可作为新 Revision 恢复。其他 Prompt key 在 Dashboard 中仍为只读。
 
 在 enforced 模式下，创建、替换、切换 Auto 和恢复都需要当前 `scope.admin` 权限。

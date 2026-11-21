@@ -33,7 +33,7 @@ limitations under the License.
         {{ read_error(page_error, t.method_generation_failed if page == 'methods' and request.method == 'POST' else '') }}
       {% elif plugin_page %}
         {% include 'plugin.html' %}
-      {% elif (not scope_descriptor and not record_only and page not in ['runtime','observability']) or page == 'entry' %}
+      {% elif (not scope_descriptor and not record_only and not prompt_draft and page not in ['runtime','observability']) or page == 'entry' %}
         {% include 'entry.html' %}
       {% else %}
         {% include page ~ '.html' %}

@@ -484,6 +484,7 @@
   "prompt_write_error_forbidden": "Saving a prompt needs Scope administrator access. Nothing was saved.",
   "prompt_write_error_service_unavailable": "The service is temporarily unavailable. Nothing was saved; try again later.",
   "prompt_write_error_capability_disabled": "Custom instructions cannot be saved while this generation capability is disabled. Nothing was saved.",
+  "prompt_write_error_prompt_customization_unavailable": "Custom instructions cannot be saved while this generation capability is disabled. Nothing was saved.",
   "prompt_write_error_capability_unsupported": "This Prompt is managed outside the Dashboard, so Custom instructions cannot be saved. Nothing was saved.",
   "prompt_write_error_invalid_request": "The Server rejected this prompt. Check the instructions and try again. Nothing was saved.",
   "prompt_state_disabled": "Disabled",

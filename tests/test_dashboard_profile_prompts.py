@@ -347,7 +347,17 @@ def test_profile_links_to_generation_prompt_and_prompts_view_before_and_after_re
     experience_card = _prompt_card(other_opened.text, "experience.generate")
     assert re.search(r'<details\b[^>]*class="[^"]*prompt-record[^"]*"[^>]*\bopen\b', experience_card)
     assert "/dashboard/prompts/profile-generate" not in experience_card
-    assert _extract_editor_form(other_opened.text) is None
+    assert _extract_editor_form(experience_card) is None
+
+    # Direct /dashboard/prompts access without prompt_key still exposes the profile.generate editor
+    # inside its details block while keeping all sibling prompts read-only, and Scope switching preserves prompt_key.
+    direct_prompts = dashboard.get("/dashboard/prompts", params={"scope": scope, "lang": language})
+    assert direct_prompts.status_code == 200, direct_prompts.text
+    direct_form = _extract_editor_form(direct_prompts.text)
+    assert direct_form is not None and direct_form.data_scope == scope
+    for key in OTHER_DASHBOARD_PROMPT_KEYS:
+        assert "/dashboard/prompts/profile-generate" not in _prompt_card(direct_prompts.text, key)
+    assert '<input type="hidden" name="prompt_key" value="profile.generate">' in after_prompt.text
 
 
 @pytest.mark.parametrize("language", ["en", "zh"])
@@ -910,6 +920,8 @@ def test_disabled_capability_is_readable_rejects_custom_preserving_draft_and_all
         expected_etag='"revision:1"',
     )
     assert blocked_custom_replace.status_code == 422, blocked_custom_replace.text
+    assert CATALOGS["en"]["prompt_write_error_capability_disabled"] in blocked_custom_replace.text
+    assert CATALOGS["en"]["prompt_write_error_invalid_request"] not in blocked_custom_replace.text
     form_blocked_replace = _extract_editor_form(blocked_custom_replace.text)
     assert form_blocked_replace is not None
     assert form_blocked_replace.instructions == "Cannot replace custom while disabled."
@@ -1192,10 +1204,13 @@ def test_oversized_body_413_and_write_503_preserve_draft_and_reject_writes(
 
     oversized = dashboard.post(
         "/dashboard/prompts/profile-generate",
-        content=f"scope={scope}&mode=custom&expected_etag=&instructions=".encode() + b"x" * 260_000,
+        content=f"scope={scope}&mode=custom&expected_etag=&instructions=".encode() + b"x" * 520_000,
         headers={"Origin": "http://testserver", "Content-Type": "application/x-www-form-urlencoded"},
     )
     assert oversized.status_code == 413, oversized.text
+    assert oversized.headers.get("X-Dashboard-HTML") == "1"
+    assert 'role="alert"' in oversized.text
+    assert CATALOGS["zh"]["prompt_write_error_instructions_too_long"] in oversized.text
     assert dashboard.get(f"/v1/scopes/{scope}/artifacts/prompt").json()["items"] == []
 
     original_send = DashboardAPI.send
@@ -1268,3 +1283,80 @@ def test_public_read_mode_supports_profile_prompt_edit_and_rollback(
     restored_page = dashboard.get(rolled_back.headers["location"])
     assert restored_page.status_code == 200, restored_page.text
     assert "Public mode rev 1." in restored_page.text
+
+
+def test_cjk_30k_prompt_saves_via_dashboard_and_outage_503_still_preserves_draft(
+    dashboard: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _set_prompt_registry(dashboard, supported=frozenset({"profile.generate"}))
+    scope = create_scope(dashboard, "CJK and 503 draft")["scope_id"]
+
+    # 30,000 CJK characters exceed 256 KB when form-urlencoded (~270 KB) but fit MAX_PROMPT_INSTRUCTIONS (32,768).
+    long_cjk = "中" * 30_000
+    saved = _post_profile_prompt(dashboard, scope=scope, mode="custom", instructions=long_cjk, expected_etag="")
+    assert saved.status_code == 303, saved.text
+    assert dashboard.get(f"/v1/scopes/{scope}/prompts/profile.generate").json()["effective"]["instructions"] == long_cjk
+
+    # Total read+write outage raising ReadError(503) must still render prompts.html with the preserved draft form.
+    async def fail_send(api: DashboardAPI, method: str, path: str, payload=None, headers=None):
+        raise ReadError(503, "service_unavailable")
+
+    async def fail_configs(api: DashboardAPI, scope_id: str, keys: tuple[str, ...]):
+        return [ReadError(503, "service_unavailable")]
+
+    with monkeypatch.context() as patch:
+        patch.setattr(DashboardAPI, "send", fail_send)
+        patch.setattr(DashboardAPI, "prompt_configurations", fail_configs)
+        draft = "Keep this draft even if both precheck and reload fail with 503."
+        failed = _post_profile_prompt(
+            dashboard,
+            scope=scope,
+            mode="custom",
+            instructions=draft,
+            expected_etag='"revision:1"',
+            lang="zh",
+        )
+    assert failed.status_code == 503, failed.text
+    assert failed.headers.get("X-Dashboard-HTML") == "1"
+    assert CATALOGS["zh"]["prompt_write_error_service_unavailable"] in failed.text
+    preserved = _extract_editor_form(failed.text)
+    assert preserved is not None
+    assert preserved.data_scope == scope
+    assert preserved.selected_mode == "custom"
+    assert preserved.instructions == draft
+    assert preserved.inputs.get("expected_etag") == '"revision:1"'
+
+
+def test_race_capability_error_code_translates_to_actionable_message(
+    dashboard: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import httpx
+
+    _set_prompt_registry(dashboard, supported=frozenset({"profile.generate"}))
+    scope = create_scope(dashboard, "Capability race error")["scope_id"]
+
+    original_send = DashboardAPI.send
+
+    async def race_capability(
+        api: DashboardAPI,
+        method: str,
+        path: str,
+        payload: dict[str, Any] | None = None,
+        headers: dict[str, str] | None = None,
+    ) -> httpx.Response:
+        if method == "POST" and "/artifacts" in path:
+            return httpx.Response(422, json={"error": {"code": "prompt_customization_unavailable"}})
+        return await original_send(api, method, path, payload, headers=headers)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(DashboardAPI, "send", race_capability)
+        rejected = _post_profile_prompt(
+            dashboard,
+            scope=scope,
+            mode="custom",
+            instructions="Raced capability disable.",
+            expected_etag="",
+        )
+    assert rejected.status_code == 422, rejected.text
+    assert CATALOGS["en"]["prompt_write_error_capability_disabled"] in rejected.text
+    assert CATALOGS["en"]["prompt_write_error_invalid_request"] not in rejected.text

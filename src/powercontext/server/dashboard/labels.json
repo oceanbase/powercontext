@@ -484,6 +484,7 @@
   "prompt_write_error_forbidden": "保存提示词需要范围管理员权限，未保存任何内容。",
   "prompt_write_error_service_unavailable": "服务暂时不可用，未保存任何内容，请稍后重试。",
   "prompt_write_error_capability_disabled": "此生成能力已关闭，无法保存自定义指令，未保存任何内容。",
+  "prompt_write_error_prompt_customization_unavailable": "此生成能力已关闭，无法保存自定义指令，未保存任何内容。",
   "prompt_write_error_capability_unsupported": "此提示词由控制台之外管理，无法保存自定义指令，未保存任何内容。",
   "prompt_write_error_invalid_request": "服务器拒绝了这个提示词，请检查指令后重试。未保存任何内容。",
   "prompt_state_disabled": "未启用",
