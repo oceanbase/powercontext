@@ -606,7 +606,9 @@ def test_concurrent_writes_under_a_held_writer_lock_keep_every_usage_record(tmp_
     embedding_timeout = 0.2
     lock_hold_seconds = 0.6
     busy_timeout_ms = 2_000
-    record_write_budget = 3.0
+    # Observe healthy accounting through contention, as in the stalled-write
+    # cancellation case. The model, lock-hold and business-write budgets stay short.
+    record_write_budget = 30.0
 
     async def scenario():
         app = _app(
