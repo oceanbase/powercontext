@@ -827,16 +827,13 @@ async def method_generation(request: Request) -> Response:
 @router.post("/prompts/profile-generate")
 async def profile_prompt_save(request: Request) -> Response:
     """Save or replace the profile.generate Prompt configuration."""
+    ctx = initial_context(request, "prompts")
     if not same_origin(request):
-        return HTMLResponse(
-            ENV.get_template("components/read-error.html").render(error=ReadError(403, "cross_origin_request")),
-            status_code=403,
-            headers={"Cache-Control": "no-store", "X-Dashboard-HTML": "1"},
-        )
+        ctx.update(page_error=ReadError(403, "cross_origin_request"), status=403)
+        return render(request, ctx)
     if len(await request.body()) > MAX_BODY_BYTES:
         return Response(status_code=413)
     submission = parse_submission(await request.form())
-    ctx = initial_context(request, "prompts")
     ctx["scope"] = submission.scope or ctx["scope"]
     api = DashboardAPI(request)
     try:

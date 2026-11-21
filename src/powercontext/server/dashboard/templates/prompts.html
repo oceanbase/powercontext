@@ -133,7 +133,10 @@ limitations under the License.
         event.preventDefault();
         // A blocked Scope switch must not leave the selector showing a Scope the page is not on.
         const selector = source && source.querySelector ? source.querySelector('select#scope') : null;
-        if (selector) selector.value = scope;
+        if (selector) {
+          selector.value = scope;
+          if (selector.tomselect) selector.tomselect.setValue(scope, true);
+        }
       };
       function cleanup() {
         window.removeEventListener('beforeunload', beforeUnload);

@@ -274,6 +274,7 @@ def test_profile_links_to_generation_prompt_and_prompts_view_before_and_after_re
     for key in (*OTHER_DASHBOARD_PROMPT_KEYS, "profile.generate"):
         assert f"<code>{key}</code>" in opened.text
     profile_card = _prompt_card(opened.text, "profile.generate")
+    assert labels["profile.generate"] in profile_card
     assert re.search(r'<details\b[^>]*class="[^"]*prompt-record[^"]*"[^>]*\bopen\b', profile_card)
     assert f"{labels['prompt_mode']}: {labels['prompt_auto']}" in profile_card
     assert labels["prompt_state_disabled"] in profile_card
@@ -926,6 +927,8 @@ def test_enforced_permissions_require_current_scope_admin_even_for_prompt_owner(
         origin="https://foreign.example",
     )
     assert cross_origin.status_code == 403, cross_origin.text
+    assert 'role="alert"' in cross_origin.text
+    assert CATALOGS["en"]["error_403"] in cross_origin.text
     assert dashboard.get(f"/v1/scopes/{scope}/artifacts/prompt").json()["items"] == []
 
     # scope.viewer and scope.contributor can read prompts without editor and are rejected with 403 preserving draft.

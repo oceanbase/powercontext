@@ -492,6 +492,7 @@
   "experience.generate": "Experience generation",
   "skill.generate": "Skill generation",
   "handoff.generate": "Handoff generation",
+  "profile.generate": "Profile generation",
   "usage_resources": "Token usage",
   "usage_unknown": "Not recorded",
   "work_followup": "Acknowledgement and subsequent outcomes",

@@ -492,6 +492,7 @@
   "experience.generate": "经验生成",
   "skill.generate": "技能生成",
   "handoff.generate": "交接生成",
+  "profile.generate": "画像生成",
   "usage_resources": "Token用量",
   "usage_unknown": "未记录",
   "work_followup": "接收与后续结果",
