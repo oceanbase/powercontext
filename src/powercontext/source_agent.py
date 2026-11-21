@@ -262,8 +262,10 @@ class SourceAgent:
             added = [target for target in targets if target["target_id"] not in self._known]
             if not (collect_all or added or now >= self._due.get(key, 0.0)):
                 continue
-            self._due[key] = now + _next_delay(plugin.collect, datetime.now(UTC))
             try:
+                # A schedule whose next time cannot be computed fails like a failed collect:
+                # this plugin retries next cycle and the other plugins and Scopes go on.
+                self._due[key] = now + _next_delay(plugin.collect, datetime.now(UTC))
                 outcomes.extend(await self._collect(plugin, key[1], targets, "target_added" if added else "schedule"))
             except Exception as error:
                 # One plugin's failure, also while reporting it, leaves the other plugins and Scopes collecting.
