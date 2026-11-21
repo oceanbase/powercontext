@@ -157,6 +157,17 @@ describe('PowerContextPlugin', () => {
     expect(calls[1]?.body).toMatchObject({ scope_id: 'project:test', content: 'continue the parser work' })
   })
 
+  it('offers the prepare tool only while prompt recall is on', async () => {
+    const recall = Object.keys((await PowerContextPlugin(pluginInput())).tool ?? {})
+    expect(recall).toContain('pc_prepare_context')
+
+    // Behind the gateway a prepared-context tool result would make Core reject every later turn of the session.
+    process.env.POWERCONTEXT_OPENCODE_PROMPT_RECALL = 'false'
+    const gateway = Object.keys((await PowerContextPlugin(pluginInput())).tool ?? {})
+    expect(gateway).toEqual(recall.filter((name) => name !== 'pc_prepare_context'))
+    expect(gateway).toContain('pc_search')
+  })
+
   it('sends no request for a prompt when prompt recall and capture are both disabled', async () => {
     process.env.POWERCONTEXT_OPENCODE_SCOPE_ID = 'project:test'
     process.env.POWERCONTEXT_OPENCODE_PROMPT_RECALL = 'false'
