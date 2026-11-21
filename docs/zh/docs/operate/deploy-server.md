@@ -192,13 +192,40 @@ Rust 可执行程序、联合 launcher、网关配置、私有通道认证、私
 ### 网关认证边界
 
 `PC_GATEWAY_API_KEY` 仅适用于 `/gateway/v1/chat/completions` 和 `/gateway/v1/responses`。
-非 loopback 网关监听要求配置有效的非空 key，但该启动校验不负责其他路由的认证。
+所有网关模型监听都要求有效的非空 key；该启动校验不负责其他路由的认证。
 组合部署（`PC_GATEWAY_CORE_UDS`）转发到 Core 的请求会保留客户端凭据，Core API、MCP 和 Dashboard 请求
 继续遵循 Core 自身的认证与访问控制规则。Gateway key 不授予 Core API 权限，UDS 也不能替代 Core 认证。
 
 组合部署对外开放前，须设置 `POWERCONTEXT_SERVER_ACCESS_MODE=enforced` 并配置有效的 Core 认证凭据，
 如上文的 UDS 示例所示。访问受保护 Core 路由的客户端必须使用 Core 凭据。
 `PC_GATEWAY_CORE_TOKEN` 用于网关主动发起的 Core 调用；反向代理不会用它替换客户端凭据。
+
+通过 TCP 调用 Core（`PC_GATEWAY_CORE_BASE`）时，特权目标解析要求 HTTPS，或使用显式回环 IP 的 HTTP 地址，
+例如 `http://127.0.0.1:8000`、`http://[::1]:8000`。普通 HTTP 主机名地址（包括 `http://localhost:8000`）
+会被拒绝；DNS 解析不作为回环信任的依据。请改用回环 IP、HTTPS 或 `PC_GATEWAY_CORE_UDS`。
+所有 TCP Core 调用均绕过进程环境中的 HTTP 代理（如 `HTTP_PROXY`、`ALL_PROXY`），Core 地址必须可以直连，
+以免代理伪造回环地址上的特权目标批准。
+
+### 网关模型目标
+
+模型入口的可信 endpoint、协议和模型由 Core `InferenceConfig.protection.targets` 配置。
+Chat 入口选择 `PC_GATEWAY_UPSTREAM_PROFILE`；需要启用 Responses 入口时再设置
+`PC_GATEWAY_UPSTREAM_PROFILE_RESPONSES`。每个 Gateway 实例的每个入口只选择一个 profile；同一入口中
+请求其他模型会在发送前被拒绝。此前按请求选择模型的部署需要为这些模型分别配置 Gateway 实例。
+Gateway 服务身份必须在对应 Scope 同时获授
+`gateway.invoke` 和 `scope.read`；`PC_GATEWAY_CORE_TOKEN` 必须代表该服务身份，且不能与面向客户端的必填
+`PC_GATEWAY_API_KEY` 相同。即使是 UDS 组合部署或未启用鉴权的 Core 部署，启动时也必须提供该 token；
+此前未配置 token 的部署需在升级前配置 Core 服务身份。网关只使用获准 `before_send` 返回的 endpoint 和协议；旧的
+`PC_GATEWAY_UPSTREAM_URL*` 变量会导致启动失败，Core 不可用、缺少目标解析或协议不匹配时不发送。
+服务商凭据仍由部署方通过 `PC_GATEWAY_UPSTREAM_API_KEY_CHAT` / `PC_GATEWAY_UPSTREAM_API_KEY_RESPONSES`
+（或共用的 `PC_GATEWAY_UPSTREAM_API_KEY`）管理；此阶段 Core **不校验**账号/区域身份。权限不同的凭据身份
+不能共用一个 profile。上游传输直连 Core 批准的 endpoint，不使用进程环境中的 HTTP 代理设置
+（如 `HTTP_PROXY`、`HTTPS_PROXY`、`ALL_PROXY`）；请配置可直达的 Core 批准目标。
+此前依靠这些代理连接服务商的部署，升级前必须提供直连能力；无法直连时发送会失败，不会回退使用代理。
+离线直通不可用；`PC_GATEWAY_DEGRADE=passthrough` 会导致启动失败。
+
+特权发送请求中的模型在所有隐私模式下都必须匹配 Core profile，包括 `disabled`、`shadow` 和 `advisory`。
+关闭隐私强制检查不会授予调用其他模型的权限。
 
 ### 网关上下文注入
 

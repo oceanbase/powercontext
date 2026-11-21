@@ -99,6 +99,8 @@ def process(command, env, health, log):
 def core_and_recordings():
     """Script only Core verdicts and model I/O; production code owns proxy behavior."""
 
+    profiles: dict[str, str] = {}
+
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, format, *args):  # noqa: A002 - Match the standard library override signature.
             pass
@@ -140,6 +142,11 @@ def core_and_recordings():
             request = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
             if self.path == "/v1/context/check":
                 phase = request["phase"]
+                profile = request.get("target_profile")
+                endpoint = profiles.get(profile) if phase == "before_send" else None
+                if phase == "before_send" and self.headers.get("x-powercontext-resolve-target") != "true":
+                    self.send_error(403)
+                    return
                 body = {
                     "schema": "powercontext.context-check.v1",
                     "phase": phase,
@@ -149,6 +156,12 @@ def core_and_recordings():
                     "policy_version": "test",
                     "valid_until": "2999-01-01T00:00:00Z",
                     "binding": f"test-{phase}",
+                    "target_endpoint": endpoint,
+                    "target_protocol": (
+                        {"sdk-chat": "openai-chat", "sdk-responses": "openai-responses"}.get(profile)
+                        if phase == "before_send"
+                        else None
+                    ),
                 }
                 self.send_body(json.dumps(body).encode())
                 return
@@ -163,7 +176,7 @@ def core_and_recordings():
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
-        yield f"http://127.0.0.1:{server.server_port}"
+        yield f"http://127.0.0.1:{server.server_port}", profiles
     finally:
         server.shutdown()
         server.server_close()
@@ -181,8 +194,9 @@ def target(name, args, upstream, core, directory):
     env = {
         "PC_GATEWAY_LISTEN": f"127.0.0.1:{port}",
         "PC_GATEWAY_CORE_BASE": core,
-        "PC_GATEWAY_UPSTREAM_URL_CHAT": f"{upstream}/chat/completions",
-        "PC_GATEWAY_UPSTREAM_URL_RESPONSES": f"{upstream}/responses",
+        "PC_GATEWAY_UPSTREAM_PROFILE": "sdk-chat",
+        "PC_GATEWAY_UPSTREAM_PROFILE_RESPONSES": "sdk-responses",
+        "PC_GATEWAY_CORE_TOKEN": "core-test-key",
         "PC_GATEWAY_UPSTREAM_API_KEY": "provider-test-key",
         "PC_GATEWAY_API_KEY": "gateway-test-key",
         "PC_GATEWAY_INJECTION": "off",
@@ -239,7 +253,7 @@ def main():
     )
     targets = ("direct", "powercontext")
     results = []
-    with core_and_recordings() as core, ExitStack() as stack:
+    with core_and_recordings() as (core, profiles), ExitStack() as stack:
         native_port = free_port()
         native = f"http://127.0.0.1:{native_port}/v1"
         log = stack.enter_context((args.output / "mockserver.log").open("w"))
@@ -252,6 +266,8 @@ def main():
             )
         )
         for kind, upstream in (("openai_sdk", native), ("openresponses", f"{core}/v1")):
+            profiles["sdk-chat"] = f"{upstream}/chat/completions"
+            profiles["sdk-responses"] = f"{upstream}/responses"
             for name in targets:
                 directory = args.output / kind / name
                 directory.mkdir(parents=True, exist_ok=True)

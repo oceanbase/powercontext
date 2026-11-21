@@ -66,14 +66,20 @@ class UpstreamProfile(BaseModel):
     @field_validator("endpoint")
     @classmethod
     def exact_endpoint(cls, value: str) -> str:
-        parsed = urlsplit(value)
+        try:
+            parsed = urlsplit(value)
+            # urlsplit accepts non-numeric and out-of-range ports unless .port is read.
+            port = parsed.port
+        except ValueError:
+            raise ValueError("profile endpoint must be a valid HTTP URL") from None  # noqa: TRY003
         if (
             parsed.scheme not in {"https", "http"}
             or not parsed.hostname
             or parsed.username is not None
             or parsed.password is not None
-            or parsed.query
-            or parsed.fragment
+            or port == 0
+            or "?" in value
+            or "#" in value
         ):
             raise ValueError("profile endpoint must be an exact HTTP URL without credentials or query")  # noqa: TRY003
         return value

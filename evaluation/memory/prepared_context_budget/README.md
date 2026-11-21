@@ -93,8 +93,12 @@ rank), `weight`, `display_bytes` (the complete display body), and for each arm `
 | `manifest_path`, `manifest_sha256` | The manifest as run |
 | `definitions_path`, `definitions_sha256` | The definitions as run |
 | `git_head`, `git_worktree_dirty` | Git revision and whether `src` or `evaluation/memory` had uncommitted changes |
-| `source_sha256` | SHA-256 of both runtime modules and every suite module that produced the report |
+| `source_sha256` | SHA-256 of both runtime modules and every suite module that produced the report, normalizing source CRLF line endings to LF so checkout settings do not change the digests |
 | `python`, `platform` | Interpreter version and platform |
+
+Pinned reports require a clean source tree. Commit source changes before generating into an ignored or external
+output directory, then copy the three artifacts into `reports/budget-v1/`. This avoids recording earlier report
+outputs as uncommitted source changes. The pinned run manifest must record `git_worktree_dirty: false`.
 
 ## Preregistration
 

@@ -210,7 +210,7 @@ UDS with channel and user authentication.
 ### Gateway authentication boundaries
 
 `PC_GATEWAY_API_KEY` applies only to `/gateway/v1/chat/completions` and `/gateway/v1/responses`.
-A non-loopback Gateway listener requires a valid, nonempty key; that startup check does not authenticate other routes.
+All Gateway model listeners require a valid, nonempty key; that startup check does not authenticate other routes.
 In a combined deployment (`PC_GATEWAY_CORE_UDS`), requests forwarded to Core retain the client's credentials.
 Core API, MCP and Dashboard requests follow Core's existing authentication and access-control rules.
 The Gateway key does not grant Core API access, and UDS does not replace Core authentication.
@@ -219,6 +219,39 @@ Before exposing a combined deployment, set `POWERCONTEXT_SERVER_ACCESS_MODE=enfo
 authentication credentials, as in the UDS example above. Clients of protected Core routes must use Core credentials.
 `PC_GATEWAY_CORE_TOKEN` authenticates Gateway-initiated Core calls; the reverse proxy does not substitute it for
 client credentials.
+
+For TCP Core calls (`PC_GATEWAY_CORE_BASE`), privileged target resolution requires HTTPS or an explicit
+loopback IP over HTTP, such as `http://127.0.0.1:8000` or `http://[::1]:8000`. Plain HTTP hostnames,
+including `http://localhost:8000`, are rejected; DNS resolution does not establish loopback trust.
+Use a literal loopback IP, HTTPS, or `PC_GATEWAY_CORE_UDS` instead.
+All TCP Core calls bypass ambient HTTP proxies (`HTTP_PROXY`, `ALL_PROXY`, etc.); the Core address must
+be directly reachable so a proxy cannot forge a privileged target approval for a loopback URL.
+
+### Gateway model destination
+
+Configure the trusted endpoint, protocol and model in Core `InferenceConfig.protection.targets`.
+Set `PC_GATEWAY_UPSTREAM_PROFILE` for Chat and, to enable Responses, `PC_GATEWAY_UPSTREAM_PROFILE_RESPONSES`.
+Each route selects one profile per Gateway instance. A request for another model on that route is rejected
+before sending; deployments that previously selected models per request need separately configured Gateway
+instances for those models.
+Grant the Gateway service identity both `gateway.invoke` and `scope.read` on the selected Scope;
+`PC_GATEWAY_CORE_TOKEN` must identify that service and differ from the mandatory client-facing `PC_GATEWAY_API_KEY`.
+This token is required at startup even for combined UDS deployments and Core deployments without authentication;
+previously tokenless deployments must configure a Core service identity before upgrading.
+The Gateway uses only the endpoint and protocol returned on an authorized `before_send` and never accepts
+`PC_GATEWAY_UPSTREAM_URL*`; these legacy variables now prevent startup. Core absence, missing target resolution,
+or a protocol mismatch pauses sending. The provider credential remains deployment-owned via
+`PC_GATEWAY_UPSTREAM_API_KEY_CHAT` / `PC_GATEWAY_UPSTREAM_API_KEY_RESPONSES` (or the shared
+`PC_GATEWAY_UPSTREAM_API_KEY`); account/region identity is **not** validated by Core in this iteration.
+Do not share a profile between provider credential identities with distinct permissions. The upstream
+transport connects directly to the approved endpoint and ignores ambient HTTP proxy settings
+(`HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY`, etc.); configure a directly reachable Core-approved endpoint.
+Deployments that previously relied on these proxies to reach the provider must arrange direct connectivity
+before upgrading; an unreachable provider fails the send rather than falling back to the proxy.
+No offline passthrough is available: `PC_GATEWAY_DEGRADE=passthrough` fails startup.
+
+The model in a privileged send request must match the Core profile in every privacy mode, including `disabled`,
+`shadow` and `advisory`. Turning off privacy enforcement does not authorize a different model.
 
 ### Gateway context injection
 
