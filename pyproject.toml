@@ -189,9 +189,11 @@ dev = [
     "powercontext[cli,server]",
     "powercontext-langchain",
     "powercontext-langgraph",
+    "powercontext-deepagents",
     "langchain>=1.3,<2",
     "langgraph>=1.2,<2",
     "langchain-core>=1,<2",
+    "langchain-openai>=1,<2",
     "pytest>=9.0.2",
     "time-machine==3.5.0",
     "pytest-cov>=7,<8",
@@ -208,6 +210,7 @@ dev = [
 powercontext-langchain = { path = "integrations/langchain", editable = true }
 powercontext-langgraph = { path = "integrations/langgraph", editable = true }
 powercontext-connector-opendal = { path = "integrations/opendal", editable = true }
+powercontext-deepagents = { path = "integrations/deepagents", editable = true }
 
 [build-system]
 requires = ["hatchling", "hatch-vcs"]
