@@ -3217,10 +3217,98 @@ fn captured_ids(gate: &FakeGate) -> Vec<String> {
 }
 
 #[tokio::test]
-async fn retried_and_concurrent_terminal_requests_of_a_turn_share_one_source_id() {
+async fn distinct_terminal_responses_are_captured_idempotently() {
+    for responses in [false, true] {
+        let outcomes = ["first answer", "second answer", "second answer"]
+            .into_iter()
+            .enumerate()
+            .map(|(i, text)| {
+                // Provider IDs and usage change on a repeated generation, even when its
+                // normalized content is identical.
+                delivered(if responses {
+                    serde_json::json!({
+                        "id": format!("resp_{i}"), "status": "completed",
+                        "output": [{"type": "message", "role": "assistant",
+                            "content": [{"type": "output_text", "text": text}]}],
+                        "usage": {"output_tokens": i + 1}
+                    })
+                } else {
+                    serde_json::json!({
+                        "id": format!("chatcmpl-{i}"),
+                        "choices": [{"finish_reason": "stop", "message": {
+                            "role": "assistant", "content": text}}],
+                        "usage": {"total_tokens": i + 1}
+                    })
+                })
+            })
+            .collect();
+        let (executor, renderer, _transport, gate) =
+            harness(allow_runs_with_fresh_release_bindings(3), outcomes, 2);
+        for _ in 0..3 {
+            let mut c = tool_loop_call("fix the bug", 1, responses);
+            c.inject_context = false;
+            c.sediment = true;
+            let outcome = if responses {
+                executor
+                    .run(
+                        request_control(),
+                        c,
+                        &pc_gateway_protocol::OpenAiResponsesRenderer,
+                        &NoopEvidenceSink,
+                    )
+                    .await
+            } else {
+                executor
+                    .run(
+                        request_control(),
+                        c,
+                        &RendererRef(renderer.clone()),
+                        &NoopEvidenceSink,
+                    )
+                    .await
+            };
+            assert!(matches!(outcome, ManagedOutcome::Released { .. }));
+        }
+        assert_eq!(gate.capture_requests.load(Ordering::SeqCst), 3);
+        let captures = gate.captured.lock().unwrap();
+        assert_eq!(captures.len(), 3);
+        assert_ne!(
+            captures[0].0, captures[1].0,
+            "distinct answers must not conflict"
+        );
+        assert_eq!(
+            captures[1], captures[2],
+            "same normalized content is idempotent"
+        );
+        for (index, (_, content)) in captures.iter().enumerate() {
+            let record: serde_json::Value = serde_json::from_str(content).unwrap();
+            assert_eq!(record["user"], "fix the bug");
+            assert_eq!(record["steps"].as_array().unwrap().len(), 2);
+            assert_eq!(
+                record["assistant"],
+                if index == 0 {
+                    "first answer"
+                } else {
+                    "second answer"
+                }
+            );
+            assert_no_transport_metadata(content);
+        }
+        let metadata = gate.captured_metadata.lock().unwrap();
+        assert!(metadata[0]["turn_digest"]
+            .as_str()
+            .is_some_and(|digest| !digest.is_empty()));
+        assert_eq!(metadata[0]["turn_digest"], metadata[1]["turn_digest"]);
+        assert_eq!(metadata[1], metadata[2]);
+    }
+}
+
+#[tokio::test]
+async fn retried_and_concurrent_distinct_responses_of_a_turn_have_distinct_source_ids() {
     let (executor, renderer, _transport, gate) = harness(
         allow_runs_with_fresh_release_bindings(5),
-        (0..5)
+        [0, 1, 2, 3, 0]
+            .into_iter()
             .map(|i| chat_final_response(&format!("done {i}")))
             .collect(),
         2,
@@ -3267,8 +3355,8 @@ async fn retried_and_concurrent_terminal_requests_of_a_turn_share_one_source_id(
     let ids = captured_ids(&gate);
     assert_eq!(ids.len(), 4);
     assert!(
-        ids.iter().all(|id| id == &ids[0]),
-        "one turn, one Source ID: {ids:?}"
+        ids.iter().collect::<std::collections::HashSet<_>>().len() == 4,
+        "distinct terminal records need distinct Source IDs: {ids:?}"
     );
     // 另一个会话中相同的消息是另一个回合。
     executor
@@ -3309,7 +3397,7 @@ async fn without_a_conversation_identical_turns_are_never_merged() {
 }
 
 #[tokio::test]
-async fn a_turn_already_captured_with_other_content_is_recorded_as_a_duplicate() {
+async fn a_capture_conflict_is_recorded_without_blocking_release() {
     let (executor, renderer, _transport, gate) =
         harness(allow_runs(1), vec![chat_final_response("done again")], 2);
     // Core 对同一 Source ID 的不同内容返回 409 source_conflict。
@@ -4414,7 +4502,7 @@ async fn capture_split_turn(batch: Option<usize>) -> (usize, usize, Vec<String>)
 }
 
 #[tokio::test]
-async fn a_retried_turn_keeps_its_first_source_id_when_the_part_count_changes() {
+async fn a_retried_turn_uses_distinct_source_ids_when_the_part_count_changes() {
     let output = |text: &str| {
         responses_output(serde_json::json!([
             {"id": "msg_1", "type": "message", "role": "assistant",
@@ -4450,9 +4538,9 @@ async fn a_retried_turn_keeps_its_first_source_id_when_the_part_count_changes() 
             part_counts.push(captured.len() - before);
         }
         assert_ne!(part_counts[0], part_counts[1]);
-        assert_eq!(
+        assert_ne!(
             first_ids[0], first_ids[1],
-            "Core sees the retry as the same Source and rejects its batch"
+            "different terminal records must have distinct Source IDs"
         );
     }
 }
@@ -4517,4 +4605,54 @@ async fn an_oversized_turn_is_captured_as_ordered_parts_with_the_handle_on_the_l
             "only the last part carries the handle"
         );
     }
+}
+
+#[tokio::test]
+async fn distinct_large_terminal_records_keep_independent_atomic_batches() {
+    let responses = ["first", "second"]
+        .into_iter()
+        .map(|text| {
+            responses_output(serde_json::json!([
+                {"id": "msg_1", "type": "message", "role": "assistant",
+                 "content": [{"type": "output_text", "text": text}]}
+            ]))
+        })
+        .collect();
+    let (executor, _renderer, _transport, gate) =
+        harness(allow_runs_with_fresh_release_bindings(2), responses, 2);
+    for _ in 0..2 {
+        let mut c = tool_loop_call(&"y".repeat(450_000), 0, true);
+        c.inject_context = false;
+        c.sediment = true;
+        let outcome = executor
+            .run(
+                request_control(),
+                c,
+                &pc_gateway_protocol::OpenAiResponsesRenderer,
+                &NoopEvidenceSink,
+            )
+            .await;
+        assert!(matches!(outcome, ManagedOutcome::Released { .. }));
+    }
+    assert_eq!(gate.capture_requests.load(Ordering::SeqCst), 2);
+    let captured = gate.captured.lock().unwrap();
+    let metadata = gate.captured_metadata.lock().unwrap();
+    let first_parts: Vec<usize> = metadata
+        .iter()
+        .enumerate()
+        .filter_map(|(index, entry)| (entry["turn"]["part"] == 1).then_some(index))
+        .collect();
+    assert_eq!(
+        first_parts.len(),
+        2,
+        "both captures should be split into parts"
+    );
+    assert_ne!(
+        captured[first_parts[0]].0, captured[first_parts[1]].0,
+        "the changed final answer must give the full batch a new identity"
+    );
+    assert_eq!(
+        metadata[first_parts[0]]["turn_digest"],
+        metadata[first_parts[1]]["turn_digest"]
+    );
 }
