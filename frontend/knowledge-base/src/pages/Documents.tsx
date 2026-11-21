@@ -18,6 +18,7 @@ import { Badge, Button, Card, Empty, Flex, Input, Select, Space, Table, Tooltip,
 import { FileTextOutlined, PictureOutlined, ReloadOutlined, SearchOutlined } from "@oceanbase/icons";
 import { useDocuments } from "../hooks";
 import type { Document, KB, Location, Processing } from "../types";
+import { isForbidden } from "../services";
 import { Failure } from "../components/Feedback";
 import * as Actions from "../actions";
 const statusNames: Record<string, string> = {
@@ -32,6 +33,7 @@ export function Documents({ kb, onOpen }: { kb: KB; onOpen(location: Location): 
   const [status, setStatus] = useState("all");
   const [records, setRecords] = useState(false);
   const [selected, setSelected] = useState<Document[]>([]);
+  if (isForbidden(query.error)) return <Failure error={query.error} />;
   const rows = query.data?.pages.flatMap((page) => page.items) || [];
   const requests = query.data?.pages[0]?.requests || [];
   const latest = new Map<string, Processing>();

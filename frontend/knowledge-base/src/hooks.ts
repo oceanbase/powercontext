@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 import { useInfiniteQuery, useMutation, useQueries, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
-import { service } from "./services";
+import { isForbidden, service } from "./services";
 import type { KB, Target, Edit } from "./types";
 export const keys = {
   processing: ["processing-requests"],
@@ -58,6 +58,7 @@ export const useDocuments = (scope: string) =>
     initialPageParam: null as string | null,
     getNextPageParam: (page) => page.next_cursor ?? undefined,
     refetchInterval: (query) =>
+      !isForbidden(query.state.error) &&
       query.state.data?.pages[0]?.requests.some((item) => ["pending", "processing"].includes(item.state))
         ? 5000
         : false,

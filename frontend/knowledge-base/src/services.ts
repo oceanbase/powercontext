@@ -51,6 +51,7 @@ export class ApiError extends Error {
     super(message);
   }
 }
+export const isForbidden = (error: unknown) => error instanceof ApiError && error.status === 403;
 async function result<T>(request: Promise<Response>): Promise<T> {
   const response = await request;
   if (!response.ok) throw new ApiError(response.status, `${response.status}：${response.json?.error?.message || "请求失败，请刷新后重试"}`);

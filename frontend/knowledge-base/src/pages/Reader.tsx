@@ -27,6 +27,7 @@ import {
   trackProcessing,
 } from "../hooks";
 import { useQueryClient } from "@tanstack/react-query";
+import { isForbidden } from "../services";
 import type { Location } from "../types";
 import { Failure } from "../components/Feedback";
 import { Markdown } from "../components/Markdown";
@@ -46,11 +47,12 @@ export function Reader({
   const lastRequest = documents.data?.pages[0]?.requests.find((item) => item.document_id === id);
   const pending = useProcessingRequests().data.some((item) => item.scope === scope && item.document === id);
   useEffect(() => {
+    if (isForbidden(documents.error)) return;
     for (const request of documents.data?.pages[0]?.requests || []) {
       if (request.document_id === id && ["pending", "processing"].includes(request.state))
         trackProcessing(client, scope, request);
     }
-  }, [documents.data, scope, id, client]);
+  }, [documents.data, documents.error, scope, id, client]);
   const [selection, setSelection] = useState<{ revision: number; ids: string[] }>({ revision: 0, ids: [] });
   const head = useHead(scope, id);
   const governance = useGovernance(scope, id);
@@ -68,6 +70,13 @@ export function Reader({
         ? location.chunk
         : chunks[0]?.chunk_id || "";
   const body = useChunk(scope, id, revision, selectedId);
+  if ([documents, head, governance, history, directory, body].some((query) => isForbidden(query.error))) {
+    return (
+      <PageContainer className="kb-page reader-page" title="文档详情" onBack={onBack}>
+        <Alert type="warning" showIcon message="无权查看此文档" />
+      </PageContainer>
+    );
+  }
   const active = governance.data?.lifecycle_state === "active";
   const editable = !!head.data && active && revision === head.data.revision && !pending;
   const checked = selection.revision === revision ? selection.ids : [];

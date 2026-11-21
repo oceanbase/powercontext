@@ -17,8 +17,7 @@ import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { keys, markDocumentChange, useProcessingRequests, type ProcessingTarget } from "../hooks";
 import { Alert } from "@oceanbase/design";
-import { ApiError, service } from "../services";
-const forbidden = (error: unknown) => error instanceof ApiError && error.status === 403;
+import { isForbidden, service } from "../services";
 function Watch({ target, onForbidden }: { target: ProcessingTarget; onForbidden: (show: boolean) => void }) {
   const client = useQueryClient();
   const settled = useRef(false);
@@ -26,10 +25,10 @@ function Watch({ target, onForbidden }: { target: ProcessingTarget; onForbidden:
     queryKey: ["processing-status", target.scope, target.request],
     queryFn: () => service.status(target.scope, target.request),
     refetchInterval: (query) =>
-      forbidden(query.state.error) || ["completed", "failed"].includes(query.state.data?.state || "") ? false : 2000,
+      isForbidden(query.state.error) || ["completed", "failed"].includes(query.state.data?.state || "") ? false : 2000,
   });
   useEffect(() => {
-    const denied = forbidden(status.error);
+    const denied = isForbidden(status.error);
     if (settled.current || (!denied && !["completed", "failed"].includes(status.data?.state || ""))) return;
     settled.current = true;
     if (denied) onForbidden(true);

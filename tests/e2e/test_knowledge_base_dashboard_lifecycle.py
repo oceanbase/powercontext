@@ -22,15 +22,8 @@ from tests.e2e.plugin_server import ADMIN_AUTHORIZATION_VALUE, wait_for
 from tests.e2e.test_knowledge_base_dashboard import dashboard, library, select_library, upload
 
 
-@pytest.mark.parametrize(("method", "other_scope"), [("upload", False), ("local", False), ("upload", True)])
-def test_dashboard_import_completion_invalidates_retrieval_after_tab_navigation(tmp_path, method, other_scope):
-    root = tmp_path / "documents"
-    root.mkdir()
-    original = "# Quartz\n\nOriginal instructions before import"
-    updated = "# Quartz\n\nUpdated instructions after import"
-    (root / "same.md").write_text(original)
-    hold = tmp_path / "hold"
-    gate = f"""
+def gated_parser(hold):
+    return f"""
 from pathlib import Path
 import time
 _original_parse = _service.parse
@@ -40,6 +33,17 @@ def _gated_parse(*args, **kwargs):
     return _original_parse(*args, **kwargs)
 _service.parse = _gated_parse
 """
+
+
+@pytest.mark.parametrize(("method", "other_scope"), [("upload", False), ("local", False), ("upload", True)])
+def test_dashboard_import_completion_invalidates_retrieval_after_tab_navigation(tmp_path, method, other_scope):
+    root = tmp_path / "documents"
+    root.mkdir()
+    original = "# Quartz\n\nOriginal instructions before import"
+    updated = "# Quartz\n\nUpdated instructions after import"
+    (root / "same.md").write_text(original)
+    hold = tmp_path / "hold"
+    gate = gated_parser(hold)
 
     async def scenario():
         async with dashboard(tmp_path, gate, extra_env={"POWERCONTEXT_KB_IMPORT_ROOTS": str(root)}) as (
@@ -178,17 +182,56 @@ def test_dashboard_retries_transient_status_then_stops_after_permission_loss(tmp
     asyncio.run(scenario())
 
 
+def test_dashboard_permission_loss_while_reading_stops_list_polling_and_hides_document(tmp_path):
+    hold = tmp_path / "hold"
+
+    async def scenario():
+        async with dashboard(tmp_path, gated_parser(hold)) as (call, page, frame, origin, expect):
+            space = (await call("GET", "/me/default-space"))["space_scope_id"]
+            kb = await library(call, "Scope access", space)
+            await upload(call, tmp_path, kb, "guide.md", "Previously readable instructions")
+            await page.goto(origin + "/dashboard/plugins/knowledge-base")
+            await select_library(frame, "Scope access")
+            await frame.get_by_role("button", name="浏览", exact=True).click()
+            body = frame.locator(".reader-content .markdown-body")
+            edit = frame.get_by_role("button", name="编辑分块", exact=True)
+            await expect(body).to_contain_text("Previously readable instructions")
+            await expect(edit).to_be_enabled()
+            hold.touch()
+            try:
+                await frame.get_by_role("button", name="文档更多操作").click()
+                await frame.get_by_role("menuitem", name="重新解析", exact=True).click()
+                async with page.expect_response(
+                    lambda r: "/documents?" in r.url and r.request.method == "GET"
+                ) as listing:
+                    await frame.get_by_role("button", name="确认", exact=True).click()
+                requests = (await (await listing.value).json())["requests"]
+                assert any(item["state"] in {"pending", "processing"} for item in requests)
+                list_denials = []
+
+                async def deny(route):
+                    if route.request.url.split("?")[0].endswith("/documents"):
+                        list_denials.append(route.request.url)
+                    await route.fulfill(status=403, json={"error": {"message": "Access denied"}})
+
+                await page.route(f"**/{kb['scope_id']}/**", deny)
+                await expect(frame.get_by_text("已停止跟踪", exact=False)).to_be_visible(timeout=12000)
+                await expect(frame.get_by_text("无权查看此文档", exact=True)).to_be_visible()
+                await expect(body).to_have_count(0)
+                await expect(edit).to_have_count(0)
+                await expect(frame.get_by_role("button", name="文档更多操作")).to_have_count(0)
+                assert list_denials
+                denied_count = len(list_denials)
+                await page.wait_for_timeout(6000)  # Stay on this reader beyond the document-list polling interval.
+                assert len(list_denials) == denied_count
+            finally:
+                hold.unlink(missing_ok=True)
+
+    asyncio.run(scenario())
+
+
 def test_dashboard_reprocess_tracks_committed_revision(tmp_path):
-    gate = f"""
-from pathlib import Path
-import time
-_original_parse = _service.parse
-def _gated_parse(*args, **kwargs):
-    while Path({str(tmp_path / "hold")!r}).exists():
-        time.sleep(0.05)
-    return _original_parse(*args, **kwargs)
-_service.parse = _gated_parse
-"""
+    gate = gated_parser(tmp_path / "hold")
 
     async def scenario():
         async with dashboard(tmp_path, gate) as (call, page, frame, origin, expect):
