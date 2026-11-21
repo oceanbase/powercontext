@@ -1,0 +1,27 @@
+.github/workflows/installation.yml
+  s_2ef0feea0a110d::t_5ed54dfbaaa9e2 77-78
+  s_2ef0feea0a110d::t_f4be99e4ce0bdd 45-55
+tests/native/test_installation.py
+  s_2ef0feea0a110d::t_b285fdc05a54b7 348-349
+  s_2ef0feea0a110d::t_d18c022b98cece 34,346-347,350
+  s_2ef0feea0a110d::t_d1e055c91b4eaa 338-339,344-345
+.github/workflows/e2e-harness.yml
+  s_2ef0feea0a110d::t_95383cc25a7631 634-637
+  s_2ef0feea0a110d::t_33795482ac6c34 673-674
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "052e56b8321226fa465da0f7e885658354c6f5aa",
+  "prompts": {},
+  "sessions": {
+    "s_2ef0feea0a110d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1a9cf-a4e7-7f63-9c51-1284f7c332e8",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "frf12 <rongfeng.frf@antgroup.com>"
+    }
+  }
+}
