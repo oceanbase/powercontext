@@ -187,6 +187,7 @@ def _run_main(
 
 def _prepare_query(
     hook_module: ModuleType,
+    prompt_flow: ModuleType,
     monkeypatch: pytest.MonkeyPatch,
     prompt: str,
 ) -> str:
@@ -194,15 +195,15 @@ def _prepare_query(
 
     queries: list[str] = []
     monkeypatch.setattr(
-        hook_module,
+        prompt_flow,
         "_prepare_context",
-        lambda query, _scope, *, settings, deadline: queries.append(query) or _prepared(),
+        lambda _host, query, _scope, *, settings, deadline: queries.append(query) or _prepared(),
     )
-    monkeypatch.setattr(hook_module, "resolve_scope_id", lambda _cwd, **_kwargs: "project:test")
+    monkeypatch.setattr(prompt_flow, "resolve_scope_id", lambda _host, _cwd, **_kwargs: "project:test")
     monkeypatch.setattr(
-        hook_module,
+        prompt_flow,
         "_capture_prompt",
-        lambda _payload, *, prompt, cwd, scope_id, settings, deadline: {"position": 1},
+        lambda _host, _event, *, prompt, cwd, scope_id, settings, deadline: {"position": 1},
     )
 
     _run_main(
@@ -221,6 +222,7 @@ def _prepare_query(
 
 def test_user_prompt_submit_injects_prepared_context_and_captures_prompt(
     hook_module: ModuleType,
+    prompt_flow: ModuleType,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     prepared_content = (
@@ -230,20 +232,20 @@ def test_user_prompt_submit_injects_prepared_context_and_captures_prompt(
         "END_POWERCONTEXT_PREPARED_CONTEXT_V1"
     )
     monkeypatch.setattr(
-        hook_module,
+        prompt_flow,
         "_prepare_context",
-        lambda _query, _scope, *, settings, deadline: _prepared(prepared_content),
+        lambda _host, _query, _scope, *, settings, deadline: _prepared(prepared_content),
     )
     monkeypatch.setattr(
-        hook_module,
+        prompt_flow,
         "resolve_scope_id",
-        lambda _cwd, **_kwargs: "git:github.com/oceanbase/powercontext",
+        lambda _host, _cwd, **_kwargs: "git:github.com/oceanbase/powercontext",
     )
     captured: list[tuple[str, str]] = []
     monkeypatch.setattr(
-        hook_module,
+        prompt_flow,
         "_capture_prompt",
-        lambda _payload, *, prompt, cwd, scope_id, settings, deadline: (
+        lambda _host, _event, *, prompt, cwd, scope_id, settings, deadline: (
             captured.append((prompt, scope_id)) or {"position": 1}
         ),
     )
@@ -266,24 +268,26 @@ def test_user_prompt_submit_injects_prepared_context_and_captures_prompt(
 
 def test_user_prompt_submit_passes_a_prompt_that_fits_the_request_bound_through_unchanged(
     hook_module: ModuleType,
+    prompt_flow: ModuleType,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The request contract bounds a query at 8,192 characters, and the bound is inclusive."""
 
     prompt = "a" * 8_192
 
-    assert _prepare_query(hook_module, monkeypatch, prompt) == prompt
+    assert _prepare_query(hook_module, prompt_flow, monkeypatch, prompt) == prompt
 
 
 def test_user_prompt_submit_keeps_the_latest_text_of_a_prompt_over_the_request_bound(
     hook_module: ModuleType,
+    prompt_flow: ModuleType,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Regression: a longer prompt used to reach prepare verbatim and fail validation."""
 
     prompt = "earlier context that the transcript already carries " * 200 + "Which service owns the retry?"
     assert len(prompt) > 8_192
-    query = _prepare_query(hook_module, monkeypatch, prompt)
+    query = _prepare_query(hook_module, prompt_flow, monkeypatch, prompt)
 
     assert query == prompt[-8_192:]
     assert len(query) == 8_192
@@ -292,12 +296,13 @@ def test_user_prompt_submit_keeps_the_latest_text_of_a_prompt_over_the_request_b
 
 def test_user_prompt_submit_keeps_a_multibyte_prompt_within_the_request_byte_bound(
     hook_module: ModuleType,
+    prompt_flow: ModuleType,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Non-ASCII text costs several bytes per character, so both bounds have to hold."""
 
     prompt = "记忆 " * 4_000
-    query = _prepare_query(hook_module, monkeypatch, prompt)
+    query = _prepare_query(hook_module, prompt_flow, monkeypatch, prompt)
 
     assert prompt.strip().endswith(query)
     assert len(query.encode("utf-8")) <= 8_192
@@ -306,18 +311,19 @@ def test_user_prompt_submit_keeps_a_multibyte_prompt_within_the_request_byte_bou
 
 def test_user_prompt_submit_captures_the_full_prompt_while_the_query_is_bounded(
     hook_module: ModuleType,
+    prompt_flow: ModuleType,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Source capture keeps its own size limit and is untouched by the recall bound."""
 
     prompt = "记忆 " * 3_000
     captured: list[str] = []
-    monkeypatch.setattr(hook_module, "_prepare_context", lambda *_args, **_kwargs: _prepared())
-    monkeypatch.setattr(hook_module, "resolve_scope_id", lambda _cwd, **_kwargs: "project:test")
+    monkeypatch.setattr(prompt_flow, "_prepare_context", lambda *_args, **_kwargs: _prepared())
+    monkeypatch.setattr(prompt_flow, "resolve_scope_id", lambda _host, _cwd, **_kwargs: "project:test")
     monkeypatch.setattr(
-        hook_module,
+        prompt_flow,
         "_capture_prompt",
-        lambda _payload, *, prompt, cwd, scope_id, settings, deadline: captured.append(prompt) or {"position": 1},
+        lambda _host, _event, *, prompt, cwd, scope_id, settings, deadline: captured.append(prompt) or {"position": 1},
     )
 
     _run_main(
@@ -335,24 +341,25 @@ def test_user_prompt_submit_captures_the_full_prompt_while_the_query_is_bounded(
 
 def test_user_prompt_submit_reads_utf8_stdin_on_windows_encodings(
     hook_module: ModuleType,
+    prompt_flow: ModuleType,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     prepared_content = "prepared context"
     captured: list[str] = []
     monkeypatch.setattr(
-        hook_module,
+        prompt_flow,
         "_prepare_context",
-        lambda _query, _scope, *, settings, deadline: _prepared(prepared_content),
+        lambda _host, _query, _scope, *, settings, deadline: _prepared(prepared_content),
     )
     monkeypatch.setattr(
-        hook_module,
+        prompt_flow,
         "resolve_scope_id",
-        lambda _cwd, **_kwargs: "git:github.com/oceanbase/powercontext",
+        lambda _host, _cwd, **_kwargs: "git:github.com/oceanbase/powercontext",
     )
     monkeypatch.setattr(
-        hook_module,
+        prompt_flow,
         "_capture_prompt",
-        lambda _payload, *, prompt, cwd, scope_id, settings, deadline: captured.append(prompt) or {"position": 1},
+        lambda _host, _event, *, prompt, cwd, scope_id, settings, deadline: captured.append(prompt) or {"position": 1},
     )
 
     payload = {
@@ -375,23 +382,24 @@ def test_user_prompt_submit_reads_utf8_stdin_on_windows_encodings(
 
 def test_user_prompt_compatibility_fallback_is_supported(
     hook_module: ModuleType,
+    prompt_flow: ModuleType,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
-        hook_module,
+        prompt_flow,
         "_prepare_context",
         lambda *_args, **_kwargs: _prepared(None, status="empty"),
     )
     monkeypatch.setattr(
-        hook_module,
+        prompt_flow,
         "resolve_scope_id",
-        lambda _cwd, **_kwargs: "project:test",
+        lambda _host, _cwd, **_kwargs: "project:test",
     )
     captured: list[str] = []
     monkeypatch.setattr(
-        hook_module,
+        prompt_flow,
         "_capture_prompt",
-        lambda _payload, *, prompt, **_kwargs: captured.append(prompt) or {"position": 1},
+        lambda _host, _event, *, prompt, **_kwargs: captured.append(prompt) or {"position": 1},
     )
 
     _run_main(
@@ -409,23 +417,24 @@ def test_user_prompt_compatibility_fallback_is_supported(
 
 def test_unexpected_recall_failure_does_not_prevent_prompt_capture(
     hook_module: ModuleType,
+    prompt_flow: ModuleType,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
-        hook_module,
+        prompt_flow,
         "_recall_context",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("unexpected")),
     )
     monkeypatch.setattr(
-        hook_module,
+        prompt_flow,
         "resolve_scope_id",
-        lambda _cwd, **_kwargs: "project:test",
+        lambda _host, _cwd, **_kwargs: "project:test",
     )
     captured: list[str] = []
     monkeypatch.setattr(
-        hook_module,
+        prompt_flow,
         "_capture_prompt",
-        lambda _payload, *, prompt, **_kwargs: captured.append(prompt) or {"position": 1},
+        lambda _host, _event, *, prompt, **_kwargs: captured.append(prompt) or {"position": 1},
     )
 
     output, _ = _run_main(
@@ -444,20 +453,21 @@ def test_unexpected_recall_failure_does_not_prevent_prompt_capture(
 
 def test_capture_failure_does_not_prevent_context_injection(
     hook_module: ModuleType,
+    prompt_flow: ModuleType,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
-        hook_module,
+        prompt_flow,
         "_prepare_context",
         lambda *_args, **_kwargs: _prepared("prepared context"),
     )
     monkeypatch.setattr(
-        hook_module,
+        prompt_flow,
         "resolve_scope_id",
-        lambda _cwd, **_kwargs: "project:test",
+        lambda _host, _cwd, **_kwargs: "project:test",
     )
     monkeypatch.setattr(
-        hook_module,
+        prompt_flow,
         "_capture_prompt",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("capture failed")),
     )
@@ -484,15 +494,16 @@ def test_capture_failure_does_not_prevent_context_injection(
 
 def test_host_diagnostic_is_throttled_across_hook_invocations(
     hook_module: ModuleType,
+    prompt_flow: ModuleType,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
-        hook_module,
+        prompt_flow,
         "_prepare_context",
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(hook_module._ServerUnavailableError()),
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(prompt_flow._ServerUnavailableError()),
     )
-    monkeypatch.setattr(hook_module, "resolve_scope_id", lambda *_args, **_kwargs: "project:test")
-    monkeypatch.setattr(hook_module, "_capture_prompt", lambda *_args, **_kwargs: {"position": 1})
+    monkeypatch.setattr(prompt_flow, "resolve_scope_id", lambda *_args, **_kwargs: "project:test")
+    monkeypatch.setattr(prompt_flow, "_capture_prompt", lambda *_args, **_kwargs: {"position": 1})
 
     payload: dict[str, object] = {
         "hook_event_name": "UserPromptSubmit",
@@ -807,23 +818,24 @@ def test_failed_session_start_does_not_hold_back_the_next_prompt_diagnostic(
 
 def test_recall_and_capture_share_one_http_deadline(
     hook_module: ModuleType,
+    prompt_flow: ModuleType,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     deadlines: list[float] = []
     monkeypatch.setattr(
-        hook_module,
+        prompt_flow,
         "_recall_context",
         lambda *_args, deadline, **_kwargs: deadlines.append(deadline),
     )
     monkeypatch.setattr(
-        hook_module,
+        prompt_flow,
         "_capture_prompt",
         lambda *_args, deadline, **_kwargs: deadlines.append(deadline) or {"position": 1},
     )
     monkeypatch.setattr(
-        hook_module,
+        prompt_flow,
         "resolve_scope_id",
-        lambda _cwd, **_kwargs: "project:test",
+        lambda _host, _cwd, **_kwargs: "project:test",
     )
 
     _run_main(
@@ -842,22 +854,23 @@ def test_recall_and_capture_share_one_http_deadline(
 
 def test_prompt_capture_can_be_disabled(
     hook_module: ModuleType,
+    prompt_flow: ModuleType,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
-        hook_module,
+        prompt_flow,
         "_prepare_context",
         lambda *_args, **_kwargs: _prepared(None, status="empty"),
     )
     monkeypatch.setattr(
-        hook_module,
+        prompt_flow,
         "_capture_prompt",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("capture must be disabled")),
     )
     monkeypatch.setattr(
-        hook_module,
+        prompt_flow,
         "resolve_scope_id",
-        lambda _cwd, **_kwargs: "project:test",
+        lambda _host, _cwd, **_kwargs: "project:test",
     )
 
     output = io.StringIO()
@@ -882,6 +895,7 @@ def test_prompt_capture_can_be_disabled(
 
 def test_capture_prompt_is_idempotent_and_is_not_a_task_outcome(
     hook_module: ModuleType,
+    prompt_flow: ModuleType,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     requests: list[tuple[str, dict[str, object]]] = []
@@ -890,24 +904,30 @@ def test_capture_prompt_is_idempotent_and_is_not_a_task_outcome(
         path: str,
         payload: dict[str, object],
         *,
+        host: object,
         settings: object,
         deadline: float,
     ) -> dict[str, object]:
         requests.append((path, payload))
         return {"position": 1}
 
-    monkeypatch.setattr(hook_module, "_post_json", post)
-    payload = {"session_id": "session-1", "prompt_id": "prompt-2"}
+    monkeypatch.setattr(prompt_flow, "_post_json", post)
+    event = prompt_flow.UserPromptEvent(
+        prompt="Keep the Source pipeline.",
+        cwd="/workspace/project",
+        session_id="session-1",
+        prompt_id="prompt-2",
+    )
     arguments = {
         "prompt": "Keep the Source pipeline.",
         "cwd": "/workspace/project",
         "scope_id": "project:test",
-        "settings": hook_module.ClaudeCodePluginSettings(),
+        "settings": hook_module.ClaudeCodePluginSettings().prompt_settings(),
         "deadline": 10.0,
     }
 
-    hook_module._capture_prompt(payload, **arguments)
-    hook_module._capture_prompt(payload, **arguments)
+    prompt_flow._capture_prompt(hook_module.CLAUDE_CODE, event, **arguments)
+    prompt_flow._capture_prompt(hook_module.CLAUDE_CODE, event, **arguments)
 
     assert requests[0] == requests[1]
     path, request = requests[0]
@@ -933,22 +953,24 @@ def test_capture_prompt_is_idempotent_and_is_not_a_task_outcome(
 )
 def test_http_failures_are_non_blocking_and_content_free(
     hook_module: ModuleType,
+    prompt_flow: ModuleType,
     monkeypatch: pytest.MonkeyPatch,
     status: int,
     outcome: str,
 ) -> None:
     monkeypatch.setattr(
-        hook_module,
+        prompt_flow,
         "_prepare_context",
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(hook_module._HttpStatusError(status)),
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(prompt_flow._HttpStatusError(status)),
     )
     errors = io.StringIO()
     monkeypatch.setattr(sys, "stderr", errors)
 
-    context = hook_module._recall_context(
+    context = prompt_flow._recall_context(
+        hook_module.CLAUDE_CODE,
         "secret-query",
         "secret-scope",
-        settings=hook_module.ClaudeCodePluginSettings(),
+        settings=hook_module.ClaudeCodePluginSettings().prompt_settings(),
         deadline=time.monotonic() + 1,
     )
 
@@ -967,25 +989,27 @@ def test_http_failures_are_non_blocking_and_content_free(
 )
 def test_context_prepare_domain_errors_remain_visible(
     hook_module: ModuleType,
+    prompt_flow: ModuleType,
     monkeypatch: pytest.MonkeyPatch,
     status: int,
     code: str,
 ) -> None:
     monkeypatch.setattr(
-        hook_module,
+        prompt_flow,
         "_prepare_context",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(
-            hook_module._HttpStatusError(status, "/v1/context/prepare", code)
+            prompt_flow._HttpStatusError(status, "/v1/context/prepare", code)
         ),
     )
     errors = io.StringIO()
     monkeypatch.setattr(sys, "stderr", errors)
 
     assert (
-        hook_module._recall_context(
+        prompt_flow._recall_context(
+            hook_module.CLAUDE_CODE,
             "query",
             "project:test",
-            settings=hook_module.ClaudeCodePluginSettings(),
+            settings=hook_module.ClaudeCodePluginSettings().prompt_settings(),
             deadline=time.monotonic() + 1,
         )
         is None
@@ -1005,17 +1029,18 @@ def test_context_prepare_domain_errors_remain_visible(
 )
 def test_capture_domain_errors_remain_visible_as_automatic_failures(
     hook_module: ModuleType,
+    prompt_flow: ModuleType,
     monkeypatch: pytest.MonkeyPatch,
     status: int,
     code: str,
 ) -> None:
-    monkeypatch.setattr(hook_module, "_prepare_context", lambda *_args, **_kwargs: _prepared("prepared context"))
-    monkeypatch.setattr(hook_module, "resolve_scope_id", lambda *_args, **_kwargs: "project:test")
+    monkeypatch.setattr(prompt_flow, "_prepare_context", lambda *_args, **_kwargs: _prepared("prepared context"))
+    monkeypatch.setattr(prompt_flow, "resolve_scope_id", lambda *_args, **_kwargs: "project:test")
     monkeypatch.setattr(
-        hook_module,
+        prompt_flow,
         "_capture_prompt",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(
-            hook_module._HttpStatusError(status, "/v1/sources/content", code)
+            prompt_flow._HttpStatusError(status, "/v1/sources/content", code)
         ),
     )
 
@@ -1043,16 +1068,17 @@ def test_capture_domain_errors_remain_visible_as_automatic_failures(
 
 def test_flush_domain_error_remains_visible_as_an_automatic_failure(
     hook_module: ModuleType,
+    prompt_flow: ModuleType,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(hook_module, "_prepare_context", lambda *_args, **_kwargs: _prepared("prepared context"))
-    monkeypatch.setattr(hook_module, "resolve_scope_id", lambda *_args, **_kwargs: "project:test")
-    monkeypatch.setattr(hook_module, "_capture_prompt", lambda *_args, **_kwargs: {"position": 1})
+    monkeypatch.setattr(prompt_flow, "_prepare_context", lambda *_args, **_kwargs: _prepared("prepared context"))
+    monkeypatch.setattr(prompt_flow, "resolve_scope_id", lambda *_args, **_kwargs: "project:test")
+    monkeypatch.setattr(prompt_flow, "_capture_prompt", lambda *_args, **_kwargs: {"position": 1})
     monkeypatch.setattr(
-        hook_module,
+        prompt_flow,
         "_flush_through",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(
-            hook_module._HttpStatusError(422, "/v1/memory/flush", "invalid_request")
+            prompt_flow._HttpStatusError(422, "/v1/memory/flush", "invalid_request")
         ),
     )
 
@@ -1083,19 +1109,21 @@ def test_flush_domain_error_remains_visible_as_an_automatic_failure(
 
 def test_unknown_schema_is_not_injected(
     hook_module: ModuleType,
+    prompt_flow: ModuleType,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     response = _prepared("do-not-log")
     response["schema"] = "powercontext.prepared-context.v2"
-    monkeypatch.setattr(hook_module, "_prepare_context", lambda *_args, **_kwargs: response)
+    monkeypatch.setattr(prompt_flow, "_prepare_context", lambda *_args, **_kwargs: response)
     errors = io.StringIO()
     monkeypatch.setattr(sys, "stderr", errors)
 
     assert (
-        hook_module._recall_context(
+        prompt_flow._recall_context(
+            hook_module.CLAUDE_CODE,
             "secret-query",
             "secret-scope",
-            settings=hook_module.ClaudeCodePluginSettings(),
+            settings=hook_module.ClaudeCodePluginSettings().prompt_settings(),
             deadline=time.monotonic() + 1,
         )
         is None
@@ -1106,6 +1134,7 @@ def test_unknown_schema_is_not_injected(
 
 def test_hook_refuses_redirects(
     hook_module: ModuleType,
+    prompt_flow: ModuleType,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     target_headers: list[dict[str, str]] = []
@@ -1136,17 +1165,18 @@ def test_hook_refuses_redirects(
                 authorization="Bearer secret-token",
             )
             with pytest.raises(RuntimeError):
-                hook_module._post_json(
+                prompt_flow._post_json(
                     "/redirect",
                     {"scope_id": "project:test"},
-                    settings=settings,
+                    host=hook_module.CLAUDE_CODE,
+                    settings=settings.prompt_settings(),
                     deadline=time.monotonic() + 1,
                 )
 
     assert target_headers == []
 
 
-def test_http_error_preserves_structured_error_code(hook_module: ModuleType) -> None:
+def test_http_error_preserves_structured_error_code(hook_module: ModuleType, prompt_flow: ModuleType) -> None:
     class ErrorHandler(BaseHTTPRequestHandler):
         def do_POST(self) -> None:
             body = b'{"error":{"code":"invalid_request","message":"bad request"}}'
@@ -1161,11 +1191,12 @@ def test_http_error_preserves_structured_error_code(hook_module: ModuleType) -> 
 
     with _serve(ErrorHandler) as server_url:
         settings = hook_module.ClaudeCodePluginSettings(server_url=server_url)
-        with pytest.raises(hook_module._HttpStatusError) as caught:
-            hook_module._post_json(
+        with pytest.raises(prompt_flow._HttpStatusError) as caught:
+            prompt_flow._post_json(
                 "/v1/context/prepare",
                 {},
-                settings=settings,
+                host=hook_module.CLAUDE_CODE,
+                settings=settings.prompt_settings(),
                 deadline=time.monotonic() + 1,
                 expected_status=200,
             )
@@ -1177,6 +1208,7 @@ def test_http_error_preserves_structured_error_code(hook_module: ModuleType) -> 
 
 def test_hook_aborts_a_slow_http_error_response(
     hook_module: ModuleType,
+    prompt_flow: ModuleType,
 ) -> None:
     class SlowErrorHandler(BaseHTTPRequestHandler):
         def do_POST(self) -> None:
@@ -1202,11 +1234,12 @@ def test_hook_aborts_a_slow_http_error_response(
             request_timeout_seconds=1.0,
             http_budget_seconds=0.1,
         )
-        with pytest.raises(hook_module._ServerUnavailableError):
-            hook_module._post_json(
+        with pytest.raises(prompt_flow._ServerUnavailableError):
+            prompt_flow._post_json(
                 "/v1/context/prepare",
                 {},
-                settings=settings,
+                host=hook_module.CLAUDE_CODE,
+                settings=settings.prompt_settings(),
                 deadline=time.monotonic() + 0.1,
                 expected_status=200,
             )
@@ -1214,6 +1247,7 @@ def test_hook_aborts_a_slow_http_error_response(
 
 def test_hook_error_body_reads_share_one_deadline(
     hook_module: ModuleType,
+    prompt_flow: ModuleType,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     elapsed = 0.0
@@ -1234,13 +1268,15 @@ def test_hook_error_body_reads_share_one_deadline(
 
     # Advance only transport time so scheduler pauses cannot masquerade as
     # deadline overruns. The separate HTTP test covers urllib's real error path.
-    monkeypatch.setattr(hook_module, "monotonic", lambda: elapsed)
-    monkeypatch.setattr(hook_module, "open_bounded", open_error)
-    with pytest.raises(hook_module._ServerUnavailableError):
-        hook_module._post_json(
+    monkeypatch.setattr(prompt_flow, "monotonic", lambda: elapsed)
+    monkeypatch.setattr(prompt_flow, "open_bounded", open_error)
+    settings = hook_module.ClaudeCodePluginSettings(request_timeout_seconds=1.0, http_budget_seconds=0.1)
+    with pytest.raises(prompt_flow._ServerUnavailableError):
+        prompt_flow._post_json(
             "/v1/context/prepare",
             {},
-            settings=hook_module.ClaudeCodePluginSettings(request_timeout_seconds=1.0, http_budget_seconds=0.1),
+            host=hook_module.CLAUDE_CODE,
+            settings=settings.prompt_settings(),
             deadline=0.1,
             expected_status=200,
         )

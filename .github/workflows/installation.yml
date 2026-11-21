@@ -41,6 +41,8 @@ jobs:
 
       - name: Set up the environment
         uses: ./.github/actions/setup-python-env
+        with:
+          shared-cache: ${{ matrix.os == 'ubuntu-latest' && 'true' || 'false' }}
 
       - name: Build the installation fixture
         shell: bash

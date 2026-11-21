@@ -59,6 +59,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
+          filter: blob:none
           persist-credentials: false
 
       - name: Plan selected acceptance work
@@ -90,7 +91,7 @@ jobs:
       - name: Install uv
         id: uv
         if: steps.plan.outputs.replay == 'true'
-        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        uses: ./.github/actions/setup-uv
         with:
           version: ${{ env.UV_VERSION }}
           python-version: "3.12"
@@ -134,7 +135,7 @@ jobs:
 
       - name: Save harness validation dependencies
         if: steps.plan.outputs.replay == 'true' && steps.uv.outputs.cache-hit != 'true' && github.event_name != 'merge_group'
-        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        uses: ./.github/actions/cache-save
         with:
           path: ${{ env.UV_CACHE_DIR }}
           key: ${{ steps.uv.outputs.cache-key }}
@@ -673,7 +674,7 @@ jobs:
           persist-credentials: false
 
       - name: Install uv
-        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        uses: ./.github/actions/setup-uv
         with:
           version: ${{ env.UV_VERSION }}
 

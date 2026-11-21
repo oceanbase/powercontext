@@ -153,25 +153,28 @@ def test_mcp_headers_helper_command_runs_from_a_plugin_root_with_spaces(tmp_path
 
 def test_scope_resolver_and_workspace_binding_use_the_server(
     scope_module: ModuleType,
+    scope_binding_client: ModuleType,
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     requests: list[tuple[str, dict[str, object], str]] = []
 
-    def request(path, payload, *, settings, deadline, method="POST"):
+    def request(path, payload, *, host, settings, deadline, method="POST"):
         requests.append((path, payload, method))
         return {"scope_id": "scp_00000000000000000000000000"}
 
-    monkeypatch.setattr(scope_module, "_request_json", request)
-    settings = scope_module.ClaudeCodePluginSettings(scope_id="scp_00000000000000000000000000")
+    monkeypatch.setattr(scope_binding_client, "_request_json", request)
+    settings = scope_module.ClaudeCodePluginSettings(scope_id="scp_00000000000000000000000000").scope_binding_settings()
 
-    resolved = scope_module.resolve_scope_id(
+    resolved = scope_binding_client.resolve_scope_id(
+        scope_module.CLAUDE_CODE,
         str(tmp_path),
         session_id="session-1",
         settings=settings,
         deadline=float("inf"),
     )
-    bound = scope_module.bind_scope(
+    bound = scope_binding_client.bind_scope(
+        scope_module.CLAUDE_CODE,
         str(tmp_path),
         resolved,
         settings=settings,

@@ -41,6 +41,7 @@ const config: ResolvedConfig = {
 function expectNoSyntheticSecret(value: string): void {
   expect(value).not.toContain('synthetic-value-2084')
   expect(value).not.toContain('synthetic_value_2084')
+  expect(value).not.toContain('SyntheticValue2084')
 }
 
 describe('shared automatic prompt privacy policy', () => {
