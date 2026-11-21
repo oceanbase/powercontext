@@ -1183,14 +1183,46 @@ class _BlockingNativeRepository(StatisticsRepository):
         await super().record(connection, scope_id, usage_date, purpose, operation, usage)
 
 
-def test_uninterruptible_native_call_keeps_connection_owned_until_real_cleanup() -> None:
+def test_uninterruptible_native_call_keeps_connection_owned_until_real_cleanup(monkeypatch: pytest.MonkeyPatch) -> None:
     async def scenario() -> None:
         async with _database(SQLiteConfig(busy_timeout_ms=137)) as database:
             repository = _BlockingNativeRepository()
-            recorder = _ModelUsageRecorder(database, repository, write_timeout_seconds=0.03, flush_timeout_seconds=0.02)
+            loop = asyncio.get_running_loop()
+            native_interrupted = asyncio.Event()
+            interrupted_while_blocked: list[bool] = []
+            call_at = loop.call_at
+
+            def observe_native_interrupt(when, callback, *args, **kwargs):
+                if getattr(callback, "__name__", None) == "interrupt" and isinstance(
+                    getattr(callback, "__self__", None), sqlite3.Connection
+                ):
+
+                    def interrupt() -> None:
+                        interrupted_while_blocked.append(
+                            repository.entered.is_set() and not repository.release.is_set()
+                        )
+                        callback(*args)
+                        native_interrupted.set()
+
+                    return call_at(when, interrupt, **kwargs)
+                return call_at(when, callback, *args, **kwargs)
+
+            monkeypatch.setattr(loop, "call_at", observe_native_interrupt)
+            # Let checkout and SQLite setup finish before exercising expiration
+            # inside the native call. The recorder still schedules the real
+            # interrupt; the observer neither reschedules nor invokes it early.
+            write_timeout_seconds = 30.0
+            recorder = _ModelUsageRecorder(
+                database, repository, write_timeout_seconds=write_timeout_seconds, flush_timeout_seconds=0.02
+            )
             try:
                 _offer(recorder)
-                assert await asyncio.to_thread(repository.entered.wait, 1)
+                assert await asyncio.to_thread(repository.entered.wait, 10)
+                await asyncio.wait_for(native_interrupted.wait(), write_timeout_seconds)
+                assert interrupted_while_blocked and all(interrupted_while_blocked)
+                # The already-running attempt owns its original deadline. Keep
+                # the short shutdown window after observing its real expiry.
+                recorder._write_timeout_seconds = 0.03
                 await recorder.close()
                 # sqlite3_interrupt cannot preempt a native user-defined
                 # function. Do not report cancellation or reuse the connection.
@@ -1199,7 +1231,9 @@ def test_uninterruptible_native_call_keeps_connection_owned_until_real_cleanup()
                 await asyncio.sleep(0)
                 assert not reader.done()
                 repository.release.set()
-                await asyncio.wait_for(reader, 1)
+                # This observes healthy cleanup after release, not the short
+                # write/close failure budgets exercised while the call is held.
+                await asyncio.wait_for(reader, 10)
                 await recorder.close()
                 assert recorder._consumer.done()
                 assert await _rows(database) == ()
