@@ -203,7 +203,9 @@ gateway's `PC_GATEWAY_API_KEY` value as its `apiKey`, and select its model, for 
         baseUrl: "http://127.0.0.1:8787/gateway/v1",
         apiKey: "${PC_GATEWAY_KEY}",
         api: "openai-responses",
-        models: [{ id: "approved-model", contextWindow: 400000, maxTokens: 32000 }],
+        models: [
+          { id: "approved-model", name: "Approved model", contextWindow: 400000, maxTokens: 32000 },
+        ],
       },
     },
   },

@@ -189,7 +189,9 @@ memory 工具照常工作，它们都不准备上下文。关闭采集后，插�
         baseUrl: "http://127.0.0.1:8787/gateway/v1",
         apiKey: "${PC_GATEWAY_KEY}",
         api: "openai-responses",
-        models: [{ id: "approved-model", contextWindow: 400000, maxTokens: 32000 }],
+        models: [
+          { id: "approved-model", name: "Approved model", contextWindow: 400000, maxTokens: 32000 },
+        ],
       },
     },
   },
