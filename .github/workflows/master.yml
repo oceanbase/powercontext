@@ -1606,6 +1606,37 @@ jobs:
     with:
       suites: ${{ needs.quality.outputs.suites }}
 
+  knowledge-base:
+    needs: [quality, tests]
+    if: ${{ !cancelled() && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').knowledge_base) }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-python-env
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/knowledge-base/package-lock.json
+      - name: Build and verify plugin Dashboard assets
+        run: |
+          npm ci --prefix frontend/knowledge-base --no-audit --no-fund
+          npm run build --prefix frontend/knowledge-base
+          git diff --exit-code -- plugins/knowledge-base/ui
+      - name: Install plugin dependencies
+        run: uv sync --locked --extra knowledge-base --group knowledge-base-tests
+      - name: Check plugin types with its optional dependencies
+        run: uv run --no-sync ty check --no-force-exclude plugins/knowledge-base
+      - name: Install browser for plugin navigation regressions
+        run: uv run --no-sync playwright install --with-deps chromium
+      - name: Exercise Server, Worker, revision lifecycle and real OCR
+        run: uv run --no-sync pytest tests/knowledge_base tests/e2e/test_knowledge_base*.py tests/e2e/test_plugin_pages.py
+
   ci-result:
     name: CI result
     needs:
@@ -1620,6 +1651,7 @@ jobs:
       - worker-observability
       - evaluation-tests
       - code-seekdb
+      - knowledge-base
       - atomic-memory-clean-seekdb
       - windows-unit-portability
       - dify-tools
