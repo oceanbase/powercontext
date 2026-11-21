@@ -148,17 +148,165 @@ def test_flush_publishes_the_decision_corrected_after_rule_feedback(monkeypatch,
     assert REVISE_RULE in provider.retry_feedback[0]
 
 
-def test_flush_reports_the_broken_rule_after_the_retry_budget_is_spent(monkeypatch, tmp_path):
+def test_exhausted_identity_correction_keeps_both_unpublished_candidates(monkeypatch, tmp_path):
     provider = _Provider(corrects=False)
 
     error, cursor, entries = asyncio.run(_flush(provider, monkeypatch, tmp_path))
 
-    assert isinstance(error, InvalidInferenceOutputError)
-    assert error.operation == "atomic-memory-reconcile"
-    assert REVISE_RULE in error.detail
-    assert (cursor, entries) == (0, ())
+    assert error is None
+    assert cursor == 1
+    assert {entry.artifact.content.text for entry in entries} == {
+        "Billing uses PostgreSQL 16.",
+        "Billing no longer uses MySQL.",
+    }
     # The default generation_max_requests of 2 allows one corrected attempt.
     assert provider.comparisons == 2
+
+
+@pytest.mark.parametrize(
+    ("max_requests", "drops_date"),
+    [(1, False), (2, False), (2, True)],
+    ids=["one-request", "with-retry", "with-retry-and-date-loss"],
+)
+def test_exhausted_identity_correction_keeps_the_first_revision_and_processes_later_source(
+    monkeypatch, tmp_path, max_requests, drops_date
+):
+    date = "2026-05-01"
+    proposal_text = f"Effective {date}, Billing uses a dedicated production database."
+    revised_text = f"Effective {date}, Billing uses a dedicated PostgreSQL 16 production database."
+    rejected_text = "Billing uses a shared database."
+    later_text = "Billing publishes a monthly operations report."
+    targets: list[str] = []
+    retry_feedback: list[str] = []
+    extraction_count = 0
+
+    async def respond(messages: list[ModelMessage], _info: AgentInfo) -> ModelResponse:
+        nonlocal extraction_count
+        prompt = next(
+            part.content
+            for message in messages
+            if isinstance(message, ModelRequest)
+            for part in message.parts
+            if isinstance(part, UserPromptPart)
+        )
+        value = json.loads(str(prompt))
+        request = messages[-1]
+        assert isinstance(request, ModelRequest)
+        retry_feedback.extend(
+            str(part.content) for part in request.parts if isinstance(part, UserPromptPart) and part.content != prompt
+        )
+        if "proposal" not in value:
+            extraction_count += 1
+            return _json({
+                "candidates": [
+                    {
+                        "kind": "decision",
+                        "text": proposal_text if extraction_count == 1 else later_text,
+                        "description": "Billing decision",
+                        "evidence_ids": [value["evidence"][0]["evidence_id"]],
+                    }
+                ],
+            })
+
+        proposal = value["proposal"]
+        related = value["related"]
+        if proposal["text"] == later_text:
+            action, target_ids, text = "create", [], later_text
+        else:
+            (target,) = related
+            (origin,) = target["original_refs"]
+            targets.append(origin["ref"]["artifact_id"])
+            action, target_ids = "revise", [target["item_id"]]
+            if proposal["text"] == proposal_text:
+                assert proposal["original_refs"] == []
+                text = revised_text
+            else:
+                assert proposal["text"] == revised_text
+                assert [origin["ref"]["artifact_id"] for origin in proposal["original_refs"]] == targets[:1]
+                assert targets[0] != targets[-1]
+                text = rejected_text if drops_date else f"Effective {date}, {rejected_text}"
+        return _json({
+            "action": action,
+            "compared_ids": [item["item_id"] for item in related],
+            "target_ids": target_ids,
+            "content": {"kind": "decision", "text": text, "description": "Billing decision"},
+            "evidence_ids": proposal["evidence_ids"],
+            "reason": "Apply the Billing decision.",
+        })
+
+    monkeypatch.setattr("pydantic_ai.models.infer_model", lambda _name, **_kwargs: FunctionModel(respond))
+    monkeypatch.setattr(
+        "pydantic_ai.embeddings.infer_embedding_model", lambda _name, **_kwargs: TestEmbeddingModel(dimensions=3)
+    )
+    config = BuiltinConfig(
+        database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'published-identities.db'}"),
+        inference=InferenceConfig(
+            generation_model="provider:test-model",
+            generation_max_requests=max_requests,
+            embedding_model="test",
+            embedding_profile_id="billing-fixture",
+            embedding_dimension=3,
+        ),
+        runtime=RuntimeConfig(atomic_memory_related_mode="vector", atomic_memory_comparison_batch_size=1),
+    )
+
+    async def scenario():
+        async with open_builtin_runtime(config) as runtime:
+            assert runtime.scopes is not None and runtime.atomic_memory is not None
+            scope = await runtime.scopes.create(
+                ScopeDraft(title="Billing", summary="Decisions", idempotency_key="billing")
+            )
+            memory = runtime.atomic_memory.for_scope(scope.scope_id)
+            originals = {
+                entry.ref.artifact_id: entry
+                for entry in (
+                    await memory.create([
+                        AtomicMemoryContent(kind="decision", text="Billing uses PostgreSQL 16."),
+                        AtomicMemoryContent(kind="decision", text="Billing has a separate production database."),
+                    ])
+                ).records
+            }
+            # Explicit creates add non-generation records to the Source journal.
+            assert (await memory.flush()).source_count == 0
+            sources = runtime.sources.for_scope(scope.scope_id)
+            first = await sources.capture(
+                CaptureSource(
+                    source_id="database",
+                    content=json.dumps({"statement": proposal_text, "effective_at": date}),
+                    metadata={},
+                )
+            )
+            later = await sources.capture(CaptureSource(source_id="report", content=later_text, metadata={}))
+            assert (await memory.flush(limit=1)).current_cursor == first.sequence
+            revised_id, untouched_id, *retried_ids = targets
+            assert retried_ids == [untouched_id] * (max_requests - 1)
+            assert len(retry_feedback) == max_requests - 1
+            assert all(REVISE_RULE in feedback for feedback in retry_feedback)
+
+            revised = await memory.get(revised_id)
+            assert revised.ref.revision == originals[revised_id].ref.revision + 1
+            assert revised.artifact.content.text == revised_text
+            assert revised.artifact.lineage.sources == (
+                first.source_ref.model_copy(update={"locator": SourceSequenceLocator(sequence=first.sequence)}),
+            )
+            original = await memory.get(revised_id, revision=originals[revised_id].ref.revision)
+            assert original.artifact == originals[revised_id].artifact
+            untouched = originals[untouched_id]
+            assert await memory.get(untouched_id) == untouched
+            assert len((await memory.list()).items) == 2
+
+            assert (await memory.flush(limit=1)).current_cursor == later.sequence
+            current = (await memory.list()).items
+            assert {entry.artifact.content.text for entry in current} == {
+                revised_text,
+                untouched.artifact.content.text,
+                later_text,
+            }
+            assert not (await memory.flush(limit=1)).processed
+            assert (await memory.list()).items == current
+            assert extraction_count == 2
+
+    asyncio.run(scenario())
 
 
 def test_rule_feedback_names_the_rule_without_source_content(monkeypatch, tmp_path):

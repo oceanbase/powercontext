@@ -71,8 +71,9 @@ qualifiers and ISO date/time literals from selected Artifact facts. It does not 
 time or choose the largest date. A complete newer correction may cite only its new Source; the consumed predecessor
 still remains in exact Artifact lineage, without copying all earlier dates into each new text.
 
-Omitted time qualifiers are returned to the model within the configured request budget. If correction fails, neither
-publication nor cursor advancement occurs. Equivalent ISO instants are accepted; midnight UTC may use its ISO date,
+Omitted time qualifiers are returned to the model within the configured request budget after structural and revision
+identity checks. If the time qualifier rule still fails when the budget is exhausted, the window stops before
+publication and cursor advancement. Equivalent ISO instants are accepted; midnight UTC may use its ISO date,
 while other time precision must remain. Values finer than microseconds or outside the supported UTC year range must
 retain their exact literal representation. The check uses the current comparison inputs and does not expand historical
 Source chains. Existing undated memories are not silently backfilled. Temporal interpretation, other date formats,
@@ -95,10 +96,12 @@ does not justify a revision. The model can correct the decision within its reque
 redundant revision is exhausted, an exactly matching proposal keeps the target through `noop`; otherwise the proposal's
 current content, published identities and evidence remain available for later comparisons and publication. This
 conservative recovery can retain a translated duplicate, but does not discard potentially new facts or block later
-Sources. It also applies when the request budget is one. Other invalid decisions still prevent publication and cursor
-advancement. Different wording still requires the model to judge meaning; this check does not provide cross-language
-semantic search or restrict explicit record edits. Source content remains untrusted evidence, not output-policy
-configuration.
+Sources. A `revise` requires exactly one published identity across the proposal and its target. If the model exhausts its
+correction budget on this rule, the window keeps both items as they stood before the comparison and continues. This can
+leave related facts in separate memories. Both recoveries apply with a request budget of one. Other invalid decisions
+still prevent publication and cursor advancement. Different wording still requires the model to judge meaning; this
+check does not provide cross-language semantic search or restrict explicit record edits. Source content remains
+untrusted evidence, not output-policy configuration.
 
 Every memory changes independently. `forget()` deactivates one memory and `merge()` replaces several memories with a
 new one. `forget()` takes the expected content revision and state version, and `merge()` takes the exact records read
