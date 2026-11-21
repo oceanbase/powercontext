@@ -992,7 +992,7 @@ mode = "unsupported"
 [integrations.evidence]
 implementation = ["integrations/hermes/plugins/powercontext/operations.py", "integrations/hermes/plugins/powercontext/commands.py"]
 documentation = ["docs/en/docs/integrations/hermes.md", "docs/zh/docs/integrations/hermes.md"]
-tests = ["tests/integrations/test_hermes_provider.py"]
+tests = ["tests/integrations/test_hermes_provider.py", "tests/integration_conformance/hermes/test_real_manager.py"]
 
 [[integrations]]
 id = "openclaw"

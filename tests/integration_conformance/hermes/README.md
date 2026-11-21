@@ -12,7 +12,8 @@ uv run pytest tests/integration_conformance -q -rs
 
 Without `POWERCONTEXT_TEST_HERMES_CHECKOUT`, the external-host test explicitly skips.
 This means external Hermes acceptance has **not executed**. The default regression suite
-does not need a Hermes installation or network access.
+does not need a Hermes installation or network access. The `hermes-host` CI job runs the
+pinned real manager below on Linux and Python 3.14, and fails unless the JSON reports a pass.
 
 ## Run the pinned real manager
 
