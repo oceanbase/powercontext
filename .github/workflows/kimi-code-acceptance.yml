@@ -34,7 +34,8 @@ jobs:
     if: ${{ !cancelled() && ((inputs.suites == '' && needs.changes.result != 'success') || fromJSON(inputs.suites || needs.changes.outputs.suites || '{}').kimi) }}
     name: controlled-cli (${{ matrix.os }})
     runs-on: ${{ matrix.os == 'ubuntu-latest' && 'powercontext-ci-light' || matrix.os }}
-    timeout-minutes: 15
+    # The Linux leg also builds the gateway, which a cold cache makes slow.
+    timeout-minutes: ${{ matrix.os == 'ubuntu-latest' && 30 || 15 }}
     strategy:
       fail-fast: false
       matrix:
@@ -111,9 +112,21 @@ jobs:
       - name: Check generated MCP profiles
         run: uv run --locked --no-sync python scripts/generate_kimi_profiles.py --check
 
+      - name: Cache Gateway dependencies and compilation
+        if: matrix.os == 'ubuntu-latest'
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          workspaces: gateway -> target
+          shared-key: gateway
+          cache-bin: false
+          cache-on-failure: true
+
       - name: Run real-host acceptance without skips
+        env:
+          # The gateway reaches Core over a Unix socket, so the gateway chain runs on Linux only.
+          GATEWAY_CHAIN: ${{ matrix.os == 'ubuntu-latest' && 'tests/e2e/test_kimi_code_gateway_chain.py' || '' }}
         run: |
-          uv run --locked --no-sync pytest tests/e2e/test_kimi_code_host.py tests/e2e/test_kimi_code_workflows.py \
+          uv run --locked --no-sync pytest tests/e2e/test_kimi_code_host.py tests/e2e/test_kimi_code_workflows.py $GATEWAY_CHAIN \
             -q -p no:cacheprovider \
             --basetemp="${{ runner.temp }}/kimi-acceptance" \
             --junitxml="${{ runner.temp }}/kimi-ci-evidence/junit.xml"

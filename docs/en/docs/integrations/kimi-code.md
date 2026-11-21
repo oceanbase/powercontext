@@ -106,6 +106,91 @@ In full mode, propose or generate an Experience/Skill only on request, inspect i
 
 Use the current Scope for all operations and the actual native tool names in Kimi's catalog; Kimi may shorten long qualified names. Missing, denied or failed MCP operations remain incomplete. Guidance never authorizes HTTP/shell domain writes as a substitute. Setup and profile selection do not bypass host approvals.
 
+## Leave prompt-time context to the gateway
+
+When Kimi sends its model requests through the PowerContext gateway, the gateway prepares and injects context for each
+turn and, with `PC_GATEWAY_SEDIMENT=on`, captures the turn. Core checks every request the gateway forwards and rejects
+a prepared-context block that the gateway did not inject, in every mode. The plugin's hook result carries such a
+block, so Core rejects the request with HTTP 422, the gateway returns HTTP 503 `gate_paused`, and the model never
+receives the turn. Keep the plugin defaults where Kimi calls its model directly.
+
+Kimi sends its own reminders as separate user messages after the prompt: on the first turn of a session (the date and
+this plugin's session-start Skill) and on every `kimi -p` turn (the permission-mode reminder). The gateway takes the
+last user message as the turn's message, so on those turns it prepares with the reminder's text and captures the
+reminder instead of the prompt. Later interactive turns are prepared and captured from the prompt.
+
+### Choose the Core target
+
+Core needs a target for the profile that `PC_GATEWAY_UPSTREAM_PROFILE` names (`default` unless set). Kimi sends
+`max_output_tokens`, `store: false`, and its session ID as `prompt_cache_key`, so an enforcing Core admits its requests
+when the target declares `context_window_tokens`, `max_output_tokens`, and `validated_utf8_token_bound`, and lists
+`provider-default` in `allowed_cache_retention`. Kimi sets `max_output_tokens` to the model's `max_output_size`, or to
+its `max_context_size` when that is not set, so set `max_output_size` no higher than the target's `max_output_tokens`.
+The window check counts each UTF-8 byte as a token, and Kimi's first request is already about 90 KB. See
+[Context reuse and final admission](../operate/context-protection.md) before choosing a mode.
+
+### Point Kimi at the gateway
+
+Add an `openai_responses` provider for the gateway's `/gateway/v1` to Kimi's `config.toml`, with the gateway key as its
+API key:
+
+```toml
+default_model = "gateway"
+
+[providers.powercontext-gateway]
+type = "openai_responses"
+base_url = "http://127.0.0.1:8787/gateway/v1"
+api_key = "<PC_GATEWAY_API_KEY value>"
+
+[models.gateway]
+provider = "powercontext-gateway"
+model = "approved-model"
+max_context_size = 400000
+max_output_size = 32000
+capabilities = ["tool_use"]
+```
+
+Use the Responses API. Kimi always streams. On the Responses route, the gateway calls the model without streaming and
+replays the checked response to Kimi as a stream, so the turn completes and is captured. On the Chat Completions route
+(`type = "openai"`), an enforcing Core withholds the streamed response and the turn fails.
+
+In a combined deployment (`PC_GATEWAY_CORE_UDS`), the gateway forwards Core API requests to Core with the client's own
+credentials, so the plugin's Server URL, which its hook and MCP tools share, can be the gateway's address.
+
+### Turn the plugin's prompt recall and capture off
+
+```bash
+export POWERCONTEXT_KIMI_PROMPT_RECALL=false
+powercontext setup kimi-code --source /path/to/powercontext --no-capture-prompts
+kimi
+```
+
+With recall off, the hook sends no preparation request and injects nothing. It still captures prompts unless setup
+turned capture off; with both off, it sends no request for a prompt. The MCP tools and the Skill keep working; they
+return no prepared-context block.
+
+Start a new session after the change. Kimi stores each hook result in the session and sends it again with every later
+turn, so a session that ran with recall on keeps the plugin's block, and Core rejects every later request of that
+session.
+
+### Configure the gateway
+
+Run the gateway in a combined deployment and set:
+
+- `PC_GATEWAY_INJECTION=on`. The gateway injects by default only requests that name a conversation in a header it
+  recognizes, and Kimi sends none. Its `custom_headers` are the same for every session, so do not set a fixed
+  `X-PowerContext-Conversation-ID` there: every session would become one conversation. With `on`, the gateway prepares
+  each request separately, including each tool-loop step.
+- `PC_GATEWAY_UPSTREAM_URL_RESPONSES` to the target's `endpoint`, and `PC_GATEWAY_UPSTREAM_API_KEY_RESPONSES` to the
+  provider key.
+- `PC_GATEWAY_API_KEY` to the key in Kimi's provider, and `PC_GATEWAY_CORE_TOKEN` when Core enforces authentication.
+- `PC_GATEWAY_SEDIMENT=on`, so that the gateway captures each completed turn as a Source.
+- `PC_GATEWAY_DEFAULT_SCOPE` to the plugin's Scope. The gateway prepares and captures every conversation in that one
+  Scope, while the MCP tools use the plugin's Scope.
+
+See [Gateway context injection](../operate/deploy-server.md#gateway-context-injection) and
+[Gateway authentication boundaries](../operate/deploy-server.md#gateway-authentication-boundaries).
+
 ## Diagnose and remove
 
 doctor is readonly: it checks registration/enablement, Node, MCP/Hook declarations, Server readiness and Scope access. It does not prove that a real MCP call or model injection succeeded. Missing/wrong tokens surface as authentication_failed; a disabled plugin/MCP stays disabled after setup. Incorrect endpoints or inaccessible Scopes require explicit correction and a new session.
