@@ -59,12 +59,15 @@ def test_matrix(event: str, paths: list[str], rules: dict[str, Any], *, full: bo
     dependencies = any(path in {"pyproject.toml", "uv.lock"} for path in paths)
     unknown = any(all(select_suites([path], rules).values()) for path in paths)
     if event != "pull_request" or full or shared or dependencies or unknown:
-        return {"python-version": ["3.11", "3.12", "3.13", "3.14"], "suite": ["unit", "e2e"]}
+        unit_versions = e2e_versions = ["3.11", "3.12", "3.13", "3.14"]
+    else:
+        unit_versions, e2e_versions = ["3.11", "3.14"], ["3.12"]
     return {
-        "include": [
-            {"python-version": "3.11", "suite": "unit"},
-            {"python-version": "3.14", "suite": "unit"},
-            {"python-version": "3.12", "suite": "e2e"},
+        "include": [{"python-version": version, "suite": "unit"} for version in unit_versions]
+        + [
+            {"python-version": version, "suite": "e2e", "shard-index": index, "shard-count": 2}
+            for version in e2e_versions
+            for index in range(2)
         ]
     }
 
@@ -86,6 +89,64 @@ def changed_paths(base: str, head: str, *, pull_request: bool = True) -> list[st
         cwd=ROOT,
     )
     return [os.fsdecode(path) for path in result.stdout.split(b"\0") if path]
+
+
+def dependency_snapshot(commit: str, config: dict[str, Any]) -> dict[str, Any]:
+    """Compare selected dependency declarations and their locked transitive closure."""
+
+    def read(path: str) -> dict[str, Any]:
+        result = subprocess.run(  # noqa: S603 -- validated commit SHA, fixed paths
+            ["git", "show", f"{commit}:{path}"],  # noqa: S607
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        return tomllib.loads(result.stdout) if result.returncode == 0 else {}
+
+    project, lock = read("pyproject.toml"), read("uv.lock")
+    extras, groups = config["extras"], config["groups"]
+    declarations: dict[str, Any] = {
+        "extras": {name: project.get("project", {}).get("optional-dependencies", {}).get(name, []) for name in extras},
+        "groups": {name: project.get("dependency-groups", {}).get(name, []) for name in groups},
+    }
+    packages = lock.get("package", [])
+    roots = [package for package in packages if package.get("name") == project.get("project", {}).get("name")]
+    pending = {
+        dependency["name"]
+        for root in roots
+        for key, names in (("optional-dependencies", extras), ("dev-dependencies", groups))
+        for name in names
+        for dependency in root.get(key, {}).get(name, [])
+    }
+    visited = set()
+    while pending:
+        name = pending.pop()
+        if name in visited:
+            continue
+        visited.add(name)
+        for package in packages:
+            if package["name"] == name:
+                pending.update(dependency["name"] for dependency in package.get("dependencies", []))
+    declarations["locked"] = sorted(
+        (package for package in packages if package["name"] in visited),
+        key=lambda package: json.dumps(package, sort_keys=True),
+    )
+    return declarations
+
+
+def select_dependency_suites(base: str, head: str, rules: dict[str, Any], *, pull_request: bool) -> set[str]:
+    if pull_request:
+        base = subprocess.check_output(  # noqa: S603 -- validated SHAs, no shell
+            ["git", "merge-base", base, head],  # noqa: S607
+            cwd=ROOT,
+            text=True,
+        ).strip()
+    return {
+        suite
+        for suite, config in rules.get("dependency_suites", {}).items()
+        if dependency_snapshot(base, config) != dependency_snapshot(head, config)
+    }
 
 
 def successful_baseline(workflow: str, repository: str, branch: str, head: str) -> str:
@@ -162,6 +223,11 @@ def main() -> None:
                 )
             paths = changed_paths(base, arguments.head, pull_request=arguments.event_name == "pull_request")
             selected = select_suites(paths, rules)
+            if {"pyproject.toml", "uv.lock"}.intersection(paths):
+                for suite in select_dependency_suites(
+                    base, arguments.head, rules, pull_request=arguments.event_name == "pull_request"
+                ):
+                    selected[suite] = True
             reason = f"Compared {base} to {arguments.head} ({len(paths)} changed paths)."
         except (OSError, subprocess.SubprocessError, ValueError, KeyError, TypeError):
             reason = "A trustworthy change baseline is unavailable; running every CI suite allowed by this event."
@@ -171,6 +237,8 @@ def main() -> None:
     else:
         selected = dict.fromkeys(rules["suites"], True)
 
+    if full:
+        selected = dict.fromkeys(rules["suites"], True)
     matrix = test_matrix(arguments.event_name, paths, rules, full=full)
     selected, required = execution_plan(arguments.event_name, selected, rules)
     reason += " On PRs and pushes, seekDB and OceanBase acceptance is deferred to the nightly or manual run."
