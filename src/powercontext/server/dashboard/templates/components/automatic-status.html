@@ -1,0 +1,129 @@
+<!--
+Copyright (c) 2026 OceanBase.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+-->
+{% from 'components/artifact-type.html' import artifact_type %}
+<section class="card mb-4 automatic-status" aria-labelledby="automatic-status-heading">
+  <style>
+    me .automatic-columns, me .automatic-row > summary { display: grid; grid-template-columns: minmax(8rem, 1fr) minmax(10rem, 1.2fr) minmax(8rem, 1fr) 3rem; gap: 1rem; align-items: center; }
+    me .automatic-columns { padding: .5rem 1.25rem; color: var(--tblr-secondary-color); font-size: .8rem; }
+    me .automatic-row { border-top: 1px solid var(--tblr-border-color); }
+    me .automatic-row > summary { padding: .875rem 1.25rem; cursor: pointer; list-style: none; }
+    me .automatic-row > summary::-webkit-details-marker { display: none; }
+    me .automatic-row > summary:hover, me .automatic-row[open] > summary { background: var(--tblr-bg-surface-secondary); }
+    me summary:focus-visible { outline: 2px solid var(--tblr-primary); outline-offset: -2px; }
+    me .automatic-more { color: var(--tblr-primary); font-size: .8rem; }
+    me .automatic-detail { padding: 1rem 2rem; background: var(--tblr-bg-surface-secondary); border-top: 1px solid var(--tblr-border-color); }
+    me .automatic-diagnosis { max-width: 64rem; margin-inline: auto; }
+    me .automatic-facts { display: grid; grid-template-columns: 1fr 1.6fr 1.4fr 1fr; gap: 1.5rem; margin: 0 0 .875rem; }
+    me .automatic-facts > div { min-width: 0; }
+    me .automatic-facts dt { font-weight: normal; font-size: .8rem; color: var(--tblr-secondary-color); margin-bottom: .35rem; }
+    me .automatic-facts dd { margin: 0; font-weight: 500; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+    me .automatic-position { font-size: 1.1rem; }
+    me .automatic-note { display: block; font-size: .8rem; color: var(--tblr-secondary-color); font-weight: normal; }
+    me .automatic-guidance { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: .4rem 1rem; margin: 0; font-size: .85rem; }
+    me .automatic-guidance dt { color: var(--tblr-secondary-color); font-weight: normal; }
+    me .automatic-guidance dd { margin: 0; overflow-wrap: anywhere; }
+    me .automatic-actions { display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; margin-top: .75rem; font-size: .8rem; }
+    me .automatic-evidence-panel { margin-left: auto; }
+    me .automatic-evidence-panel > summary { cursor: pointer; color: var(--tblr-secondary-color); width: fit-content; }
+    me .automatic-evidence-panel[open] { flex-basis: 100%; }
+    me .automatic-evidence { display: grid; grid-template-columns: minmax(7rem, auto) minmax(0, 1fr); gap: .4rem 1rem; padding-top: .75rem; margin: .75rem 0; border-top: 1px solid var(--tblr-border-color); }
+    me .automatic-evidence dt { color: var(--tblr-secondary-color); font-weight: normal; }
+    me .automatic-evidence dd { margin: 0; overflow-wrap: anywhere; }
+    @media (max-width: 767px) {
+      me .automatic-columns { display: none; }
+      me .automatic-row > summary { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: .5rem; }
+      me .automatic-family { grid-column: 1; }
+      me .automatic-input { grid-column: 1; grid-row: 2; font-size: .85rem; }
+      me .automatic-executor { grid-column: 2; grid-row: 2; font-size: .85rem; }
+      me .automatic-more { grid-column: 2; grid-row: 1; text-align: right; }
+      me .automatic-detail { padding: 1rem 1.25rem; }
+      me .automatic-facts { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .875rem 1rem; font-size: .85rem; }
+      me .automatic-position { font-size: 1rem; }
+      me .automatic-guidance { gap: .4rem .75rem; }
+      me .automatic-evidence-panel { margin-left: 0; }
+      me .automatic-evidence { grid-template-columns: 1fr; gap: .25rem; }
+      me .automatic-evidence dd { margin-bottom: .5rem; }
+    }
+  </style>
+  <div class="card-header"><h2 class="card-title" id="automatic-status-heading">{{ t.auto_title }}</h2></div>
+  <div class="automatic-columns" aria-hidden="true"><span>{{ t.auto_family }}</span><span>{{ t.auto_input }}</span><span>{{ t.auto_executor }}</span><span></span></div>
+  {% for row in automatic_status %}
+  {% set status = row.value %}
+  {% set blocked = status and status.block %}
+  {% set execution = status.executor if status else none %}
+  {% set pending = status and status.state == 'pending' %}
+  {% set blocked_at = status.block.blocked_at if blocked else none %}
+  {% set error_at = execution.last_error_at if execution else none %}
+  {% set last_event_at = error_at if error_at and (not blocked_at or error_at > blocked_at) else blocked_at %}
+  {% set last_event_kind = 'failed' if last_event_at and last_event_at == error_at else 'blocked' if blocked_at else 'unknown' %}
+  {% set recorded_reason = t.get('auto_block_' ~ status.block.error_code, t.get('processing_error_' ~ status.block.error_code)) if blocked else none %}
+  <details class="automatic-row" data-auto-family="{{ row.family }}">
+    <summary>
+      <span class="automatic-family">{{ artifact_type('atomic-memory' if row.family == 'memory' else row.family) }}{% if blocked %} <span class="badge bg-red-lt">{{ t.processing_topic_blocked }}</span>{% endif %}</span>
+      <span class="automatic-input">{% if row.error %}{{ t.auto_unavailable }}{% elif status.progress %}<span class="fw-medium">{{ status.progress.source_cursor }} / {{ status.progress.source_head }}</span><span class="text-secondary ms-2">{{ t.auto_pending_inputs if status.progress.pending_inputs else t.auto_caught_up_short }}</span>{% else %}{{ t.unknown_value }}{% endif %}</span>
+      <span class="automatic-executor">{% if execution %}{{ t.get('auto_execution_' ~ execution.state, t.auto_unobserved) }}{% else %}<span class="text-secondary">{{ t.auto_unobserved }}</span>{% endif %}</span>
+      <span class="automatic-more">{{ t.home_record_details }} <span aria-hidden="true">⌄</span></span>
+    </summary>
+    <div class="automatic-detail">
+      <div class="automatic-diagnosis">
+        <dl class="automatic-facts">
+          <div>
+            <dt>{{ t.auto_input }}</dt>
+            <dd class="automatic-position"{% if status and status.progress %} data-source-cursor="{{ status.progress.source_cursor }}" data-source-head="{{ status.progress.source_head }}"{% endif %}>{% if status and status.progress %}{{ status.progress.source_cursor }} <span class="text-secondary">/ {{ status.progress.source_head }}</span>{% else %}{{ t.unknown_value }}{% endif %}</dd>
+          </div>
+          <div>
+            <dt>{{ t.auto_focus_point if blocked else t.auto_current_stage }}</dt>
+            <dd{% if blocked %} class="text-danger"{% endif %} data-diagnosis-headline>{% if row.error %}{{ t.auto_focus_unavailable }}{% elif blocked %}{{ recorded_reason if recorded_reason else t['auto_reason_' ~ status.block.diagnostics.reason.value] if status.block.diagnostics and status.block.diagnostics.reason else t.auto_block_recorded }}{% elif execution and execution.state in ['running','queued','retry_wait'] %}{{ t['auto_focus_' ~ execution.state] }}{% elif pending %}{{ t.auto_focus_pending if status.progress and status.progress.pending_inputs else t.auto_focus_request }}{% else %}{{ t.auto_focus_caught_up }}{% endif %}</dd>
+          </div>
+          <div>
+            <dt>{{ t.auto_last_processing_record }}</dt>
+            <dd data-processing-time="{{ last_event_kind }}">{% if last_event_at %}<time datetime="{{ last_event_at.isoformat() }}">{{ last_event_at|display_time }}</time><span class="automatic-note">{{ t['auto_time_' ~ last_event_kind] }}</span>{% else %}{{ t.auto_no_processing_record }}{% endif %}</dd>
+          </div>
+          <div>
+            <dt>{{ t.auto_block_window if blocked else t.auto_consumption_window }}</dt>
+            <dd>{% if blocked %}({{ status.block.source_after }}, {{ status.block.target_source_through }}]{% elif status and status.progress and status.progress.pending_inputs %}({{ status.progress.source_cursor }}, {{ status.progress.source_head }}]{% else %}—{% endif %}</dd>
+          </div>
+        </dl>
+        <dl class="automatic-guidance">
+          {% if blocked or pending or row.error %}
+          <dt>{{ t.auto_clue }}</dt><dd>{% if row.error %}{{ t.error_403 if row.error.status == 403 else t.auto_clue_read_error }}{% elif blocked %}{% if status.block.last_error_code %}{{ t.auto_clue_last_failure }} <strong>{{ t.get('auto_cause_' ~ status.block.last_error_code, t.auto_error_unknown) }}</strong>{% else %}{{ t.auto_clue_block_limit if status.block.error_code in ['window_attempt_limit','window_provider_budget_exceeded'] else t.auto_clue_block_known }}{% endif %}{% elif execution and execution.last_error_code %}{{ t.auto_clue_historical }} {{ t.get('auto_cause_' ~ execution.last_error_code,t.auto_error_unknown) }}{% elif execution %}{{ t.get('auto_clue_' ~ execution.reason, t.auto_clue_local) }}{% else %}{{ t.auto_clue_execution_unknown }}{% endif %}</dd>
+          {% endif %}
+          <dt>{{ t.auto_next_action }}</dt><dd>{% if row.error %}{{ t.auto_next_read_error }}{% elif blocked %}{{ t.auto_next_timeout if status.block.last_error_code in ['model_timeout','inference_timeout'] else t.auto_next_blocked }}{% elif execution and execution.state == 'retry_wait' %}{{ t.auto_next_retry }}{% elif execution and execution.state == 'running' %}{{ t.auto_next_running }}{% elif pending %}{{ t.auto_next_pending }}{% else %}{{ t.auto_next_outputs }}{% endif %}</dd>
+        </dl>
+        <div class="automatic-actions">
+          {% if blocked or row.error or pending %}<a href="{{ link('runtime') }}">{{ t.auto_action_config }}</a><a href="{{ link('observability') }}">{{ t.auto_action_diagnose }}</a>{% else %}<a href="#automatic-source-list">{{ t.auto_check_outputs }}</a>{% endif %}
+          {% if status %}
+          <details class="automatic-evidence-panel">
+            <summary>{{ t.auto_technical_evidence }}</summary>
+            <dl class="automatic-evidence">
+              {% if status.invocation %}<dt>{{ t.auto_invocations }}</dt><dd>{{ t.auto_generations.format(requested=status.invocation.requested_generation, handled=status.invocation.handled_generation) }}{% if status.invocation.state == 'pending' %} · {{ t.auto_pending_request }}{% elif status.invocation.state == 'dirty' %} · {{ t.auto_execution_dirty }}{% endif %}</dd>{% endif %}
+              {% if status.progress and status.progress.target_source_through is not none %}<dt>{{ t.auto_target_position }}</dt><dd>{{ status.progress.target_source_through }}</dd>{% endif %}
+              <dt>{{ t.auto_observed_at }}</dt><dd>{{ status.observed_at|display_time }}</dd>
+              <dt>{{ t.auto_executor }}</dt><dd>{% if execution %}{{ t.get('auto_execution_' ~ execution.state,t.auto_unobserved) }} · {{ execution.observed_at|display_time }} · {{ t.auto_local_observation }}{% else %}{{ t.auto_unobserved }}{% endif %}</dd>
+              {% if execution and execution.next_check_seconds is not none %}<dt>{{ t.auto_next_check }}</dt><dd>{{ execution.next_check_seconds|round|int }} {{ t.runtime_config_seconds }}</dd>{% endif %}
+              {% if execution and execution.last_error_code %}<dt>{{ t.auto_previous_error }}</dt><dd>{{ t.get('processing_error_' ~ execution.last_error_code,t.auto_error_unknown) }}{% if execution.last_error_at %} · {{ execution.last_error_at|display_time }}{% endif %}</dd>{% endif %}
+              {% if blocked and status.block.diagnostics and status.block.diagnostics.stage %}<dt>{{ t.auto_failure_stage }}</dt><dd>{{ t['auto_stage_' ~ status.block.diagnostics.stage.value] }}</dd>{% endif %}
+              {% if blocked %}<dt>{{ t.processing_topic_attempts }}</dt><dd>{{ status.block.attempts }}</dd>{% endif %}
+            </dl>
+            <p class="text-secondary mb-0">{{ t.auto_evidence_limit }}</p>
+          </details>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  </details>
+  {% endfor %}
+</section>

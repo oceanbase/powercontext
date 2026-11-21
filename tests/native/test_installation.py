@@ -42,7 +42,14 @@ pytestmark = pytest.mark.skipif(not WHEEL, reason="set POWERCONTEXT_INSTALL_WHEE
 
 
 def run(
-    command: list[str], root: Path, env: dict[str, str], name: str, *, stdin: str = "", success: bool = True
+    command: list[str],
+    root: Path,
+    env: dict[str, str],
+    name: str,
+    *,
+    stdin: str = "",
+    success: bool = True,
+    timeout: int = 300,
 ) -> str:
     with (root / f"{name}.log").open("w", encoding="utf-8") as log:
         result = subprocess.run(
@@ -53,7 +60,7 @@ def run(
             text=True,
             stdout=log,
             stderr=subprocess.STDOUT,
-            timeout=300,
+            timeout=timeout,
             check=False,
         )
     output = (root / f"{name}.log").read_text(encoding="utf-8", errors="replace")
@@ -218,11 +225,22 @@ def test_install_configure_remember_and_reinstall(tmp_path: Path, environment: s
         system_path = os.defpath
     installer += ["--no-hosts", "--version", str(version)]
     if environment.startswith("bootstrap"):
+        env["UV_PYTHON_BIN_DIR"] = str(tmp_path / "python bin")
         if sys.platform == "win32":
             env["PATH"] = system_path
             env["UV_PYTHON_NO_REGISTRY"] = "1"
         else:
             env["PATH"] = str(utilities_without_python_or_uv(tmp_path, system_path))
+        if environment == "bootstrap-global":
+            # A discoverable executable need not be a runnable Python interpreter.
+            unusable_python = tmp_path / "unusable-python"
+            unusable_python.mkdir()
+            executable = "/usr/bin/false"
+            if sys.platform == "win32":
+                executable = os.path.join(os.environ["SYSTEMROOT"], "System32", "whoami.exe")
+            name = "python3.exe" if sys.platform == "win32" else "python3"
+            shutil.copy(executable, unusable_python / name)
+            env["PATH"] = str(unusable_python) + os.pathsep + env["PATH"]
         env.update(TZ="Asia/Shanghai", LC_ALL="C", LANG="en_US.UTF-8")
         if environment == "bootstrap-global":
             env["POWERCONTEXT_INSTALL_REGION"] = "cn"
@@ -239,7 +257,17 @@ def test_install_configure_remember_and_reinstall(tmp_path: Path, environment: s
             UV_PYTHON_INSTALL_MIRROR="https://127.0.0.1:9/unavailable",
             POWERCONTEXT_UV_INSTALLER_URL="https://127.0.0.1:9/unavailable",
         )
-    run(installer, tmp_path, env, "install")
+    # Cold bootstrap downloads Python and resolves the full dependency graph;
+    # a healthy regional mirror can spend nearly five minutes on resolution alone.
+    run(installer, tmp_path, env, "install", timeout=600)
+    if environment.startswith("bootstrap"):
+        python3 = Path(env["UV_PYTHON_BIN_DIR"]) / ("python3.exe" if sys.platform == "win32" else "python3")
+        run(
+            [str(python3), "-c", "import sys; assert sys.version_info >= (3, 11)"],
+            tmp_path,
+            env,
+            "python3-hook-runtime",
+        )
     if environment == "existing":
         # A fresh tool/cache forces resolution; exact reinstallation may legitimately reuse the existing tool.
         failed_source_env = {
@@ -304,9 +332,11 @@ def test_latest_exact_versions_and_client_profile(tmp_path: Path) -> None:
         for key, value in os.environ.items()
         if not key.startswith(("UV_", "PIP_", "PYTHON", "POWERCONTEXT_")) and key != "VIRTUAL_ENV"
     }
+    config = tmp_path / "uv.toml"
+    config.write_text('[pip]\nresolution = "lowest-direct"\n', encoding="utf-8")
     env.update(
         PYTHONIOENCODING="utf-8",
-        UV_NO_CONFIG="1",
+        UV_CONFIG_FILE=str(config),
         UV_TOOL_DIR=str(tmp_path / "tools"),
         UV_TOOL_BIN_DIR=str(tmp_path / "bin with spaces"),
         UV_CACHE_DIR=str(tmp_path / "cache"),

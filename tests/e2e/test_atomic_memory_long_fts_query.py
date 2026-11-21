@@ -34,6 +34,8 @@ QUERY = " ".join(f"q{index:04}" for index in range(1000))
 ADMITTED = "Alpha " + " ".join(f"q{index:04}" for index in range(750, 1000))
 # Repetition raises BM25 without increasing the distinct matched-term count.
 BELOW_THRESHOLD = "Alpha " + " ".join(f"q{index:04}" for index in range(249) for _ in range(3))
+# Related recall also measures the memory's own words, so unmatched words keep its own share below the threshold.
+BELOW_RELATED_THRESHOLD = BELOW_THRESHOLD + " " + " ".join(f"other{index:04}" for index in range(300))
 
 
 @pytest.fixture(autouse=True)
@@ -126,7 +128,7 @@ def test_long_fts_query_related_recall_preserves_threshold(migration_backend):
         async with open_builtin_contexts(BuiltinConfig(database=migration_backend.config)) as contexts:
             await contexts.get("project")
             await contexts.records.create_atomic_memories(
-                "project", tuple({"kind": "fact", "text": body} for body in (ADMITTED, BELOW_THRESHOLD))
+                "project", tuple({"kind": "fact", "text": body} for body in (ADMITTED, BELOW_RELATED_THRESHOLD))
             )
             async with contexts.database.transaction() as connection:
                 hits, _ = await contexts.atomic_memory.index.enumerate_related_with_heads(

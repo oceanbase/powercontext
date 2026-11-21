@@ -126,6 +126,9 @@ class _Harness:
             output / "adapter-audit.jsonl",
             [
                 {
+                    "schema": "powercontext.longmemeval-v2-memory-audit.v2"
+                    if arguments.get("receipt_diagnostics")
+                    else "powercontext.longmemeval-v2-memory-audit.v1",
                     "operation": "ingest",
                     "timings_ms": {
                         "source_capture": 1.0,
@@ -370,6 +373,7 @@ def test_run_smoke_records_the_manifest_before_any_stage_runs(tmp_path: Path) ->
         "task_lens": None,
     }
     assert manifest["powercontext"]["search_mode"] == "fts"
+    assert "diagnostics" not in manifest
     assert manifest["reader"]["model"] == "deepseek-flash"
     assert manifest["reader"]["token_env"] == "DEEPSEEK_API_KEY"
     assert manifest["judge"]["token_env"] == "DEEPSEEK_API_KEY"
@@ -384,6 +388,66 @@ def test_run_smoke_records_the_manifest_before_any_stage_runs(tmp_path: Path) ->
     assert manifest["privacy"]["reference_answers_artifact"] == "05-score/scoring-inputs.local.jsonl"
     assert harness.retrieval_arguments is not None
     assert harness.retrieval_arguments["experiment_arm"].arm_id == "current-memory-fts-v1"
+    assert harness.retrieval_arguments["receipt_diagnostics"] is False
+    assert harness.retrieval_arguments["receipt_server_revision"] is None
+
+
+def test_run_smoke_records_and_forwards_receipt_server_attestation(tmp_path: Path) -> None:
+    harness = _Harness()
+    revision = "0123456789abcdef" * 2 + "01234567"
+    result = _run(
+        tmp_path,
+        harness,
+        experiment_arm="query-time-compact-v1",
+        receipt_diagnostics=True,
+        receipt_server_revision=revision,
+    )
+
+    assert result.status == "completed"
+    assert harness.retrieval_arguments is not None
+    assert harness.retrieval_arguments["receipt_diagnostics"] is True
+    assert harness.retrieval_arguments["receipt_server_revision"] == revision
+    manifest = json.loads(result.manifest_path.read_text(encoding="utf-8"))
+    assert manifest["diagnostics"] == {
+        "receipt_diagnostics": True,
+        "receipt_server_revision": revision,
+        "server_revision_basis": "operator_attested",
+    }
+    assert manifest["revisions"] == {"powercontext": "pc-sha", "integration": "integration-sha"}
+
+
+@pytest.mark.parametrize(
+    ("config", "message"),
+    [
+        ({"receipt_diagnostics": "false"}, "must be a boolean"),
+        ({"receipt_diagnostics": 1}, "must be a boolean"),
+        (
+            {"receipt_diagnostics": True, "receipt_server_revision": "a" * 40},
+            "requires a prepared-context",
+        ),
+        (
+            {"receipt_diagnostics": True, "experiment_arm": "query-time-compact-v1"},
+            "40-character lowercase hexadecimal SHA",
+        ),
+        (
+            {
+                "receipt_diagnostics": True,
+                "receipt_server_revision": "A" * 40,
+                "experiment_arm": "query-time-compact-v1",
+            },
+            "40-character lowercase hexadecimal SHA",
+        ),
+    ],
+)
+def test_run_smoke_rejects_receipt_config_before_inputs_stages_or_output(
+    tmp_path: Path, config: dict[str, Any], message: str
+) -> None:
+    harness = _Harness()
+    with pytest.raises(RunSmokeError, match=message):
+        _run(tmp_path, harness, dataset_lock=tmp_path / "missing.json", **config)
+
+    assert harness.calls == []
+    assert not (tmp_path / "run").exists()
 
 
 def test_run_smoke_refuses_an_existing_output_directory_before_any_stage(

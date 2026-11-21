@@ -28,7 +28,7 @@ from pytest import MonkeyPatch
 from powercontext.builtin.inference import character_token_estimator
 from powercontext.builtin.persistence.oceanbase import OceanBaseConfig
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
-from powercontext.builtin.runtime import InferenceConfig
+from powercontext.builtin.runtime import InferenceConfig, RuntimeConfig
 from powercontext.client import PowerContextClient
 from powercontext.http import (
     ApproveCandidateRequest,
@@ -74,6 +74,9 @@ def _settings(database_kind: str, database: Path) -> ServerSettings:
         auth=BearerAuthConfig(token=SecretStr(_AUTH_TOKEN)),
         access=AccessControlConfig(mode="enforced"),
         inference=InferenceConfig(generation_model="test"),
+        # This flow verifies persisted accounting and restart recovery. Allow
+        # slow CI writes to settle; bounded-loss deadlines have dedicated tests.
+        runtime=RuntimeConfig(model_usage_write_timeout_seconds=5.0, model_usage_flush_timeout_seconds=10.0),
         mcp=McpConfig(enabled=False),
     )
 

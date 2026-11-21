@@ -19,6 +19,7 @@ from __future__ import annotations
 import hashlib
 import secrets
 from collections.abc import Awaitable, Callable, Mapping
+from contextlib import nullcontext
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, field_validator, model_validator
@@ -35,6 +36,7 @@ from powercontext.builtin.persistence.database import AsyncDatabase
 from powercontext.builtin.persistence.experience_index import ExperienceIndex
 from powercontext.builtin.persistence.tables import ARTIFACT_PUBLICATIONS_TABLE
 from powercontext.builtin.persistence.topic_memory_management import TopicMemoryManagementWriter
+from powercontext.builtin.processing_diagnostics import observe_processing_failure
 from powercontext.builtin.scope import ScopeApplication, ScopeNotFoundError
 from powercontext.errors import PowerContextError
 from powercontext.limits import MAX_SCOPE_IDEMPOTENCY_KEY_LENGTH
@@ -116,6 +118,22 @@ class ArtifactPublicationApplication:
         /,
         *,
         on_commit: Callable[[AsyncConnection, ArtifactPublication], Awaitable[None]] | None = None,
+    ) -> ArtifactPublication:
+        family = request.source.artifact.family
+        async with (
+            observe_processing_failure(
+                family, f"{family}.publish", request.target_scope_id, storage_location=f"{family}-publication-storage"
+            )
+            if family in {"experience", "skill"}
+            else nullcontext()
+        ):
+            return await self._publish_request(request, on_commit=on_commit)
+
+    async def _publish_request(
+        self,
+        request: ArtifactPublicationRequest,
+        *,
+        on_commit: Callable[[AsyncConnection, ArtifactPublication], Awaitable[None]] | None,
     ) -> ArtifactPublication:
         if request.source.artifact.family == "atomic-memory":
             raise ArtifactPublicationUnsupportedError("atomic-memory")

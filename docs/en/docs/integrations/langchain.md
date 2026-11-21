@@ -65,7 +65,9 @@ instead of calling a synchronous method inside its event loop.
 For every model step, the middleware:
 
 1. reads the latest human message without changing state;
-2. calls `/v1/context/prepare` with the resolved scope and configured byte limit;
+2. calls `/v1/context/prepare` with the resolved scope and configured byte limit. The query is the message, trimmed;
+   a message longer than 8,192 characters or 8,192 UTF-8 bytes recalls from its most recent text, cut to the last
+   8,192 characters and then to the last 8,192 bytes;
 3. appends a separate text block to the current system message;
 4. starts the block with `PowerContext host-supplied context`, followed by the Server's prepared content. The trust
    policy at the top of that content marks everything after it as untrusted historical data.

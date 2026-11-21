@@ -25,6 +25,8 @@ from typing import Any, Literal
 from urllib.parse import urlsplit, urlunsplit
 
 from powercontext_lifecycle.client_config import parse_boolean, resolve_allow_insecure_http
+from powercontext_lifecycle.scope_binding import ScopeBindingSettings
+from powercontext_lifecycle.user_prompt_submit import PromptSettings
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator, model_validator
 from pydantic.fields import FieldInfo
 from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, SettingsConfigDict
@@ -216,6 +218,41 @@ class CodexPluginSettings(BaseSettings):
         if value is None:
             return None
         return value.strip() or None
+
+    def scope_binding_settings(self) -> ScopeBindingSettings:
+        """Return the values that the Scope client uses, with the authorization unwrapped."""
+
+        return ScopeBindingSettings(
+            server_url=self.server_url,
+            authorization=None if self.authorization is None else self.authorization.get_secret_value(),
+            scope_id=self.scope_id,
+            request_timeout_seconds=self.request_timeout_seconds,
+        )
+
+    def prompt_settings(self) -> PromptSettings:
+        """Return the values that the prompt flow uses."""
+
+        return PromptSettings(
+            scope_binding=self.scope_binding_settings(),
+            include_code=self.include_code,
+            context_assembly=self.context_assembly,
+            prompt_recall=self.prompt_recall,
+            capture_prompts=self.capture_prompts,
+            flush_on_capture=self.flush_on_capture,
+            flush_max_calls=self.flush_max_calls,
+        )
+
+
+# The PreToolUse and Stop hooks run under a 10-second host deadline (hooks.json). Keep their HTTP budget below it so
+# uv/Python start-up and the hook's output fit inside the limit; a hook killed at the deadline returns no decision.
+_HOOK_HOST_TIMEOUT_SECONDS = 10.0
+_HOOK_STARTUP_AND_OUTPUT_MARGIN_SECONDS = 2.0
+
+
+def host_bounded_http_budget(configured_seconds: float) -> float:
+    """Bound a deadline-gated hook's HTTP budget below the host process deadline."""
+
+    return min(configured_seconds, _HOOK_HOST_TIMEOUT_SECONDS - _HOOK_STARTUP_AND_OUTPUT_MARGIN_SECONDS)
 
 
 def _server_url_from_mcp_configuration() -> str:

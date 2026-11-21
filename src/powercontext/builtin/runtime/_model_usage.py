@@ -28,7 +28,7 @@ from datetime import date
 from sqlalchemy import select
 from sqlalchemy.exc import OperationalError
 
-from powercontext._logging import log_safely
+from powercontext._logging import current_log_context
 from powercontext.builtin.inference import InferenceUsage
 from powercontext.builtin.persistence.database import (
     AsyncDatabase,
@@ -38,6 +38,7 @@ from powercontext.builtin.persistence.database import (
 from powercontext.builtin.persistence.statistics import StatisticsRepository
 from powercontext.builtin.persistence.tables import SCOPES_TABLE
 from powercontext.builtin.statistics import ModelUsageOperation, ModelUsagePurpose
+from powercontext.builtin.statistics.usage_diagnostics import log_usage_accounting_failure, model_usage_family
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -139,7 +140,19 @@ class _ModelUsageRecorder:
         self._advanced = asyncio.Event()
         self._consumer: asyncio.Task[None] | None = None
         self._closed = False
+        self._drain_ended = False
         self._observer = observer
+        # Preserve only the Worker's assignment identity for detached consumer logs.
+        context = current_log_context()
+        self._worker_fields = (
+            {
+                key: value
+                for key in ("worker_id", "binding", "request_generation")
+                if (value := context.get(key)) is not None
+            }
+            if context.get("worker_id") is not None
+            else {}
+        )
         self._dropped = 0
         self._write_failures = 0
         self._report()
@@ -167,7 +180,15 @@ class _ModelUsageRecorder:
             if len(self._pending) >= self._capacity:
                 self._dropped += 1
                 self._report()
-                log_safely(_LOGGER, logging.WARNING, "Model usage queue full; record dropped")
+                log_usage_accounting_failure(
+                    _LOGGER,
+                    "Model usage queue full; record dropped",
+                    "queue_full",
+                    family=model_usage_family(purpose),
+                    capability=operation,
+                    record_count=1,
+                    worker_fields=self._worker_fields,
+                )
                 return
             record = _snapshot(scope_id, purpose, operation, usage, usage_date)
             if self._consumer is None:
@@ -183,16 +204,24 @@ class _ModelUsageRecorder:
                     name="powercontext-model-usage",
                     context=Context(),
                 )
-                self._consumer.add_done_callback(self._consumer_finished)
+                self._consumer.add_done_callback(self._consumer_finished, context=Context())
             self._offered += 1
             self._pending.append((self._offered, record))
             self._ready.set()
             self._report()
-        except Exception:
+        except Exception as error:
             self._dropped += 1
             self._report()
-            # Never log usage payloads, identifiers, SQL or driver error text.
-            log_safely(_LOGGER, logging.WARNING, "Model usage record could not be queued")
+            log_usage_accounting_failure(
+                _LOGGER,
+                "Model usage record could not be queued",
+                "enqueue",
+                family=model_usage_family(purpose),
+                capability=operation,
+                record_count=1,
+                error=error,
+                worker_fields=self._worker_fields,
+            )
 
     def checkpoint(self) -> int:
         return self._offered
@@ -207,8 +236,14 @@ class _ModelUsageRecorder:
             async with asyncio.timeout(self._flush_timeout_seconds):
                 while self._settled < target:
                     await self._advanced.wait()
-        except TimeoutError:
-            log_safely(_LOGGER, logging.WARNING, "Model usage flush timed out; continuing without statistics")
+        except TimeoutError as error:
+            log_usage_accounting_failure(
+                _LOGGER,
+                "Model usage flush timed out; continuing without statistics",
+                "flush_timeout",
+                error=error,
+                worker_fields=self._worker_fields,
+            )
 
     async def close(self) -> None:
         """Stop offers, then drain every accepted record within a bounded budget."""
@@ -226,9 +261,17 @@ class _ModelUsageRecorder:
             async with asyncio.timeout(budget):
                 while self._settled < self._offered:
                     await self._advanced.wait()
-        except TimeoutError:
-            log_safely(_LOGGER, logging.WARNING, "Model usage shutdown dropped queued records")
+        except TimeoutError as error:
+            log_usage_accounting_failure(
+                _LOGGER,
+                "Model usage shutdown timed out while draining",
+                "drain_timeout",
+                record_count=len(self._pending),
+                error=error,
+                worker_fields=self._worker_fields,
+            )
         finally:
+            self._drain_ended = True
             self._dropped += len(self._pending)
             self._pending.clear()
             self._report()
@@ -237,7 +280,12 @@ class _ModelUsageRecorder:
         # work; cleanup is still owned by the consumer if the OS itself stalls.
         _, pending = await asyncio.wait((consumer,), timeout=self._write_timeout_seconds)
         if pending:
-            log_safely(_LOGGER, logging.WARNING, "Model usage native cleanup still pending at shutdown")
+            log_usage_accounting_failure(
+                _LOGGER,
+                "Model usage native cleanup still pending at shutdown",
+                "cleanup_timeout",
+                worker_fields=self._worker_fields,
+            )
 
     async def _consume(self) -> None:
         try:
@@ -256,12 +304,26 @@ class _ModelUsageRecorder:
                     # cancels this consumer: nothing else will ever retry it, and
                     # `_settle` reports it as settled either way.
                     await asyncio.shield(self._write(tuple(record for _, record in batch)))
-                except Exception:
+                except Exception as error:
                     # Count original records, not coalesced groups or physical
                     # transactions, so batching does not conceal usage losses.
                     self._write_failures += len(batch)
                     self._report()
-                    log_safely(_LOGGER, logging.WARNING, "Model usage write failed; record will not be retried")
+                    families = {model_usage_family(record.purpose) for _, record in batch}
+                    capabilities = {
+                        record.operation if isinstance(record.operation, ModelUsageOperation) else None
+                        for _, record in batch
+                    }
+                    log_usage_accounting_failure(
+                        _LOGGER,
+                        "Model usage write failed; record will not be retried",
+                        "write",
+                        family=families.pop() if len(families) == 1 else None,
+                        capability=capabilities.pop() if len(capabilities) == 1 else None,
+                        record_count=len(batch),
+                        error=error,
+                        worker_fields=self._worker_fields,
+                    )
                 finally:
                     self._settle(sequence)
         finally:
@@ -342,10 +404,12 @@ class _ModelUsageRecorder:
                 first_attempt = False
                 await asyncio.sleep(min(_RETRY_BACKOFF_SECONDS, max(remaining, 0)))
             except ModelUsageAttemptExpired:
-                if self._closed:
-                    # Shutdown is already draining: it dropped the backlog and
-                    # waits one write window for this consumer, so a repeat
-                    # cannot be counted on, and failing now ends it as expected.
+                if self._drain_ended:
+                    # close() has stopped waiting for the drain and gives this
+                    # consumer one more write window. Failing now ends it inside
+                    # that window instead of spending the window on a repeat.
+                    # While close() still waits, the repeat below is what lets
+                    # it drain a batch inside its own budget.
                     raise
                 # Unapplied and still inside the batch's own budget, so hand the
                 # loop over rather than let a slow machine decide its fate, and
@@ -361,7 +425,15 @@ class _ModelUsageRecorder:
         self._advanced.set()
         self._advanced = asyncio.Event()
 
-    @staticmethod
-    def _consumer_finished(consumer: asyncio.Task[None]) -> None:
-        if not consumer.cancelled() and consumer.exception() is not None:
-            log_safely(_LOGGER, logging.WARNING, "Model usage consumer stopped unexpectedly")
+    def _consumer_finished(self, consumer: asyncio.Task[None]) -> None:
+        if consumer.cancelled():
+            return
+        error = consumer.exception()
+        if isinstance(error, Exception):
+            log_usage_accounting_failure(
+                _LOGGER,
+                "Model usage consumer stopped unexpectedly",
+                "consumer",
+                error=error,
+                worker_fields=self._worker_fields,
+            )

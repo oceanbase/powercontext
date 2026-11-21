@@ -18,7 +18,7 @@ import { createRequire } from "node:module";
 import { readFileSync, statSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { homedir } from "node:os";
-import { isAbsolute, join, resolve } from "node:path";
+import { basename, isAbsolute, join, resolve } from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 import { createServer, request } from "node:http";
 import { request as request$1 } from "node:https";
@@ -486,6 +486,17 @@ const OPERATIONS = {
 		successStatuses: [202],
 		emptyStatuses: []
 	},
+	capture_content_sources: {
+		method: "POST",
+		path: "/v1/sources/content/batch",
+		location: "body",
+		scopeMode: "current",
+		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [202],
+		emptyStatuses: []
+	},
 	capture_working_note: {
 		method: "POST",
 		path: "/v1/sources/working-notes",
@@ -734,6 +745,127 @@ const OPERATIONS = {
 		location: null,
 		scopeMode: "none",
 		pathParameters: ["name"],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	get_plugin_openapi: {
+		method: "GET",
+		path: "/v1/plugins/{name}/openapi.json",
+		location: null,
+		scopeMode: "none",
+		pathParameters: ["name"],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	pc_source_runners: {
+		method: "GET",
+		path: "/v1/source-runners",
+		location: null,
+		scopeMode: "none",
+		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	register_source_runner: {
+		method: "POST",
+		path: "/v1/source-runners",
+		location: "body",
+		scopeMode: "none",
+		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [201, 200],
+		emptyStatuses: []
+	},
+	sync_source_runner: {
+		method: "POST",
+		path: "/v1/source-runners/{runner}/sync",
+		location: "body",
+		scopeMode: "none",
+		pathParameters: ["runner"],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	update_source_runner: {
+		method: "PATCH",
+		path: "/v1/source-runners/{runner}",
+		location: "body",
+		scopeMode: "none",
+		pathParameters: ["runner"],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	delete_source_runner: {
+		method: "DELETE",
+		path: "/v1/source-runners/{runner}",
+		location: null,
+		scopeMode: "none",
+		pathParameters: ["runner"],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [204],
+		emptyStatuses: [204]
+	},
+	pc_source_status: {
+		method: "GET",
+		path: "/v1/scopes/{scope_id}/source-targets",
+		location: null,
+		scopeMode: "none",
+		pathParameters: ["scope_id"],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	pc_source_add: {
+		method: "POST",
+		path: "/v1/scopes/{scope_id}/source-targets",
+		location: "body",
+		scopeMode: "none",
+		pathParameters: ["scope_id"],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [201, 200],
+		emptyStatuses: []
+	},
+	pc_source_target_set_enabled: {
+		method: "PATCH",
+		path: "/v1/scopes/{scope_id}/source-targets/{target_id}",
+		location: "body",
+		scopeMode: "none",
+		pathParameters: ["scope_id", "target_id"],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	pc_source_target_delete: {
+		method: "DELETE",
+		path: "/v1/scopes/{scope_id}/source-targets/{target_id}",
+		location: null,
+		scopeMode: "none",
+		pathParameters: ["scope_id", "target_id"],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [204],
+		emptyStatuses: [204]
+	},
+	pc_source_target_transfer: {
+		method: "POST",
+		path: "/v1/scopes/{scope_id}/source-targets/{target_id}/transfer",
+		location: "body",
+		scopeMode: "none",
+		pathParameters: ["scope_id", "target_id"],
 		queryParams: [],
 		headerParams: [],
 		successStatuses: [200],
@@ -1756,160 +1888,6 @@ const OPERATIONS = {
 		successStatuses: [200],
 		emptyStatuses: []
 	},
-	pc_source_capabilities: {
-		method: "POST",
-		path: "/v1/source-management/capabilities",
-		location: "body",
-		scopeMode: "none",
-		pathParameters: [],
-		queryParams: [],
-		headerParams: [],
-		successStatuses: [200],
-		emptyStatuses: []
-	},
-	pc_source_add: {
-		method: "POST",
-		path: "/v1/source-management/add",
-		location: "body",
-		scopeMode: "none",
-		pathParameters: [],
-		queryParams: [],
-		headerParams: [],
-		successStatuses: [200],
-		emptyStatuses: []
-	},
-	pc_source_status: {
-		method: "POST",
-		path: "/v1/source-management/status",
-		location: "body",
-		scopeMode: "none",
-		pathParameters: [],
-		queryParams: [],
-		headerParams: [],
-		successStatuses: [200],
-		emptyStatuses: []
-	},
-	pc_source_target_set_enabled: {
-		method: "POST",
-		path: "/v1/source-management/target-set-enabled",
-		location: "body",
-		scopeMode: "none",
-		pathParameters: [],
-		queryParams: [],
-		headerParams: [],
-		successStatuses: [200],
-		emptyStatuses: []
-	},
-	pc_source_instances: {
-		method: "POST",
-		path: "/v1/source-management/instances",
-		location: "body",
-		scopeMode: "none",
-		pathParameters: [],
-		queryParams: [],
-		headerParams: [],
-		successStatuses: [200],
-		emptyStatuses: []
-	},
-	pc_source_instance_set_enabled: {
-		method: "POST",
-		path: "/v1/source-management/instance-set-enabled",
-		location: "body",
-		scopeMode: "none",
-		pathParameters: [],
-		queryParams: [],
-		headerParams: [],
-		successStatuses: [200],
-		emptyStatuses: []
-	},
-	source_configure: {
-		method: "POST",
-		path: "/v1/source-management/configure",
-		location: "body",
-		scopeMode: "none",
-		pathParameters: [],
-		queryParams: [],
-		headerParams: [],
-		successStatuses: [200],
-		emptyStatuses: []
-	},
-	load_source_write_plugin: {
-		method: "POST",
-		path: "/v1/source-management/write/load",
-		location: "body",
-		scopeMode: "none",
-		pathParameters: [],
-		queryParams: [],
-		headerParams: [],
-		successStatuses: [200],
-		emptyStatuses: []
-	},
-	source_channel_open: {
-		method: "POST",
-		path: "/v1/source-management/channel/open",
-		location: "body",
-		scopeMode: "none",
-		pathParameters: [],
-		queryParams: [],
-		headerParams: [],
-		successStatuses: [200],
-		emptyStatuses: []
-	},
-	source_channel_catalog: {
-		method: "POST",
-		path: "/v1/source-management/channel/catalog",
-		location: "body",
-		scopeMode: "none",
-		pathParameters: [],
-		queryParams: [],
-		headerParams: [],
-		successStatuses: [200],
-		emptyStatuses: []
-	},
-	source_channel_poll: {
-		method: "POST",
-		path: "/v1/source-management/channel/poll",
-		location: "body",
-		scopeMode: "none",
-		pathParameters: [],
-		queryParams: [],
-		headerParams: [],
-		successStatuses: [200],
-		emptyStatuses: []
-	},
-	source_channel_reply: {
-		method: "POST",
-		path: "/v1/source-management/channel/reply",
-		location: "body",
-		scopeMode: "none",
-		pathParameters: [],
-		queryParams: [],
-		headerParams: [],
-		successStatuses: [200],
-		emptyStatuses: []
-	},
-	source_channel_close: {
-		method: "POST",
-		path: "/v1/source-management/channel/close",
-		location: "body",
-		scopeMode: "none",
-		pathParameters: [],
-		queryParams: [],
-		headerParams: [],
-		successStatuses: [200],
-		emptyStatuses: []
-	},
-	source_instance_exchange: {
-		method: "POST",
-		path: "/v1/source-management/instances/{instance_id}/{operation}",
-		location: "body",
-		scopeMode: "none",
-		pathParameters: ["instance_id", "operation"],
-		queryParams: [],
-		headerParams: [],
-		successStatuses: [200],
-		emptyStatuses: []
-	},
 	plan_access_ownership: {
 		method: "POST",
 		path: "/v1/access/ownership/plan",
@@ -2026,6 +2004,17 @@ function resolveTransport(host, env, nativeUrl, nativeConsent, defaultUrl) {
 		allowInsecureHttp,
 		source: environmentUrl ? "environment" : pluginUrl ? "plugin" : saved.server_url ? "saved" : "default"
 	};
+}
+
+//#endregion
+//#region src/trace-context.ts
+/** Invalid observation metadata is ignored without changing memory behavior. */
+function traceContextHeaders(value) {
+	const parent = value?.traceparent;
+	if (typeof parent !== "string") return {};
+	const match = /^00-([a-f0-9]{32})-([a-f0-9]{16})-([a-f0-9]{2})$/.exec(parent);
+	if (!match || /^0+$/.test(match[1]) || /^0+$/.test(match[2])) return {};
+	return { traceparent: parent };
 }
 
 //#endregion
@@ -2174,6 +2163,7 @@ var PowerContextClient = class {
 		if (!(id in OPERATIONS)) throw new UnknownOperationError(id);
 		const spec = OPERATIONS[id];
 		const prepared = prepareRequest(spec, payload);
+		Object.assign(prepared.headers, traceContextHeaders(options.traceContext));
 		const url = `${this.baseUrl}${prepared.path}${prepared.query}`;
 		const init = this.buildInit(spec, prepared, signal, this.requestTimeoutMsFor(id));
 		if (init.signal?.aborted) throw new RequestNotSentError(prepared.path, this.transportCause(void 0, init.signal));
@@ -3012,12 +3002,27 @@ async function requestMemoryOperation(client, operationId, payload, scopeId, sig
 }
 
 //#endregion
-//#region src/secrets.ts
-const SECRET_MARKERS = [
-	"sk-",
-	"api_key",
-	"BEGIN PRIVATE"
+//#region src/prompt-privacy.ts
+const SECRET_PATTERNS = [
+	/-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----[\s\S]*?(?:-----END [A-Z0-9 ]*PRIVATE KEY-----|$)/giu,
+	/(?<![\w-])["']?(?:HTTP(?:_[A-Za-z0-9]+)*_|(?:[A-Za-z0-9]+-)*)(?:authorization|cookie)\b["'`*]*[ \t]*[:=]\**(?![ \t]*(?:true|false|yes|no|on|off|null|none|(?:\$\{\{[^{}\r\n]*\}\}|\$\{[A-Za-z_][A-Za-z0-9_]*\})|"(?:\$\{\{[^{}\r\n]*\}\}|\$\{[A-Za-z_][A-Za-z0-9_]*\})"|'(?:\$\{\{[^{}\r\n]*\}\}|\$\{[A-Za-z_][A-Za-z0-9_]*\})')[`")'\]}]*[,.;]?[ \t\f\v\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]*(?:$|\r?\n(?![ \t])))[ \t]*[^\r\n]*(?:\r?\n[ \t]+[^\r\n]*)*/giu,
+	/(?<![\w-])["']?(?!(?:bos|eos|pad|unk|sep|cls|mask)_token\b)[\w-]*?(?:api[_ -]?key|access[_ -]?(?:key(?:[_-]id)?|token)|client[_ -]?secret|secret(?:[_ -]?key)?|private[_ -]?key|password|passwd|passphrase|token|authorization|cookie)\b["'`*]*[\s \t\f\v\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]*[:=]\**(?![ \t\f\v\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]*(?:\r?\n[ \t\f\v\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]+)?(?:true|false|yes|no|on|off|null|none|(?:\$\{\{[^{}\r\n]*\}\}|\$\{[A-Za-z_][A-Za-z0-9_]*\})|"(?:\$\{\{[^{}\r\n]*\}\}|\$\{[A-Za-z_][A-Za-z0-9_]*\})"|'(?:\$\{\{[^{}\r\n]*\}\}|\$\{[A-Za-z_][A-Za-z0-9_]*\})')(?:[\s,;)\]}`'" \t\f\v\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]|\.(?![^\s \t\f\v\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff])|$))[ \t\f\v\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]*(?:\r?\n[ \t\f\v\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]+)?(?:(?:bearer|basic)[ \t\f\v\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]+)?(?:"[^"\r\n]*"|'[^'\r\n]*'|`[^`\r\n]*`|[^\s,;}\] \t\f\v\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]+)/giu,
+	/(?<![\w-])bearer[\s \t\f\v\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]+[A-Za-z0-9._~+/=-]{8,}(?![\w-])/giu,
+	/(?<![\w-])(?:sk-[A-Za-z0-9][A-Za-z0-9_-]{7,}|[sr]k_(?:live|test)_[A-Za-z0-9]{16,}|github_pat_[A-Za-z0-9_]{8,}|gh[pousr]_[A-Za-z0-9_]{8,}|xox[baprs]-[A-Za-z0-9-]{8,})(?![\w-])/giu
 ];
+/** Return text with recognized credential-shaped values replaced. */
+function scrubSecrets(text, authorization) {
+	const credential = authorization?.replace(/^Bearer\s+/iu, "");
+	if (credential) text = text.replaceAll(credential, "[REDACTED]");
+	return SECRET_PATTERNS.reduce((scrubbed, pattern) => scrubbed.replace(pattern, "[REDACTED]"), text);
+}
+/** Detect secrets without rejecting ordinary words that merely contain a marker. */
+function containsSecret(text, authorization) {
+	return scrubSecrets(text, authorization) !== text;
+}
+
+//#endregion
+//#region src/secrets.ts
 const PAYLOAD_WRITES = new Set([
 	"remember_memory",
 	"capture_content_source",
@@ -3027,7 +3032,8 @@ const PAYLOAD_WRITES = new Set([
 	"change_atomic_memory_lifecycle"
 ]);
 const CONTENT_FIELDS = new Map([
-	["pc_source_add", ["input"]],
+	["pc_source_add", ["parameters"]],
+	["pc_source_target_set_enabled", ["parameters"]],
 	["create_scope", [
 		"title",
 		"summary",
@@ -3050,37 +3056,18 @@ const CONTENT_FIELDS = new Map([
 	["finalize_handoff", ["draft"]],
 	["commit_handoff", ["handoff"]]
 ]);
-const SECRET_PATTERNS = [
-	/-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----[\s\S]*?(?:-----END [A-Z0-9 ]*PRIVATE KEY-----|$)/giu,
-	/(?<![\w-])["']?\b(?:authorization|proxy-authorization|cookie|set-cookie)\b["']?[ \t]*[:=][ \t]*[^\r\n]*(?:\r?\n[ \t]+[^\r\n]*)*/giu,
-	/(?<![\w-])["']?\b(?:api[_ -]?key|access[_ -]?(?:key|token)|client[_ -]?secret|secret(?:[_ -]?key)?|private[_ -]?key|password|passwd|passphrase|token|authorization|cookie)\b["']?\s*[:=]\s*(?:"[^"\r\n]*"|'[^'\r\n]*'|`[^`\r\n]*`|[^\s,;}\]]+)/giu,
-	/(?<![\w-])bearer\s+[A-Za-z0-9._~+/=-]{8,}(?![\w-])/giu,
-	/(?<![\w-])(?:sk-[A-Za-z0-9][A-Za-z0-9_-]{7,}|github_pat_[A-Za-z0-9_]{8,}|gh[pousr]_[A-Za-z0-9_]{8,}|xox[baprs]-[A-Za-z0-9-]{8,})(?![\w-])/giu
-];
-/** Return text with recognized credential-shaped values replaced. */
-function scrubSecrets(text, authorization) {
-	const credential = authorization?.replace(/^Bearer\s+/iu, "");
-	if (credential) text = text.replaceAll(credential, "[REDACTED]");
-	return SECRET_PATTERNS.reduce((scrubbed, pattern) => scrubbed.replace(pattern, "[REDACTED]"), text);
-}
-/** Detect secrets without rejecting ordinary words that merely contain a marker. */
-function containsSecret(text, authorization) {
-	return scrubSecrets(text, authorization) !== text;
-}
-function containsSecretMarker(text) {
-	return SECRET_MARKERS.some((marker) => text.includes(marker));
-}
-function containsSecretValue(value) {
-	if (typeof value === "string") return containsSecretMarker(value);
+function containsSecretValue(value, authorization) {
+	if (typeof value === "string") return containsSecret(value, authorization);
 	if (!value || typeof value !== "object") return false;
-	return Object.values(value).some(containsSecretValue);
+	return Object.values(value).some((item) => containsSecretValue(item, authorization));
 }
-function hasSecretContent(operation, payload) {
-	if (PAYLOAD_WRITES.has(operation)) return containsSecretValue(payload);
+/** Detect secret content in an explicit write with the same rule as automatic capture. */
+function hasSecretContent(operation, payload, authorization) {
+	if (PAYLOAD_WRITES.has(operation)) return containsSecretValue(payload, authorization);
 	const fields = CONTENT_FIELDS.get(operation);
 	if (!fields || !payload || typeof payload !== "object") return false;
 	const content = payload;
-	return fields.some((field) => containsSecretValue(content[field]));
+	return fields.some((field) => containsSecretValue(content[field], authorization));
 }
 
 //#endregion
@@ -3334,7 +3321,7 @@ async function invokeOperation(client, operationId, payload, scopeId, signal, on
 	if (!(operationId in OPERATIONS)) return toToolResult(new UnknownOperationError(operationId));
 	const id = operationId;
 	const body = injectScope(id, payload, scopeId);
-	if (hasSecretContent(id, body)) return toToolResult(new SecretRejectedError());
+	if (hasSecretContent(id, body, client.authorization)) return toToolResult(new SecretRejectedError());
 	try {
 		if (signal?.aborted) throw new TransportError("", signal.reason);
 		return encodeSuccess(await requestMemoryOperation(client, id, body, scopeId, signal) ?? await client.request(id, body, signal));
@@ -3378,10 +3365,11 @@ function formatScopeRouting(scopeId, cwd) {
 		"If this routing metadata is unavailable, report the Scope as unavailable instead of guessing an identifier."
 	].join("\n");
 }
-async function resolveScopeId(client, cwd, configuredScopeId, signal) {
+async function resolveScopeId(client, cwd, configuredScopeId, signal, allowDefault = true) {
 	const workspace = sessionCwd(cwd);
 	const value = (await client.request("resolve_scope_binding", {
 		explicit_scope_id: configuredScopeId,
+		...allowDefault ? {} : { allow_default: false },
 		binding_keys: workspace ? [workspaceBindingKey(workspace)] : []
 	}, signal)).value;
 	const scopeId = value && typeof value === "object" ? value.scope_id : void 0;
@@ -3671,7 +3659,7 @@ const DEFAULTS = {
 	authorization: void 0,
 	scopeId: void 0,
 	timeoutMs: 4e3,
-	requestTimeoutMs: 1e3,
+	requestTimeoutMs: 3e3,
 	maxBytes: 8e3,
 	capturePrompts: true,
 	flushOnCapture: false,
@@ -3805,11 +3793,11 @@ const MCP_OPERATIONS = {
 	"list_scopes": { "readOnly": true },
 	"merge_atomic_memories": { "readOnly": false },
 	"pc_source_add": { "readOnly": false },
-	"pc_source_capabilities": { "readOnly": true },
-	"pc_source_instance_set_enabled": { "readOnly": false },
-	"pc_source_instances": { "readOnly": true },
+	"pc_source_runners": { "readOnly": true },
 	"pc_source_status": { "readOnly": true },
+	"pc_source_target_delete": { "readOnly": false },
 	"pc_source_target_set_enabled": { "readOnly": false },
+	"pc_source_target_transfer": { "readOnly": false },
 	"prepare_handoff_hint": { "readOnly": true },
 	"preview_atomic_memory_restoration": { "readOnly": true },
 	"propose_experience": { "readOnly": false },
@@ -3976,13 +3964,6 @@ function rawOperation(name$1) {
 	return Object.prototype.hasOwnProperty.call(MCP_OPERATIONS, operation) ? operation : void 0;
 }
 function usesScope(operation, args) {
-	if ([
-		"pc_source_capabilities",
-		"pc_source_add",
-		"pc_source_status",
-		"pc_source_target_set_enabled"
-	].includes(operation)) return "current";
-	if (operation === "pc_source_instances") return isRecord(args) && args.view === "control" ? "none" : "current";
 	const metadata$1 = OPERATIONS[operation];
 	if (metadata$1.pathParameters.some((parameter) => parameter === "scope_id")) return "current";
 	return metadata$1.scopeMode;
@@ -3994,14 +3975,14 @@ function matchesScope(argumentsValue, mode, scopeId) {
 	if (!isRecord(selection) || selection.mode !== "exact" || !Array.isArray(selection.scope_ids)) return false;
 	return selection.scope_ids.length === 1 && selection.scope_ids[0] === scopeId;
 }
-function registerMcpPolicy(ctx, resolveScope) {
+function registerMcpPolicy(ctx, resolveScope, authorization) {
 	ctx.on("tools/pre-execute", (async (exec, next) => {
 		const operation = rawOperation(exec.name);
 		if (!operation) return exec.name.startsWith(MCP_TOOL_PREFIX) ? {
 			kind: "deny",
 			reason: "This PowerContext MCP operation is unavailable in the plugin catalog. No MCP request was sent; install a matching plugin and Server."
 		} : next();
-		if (hasSecretContent(operation, exec.arguments)) return {
+		if (hasSecretContent(operation, exec.arguments, authorization)) return {
 			kind: "deny",
 			reason: "secret_rejected: PowerContext refuses to send likely secret content. No MCP request was sent."
 		};
@@ -4318,12 +4299,13 @@ async function runRecallPreStep(input) {
 	}
 	const recalled = await recallThenCapture(automaticInput, query, messagesToUserPrompt(messages), observation);
 	if (recalled.content) observation?.record("injection", { state: "running" });
-	if (!recalled.scopeId && !recalled.content || signal.aborted) {
-		observation?.skip("injection", signal.aborted ? cancellationReason(signal) : "no_prepared_content");
+	const cancelled = input.signal?.aborted === true;
+	if (!recalled.scopeId && !recalled.content || cancelled) {
+		observation?.skip("injection", cancelled ? cancellationReason(input.signal) : signal.aborted ? cancellationReason(signal) : "no_prepared_content");
 		return downstream;
 	}
 	try {
-		if (signal.aborted) throw new TransportError("", signal.reason);
+		if (input.signal?.aborted) throw new TransportError("", input.signal.reason);
 		const additions = [];
 		if (recalled.scopeId && input.wrapScope) additions.push(input.wrapScope(formatScopeRouting(recalled.scopeId, input.cwd)));
 		if (recalled.content) additions.push(input.wrapContent(formatUntrustedContext(recalled.content)));
@@ -4377,6 +4359,10 @@ async function recallThenCapture(input, query, userPrompt, observation) {
 	}
 	observation?.scope(scopeId);
 	const content = await recallContent(input, query, scopeId, observation);
+	const settled = input.signal?.aborted ? {} : {
+		scopeId,
+		content: content ?? void 0
+	};
 	observation?.skip("capture", input.signal?.aborted ? cancellationReason(input.signal) : "no_user_text");
 	observation?.skip("flush", "capture_skipped");
 	if (userPrompt && !input.signal?.aborted) try {
@@ -4396,10 +4382,7 @@ async function recallThenCapture(input, query, userPrompt, observation) {
 		observation?.fail("capture", error, true, input.signal);
 		reportFailure(input.log, "capture_content_source", error);
 	}
-	return input.signal?.aborted ? {} : {
-		scopeId,
-		content: content ?? void 0
-	};
+	return settled;
 }
 
 //#endregion
@@ -4467,6 +4450,116 @@ function registerGuidance(ctx) {
 		order: 120,
 		text: GUIDANCE
 	});
+}
+
+//#endregion
+//#region src/companion-memory.ts
+/** Read-only, optional memory access for companions running in the same trusted DSH host. */
+const COMPANION_MEMORY_SERVICE = "powercontextCompanionMemory";
+const COMPANION_MEMORY_PROTOCOL = "powercontext.companion-memory.v1";
+/** Keep the running client's credentials and transport policy inside the host plugin. */
+function registerCompanionMemory(ctx, runtime) {
+	if (typeof ctx.provide !== "function" || typeof ctx.effect !== "function") return;
+	const lifetime = new AbortController();
+	const cwdFor = (sessionId) => {
+		const cwd = ctx.get("sessions")?.get?.(sessionId)?.header?.cwd;
+		return typeof cwd === "string" && cwd.trim() ? resolve(cwd) : void 0;
+	};
+	const service = {
+		protocol: COMPANION_MEMORY_PROTOCOL,
+		async prepare(request$2) {
+			if (typeof request$2.sessionId !== "string" || !request$2.sessionId.trim() || request$2.sessionId.length > 256) return {
+				status: "unavailable",
+				reason: "session-required"
+			};
+			const signal = AbortSignal.any([
+				lifetime.signal,
+				AbortSignal.timeout(Math.max(1, runtime.config.timeoutMs)),
+				...request$2.signal ? [request$2.signal] : []
+			]);
+			const unavailable = {
+				status: "unavailable",
+				reason: "connection-unavailable"
+			};
+			const run = async () => {
+				signal.throwIfAborted();
+				const cwd = cwdFor(request$2.sessionId);
+				if (!cwd) return {
+					status: "unavailable",
+					reason: "workspace-unavailable"
+				};
+				const scopeId = await runtime.resolveScope(cwd, signal, false).catch((error) => {
+					if (error instanceof ServerResponseError && [404, 409].includes(error.statusCode)) return void 0;
+					throw error;
+				});
+				signal.throwIfAborted();
+				if (!scopeId) return {
+					status: "unavailable",
+					reason: "scope-unavailable"
+				};
+				if (cwdFor(request$2.sessionId) !== cwd) return {
+					status: "unavailable",
+					reason: "workspace-unavailable"
+				};
+				const binding = {
+					bindingId: createHash("sha256").update(JSON.stringify([
+						runtime.config.baseUrl,
+						runtime.config.authorization ?? "",
+						cwd,
+						scopeId
+					])).digest("hex"),
+					scopeId,
+					workspace: basename(cwd) || cwd
+				};
+				if (request$2.query === void 0) return {
+					status: "connected",
+					...binding
+				};
+				if (typeof request$2.query !== "string") return unavailable;
+				const query = boundedRecallQuery(scrubSecrets(request$2.query, runtime.config.authorization));
+				if (!query) return {
+					status: "empty",
+					...binding
+				};
+				const requested = request$2.maxBytes ?? runtime.config.maxBytes;
+				if (!Number.isInteger(requested) || requested < 512 || requested > 32768) return unavailable;
+				const maxBytes = Math.min(requested, runtime.config.maxBytes);
+				const result = await runtime.client.request("prepare_context", {
+					scope_id: scopeId,
+					query,
+					max_bytes: maxBytes,
+					assembly: { sections: [{
+						family: "memory",
+						limit: 3
+					}] }
+				}, signal, { traceContext: request$2.traceContext });
+				signal.throwIfAborted();
+				if (cwdFor(request$2.sessionId) !== cwd) return {
+					status: "unavailable",
+					reason: "workspace-unavailable"
+				};
+				const prepared = validatePreparedContext(result.kind === "json" ? result.value : void 0, "/v1/context/prepare", maxBytes);
+				return {
+					status: prepared.status,
+					...binding,
+					...prepared.content ? { content: prepared.content } : {}
+				};
+			};
+			let onAbort = () => {};
+			const cancelled = new Promise((resolveCancelled) => {
+				onAbort = () => resolveCancelled(unavailable);
+				if (signal.aborted) onAbort();
+				else signal.addEventListener("abort", onAbort, { once: true });
+			});
+			try {
+				return await Promise.race([run().catch(() => unavailable), cancelled]);
+			} finally {
+				signal.removeEventListener("abort", onAbort);
+			}
+		}
+	};
+	ctx.provide(COMPANION_MEMORY_SERVICE, service);
+	ctx.effect(() => () => lifetime.abort());
 }
 
 //#endregion
@@ -5532,7 +5625,7 @@ function createRuntime(ctx, config) {
 		status: new RuntimeStatus(),
 		client,
 		config: resolved,
-		resolveScope: (cwd, signal) => resolveScopeId(client, cwd, resolved.scopeId, signal),
+		resolveScope: (cwd, signal, allowDefault) => resolveScopeId(client, cwd, resolved.scopeId, signal, allowDefault),
 		log: (event) => {
 			const line = JSON.stringify({
 				component: "powercontext.dsh",
@@ -5635,15 +5728,16 @@ async function apply(ctx, config) {
 	const llmMod = await loadPeer("@deepseek-ai/dsh-llm");
 	const runtime = createRuntime(ctx, config);
 	const sessionScope = createSessionScopeResolver(runtime);
-	registerMcpPolicy(ctx, sessionScope.forTool);
+	registerMcpPolicy(ctx, sessionScope.forTool, runtime.config.authorization);
 	registerSkill(ctx);
 	registerGuidance(ctx);
 	registerRecall(ctx, runtime, llmMod.createUserMessage, sessionScope.forPreStep);
 	registerCommands(ctx, runtime);
+	registerCompanionMemory(ctx, runtime);
 	registerStatusBridge(ctx, runtime);
 	registerUpdateBridge(ctx, runtime);
 	await registerMcp(ctx, runtime.config);
 }
 
 //#endregion
-export { Config, apply, inject, name };
+export { COMPANION_MEMORY_PROTOCOL, COMPANION_MEMORY_SERVICE, Config, apply, inject, name };

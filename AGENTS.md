@@ -76,6 +76,40 @@ The operational field contract is documented in [Logs, metrics, and tracing](doc
 
 Use [REVIEW.md](REVIEW.md) when reviewing changes.
 
+## Database Migrations
+
+Read the migration guide before changing managed storage:
+[English](docs/en/docs/operate/database-migrations.md) / [中文](docs/zh/docs/operate/database-migrations.md).
+
+- Schema changes accumulate in one unpublished Server revision `000`, using
+  `server_resources/versions/000.py` and the matching `mysql/versions/000.py` under
+  `src/powercontext/builtin/persistence/migrations/`. Its `down_revision` is the last frozen head.
+  Create this draft only when storage changes; subsequent PRs edit the same draft rather than add revisions.
+- Keep SQL, snapshots, native recovery layouts, domain tasks and all source/profile registrations in sync.
+  Give draft-owned resources names containing `000` (for example `schemas/sqlite-000.json`), and use
+  literal revision IDs and resource paths so the freeze tool can update references safely.
+  Never change frozen scripts or dependencies to accommodate a draft.
+- Before merging, update against master, reconcile conflicts in the cumulative SQL and registrations,
+  and pass CI on the merged result. CI validates the chain, checks frozen history against the PR base,
+  replays registered SQLite sources and runs the selected installed-release upgrade acceptance.
+  Repository administrators must require these checks and an up-to-date branch or merge queue.
+- When adopting the cumulative workflow, keep legacy revisions already in the master baseline unchanged.
+  Unmerged PRs with unpublished sequence/PR-named revisions must update against master and fold only
+  their remaining changes into the shared `000`, creating it after the latest frozen head if absent.
+  Reconcile SQL, resources, fingerprints, native layouts and all source/profile registrations with any
+  existing draft; remove the superseded unpublished entries and rebuild affected development databases.
+  Run baseline comparison and migration CI on the merged result. PR creation time grants no exemption;
+  an open PR need not merge before this policy. Never rename a published revision.
+- Only released-version upgrades are supported. A database or recovery plan created by unpublished `000`
+  is disposable: rebuild it when the draft changes or freezes. Do not stamp it as a released revision.
+- Release PRs run `make version-bump VERSION=X.Y.Z`, then `make schema-freeze VERSION=X.Y.Z`.
+  Freezing renames `000` to `vX_Y_Z`, including owned paths and registrations, and refreshes the
+  persistence digest after validating unchanged frozen history. Review the compatibility rationale,
+  record the version/head in release notes, and pass `make release-check` and artifact upgrade acceptance.
+  Publication rejects unfrozen drafts. No pending schema change means no new revision.
+- After release, the next schema PR starts a new `000` after the frozen head. Published revisions,
+  including legacy sequence and PR-based names, retain their identities and resources permanently.
+
 ## Generated API Contract
 
 `openapi/powercontext.yaml` is the source of truth for the HTTP API contract. The Python sources in `src/powercontext/http/_generated/` are checked in; do not edit them by hand. After changing the contract, run `make api-generate` and `make contract-test`.

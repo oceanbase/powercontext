@@ -41,6 +41,12 @@ describe('Scope binding', () => {
     expect(input.binding_keys[0].external_id).not.toContain('/workspace')
   })
 
+  it('allows companion callers to refuse an implicit default Scope', async () => {
+    const request = vi.fn().mockResolvedValue({ value: { scope_id: 'project' } })
+    await resolveScopeId({ request } as never, '/workspace', undefined, undefined, false)
+    expect(request.mock.calls[0][1].allow_default).toBe(false)
+  })
+
   it('uses the Server default when cwd is absent', async () => {
     const request = vi.fn().mockResolvedValue({ value: { scope_id: 'default-scope' } })
     await expect(resolveScopeId({ request } as never, undefined)).resolves.toBe('default-scope')

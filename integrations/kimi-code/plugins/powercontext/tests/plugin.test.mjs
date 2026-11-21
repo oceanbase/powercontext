@@ -51,8 +51,8 @@ test('automatic prompt privacy preserves preparation and original accepted event
       assert.equal(prepares.length, 1, result.stderr)
       assert.equal(state.captures.length, sample.sensitive || !capture ? 0 : 1)
       if (sample.sensitive) {
-        assert.doesNotMatch(JSON.stringify(state.requests.map(item => item.body)), /synthetic[-_]value[-_]2084/)
-        assert.doesNotMatch(JSON.stringify(result), /synthetic[-_]value[-_]2084/)
+        assert.doesNotMatch(JSON.stringify(state.requests.map(item => item.body)), /synthetic[-_]?value[-_]?2084/i)
+        assert.doesNotMatch(JSON.stringify(result), /synthetic[-_]?value[-_]?2084/i)
       } else {
         assert.equal(state.captures[0].content, sample.prompt)
         assert.equal(prepares[0].body.query, sample.prompt)
@@ -275,6 +275,55 @@ test('timeouts fail open within the automatic budget', async t => {
   assert.deepEqual(output, {})
   assert.match(stderr, /server_unavailable/)
   assert.ok(Date.now() - started < 5000)
+})
+
+test('context preparation taking longer than one second is still injected', { timeout: 10000 }, async t => {
+  const content = 'Historical context: deploy blue.'
+  const f = await fixture(t, { '/v1/context/prepare': (_req, res) => setTimeout(() => {
+    res.writeHead(200)
+    res.end(JSON.stringify({ schema: 'powercontext.prepared-context.v1', status: 'ready',
+      content, content_bytes: Buffer.byteLength(content) }))
+  }, 1500) })
+  const { output, stderr } = await f.invoke()
+  assert.equal(stderr, '')
+  assert.ok(output.message.endsWith(content), output.message)
+  assert.equal(f.captures.length, 1)
+})
+
+test('a prepare request stops at its own limit and leaves budget for capture', { timeout: 10000 }, async t => {
+  const f = await fixture(t, { '/v1/context/prepare': () => {} })
+  const started = Date.now()
+  const { output, stderr } = await f.invoke()
+  const elapsed = Date.now() - started
+  assert.doesNotMatch(output.message ?? '', /Historical context/)
+  assert.match(stderr, /server_unavailable/)
+  assert.equal(f.captures.length, 1)
+  assert.ok(elapsed >= 2900 && elapsed < 5000, `elapsed ${elapsed} ms`)
+})
+
+test('a capture that never answers cannot withdraw context that was already prepared', { timeout: 10000 }, async t => {
+  const content = 'Historical context: deploy blue.'
+  const f = await fixture(t, {
+    '/v1/scope-bindings/resolve': (_req, res) => setTimeout(() => {
+      res.writeHead(200); res.end(JSON.stringify({ scope_id: 'scope-test' }))
+    }, 500),
+    '/v1/context/prepare': (_req, res) => setTimeout(() => {
+      res.writeHead(200)
+      res.end(JSON.stringify({ schema: 'powercontext.prepared-context.v1', status: 'ready',
+        content, content_bytes: Buffer.byteLength(content) }))
+    }, 800),
+    '/v1/sources/content': () => {},
+  })
+  const started = Date.now()
+  const { output, stderr } = await f.invoke()
+  const elapsed = Date.now() - started
+  assert.ok(output.message?.endsWith(content), JSON.stringify(output))
+  assert.match(stderr, /capture_source/)
+  assert.ok(elapsed < 4500, `elapsed ${elapsed} ms`)
+  const status = await f.status()
+  assert.equal(status.stages.prepare.state, 'ready')
+  assert.equal(status.stages.capture.state, 'unknown')
+  assert.equal(status.stages.injection.state, 'emitted')
 })
 
 test('loopback aliases support automatic context and Source capture', async t => {

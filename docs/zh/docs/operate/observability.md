@@ -141,6 +141,12 @@ Supervisor 的 worker 和 wait spans 在跨进程后保留 child 的有限错误
 `auto` 已设置且模型名前缀不属于 `anthropic`、`openai`、`openai-chat`、`openai-responses` 时，`unit` 为
 `inference` 的 `inference.generation.streaming_not_applied` WARNING 表示该模型仍走非流式请求。该事件不携带
 prompt 或响应内容，也不改变本次请求的结果。
+配置了前缀抽取（`POWERCONTEXT_SERVER_INFERENCE_PREFIX_EXTRACTION_GATEWAY_URL`）时，对含一个带前缀句柄的网关回合的
+窗口，每次尝试输出一条 INFO 级别的 `atomic_memory.prefixed_extraction` 事件，`operation` 为 `atomic_memory.extract`，
+`unit` 为 `inference`。使用了基于缓存前缀的回复时 `outcome` 为 `success`；改用普通抽取时为 `fallback`，此时
+`fallback_reason` 取 `not_cheaper`、`prefix_size_unknown`、`prefix_unavailable`、`target_mismatch`、`disabled`、`invalid_instruction`、`check_rejected`、
+`gateway_unavailable`、`provider_error`、`gateway_error` 或 `invalid_output` 之一。不含这种回合的窗口不输出该事件。该事件不携带句柄、
+prompt 或响应内容。
 Child 取消时，supervisor 以 `INFO` 级别输出 `artifact_processing.failed`，outcome/category 为 `cancelled`，
 诊断代码为 `worker_cancelled`。Application spans 根据已映射的诊断代码分类，
 即使敏感 exception values 已从 logs 和 traces 中排除，也保留正确分类。
@@ -152,6 +158,11 @@ Child 取消时，supervisor 以 `INFO` 级别输出 `artifact_processing.failed
 的 RSS high-water mark，单位为 bytes。它们不是单次 request allocation，也不是同一时刻的 process-tree 总量，不能相加。
 失败的 code stage 保留诊断 `error_code`；领域错误还保留 `status_code`。日志与 span 使用这些值区分超时、冲突、
 无效请求和内部故障。
+
+插件目录的变化记录为 `plugin.changed` event：`plugin_name` 为插件名，`plugin_event` 为 `loaded`、`updated`、`removed`、
+`check_failed` 或 `upgrade_failed`，`version_digest` 与 `declaration_digest` 为本次生效（或检查失败时仍在使用）的版本内容
+摘要和声明摘要。检查失败只记录已知的失败分类，不记录异常消息。开启热加载时，每次扫描在 `DEBUG` 级别记录一条
+`plugin.scanned` event，`scan_ms` 为该次扫描的耗时，单位为毫秒。
 
 Server 创建的 workers 使用配置的 log level 和 format。通过 SDK 导入或运行 Runtime 时不配置 global logging，
 由 embedding application 管理 logging。Logging bootstrap 失败不会使 processing 失败。

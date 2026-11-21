@@ -10,6 +10,14 @@ inputs:
     description: "uv version to use"
     required: true
     default: "0.10.12"
+  shared-cache:
+    description: "Share and save root dependencies after installation. Leave disabled when later steps install additional Python dependencies."
+    required: false
+    default: 'false'
+  save-cache:
+    description: "Save the uv cache after the job; disable when the caller saves complete dependencies before tests"
+    required: false
+    default: 'auto'
   cache-dependency-glob:
     description: "Dependency files used to invalidate the uv cache, relative to the repository root"
     required: false
@@ -20,6 +28,17 @@ inputs:
       integrations/langgraph/pyproject.toml
       integrations/opendal/pyproject.toml
 
+outputs:
+  cache-path:
+    description: "The uv download cache directory"
+    value: ${{ steps.dependencies.outputs.cache-path }}
+  cache-key:
+    description: "The complete uv dependency cache key"
+    value: ${{ steps.uv.outputs.cache-key }}
+  cache-hit:
+    description: "Whether the complete uv dependency cache was restored"
+    value: ${{ steps.uv.outputs.cache-hit }}
+
 runs:
   using: "composite"
   steps:
@@ -28,13 +47,33 @@ runs:
         python-version: ${{ inputs.python-version }}
 
     - name: Install uv
+      id: uv
       uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
       with:
         version: ${{ inputs.uv-version }}
         enable-cache: 'true'
-        cache-suffix: ${{ github.job }}-py${{ inputs.python-version }}
+        save-cache: ${{ inputs.shared-cache == 'true' && 'false' || inputs.save-cache }}
+        cache-suffix: ${{ inputs.shared-cache == 'true' && 'shared' || github.job }}-py${{ inputs.python-version }}
         cache-dependency-glob: ${{ inputs.cache-dependency-glob }}
 
     - name: Install Python dependencies
-      run: uv sync --frozen
+      id: dependencies
+      run: |
+        uv sync --frozen
+        echo "cache-path=$UV_CACHE_DIR" >> "$GITHUB_OUTPUT"
       shell: bash
+
+    - name: Use a writable cache directory for project tools
+      if: runner.os == 'Linux'
+      shell: bash
+      run: |
+        mkdir -p "$RUNNER_TEMP/project-cache"
+        echo "XDG_CACHE_HOME=$RUNNER_TEMP/project-cache" >> "$GITHUB_ENV"
+
+    # Publish before tests so a later failure or timeout cannot discard the download cache.
+    - name: Save Python dependencies
+      if: inputs.shared-cache == 'true' && steps.uv.outputs.cache-hit != 'true' && github.event_name != 'merge_group'
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+      with:
+        path: ${{ env.UV_CACHE_DIR }}
+        key: ${{ steps.uv.outputs.cache-key }}

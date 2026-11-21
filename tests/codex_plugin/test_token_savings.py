@@ -673,6 +673,7 @@ def test_scope_binding_failures_are_classified(
 
 def test_scope_response_body_respects_the_per_request_timeout(
     scope_module: ModuleType,
+    scope_binding_client: ModuleType,
     tmp_path: Path,
 ) -> None:
     class SlowBodyHandler(BaseHTTPRequestHandler):
@@ -694,10 +695,11 @@ def test_scope_response_body_respects_the_per_request_timeout(
             pass
 
     with _serve(SlowBodyHandler) as server_url:
-        settings = _settings(scope_module, server_url, request_timeout_seconds=0.3)
+        settings = _settings(scope_module, server_url, request_timeout_seconds=0.3).scope_binding_settings()
         started = time.monotonic()
-        with pytest.raises(scope_module.ScopeBindingUnavailableError):
-            scope_module.resolve_scope_id(
+        with pytest.raises(scope_binding_client.ScopeBindingUnavailableError):
+            scope_binding_client.resolve_scope_id(
+                scope_module.CODEX,
                 str(tmp_path),
                 session_id=None,
                 settings=settings,
@@ -711,10 +713,11 @@ def test_scope_response_body_respects_the_per_request_timeout(
 def test_stop_budget_stays_below_the_host_deadline(token_savings_module: ModuleType) -> None:
     configuration = json.loads((PLUGIN_ROOT / "hooks" / "hooks.json").read_text(encoding="utf-8"))
     host_timeout = configuration["hooks"]["Stop"][0]["hooks"][0]["timeout"]
+    bounded = token_savings_module.host_bounded_http_budget
 
-    assert token_savings_module.stop_http_budget(float(host_timeout)) == host_timeout - 2.0
-    assert token_savings_module.stop_http_budget(4.0) < host_timeout
-    assert token_savings_module.stop_http_budget(0.2) == 0.2
+    assert bounded(float(host_timeout)) == host_timeout - 2.0
+    assert bounded(4.0) < host_timeout
+    assert bounded(0.2) == 0.2
 
 
 def test_stop_process_exits_within_the_host_deadline_against_a_slow_server(tmp_path: Path) -> None:
@@ -772,7 +775,7 @@ def test_stop_process_exits_within_the_host_deadline_against_a_slow_server(tmp_p
                 "import sys",
                 "from pathlib import Path",
                 f"root = Path({str(PLUGIN_ROOT)!r})",
-                "sys.path[:0] = [str(root), str(root / 'scripts')]",
+                "sys.path.insert(0, str(root))",
                 "import settings",
                 f"settings._MCP_CONFIGURATION_PATH = Path({str(config)!r})",
                 "from hooks.token_savings import main",

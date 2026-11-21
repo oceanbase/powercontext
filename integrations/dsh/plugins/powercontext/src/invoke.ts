@@ -241,7 +241,7 @@ export async function invokeOperation(
   if (!(operationId in OPERATIONS)) return toToolResult(new UnknownOperationError(operationId))
   const id = operationId as OperationId
   const body = injectScope(id, payload, scopeId)
-  if (hasSecretContent(id, body)) {
+  if (hasSecretContent(id, body, client.authorization)) {
     return toToolResult(new SecretRejectedError())
   }
   try {
@@ -272,6 +272,6 @@ export interface PluginRuntime {
   status?: import('./status.ts').RuntimeStatus
   client: PowerContextClient
   config: ResolvedConfig
-  resolveScope: (cwd?: string, signal?: AbortSignal) => Promise<string | undefined>
+  resolveScope: (cwd?: string, signal?: AbortSignal, allowDefault?: boolean) => Promise<string | undefined>
   log: (event: Record<string, unknown>) => void
 }

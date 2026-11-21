@@ -44,7 +44,9 @@ agent = Agent(
 
 The capability adds `powercontext_search`, `powercontext_remember`, and `powercontext_context`. It also requests
 `prepare_context` from the latest textual user prompt and prepends at most one untrusted evidence block per run. A new
-run prepares context again even when it starts from the previous run's message history.
+run prepares context again even when it starts from the previous run's message history. A prompt longer than 8,192
+characters or 8,192 UTF-8 bytes recalls from its most recent text, cut to the last 8,192 characters and then to the
+last 8,192 bytes.
 
 Use only the toolset when automatic preparation and capture are not wanted:
 
