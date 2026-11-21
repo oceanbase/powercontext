@@ -412,11 +412,12 @@ class KnowledgeBase:
         key = row["resource_key"]
         state = row["value"]
         document = state["pinned"]["document_id"]
-        published = await self.ctx.reads(scope).get(document, revision=state["pinned"]["base_revision"] + 1)
-        completed = published is not None and published.content.get("applied_request_id") == key
+        # Read the head first. If it has already advanced, the pinned revision is
+        # immutable and can now distinguish this request's publication from a competing write.
         current = await self.ctx.reads(scope).get(document)
-        # Publication may have committed between the history read and the head read.
-        completed = completed or (current is not None and current.content.get("applied_request_id") == key)
+        expected = state["pinned"]["base_revision"] + 1
+        published = await self.ctx.reads(scope).get(document, revision=expected)
+        completed = published is not None and published.content.get("applied_request_id") == key
         conflicted = (
             not completed
             and state["state"] in {"pending", "processing"}
@@ -429,7 +430,7 @@ class KnowledgeBase:
             "request_id": key,
             "document_id": document,
             "relative_path": state["pinned"]["relative_path"],
-            "published_revision": state["pinned"]["base_revision"] + 1 if completed else None,
+            "published_revision": expected if completed else None,
             "state": "completed" if completed else "failed" if conflicted else state["state"],
             "error": None if completed else "Document changed during processing" if conflicted else state.get("error"),
         }

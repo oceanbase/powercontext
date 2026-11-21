@@ -145,6 +145,39 @@ _service.parse = _gated_parse
     asyncio.run(scenario())
 
 
+def test_dashboard_retries_transient_status_then_stops_after_permission_loss(tmp_path):
+    async def scenario():
+        async with dashboard(tmp_path) as (call, page, frame, origin, expect):
+            space = (await call("GET", "/me/default-space"))["space_scope_id"]
+            kb = await library(call, "Incoming", space)
+            await library(call, "Other library", space)
+            await page.goto(origin + "/dashboard/plugins/knowledge-base")
+            await select_library(frame, "Incoming")
+            attempts = []
+
+            async def status(route):
+                attempts.append(route.request.url)
+                await route.fulfill(
+                    status=503 if len(attempts) == 1 else 403, json={"error": {"message": "Status unavailable"}}
+                )
+
+            await page.route(f"**/scopes/{kb['scope_id']}/imports/*", status)
+            await frame.get_by_role("button", name="导入文档", exact=True).click()
+            await frame.locator('input[type="file"]').set_input_files({
+                "name": "one.md",
+                "mimeType": "text/markdown",
+                "buffer": b"First publication",
+            })
+            await frame.get_by_role("button", name="开始导入", exact=True).click()
+            await frame.get_by_role("button", name="完成", exact=True).click()
+            await select_library(frame, "Other library")
+            await expect(frame.get_by_text("已停止跟踪", exact=False)).to_be_visible(timeout=12000)
+            await page.wait_for_timeout(4500)  # Span two polling intervals after the denial.
+            assert len(attempts) == 2 and attempts[0] == attempts[1]
+
+    asyncio.run(scenario())
+
+
 def test_dashboard_reprocess_tracks_committed_revision(tmp_path):
     gate = f"""
 from pathlib import Path

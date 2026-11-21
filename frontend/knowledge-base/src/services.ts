@@ -46,9 +46,14 @@ declare global {
   }
 }
 const bridge = window.powercontextPluginClient();
+export class ApiError extends Error {
+  constructor(readonly status: number, message: string) {
+    super(message);
+  }
+}
 async function result<T>(request: Promise<Response>): Promise<T> {
   const response = await request;
-  if (!response.ok) throw new Error(`${response.status}：${response.json?.error?.message || "请求失败，请刷新后重试"}`);
+  if (!response.ok) throw new ApiError(response.status, `${response.status}：${response.json?.error?.message || "请求失败，请刷新后重试"}`);
   return response.json as T;
 }
 const api = <T>(method: string, path: string, options?: Options) => result<T>(bridge.request(method, path, options));
