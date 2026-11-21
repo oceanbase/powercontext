@@ -86,6 +86,7 @@ def test_session_start_marks_delivery_before_injecting_and_first_query_sends_rec
     session_start_module: ModuleType,
     session_start_flow: ModuleType,
     hook_module: ModuleType,
+    prompt_flow: ModuleType,
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -149,12 +150,12 @@ def test_session_start_marks_delivery_before_injecting_and_first_query_sends_rec
 
     prepared_receipts: list[str | None] = []
 
-    def prepare(_query, _scope, *, settings, deadline, bootstrap_receipt_id=None):
+    def prepare(_host, _query, _scope, *, settings, deadline, bootstrap_receipt_id=None):
         prepared_receipts.append(bootstrap_receipt_id)
         return {"schema": "powercontext.prepared-context.v1", "status": "empty", "content": None, "content_bytes": 0}
 
-    monkeypatch.setattr(hook_module, "_prepare_context", prepare)
-    monkeypatch.setattr(hook_module, "resolve_scope_id", lambda *_args, **_kwargs: "scope:test")
+    monkeypatch.setattr(prompt_flow, "_prepare_context", prepare)
+    monkeypatch.setattr(prompt_flow, "resolve_scope_id", lambda *_args, **_kwargs: "scope:test")
     monkeypatch.setattr(
         sys,
         "stdin",
@@ -565,7 +566,7 @@ def test_session_start_requests_follow_the_configured_settings(
     budgets: list[float] = []
     requests: list[tuple[Request, float]] = []
 
-    def resolve(_cwd, *, deadline, **_kwargs):
+    def resolve(_host, _cwd, *, deadline, **_kwargs):
         budgets.append(deadline - monotonic())
         return "scope:test"
 

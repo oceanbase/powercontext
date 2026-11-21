@@ -288,13 +288,16 @@ class PreparedContextBuilder:
     max_entry_content_bytes = 2000
     _text_entry_limit: int | None = None
 
-    def __init__(self, *, budget_recorder: PreparedContextBudgetRecorder | None = None) -> None:
+    def __init__(
+        self, *, budget_recorder: PreparedContextBudgetRecorder | None = None, diagnostics: bool = False
+    ) -> None:
         """Create a Builder; ``budget_recorder`` receives one budget trace per successful build.
 
         Recording is off by default. A recorder only observes: its trace never changes the
         build, and a recorder or record computation that fails is ignored.
         """
 
+        self.diagnostics = diagnostics
         self._budget_recorder = budget_recorder
 
     def empty(self) -> PreparedContext:
@@ -348,7 +351,7 @@ class PreparedContextBuilder:
         if request.include_code:
 
             def historical(history_request: PrepareContextRequest, entries: int) -> PreparedContextBuild:
-                builder = PreparedContextBuilder(budget_recorder=self._budget_recorder)
+                builder = PreparedContextBuilder(budget_recorder=self._budget_recorder, diagnostics=self.diagnostics)
                 builder.entry_limit = entries
                 builder._text_entry_limit = entries if entries < self.entry_limit else None
                 return builder.build_scopes_result(
@@ -360,7 +363,7 @@ class PreparedContextBuilder:
                     profile_candidates=profile_candidates,
                 )
 
-            return assemble_code(request, code_candidates, self.entry_limit, historical)
+            return assemble_code(request, code_candidates, self.entry_limit, historical, diagnostics=self.diagnostics)
 
         if sum(len(candidates.hits) for candidates in memory_candidates) > self.memory_candidate_limit:
             raise PreparedContextInvariantError("memory-candidate-limit")
@@ -476,7 +479,7 @@ class PreparedContextBuilder:
             )
 
         counts: Counter[tuple[str, str]] = Counter()
-        count = counts if request.include_receipt else None
+        count = counts if request.include_receipt or self.diagnostics else None
         memory_entries = _interleave_groups(
             tuple(
                 self._memory_entries(
@@ -539,8 +542,9 @@ class PreparedContextBuilder:
         included: list[ContextTextItem] = []
         origins: list[PreparedContextOrigin] = []
         fragments: list[PreparedContextFragment] = []
+        family_numbers: Counter[str] = Counter()
         counts: Counter[tuple[str, str]] = Counter()
-        count = counts if request.include_receipt else None
+        count = counts if request.include_receipt or self.diagnostics else None
         truncated_items = 0
         dropped_below_min_bytes = 0
         dropped_no_fitting_truncation = 0
@@ -592,12 +596,12 @@ class PreparedContextBuilder:
                 included.append(fitted)
                 origins.append(entry.origin)
                 if count is not None:
-                    number = 1 + sum(fragment.kind == entry.kind for fragment in fragments)
+                    family_numbers[entry.kind] += 1
                     fragments.append(
                         PreparedContextFragment(
                             entry.origin,
                             entry.kind,
-                            rendered_text_fragment_bytes(fitted, assembly, number),
+                            rendered_text_fragment_bytes(fitted, assembly, family_numbers[entry.kind]),
                             fitted.truncated,
                         )
                     )
