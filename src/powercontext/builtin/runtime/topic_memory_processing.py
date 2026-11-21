@@ -113,6 +113,7 @@ from powercontext.builtin.processing_diagnostics import (
     ProcessingFailureReason,
     ProcessingStage,
     attach_diagnostics,
+    classify_processing_storage_failure,
 )
 from powercontext.builtin.runtime.config import BuiltinConfig, InferenceConfig
 from powercontext.builtin.runtime.processing_contracts import (
@@ -375,7 +376,10 @@ class TopicMemoryAtomicPublisher:
             )
         ):
             raise TopicMemoryGenerationError("duplicate_operation")
-        async with self._database.transaction() as connection:
+        async with (
+            classify_processing_storage_failure("topic-memory-publish-storage"),
+            self._database.transaction() as connection,
+        ):
             await self._leases.require_fence(connection, assignment.fence)
             # Make SQLite acquire the outer write transaction before the Cursor
             # repository's insert-CAS savepoint. It also freezes Source capture

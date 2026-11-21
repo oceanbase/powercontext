@@ -666,7 +666,7 @@ class ReviewService:
             observe_processing_failure(
                 family, f"{family}.approve", self._scope_id, storage_location=f"{family}-approval-storage"
             )
-            if family in {"experience", "profile", "skill"}
+            if family in {"experience", "profile", "prompt", "skill"}
             else nullcontext()
         ):
             try:
