@@ -237,6 +237,9 @@ def test_label_catalogs_have_identical_keys_and_non_empty_copy() -> None:
     assert set(zh_labels) == set(en_labels)
     assert set(CATALOGS["zh"]) == set(CATALOGS["en"]) == set(en_labels)
     assert "profile_generation_prompt" in en_labels
+    assert "prompt_builtin_matches_effective" in en_labels
+    assert zh_labels["profile_generation_prompt"] == "画像生成提示词"
+    assert zh_labels["prompt_editor_title"] == "编辑画像提示词"
     for key, value in zh_labels.items():
         assert isinstance(value, str) and value.strip(), f"Empty zh label for {key}"
     for key, value in en_labels.items():
@@ -255,7 +258,11 @@ def test_profile_links_to_generation_prompt_and_prompts_view_before_and_after_re
     empty_profile = dashboard.get("/dashboard/profile", params={"scope": scope, "lang": language})
     assert empty_profile.status_code == 200, empty_profile.text
     assert "/dashboard/profile/generate" in empty_profile.text
+    assert 'class="btn-list justify-content-md-end"' in empty_profile.text
     assert labels["profile_generation_prompt"] in empty_profile.text
+    assert empty_profile.text.index(labels["profile_generation_prompt"]) < empty_profile.text.index(
+        labels["profile_generate"]
+    )
     prompt_links = [
         url
         for url in _links_for_path(empty_profile.text, "/dashboard/prompts")
@@ -296,9 +303,16 @@ def test_profile_links_to_generation_prompt_and_prompts_view_before_and_after_re
         for url in _links_for_path(populated_profile.text, "/dashboard/prompts")
     )
 
+    # Supported Auto mode clarifies that the displayed effective instructions match the built-in template.
+    _set_prompt_registry(dashboard, supported=frozenset(PROMPT_KEYS))
+    auto_supported = dashboard.get(
+        "/dashboard/prompts", params={"scope": scope, "prompt_key": "profile.generate", "lang": language}
+    )
+    assert auto_supported.status_code == 200, auto_supported.text
+    assert labels["prompt_builtin_matches_effective"] in _prompt_card(auto_supported.text, "profile.generate")
+
     # After creating the first Prompt revision, effective custom instructions and defaults both render,
     # while the other 7 keys remain strictly read-only.
-    _set_prompt_registry(dashboard, supported=frozenset(PROMPT_KEYS))
     created = dashboard.post(
         f"/v1/scopes/{scope}/artifacts",
         json={
@@ -320,6 +334,8 @@ def test_profile_links_to_generation_prompt_and_prompts_view_before_and_after_re
     card_after = _prompt_card(after_prompt.text, "profile.generate")
     assert f"{labels['prompt_mode']}: {labels['prompt_custom']}" in card_after
     assert f"{labels['prompt_revision']} 1" in card_after
+    assert labels["prompt_builtin_template"] in card_after
+    assert labels["prompt_builtin_matches_effective"] not in card_after
     assert "Keep only durable engineering preferences." in card_after
     assert PROFILE_INSTRUCTIONS_VERSION in card_after
     assert PROFILE_INSTRUCTIONS.strip() in unescape(card_after)

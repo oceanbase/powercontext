@@ -63,7 +63,7 @@ curl --fail --request PUT \
 
 保存 Auto 模式可使用当前部署的内置指令。恢复历史内容时创建新的 Revision，保留中间历史；
 恢复 Auto 模式会使用当前内置指令。Dashboard `/dashboard/prompts` 页面为 `profile.generate` 提供编辑入口，
-可从 **Profile → 生成提示词** 进入：选择 Scope，查看 Auto/Custom 模式、当前生效指令、内置默认值、
+可从 **Profile → 画像生成提示词** 进入：选择 Scope，查看 Auto/Custom 模式、当前生效指令、内置默认值、
 能力状态及已保存版本；首次切换到 Custom 以内置默认值为起点；保存新版本不会调用推理、启用生成或重处理历史
 Source。enforced 模式下写入需要当前 `scope.admin`；`disabled` 模式无强制检查。只有能力状态为
 `supported`（或已保存 Custom 版本）时才显示编辑器；能力为 `disabled` 时仍可查看，但不能在 Dashboard 编辑；

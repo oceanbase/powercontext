@@ -40,7 +40,8 @@ limitations under the License.
 <pre class="page-body-pre text-break">{{ shown }}</pre>
 {% if prompt.builtin %}
 {% if shown != prompt.builtin.instructions %}<h2 class="section-title">{{ t.prompt_builtin_template }}</h2>
-<pre class="page-body-pre text-break">{{ prompt.builtin.instructions }}</pre>{% endif %}
+<pre class="page-body-pre text-break">{{ prompt.builtin.instructions }}</pre>
+{% elif opened or prompt.effective %}<p class="text-secondary small mb-1">{{ t.prompt_builtin_matches_effective }}</p>{% endif %}
 <p class="text-secondary small">{{ t.prompt_builtin_version }}: {{ prompt.builtin.version }}</p>
 {% endif %}
 {% endif %}

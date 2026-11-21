@@ -461,6 +461,7 @@
   "prompt_saved_revision": "Saved revision",
   "prompt_not_saved": "Not saved yet",
   "prompt_builtin_version": "Built-in version",
+  "prompt_builtin_matches_effective": "Built-in template (matches the effective instructions above)",
   "prompt_explain_title": "How this prompt applies",
   "prompt_explain_auto": "Auto uses the defaults deployed with the current Server. A Server upgrade can change those defaults.",
   "prompt_explain_no_effect": "Viewing or saving a prompt does not call a model, turn generation on, or reprocess historical Sources.",
