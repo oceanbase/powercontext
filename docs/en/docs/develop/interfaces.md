@@ -24,7 +24,7 @@ All remote interfaces operate on the same Server and persistent Artifact storage
 | Python Client SDK | Typed asynchronous calls to a running Server | [Install the client role](../get-started/install-and-run.md#install-a-python-role) |
 | Core SDK | In-process Source, Artifact, Trigger, and composition contracts | [Python API reference](/en/modules/) |
 | HTTP | Service integration from any language | [HTTP API](http-api.md) |
-| MCP | Curated Agent tools for Source capture, Memory, work continuity, reports, and Candidate Review | Enabled by the Server at `/mcp` |
+| MCP | Curated Agent tools for Source capture, Memory, work continuity, reports, Experience and Skill synthesis, Artifacts, and Candidate Review | Enabled by the Server at `/mcp` |
 
 ## Codex plugin
 
@@ -321,14 +321,17 @@ See [HTTP API](http-api.md) for authentication, curl examples, operation groups,
 contract. The Server publishes a Scalar API reference at `/docs`, its OpenAPI document at `/openapi.json`, readiness at
 `/health/ready`, capabilities at `/v1/capabilities`, and Streamable HTTP MCP at `/mcp` by default. The Scalar reference
 remains public when bearer authentication is enabled, but the operations it describes retain their normal authentication
-requirements. HTTP is the complete application contract. MCP is a curated Agent-facing projection of Source capture,
-Memory maintenance, work continuity, scope Handoff Report lookup, and Candidate Review. The six Candidate Review
-operations use the same validation, `expected_version` concurrency checks, and approval transaction over HTTP and MCP.
+requirements. HTTP is the complete application contract. MCP is a curated Agent-facing projection covering Source
+capture, Memory maintenance, work continuity, scope and Handoff Report lookup, Experience and Skill synthesis, Artifact
+read, replace, and publication, plus Candidate Review; the Server's `tools/list` response is the authoritative tool set.
+The six Candidate Review operations use the same validation, `expected_version` concurrency checks, and approval
+transaction over HTTP and MCP.
 Readiness is `ready` with HTTP 200 when all checks pass, `degraded` with HTTP 200 when only configured inference checks
 fail, and `not_ready` with HTTP 503 when the Runtime or database fails. Dependency checks use `ready`, `unavailable`,
 `timeout`, or `misconfigured`; an intentionally unbound Runtime reports `not_ready` for the `runtime` check.
-Experience and Skill generation, exact reads, external Registry operations, and low-level proposal operations remain
-HTTP-only.
+Skill lifecycle changes, Skill package download or publishing to remote targets, low-level Artifact administration
+(creating, listing, tagging, merging, forgetting, restoring, or enumerating revisions), Memory flush and change-history
+reads, and health or capability inspection remain HTTP-only.
 
 MCP uses stateless Streamable HTTP and does not issue MCP session IDs. When authentication is enabled, each
 request uses its own verified identity and current group membership. Scopes, Memory, and Handoffs remain

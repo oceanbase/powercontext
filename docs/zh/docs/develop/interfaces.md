@@ -24,7 +24,7 @@ description: 在 Agent 集成、CLI、Python SDK、HTTP 和 MCP 之间选择。
 | Python Client SDK | 对运行中的 Server 发起类型化异步调用 | [安装 Client role](../get-started/install-and-run.md) |
 | Core SDK | 进程内 Source、Artifact、Trigger 和组合契约 | [Python API 参考](/zh/modules/) |
 | HTTP | 从任意语言集成服务 | [HTTP API](http-api.md) |
-| MCP | 面向 Agent 的 Source 采集、Memory、工作连续性、报告和 Candidate Review 精选工具 | Server 在 `/mcp` 启用 |
+| MCP | 面向 Agent 的 Source 采集、Memory、工作连续性、报告、Experience 与 Skill 合成、Artifact 和 Candidate Review 精选工具 | Server 在 `/mcp` 启用 |
 
 ## Codex 插件
 
@@ -292,9 +292,11 @@ Discovery 不进入 Review。显式调用 `import_external_skill` 并提供精�
 Scalar API reference，在 `/openapi.json` 提供 OpenAPI 文档，在 `/health/ready` 提供就绪检查，在
 `/v1/capabilities` 提供能力信息，并默认在 `/mcp` 提供 Streamable HTTP MCP。启用 Bearer authentication 后，
 Scalar reference 仍可公开访问，但其中描述的 operation 继续遵守各自的认证要求。HTTP 是完整应用契约，MCP 是
-面向 Agent 的 Source 采集、Memory 维护、工作连续性、scope Handoff Report 查询和 Candidate Review 精选子集。六个
-Candidate Review operation 通过 HTTP 和 MCP 使用相同的 validation、`expected_version` 并发校验和 approval transaction。Experience/Skill generation、
-exact read、external Registry operation 和低阶 proposal operation 仍只通过 HTTP 提供。
+面向 Agent 的精选子集，覆盖 Source 采集、Memory 维护、工作连续性、scope 与 Handoff Report 查询、Experience 与
+Skill 合成、Artifact 读取/替换/发布，以及 Candidate Review；权威 tool 清单以 Server 的 `tools/list` 返回为准。
+六个 Candidate Review operation 通过 HTTP 和 MCP 使用相同的 validation、`expected_version` 并发校验和 approval
+transaction。仍只通过 HTTP 提供的是：Skill 生命周期变更、Skill 包下载与发布到远端 target、Artifact 的低阶管理
+（创建、列举、打标签、合并、遗忘、恢复、revision 枚举）、Memory flush 与变更历史读取，以及健康与能力检查。
 
 MCP 使用无状态 Streamable HTTP，不签发 MCP 会话 ID。启用认证时，每个请求均使用自身经过验证的身份和当前
 组成员关系。Scope、Memory 和 Handoff 仍持久化在 Runtime 中。升级后请重新连接 MCP 客户端；不提供跨请求的
