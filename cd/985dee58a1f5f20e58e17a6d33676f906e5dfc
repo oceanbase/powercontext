@@ -1,0 +1,21 @@
+integrations/kimi-code/plugins/powercontext/tests/plugin.test.mjs
+  s_2ef0feea0a110d::t_02bf8394f6b06b 29-31,280,304,325
+gateway/crates/pc-gateway-app/tests/capacity_process.rs
+  s_2ef0feea0a110d::t_198d8f97460602 358-387,472,479-485,560-566,586-590,653-657
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "cd985dee58a1f5f20e58e17a6d33676f906e5dfc",
+  "prompts": {},
+  "sessions": {
+    "s_2ef0feea0a110d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1a9cf-a4e7-7f63-9c51-1284f7c332e8",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "frf12 <rongfeng.frf@antgroup.com>"
+    }
+  }
+}
