@@ -21,52 +21,126 @@ jobs:
         with:
           python-version: '3.12'
           save-cache: 'false'
-      - name: Prepare private interpreter stack sampler
+      - name: Prepare standard-library gate comparison
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force "$env:RUNNER_TEMP/probe-site" | Out-Null
-          New-Item -ItemType Directory -Force "$env:RUNNER_TEMP/windows-log-probe/stacks" | Out-Null
+          New-Item -ItemType Directory -Force "$env:RUNNER_TEMP/windows-log-probe" | Out-Null
           @'
-          import atexit
-          import faulthandler
           import json
-          import os
+          import multiprocessing
+          import subprocess
           import sys
+          import threading
           import time
           from pathlib import Path
 
-          root = os.environ.get("PC_CI_WINDOWS_STACKS")
-          if root:
-              directory = Path(root)
-              directory.mkdir(parents=True, exist_ok=True)
-              output = (directory / f"process-{os.getpid()}.log").open("w", encoding="utf-8")
-              output.write(json.dumps({"pid": os.getpid(), "ppid": os.getppid(), "time_ns": time.time_ns(), "argv": sys.argv}) + "\n")
-              output.flush()
-              atexit.register(output.close)
-              atexit.register(faulthandler.cancel_dump_traceback_later)
-              faulthandler.dump_traceback_later(10, repeat=True, file=output)
-          '@ | Set-Content -Encoding utf8 "$env:RUNNER_TEMP/probe-site/sitecustomize.py"
+
+          def child_ready(root):
+              (Path(root) / 'child-ready').write_text(str(time.time_ns()), encoding='utf-8')
+
+
+          def controller(gate, root):
+              root = Path(root)
+              blocked = root / 'blocked'
+              release = root / 'release'
+
+              def sink():
+                  blocked.touch()
+                  if gate == 'stdin':
+                      sys.stdin.read(1)
+                  else:
+                      while not release.exists():
+                          time.sleep(0.01)
+
+              thread = threading.Thread(target=sink)
+              thread.start()
+              while not blocked.exists():
+                  time.sleep(0.01)
+              child = multiprocessing.get_context('spawn').Process(target=child_ready, args=(str(root),))
+              child.start()
+              (root / 'spawn-returned').write_text(str(time.time_ns()), encoding='utf-8')
+              child.join(15)
+              thread.join(15)
+              assert child.exitcode == 0
+              assert not thread.is_alive()
+              child.close()
+
+
+          def main():
+              if sys.argv[1] == 'controller':
+                  controller(sys.argv[2], sys.argv[3])
+                  return
+              report_root = Path(sys.argv[1])
+              report_root.mkdir(parents=True, exist_ok=True)
+              results = []
+              for gate in ['stdin', 'file']:
+                  root = report_root / gate
+                  root.mkdir()
+                  start = time.monotonic()
+                  process = subprocess.Popen([sys.executable, __file__, 'controller', gate, str(root)], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                  try:
+                      while not (root / 'child-ready').exists() and process.poll() is None and time.monotonic() - start < 5:
+                          time.sleep(0.01)
+                      ready_before_release = (root / 'child-ready').exists()
+                      (root / 'release').touch()
+                      stdout, stderr = process.communicate(input='\n', timeout=20)
+                  finally:
+                      (root / 'release').touch()
+                      if process.poll() is None:
+                          process.kill()
+                          process.communicate(timeout=10)
+                  results.append({'gate': gate, 'ready_before_release': ready_before_release, 'returncode': process.returncode, 'elapsed_seconds': time.monotonic() - start, 'stdout': stdout, 'stderr': stderr})
+              (report_root / 'comparison.json').write_text(json.dumps(results, indent=2), encoding='utf-8')
+              print(json.dumps(results, indent=2))
+              assert results[0]['ready_before_release'] is False
+              assert results[1]['ready_before_release'] is True
+              assert all(item['returncode'] == 0 for item in results)
+
+
+          if __name__ == '__main__':
+              main()
+          '@ | Set-Content -Encoding utf8 "$env:RUNNER_TEMP/windows-log-probe/stdin_gate_probe.py"
           git rev-parse HEAD
           Get-FileHash tests/e2e/test_worker_logging.py -Algorithm SHA256
           uv run --locked --no-sync python --version
-      - name: Repeat unchanged slow-consumer regression with early stacks
+      - name: Compare independent sink gates without PowerContext
+        shell: pwsh
+        continue-on-error: true
+        run: uv run --locked --no-sync python "$env:RUNNER_TEMP/windows-log-probe/stdin_gate_probe.py" "$env:RUNNER_TEMP/windows-log-probe/stdlib"
+      - name: Repeat fixed slow consumer and full logging file
         shell: pwsh
         env:
-          PC_CI_WINDOWS_STACKS: ${{ runner.temp }}/windows-log-probe/stacks
-          PYTHONPATH: ${{ runner.temp }}/probe-site;${{ github.workspace }}/.github/scripts
+          PYTHONPATH: ${{ github.workspace }}/.github/scripts
           PYTEST_ADDOPTS: -p pytest_ci_diagnostics
         run: |
           $results = @()
           foreach ($iteration in 1..2) {
-            $casePath = "$env:RUNNER_TEMP/windows-log-probe/case-$iteration"
-            uv run --locked --no-sync pytest -q tests/e2e/test_worker_logging.py::test_worker_completion_does_not_wait_for_slow_log_consumer --basetemp="$casePath" --junitxml="$env:RUNNER_TEMP/windows-log-probe/case-$iteration.xml" --durations=5
+            uv run --locked --no-sync pytest -q tests/e2e/test_worker_logging.py::test_worker_completion_does_not_wait_for_slow_log_consumer --basetemp="$env:RUNNER_TEMP/windows-log-probe/case-$iteration" --junitxml="$env:RUNNER_TEMP/windows-log-probe/case-$iteration.xml" --durations=5
             $results += [PSCustomObject]@{ iteration = $iteration; exit_code = $LASTEXITCODE }
           }
-          if (($results | Where-Object { $_.exit_code -ne 0 }).Count -eq 0) {
-            uv run --locked --no-sync pytest -q tests/e2e/test_worker_logging.py --basetemp="$env:RUNNER_TEMP/windows-log-probe/full-file" --junitxml="$env:RUNNER_TEMP/windows-log-probe/full-file.xml" --durations=10
-            $results += [PSCustomObject]@{ iteration = 'full-file'; exit_code = $LASTEXITCODE }
-          }
+          uv run --locked --no-sync pytest -q tests/e2e/test_worker_logging.py --basetemp="$env:RUNNER_TEMP/windows-log-probe/full-file" --junitxml="$env:RUNNER_TEMP/windows-log-probe/full-file.xml" --durations=10
+          $results += [PSCustomObject]@{ iteration = 'full-file'; exit_code = $LASTEXITCODE }
           $results | ConvertTo-Json | Set-Content -Encoding utf8 "$env:RUNNER_TEMP/windows-log-probe/results.json"
+          exit 0
+      - name: Confirm the completion dependency negative control fails
+        shell: pwsh
+        env:
+          PYTHONPATH: ${{ github.workspace }}/.github/scripts
+          PYTEST_ADDOPTS: -p pytest_ci_diagnostics
+        run: |
+          @'
+          from pathlib import Path
+          path = Path("tests/e2e/test_worker_logging.py")
+          source = path.read_text()
+          marker = '    _record_log_probe_phase(phases, "burst_started")\n'
+          assert source.count(marker) == 1
+          source = source.replace(marker, marker + '    while not (root / "consumer-release").exists():\n        time.sleep(0.01)\n')
+          path.write_text(source)
+          '@ | uv run --locked --no-sync python -
+          uv run --locked --no-sync pytest -q tests/e2e/test_worker_logging.py::test_worker_completion_does_not_wait_for_slow_log_consumer --basetemp="$env:RUNNER_TEMP/windows-log-probe/negative" --junitxml="$env:RUNNER_TEMP/windows-log-probe/negative.xml"
+          $result = $LASTEXITCODE
+          @{ exit_code = $result; expected_exit_code = 1 } | ConvertTo-Json | Set-Content -Encoding utf8 "$env:RUNNER_TEMP/windows-log-probe/negative-result.json"
+          if ($result -ne 1) { exit 1 }
           exit 0
       - name: Save independent diagnosis evidence
         if: always()
