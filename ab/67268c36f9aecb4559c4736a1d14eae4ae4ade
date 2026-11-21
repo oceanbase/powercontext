@@ -1,0 +1,93 @@
+scripts/ci_changes.py
+  s_13fec9a57c9104::t_e47c71a5e2af9e 62-64,66-70
+.github/workflows/master.yml
+  s_13fec9a57c9104::t_e47c71a5e2af9e 227,250,260,278,312,314,322,324,329-337,360,904,937,942-946,1000,1052,1097,1132,1187,1326,1342,1359,1374,1463
+scripts/check_workflow_actions.py
+  s_13fec9a57c9104::t_e47c71a5e2af9e 131-134
+tests/test_workflow_actions.py
+  s_13fec9a57c9104::t_e47c71a5e2af9e 73-93
+tests/conftest.py
+  s_13fec9a57c9104::t_e47c71a5e2af9e 17,82-84,158-173,209-215
+  s_13fec9a57c9104::t_567662826db843 216-218
+.github/workflows/skill-guidance.yml
+  s_13fec9a57c9104::t_e47c71a5e2af9e 39
+.github/workflows/gateway.yml
+  s_13fec9a57c9104::t_e47c71a5e2af9e 42-43,63-64,73-78
+.github/actions/cache-restore/action.yml
+  s_13fec9a57c9104::t_e47c71a5e2af9e 1-57
+src/powercontext/builtin/persistence/database.py
+  s_13fec9a57c9104::t_e47c71a5e2af9e 384-386
+.github/actions/cache/action.yml
+  s_13fec9a57c9104::t_e47c71a5e2af9e 1-62
+.github/actions/setup-uv/action.yml
+  s_13fec9a57c9104::t_e47c71a5e2af9e 1-86
+integrations/dsh/plugins/powercontext/package.json
+  s_13fec9a57c9104::t_e47c71a5e2af9e 73
+tests/test_ci_shard_collection.py
+  s_13fec9a57c9104::t_e47c71a5e2af9e 1-76
+Makefile
+  s_13fec9a57c9104::t_e47c71a5e2af9e 70-74,76-78
+.github/workflows/desktop-candidate.yml
+  s_13fec9a57c9104::t_e47c71a5e2af9e 36,165
+.github/workflows/build-artifacts.yml
+  s_13fec9a57c9104::t_e47c71a5e2af9e 58-59
+.github/actions/setup-mise/action.yml
+  s_13fec9a57c9104::t_e47c71a5e2af9e 1-78
+tests/test_ci_cache.py
+  s_13fec9a57c9104::t_e47c71a5e2af9e 1-398
+.github/actions/setup-go/action.yml
+  s_13fec9a57c9104::t_e47c71a5e2af9e 1-54
+scripts/ci_cache.py
+  s_13fec9a57c9104::t_e47c71a5e2af9e 1-253
+tests/test_ci_changes.py
+  s_13fec9a57c9104::t_e47c71a5e2af9e 528-530
+.github/actions/setup-openapi-generator/action.yml
+  s_13fec9a57c9104::t_e47c71a5e2af9e 15,28
+.github/actions/cache-pnpm/action.yml
+  s_13fec9a57c9104::t_e47c71a5e2af9e 47,56
+.github/workflows/kimi-code-acceptance.yml
+  s_13fec9a57c9104::t_e47c71a5e2af9e 60
+.github/workflows/installation.yml
+  s_13fec9a57c9104::t_e47c71a5e2af9e 44-45
+tests/test_ci_pipeline.py
+  s_13fec9a57c9104::t_e47c71a5e2af9e 167,198-253
+  s_13fec9a57c9104::t_2ab4a23cc603ae 254-255
+.github/actions/setup-python-env/action.yml
+  s_13fec9a57c9104::t_e47c71a5e2af9e 51,76
+docs/en/development/ci-scope.md
+  s_13fec9a57c9104::t_e47c71a5e2af9e 36-41,46-47,122-142
+  s_13fec9a57c9104::t_b03cd5f7b5b2b6 143
+docs/zh/development/ci-scope.md
+  s_13fec9a57c9104::t_e47c71a5e2af9e 36-41,46-47,122-142
+  s_13fec9a57c9104::t_955853c32e8fc8 143
+release/upgrade-support.json
+  s_13fec9a57c9104::t_e47c71a5e2af9e 6
+  s_13fec9a57c9104::t_6b197ce3522eb0 7
+.github/actions/cache-backend/action.yml
+  s_13fec9a57c9104::t_e47c71a5e2af9e 1-13
+.github/workflows/e2e-harness.yml
+  s_13fec9a57c9104::t_e47c71a5e2af9e 62,94,127,666
+tests/builtin/runtime/test_model_usage_recorder.py
+  s_13fec9a57c9104::t_e47c71a5e2af9e 36,459-496
+  s_13fec9a57c9104::t_6f75bae5a8db86 497
+.github/actions/setup-rust-cache/action.yml
+  s_13fec9a57c9104::t_e47c71a5e2af9e 1-73
+.github/actions/cache-save/action.yml
+  s_13fec9a57c9104::t_e47c71a5e2af9e 1-47
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "ab67268c36f9aecb4559c4736a1d14eae4ae4ade",
+  "prompts": {},
+  "sessions": {
+    "s_13fec9a57c9104": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1617e-79d4-7103-bf67-e341786d4978",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Frey <370805886@qq.com>"
+    }
+  }
+}
