@@ -15,13 +15,15 @@
 """Write the copies of the integration lifecycle helpers that plugins and SDK adapters ship.
 
 Copy-installed Python plugins and the Python SDK adapters get the Python helpers. TypeScript host plugins get the
-TypeScript helpers, which their bundlers inline or, for Pi, which the host loads as source.
+TypeScript helpers, which their bundlers inline or, for Pi, which the host loads as source. Hooks that their host runs
+as plain JavaScript get the TypeScript helpers with the types removed.
 """
 
 from __future__ import annotations
 
 import argparse
 import os
+import re
 import subprocess
 from pathlib import Path
 
@@ -37,6 +39,8 @@ _DSH = "integrations/dsh/plugins/powercontext"
 _OPENCLAW = "integrations/openclaw/plugins/memory-powercontext"
 _OPENCODE = "integrations/opencode/plugins/powercontext"
 _PI = "integrations/pi/plugins/powercontext"
+_KIMI_CODE = "integrations/kimi-code/plugins/powercontext"
+_ZCODE = "integrations/zcode/plugins/powercontext"
 # The SDK adapters install with the PowerContext package, but they also support released cores that predate
 # powercontext_integration_lifecycle, so each keeps a private copy beside its own modules.
 _LANGCHAIN = "integrations/langchain/src/powercontext_langchain"
@@ -81,8 +85,16 @@ TYPESCRIPT_COPIES = {
         f"{_PI}/src/transport.ts",
     ),
 }
+# Kimi Code and ZCode run their hooks with Node.js straight from the installed plugin, with no build step, so they get
+# JavaScript copies.
+JAVASCRIPT_COPIES = {
+    "prompt-privacy.ts": (
+        f"{_KIMI_CODE}/shared/prompt-privacy.mjs",
+        f"{_ZCODE}/shared/prompt-privacy.mjs",
+    ),
+}
 # The single-file copies, each table with the directory its modules come from.
-TABLES = ((SOURCE, COPIES), (TYPESCRIPT_SOURCE, TYPESCRIPT_COPIES))
+TABLES = ((SOURCE, COPIES), (TYPESCRIPT_SOURCE, TYPESCRIPT_COPIES), (TYPESCRIPT_SOURCE, JAVASCRIPT_COPIES))
 # Every copy's generated-file comment starts with one of these.
 GENERATED_FROM = (
     f"# Generated from {SOURCE.relative_to(ROOT).as_posix()}/",
@@ -94,8 +106,8 @@ DRIFT_MESSAGE = (
 )
 UNLISTED_MESSAGE = (
     "Plugin files look like generated integration lifecycle helpers, by name, generated-file comment, or content, but "
-    "scripts/generate_integration_lifecycle.py does not write them; add each copy to COPIES or TYPESCRIPT_COPIES "
-    "there, or rename or delete the file."
+    "scripts/generate_integration_lifecycle.py does not write them; add each copy to COPIES, TYPESCRIPT_COPIES, or "
+    "JAVASCRIPT_COPIES there, or rename or delete the file."
 )
 EXTRA_MESSAGE = (
     "Package copies of the integration lifecycle helpers hold files that the source does not have; "
@@ -105,12 +117,57 @@ NESTED_MESSAGE = (
     "The plugins get only the top-level modules of src/powercontext_integration_lifecycle/; move these modules to "
     "the top level:"
 )
+# The JavaScript copies drop the only TypeScript syntax that the helpers they come from may use: the types of plain
+# parameters, made of names, arrays, and unions, and the return type, on a one-line function signature, and `as const`
+# after a closing bracket at the end of a line. Without a TypeScript parser, the conversion rejects every other
+# construct that it recognizes as TypeScript rather than copy it. The Kimi Code and ZCode tests then run each copy
+# against the shared privacy fixture.
+_SIGNATURE = re.compile(
+    r"(?P<head>\s*(?:export\s+)?(?:async\s+)?function\s+\w+)\((?P<parameters>[^()]*)\)(?:\s*:[^{]*?)?(?P<tail>\s*\{)"
+)
+_PARAMETER = re.compile(r"(?P<name>\w+)\??(?:\s*:\s*[\w.\[\]| ]+)?")
+_CONST_ASSERTION = re.compile(r"(?<=[\])}])\s+as\s+const(?=[;,)]?$)")
+_TYPESCRIPT_ONLY = re.compile(
+    r"^\s*(?:export\s+)?(?:declare|type|interface|enum|namespace|abstract)\b|^\s*(?:import|export)\s+type\b|"
+    r"^\s*(?:export\s+)?(?:const|let|var)\s+\w+\s*[!:]|\bfunction\b|\([^()]*:[^()]*\)\s*(?::[^=]*)?=>|"
+    r"\bas\s+\w|\bsatisfies\b|\b(?:private|protected|public|readonly)\s+\w|\w!\.|\w<(?![<=])"
+)
 
 
-def render(source: Path) -> str:
+def javascript(source: Path, text: str) -> str:
+    """Return a TypeScript helper without the types, or stop at the first line the conversion cannot handle."""
+
+    lines = []
+    for number, line in enumerate(text.splitlines(keepends=True), start=1):
+        body = line.rstrip("\r\n")
+        ending = line[len(body) :]
+        # Comments and the regular expression literals of the pattern tables hold no TypeScript.
+        if not body.lstrip().startswith(("/", "*")):
+            if signature := _SIGNATURE.fullmatch(body):
+                items = [item.strip() for item in signature["parameters"].split(",") if item.strip()]
+                parameters = [_PARAMETER.fullmatch(item) for item in items]
+                unsupported = not all(parameters)
+                if not unsupported:
+                    names = ", ".join(parameter["name"] for parameter in parameters if parameter)
+                    body = f"{signature['head']}({names}){signature['tail']}"
+            else:
+                body = _CONST_ASSERTION.sub("", body)
+                unsupported = bool(_TYPESCRIPT_ONLY.search(body))
+            if unsupported:
+                raise SystemExit(  # noqa: TRY003
+                    f"{source.relative_to(ROOT)}:{number}: the JavaScript copies cannot drop this TypeScript syntax"
+                )
+        lines.append(body + ending)
+    return "".join(lines)
+
+
+def render(source: Path, target: str) -> str:
     """Return a plugin's copy of one helper, marked as generated below its license header."""
 
-    lines = source.read_text(encoding="utf-8").splitlines(keepends=True)
+    text = source.read_text(encoding="utf-8")
+    if source.suffix == ".ts" and Path(target).suffix == ".mjs":
+        text = javascript(source, text)
+    lines = text.splitlines(keepends=True)
     if source.suffix == ".py":
         comment = "#"
         header = next((index for index, line in enumerate(lines) if not line.startswith("#")), len(lines))
@@ -139,13 +196,15 @@ def expected_copies() -> dict[Path, str]:
     if nested := sorted(SOURCE.glob("*/**/*.py")):
         raise SystemExit("\n".join([NESTED_MESSAGE, *(f"  {path.relative_to(ROOT)}" for path in nested)]))
     copies = {
-        ROOT / target: render(source / module)
+        ROOT / target: render(source / module, target)
         for source, table in TABLES
         for module, targets in table.items()
         for target in targets
     }
     modules = sorted(SOURCE.glob("*.py"))
-    copies.update({ROOT / package / module.name: render(module) for package in PACKAGE_COPIES for module in modules})
+    copies.update({
+        ROOT / package / module.name: render(module, module.name) for package in PACKAGE_COPIES for module in modules
+    })
     return copies
 
 
@@ -183,12 +242,12 @@ def unlisted_copies(listed: set[Path]) -> list[Path]:
 
     # A host's own module may share a package module's name, so only the names of the single-file copies count.
     # Other copies show themselves by their generated-file comment or, when taken straight from the source, by their
-    # content. An empty module matches no source. Only the file types of the sources are searched, so bundled
+    # content. An empty module matches no source. Only the file types of the copies are searched, so bundled
     # JavaScript output is not.
     names = {Path(target).name for _, table in TABLES for targets in table.values() for target in targets}
     sources = [*SOURCE.glob("*.py"), *(TYPESCRIPT_SOURCE / module for module in TYPESCRIPT_COPIES)]
     contents = {path.read_bytes() for path in sources} - {b""}
-    pathspecs = sorted({f":(glob){PLUGINS}/**/*{path.suffix}" for path in sources})
+    pathspecs = sorted({f":(glob){PLUGINS}/**/*{Path(name).suffix}" for name in names})
     packages = [ROOT / package for package in PACKAGE_COPIES]
     unlisted = []
     for path in sorted(committable_files(*pathspecs) - listed):
