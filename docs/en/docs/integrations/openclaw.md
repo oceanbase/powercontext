@@ -25,8 +25,11 @@ A local checkout works as well:
 powercontext setup openclaw --source .
 ```
 
-`setup openclaw` builds the plugin with pnpm, installs it with `openclaw plugins install --link --force`, enables it
-as the `memory` plugin slot, adds the PowerContext tools to `tools.alsoAllow`, and restarts the OpenClaw gateway. It
+`setup openclaw` builds the plugin with pnpm, packs it with `pnpm pack`, and installs the archive with
+`openclaw plugins install --force --no-enable <archive>`. It then adds only the activation settings that are absent:
+it enables the plugin, selects it for the `memory` plugin slot, turns on `autoRecall`, `autoCapture` and
+conversation access, adds the PowerContext tools to `tools.alsoAllow` on first activation, and restarts the OpenClaw
+gateway. If you have disabled or denied the plugin, or selected another memory plugin, setup leaves it inactive. It
 does not start the Server. Start the Server, then start a new OpenClaw session:
 
 ```bash
@@ -34,7 +37,13 @@ powercontext server run
 openclaw
 ```
 
-The plugin requires OpenClaw 2026.8.1-beta.2 or newer.
+Setup and the plugin require OpenClaw 2026.8.1-beta.2 or newer. Releases whose `plugins install` has no
+`--no-enable`, such as 2026.8.1, enable a plugin while installing it. On those releases setup runs
+`openclaw plugins install --force --accept-capabilities <archive>` (`--accept-capabilities` only when the release
+lists it) and first checks that installation would not override your choices. It stops without changing anything if
+`plugins.deny` lists the plugin, `plugins.allow` is non-empty and omits it, or `plugins.slots.memory` selects another
+plugin while neither this plugin nor all plugins are disabled. On those releases the plugin is active as soon as
+installation finishes, before setup writes its endpoint; if a later setup step fails, fix the cause and rerun setup.
 
 ## Data flow and capture controls
 

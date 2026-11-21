@@ -83,10 +83,48 @@ def require_supported_openclaw(executable: str) -> str:
     actual = (major, minor, patch, beta)
     if actual < OPENCLAW_MIN_VERSION:
         raise SetupError(f"OpenClaw {version_text or 'version unknown'} is unsupported; upgrade to >= 2026.8.1-beta.2")  # noqa: TRY003
-    help_text = run_process([executable, "plugins", "install", "--help"], timeout=30).stdout or ""
-    if "--no-enable" not in help_text:
-        raise SetupError("OpenClaw must support plugins install --no-enable; upgrade to a release such as 2026.9.7")  # noqa: TRY003
     return version_text
+
+
+def read_plugins_policy(executable: str) -> dict[str, Any]:
+    """Read the user's native plugin policy; an unset section is empty."""
+
+    plugins = read_config_value(executable, "plugins")
+    if plugins is None:
+        return {}
+    if not isinstance(plugins, dict):
+        raise SetupError("OpenClaw plugins configuration must be an object")  # noqa: TRY003
+    return cast(dict[str, Any], plugins)
+
+
+def openclaw_install_flags(executable: str, version_text: str, plugins: dict[str, Any]) -> tuple[str, ...]:
+    """Choose install flags that leave activation and the user's plugin policy to ``enable``."""
+
+    help_text = run_process([executable, "plugins", "install", "--help"], timeout=30).stdout or ""
+    if "--no-enable" in help_text:
+        return ("--force", "--no-enable")
+    # Without --no-enable, installation also activates the plugin: OpenClaw removes it from plugins.deny, appends it
+    # to a non-empty plugins.allow and selects it for the memory slot unless the entry or all plugins are disabled.
+    entry = plugins.get("entries", {}).get(OPENCLAW_PLUGIN_NAME, {})
+    allow = plugins.get("allow", [])
+    slot = plugins.get("slots", {}).get("memory")
+    conflicts = []
+    if OPENCLAW_PLUGIN_NAME in plugins.get("deny", []):
+        conflicts.append("plugins.deny")
+    if allow and OPENCLAW_PLUGIN_NAME not in allow:
+        conflicts.append("plugins.allow")
+    activates = plugins.get("enabled") is not False and entry.get("enabled") is not False
+    if activates and slot not in {None, OPENCLAW_PLUGIN_NAME}:
+        conflicts.append("plugins.slots.memory")
+    if conflicts:
+        host = version_text.removeprefix("OpenClaw ")
+        raise SetupError(  # noqa: TRY003
+            f"OpenClaw {host} enables plugins during installation, which would override {', '.join(conflicts)}; "
+            "setup changed nothing. Change these settings yourself, or use an OpenClaw release whose "
+            "`plugins install` supports --no-enable, then rerun setup."
+        )
+    # Hosts that ask for capability consent cannot prompt from setup; running setup is the consent.
+    return ("--force", "--accept-capabilities") if "--accept-capabilities" in help_text else ("--force",)
 
 
 def build_openclaw_plugin(plugin_dir: Path) -> None:
@@ -204,9 +242,14 @@ __all__ = [
 
 
 class OpenClawInstaller:
+    # Activation decides from the policy read before installation, which older hosts change while installing.
+    _plugins_before_install: dict[str, Any] | None = None
+
     def install(self, source):
         executable = openclaw_executable()
-        require_supported_openclaw(executable)
+        version_text = require_supported_openclaw(executable)
+        plugins = read_plugins_policy(executable)
+        flags = openclaw_install_flags(executable, version_text, plugins)
         with source.package("openclaw") as package:
             with tempfile.TemporaryDirectory(prefix="powercontext-openclaw-") as temporary:
                 staging = Path(temporary)
@@ -219,7 +262,8 @@ class OpenClawInstaller:
                     timeout=120,
                 )
                 (archive,) = staging.glob("*.tgz")
-                run_openclaw(executable, "plugins", "install", "--force", "--no-enable", str(archive))
+                run_openclaw(executable, "plugins", "install", *flags, str(archive))
+                self._plugins_before_install = plugins
             try:
                 record = json.loads(
                     run_openclaw(executable, "plugins", "inspect", OPENCLAW_PLUGIN_NAME, "--json").stdout
@@ -250,12 +294,9 @@ class OpenClawInstaller:
 
     def enable(self) -> None:  # noqa: C901 - initialize only absent native activation settings.
         executable = openclaw_executable()
-        plugins = read_config_value(executable, "plugins")
+        plugins = self._plugins_before_install
         if plugins is None:
-            plugins = {}
-        if not isinstance(plugins, dict):
-            raise SetupError("OpenClaw plugins configuration must be an object")  # noqa: TRY003
-        plugins = cast(dict[str, Any], plugins)
+            plugins = read_plugins_policy(executable)
         entry = plugins.get("entries", {}).get(OPENCLAW_PLUGIN_NAME, {})
         slot = plugins.get("slots", {}).get("memory")
         if (
