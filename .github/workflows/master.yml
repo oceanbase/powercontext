@@ -576,10 +576,10 @@ jobs:
   code-seekdb:
     needs: [quality, tests]
     if: ${{ !cancelled() && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').database) }}
-    # Shard 0 also runs indexing, bootstrap (20m), and archive validation (5m)
+    # Shard 0 also runs indexing, bootstrap (30m), and archive validation (5m)
     # before migrations (65m). Preserve each step's deadline and leave time
     # for environment setup and diagnostic uploads.
-    timeout-minutes: 110
+    timeout-minutes: 120
     runs-on: powercontext-ci-standard
     strategy:
       fail-fast: false
@@ -604,9 +604,9 @@ jobs:
 
       - name: Test database bootstrap with embedded seekdb without skips
         if: matrix.migration-shard == 0
-        # Two 360s native-process deadlines still leave room for the remaining
+        # Two 660s native-process deadlines still leave room for the remaining
         # bootstrap cases and diagnostic upload before the step deadline.
-        timeout-minutes: 20
+        timeout-minutes: 30
         env:
           POWERCONTEXT_TEST_BOOTSTRAP_SEEKDB: "1"
           POWERCONTEXT_TEST_BOOTSTRAP_DIAGNOSTICS: ${{ github.workspace }}/.powercontext/database-bootstrap-ci

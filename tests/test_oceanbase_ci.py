@@ -371,6 +371,26 @@ def test_cold_image_download_does_not_consume_the_container_start_deadline(tmp_p
     assert (tmp_path / "pull").exists() is (cache_state != "warm")
 
 
+def test_seekdb_bootstrap_budget_preserves_scenario_cleanup_and_both_process_attempts():
+    from tests.fixtures.seekdb_legacy_choice import (
+        SERVER_SCENARIO_PROCESS_TIMEOUT_SECONDS,
+        SERVER_SCENARIO_TIMEOUT_SECONDS,
+    )
+
+    root = Path(__file__).parents[1]
+    workflow = yaml.safe_load((root / ".github/workflows/master.yml").read_text())
+    job = workflow["jobs"]["code-seekdb"]
+    step = next(step for step in job["steps"] if step["name"].startswith("Test database bootstrap"))
+    assert SERVER_SCENARIO_PROCESS_TIMEOUT_SECONDS > SERVER_SCENARIO_TIMEOUT_SECONDS
+    # The runner permits two attempts only for a process deadline, and the other
+    # bootstrap cases and evidence still need time after those attempts.
+    assert step["timeout-minutes"] * 60 > 2 * SERVER_SCENARIO_PROCESS_TIMEOUT_SECONDS
+    # Indexing, environment setup and artifacts also need job time outside the
+    # separately bounded bootstrap, archive and migration steps.
+    step_minutes = sum(step.get("timeout-minutes", 0) for step in job["steps"])
+    assert job["timeout-minutes"] > step_minutes
+
+
 def test_recall_job_preserves_startup_and_cleanup_beyond_command_deadlines():
     root = Path(__file__).parents[1]
     workflow = yaml.safe_load((root / ".github/workflows/e2e-harness.yml").read_text())
