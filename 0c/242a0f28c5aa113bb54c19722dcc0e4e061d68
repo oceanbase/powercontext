@@ -1,0 +1,25 @@
+.github/workflows/master.yml
+  s_2ef0feea0a110d::t_d5c1a8765a93c8 41-43,749-751
+  s_2ef0feea0a110d::t_29029dd2e38bfa 37,58-60,66,588,641-642,648,694,699,708
+  s_2ef0feea0a110d::t_14d77ee61462a4 733,739,743-746,766-767,773,776-777,782,803
+  s_2ef0feea0a110d::t_e224707c7d56fe 580,582,643-645,651-653,732
+tests/test_oceanbase_ci.py
+  s_2ef0feea0a110d::t_ef32b7adfeb518 255-258
+  s_2ef0feea0a110d::t_e2109eb99aecbb 239-240,242,260,268-271,274
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "0c242a0f28c5aa113bb54c19722dcc0e4e061d68",
+  "prompts": {},
+  "sessions": {
+    "s_2ef0feea0a110d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1a9cf-a4e7-7f63-9c51-1284f7c332e8",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "frf12 <rongfeng.frf@antgroup.com>"
+    }
+  }
+}
