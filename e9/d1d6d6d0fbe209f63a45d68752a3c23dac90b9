@@ -1,0 +1,27 @@
+tests/knowledge_base/test_request_status.py
+  s_13fec9a57c9104::t_6f6656ac8ec9c0 1-50
+plugins/knowledge-base/pc_knowledge_base/service.py
+  s_13fec9a57c9104::t_37a19e162fa558 415-416,418-420,433
+frontend/knowledge-base/src/components/ProcessingWatcher.tsx
+  s_13fec9a57c9104::t_37a19e162fa558 16,19-22,28-29,32-33,35-36,49,53,56-59,61
+frontend/knowledge-base/src/services.ts
+  s_13fec9a57c9104::t_37a19e162fa558 49-53,56
+tests/e2e/test_knowledge_base_dashboard_lifecycle.py
+  s_13fec9a57c9104::t_6f6656ac8ec9c0 148-180
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "e9d1d6d6d0fbe209f63a45d68752a3c23dac90b9",
+  "prompts": {},
+  "sessions": {
+    "s_13fec9a57c9104": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1617e-79d4-7103-bf67-e341786d4978",
+        "model": "gpt-6.2-astra"
+      },
+      "human_author": "Frey <370805886@qq.com>"
+    }
+  }
+}
