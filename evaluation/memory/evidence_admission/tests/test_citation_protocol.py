@@ -231,13 +231,24 @@ def test_smoke_audit_cannot_change_original_output_identity(smoke_chain):
         live_evaluation.verify_audit_derivation(parent, rows, manifest, changed, mode="audited_smoke")
 
 
-def test_formal_v4_requires_successful_audited_smoke_before_provider_initialization(tmp_path):
+@pytest.mark.parametrize("version", ["v4", "v5"])
+def test_formal_requires_successful_audited_smoke_before_provider_initialization(tmp_path, monkeypatch, version):
+    suite = load_suite(experiment_version=version)
+    identity = {**cli.code_identity(suite), "frozen_committed": True}
+    monkeypatch.setattr(cli, "code_identity", lambda _: identity)
+
+    @asynccontextmanager
+    async def forbidden_provider(*args, **kwargs):
+        pytest.fail("formal execution must reject missing smoke proof before provider initialization")
+        yield
+
+    monkeypatch.setattr(cli, "live_generator", forbidden_provider)
     result = CliRunner().invoke(
         cli.app,
         [
             "run-live",
             "--experiment-version",
-            "v4",
+            version,
             "--provider",
             "openai-compatible",
             "--model",
@@ -254,13 +265,9 @@ def test_formal_v4_requires_successful_audited_smoke_before_provider_initializat
             str(tmp_path / "private"),
         ],
     )
-    # A committed freeze is checked before the smoke proof; both fail before provider initialization.
     assert result.exit_code != 0
     assert isinstance(result.exception, EvaluationError)
-    assert str(result.exception) in {
-        "successful_audited_smoke_required",
-        "live_requires_committed_fixture_policy_and_code_freeze",
-    }
+    assert str(result.exception) == "successful_audited_smoke_required"
     assert not (tmp_path / "private").exists()
 
 
@@ -379,3 +386,103 @@ def test_v5_fixes_v4_control_regression_by_preserving_original_selected_ranges(a
         assert after.status == before.status and after.completeness == before.completeness
 
     asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("field", ["provider", "endpoint_hash"])
+def test_audited_smoke_rejects_changed_provider_or_endpoint(smoke_chain, field):
+    suite, original, audited, _ = smoke_chain
+    provider = load_run(original)[0]["provider"]
+    changed = "anthropic" if field == "provider" else digest("changed-endpoint")
+    with pytest.raises(EvaluationError, match="smoke_provider_model_or_endpoint_mismatch"):
+        live_evaluation.verify_smoke(suite, original, audited, {**provider, field: changed})
+
+
+def test_audited_smoke_cannot_be_reused_with_another_experiment_version(smoke_chain):
+    suite, original, audited, _ = smoke_chain
+    other = load_suite(experiment_version="v5" if suite.version == "v4" else "v4")
+    with pytest.raises(EvaluationError, match="smoke_freeze_or_scope_mismatch"):
+        live_evaluation.verify_smoke(other, original, audited, load_run(original)[0]["provider"])
+
+
+def test_supported_runbook_smoke_allows_formal_audit_and_report_without_new_provider_calls(
+    smoke_chain, tmp_path, monkeypatch
+):
+    from dataclasses import replace
+
+    suite, smoke, audited_smoke, _ = smoke_chain
+    selected = replace(suite, cases=tuple(c for c in suite.cases if c.case_id == "small-complete"))
+    monkeypatch.setattr(cli, "selected_suite", lambda *_args: selected)
+    original, private, audited = tmp_path / "formal", tmp_path / "formal-private", tmp_path / "formal-audited"
+    runner = CliRunner()
+    result = runner.invoke(
+        cli.app,
+        [
+            "run-live",
+            "--experiment-version",
+            suite.version,
+            "--provider",
+            "openai-compatible",
+            "--model",
+            "controlled-no-network",
+            "--base-url",
+            "https://example.invalid",
+            "--token-env",
+            "UNUSED",
+            "--max-requests",
+            "100",
+            "--smoke-run-dir",
+            str(smoke),
+            "--smoke-audited-run-dir",
+            str(audited_smoke),
+            "--output-dir",
+            str(original),
+            "--audit-dir",
+            str(private),
+        ],
+    )
+    assert result.exit_code == 0, result.exception
+    manifest, samples, before = load_run(original)
+    assert manifest["smoke_manifest_hash"] == digest(load_run(smoke)[0])
+    assert manifest["audited_smoke_manifest_hash"] == digest(load_run(audited_smoke)[0])
+    assert samples and all(sample.status == "generated" for sample in samples)
+    reviews = {
+        "manifest_hash": digest(manifest),
+        "reviews": {
+            sample.sample_id: {
+                candidate: {"verdict": "supported", "claim_hashes": [digest("approval")]}
+                for candidate in sample.generation.candidate_hashes
+            }
+            for sample in samples
+        },
+    }
+    review_path = private / "reviews.json"
+    review_path.write_text(json.dumps(reviews))
+
+    @asynccontextmanager
+    async def forbidden_provider(*args, **kwargs):
+        pytest.fail("audit and report must not initialize a provider")
+        yield
+
+    monkeypatch.setattr(cli, "live_generator", forbidden_provider)
+    result = runner.invoke(
+        cli.app,
+        [
+            "audit",
+            "--experiment-version",
+            suite.version,
+            "--run-dir",
+            str(original),
+            "--private-outputs",
+            str(private / "outputs.json"),
+            "--reviews",
+            str(review_path),
+            "--output-dir",
+            str(audited),
+        ],
+    )
+    assert result.exit_code == 0, result.exception
+    result = runner.invoke(cli.app, ["report", "--experiment-version", suite.version, "--run-dir", str(audited)])
+    assert result.exit_code == 0, result.exception
+    assert json.loads(result.output) == load_run(audited)[2]
+    assert load_run(original)[2] == before
+    assert load_run(original)[1] == samples

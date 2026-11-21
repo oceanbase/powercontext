@@ -21,6 +21,8 @@ import asyncio
 import json
 from pathlib import Path
 
+from pydantic import ValidationError
+
 from ..manifests import EvaluationError, read_json
 from ..v18.core import committed_freeze, dump
 from ..v18.workflow import locked
@@ -82,6 +84,16 @@ def main():
         show(asyncio.run(execute(parser.parse_args())))
     except EvaluationError as error:
         show({"error": str(error)})
+        raise SystemExit(2) from None
+    except ValidationError:
+        # Validation details include rejected private evidence values.
+        show({"error": "v20_validation_failed"})
+        raise SystemExit(2) from None
+    except (OSError, KeyError, TypeError, IndexError, ValueError):
+        show({"error": "v20_invalid_inputs_or_local_configuration"})
+        raise SystemExit(2) from None
+    except Exception:  # noqa: BLE001 -- the public CLI must not expose private exception values
+        show({"error": "v20_unexpected_evaluation_failure"})
         raise SystemExit(2) from None
     except KeyboardInterrupt:
         show({"state": "cancelled", "automatic_resend": False})

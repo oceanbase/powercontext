@@ -36,6 +36,11 @@ overwriting an existing record, including concurrent writes. Interrupted tempora
 `state.json.tmp`, are ignored and left untouched. Recovery uses only committed state and bound audit files under the
 session lock; it does not promote temporary contents, resend a pending-scoring request or charge it again.
 
+The v18/v19/v20 command boundaries emit fixed error codes for invalid saved data, local configuration failures
+and unexpected exceptions. Validation details, private values, filesystem paths and tracebacks are excluded from
+these failure diagnostics. Failures exit with code 2; Ctrl-C retains the cancelled state output and exits with 130.
+The error handlers do not change persisted scoring, billing or cursor state and do not resend requests.
+
 Report generation reloads the bound review context and recomputes each human-review derivative's score. It rejects
 changed evidence, review bindings and cached scores, including numeric type changes; it never silently repairs them.
 

@@ -1,7 +1,7 @@
-# V3 线上评测操作步骤
+# V5 线上评测操作步骤
 
 本流程使用冻结的三个数据集、五个实验组和共同评分规则。先准备与核算，再执行独立 smoke、正式生成和人工审计。
-这是显式选择 v3 的通用 CLI 流程；历史 v18–v20 三 arm 执行另有冻结协议，不混用结果。
+这是显式选择 v5 的通用 CLI 流程；历史 v18–v20 三 arm 执行另有冻结协议，不混用结果。
 每次新运行需明确 provider、模型和凭据选择器；未提交代码不能运行 `run-smoke` 或 `run-live`。
 这些命令不会自动创建提交，也不能把本地受控测试当成真实 provider 结果。英文费用说明见 [LIVE_RUNBOOK.md](LIVE_RUNBOOK.md)。
 
@@ -11,27 +11,27 @@
 [下载证据包](RESULTS_ARTIFACT.md)中的 `results/...` 仅用于历史证据，不覆盖它们。
 
 ```bash
-uv run --project evaluation evidence-admission prepare --experiment-version v3 \
-  --output-dir .artifacts/evidence-admission/live-ready-primary
-uv run --project evaluation evidence-admission prepare --experiment-version v3 --dataset validation-v2 \
-  --output-dir .artifacts/evidence-admission/live-ready-validation
-uv run --project evaluation evidence-admission prepare --experiment-version v3 --dataset validation-v3 \
-  --output-dir .artifacts/evidence-admission/live-ready-additional
-uv run --project evaluation evidence-admission compare-preparation \
-  --run-dir .artifacts/evidence-admission/live-ready-primary \
-  --run-dir .artifacts/evidence-admission/live-ready-validation \
-  --run-dir .artifacts/evidence-admission/live-ready-additional \
-  --output-file .artifacts/evidence-admission/live-ready-comparison.json
-uv run --project evaluation evidence-admission plan-live \
-  --preparation-run-dir .artifacts/evidence-admission/live-ready-primary \
-  --preparation-run-dir .artifacts/evidence-admission/live-ready-validation \
-  --preparation-run-dir .artifacts/evidence-admission/live-ready-additional \
-  --output-file .artifacts/evidence-admission/live-request-plan.json
+uv run --project evaluation evidence-admission prepare --experiment-version v5 \
+  --output-dir .artifacts/evidence-admission/v5-live/live-ready-primary
+uv run --project evaluation evidence-admission prepare --experiment-version v5 --dataset validation-v2 \
+  --output-dir .artifacts/evidence-admission/v5-live/live-ready-validation
+uv run --project evaluation evidence-admission prepare --experiment-version v5 --dataset validation-v3 \
+  --output-dir .artifacts/evidence-admission/v5-live/live-ready-additional
+uv run --project evaluation evidence-admission compare-preparation --experiment-version v5 \
+  --run-dir .artifacts/evidence-admission/v5-live/live-ready-primary \
+  --run-dir .artifacts/evidence-admission/v5-live/live-ready-validation \
+  --run-dir .artifacts/evidence-admission/v5-live/live-ready-additional \
+  --output-file .artifacts/evidence-admission/v5-live/live-ready-comparison.json
+uv run --project evaluation evidence-admission plan-live --experiment-version v5 \
+  --preparation-run-dir .artifacts/evidence-admission/v5-live/live-ready-primary \
+  --preparation-run-dir .artifacts/evidence-admission/v5-live/live-ready-validation \
+  --preparation-run-dir .artifacts/evidence-admission/v5-live/live-ready-additional \
+  --output-file .artifacts/evidence-admission/v5-live/live-request-plan.json
 ```
 
 `plan-live` 验证当前代码和准备门槛，按五组全部准备调用求和。计划包含三个数据集各自的请求上限、估算输入和最大输出，
 以及独立 smoke 的费用规模。估算输入不是实际 usage，模型和价格未确定时不换算货币成本。
-现有结果的 327 次只是 v3 候选组调用，不能作为整个线上矩阵的请求上限。
+候选 arm 仍名为 `bounded-fragments-v3`，与实验协议 v5 不是同一个版本号；不能只用候选组调用数核算整轮。
 
 ### 运行前计算最大费用
 
@@ -70,7 +70,24 @@ provider 已确认的硬消费上限，不能将账户余额、告警或普通�
 仅用于演示算术：假定 `N=8`、`Imax=128000`、`Omax=2048`、`Pin=2`、`Pout=3`、`Fmax=0`，
 价格单位为同一货币/百万 token，且无额外舍入收费，则 smoke 上界为 `8 × (0.256 + 0.006144) = 2.097152`。
 这些是假设数据，不是 DeepSeek 或其他 provider 的现行价格、上下文保证或消费批准。
-下方示例的 smoke 和三个正式上限合计为 `8 + 561 + 300 + 216 = 1085` 次，不能只按 smoke 或候选组核算整轮。
+本轮总请求上限为 smoke 上限加三个数据集正式上限，全部从下方生成的 v5 请求计划读取；不能沿用历史常量。
+
+## 从通过的准备结果读取请求上限
+
+三个准备命令均成功后，再运行 `compare-preparation` 和 `plan-live`。
+只有 `offline_preparation_passed=true` 且 `plan-live` 成功生成文件，才能继续以下步骤。
+准备失败时停止，不发起 smoke 或正式调用；保留失败结果，不调整冻结门槛。
+
+```bash
+EVIDENCE_REQUEST_PLAN=.artifacts/evidence-admission/v5-live/live-request-plan.json
+SMOKE_REQUEST_CAP=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["smoke"]["provider_request_cap"])' "$EVIDENCE_REQUEST_PLAN")
+PRIMARY_REQUEST_CAP=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["datasets"]["synthetic-v1"]["provider_request_cap"])' "$EVIDENCE_REQUEST_PLAN")
+VALIDATION_REQUEST_CAP=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["datasets"]["validation-v2"]["provider_request_cap"])' "$EVIDENCE_REQUEST_PLAN")
+ADDITIONAL_REQUEST_CAP=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["datasets"]["validation-v3"]["provider_request_cap"])' "$EVIDENCE_REQUEST_PLAN")
+```
+
+任一步失败都不要继续。先用这些上限完成费用核算和授权；下列命令不会因为有请求计划就自动获得调用批准。
+公共和私有输出目录必须尚不存在；父目录可以存在。若示例输出目录已存在，为整轮选择新目录，并同步更新后续引用。
 
 ## 配置和 smoke
 
@@ -79,15 +96,15 @@ provider 已确认的硬消费上限，不能将账户余额、告警或普通�
 `EVIDENCE_AUDIT_ROOT` 必须指向仓库外目录。只有完成代码冻结及本次费用核算、取得适用调用授权后，才能执行实际调用。
 
 ```bash
-uv run --project evaluation evidence-admission run-smoke --experiment-version v3 \
+uv run --project evaluation evidence-admission run-smoke --experiment-version v5 \
   --provider "$EVIDENCE_PROVIDER" --model "$EVIDENCE_MODEL" \
   --base-url "$EVIDENCE_BASE_URL" --token-env EVIDENCE_ADMISSION_KEY \
-  --max-requests 8 \
-  --audit-dir "$EVIDENCE_AUDIT_ROOT/smoke" \
-  --output-dir .artifacts/evidence-admission/live-smoke
+  --max-requests "$SMOKE_REQUEST_CAP" \
+  --audit-dir "$EVIDENCE_AUDIT_ROOT/v5/smoke" \
+  --output-dir .artifacts/evidence-admission/v5-live/live-smoke
 ```
 
-smoke 固定为 `small-complete` 和 `single-source-overflow`、五组、4K 和一次重放，共 10 个样本、预计 8 次调用。
+smoke 固定为 `small-complete` 和 `single-source-overflow`、五组、4K 和一次重放，共 10 个样本；请求上限以当前计划为准。
 其 manifest 明确标记 `mode=smoke`，不改正式 experiment 的预算或重放次数。检查结构化输出、精确引用、返回 usage 和
 私有 journal；未决语义与关键错误需人工检查后再决定是否进入正式运行。smoke 不计入正式矩阵，联合判定拒绝使用它。
 本地任务取消、额度耗尽后的 journal 保留能力由受控测试验证，不代表远端 provider 已停止执行或计费。
@@ -95,14 +112,22 @@ smoke 固定为 `small-complete` 和 `single-source-overflow`、五组、4K 和�
 先按下文审计格式建立 smoke 的私有 `reviews.json`，再生成与该 smoke 绑定的审计结果：
 
 ```bash
-uv run --project evaluation evidence-admission audit --experiment-version v3 \
-  --run-dir .artifacts/evidence-admission/live-smoke \
-  --private-outputs "$EVIDENCE_AUDIT_ROOT/smoke/outputs.json" \
-  --reviews "$EVIDENCE_AUDIT_ROOT/smoke/reviews.json" \
-  --output-dir .artifacts/evidence-admission/audited-smoke
+uv run --project evaluation evidence-admission audit --experiment-version v5 \
+  --run-dir .artifacts/evidence-admission/v5-live/live-smoke \
+  --private-outputs "$EVIDENCE_AUDIT_ROOT/v5/smoke/outputs.json" \
+  --reviews "$EVIDENCE_AUDIT_ROOT/v5/smoke/reviews.json" \
+  --output-dir .artifacts/evidence-admission/v5-live/audited-smoke
 ```
 
-只有审计后的 smoke 满足冻结的 `ready_for_formal` 才能进入正式运行；未决或失败不能用空审阅文件掩盖。
+用同一版本重建并检查 smoke 报告：
+
+```bash
+uv run --project evaluation evidence-admission report --experiment-version v5 \
+  --run-dir .artifacts/evidence-admission/v5-live/audited-smoke
+```
+
+只有审计后的 smoke 满足冻结的 `ready_for_formal=true` 才能进入正式运行；未决或失败不能用空审阅文件掩盖。
+未审计或不通过的 smoke、不同版本或 provider/model/endpoint 都不能用于正式调用。
 
 ## 正式生成
 
@@ -110,27 +135,27 @@ uv run --project evaluation evidence-admission audit --experiment-version v3 \
 每次最多一次 provider 请求，零 SDK 重试，输出上限 2048 token，超时 60 秒，温度零。
 
 ```bash
-uv run --project evaluation evidence-admission run-live --experiment-version v3 \
+uv run --project evaluation evidence-admission run-live --experiment-version v5 \
   --provider "$EVIDENCE_PROVIDER" --model "$EVIDENCE_MODEL" \
   --base-url "$EVIDENCE_BASE_URL" --token-env EVIDENCE_ADMISSION_KEY \
-  --smoke-run-dir .artifacts/evidence-admission/live-smoke \
-  --smoke-audited-run-dir .artifacts/evidence-admission/audited-smoke \
-  --max-requests 561 --audit-dir "$EVIDENCE_AUDIT_ROOT/primary" \
-  --output-dir .artifacts/evidence-admission/live-primary
-uv run --project evaluation evidence-admission run-live --experiment-version v3 --dataset validation-v2 \
+  --smoke-run-dir .artifacts/evidence-admission/v5-live/live-smoke \
+  --smoke-audited-run-dir .artifacts/evidence-admission/v5-live/audited-smoke \
+  --max-requests "$PRIMARY_REQUEST_CAP" --audit-dir "$EVIDENCE_AUDIT_ROOT/v5/primary" \
+  --output-dir .artifacts/evidence-admission/v5-live/live-primary
+uv run --project evaluation evidence-admission run-live --experiment-version v5 --dataset validation-v2 \
   --provider "$EVIDENCE_PROVIDER" --model "$EVIDENCE_MODEL" \
   --base-url "$EVIDENCE_BASE_URL" --token-env EVIDENCE_ADMISSION_KEY \
-  --smoke-run-dir .artifacts/evidence-admission/live-smoke \
-  --smoke-audited-run-dir .artifacts/evidence-admission/audited-smoke \
-  --max-requests 300 --audit-dir "$EVIDENCE_AUDIT_ROOT/validation" \
-  --output-dir .artifacts/evidence-admission/live-validation
-uv run --project evaluation evidence-admission run-live --experiment-version v3 --dataset validation-v3 \
+  --smoke-run-dir .artifacts/evidence-admission/v5-live/live-smoke \
+  --smoke-audited-run-dir .artifacts/evidence-admission/v5-live/audited-smoke \
+  --max-requests "$VALIDATION_REQUEST_CAP" --audit-dir "$EVIDENCE_AUDIT_ROOT/v5/validation" \
+  --output-dir .artifacts/evidence-admission/v5-live/live-validation
+uv run --project evaluation evidence-admission run-live --experiment-version v5 --dataset validation-v3 \
   --provider "$EVIDENCE_PROVIDER" --model "$EVIDENCE_MODEL" \
   --base-url "$EVIDENCE_BASE_URL" --token-env EVIDENCE_ADMISSION_KEY \
-  --smoke-run-dir .artifacts/evidence-admission/live-smoke \
-  --smoke-audited-run-dir .artifacts/evidence-admission/audited-smoke \
-  --max-requests 216 --audit-dir "$EVIDENCE_AUDIT_ROOT/additional" \
-  --output-dir .artifacts/evidence-admission/live-additional
+  --smoke-run-dir .artifacts/evidence-admission/v5-live/live-smoke \
+  --smoke-audited-run-dir .artifacts/evidence-admission/v5-live/audited-smoke \
+  --max-requests "$ADDITIONAL_REQUEST_CAP" --audit-dir "$EVIDENCE_AUDIT_ROOT/v5/additional" \
+  --output-dir .artifacts/evidence-admission/v5-live/live-additional
 ```
 
 上述上限需要与本轮 `live-request-plan.json` 核对。失败请求也消耗尝试额度；不增加重试来挑选成功重放。
@@ -164,37 +189,37 @@ uv run --project evaluation evidence-admission run-live --experiment-version v3 
 分别执行审计，保留原始运行：
 
 ```bash
-uv run --project evaluation evidence-admission audit --experiment-version v3 \
-  --run-dir .artifacts/evidence-admission/live-primary \
-  --private-outputs "$EVIDENCE_AUDIT_ROOT/primary/outputs.json" \
-  --reviews "$EVIDENCE_AUDIT_ROOT/primary/reviews.json" \
-  --output-dir .artifacts/evidence-admission/audited-primary
-uv run --project evaluation evidence-admission audit --experiment-version v3 --dataset validation-v2 \
-  --run-dir .artifacts/evidence-admission/live-validation \
-  --private-outputs "$EVIDENCE_AUDIT_ROOT/validation/outputs.json" \
-  --reviews "$EVIDENCE_AUDIT_ROOT/validation/reviews.json" \
-  --output-dir .artifacts/evidence-admission/audited-validation
-uv run --project evaluation evidence-admission audit --experiment-version v3 --dataset validation-v3 \
-  --run-dir .artifacts/evidence-admission/live-additional \
-  --private-outputs "$EVIDENCE_AUDIT_ROOT/additional/outputs.json" \
-  --reviews "$EVIDENCE_AUDIT_ROOT/additional/reviews.json" \
-  --output-dir .artifacts/evidence-admission/audited-additional
+uv run --project evaluation evidence-admission audit --experiment-version v5 \
+  --run-dir .artifacts/evidence-admission/v5-live/live-primary \
+  --private-outputs "$EVIDENCE_AUDIT_ROOT/v5/primary/outputs.json" \
+  --reviews "$EVIDENCE_AUDIT_ROOT/v5/primary/reviews.json" \
+  --output-dir .artifacts/evidence-admission/v5-live/audited-primary
+uv run --project evaluation evidence-admission audit --experiment-version v5 --dataset validation-v2 \
+  --run-dir .artifacts/evidence-admission/v5-live/live-validation \
+  --private-outputs "$EVIDENCE_AUDIT_ROOT/v5/validation/outputs.json" \
+  --reviews "$EVIDENCE_AUDIT_ROOT/v5/validation/reviews.json" \
+  --output-dir .artifacts/evidence-admission/v5-live/audited-validation
+uv run --project evaluation evidence-admission audit --experiment-version v5 --dataset validation-v3 \
+  --run-dir .artifacts/evidence-admission/v5-live/live-additional \
+  --private-outputs "$EVIDENCE_AUDIT_ROOT/v5/additional/outputs.json" \
+  --reviews "$EVIDENCE_AUDIT_ROOT/v5/additional/reviews.json" \
+  --output-dir .artifacts/evidence-admission/v5-live/audited-additional
 ```
 
 ## 联合判定
 
 ```bash
-uv run --project evaluation evidence-admission compare-live \
-  --preparation-run-dir .artifacts/evidence-admission/live-ready-primary \
-  --preparation-run-dir .artifacts/evidence-admission/live-ready-validation \
-  --preparation-run-dir .artifacts/evidence-admission/live-ready-additional \
-  --original-run-dir .artifacts/evidence-admission/live-primary \
-  --original-run-dir .artifacts/evidence-admission/live-validation \
-  --original-run-dir .artifacts/evidence-admission/live-additional \
-  --audited-run-dir .artifacts/evidence-admission/audited-primary \
-  --audited-run-dir .artifacts/evidence-admission/audited-validation \
-  --audited-run-dir .artifacts/evidence-admission/audited-additional \
-  --output-file .artifacts/evidence-admission/combined-live.json
+uv run --project evaluation evidence-admission compare-live --experiment-version v5 \
+  --preparation-run-dir .artifacts/evidence-admission/v5-live/live-ready-primary \
+  --preparation-run-dir .artifacts/evidence-admission/v5-live/live-ready-validation \
+  --preparation-run-dir .artifacts/evidence-admission/v5-live/live-ready-additional \
+  --original-run-dir .artifacts/evidence-admission/v5-live/live-primary \
+  --original-run-dir .artifacts/evidence-admission/v5-live/live-validation \
+  --original-run-dir .artifacts/evidence-admission/v5-live/live-additional \
+  --audited-run-dir .artifacts/evidence-admission/v5-live/audited-primary \
+  --audited-run-dir .artifacts/evidence-admission/v5-live/audited-validation \
+  --audited-run-dir .artifacts/evidence-admission/v5-live/audited-additional \
+  --output-file .artifacts/evidence-admission/v5-live/combined-live.json
 ```
 
 联合判定核对三个准备、三个原始线上及三个审计结果。它检查 provider/模型/endpoint 一致性、父运行及 review 哈希、
@@ -204,3 +229,17 @@ uv run --project evaluation evidence-admission compare-live \
 缺少关键证据时为 insufficient_evidence；证据完整但候选有已知质量或准备回归时为 no_production_change。
 只有完整通过且复现单 Source 改善时，才可给出 bounded_projection_follow_up_required。
 该结果仍要求独立生产设计，不直接授权修改生产投影、引用或发布行为。
+
+## 报告重建与取消
+
+完成的正式运行可在同一代码、依赖和数据集下重建报告，不发起模型请求：
+
+```bash
+uv run --project evaluation evidence-admission report --experiment-version v5 \
+  --run-dir .artifacts/evidence-admission/v5-live/live-primary
+```
+
+其他数据集必须传入对应的 `--dataset`。该命令核验保存的身份和分数，不重新生成输出。
+按 Ctrl-C 取消会保留私有 journal 中已捕获的输出和已知用量；本地取消不能证明远端已取消或退款。
+中断或耗尽请求上限的通用会话不发布完整汇总，也不支持自动续跑；不能通过重发未知请求修补历史结果。
+历史运行须使用其原代码、环境和私有审计输入，见[历史代码与复现](HISTORY_REPRODUCTION.md)。
