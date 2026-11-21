@@ -44,7 +44,7 @@ runs:
     - name: Cache pnpm store
       id: cache
       if: inputs.save-cache != 'false'
-      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+      uses: $/.github/actions/cache
       with:
         path: ${{ steps.pnpm.outputs.path }}
         key: ${{ steps.pnpm.outputs.key }}
@@ -53,7 +53,7 @@ runs:
     - name: Restore pnpm store for early saving
       id: restore
       if: inputs.save-cache == 'false'
-      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+      uses: $/.github/actions/cache-restore
       with:
         path: ${{ steps.pnpm.outputs.path }}
         key: ${{ steps.pnpm.outputs.key }}
