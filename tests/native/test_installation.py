@@ -31,6 +31,7 @@ from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from threading import Thread
 from typing import Any
+from urllib.parse import urlsplit
 
 import httpx
 import pytest
@@ -334,11 +335,19 @@ def test_latest_exact_versions_and_client_profile(tmp_path: Path) -> None:
         UV_CONFIG_FILE=str(config),
         UV_TOOL_DIR=str(tmp_path / "tools"),
         UV_TOOL_BIN_DIR=str(tmp_path / "bin with spaces"),
-        UV_CACHE_DIR=str(tmp_path / "cache"),
+        # Version/profile selection needs fresh tools, not repeated dependency downloads.
+        UV_CACHE_DIR=subprocess.check_output([uv, "cache", "dir"], text=True).strip(),
         UV_PYTHON_INSTALL_DIR=str(tmp_path / "python"),
         UV_NO_PROGRESS="1",
         POWERCONTEXT_HOME=str(tmp_path / "state"),
     )
+    if default_index := os.environ.get("POWERCONTEXT_INSTALL_TEST_INDEX_URL"):
+        env["UV_DEFAULT_INDEX"] = default_index
+        if mirror_host := urlsplit(default_index).hostname:
+            # The opt-in CI mirror is direct; preserve existing internal-host exclusions.
+            excluded_hosts = ",".join((env.get("NO_PROXY", ""), env.get("no_proxy", ""), mirror_host))
+            no_proxy = ",".join(dict.fromkeys(host.strip() for host in excluded_hosts.split(",") if host.strip()))
+            env.update(NO_PROXY=no_proxy, no_proxy=no_proxy)
     if sys.platform == "win32":
         shell = shutil.which("powershell.exe")
         assert shell is not None
