@@ -25,6 +25,7 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import tomllib
 import zipfile
 from pathlib import Path, PureWindowsPath
 from typing import Any
@@ -33,9 +34,12 @@ import httpx
 import pytest
 from build_intel_managed_wheel import _check_linkage, native_build_environment, verify_backend
 from ci_managed_resource_smoke import MAX_DIAGNOSTIC_BYTES, preserve_failure, smoke_phase
+from packaging.requirements import Requirement
+from packaging.utils import canonicalize_name, parse_wheel_filename
 from prepare_managed_resources import (
     _locked_dependencies,
     acquire,
+    build_tool_packages,
     extract_runtime,
     inventory,
     json_bytes,
@@ -49,6 +53,33 @@ from powercontext.ops.resources import ResourceCatalog, ResourceError, ResourceS
 from powercontext.service.environment import protect_directory, write_protected_file
 
 _ROOT = Path(__file__).resolve().parents[1]
+
+
+@pytest.mark.parametrize(
+    "target,wheel_platform",
+    [
+        ("linux-x86_64", "manylinux2010_x86_64"),
+        ("macos-arm64", "macosx_11_0_arm64"),
+        ("macos-x86_64", "macosx_10_12_x86_64"),
+        ("windows-x86_64", "win_amd64"),
+    ],
+)
+def test_native_build_tool_closure_satisfies_project_backend(target: str, wheel_platform: str) -> None:
+    # PR #2735: the offline builder must load both the custom hook and maturin
+    # without borrowing packages from the preparation host's environment.
+    packages = build_tool_packages(target)
+    versions = {canonicalize_name(item["name"]): item["version"] for item in packages}
+    requirements = tomllib.loads((_ROOT / "pyproject.toml").read_text(encoding="utf-8"))["build-system"]["requires"]
+    for value in requirements:
+        requirement = Requirement(value)
+        assert canonicalize_name(requirement.name) in versions, (
+            f"{target}: missing build requirement {requirement.name}"
+        )
+        assert versions[canonicalize_name(requirement.name)] in requirement.specifier
+    assert len(versions) == len(packages), f"{target}: ambiguous build tool versions"
+    for item in packages:
+        tags = parse_wheel_filename(item["filename"])[3]
+        assert any(tag.platform in {"any", wheel_platform} for tag in tags), item["filename"]
 
 
 def test_preparation_cli_runs_without_server_native_dependencies() -> None:

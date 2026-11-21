@@ -73,7 +73,6 @@ jobs:
           python-version: '3.12'
 
       - name: Prepare the native analyzer toolchain
-        if: runner.os != 'Linux'
         run: rustup toolchain install 1.95.0 --profile minimal
 
       - name: Install the wheel builder
@@ -95,6 +94,28 @@ jobs:
           CIBW_TEST_REQUIRES: 'jieba==0.42.1'
           CIBW_TEST_COMMAND: 'python {project}/scripts/ci_verify_native_wheel.py'
         run: python -m cibuildwheel --output-dir wheelhouse
+
+      - name: Verify source rebuilds preserve the native payload
+        env:
+          PYTHONPATH: scripts
+          RUSTUP_TOOLCHAIN: 1.95.0
+        run: |
+          python -m pip install uv==0.10.12 packaging==26.3
+          python - <<'PY'
+          import subprocess
+          import tempfile
+          from pathlib import Path
+          from run_upgrade_release_gate import sha256, validate_sdist
+
+          with tempfile.TemporaryDirectory(prefix="native-rebuild-") as temporary:
+              work = Path(temporary)
+              subprocess.run(["uv", "build", "--sdist", "--out-dir", str(work / "source")], check=True)
+              (source,) = (work / "source").glob("*.tar.gz")
+              subprocess.run(["uv", "build", "--wheel", str(source), "--out-dir", str(work / "original")], check=True)
+              (wheel,) = (work / "original").glob("*.whl")
+              validate_sdist(source, wheel, work)
+              print(f"Verified independent sdist rebuild: {wheel.name} SHA256={sha256(wheel)}")
+          PY
 
       - name: Preserve verified native wheels
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7

@@ -52,6 +52,10 @@ class CustomBuildHook(BuildHookInterface[BuilderConfig]):
         options.append(f"--remap-path-prefix={root}=powercontext")
         if os.name == "nt":
             options += ["-C", "link-arg=/Brepro", "-C", "link-arg=/PDBALTPATH:powercontext-lexical.pdb"]
+        elif sys.platform == "darwin":
+            # Dependency debug maps retain object paths and mtimes outside Rust's source remapping.
+            # Omit them while linking the release library, before its UUID and ad-hoc signature are made.
+            options += ["-C", "link-arg=-Wl,-S"]
         env["CARGO_ENCODED_RUSTFLAGS"] = "\x1f".join(options)
         subprocess.run(  # noqa: S603 - fixed build tool and checkout-owned manifest.
             [

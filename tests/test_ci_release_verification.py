@@ -337,10 +337,16 @@ def test_release_publication_collects_platform_wheels_without_replacing_the_cand
         assert download["path"] == "candidate-dist/"
         wheels = next(step["with"] for step in steps if "pattern" in step.get("with", {}))
         assert wheels["pattern"] == "native-wheels-*"
-        assert wheels["merge-multiple"] is True
-        assert wheels["path"] == "dist/"
-        stage = next(step["run"] for step in steps if step.get("name") == "Stage the accepted source distribution")
-        assert "*.tar.gz" in stage and ".whl" not in stage
+        assert not wheels.get("merge-multiple", False)
+        assert wheels["path"] == "native-dist/"
+        assert "native" in next(step["if"] for step in steps if step.get("with", {}).get("pattern"))
+        stage = next(step["run"] for step in steps if step.get("name") == "Verify and stage accepted publication bytes")
+        assert "scripts/ci_stage_release.py" in stage and "candidate-evidence/publication.json" in stage
+        assert "skipped" in release["jobs"][job]["if"]
+    assert "native" in native_job["if"]
+    assert release["jobs"]["release-build"]["with"]["portable_wheel"] == (
+        "${{ needs.resolve-release.outputs.native == 'true' }}"
+    )
 
 
 def test_release_selector_command_uses_current_python_tags(tmp_path, monkeypatch):
@@ -384,3 +390,28 @@ def test_source_installation_has_a_native_compiler_before_building(workflow_name
         i for i, step in enumerate(steps) if "uv sync" in step.get("run", "") or "uv build" in step.get("run", "")
     )
     assert any("rustup toolchain install" in step.get("run", "") for step in steps[:source_install])
+
+
+@pytest.mark.parametrize("native", [False, True])
+def test_release_routes_tagged_sources_to_their_supported_wheel_builder(tmp_path, native):
+    workflow = yaml.safe_load((Path(__file__).parents[1] / ".github/workflows/release.yml").read_text(encoding="utf-8"))
+    inspect = next(step for step in workflow["jobs"]["resolve-release"]["steps"] if step.get("id") == "build")
+    command = inspect["run"].split("python - <<'PY'\n", 1)[1].removesuffix("PY\n")
+    requires = ["hatchling", "hatch-vcs"]
+    if native:
+        requires.extend(["maturin>=1.16,<2", "typing-extensions>=4.12,<5"])
+    (tmp_path / "tagged-pyproject.toml").write_text("[build-system]\nrequires = " + json.dumps(requires) + "\n")
+    output = tmp_path / "output"
+    result = subprocess.run(
+        [sys.executable, "-c", command],
+        env={**os.environ, "RUNNER_TEMP": str(tmp_path), "GITHUB_OUTPUT": str(output)},
+        capture_output=True,
+        text=True,
+        timeout=10,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    assert output.read_text().strip() == f"native={str(native).lower()}"
+    jobs = workflow["jobs"]
+    assert jobs["native-wheel-build"]["if"] == "needs.resolve-release.outputs.native == 'true'"
+    assert jobs["release-build"]["with"]["portable_wheel"] == "${{ needs.resolve-release.outputs.native == 'true' }}"

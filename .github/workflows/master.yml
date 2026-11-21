@@ -296,10 +296,21 @@ jobs:
         if: matrix.suite == 'unit'
         run: uv python install 3.9
 
+      - name: Run native code and spawned Worker tests with their real deadlines
+        if: matrix.suite == 'unit'
+        # Keep the 600s build, 5s query, and 45s Worker deadlines free of xdist contention.
+        run: >-
+          uv run python -m pytest -n 0
+          tests/builtin/test_native_code.py::test_large_changes_response_obeys_elapsed_and_byte_budgets
+          tests/builtin/runtime/test_worker_prompt_usage.py::test_spawned_worker_restores_custom_prompt_and_counts_actual_requests_once
+
       - name: Run unit tests
         if: matrix.suite == 'unit'
         env:
-          PYTEST_ADDOPTS: --require-dsh-config-runtime --require-claude-code-python-floor
+          PYTEST_ADDOPTS: >-
+            --require-dsh-config-runtime --require-claude-code-python-floor
+            --deselect=tests/builtin/test_native_code.py::test_large_changes_response_obeys_elapsed_and_byte_budgets
+            --deselect=tests/builtin/runtime/test_worker_prompt_usage.py::test_spawned_worker_restores_custom_prompt_and_counts_actual_requests_once
           # Unit tests also spawn processes and exercise short scheduling deadlines.
           PYTEST_WORKERS: "2"
         run: make unit-test
