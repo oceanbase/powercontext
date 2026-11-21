@@ -1,0 +1,23 @@
+.github/scripts/pytest_ci_diagnostics.py
+  s_2ef0feea0a110d::t_8e116847131abb 92
+  s_2ef0feea0a110d::t_56fd3b94da0b98 20,74-87,93-108,114
+  s_2ef0feea0a110d::t_9bb98e26aa9118 88-91
+tests/test_ci_pytest_diagnostics.py
+  s_2ef0feea0a110d::t_023c24d773607e 170-225
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "b05ee7879a38820a5815c8198cb48f0aca021c6c",
+  "prompts": {},
+  "sessions": {
+    "s_2ef0feea0a110d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1a9cf-a4e7-7f63-9c51-1284f7c332e8",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "frf12 <rongfeng.frf@antgroup.com>"
+    }
+  }
+}
