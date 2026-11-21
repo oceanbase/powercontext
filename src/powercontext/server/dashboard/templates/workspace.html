@@ -50,7 +50,7 @@ limitations under the License.
         if (sourceFeedback) me(sourceFeedback).attribute('hidden', '');
       });
       workspace.on('htmx:beforeSwap', event => {
-        if ([401, 403, 404, 409, 410, 413, 422, 500, 503].includes(event.detail.xhr.status) && event.detail.xhr.getResponseHeader('X-Dashboard-HTML') === '1') {
+        if ([401, 403, 404, 409, 410, 412, 413, 422, 500, 503].includes(event.detail.xhr.status) && event.detail.xhr.getResponseHeader('X-Dashboard-HTML') === '1') {
           if (event.detail.target?.id === 'notes-browser') {
             event.detail.target = workspace;
             event.detail.selectOverride = '#workspace';

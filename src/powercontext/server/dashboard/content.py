@@ -257,6 +257,7 @@ async def load_prompts(api: DashboardAPI, request: Request, ctx: dict[str, Any])
         "experience.generate",
         "skill.generate",
         "handoff.generate",
+        "profile.generate",
     )
     for value in await api.prompt_configurations(ctx["scope"], keys):
         if isinstance(value, ReadError):
@@ -264,30 +265,59 @@ async def load_prompts(api: DashboardAPI, request: Request, ctx: dict[str, Any])
         else:
             ctx["data"]["prompts"].append(value)
     selected_key = request.query_params.get("prompt_key")
-    if selected_key:
-        configuration = next((item for item in ctx["data"]["prompts"] if item["prompt_key"] == selected_key), None)
-        artifact = None if configuration is None else configuration.get("artifact")
-        if artifact and str(artifact.get("revision", "")).isdigit():
-            selected = request.query_params.get("prompt_revision") or str(artifact["revision"])
-            if str(selected).isdigit():
-                ctx["prompt_key"] = selected_key
-                try:
-                    ctx["prompt_opened"] = await api.artifact_revision(
-                        ctx["scope"], "prompt", selected_key, int(selected)
-                    )
-                except ReadError as error:
-                    # Showing the current configuration here would mislabel it as the requested revision.
-                    ctx["errors"]["prompt_selected"] = error
-                    return
-                ctx["history"] = await load_history(
-                    api,
-                    request,
-                    ctx,
-                    family="prompt",
-                    artifact_id=selected_key,
-                    selected=int(selected),
-                    cursor_key="prompt_revision_cursor",
-                )
+    configuration = next((item for item in ctx["data"]["prompts"] if item["prompt_key"] == selected_key), None)
+    if configuration is not None:
+        key = configuration["prompt_key"]
+        ctx["prompt_key"] = key
+        if not await _open_prompt_revision(api, request, ctx, key, configuration.get("artifact")):
+            return
+    if "prompts" not in ctx["errors"] and ctx["scope"]:
+        from powercontext.server.dashboard.revisions import _can_replace
+
+        ctx["profile_prompt_can_admin"] = await _can_replace(request, api, ctx["scope"], "prompt", "profile.generate")
+        ctx["prompt_saved"] = _profile_prompt_saved(request, ctx, selected_key)
+
+
+async def _open_prompt_revision(
+    api: DashboardAPI, request: Request, ctx: dict[str, Any], key: str, artifact: dict[str, Any] | None
+) -> bool:
+    """Open the requested Prompt revision, or only list history when viewing the head. False means stop."""
+
+    if not artifact or not str(artifact.get("revision", "")).isdigit():
+        return True
+    requested = request.query_params.get("prompt_revision")
+    selected = requested or str(artifact["revision"])
+    if not selected.isdigit():
+        return True
+    if requested:
+        # Only an explicit revision is "opened". Viewing the head leaves the editor available.
+        try:
+            ctx["prompt_opened"] = await api.artifact_revision(ctx["scope"], "prompt", key, int(selected))
+        except ReadError as error:
+            # Showing the current configuration here would mislabel it as the requested revision.
+            ctx["errors"]["prompt_selected"] = error
+            return False
+    ctx["history"] = await load_history(
+        api,
+        request,
+        ctx,
+        family="prompt",
+        artifact_id=key,
+        selected=int(selected),
+        cursor_key="prompt_revision_cursor",
+    )
+    return True
+
+
+def _profile_prompt_saved(request: Request, ctx: dict[str, Any], selected_key: str | None) -> bool:
+    """Confirm a save only when the freshly read head is at or past the revision the save created."""
+
+    saved = request.query_params.get("prompt_saved_revision", "")
+    if request.query_params.get("prompt_saved") != "1" or selected_key != "profile.generate" or not saved.isdigit():
+        return False
+    config = next((item for item in ctx["data"]["prompts"] if item["prompt_key"] == "profile.generate"), None)
+    head = config.get("artifact") if config is not None else None
+    return isinstance(head, dict) and str(head.get("revision", "")).isdigit() and int(head["revision"]) >= int(saved)
 
 
 async def load_note_history(api: DashboardAPI, request: Request, ctx: dict[str, Any], *, snapshot=None) -> None:

@@ -16,11 +16,149 @@ limitations under the License.
 
 {% from 'components/page-heading.html' import page_heading %}
 {{ page_heading(t.prompts,t.prompts_subtitle) }}
+{% if scope_descriptor %}<p class="text-secondary small">{{ scope_descriptor.title }} &middot; <code>{{ scope }}</code></p>{% endif %}
+{% if prompt_saved %}<p class="alert alert-success" role="status">{{ t.prompt_saved_success }}</p>{% endif %}
+{% if prompt_conflict %}<p class="alert alert-warning" role="alert">{{ t.prompt_conflict }} <a href="{{ link('prompts',prompt_key='profile.generate',prompt_revision=none,compare=none,rollback_error=none,prompt_saved=none) }}">{{ t.prompt_reload }} &rarr;</a></p>{% endif %}
+{% if prompt_write_error %}<p class="alert alert-danger" role="alert">{{ t.get('prompt_write_error_' ~ prompt_write_error, t.prompt_write_error_invalid_request) }}</p>{% endif %}
 {% if errors.get('prompts') %}{{ read_error(errors.prompts,t.prompts) }}{% endif %}
 {% if not data.prompts and not errors.get('prompts') %}<div class="quiet-empty"><h2>{{ t.prompt_empty }}</h2><p>{{ t.prompt_empty_body }}</p></div>{% endif %}
 <div class="record-list">{% for prompt in data.prompts %}{% set opened = prompt_opened if prompt_opened and prompt.prompt_key == prompt_key else none %}{% set mode = opened.content.mode if opened else prompt.mode %}
 <article><details class="supporting-details prompt-record" {% if prompt.prompt_key == prompt_key %}open{% endif %}><summary><span class="record-row-title">{{ t.get(prompt.prompt_key,prompt.prompt_key) }}</span><span class="badge bg-secondary-lt ms-2">{{ t.get('prompt_state_' ~ prompt.status,prompt.status) }}</span><span class="text-secondary small ms-2">{{ t.prompt_mode }}: {{ t.prompt_custom if mode == 'custom' else t.prompt_auto }}</span></summary>
-<div class="document-meta mb-3"><code>{{ prompt.prompt_key }}</code> · {{ t.prompt_revision }} {{ opened.revision if opened else (prompt.artifact.revision if prompt.artifact else t.prompt_auto) }} · {{ t.prompt_demonstrations }} {{ opened.content.demonstrations|length if opened else (prompt.effective.demonstrations|length if prompt.effective else 0) }}</div>
+<div class="document-meta mb-3"><code>{{ prompt.prompt_key }}</code> &middot; {{ t.prompt_revision }} {{ opened.revision if opened else (prompt.artifact.revision if prompt.artifact else t.prompt_auto) }} &middot; {{ t.prompt_demonstrations }} {{ opened.content.demonstrations|length if opened else (prompt.effective.demonstrations|length if prompt.effective else 0) }}</div>
+{% if prompt.prompt_key == 'profile.generate' %}
+{% set unavailable = prompt.reason == 'injected_component' or (not prompt.effective and not prompt.builtin) %}
+<dl class="row mb-3">
+  <dt class="col-sm-3">{{ t.prompt_capability }}</dt><dd class="col-sm-9">{{ t.get('prompt_state_' ~ prompt.status,prompt.status) }}</dd>
+  {% if prompt.reason %}<dt class="col-sm-3">{{ t.prompt_reason }}</dt><dd class="col-sm-9"><code>{{ prompt.reason }}</code> &middot; {{ t.get('prompt_reason_' ~ prompt.reason, prompt.reason) }}</dd>{% endif %}
+  <dt class="col-sm-3">{{ t.prompt_saved_revision }}</dt><dd class="col-sm-9">{{ prompt.artifact.revision if prompt.artifact else t.prompt_not_saved }}</dd>
+</dl>
+{% if prompt.prompt_key == prompt_key and errors.get('prompt_selected') %}{{ read_error(errors.prompt_selected,t.prompt_revision) }}
+{% elif unavailable %}<p class="text-secondary"><strong>{{ t.prompt_unavailable }}.</strong> {{ t.prompt_unavailable_body }}</p>
+{% else %}
+{% set shown = opened.content.instructions if opened else (prompt.effective.instructions if prompt.effective else (prompt.builtin.instructions if prompt.builtin else '')) %}
+<h2 class="section-title">{{ t.prompt_instructions if opened or prompt.effective else t.prompt_builtin_template }}</h2>
+<pre class="page-body-pre text-break">{{ shown }}</pre>
+{% if prompt.builtin %}
+{% if shown != prompt.builtin.instructions %}<h2 class="section-title">{{ t.prompt_builtin_template }}</h2>
+<pre class="page-body-pre text-break">{{ prompt.builtin.instructions }}</pre>{% endif %}
+<p class="text-secondary small">{{ t.prompt_builtin_version }}: {{ prompt.builtin.version }}</p>
+{% endif %}
+{% endif %}
+<div class="text-secondary small mb-3">
+  <strong>{{ t.prompt_explain_title }}</strong>
+  <ul class="mb-0">
+    <li>{{ t.prompt_explain_auto }}</li>
+    <li>{{ t.prompt_explain_no_effect }}</li>
+    <li>{{ t.prompt_explain_timing }}</li>
+    <li>{{ t.prompt_explain_constraints }}</li>
+  </ul>
+</div>
+{% if prompt.artifact %}<a href="{{ link('prompts',prompt_key=prompt.prompt_key,prompt_revision=prompt.artifact.revision) }}">{{ t.revision_history }} &rarr;</a>{% endif %}
+{% set has_draft = prompt_draft and prompt_draft.scope == scope and prompt.prompt_key == prompt_key %}
+{% set show_editor = not opened and not unavailable and prompt.prompt_key == prompt_key and (
+  (profile_prompt_can_admin and (prompt.status in ('supported', 'ready', 'enabled') or (prompt.artifact and prompt.mode == 'custom')))
+  or has_draft
+) %}
+{% if show_editor %}
+{% set saved_custom = prompt.artifact and prompt.mode == 'custom' and prompt.effective %}
+{% set draft_etag = prompt_draft.reconcile_etag if has_draft else (prompt.artifact_etag if prompt.artifact else '') %}
+{% set draft_mode = prompt_draft.mode if has_draft else mode %}
+{% set draft_instructions = prompt_draft.instructions if has_draft else (prompt.effective.instructions if saved_custom else (prompt.builtin.instructions if prompt.builtin else '')) %}
+{% set form_action = '/dashboard/prompts/profile-generate' ~ ('?lang=' ~ language if 'lang' in request.query_params else '') %}
+<form method="post" action="{{ form_action }}" data-profile-prompt-editor data-scope="{{ scope }}" class="mt-3">
+  <h2 class="section-title">{{ t.prompt_editor_title }}</h2>
+  <input type="hidden" name="scope" value="{{ scope }}">
+  <input type="hidden" name="expected_etag" value="{{ draft_etag or '' }}">
+  <div class="mb-3">
+    <label class="form-label">{{ t.prompt_mode }}</label>
+    <div>
+      <label class="me-3"><input type="radio" name="mode" value="auto" {% if draft_mode != 'custom' %}checked{% endif %}> {{ t.prompt_auto }}</label>
+      <label><input type="radio" name="mode" value="custom" {% if draft_mode == 'custom' %}checked{% endif %}> {{ t.prompt_custom }}</label>
+    </div>
+  </div>
+  <div class="mb-3">
+    <label class="form-label" for="profile-prompt-instructions">{{ t.prompt_custom_instructions }}</label>
+    <textarea class="form-control" id="profile-prompt-instructions" name="instructions" rows="12" aria-describedby="profile-prompt-hint">
+{{ draft_instructions or '' }}</textarea>
+    <p class="form-hint text-secondary small mt-1 mb-0" id="profile-prompt-hint">{{ t.prompt_custom_hint }}</p>
+    {% if saved_custom and prompt.effective.demonstrations|length %}<p class="text-secondary small mt-1 mb-0">{{ t.prompt_demonstrations_preserved|replace('{count}', prompt.effective.demonstrations|length|string) }}</p>{% endif %}
+  </div>
+  <div class="d-flex flex-wrap gap-2">
+    <button type="submit" class="btn btn-primary">{{ t.prompt_save }}</button>
+    {% if prompt.artifact and prompt.mode == 'custom' %}<button type="submit" name="return_to_auto" value="1" class="btn">{{ t.prompt_return_to_auto }}</button>{% endif %}
+    <a href="{{ link('prompts',prompt_key='profile.generate',prompt_revision=none,compare=none,rollback_error=none,prompt_saved=none) }}" class="btn btn-link" data-prompt-cancel>{{ t.prompt_cancel }}</a>
+  </div>
+  <script>
+    me().run(form => {
+      const scope = form.dataset.scope;
+      const textarea = form.querySelector('textarea[name="instructions"]');
+      const radios = Array.from(form.querySelectorAll('input[name="mode"]'));
+      const defaults = {{ (prompt.builtin.instructions if prompt.builtin else '') | tojson }};
+      const savedMode = {{ ('custom' if saved_custom else 'auto') | tojson }};
+      const savedText = {{ (prompt.effective.instructions if saved_custom else '') | tojson }};
+      const message = {{ t.prompt_unsaved_changes | tojson }};
+      const normalize = value => value.replace(/\r\n/g, '\n');
+      const currentMode = () => (radios.find(radio => radio.checked) || {}).value || 'auto';
+      // The Custom text outlives a switch to Auto, so toggling back never loses typing.
+      let customText = normalize(textarea.value) || defaults;
+      const sync = () => {
+        const custom = currentMode() === 'custom';
+        textarea.readOnly = !custom;
+        if (custom && !normalize(textarea.value).trim()) textarea.value = customText || defaults;
+      };
+      radios.forEach(radio => radio.addEventListener('change', () => {
+        if (currentMode() === 'auto') customText = normalize(textarea.value) || customText;
+        else if (!normalize(textarea.value).trim()) textarea.value = customText || defaults;
+        sync();
+      }));
+      textarea.addEventListener('input', () => { if (currentMode() === 'custom') customText = normalize(textarea.value); });
+      // Dirty means the form differs from what is saved for this Scope, not from what was rendered.
+      const dirty = () => {
+        if (!form.isConnected || form.dataset.scope !== scope) return false;
+        const mode = currentMode();
+        return mode !== savedMode || (mode === 'custom' && normalize(textarea.value) !== normalize(savedText));
+      };
+      let submitting = false;
+      form.addEventListener('submit', () => { submitting = true; });
+      const workspace = form.closest('#workspace');
+      const beforeUnload = event => {
+        if (!form.isConnected) { cleanup(); return; }
+        if (!submitting && dirty()) { event.preventDefault(); event.returnValue = ''; }
+      };
+      const confirmLeave = event => {
+        if (!form.isConnected) { cleanup(); return; }
+        const source = event.detail && event.detail.elt;
+        if (submitting || (source && form.contains(source)) || !dirty()) return;
+        if (window.confirm(message)) return;
+        event.preventDefault();
+        // A blocked Scope switch must not leave the selector showing a Scope the page is not on.
+        const selector = source && source.querySelector ? source.querySelector('select#scope') : null;
+        if (selector) selector.value = scope;
+      };
+      function cleanup() {
+        window.removeEventListener('beforeunload', beforeUnload);
+        if (workspace) workspace.removeEventListener('htmx:confirm', confirmLeave);
+        form.removeEventListener('htmx:beforeCleanupElement', cleanup);
+      }
+      window.addEventListener('beforeunload', beforeUnload);
+      if (workspace) workspace.addEventListener('htmx:confirm', confirmLeave);
+      form.addEventListener('htmx:beforeCleanupElement', cleanup);
+      // Cancel discards the draft: restore the saved values, then follow the link without prompting.
+      const cancel = form.querySelector('[data-prompt-cancel]');
+      if (cancel) cancel.addEventListener('click', () => {
+        const savedRadio = radios.find(radio => radio.value === savedMode);
+        if (savedRadio) savedRadio.checked = true;
+        textarea.value = savedMode === 'custom' ? savedText : defaults;
+        customText = savedMode === 'custom' ? savedText : defaults;
+        sync();
+      });
+      sync();
+    });
+  </script>
+</form>
+{% endif %}
+{% else %}
 {% if prompt.prompt_key == prompt_key and errors.get('prompt_selected') %}{{ read_error(errors.prompt_selected,t.prompt_revision) }}{% else %}<h2 class="section-title">{{ t.prompt_instructions if opened or prompt.effective else t.prompt_builtin_template }}</h2><pre class="page-body-pre text-break">{{ opened.content.instructions if opened else (prompt.effective.instructions if prompt.effective else (prompt.builtin.instructions if prompt.builtin else '')) }}</pre>{% endif %}
-{% if prompt.artifact %}<a href="{{ link('prompts',prompt_key=prompt.prompt_key,prompt_revision=prompt.artifact.revision) }}">{{ t.revision_history }} →</a>{% endif %}
+{% if prompt.artifact %}<a href="{{ link('prompts',prompt_key=prompt.prompt_key,prompt_revision=prompt.artifact.revision) }}">{{ t.revision_history }} &rarr;</a>{% endif %}
+{% endif %}
 </details></article>{% endfor %}</div>{% include 'components/revision-history.html' %}
