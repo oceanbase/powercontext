@@ -68,6 +68,9 @@ def test_knowledge_base_import_edit_forget_and_space_selection(tmp_path, real_mo
                 return response.json()
 
             default = await call("GET", "/me/default-space")
+            # An empty search universe can be answered even when the query model is unavailable.
+            empty = await call("POST", "/retrieve", json={"query": "offline-query"})
+            assert empty["scope_ids"] == [] and empty["hits"] == []
             schema_response = await client.get("/v1/plugins/knowledge-base/openapi.json")
             assert schema_response.is_success, schema_response.text
             operations = [
@@ -135,6 +138,7 @@ def test_knowledge_base_import_edit_forget_and_space_selection(tmp_path, real_mo
                 status, lambda r: r["state"] in {"completed", "failed"}, seconds=180, log=tmp_path / "server.log"
             )
             assert completed["state"] == "completed", completed
+            assert completed["published_revision"] == 1
             current = (await client.get(artifact)).json()
             assert current["revision"] == 1
             chunks = base + f"/documents/{document}/revisions/1/chunks"
@@ -172,7 +176,9 @@ def test_knowledge_base_import_edit_forget_and_space_selection(tmp_path, real_mo
             ]
             assert all(response.status_code == 422 for response in conflicting)
             assert (await call("POST", base + "/retrieve", json={"query": "重启", "scope_ids": [scope]}))["hits"]
-            assert not (await call("POST", "/retrieve", json={"query": "重启", "scope_ids": []}))["hits"]
+            assert not (
+                await call("POST", "/retrieve", json={"query": "offline-query", "scope_ids": [], "mode": "vector"})
+            )["hits"]
             assert not (await call("POST", "/retrieve", json={"query": "重启"}))["hits"]
             wrong = await client.post(P + "/retrieve", json={"query": "重启", "scope_ids": [scope]})
             assert wrong.status_code == 422
@@ -243,6 +249,7 @@ def test_knowledge_base_import_edit_forget_and_space_selection(tmp_path, real_mo
                 protected_status, lambda r: r["state"] in {"completed", "failed"}, log=tmp_path / "server.log"
             )
             assert outcome["state"] == "failed" and outcome["current_revision"] == 3
+            assert outcome["published_revision"] is None
             retry = await call(
                 "POST",
                 base + f"/documents/{document}/reprocess",
@@ -293,6 +300,8 @@ class _FixtureEmbedding:
     profile = "fixture-model-v1"
     def __init__(self, model, cache): pass
     async def embed(self, values, query=False):
+        if query and values == ["offline-query"]:
+            raise RuntimeError("model unavailable")
         return [[1.0, float(len(value)%7+1)/10] for value in values]
 _service.Embedding = _FixtureEmbedding
 """

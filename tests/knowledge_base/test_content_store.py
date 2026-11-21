@@ -44,6 +44,16 @@ def test_markdown_blocks_keep_headings_and_cover_long_text():
         relative_path("/absolute.md")
 
 
+@pytest.mark.parametrize("newline", ["\r", "\n", "\r\n"])
+@pytest.mark.parametrize("separator", ["\u2028", "\f"])
+def test_markdown_uses_commonmark_line_boundaries(newline, separator):
+    steps = f"First{separator}second"
+    source = newline.join(["# Start", "", steps, "", "# Finish", "", "Submit the request"])
+    blocks = parse(source.encode(), "steps.md", {"max_chars": 360, "overlap": 0})
+    assert [block["text"] for block in blocks] == ["# Start\n\n" + steps, "# Finish\n\nSubmit the request"]
+    assert [(b["locator"]["line_start"], b["locator"]["line_end"]) for b in blocks] == [(1, 3), (5, 7)]
+
+
 @pytest.mark.parametrize("replaced", ["allowed", "project"])
 def test_directory_replacement_cannot_redirect_import_outside_allowed_root(tmp_path, monkeypatch, replaced):
     pytest.importorskip("opendal")

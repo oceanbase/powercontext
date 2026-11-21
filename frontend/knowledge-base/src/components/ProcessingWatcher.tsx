@@ -15,7 +15,7 @@ limitations under the License.
 */
 import { useEffect, useRef } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { keys, useProcessingRequests, type ProcessingTarget } from "../hooks";
+import { keys, markDocumentChange, useProcessingRequests, type ProcessingTarget } from "../hooks";
 import { service } from "../services";
 function Watch({ target }: { target: ProcessingTarget }) {
   const client = useQueryClient();
@@ -28,7 +28,7 @@ function Watch({ target }: { target: ProcessingTarget }) {
   useEffect(() => {
     if (settled.current || !["completed", "failed"].includes(status.data?.state || "")) return;
     settled.current = true;
-    client.setQueryData<number>(keys.documentChanges, (value) => (value ?? 0) + 1);
+    if (status.data?.published_revision != null) markDocumentChange(client, target.scope);
     void Promise.all(
       [
         keys.documents(target.scope),
@@ -41,7 +41,7 @@ function Watch({ target }: { target: ProcessingTarget }) {
         (items || []).filter((item) => item.scope !== target.scope || item.request !== target.request),
       );
     });
-  }, [status.data?.state, client, target]);
+  }, [status.data?.state, status.data?.published_revision, client, target]);
   return null;
 }
 export function ProcessingWatcher() {

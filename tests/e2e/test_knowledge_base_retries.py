@@ -71,6 +71,9 @@ def test_reprocess_replay_keeps_the_accepted_snapshot_after_head_changes(tmp_pat
 
             first = await upload("first", "# First\n\nOriginal content.")
             assert (await settled(first))["current_revision"] == 1
+            unchanged = await settled(await upload("repeat-original", "# First\n\nOriginal content."))
+            assert unchanged["state"] == "completed" and unchanged["current_revision"] == 1
+            assert unchanged["published_revision"] is None
             requests = (await call("GET", base + "/documents"))["requests"]
             assert next(item for item in requests if item["request_id"] == first["request_id"])["state"] == "completed"
             path = base + "/documents/" + first["document_id"] + "/reprocess"

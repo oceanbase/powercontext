@@ -22,8 +22,8 @@ from tests.e2e.plugin_server import ADMIN_AUTHORIZATION_VALUE, wait_for
 from tests.e2e.test_knowledge_base_dashboard import dashboard, library, select_library, upload
 
 
-@pytest.mark.parametrize("method", ["upload", "local"])
-def test_dashboard_import_completion_invalidates_retrieval_after_tab_navigation(tmp_path, method):
+@pytest.mark.parametrize(("method", "other_scope"), [("upload", False), ("local", False), ("upload", True)])
+def test_dashboard_import_completion_invalidates_retrieval_after_tab_navigation(tmp_path, method, other_scope):
     root = tmp_path / "documents"
     root.mkdir()
     original = "# Quartz\n\nOriginal instructions before import"
@@ -52,6 +52,9 @@ _service.parse = _gated_parse
             space = (await call("GET", "/me/default-space"))["space_scope_id"]
             kb = await library(call, "Import publication", space)
             scope = kb["scope_id"]
+            if other_scope:
+                other = await library(call, "Other library", space)
+                await upload(call, tmp_path, other, "other.md", "# Quartz\n\nIndependent instructions")
             if method == "upload":
                 await upload(call, tmp_path, kb, "same.md", original)
             else:
@@ -93,10 +96,26 @@ _service.parse = _gated_parse
                 assert receipt["accepted"]
                 await expect(frame.get_by_role("alert")).to_contain_text("已接受 1 / 2 个文件")
                 await frame.get_by_role("button", name="完成", exact=True).click()
+                if other_scope:
+                    await select_library(frame, "Other library")
                 await frame.get_by_role("tab", name="检索测试", exact=True).click()
                 await frame.get_by_role("textbox", name="检索问题").fill("Quartz")
                 await frame.get_by_role("button", name="检索", exact=True).click()
-                await expect(frame.locator(".markdown-body")).to_contain_text("Original instructions")
+                expected = "Independent instructions" if other_scope else "Original instructions"
+                await expect(frame.locator(".markdown-body")).to_contain_text(expected)
+                # Observe the terminal status at the browser bridge, independently of the API polling below.
+                await page.evaluate(
+                    """requestId => {
+                    const fetch = window.fetch;
+                    window.fetch = async (...args) => {
+                        const response = await fetch(...args);
+                        if (response.url.endsWith("/imports/" + requestId) &&
+                            (await response.clone().json()).state === "completed") window.importCompleted = true;
+                        return response;
+                    };
+                }""",
+                    receipt["request_id"],
+                )
             finally:
                 hold.unlink(missing_ok=True)
             result = await wait_for(
@@ -105,6 +124,15 @@ _service.parse = _gated_parse
                 log=tmp_path / "server.log",
             )
             assert result["current_revision"] == 2
+            if other_scope:
+                await page.wait_for_function("window.importCompleted")
+                # Allow the bridge response and query notifications to reach the plugin frame.
+                await frame.locator("body").evaluate(
+                    "() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))"
+                )
+                await expect(frame.locator(".markdown-body")).to_contain_text(expected)
+                await expect(frame.get_by_text("请重新检索", exact=False)).to_have_count(0)
+                return
             await expect(frame.get_by_text("内容或检索条件已变化，请重新检索。", exact=True)).to_be_visible(  # noqa: RUF001
                 timeout=12000
             )

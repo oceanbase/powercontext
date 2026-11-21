@@ -42,6 +42,7 @@ export type Processing = {
   relative_path: string;
   state: string;
   error?: string | null;
+  published_revision?: number | null;
   current_revision?: number | null;
 };
 export type DocPage = { items: Document[]; next_cursor: string | null; requests: Processing[] };

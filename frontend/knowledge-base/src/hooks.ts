@@ -13,12 +13,13 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 */
-import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useMutation, useQueries, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { service } from "./services";
 import type { KB, Target, Edit } from "./types";
 export const keys = {
   processing: ["processing-requests"],
-  documentChanges: ["document-changes"],
+  documentChanges: (scope: string) => ["document-changes", scope],
+  refresh: ["manual-refresh"],
   spaces: ["spaces"],
   defaults: ["default-space"],
   libraries: (space: string) => ["libraries", space],
@@ -27,8 +28,16 @@ export const keys = {
   governance: (scope: string, id: string) => ["governance", scope, id],
   revisions: (scope: string, id: string) => ["revisions", scope, id],
 };
-export const useDocumentChanges = () =>
-  useQuery({ queryKey: keys.documentChanges, initialData: 0, enabled: false, gcTime: Infinity });
+export function useDocumentChanges(scopes: string[]) {
+  return useQueries({
+    queries: [keys.refresh, ...scopes.map(keys.documentChanges)].map((queryKey) => ({
+      queryKey, initialData: 0, enabled: false, gcTime: Infinity,
+    })),
+  }).map((query) => query.data);
+}
+export function markDocumentChange(client: QueryClient, scope: string) {
+  client.setQueryData<number>(keys.documentChanges(scope), (value) => (value ?? 0) + 1);
+}
 export const useSpaces = () => useQuery({ queryKey: keys.spaces, queryFn: service.spaces });
 export const useDefault = () => useQuery({ queryKey: keys.defaults, queryFn: service.defaultSpace });
 export const useHostContext = () =>
@@ -81,7 +90,7 @@ export const useChunk = (scope: string, id: string, revision: number, chunk: str
 export function useRefresh() {
   const client = useQueryClient();
   return () => {
-    client.setQueryData<number>(keys.documentChanges, (previous) => (previous ?? 0) + 1);
+    client.setQueryData<number>(keys.refresh, (previous) => (previous ?? 0) + 1);
     return client.invalidateQueries();
   };
 }
@@ -158,7 +167,7 @@ export function useDocumentAction(target: Target) {
     },
     onSuccess: async (data, command) => {
       if (command.kind === "reprocess") trackProcessing(client, target.scope, data);
-      client.setQueryData<number>(keys.documentChanges, (previous) => (previous ?? 0) + 1);
+      else markDocumentChange(client, target.scope);
       await Promise.all(
         [
           keys.documents(target.scope),
@@ -229,7 +238,7 @@ export function useBatchDocuments() {
           results.push({ id: target.id, title, status: "失败", error: String(error) });
         } finally {
           // A lost response may still have committed: refresh authoritative state on every outcome.
-          client.setQueryData<number>(keys.documentChanges, (previous) => (previous ?? 0) + 1);
+          if (command.kind === "forget") markDocumentChange(client, target.scope);
           await Promise.all([
             keys.documents(target.scope), keys.head(target.scope, target.id),
             keys.governance(target.scope, target.id), keys.revisions(target.scope, target.id),

@@ -109,7 +109,8 @@ class Snapshots:
 
 
 def markdown_blocks(text):
-    lines = text.splitlines(keepends=True)
+    # CommonMark counts only CR, LF and CRLF as line endings. Preserve their original bytes.
+    lines = io.StringIO(text, newline="").readlines()
     headings = []
     blocks = []
     covered = -1

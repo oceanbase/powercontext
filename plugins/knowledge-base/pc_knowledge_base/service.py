@@ -429,6 +429,7 @@ class KnowledgeBase:
             "request_id": key,
             "document_id": document,
             "relative_path": state["pinned"]["relative_path"],
+            "published_revision": state["pinned"]["base_revision"] + 1 if completed else None,
             "state": "completed" if completed else "failed" if conflicted else state["state"],
             "error": None if completed else "Document changed during processing" if conflicted else state.get("error"),
         }
@@ -665,6 +666,8 @@ class KnowledgeBase:
     retrieve_scope = retrieve
 
     async def search(self, scopes, query_text, mode, limit):
+        if not scopes:
+            return []
         vector = [] if mode == "fts" else (await self.embedding.embed([query_text], query=True))[0]
         hits = []
         # Refill after filtering historical/orphan results; bound total work for this first release.

@@ -37,7 +37,7 @@ export function Retrieval({
   const [submitted, setSubmitted] = useState("");
   const [generation, setGeneration] = useState(0);
   const mutation = useRetrieve();
-  const changes = useDocumentChanges().data;
+  const changes = useDocumentChanges(scopes);
   const signature = JSON.stringify({ space, scopes, query, mode, generation, changes });
   const hits = submitted === signature ? mutation.data?.hits : undefined;
   const invalidate = () => {

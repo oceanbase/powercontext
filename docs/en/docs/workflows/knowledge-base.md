@@ -125,6 +125,7 @@ infrastructure failures use the framework's window retry/backoff and can block t
 from the usable revision. `POST .../imports/{request_id}/retry` accepts a **new** `idempotency_key` and creates a new request.
 The recent requests returned by `GET P/scopes/{s}/documents` use the same publication check, so committed work is reported as
 completed even if its processing observation still says processing.
+The status and recent-request entries include `published_revision` when the request published a revision, or null otherwise. A successful unchanged import keeps its current revision. The Dashboard invalidates displayed retrieval only when a selected knowledge base publishes a change.
 `POST P/scopes/{s}/documents/{d}/reprocess` reparses with current settings. Its optional `manual_edits_policy:"replace"` explicitly
 permits replacing manual edits; otherwise conflicting reprocessing fails. Optional `expected_revision` rejects a new request
 with HTTP 409 if the document has changed since selection; the Dashboard always supplies it. Reprocessing pins the original snapshot and its
