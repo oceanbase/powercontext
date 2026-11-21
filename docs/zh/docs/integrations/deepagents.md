@@ -91,7 +91,7 @@ result = await agent.ainvoke(
 ## 配置连接与 scope
 
 适配层复用 LangChain 集成的 Client、Settings 和 Scope。`POWERCONTEXT_LANGCHAIN_*` 变量、token 处理、远程 Server
-授权，以及“显式 `PowerContextScope` 优先于环境配置”的规则，见 [LangChain](langchain.md#配置连接与-scope)。
+授权，以及“显式 `PowerContextScope` 优先于环境配置”的规则，见 [LangChain](langchain.md#配置连接和-scope)。
 
 ## 采集
 
