@@ -232,12 +232,14 @@ blocked = Path(sys.argv[3])
 root = blocked.parent
 phases = root / "controller-phases.jsonl"
 start = root / "worker-start"
+release = root / "consumer-release"
 _record_log_probe_phase(phases, "imports_finished")
 original_emit = logging.FileHandler.emit
 def slow_emit(handler, record):
     if not blocked.exists():
         blocked.write_text("blocked", encoding="utf-8")
-        sys.stdin.read(1)
+        while not release.exists():
+            time.sleep(0.01)
     original_emit(handler, record)
 logging.FileHandler.emit = slow_emit
 
@@ -291,10 +293,11 @@ shutdown_server_logging()
     completed = tmp_path / "completed"
     blocked = tmp_path / "blocked"
     ready = tmp_path / "ready"
+    release = tmp_path / "consumer-release"
     log_directory = tmp_path / "logs"
     process = subprocess.Popen(
         [sys.executable, "-c", script, str(log_directory), str(completed), str(blocked), str(ready)],
-        stdin=subprocess.PIPE,
+        stdin=subprocess.DEVNULL,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
@@ -310,8 +313,10 @@ shutdown_server_logging()
             while not completed.exists() and process.poll() is None and time.monotonic() < deadline:
                 time.sleep(0.01)
         finished_without_draining = prepared and completed.exists() and blocked.exists()
-        stdout, stderr = process.communicate(input="\n", timeout=30)
+        release.touch()
+        stdout, stderr = process.communicate(timeout=30)
     finally:
+        release.touch()
         (tmp_path / "worker-start").touch()
         if process.poll() is None:
             process.kill()
