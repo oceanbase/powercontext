@@ -406,11 +406,11 @@ def test_zcode_source_is_processed_and_recalled_in_a_new_session(
         app.middleware("http")(_delay_first_capture_response())
     app.middleware("http")(_http_timing(hook_timeline))
 
-    with socket.socket() as socket_probe:
-        socket_probe.bind(("127.0.0.1", 0))
-        port = socket_probe.getsockname()[1]
+    listener = socket.socket()
+    listener.bind(("127.0.0.1", 0))
+    port = listener.getsockname()[1]
     server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port, log_level="error"))
-    thread = threading.Thread(target=server.run, daemon=True)
+    thread = threading.Thread(target=server.run, kwargs={"sockets": [listener]}, daemon=True)
     thread.start()
     try:
         wait_for_server_startup(server, thread)
@@ -610,3 +610,4 @@ def test_zcode_source_is_processed_and_recalled_in_a_new_session(
         thread.join(timeout=10)
         hook_timeline("test_end")
         assert not thread.is_alive()
+        listener.close()
