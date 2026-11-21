@@ -1,164 +1,71 @@
-name: ZCode connection diagnosis
+name: Windows idle connection control
 'on':
   workflow_dispatch: null
 permissions:
   actions: read
   contents: read
-env:
-  ZCODE_REF: 29628c9acdb81b703bbd4080c207a0e7ce5e276e
-  ZCODE_CLI_BIN: ${{ github.workspace }}/.powercontext/zcode-ci-source/apps/zcode-cli/packages/cli/dist/zcode.cjs
-  CI: 'true'
-  HUSKY: '0'
 jobs:
-  controlled-cli:
+  control:
     runs-on: windows-latest
-    timeout-minutes: 30
+    timeout-minutes: 15
     defaults:
       run:
         shell: pwsh
     steps:
-    - name: Check out PowerContext
+    - name: Check out unchanged source
       uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       with:
         persist-credentials: false
-    - name: Set up Python
+    - name: Set up original Python and frozen dependencies
       uses: ./.github/actions/setup-python-env
       with:
         python-version: '3.12'
-    - name: Validate the ZCode Skill pin and behavior evaluation harness
-      run: 'uv run --locked --no-sync python -m evaluation.zcode_guidance.pin --check
-
-        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-
-        uv run --locked --no-sync python -m evaluation.zcode_guidance.run --help
-
-        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-
-        uv run --locked --no-sync python -m pytest evaluation/zcode_guidance/tests tests/test_zcode_acceptance_protocol.py
-        tests/test_zcode_acceptance_host.py tests/test_zcode_acceptance_collection.py -q
-
-        '
-    - name: Check out the supported ZCode host
-      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-      with:
-        repository: zai-org/ZCode
-        ref: ${{ env.ZCODE_REF }}
-        path: .powercontext/zcode-ci-source
-        persist-credentials: false
-    - name: Set up Node
-      uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
-      with:
-        node-version: 24.21.0
-    - name: Install the host package manager
-      run: npm install --global pnpm@10.33.2
-    - name: Cache frozen host dependencies
-      uses: ./.github/actions/cache-pnpm
-      with:
-        working-directory: .powercontext/zcode-ci-source
-        cache-dependency-glob: '.powercontext/zcode-ci-source/pnpm-lock.yaml
-
-          integrations/pi/plugins/powercontext/pnpm-lock.yaml
-
-          '
-    - name: Record build provenance
-      run: "$hostCommit = git -C .powercontext/zcode-ci-source rev-parse HEAD\nif ($LASTEXITCODE -ne 0 -or $hostCommit -ne\
-        \ $env:ZCODE_REF) { throw 'Unexpected ZCode commit' }\n$reportDir = Join-Path $env:RUNNER_TEMP 'zcode-ci-evidence'\n\
-        New-Item -ItemType Directory -Path $reportDir | Out-Null\n[ordered]@{\n  repository_commit = (git rev-parse HEAD)\n\
-        \  host_repository = 'zai-org/ZCode'\n  host_commit = $hostCommit\n  node_version = (node --version)\n  pnpm_version\
-        \ = (pnpm --version)\n  model_mode = 'fixture'\n  server_mode = 'real-sqlite'\n} | ConvertTo-Json | Set-Content -LiteralPath\
-        \ (Join-Path $reportDir 'provenance.json') -Encoding utf8\n"
-    - name: Install frozen host build dependencies
-      run: pnpm --dir .powercontext/zcode-ci-source --filter zcode --filter zcode-cli --filter '@zcode/cli...' install --frozen-lockfile
-        --ignore-scripts
-    - name: Build the actual CLI
-      id: host-build
-      run: 'pnpm --dir .powercontext/zcode-ci-source exec turbo --skip-infer --cwd apps/zcode-cli run build --filter=@zcode/cli
-
-        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-
-        if (-not (Test-Path -LiteralPath $env:ZCODE_CLI_BIN -PathType Leaf)) { throw ''CLI bundle not built'' }
-
-        node $env:ZCODE_CLI_BIN --version
-
-        '
-    - name: Run all plugin Node tests including native host discovery
-      run: node --test --test-concurrency=1 integrations/zcode/plugins/powercontext/tests/*.test.mjs
-    - name: Run two independent controlled CLI acceptances
-      if: ${{ !cancelled() && steps.host-build.outcome == 'success' }}
-      run: uv run --locked --no-sync pytest tests/e2e/test_zcode_host_acceptance.py -m 'zcode_host_acceptance and not zcode_live_model'
-        --zcode-acceptance-output "$env:RUNNER_TEMP/zcode-acceptance" -q
-    - name: Install the frozen Pi host and plugin dependencies
-      id: pi-dependencies
-      if: ${{ !cancelled() && steps.host-build.outcome == 'success' }}
-      run: pnpm --dir integrations/pi/plugins/powercontext install --frozen-lockfile --ignore-scripts
-    - name: Repeat original four cases with body-free connection observations
-      if: ${{ !cancelled() && steps.host-build.outcome == 'success' && steps.pi-dependencies.outcome == 'success' }}
-      run: "$traceDir = Join-Path $env:RUNNER_TEMP 'zcode-net-trace'\nNew-Item -ItemType Directory -Force -Path $traceDir\
-        \ | Out-Null\n@'\n\"\"\"Private, body-free connection-stage observations; no behavior changes.\"\"\"\nimport json\n\
-        import os\nfrom pathlib import Path\nimport threading\nimport time\n\n_LOCK = threading.Lock()\n_OUT = Path(os.environ['ZCODE_NET_TRACE'])\n\
-        _OUT.parent.mkdir(parents=True, exist_ok=True)\n\ndef emit(kind, **fields):\n    event = {'at': time.time(), 'mono':\
-        \ time.monotonic(), 'pid': os.getpid(), 'thread': threading.get_ident(), 'kind': kind, **fields}\n    with _LOCK:\n\
-        \        with _OUT.open('a', encoding='utf-8') as f:\n            f.write(json.dumps(event) + '\\n')\n\ndef socket_info(stream):\n\
-        \    result = {}\n    try:\n        sock = stream.get_extra_info('socket')\n        result['fd'] = sock.fileno()\n\
-        \        result['local'] = list(sock.getsockname())\n        result['peer'] = list(sock.getpeername())\n    except\
-        \ Exception as e:\n        result['inspect_error'] = type(e).__name__\n    return result\n\ndef failure(error):\n\
-        \    return {'type': type(error).__name__, 'errno': getattr(error, 'errno', None), 'winerror': getattr(error, 'winerror',\
-        \ None)}\n\ndef pytest_configure(config):\n    import httpx\n    import httpcore\n    import uvicorn\n    from httpcore._sync.connection\
-        \ import HTTPConnection\n    emit('versions', httpx=httpx.__version__, httpcore=httpcore.__version__, uvicorn=uvicorn.__version__)\n\
-        \    send = httpx.Client.send\n    def send_observed(self, request, *args, **kwargs):\n        category = request.url.path\
-        \ if request.url.path in {'/v1/access/me', '/v1/scopes'} else 'other'\n        emit('client.request', client=id(self),\
-        \ method=request.method, route=category, loopback=request.url.host in {'127.0.0.1','localhost'})\n        try:\n \
-        \           response = send(self, request, *args, **kwargs)\n            emit('client.response', client=id(self),\
-        \ route=category, status=response.status_code)\n            return response\n        except BaseException as e:\n\
-        \            emit('client.failure', client=id(self), route=category, error=failure(e))\n            raise\n    httpx.Client.send\
-        \ = send_observed\n    handle = HTTPConnection.handle_request\n    def handle_observed(self, request):\n        inner\
-        \ = self._connection\n        stream = getattr(inner, '_network_stream', None)\n        emit('pool.handle', connection=id(self),\
-        \ inner=id(inner) if inner else None, socket=socket_info(stream) if stream else None)\n        def trace(name, info):\n\
-        \            fields = {}\n            if 'exception' in info:\n                fields['error'] = failure(info['exception'])\n\
-        \            if name.endswith('connect_tcp.complete'):\n                fields['socket'] = socket_info(info.get('return_value'))\n\
-        \            emit('client.trace', connection=id(self), event=name, **fields)\n        request.extensions['trace']\
-        \ = trace\n        return handle(self, request)\n    HTTPConnection.handle_request = handle_observed\n    from uvicorn.protocols.http.h11_impl\
+    - name: Compare default idle close against examiner request ownership
+      run: "$env:CONTROL_OUT = Join-Path $env:RUNNER_TEMP 'idle-close-control'\n$env:PYTHONPATH = (Get-Location).Path\n@'\n\
+        \"\"\"Private deterministic scheduling control, default HTTP idle deadline unchanged.\"\"\"\nimport json\nimport os\n\
+        from pathlib import Path\nimport platform\nimport threading\nimport time\n\nimport httpx\nimport httpcore\nimport\
+        \ uvicorn\nfrom fastapi import FastAPI\nfrom fastapi.responses import JSONResponse\nfrom httpcore._sync.connection\
+        \ import HTTPConnection\nfrom tests.e2e.zcode_acceptance.runner import RestartableServer\n\nout = Path(os.environ['CONTROL_OUT'])\n\
+        out.mkdir(parents=True, exist_ok=True)\nresults = []\n\nfor policy in ['original', 'examiner_no_idle']:\n    app =\
+        \ FastAPI()\n    @app.get('/ready')\n    def ready():\n        return {'ready': True}\n    @app.get('/denied')\n \
+        \   def denied():\n        return JSONResponse({'error': 'unauthorized'}, status_code=401)\n    events = []\n    gate\
+        \ = threading.Event()\n    selected = []\n    armed = False\n    protocol_wrappers = []\n    from uvicorn.protocols.http.h11_impl\
         \ import H11Protocol\n    classes = [H11Protocol]\n    try:\n        from uvicorn.protocols.http.httptools_impl import\
         \ HttpToolsProtocol\n        classes.append(HttpToolsProtocol)\n    except ImportError:\n        pass\n    for cls\
-        \ in classes:\n        for name in ['connection_made','connection_lost','timeout_keep_alive_handler','on_response_complete','data_received']:\n\
-        \            original = getattr(cls, name)\n            def wrapped(self, *args, _original=original, _name=name, **kwargs):\n\
-        \                transport = args[0] if _name == 'connection_made' else getattr(self, 'transport', None)\n       \
-        \         fields = {'protocol': id(self), 'protocol_class': type(self).__name__}\n                if transport is\
-        \ not None:\n                    fields['local'] = transport.get_extra_info('sockname')\n                    fields['peer']\
-        \ = transport.get_extra_info('peername')\n                if _name == 'connection_lost' and args and args[0] is not\
-        \ None:\n                    fields['error'] = failure(args[0])\n                if _name == 'data_received':fields['bytes']\
-        \ = len(args[0])\n                emit('server.'+_name, **fields)\n                return _original(self, *args, **kwargs)\n\
-        \            setattr(cls, name, wrapped)\n\ndef pytest_runtest_logstart(nodeid, location):\n    emit('case.start',\
-        \ nodeid=nodeid)\n\ndef pytest_runtest_logreport(report):\n    if report.when == 'call': emit('case.result', nodeid=report.nodeid,\
-        \ outcome=report.outcome, duration=report.duration)\n'@ | Set-Content -LiteralPath (Join-Path $env:RUNNER_TEMP 'zcode_net_probe.py')\
-        \ -Encoding utf8\n$env:PYTHONPATH = $env:RUNNER_TEMP + [IO.Path]::PathSeparator + $env:PYTHONPATH\n$results = @()\n\
-        for ($iteration=1; $iteration -le 5; $iteration++) {\n  $env:ZCODE_NET_TRACE = Join-Path $traceDir \"connection-$iteration.jsonl\"\
-        \n  uv run --locked --no-sync pytest -p zcode_net_probe tests/e2e/test_cross_host_work_continuity.py -m cross_host_acceptance\
-        \ --cross-host-acceptance-output \"$env:RUNNER_TEMP/cross-host-acceptance\" --junitxml=\"$traceDir/junit-$iteration.xml\"\
-        \ -q\n  $results += [ordered]@{ iteration=$iteration; exit_code=$LASTEXITCODE }\n  $results | ConvertTo-Json | Set-Content\
-        \ -LiteralPath (Join-Path $traceDir 'results.json')\n}\nif (@($results | Where-Object {$_.exit_code -ne 0}).Count\
-        \ -gt 0) { exit 1 }\n"
-    - name: Retain only summaries and selected evidence
-      if: always()
-      run: "$reportDir = Join-Path $env:RUNNER_TEMP 'zcode-ci-evidence'\nforeach ($suite in @('zcode-acceptance', 'cross-host-acceptance'))\
-        \ {\n  $output = Join-Path $env:RUNNER_TEMP $suite\n  if (-not (Test-Path -LiteralPath $output)) { continue }\n  foreach\
-        \ ($run in Get-ChildItem -LiteralPath $output -Directory) {\n    if ($run.Name -notmatch '^[0-9a-f]{32}$') { continue\
-        \ }\n    $summary = Join-Path $run.FullName 'summary.json'\n    if (-not (Test-Path -LiteralPath $summary -PathType\
-        \ Leaf)) { continue }\n    $target = Join-Path $reportDir $run.Name\n    New-Item -ItemType Directory -Force -Path\
-        \ $target | Out-Null\n    Copy-Item -LiteralPath $summary -Destination $target\n    $evidence = Join-Path $run.FullName\
-        \ 'evidence'\n    if (Test-Path -LiteralPath $evidence -PathType Container) {\n      $evidenceTarget = Join-Path $target\
-        \ 'evidence'\n      New-Item -ItemType Directory -Path $evidenceTarget | Out-Null\n      Get-ChildItem -LiteralPath\
-        \ $evidence -File -Filter '*.json' |\n        Copy-Item -Destination $evidenceTarget\n    }\n    $result = Get-Content\
-        \ -LiteralPath $summary -Raw | ConvertFrom-Json\n    \"### $suite run $($run.Name): $($result.overall_status)\" |\
-        \ Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY\n    foreach ($scenario in $result.scenarios) {\n      \"- $($scenario.id):\
-        \ $($scenario.status)\" | Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY\n    }\n  }\n}\n"
-    - name: Upload controlled acceptance evidence
+        \ in classes:\n        original_timeout = cls.timeout_keep_alive_handler\n        def observe_timeout(self, _original=original_timeout):\n\
+        \            peer = self.transport.get_extra_info('peername')\n            result = _original(self)\n            events.append({'kind':\
+        \ 'server_default_idle_close', 'at': time.monotonic(), 'peer': peer})\n            if selected and peer == selected[0]:\n\
+        \                gate.set()\n            return result\n        protocol_wrappers.append((cls, original_timeout))\n\
+        \        cls.timeout_keep_alive_handler = observe_timeout\n    original_handle = HTTPConnection.handle_request\n \
+        \   def observe_selected(self, request):\n        if armed and self._connection is not None and self.is_idle():\n\
+        \            sock = self._connection._network_stream.get_extra_info('socket')\n            selected.append(sock.getsockname())\n\
+        \            events.append({'kind': 'selected_idle_before_write', 'at': time.monotonic(), 'local': selected[-1]})\n\
+        \            assert gate.wait(8), 'default_server_idle_close_not_observed'\n            events.append({'kind': 'resume_after_default_idle_close',\
+        \ 'at': time.monotonic()})\n        return original_handle(self, request)\n    HTTPConnection.handle_request = observe_selected\n\
+        \    error = None\n    try:\n        with RestartableServer(lambda: app) as server:\n            kwargs = {'base_url':\
+        \ server.url, 'timeout': 15, 'trust_env': False}\n            if policy == 'examiner_no_idle':\n                kwargs['limits']\
+        \ = httpx.Limits(max_keepalive_connections=0)\n            with httpx.Client(**kwargs) as client:\n              \
+        \  assert client.get('/ready').json() == {'ready': True}\n                armed = True\n                try:\n   \
+        \                 response = client.get('/ready')\n                    response.raise_for_status()\n             \
+        \       assert response.json() == {'ready': True}\n                except httpx.TransportError as exception:\n   \
+        \                 error = {'type': type(exception).__name__, 'message': str(exception)}\n                armed = False\n\
+        \                denied = client.get('/denied')\n                assert denied.status_code == 401\n              \
+        \  try:\n                    denied.raise_for_status()\n                except httpx.HTTPStatusError:\n          \
+        \          error_preserved = True\n                else:\n                    raise AssertionError('401_was_not_an_error')\n\
+        \        result = {'policy': policy, 'error': error, 'selected_idle': bool(selected), 'server_idle_close': gate.is_set(),\
+        \ 'events': events, 'authorization_error_preserved': error_preserved}\n        results.append(result)\n        (out/'control.json').write_text(json.dumps({'os':\
+        \ platform.platform(), 'python': platform.python_version(), 'httpx': httpx.__version__, 'httpcore': httpcore.__version__,\
+        \ 'uvicorn': uvicorn.__version__, 'results': results}, indent=2)+'\\n')\n    finally:\n        HTTPConnection.handle_request\
+        \ = original_handle\n        for cls, original_timeout in protocol_wrappers:\n            cls.timeout_keep_alive_handler\
+        \ = original_timeout\nassert results[0]['selected_idle'] and results[0]['server_idle_close'] and results[0]['error']\n\
+        assert not results[1]['selected_idle'] and results[1]['error'] is None\nprint(json.dumps({'original': results[0]['error'],\
+        \ 'candidate': results[1]['error'], 'checks': 'passed'}))\n'@ | Set-Content -LiteralPath (Join-Path $env:RUNNER_TEMP\
+        \ 'idle_close_control.py') -Encoding utf8\nuv run --locked --no-sync python \"$env:RUNNER_TEMP/idle_close_control.py\"\
+        \n"
+    - name: Save bounded control evidence
       if: always()
       uses: ./.github/actions/upload-ci-diagnostics
       with:
-        name: zcode-net-probe-${{ github.run_id }}-${{ github.run_attempt }}
-        path: '${{ runner.temp }}/zcode-ci-evidence/
-
-          ${{ runner.temp }}/zcode-net-trace/'
-        if-no-files-found: warn
-        retention-days: 14
+        name: windows-idle-control-${{ github.run_id }}
+        path: ${{ runner.temp }}/idle-close-control/
+        if-no-files-found: error
