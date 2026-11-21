@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 from pathlib import Path
 from subprocess import CompletedProcess
@@ -326,6 +327,61 @@ def test_setup_openclaw_without_no_enable_installs_a_disabled_plugin_without_act
     assert ["gateway", "restart"] not in commands()
 
 
+@pytest.mark.parametrize(
+    "plugins",
+    [
+        {"entries": {"memory-powercontext": {"enabled": False}}},
+        {"deny": ["memory-powercontext"]},
+        {"allow": ["memory-core"]},
+        {"slots": {"memory": "memory-core"}},
+    ],
+)
+def test_setup_openclaw_with_no_enable_installs_without_overriding_native_choices(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, openclaw_host, plugins
+) -> None:
+    config, commands = openclaw_host
+    monkeypatch.setenv("FAKE_OPENCLAW_VERSION", "OpenClaw 2026.12.0")
+    monkeypatch.setenv("FAKE_OPENCLAW_NO_ENABLE", "1")
+    config.write_text(json.dumps({"plugins": plugins}), encoding="utf-8")
+
+    install_plugin(
+        "openclaw", source=str(_write_openclaw_plugin(tmp_path / "checkout")), server_url="http://127.0.0.1:8765"
+    )
+
+    native = json.loads(config.read_text(encoding="utf-8"))["plugins"]
+    entry = native.pop("entries")["memory-powercontext"]
+    assert entry.pop("config") == {"endpoint": "http://127.0.0.1:8765", "allowInsecureHttp": False}
+    assert entry == plugins.get("entries", {}).get("memory-powercontext", {})
+    assert native == {key: value for key, value in plugins.items() if key != "entries"}
+    assert ["plugins", "enable", "memory-powercontext"] not in commands()
+    assert ["gateway", "restart"] not in commands()
+
+
+@pytest.mark.parametrize(
+    ("plugins", "path"),
+    [
+        ({"entries": None}, "plugins.entries"),
+        ({"slots": ["memory-core"]}, "plugins.slots"),
+        ({"allow": "memory-powercontext-extra"}, "plugins.allow"),
+        ({"deny": None}, "plugins.deny"),
+        ({"entries": {"memory-powercontext": None}}, "plugins.entries.memory-powercontext"),
+        ({"entries": {"memory-powercontext": {"config": None}}}, "plugins.entries.memory-powercontext.config"),
+    ],
+)
+def test_setup_openclaw_rejects_malformed_native_plugin_policy_before_installing(
+    tmp_path: Path, openclaw_host, plugins, path
+) -> None:
+    config, commands = openclaw_host
+    config.write_text(json.dumps({"plugins": plugins}), encoding="utf-8")
+
+    with pytest.raises(SetupError, match=rf"OpenClaw {re.escape(path)} must be an"):
+        install_plugin(
+            "openclaw", source=str(_write_openclaw_plugin(tmp_path / "checkout")), server_url="http://127.0.0.1:8765"
+        )
+
+    assert not [command for command in commands() if command[0] == "pnpm" or command[:2] == ["plugins", "install"]]
+
+
 def test_build_openclaw_plugin_runs_pnpm_install_non_interactively(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -528,6 +584,7 @@ def test_doctor_openclaw_exits_nonzero_when_plugin_is_missing(monkeypatch: pytes
         {"enabled": False},
         {"entries": {"memory-powercontext": {"enabled": False}}},
         {"deny": ["memory-powercontext"]},
+        {"allow": ["other-plugin"]},
         {"slots": {"memory": "other-memory-provider"}},
     ],
 )

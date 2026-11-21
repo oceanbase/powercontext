@@ -37,8 +37,8 @@ powercontext setup openclaw --source .
 `openclaw plugins install --force --no-enable <archive>`. It then adds only the activation settings that are absent:
 it enables the plugin, selects it for the `memory` plugin slot, turns on `autoRecall`, `autoCapture` and conversation
 access, adds the PowerContext tools to `tools.alsoAllow` on first activation, and restarts the OpenClaw gateway. If you
-have disabled or denied the plugin, or selected another memory plugin, setup leaves it inactive. It does not start the
-Server.
+have disabled or denied the plugin, left it out of a non-empty `plugins.allow`, or selected another memory plugin, setup
+leaves it inactive. It does not start the Server.
 
 Releases whose `plugins install` has no `--no-enable`, such as 2026.8.1, enable a plugin while installing it. On those
 releases setup runs `openclaw plugins install --force --accept-capabilities <archive>` (`--accept-capabilities` only

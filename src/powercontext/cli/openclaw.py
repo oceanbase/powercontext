@@ -94,6 +94,24 @@ def read_plugins_policy(executable: str) -> dict[str, Any]:
         return {}
     if not isinstance(plugins, dict):
         raise SetupError("OpenClaw plugins configuration must be an object")  # noqa: TRY003
+    entries = plugins.get("entries", {})
+    shapes = [
+        ("plugins.entries", entries, dict),
+        ("plugins.slots", plugins.get("slots", {}), dict),
+        ("plugins.allow", plugins.get("allow", []), list),
+        ("plugins.deny", plugins.get("deny", []), list),
+    ]
+    if isinstance(entries, dict):
+        entry = entries.get(OPENCLAW_PLUGIN_NAME, {})
+        shapes.append((f"plugins.entries.{OPENCLAW_PLUGIN_NAME}", entry, dict))
+        if isinstance(entry, dict):
+            shapes += [
+                (f"plugins.entries.{OPENCLAW_PLUGIN_NAME}.{name}", entry.get(name, {}), dict)
+                for name in ("config", "hooks")
+            ]
+    for path, value, kind in shapes:
+        if not isinstance(value, kind):
+            raise SetupError(f"OpenClaw {path} must be an {'object' if kind is dict else 'array'}")  # noqa: TRY003
     return cast(dict[str, Any], plugins)
 
 
@@ -242,7 +260,8 @@ __all__ = [
 
 
 class OpenClawInstaller:
-    # Activation decides from the policy read before installation, which older hosts change while installing.
+    # Setup always runs install() before enable(); activation decides from the policy install() read, which hosts
+    # without --no-enable change while installing. enable() alone reads the current policy instead.
     _plugins_before_install: dict[str, Any] | None = None
 
     def install(self, source):
@@ -299,10 +318,12 @@ class OpenClawInstaller:
             plugins = read_plugins_policy(executable)
         entry = plugins.get("entries", {}).get(OPENCLAW_PLUGIN_NAME, {})
         slot = plugins.get("slots", {}).get("memory")
+        allow = plugins.get("allow", [])
         if (
             plugins.get("enabled") is False
             or entry.get("enabled") is False
             or OPENCLAW_PLUGIN_NAME in plugins.get("deny", [])
+            or (allow and OPENCLAW_PLUGIN_NAME not in allow)
             or slot not in {None, OPENCLAW_PLUGIN_NAME}
         ):
             return
