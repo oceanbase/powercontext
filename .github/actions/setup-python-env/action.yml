@@ -24,6 +24,13 @@ inputs:
     default: |
       pyproject.toml
       uv.lock
+      scripts/build_lexical.py
+      src/powercontext/builtin/artifacts/lexical/Cargo.toml
+      src/powercontext/builtin/artifacts/lexical/Cargo.lock
+      src/powercontext/builtin/artifacts/lexical/build.rs
+      src/powercontext/builtin/artifacts/lexical/pyproject.toml
+      src/powercontext/builtin/artifacts/lexical/src/*.rs
+      src/powercontext/builtin/artifacts/lexical/data/*.json
       integrations/langchain/pyproject.toml
       integrations/langgraph/pyproject.toml
       integrations/opendal/pyproject.toml
@@ -55,6 +62,16 @@ runs:
         save-cache: ${{ inputs.shared-cache == 'true' && 'false' || inputs.save-cache }}
         cache-suffix: ${{ inputs.shared-cache == 'true' && 'shared' || github.job }}-py${{ inputs.python-version }}
         cache-dependency-glob: ${{ inputs.cache-dependency-glob }}
+
+    - name: Set up native analyzer toolchain
+      shell: bash
+      run: |
+        toolchain=1.95.0
+        if [ "$RUNNER_OS" = "Windows" ]; then
+          toolchain=1.95.0-x86_64-pc-windows-msvc
+        fi
+        rustup toolchain install "$toolchain" --profile minimal
+        echo "RUSTUP_TOOLCHAIN=$toolchain" >> "$GITHUB_ENV"
 
     - name: Install Python dependencies
       id: dependencies

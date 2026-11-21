@@ -1,0 +1,131 @@
+{
+  "measured_at": "2026-11-21",
+  "platform": "Windows x86_64",
+  "rust": "1.95.0 MSVC release",
+  "installed_default_validation": [
+    {
+      "python": "3.11.15 (main, Mar 24 2026, 22:57:51) [MSC v.1944 64 bit (AMD64)]",
+      "unicode": "14.0.0",
+      "native": "powercontext/_lexical.pyd (installed wheel)",
+      "native_sha256": "b4600b0d8d0db72d73d79d65a64e1048aab4a4c7920802bc90c15f8d4b475cd4",
+      "default_is_native": true,
+      "cases": 12548,
+      "mismatches": [],
+      "non_string_type_errors": 7
+    },
+    {
+      "python": "3.12.13 (main, Mar 24 2026, 22:57:53) [MSC v.1944 64 bit (AMD64)]",
+      "unicode": "15.0.0",
+      "native": "powercontext/_lexical.pyd (installed wheel)",
+      "native_sha256": "b4600b0d8d0db72d73d79d65a64e1048aab4a4c7920802bc90c15f8d4b475cd4",
+      "default_is_native": true,
+      "cases": 12610,
+      "mismatches": [],
+      "non_string_type_errors": 7
+    },
+    {
+      "python": "3.13.12 (main, Mar 24 2026, 22:56:40) [MSC v.1944 64 bit (AMD64)]",
+      "unicode": "15.1.0",
+      "native": "powercontext/_lexical.pyd (installed wheel)",
+      "native_sha256": "b4600b0d8d0db72d73d79d65a64e1048aab4a4c7920802bc90c15f8d4b475cd4",
+      "default_is_native": true,
+      "cases": 12610,
+      "mismatches": [],
+      "non_string_type_errors": 7
+    },
+    {
+      "python": "3.14.3 (main, Mar 24 2026, 22:56:56) [MSC v.1944 64 bit (AMD64)]",
+      "unicode": "16.0.0",
+      "native": "powercontext/_lexical.pyd (installed wheel)",
+      "native_sha256": "b4600b0d8d0db72d73d79d65a64e1048aab4a4c7920802bc90c15f8d4b475cd4",
+      "default_is_native": true,
+      "cases": 12693,
+      "mismatches": [],
+      "non_string_type_errors": 7
+    }
+  ],
+  "independent_validation": [
+    {
+      "python": "3.11.15 (main, Mar 24 2026, 22:57:51) [MSC v.1944 64 bit (AMD64)]",
+      "unicode": "14.0.0",
+      "native_sha256": "b4600b0d8d0db72d73d79d65a64e1048aab4a4c7920802bc90c15f8d4b475cd4",
+      "tables_match_runtime": true,
+      "exhaustive_han_boundary_codepoints": 71178,
+      "added_boundary_cases_before_deduplication": 99602,
+      "comparisons": 1231092,
+      "duration_seconds": 16.952999999994063,
+      "mismatches": []
+    },
+    {
+      "python": "3.12.13 (main, Mar 24 2026, 22:57:53) [MSC v.1944 64 bit (AMD64)]",
+      "unicode": "15.0.0",
+      "native_sha256": "b4600b0d8d0db72d73d79d65a64e1048aab4a4c7920802bc90c15f8d4b475cd4",
+      "tables_match_runtime": true,
+      "exhaustive_han_boundary_codepoints": 71178,
+      "added_boundary_cases_before_deduplication": 99602,
+      "comparisons": 1231132,
+      "duration_seconds": 6.484000000011292,
+      "mismatches": []
+    },
+    {
+      "python": "3.13.12 (main, Mar 24 2026, 22:56:40) [MSC v.1944 64 bit (AMD64)]",
+      "unicode": "15.1.0",
+      "native_sha256": "b4600b0d8d0db72d73d79d65a64e1048aab4a4c7920802bc90c15f8d4b475cd4",
+      "tables_match_runtime": true,
+      "exhaustive_han_boundary_codepoints": 71178,
+      "added_boundary_cases_before_deduplication": 99602,
+      "comparisons": 1231132,
+      "duration_seconds": 6.5973612999951,
+      "mismatches": []
+    },
+    {
+      "python": "3.14.3 (main, Mar 24 2026, 22:56:56) [MSC v.1944 64 bit (AMD64)]",
+      "unicode": "16.0.0",
+      "native_sha256": "b4600b0d8d0db72d73d79d65a64e1048aab4a4c7920802bc90c15f8d4b475cd4",
+      "tables_match_runtime": true,
+      "exhaustive_han_boundary_codepoints": 71178,
+      "added_boundary_cases_before_deduplication": 99602,
+      "comparisons": 1231207,
+      "duration_seconds": 7.039742999986629,
+      "mismatches": []
+    }
+  ],
+  "packaging": {
+    "wheel": "powercontext-1.5.2.dev304+g9b2b190f4.d20261121-cp311-abi3-win_amd64.whl",
+    "member_count_excluding_record": 813,
+    "sdist_rebuild_identical": true,
+    "native_sha256": "b4600b0d8d0db72d73d79d65a64e1048aab4a4c7920802bc90c15f8d4b475cd4",
+    "requires_python": "Requires-Python: <3.15,>=3.11"
+  },
+  "focused_pytest": {
+    "passed": 447,
+    "skipped": 44,
+    "seconds": 85.02
+  },
+  "limitations": [
+    "GitHub manylinux and macOS wheel matrix pending",
+    "No Docker execution",
+    "Windows CPython3.12/3.13 installed SQLite smoke blocked by stdlib asyncio socketpair; minimal no-PowerContext controls reproduce",
+    "Whole-repository ty reports 93 existing Windows diagnostics; changed-file checks pass",
+    "No whole-server or HTTP speedup claim"
+  ],
+  "core_only_installation": {
+    "role_smoke": "passed",
+    "httpx_installed": false,
+    "jieba_installed": false,
+    "native_english_and_chinese_projection": "passed"
+  },
+  "scoring_regression": {
+    "before": {
+      "failed": 6,
+      "passed": 1
+    },
+    "after": {
+      "passed": 7
+    }
+  },
+  "rust_tests": {
+    "windows_msvc": 4,
+    "wsl_linux": 4
+  }
+}

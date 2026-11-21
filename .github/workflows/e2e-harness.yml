@@ -100,6 +100,13 @@ jobs:
           cache-dependency-glob: |
             pyproject.toml
             uv.lock
+            scripts/build_lexical.py
+            src/powercontext/builtin/artifacts/lexical/Cargo.toml
+            src/powercontext/builtin/artifacts/lexical/Cargo.lock
+            src/powercontext/builtin/artifacts/lexical/build.rs
+            src/powercontext/builtin/artifacts/lexical/pyproject.toml
+            src/powercontext/builtin/artifacts/lexical/src/*.rs
+            src/powercontext/builtin/artifacts/lexical/data/*.json
             integrations/langchain/pyproject.toml
             integrations/langgraph/pyproject.toml
             integrations/opendal/pyproject.toml
@@ -114,6 +121,10 @@ jobs:
       - name: Verify dependencies resolve from scratch
         if: steps.plan.outputs.replay == 'true'
         run: uv lock --upgrade --dry-run
+
+      - name: Prepare the native analyzer toolchain
+        if: steps.plan.outputs.replay == 'true'
+        run: rustup toolchain install 1.95.0 --profile minimal
 
       - name: Install harness validation dependencies
         if: steps.plan.outputs.replay == 'true'

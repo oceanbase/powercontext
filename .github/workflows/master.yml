@@ -300,6 +300,8 @@ jobs:
         if: matrix.suite == 'unit'
         env:
           PYTEST_ADDOPTS: --require-dsh-config-runtime --require-claude-code-python-floor
+          # Unit tests also spawn processes and exercise short scheduling deadlines.
+          PYTEST_WORKERS: "2"
         run: make unit-test
 
       - name: Check Source serialization with minimum Pydantic
@@ -326,6 +328,8 @@ jobs:
         if: matrix.suite == 'e2e'
         env:
           PYTEST_ADDOPTS: --ignore=tests/e2e/test_zcode_service_chain.py
+          # Each test can spawn Servers and workers; host CPU count overcommits the runner.
+          PYTEST_WORKERS: "2"
         run: make e2e-test
 
   isolated-installations:
@@ -352,6 +356,11 @@ jobs:
         uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           version: "0.10.12"
+
+      - name: Set up native analyzer toolchain
+        run: |
+          rustup toolchain install 1.95.0 --profile minimal
+          echo "RUSTUP_TOOLCHAIN=1.95.0" >> "$GITHUB_ENV"
 
       - name: Build one wheel for all installation roles
         run: |
@@ -1526,6 +1535,16 @@ jobs:
       targets: '["linux-x86_64"]'
       concurrency_suffix: linux
 
+  native-wheel-validation:
+    needs: [quality, tests]
+    if: >-
+      ${{ !cancelled() && needs.quality.result == 'success' &&
+          contains(fromJSON('["success","skipped"]'), needs.tests.result) &&
+          (fromJSON(needs.quality.outputs.suites || '{}').packaging) }}
+    uses: ./.github/workflows/native-wheels.yml
+    with:
+      suites: ${{ needs.quality.outputs.suites }}
+
   script-installation:
     needs: [quality, tests]
     if: >-
@@ -1616,6 +1635,7 @@ jobs:
       - quality
       - tests
       - isolated-installations
+      - native-wheel-validation
       - docs-tests
       - worker-observability
       - evaluation-tests

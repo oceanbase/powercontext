@@ -29,6 +29,7 @@ from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, ConfigDict, Field, StrictInt, field_validator
 
+from powercontext._lexical import analyze_text
 from powercontext.artifacts.search import ChannelScore
 
 if TYPE_CHECKING:
@@ -297,12 +298,6 @@ class AdmissionCounts:
     retrieved: int = 0
     admitted: int = 0
     rejected: int | None = None
-
-
-def analyze_text(value: str) -> str:
-    """Analyze document words without filtering stopwords or losing word frequency."""
-
-    return " ".join(term for term, _start, _end in analyze_text_with_spans(value))
 
 
 def lexical_query_words(value: str) -> tuple[str, ...]:

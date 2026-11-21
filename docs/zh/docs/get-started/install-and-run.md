@@ -16,6 +16,8 @@ description: 安装最新稳定版 PowerContext，并运行本地 Server。
 
 Windows 的 CLI、Server 和个人服务支持为试验性；各 Agent 宿主仍需满足自身要求。嵌入式 seekDB 不支持 Windows。下文 Bash 示例需要在 Bash 中执行。
 
+PowerContext 包含原生词法分析器。兼容 wheel 覆盖 Linux x86_64/arm64、macOS x86_64/arm64 和 Windows x86_64 上的 CPython 3.11–3.14。安装 wheel 无需编译器；源码安装需要 Rust 1.95.0 和平台 C 工具链，Windows 使用 MSVC。内置搜索路径会自动使用原生分析器。包元数据暂不允许 Python 3.15 及更高版本安装，待实现并验证对应的 Unicode 行为后再扩展。
+
 ## 使用推荐安装脚本
 
 脚本在独立的 uv tool 环境中安装 CLI 和本地 Server，复用兼容的 Python 和 uv，缺少时在用户目录补齐，无需管理员权限。
