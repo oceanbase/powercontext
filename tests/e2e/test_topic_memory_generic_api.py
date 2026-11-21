@@ -678,6 +678,7 @@ def test_cancelling_a_statistics_read_during_a_stalled_usage_write_leaves_the_ru
         release = asyncio.Event()
         entered = asyncio.Event()
         failed = asyncio.Event()
+        settled = asyncio.Event()
         original_record = StatisticsRepository.record
         flushing = asyncio.Event()
         original_flush = RelationalScopedStatistics.flush_model_usage
@@ -689,11 +690,14 @@ def test_cancelling_a_statistics_read_during_a_stalled_usage_write_leaves_the_ru
 
         async def stalled_record(repository, connection, *args):
             entered.set()
-            await release.wait()
-            if record_fails:
-                failed.set()
-                raise ValueError("injected closed usage connection")  # noqa: TRY003
-            return await original_record(repository, connection, *args)
+            try:
+                await release.wait()
+                if record_fails:
+                    failed.set()
+                    raise ValueError("injected closed usage connection")  # noqa: TRY003
+                return await original_record(repository, connection, *args)
+            finally:
+                settled.set()
 
         # Cancelling an await does not end SQLite's native busy-handler wait.
         # Keep that wait below the cancellation assertion's five-second bound.
@@ -721,8 +725,14 @@ def test_cancelling_a_statistics_read_during_a_stalled_usage_write_leaves_the_ru
                 stats_payload = {"selection": {"mode": "exact", "scope_ids": [scope]}}
                 pending = None
                 try:
-                    created = await asyncio.wait_for(client.post(path, json=payload), 2)
-                    assert created.status_code == 201, created.text
+                    # Setup has no response-time SLA. Observe the business write
+                    # before accounting can expire, with the recorder still held.
+                    async with asyncio.timeout(15):
+                        created = await client.post(path, json=payload)
+                        assert created.status_code == 201, created.text
+                        await entered.wait()
+                    assert not release.is_set()
+                    assert not settled.is_set(), "Usage recording ended before the cancellation scenario"
                     pending = asyncio.create_task(client.post("/v1/stats", json=stats_payload))
                     # Statistics reads still wait for their accepted prefix;
                     # cancelling the reader must not cancel the owned recorder.
