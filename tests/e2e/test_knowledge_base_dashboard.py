@@ -435,23 +435,41 @@ def test_dashboard_retries_only_uncertain_upload_with_original_key_and_bytes(tmp
 
             await page.route(f"**/{scope}/uploads?*", intercept)
             await frame.get_by_role("button", name="导入文档", exact=True).click()
+            await frame.locator("body").evaluate("""() => {
+                const read = File.prototype.arrayBuffer;
+                let lostFileReads = 0;
+                File.prototype.arrayBuffer = async function () {
+                    if (this.name === "unreadable.md" || (this.name === "lost.md" && ++lostFileReads === 2))
+                        throw new DOMException("File unavailable", "NotReadableError");
+                    return read.call(this);
+                };
+            }""")
             await frame.locator('input[type="file"]').set_input_files([
                 {"name": name, "mimeType": "text/plain", "buffer": name.encode()}
-                for name in ("ok.md", "invalid.txt", "lost.md")
+                for name in ("ok.md", "unreadable.md", "invalid.txt", "lost.md")
             ])
             await frame.get_by_role("button", name="开始导入", exact=True).click()
             dialog = frame.get_by_role("dialog")
             row = dialog.get_by_role("row")
             await expect(row.filter(has_text="lost.md")).to_contain_text("结果待确认")
+            unreadable = row.filter(has_text="unreadable.md")
+            await expect(unreadable).to_contain_text("未接受")
+            await expect(unreadable).to_contain_text("请重新选择文件")
+            assert "unreadable.md" not in submissions
             await expect(row.filter(has_text="invalid.txt")).to_contain_text("未接受")
             await expect(row.filter(has_text="ok.md")).to_contain_text("已接受")
+            await dialog.get_by_role("button", name="重试待确认文件", exact=True).click()
+            await expect(row.filter(has_text="lost.md")).to_contain_text("原文件读取失败")
+            await expect(row.filter(has_text="lost.md")).to_contain_text("结果待确认")
+            assert len(submissions["lost.md"]) == 1
             await dialog.get_by_role("button", name="重试待确认文件", exact=True).click()
             await expect(row.filter(has_text="lost.md")).to_contain_text("Retry denied")
             await expect(row.filter(has_text="lost.md")).to_contain_text("结果待确认")
             await dialog.get_by_role("button", name="重试待确认文件", exact=True).click()
-            await expect(dialog.get_by_role("alert")).to_contain_text("已接受 2 / 3 个文件")
+            await expect(dialog.get_by_role("alert")).to_contain_text("已接受 2 / 4 个文件")
             await expect(row.filter(has_text="lost.md")).to_contain_text("已接受")
             assert len(submissions["ok.md"]) == len(submissions["invalid.txt"]) == 1
+            assert "unreadable.md" not in submissions
             first, denied_retry, replay = submissions["lost.md"]
             assert first == denied_retry == replay and first[1] == b"lost.md"
             assert len(request_ids) == 2 and request_ids[0] == request_ids[1]

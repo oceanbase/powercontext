@@ -92,10 +92,10 @@ export const service = {
     api<DefaultSpace>("PUT", "/me/default-space", { json: { space_scope_id: space, version } }),
   settings: (kb: KB, chunking: KB["value"]["chunking"]) =>
     api<KB>("PATCH", `/scopes/${kb.scope_id}/settings`, { json: { version: kb.version, chunking } }),
-  upload: async (scope: string, file: File, key: string) =>
+  upload: (scope: string, path: string, key: string, body: ArrayBuffer) =>
     api<Receipt>("POST", `/scopes/${scope}/uploads`, {
-      query: { relative_path: file.webkitRelativePath || file.name, idempotency_key: key },
-      body: await file.arrayBuffer(),
+      query: { relative_path: path, idempotency_key: key },
+      body,
       contentType: "application/octet-stream",
     }),
   imports: (scope: string, body: { root: string; paths: string[]; idempotency_key: string }) =>

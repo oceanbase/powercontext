@@ -163,8 +163,19 @@ export function useImport(scope: string) {
           continue;
         }
         const path = file.webkitRelativePath || file.name;
+        let body: ArrayBuffer;
         try {
-          const receipt = await service.upload(scope, file, key);
+          body = await file.arrayBuffer();
+        } catch {
+          receipts.push({
+            path,
+            accepted: previous ? null : false,
+            error: previous ? "原文件读取失败，先前的上传结果仍待确认" : "文件读取失败，请重新选择文件",
+          });
+          continue;
+        }
+        try {
+          const receipt = await service.upload(scope, path, key, body);
           if (typeof receipt?.accepted !== "boolean" || (receipt.accepted && (!receipt.request_id || !receipt.document_id)))
             throw new Error("未收到有效的导入回执");
           // Track each acceptance immediately, even if later files are slow or this view is unmounted.
