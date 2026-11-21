@@ -1,0 +1,29 @@
+tests/e2e/plugin_server.py
+  s_2ef0feea0a110d::t_2c4b2a3714a0ce 25,35-42,57-58,91,93,105,107-114
+tests/e2e/plugin_server_process.py
+  s_2ef0feea0a110d::t_b17031bffe35da 1-60
+tests/e2e/test_kimi_code_host.py
+  s_2ef0feea0a110d::t_7708b4cc410269 250-252,254,286-287
+tests/e2e/test_minimax_host.py
+  s_2ef0feea0a110d::t_30352badb7b3ca 159-161,163,175
+tests/e2e/test_zcode_service_chain.py
+  s_2ef0feea0a110d::t_2a042e6dd3fe1f 409-411,413,613
+tests/test_plugin_server.py
+  s_2ef0feea0a110d::t_8bcffffef0ebe1 1-81
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "468b849074879e0c30bb99119c679e13f395076e",
+  "prompts": {},
+  "sessions": {
+    "s_2ef0feea0a110d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1a9cf-a4e7-7f63-9c51-1284f7c332e8",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "frf12 <rongfeng.frf@antgroup.com>"
+    }
+  }
+}
