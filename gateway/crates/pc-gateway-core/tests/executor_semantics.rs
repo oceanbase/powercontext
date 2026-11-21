@@ -3286,7 +3286,11 @@ async fn distinct_terminal_responses_are_captured_idempotently() {
             assert_eq!(record["steps"].as_array().unwrap().len(), 2);
             assert_eq!(
                 record["assistant"],
-                if index == 0 { "first answer" } else { "second answer" }
+                if index == 0 {
+                    "first answer"
+                } else {
+                    "second answer"
+                }
             );
             assert_no_transport_metadata(content);
         }
@@ -4638,7 +4642,11 @@ async fn distinct_large_terminal_records_keep_independent_atomic_batches() {
         .enumerate()
         .filter_map(|(index, entry)| (entry["turn"]["part"] == 1).then_some(index))
         .collect();
-    assert_eq!(first_parts.len(), 2, "both captures should be split into parts");
+    assert_eq!(
+        first_parts.len(),
+        2,
+        "both captures should be split into parts"
+    );
     assert_ne!(
         captured[first_parts[0]].0, captured[first_parts[1]].0,
         "the changed final answer must give the full batch a new identity"
