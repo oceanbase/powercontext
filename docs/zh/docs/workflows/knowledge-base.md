@@ -109,7 +109,7 @@ Content-Type: application/octet-stream
 Dashboard 的“重新提交解析”使用该请求保存的快照；默认保护人工修改，只有勾选确认才发送
 `manual_edits_policy:"replace"`。这也支持人工编辑后上传新版原文产生的处理冲突。
 `GET P/scopes/{s}/documents` 返回的近期请求采用相同的发布校验；即使处理观察记录仍为 processing，已提交的任务也返回 completed。
-状态接口和近期请求中的 `published_revision` 表示该请求实际发布的版本，未发布时为 null。原文和配置未变化时，导入成功并沿用当前版本。所选知识库发布变更后，Dashboard 会提示重新检索。
+状态接口和近期请求中的 `published_revision` 表示该请求实际发布的版本，未发布时为 null。原文和配置未变化时，导入成功并沿用当前版本。所选知识库发布变更或读取其文档时收到 HTTP 403，Dashboard 会清除已显示的检索结果并保留检索条件。重新检索即可获取当前结果。
 `POST P/scopes/{s}/documents/{d}/reprocess` 按当前配置重新解析；可选 `manual_edits_policy:"replace"` 明确允许替换人工修改，
 否则冲突的重解析失败。可选 `expected_revision` 在文档已偏离选中版本时以 HTTP 409 拒绝新请求；Dashboard 总是传入此条件。
 重解析同时固定原文快照及其对应的 document revision。并发上传、编辑或遗忘会阻止过期处理结果发布，

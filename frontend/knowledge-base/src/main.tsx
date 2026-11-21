@@ -17,11 +17,19 @@ import React from "react";
 import { createRoot } from "react-dom/client";
 import { ConfigProvider } from "@oceanbase/design";
 import zhCN from "@oceanbase/design/es/locale/zh-CN";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryCache, QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { App } from "./App";
+import { markDocumentChange } from "./hooks";
+import { isForbidden } from "./services";
 import "@oceanbase/design/dist/design.min.css";
 import "./styles.scss";
-const client = new QueryClient({
+const client: QueryClient = new QueryClient({
+  queryCache: new QueryCache({
+    onError(error, query) {
+      const scope = query.meta?.documentScope;
+      if (typeof scope === "string" && isForbidden(error)) markDocumentChange(client, scope);
+    },
+  }),
   defaultOptions: { queries: { retry: false, refetchOnWindowFocus: false, gcTime: 0 }, mutations: { retry: false } },
 });
 createRoot(document.getElementById("root")!).render(

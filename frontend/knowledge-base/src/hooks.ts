@@ -54,6 +54,7 @@ export const useLibraries = (space: string) =>
 export const useDocuments = (scope: string) =>
   useInfiniteQuery({
     queryKey: keys.documents(scope),
+    meta: { documentScope: scope },
     queryFn: ({ pageParam }) => service.documents(scope, pageParam),
     initialPageParam: null as string | null,
     getNextPageParam: (page) => page.next_cursor ?? undefined,
@@ -64,12 +65,21 @@ export const useDocuments = (scope: string) =>
         : false,
   });
 export const useHead = (scope: string, id: string) =>
-  useQuery({ queryKey: keys.head(scope, id), queryFn: () => service.head(scope, id) });
+  useQuery({
+    queryKey: keys.head(scope, id),
+    meta: { documentScope: scope },
+    queryFn: () => service.head(scope, id),
+  });
 export const useGovernance = (scope: string, id: string) =>
-  useQuery({ queryKey: keys.governance(scope, id), queryFn: () => service.governance(scope, id) });
+  useQuery({
+    queryKey: keys.governance(scope, id),
+    meta: { documentScope: scope },
+    queryFn: () => service.governance(scope, id),
+  });
 export const useRevisions = (scope: string, id: string) =>
   useInfiniteQuery({
     queryKey: keys.revisions(scope, id),
+    meta: { documentScope: scope },
     queryFn: ({ pageParam }) => service.revisions(scope, id, pageParam),
     initialPageParam: null as string | null,
     getNextPageParam: (page) => page.next_cursor ?? undefined,
@@ -77,6 +87,7 @@ export const useRevisions = (scope: string, id: string) =>
 export const useChunks = (scope: string, id: string, revision: number) =>
   useInfiniteQuery({
     queryKey: ["chunks", scope, id, revision],
+    meta: { documentScope: scope },
     queryFn: ({ pageParam }) => service.chunks(scope, id, revision, pageParam),
     initialPageParam: 0,
     getNextPageParam: (page) => page.next_offset ?? undefined,
@@ -85,6 +96,7 @@ export const useChunks = (scope: string, id: string, revision: number) =>
 export const useChunk = (scope: string, id: string, revision: number, chunk: string) =>
   useQuery({
     queryKey: ["chunk", scope, id, revision, chunk],
+    meta: { documentScope: scope },
     queryFn: () => service.chunk(scope, id, revision, chunk),
     enabled: revision > 0 && !!chunk,
   });

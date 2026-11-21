@@ -230,6 +230,51 @@ def test_dashboard_permission_loss_while_reading_stops_list_polling_and_hides_do
     asyncio.run(scenario())
 
 
+def test_reader_permission_loss_invalidates_cached_search_hits_on_return(tmp_path):
+    async def scenario():
+        async with dashboard(tmp_path) as (call, page, frame, origin, expect):
+            space = (await call("GET", "/me/default-space"))["space_scope_id"]
+            kb = await library(call, "Search access", space)
+            receipt = await upload(
+                call, tmp_path, kb, "guide.md", "# Quartz\n\nPreviously readable Quartz instructions"
+            )
+            await page.goto(origin + "/dashboard/plugins/knowledge-base")
+            await select_library(frame, "Search access")
+            await frame.get_by_role("tab", name="检索测试", exact=True).click()
+            question = frame.get_by_role("textbox", name="检索问题")
+            search = frame.get_by_role("button", name="检索", exact=True)
+            await question.fill("Quartz")
+            await search.click()
+            snippet = frame.locator(".markdown-body").filter(has_text="Previously readable Quartz instructions")
+            await expect(snippet).to_be_visible()
+
+            # No processing watcher or manual refresh invalidates this already completed search.
+            async def deny(route):
+                await route.fulfill(status=403, json={"error": {"message": "Access denied"}})
+
+            pattern = f"**/{kb['scope_id']}/documents/*/revisions/*/chunks/*"
+            await page.route(pattern, deny)
+            await frame.get_by_role("button", name="定位分块", exact=True).click()
+            await expect(frame.get_by_text("无权查看此文档", exact=True)).to_be_visible()
+            await frame.get_by_role("button", name="back", exact=True).click()
+            await expect(question).to_have_value("Quartz")
+            await expect(snippet).to_have_count(0)
+            await expect(frame.get_by_role("button", name="定位分块", exact=True)).to_have_count(0)
+            await page.unroute(pattern, deny)
+
+            # A hit also reads its document title. A denial there invalidates the result without opening the reader.
+            head_path = f"/artifacts/{kb['scope_id']}/{receipt['document_id']}"
+            await page.route(f"**{head_path}", deny)
+            async with page.expect_response(lambda r: r.url.endswith(head_path) and r.status == 403):
+                await search.click()
+            await expect(snippet).to_have_count(0)
+            await page.unroute(f"**{head_path}", deny)
+            await search.click()
+            await expect(snippet).to_be_visible()
+
+    asyncio.run(scenario())
+
+
 def test_dashboard_reprocess_tracks_committed_revision(tmp_path):
     gate = gated_parser(tmp_path / "hold")
 
