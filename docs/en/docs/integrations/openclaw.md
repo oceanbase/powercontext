@@ -127,6 +127,11 @@ The plugin asks the Server to resolve one existing Scope before each operation. 
 2. durable bindings for the OpenClaw session, each ordered active project, and the agent identity;
 3. the Server's default Scope.
 
+OpenClaw reports a run's active projects when it builds the prompt, but not at `agent_end` or `before_compaction`.
+Capture at `agent_end` uses the projects of the run it captures, and a pre-compaction checkpoint uses those of the
+session's most recent prompt, so both reach the project binding that the turn's recall read. Projects that the host
+reports to either event itself take precedence.
+
 Agent, project, path, and session identities are binding lookup inputs only. The plugin never derives a Scope ID from
 them and never creates a Scope. To select one existing Scope explicitly for all OpenClaw operations:
 
