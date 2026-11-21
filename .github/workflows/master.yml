@@ -326,6 +326,8 @@ jobs:
       - name: Run remaining end-to-end tests
         if: matrix.suite == 'e2e'
         env:
+          # Each E2E worker can spawn a Server, Gateway, and child workers with real readiness deadlines.
+          PYTEST_WORKERS: "4"
           PYTEST_ADDOPTS: --ci-shard-index=${{ matrix.shard-index }} --ci-shard-count=${{ matrix.shard-count }}
         run: make e2e-test-parallel
 
