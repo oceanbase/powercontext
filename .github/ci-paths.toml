@@ -32,6 +32,7 @@ tests = [
   "scripts/ci_nightly_report.py", ".github/workflows/nightly-report.yml",
   "scripts/sync_dsh_plugin_tree.py", "scripts/generate_integration_manifest_docs.py",
   "scripts/generate_integration_lifecycle.py",
+  "scripts/check_public_content.py",
   "scripts/run_atomic_memory_clean_migration.py", "scripts/scan_e2e_evidence.sh",
   "scripts/check_atomic_memory_migration_shards.py",
   "scripts/oceanbase_ci.py", ".github/oceanbase-migration-durations.json",

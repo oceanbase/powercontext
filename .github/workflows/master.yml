@@ -255,8 +255,12 @@ jobs:
     # Python 3.11/3.12 can exceed 55 minutes while the full E2E suite is still progressing.
     timeout-minutes: ${{ matrix.suite == 'e2e' && 90 || 75 }}
     runs-on: powercontext-ci-standard
+    env:
+      # Both suites start child processes in addition to pytest workers.
+      PYTEST_WORKERS: "8"
     strategy:
-      fail-fast: true
+      # Retain results for each Python version when a different job fails.
+      fail-fast: false
       matrix: ${{ fromJSON(needs.quality.outputs.test-matrix || '{"python-version":["3.11","3.12","3.13","3.14"],"suite":["unit","e2e"]}') }}
     defaults:
       run:
@@ -317,15 +321,29 @@ jobs:
           cache-bin: false
           cache-on-failure: true
 
+      - name: Build Gateway before parallel end-to-end tests
+        if: matrix.suite == 'e2e'
+        timeout-minutes: 15
+        # Keep cold downloads and compilation outside the concurrent fixture deadlines.
+        run: cargo build --locked --manifest-path gateway/Cargo.toml --target-dir gateway/target -p pc-gateway-app
+
       - name: Run the ZCode service chain with native Hook deadlines
         if: matrix.suite == 'e2e'
         # Preserve the real Hook deadlines without competing with xdist workers.
         run: uv run python -m pytest -n 0 tests/e2e/test_zcode_service_chain.py
 
+      - name: Run the Topic Memory head conflict scenario without parallel workers
+        if: matrix.suite == 'e2e'
+        # This scenario starts a fresh process for each conflicting publication.
+        run: uv run python -m pytest -n 0 tests/e2e/test_topic_memory_head_conflict.py
+
       - name: Run remaining end-to-end tests
         if: matrix.suite == 'e2e'
         env:
-          PYTEST_ADDOPTS: --ignore=tests/e2e/test_zcode_service_chain.py
+          CARGO_NET_OFFLINE: "true"
+          PYTEST_ADDOPTS: >-
+            --ignore=tests/e2e/test_zcode_service_chain.py
+            --ignore=tests/e2e/test_topic_memory_head_conflict.py
         run: make e2e-test
 
   isolated-installations:

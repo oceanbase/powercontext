@@ -39,3 +39,14 @@ List commands run, tests added or updated, and any manual validation performed.
 If AI tools were used to build this PR, describe the tool and model where possible.
 If not applicable, write `Not used`.
 -->
+
+# Public content review
+
+<!--
+Applies to docs, RFCs, examples, code comments, and this PR/issue text. `make check`
+rejects intranet document URLs automatically; external names need a manual read of
+both locales. See the "Write Documentation" section of CONTRIBUTING.md.
+-->
+
+- [ ] No external customer, user, partner, or internal project names appear anywhere.
+- [ ] No internal or SSO-only document links; `docs/en/` and `docs/zh/` carry the same wording and references.
