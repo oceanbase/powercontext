@@ -33,6 +33,7 @@ import os
 from langchain_openai import ChatOpenAI
 from powercontext_deepagents import create_powercontext_deep_agent
 from powercontext_langchain import PowerContextScope
+from pydantic import SecretStr
 
 from powercontext.client import PowerContextClient
 from powercontext.http import RememberMemoryRequest, ResolveScopeBindingRequest
@@ -55,10 +56,10 @@ async def main() -> None:
 
     model = ChatOpenAI(
         base_url=os.environ.get("OPENAI_BASE_URL", "http://127.0.0.1:8000/v1"),
-        api_key=os.environ.get("OPENAI_API_KEY", "dummy"),
+        api_key=SecretStr(os.environ.get("OPENAI_API_KEY", "dummy")),
         model=os.environ["OPENAI_MODEL"],
         temperature=0,
-        max_tokens=128,
+        max_completion_tokens=128,
     )
     agent = create_powercontext_deep_agent(
         model,
