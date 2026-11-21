@@ -7031,6 +7031,17 @@ class _EncodedPathAPIRoute(APIRoute):
         return match, child_scope
 
 
+def _operation_error_status(error: Exception) -> tuple[int, str]:
+    """Classify an endpoint exception for logs, spans and metrics."""
+
+    # Endpoints may raise a validation error after dispatch, for example a deployment-configured
+    # Source limit. Report the 422 the exception handler returns instead of an internal failure.
+    if isinstance(error, (RequestValidationError, PydanticValidationError)):
+        return status.HTTP_422_UNPROCESSABLE_CONTENT, "invalid_request"
+    response_status, error_code, _, _ = _map_error(error)
+    return response_status, error_code
+
+
 def _observe_application_operation(
     app: FastAPI,
     operation: Operation[_RequestT, _ResponseT],
@@ -7068,7 +7079,7 @@ def _observe_application_operation(
                 _finish_span(span, "cancelled")
                 raise
             except Exception as error:
-                response_status, error_code, _, _ = _map_error(error)
+                response_status, error_code = _operation_error_status(error)
                 observe_artifact_read(
                     app.state.metrics,
                     operation.operation_id,

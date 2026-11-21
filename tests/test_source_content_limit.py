@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -147,6 +148,41 @@ def test_lowering_the_limit_keeps_existing_sources_readable(tmp_path: Path) -> N
     assert any(item["source_id"] == "large-source" and item["content"] == content for item in listing.json()["items"])
     assert accepted.status_code == 202, accepted.text
     assert rejected.status_code == 422, rejected.text
+
+
+def test_over_limit_rejections_report_validation_telemetry(tmp_path: Path, caplog) -> None:
+    """A deployment-limit rejection is a 422 in logs and spans, never an internal failure."""
+    caplog.set_level(logging.INFO)
+
+    with TestClient(_app(tmp_path, max_chars=5)) as client:
+        scope_id = _create_scope(client)
+        single = _capture(client, scope_id, "single", "x" * 6)
+        batch = client.post(
+            "/v1/sources/content/batch",
+            json={"scope_id": scope_id, "sources": [{"source_id": "batch", "content": "x" * 6}]},
+        )
+        note = client.post(
+            "/v1/sources/working-notes",
+            json={
+                "scope_id": scope_id,
+                "source_id": "note",
+                "content": "x" * 6,
+                "session_id": "session",
+                "note_kind": "validation",
+            },
+        )
+
+    assert single.status_code == batch.status_code == note.status_code == 422
+    failures = [
+        record
+        for record in caplog.records
+        if getattr(record, "event", None) == "application.operation.completed"
+        and getattr(record, "outcome", None) == "failure"
+    ]
+    assert len(failures) == 3
+    assert {getattr(record, "status_code", None) for record in failures} == {422}
+    assert {getattr(record, "error_code", None) for record in failures} == {"invalid_request"}
+    assert not any(getattr(record, "error_code", None) == "internal_error" for record in caplog.records)
 
 
 def test_schema_ceiling_rejects_beyond_the_storage_bound(tmp_path: Path) -> None:
