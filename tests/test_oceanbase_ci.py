@@ -236,9 +236,10 @@ def test_invalid_duration_baseline_cannot_silently_change_scheduling(tmp_path):
         read_durations(path)
 
 
-def test_all_oceanbase_migration_step_budgets_cover_collected_cases_and_cleanup():
+@pytest.mark.parametrize(("workflow_name", "backend"), [("e2e-harness.yml", "oceanbase"), ("master.yml", "seekdb")])
+def test_migration_step_budgets_cover_collected_cases_and_cleanup(workflow_name, backend):
     root = Path(__file__).parents[1]
-    workflow = yaml.safe_load((root / ".github/workflows/e2e-harness.yml").read_text())
+    workflow = yaml.safe_load((root / ".github/workflows" / workflow_name).read_text())
     budgets = []
     for job in workflow["jobs"].values():
         steps = [step for step in job.get("steps", []) if "run_atomic_memory_clean_migration.py" in step.get("run", "")]
@@ -251,9 +252,12 @@ def test_all_oceanbase_migration_step_budgets_cover_collected_cases_and_cleanup(
             args = shlex.split(command)
             suites = args[args.index("--tests") + 1 :] if "--tests" in args else list(SUITES)
             case_timeout = int(args[args.index("--test-timeout") + 1]) if "--test-timeout" in args else 180
-            shard_count = len(job["strategy"]["matrix"]["shard"]) if "--shard" in args else 1
+            shard_count = 1
+            if "--shard" in args:
+                shard_count = int(args[args.index("--shard") + 1].rsplit("/", 1)[1])
+                assert sorted(job["strategy"]["matrix"]["shard"]) == list(range(shard_count))
             budgets.append((step, suites, case_timeout, shard_count))
-        if steps:
+        if steps and backend == "oceanbase":
             # Keep bounded pull/startup and ten minutes for other setup/evidence outside test ceilings.
             setup = [
                 step
@@ -261,9 +265,13 @@ def test_all_oceanbase_migration_step_budgets_cover_collected_cases_and_cleanup(
                 if step.get("name") in {"Pull the OceanBase image", "Start the isolated OceanBase test instance"}
             ]
             assert job["timeout-minutes"] >= sum(step["timeout-minutes"] for step in [*steps, *setup]) + 10
+        elif steps:
+            # Setup and evidence must retain job time beyond the test-step ceilings.
+            assert job["timeout-minutes"] > sum(step["timeout-minutes"] for step in steps)
+    assert budgets, f"No {backend} migration commands were checked"
     files = sorted({suite for _, suites, _, _ in budgets for suite in suites})
     result = subprocess.run(
-        [sys.executable, "-m", "pytest", "--collect-only", "-q", *files, "-k", "oceanbase"],
+        [sys.executable, "-m", "pytest", "--collect-only", "-q", *files, "-k", backend],
         cwd=root,
         env={**os.environ, "PYTEST_ADDOPTS": ""},
         capture_output=True,
