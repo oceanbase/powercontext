@@ -27,10 +27,12 @@ import pytest
 from deepagents.middleware.subagents import DEFAULT_SUBAGENT_PROMPT
 from fastapi import FastAPI
 from langchain_core.language_models import BaseChatModel
+from langchain_core.language_models.base import LanguageModelInput
 from langchain_core.messages import AIMessage, BaseMessage, ToolMessage
 from langchain_core.outputs import ChatGeneration, ChatResult
 from langchain_core.runnables import Runnable
-from langchain_core.tools import tool
+from langchain_core.tools import BaseTool, tool
+from langchain_core.utils.function_calling import convert_to_openai_tool
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.types import Command
 from powercontext_deepagents import (
@@ -60,11 +62,11 @@ class _ScriptedModel(BaseChatModel):
 
     def bind_tools(
         self,
-        tools: Sequence[dict[str, Any] | type | Callable[..., Any]],
+        tools: Sequence[dict[str, Any] | type | Callable[..., Any] | BaseTool],
         *,
         tool_choice: str | None = None,
         **kwargs: Any,
-    ) -> Runnable:
+    ) -> Runnable[LanguageModelInput, AIMessage]:
         return self
 
     def _generate(self, messages: Sequence[BaseMessage], stop=None, run_manager=None, **kwargs) -> ChatResult:
@@ -143,14 +145,12 @@ class _AnsweringModel(BaseChatModel):
 
     def bind_tools(
         self,
-        tools: Sequence[dict[str, Any] | type | Callable[..., Any]],
+        tools: Sequence[dict[str, Any] | type | Callable[..., Any] | BaseTool],
         *,
         tool_choice: str | None = None,
         **kwargs: Any,
-    ) -> Runnable:
-        self.tool_names = [
-            getattr(item, "name", None) or (item.get("name") if isinstance(item, dict) else None) for item in tools
-        ]
+    ) -> Runnable[LanguageModelInput, AIMessage]:
+        self.tool_names = [convert_to_openai_tool(item)["function"]["name"] for item in tools]
         return self
 
     def _generate(self, messages: Sequence[BaseMessage], stop=None, run_manager=None, **kwargs) -> ChatResult:
@@ -598,7 +598,9 @@ def test_interrupt_and_resume_capture_once(monkeypatch: pytest.MonkeyPatch) -> N
     class _RiskyModel(BaseChatModel):
         calls: int = 0
 
-        def bind_tools(self, tools: Sequence[Any], *, tool_choice: str | None = None, **kwargs: Any) -> Runnable:
+        def bind_tools(
+            self, tools: Sequence[Any], *, tool_choice: str | None = None, **kwargs: Any
+        ) -> Runnable[LanguageModelInput, AIMessage]:
             return self
 
         def _generate(self, messages: Sequence[BaseMessage], stop=None, run_manager=None, **kwargs) -> ChatResult:
