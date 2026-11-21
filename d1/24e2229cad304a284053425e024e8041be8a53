@@ -1,0 +1,31 @@
+pyproject.toml
+  s_13fec9a57c9104::t_a0749051e189bb 203
+tests/deepagents_adapter/test_adapter.py
+  s_13fec9a57c9104::t_a0749051e189bb 30,34-35,65,69,148,152-153,601-603
+integrations/deepagents/examples/full_flow.py
+  s_13fec9a57c9104::t_a0749051e189bb 44,63,66
+integrations/deepagents/examples/quickstart.py
+  s_13fec9a57c9104::t_a0749051e189bb 36,59,62
+e2e/bub/uv.lock
+  s_13fec9a57c9104::t_2fe1c3373f2b83 1822,1827
+evaluation/uv.lock
+  s_13fec9a57c9104::t_81eab5da058961 1928,1933
+uv.lock
+  s_13fec9a57c9104::t_7f1e99e68340a9 3500,3729
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "d124e2229cad304a284053425e024e8041be8a53",
+  "prompts": {},
+  "sessions": {
+    "s_13fec9a57c9104": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1617e-79d4-7103-bf67-e341786d4978",
+        "model": "gpt-6.2-astra"
+      },
+      "human_author": "Frey <370805886@qq.com>"
+    }
+  }
+}

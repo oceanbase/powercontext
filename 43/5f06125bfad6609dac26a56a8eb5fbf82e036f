@@ -1,0 +1,29 @@
+plugins/knowledge-base/ui/app.js
+  s_13fec9a57c9104::t_95e09bd55c17a4 591
+frontend/knowledge-base/src/services.ts
+  s_13fec9a57c9104::t_37a3256e2bce1c 95,97-98
+frontend/knowledge-base/src/hooks.ts
+  s_13fec9a57c9104::t_37a3256e2bce1c 166,168-178
+docs/en/docs/workflows/knowledge-base.md
+  s_13fec9a57c9104::t_95e09bd55c17a4 96
+docs/zh/docs/workflows/knowledge-base.md
+  s_13fec9a57c9104::t_95e09bd55c17a4 77
+tests/e2e/test_knowledge_base_dashboard.py
+  s_13fec9a57c9104::t_287529dd06685f 438-446,449,455-458,462-465,469,472
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "435f06125bfad6609dac26a56a8eb5fbf82e036f",
+  "prompts": {},
+  "sessions": {
+    "s_13fec9a57c9104": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1617e-79d4-7103-bf67-e341786d4978",
+        "model": "gpt-6.2-astra"
+      },
+      "human_author": "Frey <370805886@qq.com>"
+    }
+  }
+}
