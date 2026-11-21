@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Add keyed remember_memory receipts through the shared DDL executor."""
+"""Add Prepare diagnostics and keyed Memory creation receipts."""
 
 from alembic import context
 

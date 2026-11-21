@@ -68,6 +68,7 @@ def test_keyed_creation_after_source_collection_upgrade(tmp_path: Path, source_r
         del manifest[field]["000"]
     manifest["mysql_state_layouts"].remove("schemas/mysql-000.json")
     manifest["affected_objects"].remove("pc_atomic_memory_idempotency")
+    manifest["affected_objects"].remove("pc_context_prepare_diagnostics")
     manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
     previous = SQLiteMigrationRunner(database, MigrationBundle(previous_directory), configuration=configuration)
     previous.apply(

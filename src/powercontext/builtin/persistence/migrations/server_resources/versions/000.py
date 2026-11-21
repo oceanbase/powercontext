@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Register retry receipts for keyed remember_memory creations."""
+"""Add Prepare diagnostics and keyed Memory creation receipts."""
 
 import json
 from pathlib import Path
@@ -24,7 +24,8 @@ down_revision = "v1_5_2_pr2639"
 
 
 def upgrade():
-    statements = json.loads((Path(__file__).parents[1] / "schemas/sqlite-000.json").read_text(encoding="utf-8"))
+    resource = Path(__file__).parents[1] / "schemas/sqlite-000.json"
+    statements = json.loads(resource.read_text(encoding="utf-8"))["statements"]
     connection = op.get_bind()
-    for statement in statements["create"]:
+    for statement in statements:
         connection.exec_driver_sql(statement)

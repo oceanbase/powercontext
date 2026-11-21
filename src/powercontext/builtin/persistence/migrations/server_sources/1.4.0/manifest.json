@@ -105,7 +105,7 @@
       "893b1b3ce4893b11f5f68478f54dc8484f696e0e1dc039b8fd01ce56e2dbb478"
     ],
     "000": [
-      "5852cff91fa212c6961d588d1668ec52affd05231e4b8d9ae2f6cfb302634f88"
+      "acc189e30495cb354e09593213925bbd3057a3d9c6e4ed592ffd2cb8a6a030f7"
     ]
   },
   "affected_objects": [
@@ -171,6 +171,7 @@
     "pc_candidate_versions",
     "pc_connector_checkpoints",
     "pc_context_bootstrap_receipts",
+    "pc_context_prepare_diagnostics",
     "pc_decision_observations",
     "pc_dream_runs",
     "pc_external_skill_registrations",

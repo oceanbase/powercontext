@@ -1413,6 +1413,37 @@ CONTEXT_BOOTSTRAP_RECEIPTS_TABLE = Table(
     CheckConstraint("content_bytes >= 0", name="ck_pc_context_bootstrap_receipts_content_bytes"),
 )
 
+CONTEXT_PREPARE_DIAGNOSTICS_TABLE = Table(
+    "pc_context_prepare_diagnostics",
+    SHARED_METADATA,
+    Column("record_id", identity_string(64), primary_key=True),
+    Column("scope_id", identity_string(MAX_SCOPE_ID_LENGTH), nullable=False),
+    Column("started_at", DateTime(timezone=True).with_variant(DATETIME(fsp=6), "mysql"), nullable=False),
+    Column("finished_at", DateTime(timezone=True).with_variant(DATETIME(fsp=6), "mysql"), nullable=False),
+    Column("duration_ms", Float, nullable=False),
+    Column("status", identity_string(16), nullable=False),
+    Column("principal_type", identity_string(16)),
+    Column("principal_id", identity_string(255)),
+    Column("request_id", identity_string(128)),
+    Column("trace_id", identity_string(64)),
+    Column("query_digest", identity_string(71), nullable=False),
+    Column("requested_max_bytes", Integer, nullable=False),
+    Column("content_bytes", BigInteger),
+    Column("selected_count", Integer),
+    Column("error_code", identity_string(64)),
+    Column("receipt_payload", _canonical_payload_type()),
+    Column("prepared_content", _entry_text_type()),
+    Column("diagnostics_payload", _canonical_payload_type(), nullable=False),
+    Column("query_text", Text().with_variant(MEDIUMTEXT(charset="utf8mb4", collation="utf8mb4_bin"), "mysql")),
+    Index("ix_pc_context_prepare_scope_finished", "scope_id", "finished_at", "record_id"),
+    Index("ix_pc_context_prepare_scope_status_finished", "scope_id", "status", "finished_at", "record_id"),
+    CheckConstraint("status IN ('ready', 'empty', 'failed', 'cancelled')", name="ck_pc_context_prepare_status"),
+    CheckConstraint("duration_ms >= 0", name="ck_pc_context_prepare_duration"),
+    CheckConstraint("requested_max_bytes >= 512 AND requested_max_bytes <= 32768", name="ck_pc_context_prepare_budget"),
+    CheckConstraint("content_bytes IS NULL OR content_bytes >= 0", name="ck_pc_context_prepare_content_bytes"),
+    CheckConstraint("selected_count IS NULL OR selected_count >= 0", name="ck_pc_context_prepare_selected_count"),
+)
+
 # The recurrence ledger is append-only: every correction is a new row, and the
 # only write path is the existing task-outcome incubation window.
 RECURRENCE_MATCH_TABLE = Table(
@@ -1523,6 +1554,7 @@ BUILTIN_TABLES = (
         DREAM_RUNS_TABLE,
         RECEIPT_MIGRATION_REVIEW_TABLE,
         CONTEXT_BOOTSTRAP_RECEIPTS_TABLE,
+        CONTEXT_PREPARE_DIAGNOSTICS_TABLE,
         LEXICAL_PROJECTION_VERSIONS_TABLE,
     )
 )

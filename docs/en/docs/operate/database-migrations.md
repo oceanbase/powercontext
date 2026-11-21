@@ -178,6 +178,7 @@ literal mutable draft ID `000`. The following registered names remain unchanged:
 | `v1_5_0_004` | 1.5.0 | 4 | `v1_5_0_004` | Source citation position locators |
 | `v1_5_0_005` | 1.5.0 | 5 | `v1_5_0_005` | Remove previous plugin-framework storage and add nullable Artifact metadata |
 | `v1_5_2_pr2639` | 1.5.2 | PR #2639 | `v1_5_2_pr2639` | Source collection runner and target tables; remove the write plugin registry |
+| `000` | — | Draft | `v1_5_2_pr2639` | Independent Prepare diagnostics and keyed Memory creation receipts |
 
 Both registered source paths reach the cumulative draft `000`; only 1.3.0 is selected for CI upgrade acceptance:
 
@@ -901,3 +902,10 @@ remaining missing values from the original text and completes `NOT NULL` constra
 `NOT NULL` do not receive another `MODIFY COLUMN`. Original Scope titles, summaries, external references, and binding
 identifiers are preserved. This compatibility repair remains for unmanaged profiles. Managed Server storage uses the
 registered migration chain and read-only startup admission; its startup never invokes this repair to upgrade the schema.
+
+### Prepare diagnostic storage
+
+The `000` draft adds `pc_context_prepare_diagnostics` and its Scope/time/status indexes alongside the Memory creation receipts. It does not change existing
+records or backfill past prepare calls. The table has no Scope deletion foreign key or cascade. Existing managed
+installations must migrate before startup. Capture is always on for the Server; recovery uses the existing
+verified-backup workflow and never automatically drops diagnostic records.
