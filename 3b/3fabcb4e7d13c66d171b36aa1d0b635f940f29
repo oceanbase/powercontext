@@ -1,0 +1,20 @@
+tests/e2e/test_worker_logging.py
+  s_2ef0feea0a110d::t_60532ae7d4f501 936-937,940-947,949-955,991-995,1003
+  s_2ef0feea0a110d::t_87e1a62dbcf046 948
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "3b3fabcb4e7d13c66d171b36aa1d0b635f940f29",
+  "prompts": {},
+  "sessions": {
+    "s_2ef0feea0a110d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1a9cf-a4e7-7f63-9c51-1284f7c332e8",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "frf12 <rongfeng.frf@antgroup.com>"
+    }
+  }
+}
