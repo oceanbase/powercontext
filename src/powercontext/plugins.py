@@ -79,6 +79,22 @@ class Cron(BaseModel):
     # An IANA time zone name; None uses the time zone of the machine running the Server.
     timezone: str | None = None
 
+    @model_validator(mode="after")
+    def runners_can_compute_the_next_time(self) -> Cron:
+        # The Server and device runners compute the next fire time with these same two
+        # parsers; reject here so a schedule they cannot compute fails the plugin load.
+        from zoneinfo import ZoneInfo
+
+        from apscheduler.triggers.cron import CronTrigger
+
+        if self.timezone is not None:
+            try:
+                ZoneInfo(self.timezone)
+            except (KeyError, ValueError) as error:
+                raise ValueError(f"timezone {self.timezone!r} is not an IANA time zone name") from error  # noqa: TRY003
+        CronTrigger.from_crontab(self.expression)
+        return self
+
 
 _PROJECTION = r"^[^@\s]+@[^@\s]+$"
 
