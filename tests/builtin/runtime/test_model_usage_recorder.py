@@ -101,7 +101,10 @@ def test_flush_persists_copied_usage_with_unknown_tokens_and_original_date(tmp_p
     async def scenario() -> None:
         config = SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'usage.db'}") if file_backed else SQLiteConfig()
         async with _database(config) as database:
-            recorder = _ModelUsageRecorder(database, StatisticsRepository())
+            # Exact copied counts need write/flush time; separate tests cover deadline-driven drops.
+            recorder = _ModelUsageRecorder(
+                database, StatisticsRepository(), write_timeout_seconds=5.0, flush_timeout_seconds=10.0
+            )
             try:
                 usage = InferenceUsage(
                     requests=2,
@@ -159,7 +162,9 @@ def test_backlogged_usage_coalesces_without_losing_known_token_subtotals() -> No
                     writes += 1
 
             event.listen(database.engine.sync_engine, "before_cursor_execute", observe_write)
-            recorder = _ModelUsageRecorder(database, StatisticsRepository(), flush_timeout_seconds=5)
+            recorder = _ModelUsageRecorder(
+                database, StatisticsRepository(), write_timeout_seconds=5.0, flush_timeout_seconds=5
+            )
             try:
                 for _ in range(40):
                     _offer(recorder, InferenceUsage(requests=1, input_tokens=3, output_tokens=5))
@@ -1209,7 +1214,9 @@ def test_uninterruptible_native_call_keeps_connection_owned_until_real_cleanup()
 def test_cancelled_flush_propagates_without_cancelling_consumer() -> None:
     async def scenario() -> None:
         async with _database() as database:
-            recorder = _ModelUsageRecorder(database, StatisticsRepository())
+            recorder = _ModelUsageRecorder(
+                database, StatisticsRepository(), write_timeout_seconds=5.0, flush_timeout_seconds=10.0
+            )
             try:
                 async with database.transaction():
                     _offer(recorder)
@@ -1247,7 +1254,7 @@ def test_consumer_does_not_inherit_the_request_context() -> None:
     async def scenario() -> None:
         async with _database() as database:
             repository = ContextRepository()
-            recorder = _ModelUsageRecorder(database, repository)
+            recorder = _ModelUsageRecorder(database, repository, write_timeout_seconds=5.0, flush_timeout_seconds=10.0)
             try:
                 token = _REQUEST_CONTEXT.set("request")
                 try:
@@ -1397,8 +1404,13 @@ def test_commit_unknown_is_not_retried(
 
             monkeypatch.setattr(database, "statistics_transaction", lost_commit_reply)
             observations = []
+            # Reach the committed-but-unknown outcome before testing that it is never retried.
             recorder = _ModelUsageRecorder(
-                database, StatisticsRepository(), observer=lambda *snapshot: observations.append(snapshot)
+                database,
+                StatisticsRepository(),
+                observer=lambda *snapshot: observations.append(snapshot),
+                write_timeout_seconds=5.0,
+                flush_timeout_seconds=10.0,
             )
             try:
                 for _ in range(records):
