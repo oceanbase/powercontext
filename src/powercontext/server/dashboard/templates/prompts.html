@@ -23,12 +23,18 @@ limitations under the License.
   <input type="hidden" name="expected_etag" value="{{ draft_etag or '' }}">
   <div class="mb-3">
     <label class="form-label">{{ t.prompt_mode }}</label>
-    <div>
-      <label class="me-3"><input type="radio" name="mode" value="auto" {% if draft_mode != 'custom' %}checked{% endif %}> {{ t.prompt_auto }}</label>
-      <label><input type="radio" name="mode" value="custom" {% if draft_mode == 'custom' %}checked{% endif %}> {{ t.prompt_custom }}</label>
+    <div class="form-selectgroup">
+      <label class="form-selectgroup-item">
+        <input type="radio" name="mode" value="auto" class="form-selectgroup-input" {% if draft_mode != 'custom' %}checked{% endif %}>
+        <span class="form-selectgroup-label">{{ t.prompt_auto }}</span>
+      </label>
+      <label class="form-selectgroup-item">
+        <input type="radio" name="mode" value="custom" class="form-selectgroup-input" {% if draft_mode == 'custom' %}checked{% endif %}>
+        <span class="form-selectgroup-label">{{ t.prompt_custom }}</span>
+      </label>
     </div>
   </div>
-  <div class="mb-3">
+  <div class="mb-3" data-prompt-instructions-field>
     <label class="form-label" for="profile-prompt-instructions">{{ t.prompt_custom_instructions }}</label>
     <textarea class="form-control" id="profile-prompt-instructions" name="instructions" rows="12" aria-describedby="profile-prompt-hint">
 {{ draft_instructions or '' }}</textarea>
@@ -36,7 +42,7 @@ limitations under the License.
     {% if saved_custom and demonstrations_count %}<p class="text-secondary small mt-1 mb-0">{{ t.prompt_demonstrations_preserved|replace('{count}', demonstrations_count|string) }}</p>{% endif %}
   </div>
   <div class="d-flex flex-wrap gap-2">
-    <button type="submit" class="btn btn-primary">{{ t.prompt_save }}</button>
+    <button type="submit" class="btn btn-primary" data-prompt-save>{{ t.prompt_save }}</button>
     {% if can_return_to_auto %}<button type="submit" name="return_to_auto" value="1" class="btn">{{ t.prompt_return_to_auto }}</button>{% endif %}
     <a href="{{ link('prompts',prompt_key='profile.generate',prompt_revision=none,compare=none,rollback_error=none,prompt_saved=none) }}" class="btn btn-link" data-prompt-cancel>{{ t.prompt_cancel }}</a>
   </div>
@@ -44,6 +50,8 @@ limitations under the License.
     me().run(form => {
       const scope = form.dataset.scope;
       const textarea = form.querySelector('textarea[name="instructions"]');
+      const instructionsField = form.querySelector('[data-prompt-instructions-field]');
+      const saveButton = form.querySelector('[data-prompt-save]');
       const radios = Array.from(form.querySelectorAll('input[name="mode"]'));
       const defaults = {{ defaults | tojson }};
       const savedMode = {{ saved_mode | tojson }};
@@ -57,6 +65,8 @@ limitations under the License.
       const sync = () => {
         const custom = currentMode() === 'custom';
         textarea.readOnly = !custom;
+        if (instructionsField) instructionsField.hidden = !custom;
+        if (saveButton) saveButton.disabled = !custom && savedMode === 'auto' && !hasDraft;
         if (custom && !hasDraft && !normalize(textarea.value).trim()) textarea.value = customText || defaults;
         if (custom && hasDraft && !normalize(textarea.value).trim() && normalize(customText).trim()) textarea.value = customText;
       };
