@@ -37,6 +37,8 @@ from powercontext.server.tracing import configure_server_tracing
 from powercontext.server.worker_tracing import WorkerTracing
 from tests.e2e.provider_worker_fixture import LargeProviderReport
 
+_WORKER_REPORT_TIMEOUT_SECONDS = 60.0
+
 
 @dataclass(frozen=True)
 class _Crash:
@@ -169,14 +171,18 @@ def test_native_worker_provider_reports_are_counted_once(tmp_path, monkeypatch, 
                 == 202
             )
             outcome = "missing" if failure == "crash" else "received"
-            deadline = time.monotonic() + 30
+            # Reports arrive after cold spawn imports, processing and process exit.
+            deadline = time.monotonic() + _WORKER_REPORT_TIMEOUT_SECONDS
             while time.monotonic() < deadline:
                 metrics = client.get("/metrics").text
                 if _count(metrics, "worker_reports_total", outcome=outcome) >= 1:
                     break
                 time.sleep(0.05)
             else:
-                pytest.fail("Provider worker report did not arrive within 30 seconds")
+                pytest.fail(
+                    f"Worker lifecycle did not publish a {outcome!r} provider report "
+                    f"within {_WORKER_REPORT_TIMEOUT_SECONDS:g} seconds"
+                )
             assert _count(metrics, "worker_reports_total", outcome=outcome) == 1
             assert _count(metrics, "http_attempts_total", execution="parent") == 0
             assert scope not in metrics
