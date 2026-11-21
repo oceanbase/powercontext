@@ -59,8 +59,8 @@ Memory / Atomic Memory 与 Topic Memory 作为当前切片，按 operation 粒�
 
 | Operation | Stage | 状态 | 说明 |
 |---|---|---|---|
-| `atomic-memory.extract` | Generation | Partial | provider timeout、不可用、限流、配置错误已分类；仅 adapter 暴露 finish reason 时可见。 |
-| `atomic-memory.extract` | Output parsing | Partial | schema 与 Pydantic 输出失败已分类；部分 provider 截断仍表现为 schema 失败。 |
+| `atomic-memory.extract` | Generation | Partial | provider timeout、不可用、限流、配置错误已分类；适配器提供受支持的结束原因时保留最后一次响应的原因。 |
+| `atomic-memory.extract` | Output parsing | Partial | 结构校验失败会保留可用的最终响应元数据。提供方明确报告长度限制时，分类为输出截断。 |
 | `atomic-memory.extract` | Business validation | Covered | 候选内容与引用证据规则输出 `business_validation` / `invalid_output`。 |
 | `atomic-memory.reconcile` | Generation | Partial | 与提取相同的 provider 映射。 |
 | `atomic-memory.reconcile` | Output parsing | Partial | 与提取相同的 schema 映射。 |
@@ -73,7 +73,7 @@ Topic Memory 的 operation 级覆盖：
 
 | Operation | Stage | 状态 | 说明 |
 |---|---|---|---|
-| `topic-memory` 各阶段（`probe`、`global`、`planner`、`evolve`、`temporary`、`reconcile`） | Generation | Partial | provider timeout、不可用、限流、配置错误已分类；仅 adapter 暴露 finish reason 时可见。 |
+| `topic-memory` 各阶段（`probe`、`global`、`planner`、`evolve`、`temporary`、`reconcile`） | Generation | Partial | provider timeout、不可用、限流、配置错误已分类；适配器提供受支持的结束原因时保留最后一次响应的原因。 |
 | `topic-memory` 各阶段 | Output parsing | Partial | provider schema 失败走共享映射；语义拒绝归为 business validation。 |
 | `topic-memory` 各阶段 | Business validation | Covered | 每个 `TopicMemoryGenerationError` code 都有有界诊断：领域/模型拒绝携带 stage，并在有证据时给出 reason；控制流拒绝只携带 `failure_location`。输入预算失败携带输入计数、token 估算、estimator 标识和生效预算；window token 上限触发时携带已计费 token 与上限，attempt/request 上限通过 block details 报告。 |
 | `topic-memory.index` 与查询嵌入 | Embedding | Covered | 缺少 embedding adapter、向量数量错误均已分类。 |
@@ -120,6 +120,20 @@ Dream 自身的执行期限耗尽时，Run 以 `budget_exceeded` 终止。对应
 `exception_type=TimeoutError`。这里的 stage 表示执行预算的归属。期限尚未耗尽时抛出的裸
 `TimeoutError` 走 `generation_failed` 终止路径，日志记录 `timeout`，省略未知阶段。
 Provider 的 `InferenceTimeoutError` 保留操作对应的 stage 和 `timeout` 原因，仍可在既有 Run 预算内重试。
+
+## 提供方响应证据
+
+结构化生成在 Agent 输出解析结束时使用最后一次响应的元数据。提供方明确报告长度限制时归为
+`generation / output_truncated`，否则保留原有分类。发起下一次提供方请求时清除前一次响应的证据。
+配置的重试与续写规则保持不变，业务校验、用量限制和提供方异常仍采用各自的分类。
+流在缺少结束信号时仍然失败，省略无法确定的原因。
+
+诊断只保留受支持的结束原因和有界、符合标识符格式的提供方响应 ID。上下文溢出需要提供方专用异常、
+受支持的上下文限制错误码，或明确指向输入上下文的提供方消息。输出 token 配置被拒绝时不会推断输入溢出。
+
+内置 Worker 和 Supervisor 对同一次执行保留相同的安全证据。Supervisor 对相同的受控错误码和原因，
+每个进程在任意一秒内最多记录 16 条 `artifact_processing.failed`。Dream attempt 日志使用相同的限额，
+并按 Family、操作、错误码和原因计算。限流不影响取消、处理状态、尝试次数或重试行为。
 
 ## 模型用量记账
 
