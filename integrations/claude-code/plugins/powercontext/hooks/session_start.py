@@ -24,19 +24,17 @@ from pathlib import Path
 from typing import Any, cast
 
 _PLUGIN_ROOT = Path(__file__).resolve().parents[1]
-_SCRIPTS_ROOT = _PLUGIN_ROOT / "scripts"
 sys.path.insert(0, str(_PLUGIN_ROOT))
-sys.path.insert(0, str(_SCRIPTS_ROOT))
 
 from claude_code_host import CLAUDE_CODE  # noqa: E402
 from claude_code_settings import ClaudeCodePluginSettings  # noqa: E402
+from powercontext_lifecycle.scope_binding import read_error_code, resolve_scope_id  # noqa: E402
 from powercontext_lifecycle.session_start import (  # noqa: E402
     BootstrapConnection,
     SessionStartEvent,
     hook_event_id,
     run_session_start,
 )
-from workspace_scope import read_error_code, resolve_scope_id  # noqa: E402
 
 _LIFECYCLES = frozenset({"startup", "resume", "clear", "compact", "fork"})
 
@@ -74,9 +72,10 @@ def _connect(event: SessionStartEvent, settings: ClaudeCodePluginSettings | None
         max_bytes=loaded.bootstrap_max_bytes,
         handoff=None if loaded.bootstrap_handoff is None else loaded.bootstrap_handoff.as_request(),
         resolve_scope_id=lambda deadline: resolve_scope_id(
+            CLAUDE_CODE,
             event.cwd,
             session_id=event.session_id,
-            settings=loaded,
+            settings=loaded.scope_binding_settings(),
             deadline=deadline,
         ),
         read_error_code=read_error_code,

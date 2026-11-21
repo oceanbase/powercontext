@@ -16,6 +16,8 @@
 
 import asyncio
 
+import httpx
+
 from tests.e2e.plugin_server import capture, create_scope, items, running_server, wait_for
 from tests.plugin_support import write_plugin
 
@@ -465,5 +467,94 @@ def test_plugin_source_allowlist_applies_to_generic_and_plugin_routes(tmp_path):
                     assert stored.status_code == (200 if scope == allowed else 404), stored.text
             await wait_for(lambda: items(client, allowed, "tickets"), lambda value: len(value) == 2)
             assert await items(client, outside, "tickets") == []
+
+    asyncio.run(scenario())
+
+
+CONSUMER = """
+from powercontext.plugins import ArtifactPlugin, Inputs, Rendering
+
+
+class Consumer:
+    async def render_artifact(self, request):
+        return Rendering(format="text", text=request.artifact.content["title"])
+
+    async def generate(self, request, writer):
+        async with writer.transaction() as tx:
+            for source in request.sources:
+                await tx.put(writer.stable_id(source.projection["key"]), content=source.projection, source_refs=[source.ref])
+
+
+async def setup(ctx):
+    return Consumer()
+
+
+plugin = ArtifactPlugin(
+    family="consumed-tickets",
+    inputs=Inputs(source_types=("ticket",), projection="tickets.ticket@1"),
+    on_sources=True,
+    setup=setup,
+)
+"""
+
+
+def test_a_host_still_starting_learns_of_plugins_registered_after_it_was_spawned(tmp_path):
+    plugins = tmp_path / "plugins"
+    # "alpha" loads first and is still in setup when "beta", which consumes its Source type, registers.
+    producer = (
+        TICKETS
+        .replace(
+            "from powercontext.plugins import ArtifactPlugin, Inputs, Rendering",
+            "import asyncio\n\nfrom powercontext.plugins import ArtifactPlugin, Inputs, Rendering, PluginApi, Route",
+        )
+        .replace(
+            "class Tickets:",
+            """class Tickets:
+    def __init__(self, ctx):
+        self.ctx = ctx
+
+    async def submit(self, request):
+        ref = await self.ctx.sources.submit(request.scope_id, "ticket", TicketInput.model_validate(request.body))
+        return ref.model_dump(mode="json")
+""",
+        )
+        .replace("    return Tickets()", "    await asyncio.sleep(5)\n    return Tickets(ctx)")
+        .replace(
+            """    inputs=Inputs(source_types=("ticket",), projection="tickets.ticket@1"),
+    on_sources=True,
+""",
+            """    api=PluginApi(routes=(Route(method="POST", path="/scopes/{scope_id}/submit", handler="submit",
+        body="json", access="scope.contribute", scope_param="scope_id"),)),
+""",
+        )
+    )
+    assert "asyncio.sleep(5)" in producer and "on_sources" not in producer
+    for name, code in (("alpha", producer), ("beta", CONSUMER)):
+        (plugins / name).mkdir(parents=True)
+        (plugins / name / "plugin.py").write_text(code, encoding="utf-8")
+    log = tmp_path / "server.log"
+
+    async def scenario():
+        async with running_server(tmp_path, plugins, startup_seconds=120) as client:
+            scope = await create_scope(client, "late-registration")
+            ticket = {"key": "OPS-9", "title": "Submitted through the first plugin"}
+
+            async def submit():
+                # A call that arrives during the slow setup waits for the host and may outlast the client's limit.
+                try:
+                    return await client.post(f"/v1/plugins/alpha/api/scopes/{scope}/submit", json=ticket)
+                except httpx.TimeoutException:
+                    return None
+
+            submitted = await wait_for(
+                submit, lambda response: response is not None and response.status_code == 200, seconds=120, log=log
+            )
+            assert submitted.json()["source_id"] == "OPS-9", submitted.text
+            # The Source reaches the plugin that registered while the submitting host was starting.
+            consumed = await wait_for(
+                lambda: items(client, scope, "consumed-tickets"), lambda value: len(value) == 1, seconds=120, log=log
+            )
+            body = await client.get(f"/v1/scopes/{scope}/artifacts/consumed-tickets/{consumed[0]['artifact_id']}")
+            assert body.json()["content"] == ticket
 
     asyncio.run(scenario())

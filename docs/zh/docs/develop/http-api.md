@@ -193,7 +193,7 @@ Principal，并注入 Authorization Provider。HTTP 与 MCP 使用同一个策�
 | --- | --- | --- |
 | 健康与能力 | `/health/*`、`/v1/capabilities` | 探测部署状态并查看已启用的 Runtime 行为 |
 | Access Control | `/v1/access/*` | 查看身份、检查决策，并管理 role、Binding 和审计事件 |
-| Source 与 Context | `/v1/sources/content`、`/v1/scopes/{scope_id}/subject-sources`、`/v1/context/prepare` | 采集证据、向业务与主体 Scope 写入 Source，并准备有界 Context |
+| Source 与 Context | `/v1/sources/content`、`/v1/sources/content/batch`、`/v1/scopes/{scope_id}/subject-sources`、`/v1/context/prepare` | 采集证据、向业务与主体 Scope 写入 Source，并准备有界 Context |
 | 工作连续性 | `/v1/work/*` | 创建 Work Contract、准备或确认 Handoff、记录 Outcome |
 | 底层 Handoff | `/v1/handoff/*` | activate、prepare、finalize、commit 或 continue Handoff |
 | Atomic Memory | `/v1/atomic-memory/*`、`/v1/scopes/{scope_id}/artifacts/*`（`family=atomic-memory`） | 检索、管理列表、状态、合并、遗忘和恢复；创建、读取、修订正文及查询历史 |

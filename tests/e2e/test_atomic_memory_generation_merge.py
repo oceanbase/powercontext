@@ -35,8 +35,15 @@ from powercontext.builtin.artifacts.atomic_memory.reconciliation import (
     AtomicMemoryReconciliationInput,
     AtomicMemoryReconciliationOutput,
 )
-from powercontext.builtin.inference import GenerationResult, character_token_estimator
+from powercontext.builtin.inference import (
+    GenerationResult,
+    InvalidInferenceOutputError,
+    TokenEstimator,
+    TokenEstimatorProfile,
+    character_token_estimator,
+)
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
+from powercontext.builtin.processing_diagnostics import diagnostics_of
 from powercontext.builtin.runtime import BuiltinConfig, CaptureSource, RuntimeConfig, open_builtin_contexts
 from powercontext.builtin.runtime.composition import open_builtin_runtime
 from powercontext.builtin.scope import ScopeDraft
@@ -156,6 +163,132 @@ class _SupportedCreateReconciler(_RevisionReconciler):
                 reason="Keep the independent precheck rule with supporting budget facts without consuming them.",
             )
         )
+
+
+@pytest.mark.parametrize(("related_count", "budget", "accepted"), [(8, 24, True), (8, 23, False), (0, 7, False)])
+def test_custom_rendered_budget_keeps_all_comparisons_or_rejects_without_publication(
+    tmp_path, related_count: int, budget: int, accepted: bool
+) -> None:
+    text = "Rollout strategy requires an independent approval."
+
+    def render_input(value):
+        return str(1 if isinstance(value, AtomicMemoryExtractionInput) else 8 + 16 * len(value.related))
+
+    async def scenario() -> None:
+        reconciler = _SupportedCreateReconciler()
+        pipeline = AtomicMemoryGenerationPipeline(
+            extractor=_RevisionExtractor(),
+            reconciler=reconciler,
+            estimator=TokenEstimator(
+                TokenEstimatorProfile(estimator_id="rendered-budget-fixture", version="1"),
+                lambda value: int(value.rsplit("\n", 1)[-1]),
+            ),
+            input_renderer=render_input,
+        )
+        config = BuiltinConfig(
+            database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'budget.db'}"),
+            runtime=RuntimeConfig(atomic_memory_related_mode="fts", atomic_memory_input_tokens_limit=budget),
+        )
+        async with open_builtin_contexts(config, candidate_pipeline=pipeline) as contexts:
+            context = await contexts.get("budget")
+            memory = contexts.atomic_memory.for_scope("budget")
+            if related_count:
+                await contexts.records.create_atomic_memories(
+                    "budget",
+                    tuple(
+                        {"kind": "fact", "text": f"Rollout strategy requires approval {index}."}
+                        for index in range(related_count)
+                    ),
+                )
+                await contexts.process_memory("budget", related_count)
+            before = (await memory.list(limit=100)).items
+            await contexts.records.capture_source("budget", "content", "new-fact", text, {})
+            if accepted:
+                result = await contexts.process_memory("budget", 1)
+                assert result.current_cursor == related_count + 1
+                after = (await memory.list(limit=100)).items
+                assert len(after) == related_count + 1
+                assert any(item.artifact.content.text == text for item in after)
+                compared = {
+                    (read.ref.artifact_id, read.ref.revision)
+                    for value in reconciler.requests
+                    for item in value.related
+                    for read in item.original_refs
+                }
+                assert compared == {(item.ref.artifact_id, item.ref.revision) for item in before}
+                assert all(int(render_input(value)) <= budget for value in reconciler.requests)
+            else:
+                with pytest.raises(InvalidInferenceOutputError) as captured:
+                    await contexts.process_memory("budget", 1)
+                assert captured.value.operation == "atomic-memory-input-budget"
+                diagnostic = diagnostics_of(captured.value)
+                assert diagnostic is not None
+                assert diagnostic.effective_budget == budget
+                assert diagnostic.estimated_input_tokens == (24 if related_count else 8)
+                assert (await context.triggers.cursor()).sequence == related_count
+                assert (await memory.list(limit=100)).items == before
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("page_size", [1, 4])
+def test_noop_and_merge_aliases_keep_later_source_changes_across_pages(tmp_path: Path, page_size: int) -> None:
+    latest = POLICY + " Only approved releases may deploy."
+
+    class Reconciler:
+        async def generate(self, request: AtomicMemoryReconciliationInput, /):
+            target = request.related[0]
+            noop = not request.proposal.original_refs and request.proposal.text == POLICY
+            return GenerationResult(
+                output=AtomicMemoryReconciliationOutput(
+                    action="noop" if noop else "merge",
+                    compared_ids=tuple(item.item_id for item in request.related),
+                    target_ids=(target.item_id,),
+                    content=None
+                    if noop
+                    else AtomicMemoryReconciliationContent(
+                        kind="constraint", text=request.proposal.text, description="Current rollout policy"
+                    ),
+                    evidence_ids=() if noop else tuple(item.evidence_id for item in request.evidence),
+                    reason="Keep the expressed policy or consolidate identities with the new approval condition.",
+                )
+            )
+
+    config = BuiltinConfig(
+        database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'aliases.db'}"),
+        runtime=RuntimeConfig(
+            atomic_memory_related_mode="fts",
+            atomic_memory_related_page_size=page_size,
+            atomic_memory_comparison_batch_size=1,
+        ),
+    )
+    pipeline = AtomicMemoryGenerationPipeline(
+        extractor=_PolicyExtractor(), reconciler=Reconciler(), estimator=character_token_estimator()
+    )
+
+    async def scenario() -> None:
+        async with open_builtin_contexts(config, candidate_pipeline=pipeline) as contexts:
+            await contexts.get(SCOPE)
+            memory = contexts.atomic_memory.for_scope(SCOPE)
+            await contexts.records.create_atomic_memories(
+                SCOPE, tuple({"kind": "constraint", "text": POLICY} for _ in range(6))
+            )
+            originals = (await memory.list()).items
+            await contexts.process_memory(SCOPE, 6)
+            await contexts.records.capture_source(SCOPE, "content", "confirmation", POLICY, {})
+            last = await contexts.records.capture_source(SCOPE, "content", "approval", latest, {})
+            result = await contexts.process_memory(SCOPE, 2)
+            assert result.source_count == 2 and result.current_cursor == last.position
+            (published,) = (await memory.list()).items
+            assert published.artifact.content.text == latest
+            assert {(ref.family, ref.artifact_id, ref.revision) for ref in published.artifact.lineage.artifacts} == {
+                (item.ref.family, item.ref.artifact_id, item.ref.revision) for item in originals
+            }
+            assert {ref.source_id for ref in published.artifact.lineage.sources} == {"confirmation", "approval"}
+            for item in originals:
+                assert (await memory.get(item.ref.artifact_id)).state.state == "merged"
+
+    asyncio.run(scenario())
 
 
 def test_public_flush_derives_merge_creation_from_model_owned_content(tmp_path: Path) -> None:
@@ -565,10 +698,14 @@ def test_source_flush_merge_keeps_a_bounded_tag_set_and_advances_the_cursor(tmp_
                     SCOPE, target, labels[original.artifact.content.text], expected_etag=current.etag
                 )
 
+            independent = "Release checks require green integration tests."
+            await contexts.records.capture_source(SCOPE, "content", "release-checks", independent, {})
             await contexts.records.capture_source(SCOPE, "content", "consolidate-rules", CONSOLIDATION, {})
-            result = await context.triggers.flush(limit=1)
-            assert result.previous_cursor == 2 and result.current_cursor == 3
-            (merged,) = (await memory.list()).items
+            result = await context.triggers.flush(limit=2)
+            assert result.previous_cursor == 2 and result.current_cursor == 4
+            items = (await memory.list()).items
+            assert {item.artifact.content.text for item in items} == {POLICY, independent}
+            merged = next(item for item in items if item.artifact.content.text == POLICY)
             assert merged.artifact.content.text == POLICY
             # Labels shared by more inputs come first, then normalized key order fills the 32-label limit.
             tags = await contexts.records.get_tags(

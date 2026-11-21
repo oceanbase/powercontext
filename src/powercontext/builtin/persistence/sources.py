@@ -418,23 +418,10 @@ class SourceRepository:
         identities = tuple(dict.fromkeys((ref.source_type, ref.source_id) for ref in refs))
         if not identities:
             return ()
-        by_ref: dict[tuple[str, str], Mapping[Any, Any]] = {}
-        for offset in range(0, len(identities), _SOURCE_LOOKUP_KEYS_PER_STATEMENT):
-            rows = (
-                (
-                    await connection.execute(
-                        select(SOURCES_TABLE).where(
-                            SOURCES_TABLE.c.scope_id == scope_id,
-                            tuple_(SOURCES_TABLE.c.source_type, SOURCES_TABLE.c.source_id).in_(
-                                identities[offset : offset + _SOURCE_LOOKUP_KEYS_PER_STATEMENT]
-                            ),
-                        )
-                    )
-                )
-                .mappings()
-                .all()
-            )
-            by_ref.update(((row["source_type"], row["source_id"]), row) for row in rows)
+        by_ref, bindings = await self._historical_rows(connection, scope_id, identities)
+        manifests = await SourceDefinitionManifestRepository().evidence_many(
+            connection, ((binding["definition_name"], binding["definition_version"]) for binding in bindings.values())
+        )
         materials: list[SourceEvidence] = []
         fingerprints: dict[tuple[str, str], str | None] = {}
         for ref in identities:
@@ -442,7 +429,7 @@ class SourceRepository:
             row = by_ref.get(ref)
             if row is None:
                 raise RepositoryNotFoundError("source", (scope_id, reference))
-            source, material, verifiable = await self._historical_material(connection, reference, row)
+            source, material, verifiable = self._historical_material(reference, row, bindings.get(ref), manifests)
             if not verifiable:
                 fingerprints[ref] = None  # Deliberately unverifiable, not a fingerprint mismatch.
             if isinstance(source, SourceObservation):
@@ -467,10 +454,46 @@ class SourceRepository:
                     definition_version=source.definition_version,
                 )
             )
-        return await self._bound_evidence(connection, scope_id, tuple(materials), fingerprints)
+        return self._bound_evidence(tuple(materials), fingerprints, bindings, manifests)
 
-    async def _historical_material(
-        self, connection: AsyncConnection, reference: SourceRef, row: Mapping[Any, Any]
+    @staticmethod
+    async def _historical_rows(connection: AsyncConnection, scope_id: str, identities: tuple[tuple[str, str], ...]):
+        """Join accepted material and its immutable binding in the caller's read transaction."""
+        by_ref: dict[tuple[str, str], Mapping[Any, Any]] = {}
+        bindings: dict[tuple[str, str], Mapping[str, Any]] = {}
+        table = SOURCE_EVIDENCE_BINDINGS_TABLE
+        joined = SOURCES_TABLE.outerjoin(
+            table,
+            (SOURCES_TABLE.c.scope_id == table.c.scope_id)
+            & (SOURCES_TABLE.c.source_type == table.c.source_type)
+            & (SOURCES_TABLE.c.source_id == table.c.source_id),
+        )
+        for offset in range(0, len(identities), _SOURCE_LOOKUP_KEYS_PER_STATEMENT):
+            rows = (
+                await connection.execute(
+                    select(SOURCES_TABLE, *(column.label(f"evidence_{column.name}") for column in table.c))
+                    .select_from(joined)
+                    .where(
+                        SOURCES_TABLE.c.scope_id == scope_id,
+                        tuple_(SOURCES_TABLE.c.source_type, SOURCES_TABLE.c.source_id).in_(
+                            identities[offset : offset + _SOURCE_LOOKUP_KEYS_PER_STATEMENT]
+                        ),
+                    )
+                )
+            ).mappings()
+            for row in rows:
+                identity = (row["source_type"], row["source_id"])
+                by_ref[identity] = row
+                if row["evidence_source_id"] is not None:
+                    bindings[identity] = {column.name: row[f"evidence_{column.name}"] for column in table.c}
+        return by_ref, bindings
+
+    def _historical_material(
+        self,
+        reference: SourceRef,
+        row: Mapping[Any, Any],
+        binding: Mapping[str, Any] | None,
+        manifests: Mapping[tuple[str, str], SourceDefinitionManifest | None],
     ) -> tuple[Source, dict[str, JsonValue], bool]:
         """Validate the stored representation and its retained schema, not a live model."""
 
@@ -478,10 +501,10 @@ class SourceRepository:
         try:
             envelope = load_model(_StoredSourcePayload, payload, kind="source-envelope", name=reference.source_type)
         except InvalidStoredPayloadError:
-            return await self._historical_legacy_material(connection, reference, row, payload)
+            return self._historical_legacy_material(reference, row, payload, binding)
         material = envelope.value
         source = (
-            await self._historical_canonical_source(connection, reference, row, material)
+            self._historical_canonical_source(reference, material, binding)
             if envelope.representation == "native" and envelope.source is None
             else None
         )
@@ -493,27 +516,20 @@ class SourceRepository:
         )
         if reference != decoded:
             raise IdentityMismatchError("source", reference, decoded)
-        table = SOURCE_EVIDENCE_BINDINGS_TABLE
-        binding = (
-            await connection.execute(
-                select(table.c.manifest_fingerprint, table.c.material_digest).where(
-                    table.c.scope_id == row["scope_id"],
-                    table.c.source_type == reference.source_type,
-                    table.c.source_id == reference.source_id,
-                    table.c.definition_name == reference.source_type,
-                    table.c.definition_version == source.definition_version,
-                )
-            )
-        ).one_or_none()
-        manifest = await _find_evidence_manifest(connection, reference.source_type, source.definition_version)
-        if manifest is not None and binding is not None and manifest.fingerprint == binding.manifest_fingerprint:
+        if binding is not None and (
+            binding["definition_name"] != reference.source_type
+            or binding["definition_version"] != source.definition_version
+        ):
+            binding = None
+        manifest = manifests.get((reference.source_type, source.definition_version))
+        if manifest is not None and binding is not None and manifest.fingerprint == binding["manifest_fingerprint"]:
             try:
                 value = source.payload if isinstance(source, SourceObservation) else material
                 _source_validator(manifest).validate(value)
             except JsonSchemaValidationError as error:
-                if envelope.representation == "native" and binding.material_digest == _source_material_digest_material(
-                    material
-                ):
+                if envelope.representation == "native" and binding[
+                    "material_digest"
+                ] == _source_material_digest_material(material):
                     # Older releases bound declarations without checking serialization
                     # compatibility. Exact accepted bytes remain readable, but neutral.
                     log_evidence_neutralized("schema_mismatch", unit="source", level=logging.DEBUG)
@@ -527,19 +543,19 @@ class SourceRepository:
             self._validate_unbound_material(reference, envelope, source)
         return source, material, True
 
-    async def _historical_legacy_material(
+    def _historical_legacy_material(
         self,
-        connection: AsyncConnection,
         reference: SourceRef,
         row: Mapping[Any, Any],
         payload: bytes,
+        binding: Mapping[str, Any] | None,
     ) -> tuple[Source, dict[str, JsonValue], bool]:
         """Read bare legacy material without guessing absent identity fields."""
         try:
             material = _JSON_OBJECT.validate_json(payload, strict=True)
         except ValueError as error:
             raise InvalidStoredPayloadError("source", reference.source_type, "payload is not JSON") from error
-        source = await self._historical_canonical_source(connection, reference, row, material)
+        source = self._historical_canonical_source(reference, material, binding)
         if source is not None:
             return source, material, False
         try:
@@ -556,12 +572,11 @@ class SourceRepository:
             source = self.decode_source(row).value
         return source, material, True
 
-    async def _historical_canonical_source(
+    def _historical_canonical_source(
         self,
-        connection: AsyncConnection,
         reference: SourceRef,
-        row: Mapping[Any, Any],
         material: dict[str, JsonValue],
+        binding: Mapping[str, Any] | None,
     ) -> Source | None:
         """Recover evidence identity from canonical retained material, never a live alias."""
 
@@ -573,24 +588,14 @@ class SourceRepository:
         if reference.source_type == CONTENT_SOURCE_NAME:
             digest_material = {key: value for key, value in material.items() if key != "handoff_receipt"}
         material_digest = _source_material_digest_material(digest_material)
-        table = SOURCE_EVIDENCE_BINDINGS_TABLE
-        binding = (
-            await connection.execute(
-                select(table.c.definition_name, table.c.definition_version, table.c.material_digest).where(
-                    table.c.scope_id == row["scope_id"],
-                    table.c.source_type == reference.source_type,
-                    table.c.source_id == reference.source_id,
-                )
-            )
-        ).one_or_none()
         if binding is not None:
             if (
-                binding.definition_name != reference.source_type
-                or binding.material_digest != material_digest
-                or binding.definition_version != material["definition_version"]
+                binding["definition_name"] != reference.source_type
+                or binding["material_digest"] != material_digest
+                or binding["definition_version"] != material["definition_version"]
             ):
                 return None
-            version = binding.definition_version
+            version = binding["definition_version"]
         elif isinstance(material["definition_version"], str):
             # Canonical retained identity is explicit even when its historical
             # evidence binding predates the evidence tables. It stays neutral.
@@ -706,34 +711,12 @@ class SourceRepository:
             self._decode_envelope(reference.source_type, envelope)
 
     @staticmethod
-    async def _bound_evidence(
-        connection: AsyncConnection,
-        scope_id: str,
+    def _bound_evidence(
         materials: tuple[SourceEvidence, ...],
         fingerprints: Mapping[tuple[str, str], str | None],
+        bindings: Mapping[tuple[str, str], Mapping[str, Any]],
+        manifests: Mapping[tuple[str, str], SourceDefinitionManifest | None],
     ) -> tuple[SourceEvidence, ...]:
-        if not materials:
-            return ()
-        table = SOURCE_EVIDENCE_BINDINGS_TABLE
-        identities = tuple((value.source_ref.source_type, value.source_ref.source_id) for value in materials)
-        bindings: dict[tuple[str, str], Mapping[Any, Any]] = {}
-        for offset in range(0, len(identities), _SOURCE_LOOKUP_KEYS_PER_STATEMENT):
-            rows = (
-                (
-                    await connection.execute(
-                        select(table).where(
-                            table.c.scope_id == scope_id,
-                            tuple_(table.c.source_type, table.c.source_id).in_(
-                                identities[offset : offset + _SOURCE_LOOKUP_KEYS_PER_STATEMENT]
-                            ),
-                        )
-                    )
-                )
-                .mappings()
-                .all()
-            )
-            bindings.update(((row["source_type"], row["source_id"]), row) for row in rows)
-        manifests: dict[tuple[str, str], SourceDefinitionManifest | None] = {}
         evidence: list[SourceEvidence] = []
         for value in materials:
             identity = (value.source_ref.source_type, value.source_ref.source_id)
@@ -762,9 +745,7 @@ class SourceRepository:
                 evidence.append(value)
                 continue
             definition_identity = (value.definition_name, value.definition_version)
-            if definition_identity not in manifests:
-                manifests[definition_identity] = await _find_evidence_manifest(connection, *definition_identity)
-            manifest = manifests[definition_identity]
+            manifest = manifests.get(definition_identity)
             if manifest is None:
                 log_evidence_neutralized("no_manifest", unit="manifest")
                 evidence.append(value)
@@ -785,7 +766,8 @@ class SourceRepository:
         """Prepare the immutable evidence binding within the accepting transaction."""
 
         if isinstance(source, SourceObservation):
-            manifest = await _find_evidence_manifest(connection, ref.source_type, source.definition_version)
+            identity = (ref.source_type, source.definition_version)
+            manifest = (await SourceDefinitionManifestRepository().evidence_many(connection, (identity,))).get(identity)
             if manifest is not None and manifest.fingerprint != source.definition_fingerprint:
                 log_evidence_neutralized("digest_mismatch", unit="manifest", level=logging.WARNING)
                 manifest = None
@@ -1126,15 +1108,6 @@ def _management_write_source(source: Source) -> bool:
         and source.internal.role == "lineage_only"
         and source.internal.operation in {"artifact_create", "artifact_replace"}
     )
-
-
-async def _find_evidence_manifest(
-    connection: AsyncConnection, name: str, version: str
-) -> SourceDefinitionManifest | None:
-    try:
-        return await SourceDefinitionManifestRepository().find(connection, name, version)
-    except (IdentityMismatchError, InvalidStoredColumnError, InvalidStoredPayloadError):
-        return None
 
 
 def _source_material_digest_material(material: Mapping[str, JsonValue]) -> str:

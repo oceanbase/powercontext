@@ -1421,7 +1421,9 @@ def test_browser_back_forward_preserves_scope_specific_draft(dashboard: TestClie
             page.goto(f"http://testserver/dashboard/home?scope={scope_a}&lang=en", wait_until="domcontentloaded")
             page.locator('a[href*="/dashboard/prompts"]').first.click()
             page.wait_for_url("**/dashboard/prompts**")
-            profile_details = page.locator("details.prompt-record", has_text="profile.generate").first
+            profile_group = page.locator("details.prompt-group", has_text="profile.generate").first
+            profile_group.locator(":scope > summary").click()
+            profile_details = profile_group.locator("details.prompt-record", has_text="profile.generate").first
             profile_details.locator(":scope > summary").click()
 
             form = profile_details.locator("form[data-profile-prompt-editor]")

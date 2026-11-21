@@ -265,6 +265,15 @@ make test
 
 PowerContext は [PowerMem](https://www.powermem.ai/) の後継プロジェクトです。
 
+## コミュニティ
+
+Feishu の PowerContext コミュニティに参加して、活用のヒントや質問を共有し、AI エージェントのコンテキスト管理について交流しましょう。
+Feishu で以下の QR コードをスキャンすると、グループに参加できます。
+
+<p align="center">
+  <img src="docs/assets/powercontext-group-qr.png" alt="PowerContext の Feishu コミュニティに参加するための QR コード" width="280" />
+</p>
+
 ## コントリビューター
 
 PowerContext に貢献してくださる皆さまに感謝します。❤️

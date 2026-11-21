@@ -257,6 +257,13 @@ async def load_prompts(api: DashboardAPI, request: Request, ctx: dict[str, Any])
         "experience.generate",
         "skill.generate",
         "handoff.generate",
+        "topic_memory.probe",
+        "topic_memory.global",
+        "topic_memory.planner",
+        "topic_memory.evolve",
+        "topic_memory.temporary",
+        "topic_memory.reduce",
+        "topic_memory.reconcile",
         "profile.generate",
     )
     for value in await api.prompt_configurations(ctx["scope"], keys):
@@ -265,11 +272,11 @@ async def load_prompts(api: DashboardAPI, request: Request, ctx: dict[str, Any])
         else:
             ctx["data"]["prompts"].append(value)
     selected_key = request.query_params.get("prompt_key")
-    configuration = next((item for item in ctx["data"]["prompts"] if item["prompt_key"] == selected_key), None)
-    if configuration is not None:
-        key = configuration["prompt_key"]
-        ctx["prompt_key"] = key
-        if not await _open_prompt_revision(api, request, ctx, key, configuration.get("artifact")):
+    if selected_key:
+        ctx["prompt_key"] = selected_key
+        configuration = next((item for item in ctx["data"]["prompts"] if item["prompt_key"] == selected_key), None)
+        artifact = None if configuration is None else configuration.get("artifact")
+        if not await _open_prompt_revision(api, request, ctx, selected_key, artifact):
             return
     if "prompts" not in ctx["errors"] and ctx["scope"]:
         from powercontext.server.dashboard.revisions import _can_replace
@@ -283,27 +290,27 @@ async def _open_prompt_revision(
 ) -> bool:
     """Open the requested Prompt revision, or only list history when viewing the head. False means stop."""
 
-    if not artifact or not str(artifact.get("revision", "")).isdigit():
-        return True
-    requested = request.query_params.get("prompt_revision")
-    selected = requested or str(artifact["revision"])
-    if not selected.isdigit():
-        return True
-    if requested:
+    raw_revision = request.query_params.get("prompt_revision")
+    if raw_revision is not None:
         # Only an explicit revision is "opened". Viewing the head leaves the editor available.
         try:
-            ctx["prompt_opened"] = await api.artifact_revision(ctx["scope"], "prompt", key, int(selected))
+            selected = positive_revision(raw_revision)
+            ctx["prompt_opened"] = await api.artifact_revision(ctx["scope"], "prompt", key, selected)
         except ReadError as error:
-            # Showing the current configuration here would mislabel it as the requested revision.
+            # Never substitute current content for an unavailable or invalid historical revision.
             ctx["errors"]["prompt_selected"] = error
             return False
+    else:
+        if artifact is None or not str(artifact.get("revision", "")).isdigit():
+            return True
+        selected = int(artifact["revision"])
     ctx["history"] = await load_history(
         api,
         request,
         ctx,
         family="prompt",
         artifact_id=key,
-        selected=int(selected),
+        selected=selected,
         cursor_key="prompt_revision_cursor",
     )
     return True

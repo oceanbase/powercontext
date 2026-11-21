@@ -56,7 +56,7 @@ def test_pre_tool_hook_overwrites_agent_scope_with_session_binding(
     monkeypatch.setattr(
         bind_tools_module,
         "resolve_scope_id",
-        lambda _cwd, *, session_id, **_kwargs: f"scope-for-{session_id}",
+        lambda _host, _cwd, *, session_id, **_kwargs: f"scope-for-{session_id}",
     )
     monkeypatch.setattr(
         sys,
@@ -214,7 +214,7 @@ def test_pre_tool_hook_resolves_only_the_current_session_scope(
     monkeypatch.setattr(
         bind_tools_module,
         "binding_keys",
-        lambda cwd, *, session_id: [
+        lambda _host, cwd, *, session_id: [
             {"integration": "codex", "kind": "session", "external_id": session_id},
             {"integration": "codex", "kind": "workspace", "external_id": cwd},
         ],
@@ -290,7 +290,7 @@ def test_pre_tool_hook_limits_handoff_report_to_the_bound_scope(
     monkeypatch.setattr(
         bind_tools_module,
         "resolve_scope_id",
-        lambda _cwd, *, session_id, **_kwargs: f"scope-for-{session_id}",
+        lambda _host, _cwd, *, session_id, **_kwargs: f"scope-for-{session_id}",
     )
     monkeypatch.setattr(
         sys,
@@ -357,7 +357,7 @@ def test_pre_tool_hook_denies_data_plane_when_binding_is_unavailable(
     result = _run_denied_binding_hook(
         bind_tools_module,
         monkeypatch,
-        sys.modules["scope_binding"].ScopeBindingError(),
+        sys.modules[bind_tools_module.resolve_scope_id.__module__].ScopeBindingError(),
     )
 
     assert result["permissionDecision"] == "deny"
@@ -397,13 +397,13 @@ def test_pre_tool_hook_names_missing_permission_for_a_denied_credential(
 
 def test_pre_tool_hook_keeps_the_binding_reason_for_a_transport_failure(
     bind_tools_module: ModuleType,
+    scope_binding_client: ModuleType,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    scope_binding = sys.modules["scope_binding"]
     result = _run_denied_binding_hook(
         bind_tools_module,
         monkeypatch,
-        scope_binding.ScopeBindingUnavailableError(),
+        scope_binding_client.ScopeBindingUnavailableError(),
     )
 
     assert result["permissionDecision"] == "deny"
@@ -449,10 +449,9 @@ def test_pre_tool_hook_classifies_the_scope_service_status(
     status: int,
     reason_attribute: str,
     bind_tools_module: ModuleType,
+    scope_binding_client: ModuleType,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    scope_binding = sys.modules["scope_binding"]
-
     def fail(*_args, **_kwargs):
         raise HTTPError(
             "http://server/v1/scope-bindings/resolve",
@@ -462,7 +461,7 @@ def test_pre_tool_hook_classifies_the_scope_service_status(
             io.BytesIO(b"{}"),
         )
 
-    monkeypatch.setattr(scope_binding, "open_bounded", fail)
+    monkeypatch.setattr(scope_binding_client, "open_bounded", fail)
     result = _run_hook(bind_tools_module, monkeypatch)
 
     assert result["permissionDecision"] == "deny"
@@ -516,8 +515,8 @@ def test_pre_tool_hook_leaves_other_tools_alone(
 @pytest.mark.parametrize(
     ("tool", "tool_input"),
     [
-        ("pc_source_instances", {"view": "control", "instance_id": "tickets-one", "scope_id": None}),
-        ("pc_source_instances", {"view": "control", "instance_id": "tickets-one"}),
+        ("pc_source_runners", {"scope_id": None}),
+        ("pc_source_runners", {}),
         ("future_selection_tool", {"selection": None}),
     ],
     ids=["null-scope", "omitted-scope", "null-selection"],
@@ -528,7 +527,7 @@ def test_pre_tool_hook_leaves_a_call_that_names_no_scope_unbound(
     bind_tools_module: ModuleType,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A null Scope argument names no Scope, so an unscoped call such as an instance control view stays unscoped."""
+    """A null Scope argument names no Scope, so an unscoped call such as listing collection runners stays unscoped."""
 
     monkeypatch.setattr(bind_tools_module, "resolve_scope_id", lambda *_args, **_kwargs: "bound-scope")
     payload = {"session_id": "session-a", "cwd": "/workspace", "tool_name": f"mcp__powercontext__{tool}"}
@@ -573,7 +572,7 @@ def test_pre_tool_hook_denies_when_binding_fails_unexpectedly(
 def test_pre_tool_hook_denies_when_the_plugin_cannot_load(query: str, tmp_path: Path) -> None:
     plugin = tmp_path / "powercontext"
     shutil.copytree(PLUGIN_ROOT, plugin, ignore=shutil.ignore_patterns(".venv", "__pycache__"))
-    (plugin / "scripts" / "scope_binding.py").write_text('raise ImportError("synthetic load failure")\n')
+    (plugin / "powercontext_lifecycle" / "scope_binding.py").write_text('raise ImportError("synthetic load failure")\n')
     payload = {**json.loads(_hook_payload()), "tool_input": {"query": query}}
 
     completed = subprocess.run(
@@ -611,26 +610,35 @@ def test_pre_tool_hook_resolves_within_the_host_timeout(
     assert 0 < remaining[0] <= host_timeout - 2
 
 
+_CLI_SCOPE_BINDING_SETTINGS = object()
+
+
 class _CliSettings:
     http_budget_seconds = 6.0
+
+    def scope_binding_settings(self) -> object:
+        return _CLI_SCOPE_BINDING_SETTINGS
 
 
 def test_bind_scope_puts_the_codex_workspace_key(
     scope_module: ModuleType,
+    scope_binding_client: ModuleType,
     monkeypatch: pytest.MonkeyPatch,
     tmp_path,
 ) -> None:
     requests: list[tuple[str, dict[str, object], str]] = []
 
-    def request(path, payload, *, settings, deadline, method="POST"):
+    def request(path, payload, *, host, settings, deadline, method="POST"):
         requests.append((path, payload, method))
         return {"scope_id": "scp_project_a"}
 
-    monkeypatch.setattr(scope_module, "_post_json", request)
-    settings = _CliSettings()
+    monkeypatch.setattr(scope_binding_client, "_request_json", request)
+    settings = scope_module.CodexPluginSettings().scope_binding_settings()
 
-    bound = scope_module.bind_scope(str(tmp_path), "scp_project_a", settings=settings, deadline=float("inf"))
-    key = scope_module.workspace_binding_key(str(tmp_path))
+    bound = scope_binding_client.bind_scope(
+        scope_module.CODEX, str(tmp_path), "scp_project_a", settings=settings, deadline=float("inf")
+    )
+    key = scope_binding_client.workspace_binding_key(scope_module.CODEX, str(tmp_path))
 
     assert bound == "scp_project_a"
     assert requests == [("/v1/scope-bindings", {"key": key, "scope_id": "scp_project_a"}, "PUT")]
@@ -641,33 +649,44 @@ def test_bind_scope_puts_the_codex_workspace_key(
 
 def test_bind_scope_rejects_a_different_server_scope(
     scope_module: ModuleType,
+    scope_binding_client: ModuleType,
     monkeypatch: pytest.MonkeyPatch,
     tmp_path,
 ) -> None:
-    def request(path, payload, *, settings, deadline, method="POST"):
+    def request(path, payload, *, host, settings, deadline, method="POST"):
         return {"scope_id": "scp_other"}
 
-    monkeypatch.setattr(scope_module, "_post_json", request)
+    monkeypatch.setattr(scope_binding_client, "_request_json", request)
+    settings = scope_module.CodexPluginSettings().scope_binding_settings()
 
-    with pytest.raises(scope_module.ScopeBindingError):
-        scope_module.bind_scope(str(tmp_path), "scp_project_a", settings=_CliSettings(), deadline=float("inf"))
+    with pytest.raises(scope_binding_client.ScopeBindingError):
+        scope_binding_client.bind_scope(
+            scope_module.CODEX, str(tmp_path), "scp_project_a", settings=settings, deadline=float("inf")
+        )
 
 
 def test_clear_scope_binding_removes_only_the_workspace_key(
     scope_module: ModuleType,
+    scope_binding_client: ModuleType,
     monkeypatch: pytest.MonkeyPatch,
     tmp_path,
 ) -> None:
     requests: list[tuple[str, dict[str, object]]] = []
 
-    def request(path, payload, *, settings, deadline, method="POST"):
+    def request(path, payload, *, host, settings, deadline, method="POST"):
         requests.append((path, payload))
         return {"cleared": True}
 
-    monkeypatch.setattr(scope_module, "_post_json", request)
+    monkeypatch.setattr(scope_binding_client, "_request_json", request)
+    settings = scope_module.CodexPluginSettings().scope_binding_settings()
 
-    assert scope_module.clear_scope_binding(str(tmp_path), settings=_CliSettings(), deadline=float("inf")) is True
-    assert requests == [("/v1/scope-bindings/clear", {"key": scope_module.workspace_binding_key(str(tmp_path))})]
+    cleared = scope_binding_client.clear_scope_binding(
+        scope_module.CODEX, str(tmp_path), settings=settings, deadline=float("inf")
+    )
+    key = scope_binding_client.workspace_binding_key(scope_module.CODEX, str(tmp_path))
+
+    assert cleared is True
+    assert requests == [("/v1/scope-bindings/clear", {"key": key})]
 
 
 def test_cli_bind_scope_prints_the_bound_scope_id(
@@ -678,7 +697,7 @@ def test_cli_bind_scope_prints_the_bound_scope_id(
 ) -> None:
     seen: dict[str, object] = {}
 
-    def bind(cwd, scope_id, *, settings, deadline):
+    def bind(_host, cwd, scope_id, *, settings, deadline):
         seen["cwd"] = cwd
         seen["scope_id"] = scope_id
         seen["settings"] = settings
@@ -691,7 +710,7 @@ def test_cli_bind_scope_prints_the_bound_scope_id(
 
     assert seen["cwd"] == str(tmp_path)
     assert seen["scope_id"] == "scp_project_a"
-    assert isinstance(seen["settings"], _CliSettings)
+    assert seen["settings"] is _CLI_SCOPE_BINDING_SETTINGS
     assert capsys.readouterr().out.strip() == "scp_project_a"
 
 
@@ -703,11 +722,11 @@ def test_cli_clear_scope_prints_the_directory_resolution(
 ) -> None:
     calls: list[tuple[object, ...]] = []
 
-    def clear(cwd, *, settings, deadline):
+    def clear(_host, cwd, *, settings, deadline):
         calls.append(("clear", cwd))
         return True
 
-    def resolve(cwd, *, session_id, settings, deadline, persist_session=False):
+    def resolve(_host, cwd, *, session_id, settings, deadline, persist_session=False):
         calls.append(("resolve", cwd, session_id, persist_session))
         return "scp_default"
 

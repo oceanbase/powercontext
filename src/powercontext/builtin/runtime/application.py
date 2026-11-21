@@ -617,14 +617,17 @@ class ScopedSourceApplication:
             return ()
         if any(value.metadata.get("kind") == WORKING_NOTE_SOURCE_KIND for value in values):
             raise InvalidRuntimeRequestError("working-note-dedicated-api")
-        captures = tuple(
-            ContentCapture(
-                source_id=value.source_id,
-                content=value.content,
-                metadata=value.model_dump(mode="json")["metadata"],
+        try:
+            captures = tuple(
+                ContentCapture(
+                    source_id=value.source_id,
+                    content=value.content,
+                    metadata=value.model_dump(mode="json")["metadata"],
+                )
+                for value in values
             )
-            for value in values
-        )
+        except ValidationError as error:
+            raise InvalidBaseAccessRequestError("content", "does not match the Source adapter") from error
         if self._runtime._record_service is None:
             raise InvalidRuntimeRequestError("batch-capture-unavailable")
         try:
@@ -4052,6 +4055,11 @@ class ArtifactMergeRuntimeApplication:
         """Add a Family discovered after composition, such as a plugin family loaded at startup."""
 
         self._application.register(service)
+
+    def unregister(self, family: str) -> None:
+        """Forget a plugin family that was removed or replaced."""
+
+        self._application.unregister(family)
 
     def content_type(self, family: str) -> type[BaseModel]:
         """The content model a registered Family's merge results validate against."""

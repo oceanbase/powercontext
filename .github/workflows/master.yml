@@ -35,7 +35,7 @@ jobs:
     if: ${{ !cancelled() && contains(fromJSON('["schedule","workflow_dispatch"]'), github.event_name) && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').upgrade) }}
     name: SeekDB managed startup regression (priority)
     timeout-minutes: 20
-    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'powercontext-ci-light' || 'ubuntu-24.04' }}
+    runs-on: powercontext-ci-light
     env:
       POWERCONTEXT_TEST_MIGRATION_SEEKDB: "1"
       PYTHONUNBUFFERED: "1"
@@ -98,7 +98,7 @@ jobs:
     name: Upgrade release gate
     needs: [quality, upgrade-acceptance]
     if: ${{ !cancelled() && (github.event_name != 'pull_request' || !github.event.pull_request.draft) }}
-    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'powercontext-ci-light' || 'ubuntu-24.04' }}
+    runs-on: powercontext-ci-light
     timeout-minutes: 5
     steps:
       - name: Require the selected parallel acceptance workflow
@@ -118,7 +118,7 @@ jobs:
     name: OceanBase engine crash recovery
     needs: [quality, tests]
     if: ${{ !cancelled() && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').database) }}
-    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'powercontext-ci-standard' || 'ubuntu-24.04' }}
+    runs-on: powercontext-ci-standard
     timeout-minutes: 35
     env:
       POWERCONTEXT_TEST_MIGRATION_OCEANBASE_URL: mysql+aoceanbase://root%40test:powercontext-e2e@127.0.0.1:2881/pc_migration_probe_engine_crash?charset=utf8mb4
@@ -177,8 +177,8 @@ jobs:
   quality:
     name: CI preflight
     if: ${{ github.event_name != 'pull_request' || !github.event.pull_request.draft }}
-    timeout-minutes: 30
-    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'powercontext-ci-light' || 'ubuntu-24.04' }}
+    timeout-minutes: 45
+    runs-on: powercontext-ci-light
     outputs:
       suites: ${{ steps.select.outputs.suites }}
       test-matrix: ${{ steps.select.outputs.test-matrix }}
@@ -202,11 +202,15 @@ jobs:
         run: python3 scripts/ci_changes.py
 
       - name: Check License Header
-        timeout-minutes: 10
+        # Include a cold Go toolchain download and license-eye build.
+        timeout-minutes: 20
         uses: apache/skywalking-eyes/header@a196742f472feaffafea537ce5a2a4c3c53a8de4 # v0.9.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           INSTALL_DIR: ${{ runner.temp }}
+          # Self-hosted runner home caches may be owned by the image build user.
+          GOCACHE: ${{ runner.temp }}/license-go-build
+          GOMODCACHE: ${{ runner.temp }}/license-go-mod
           PATH: ${{ runner.temp }}:/usr/local/go/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
         with:
           config: .licenserc.yaml
@@ -222,11 +226,22 @@ jobs:
       - name: Cache prek environments
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
-          path: ~/.cache/prek
-          key: prek-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.python.outputs.version }}-${{ hashFiles('.pre-commit-config.yaml') }}
+          path: ${{ runner.temp }}/prek
+          key: prek-v2-${{ runner.os }}-${{ runner.arch }}-${{ steps.python.outputs.version }}-${{ hashFiles('.pre-commit-config.yaml') }}
 
       - name: Run checks
+        env:
+          PREK_HOME: ${{ runner.temp }}/prek
         run: make check
+
+      - name: Validate cumulative migration against the PR base
+        if: github.event_name == 'pull_request'
+        env:
+          SCHEMA_BASE: ${{ github.event.pull_request.base.sha }}
+        run: uv run --locked python scripts/schema_release.py check --base-ref "$SCHEMA_BASE"
+
+      - name: Test cumulative schema freezing and replay
+        run: uv run --locked pytest tests/test_schema_release.py tests/test_schema_draft.py -q
 
       - name: Check OpenAPI contract
         run: make contract-test
@@ -237,8 +252,9 @@ jobs:
     if: ${{ !cancelled() && needs.quality.result == 'success' && (fromJSON(needs.quality.outputs.suites || '{}').tests) }}
     # Unit jobs must outlast pytest plus uv cache publication. End-to-end jobs
     # also need time for subprocess tails on internal runners.
-    timeout-minutes: ${{ matrix.suite == 'e2e' && 55 || 50 }}
-    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'powercontext-ci-standard' || 'ubuntu-24.04' }}
+    # Python 3.11/3.12 can exceed 55 minutes while the full E2E suite is still progressing.
+    timeout-minutes: ${{ matrix.suite == 'e2e' && 90 || 75 }}
+    runs-on: powercontext-ci-standard
     strategy:
       fail-fast: true
       matrix: ${{ fromJSON(needs.quality.outputs.test-matrix || '{"python-version":["3.11","3.12","3.13","3.14"],"suite":["unit","e2e"]}') }}
@@ -254,6 +270,8 @@ jobs:
       - name: Set up the environment
         uses: ./.github/actions/setup-python-env
         with:
+          # The 3.11 unit job also downloads minimum Pydantic after the root install.
+          shared-cache: ${{ matrix.suite == 'e2e' || matrix.python-version != '3.11' }}
           python-version: ${{ matrix.python-version }}
 
       - name: Set up project tools
@@ -290,6 +308,15 @@ jobs:
           uv run --with 'pydantic==2.12.0' python -m pytest
           tests/test_source_locators.py tests/test_source_observations.py tests/test_api_contract.py -q
 
+      - name: Cache Gateway dependencies and compilation
+        if: matrix.suite == 'e2e'
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          workspaces: gateway -> target
+          shared-key: gateway
+          cache-bin: false
+          cache-on-failure: true
+
       - name: Run the ZCode service chain with native Hook deadlines
         if: matrix.suite == 'e2e'
         # Preserve the real Hook deadlines without competing with xdist workers.
@@ -305,7 +332,7 @@ jobs:
     needs: [quality, tests]
     if: ${{ !cancelled() && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').packaging) }}
     timeout-minutes: 20
-    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'powercontext-ci-light' || 'ubuntu-24.04' }}
+    runs-on: powercontext-ci-light
     strategy:
       fail-fast: true
       matrix:
@@ -374,8 +401,9 @@ jobs:
   docs-tests:
     needs: [quality]
     if: ${{ !cancelled() && needs.quality.result == 'success' && (fromJSON(needs.quality.outputs.suites || '{}').docs_tests) }}
-    timeout-minutes: 15
-    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'powercontext-ci-light' || 'ubuntu-24.04' }}
+    # Include cold checkout, environment setup, and cache publication.
+    timeout-minutes: 30
+    runs-on: powercontext-ci-light
     steps:
       - name: Check out
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -385,6 +413,7 @@ jobs:
       - name: Set up the environment
         uses: ./.github/actions/setup-python-env
         with:
+          shared-cache: 'true'
           python-version: "3.12"
 
       - name: Test documentation contracts
@@ -399,7 +428,7 @@ jobs:
     needs: [quality, tests]
     if: ${{ !cancelled() && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').observability) }}
     timeout-minutes: 15
-    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'powercontext-ci-light' || 'ubuntu-24.04' }}
+    runs-on: powercontext-ci-light
     steps:
       - name: Check out
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -446,7 +475,7 @@ jobs:
     needs: [quality, tests]
     if: ${{ !cancelled() && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').evaluation) }}
     timeout-minutes: 20
-    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'powercontext-ci-light' || 'ubuntu-24.04' }}
+    runs-on: powercontext-ci-light
     steps:
       - name: Check out
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -511,7 +540,7 @@ jobs:
     # before migrations (50m). Preserve each step's deadline and leave time
     # for environment setup and diagnostic uploads.
     timeout-minutes: 90
-    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'powercontext-ci-standard' || 'ubuntu-24.04' }}
+    runs-on: powercontext-ci-standard
     strategy:
       fail-fast: false
       matrix:
@@ -661,7 +690,7 @@ jobs:
     name: Atomic Memory clean migration (SeekDB)
     # Reserve 10m beyond the two test steps for setup and diagnostics.
     timeout-minutes: 90
-    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'powercontext-ci-standard' || 'ubuntu-24.04' }}
+    runs-on: powercontext-ci-standard
     env:
       POWERCONTEXT_TEST_MIGRATION_SEEKDB: "1"
       PYTHONUNBUFFERED: "1"
@@ -835,8 +864,9 @@ jobs:
   dify-tools:
     needs: [quality, tests]
     if: ${{ !cancelled() && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').dify) }}
-    timeout-minutes: 15
-    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'powercontext-ci-light' || 'ubuntu-24.04' }}
+    # Include cold dependency setup and cache publication around acceptance.
+    timeout-minutes: 30
+    runs-on: powercontext-ci-light
     steps:
       - name: Check out
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -844,9 +874,11 @@ jobs:
           persist-credentials: false
 
       - name: Set up the environment
+        id: python
         uses: ./.github/actions/setup-python-env
         with:
           python-version: "3.12"
+          save-cache: 'false'
           cache-dependency-glob: |
             pyproject.toml
             uv.lock
@@ -855,6 +887,16 @@ jobs:
             integrations/opendal/pyproject.toml
             integrations/dify/pyproject.toml
             integrations/dify/uv.lock
+
+      - name: Install isolated Dify dependencies
+        run: uv sync --locked --project integrations/dify --python 3.12
+
+      - name: Save complete Dify dependencies
+        if: steps.python.outputs.cache-hit != 'true' && github.event_name != 'merge_group'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: ${{ steps.python.outputs.cache-path }}
+          key: ${{ steps.python.outputs.cache-key }}
 
       - name: Check out the supported Dify host helpers
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -902,7 +944,7 @@ jobs:
     needs: [quality, tests]
     if: ${{ !cancelled() && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').hermes) }}
     timeout-minutes: 15
-    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'powercontext-ci-light' || 'ubuntu-24.04' }}
+    runs-on: powercontext-ci-light
     steps:
       - name: Check out
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -911,6 +953,8 @@ jobs:
 
       - name: Set up the environment
         uses: ./.github/actions/setup-python-env
+        with:
+          shared-cache: 'true'
 
       - name: Check out the supported Hermes host
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -929,7 +973,7 @@ jobs:
     needs: [quality, tests]
     if: ${{ !cancelled() && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').dsh) }}
     timeout-minutes: 30
-    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'powercontext-ci-light' || 'ubuntu-24.04' }}
+    runs-on: powercontext-ci-light
     steps:
       - name: Check out
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -938,6 +982,8 @@ jobs:
 
       - name: Set up the Python environment
         uses: ./.github/actions/setup-python-env
+        with:
+          shared-cache: 'true'
 
       - name: Set up project tools
         uses: jdx/mise-action@d5574b52816a478f9d4e6529a3f6ff17a8a36785 # v5.2.8
@@ -979,7 +1025,7 @@ jobs:
     needs: [quality, tests]
     if: ${{ !cancelled() && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').cindy) }}
     timeout-minutes: 15
-    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'powercontext-ci-light' || 'ubuntu-24.04' }}
+    runs-on: powercontext-ci-light
     steps:
       - name: Check out
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -988,6 +1034,8 @@ jobs:
 
       - name: Set up the Python environment
         uses: ./.github/actions/setup-python-env
+        with:
+          shared-cache: 'true'
 
       - name: Set up project tools
         uses: jdx/mise-action@d5574b52816a478f9d4e6529a3f6ff17a8a36785 # v5.2.8
@@ -1022,7 +1070,7 @@ jobs:
     needs: [quality, tests]
     if: ${{ !cancelled() && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').pi) }}
     timeout-minutes: 20
-    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'powercontext-ci-light' || 'ubuntu-24.04' }}
+    runs-on: powercontext-ci-light
     steps:
       - name: Check out
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -1031,6 +1079,8 @@ jobs:
 
       - name: Set up the Python environment
         uses: ./.github/actions/setup-python-env
+        with:
+          shared-cache: 'true'
 
       - name: Set up project tools
         uses: jdx/mise-action@d5574b52816a478f9d4e6529a3f6ff17a8a36785 # v5.2.8
@@ -1056,7 +1106,7 @@ jobs:
     needs: [quality, tests]
     if: ${{ !cancelled() && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').opencode) }}
     timeout-minutes: 20
-    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'powercontext-ci-light' || 'ubuntu-24.04' }}
+    runs-on: powercontext-ci-light
     env:
       OPENCODE_VERSION: '1.19.5'
     steps:
@@ -1065,6 +1115,8 @@ jobs:
           persist-credentials: false
       - name: Set up the Python environment
         uses: ./.github/actions/setup-python-env
+        with:
+          shared-cache: 'true'
 
       - uses: jdx/mise-action@d5574b52816a478f9d4e6529a3f6ff17a8a36785 # v5.2.8
       - name: Cache OpenCode dependencies
@@ -1111,7 +1163,7 @@ jobs:
     needs: [quality, tests]
     if: ${{ !cancelled() && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').codex) }}
     timeout-minutes: 20
-    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'powercontext-ci-light' || 'ubuntu-24.04' }}
+    runs-on: powercontext-ci-light
     env:
       CODEX_VERSION: '0.167.2'
     steps:
@@ -1163,6 +1215,8 @@ jobs:
           persist-credentials: false
       - name: Set up the Python environment
         uses: ./.github/actions/setup-python-env
+        with:
+          shared-cache: 'true'
 
       - uses: jdx/mise-action@8418fedb1110381a0d3ba51a7a415d7c1b884550 # v5.2.2
       - name: Install the pinned Claude Code host
@@ -1207,7 +1261,7 @@ jobs:
     needs: [quality, tests]
     if: ${{ !cancelled() && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').bub) }}
     timeout-minutes: 20
-    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'powercontext-ci-light' || 'ubuntu-24.04' }}
+    runs-on: powercontext-ci-light
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -1244,8 +1298,9 @@ jobs:
   openclaw-package:
     needs: [quality, tests]
     if: ${{ !cancelled() && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').openclaw) }}
-    timeout-minutes: 20
-    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'powercontext-ci-light' || 'ubuntu-24.04' }}
+    # Include cold dependency setup and cache publication around acceptance.
+    timeout-minutes: 40
+    runs-on: powercontext-ci-light
     env:
       OPENCLAW_VERSION: '2026.8.1'
     steps:
@@ -1254,17 +1309,46 @@ jobs:
           persist-credentials: false
       - name: Set up the Python environment
         uses: ./.github/actions/setup-python-env
+        with:
+          shared-cache: 'true'
 
       - uses: jdx/mise-action@d5574b52816a478f9d4e6529a3f6ff17a8a36785 # v5.2.8
       # The pinned OpenClaw SDK requires the SQLite runtime shipped with Node 24.15+.
       - run: mise install node@24.15.0
       - name: Cache OpenClaw dependencies
+        id: pnpm
         uses: ./.github/actions/cache-pnpm
         with:
+          save-cache: 'false'
           working-directory: integrations/openclaw/plugins/memory-powercontext
           cache-dependency-glob: integrations/openclaw/plugins/memory-powercontext/pnpm-lock.yaml
+
+      - name: Install OpenClaw package dependencies
+        run: mise exec node@24.15.0 -- pnpm --dir integrations/openclaw/plugins/memory-powercontext install --frozen-lockfile
+
+      - name: Save OpenClaw package dependencies
+        if: steps.pnpm.outputs.cache-hit != 'true' && github.event_name != 'merge_group'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: ${{ steps.pnpm.outputs.cache-path }}
+          key: ${{ steps.pnpm.outputs.cache-key }}
+
       - name: Test OpenClaw package
-        run: mise exec node@24.15.0 -- make openclaw-plugin-test
+        run: |
+          mise exec node@24.15.0 -- pnpm --dir integrations/openclaw/plugins/memory-powercontext test
+          mise exec node@24.15.0 -- pnpm --dir integrations/openclaw/plugins/memory-powercontext run typecheck
+          mise exec node@24.15.0 -- pnpm --dir integrations/openclaw/plugins/memory-powercontext run build
+
+      - name: Resolve OpenClaw npm cache directory
+        id: npm
+        run: echo "path=$(mise exec node@24.15.0 -- npm config get cache)" >> "$GITHUB_OUTPUT"
+
+      - name: Restore OpenClaw host downloads
+        id: openclaw-host-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: ${{ steps.npm.outputs.path }}
+          key: npm-openclaw-v1-${{ runner.os }}-${{ runner.arch }}-node24.15.0-${{ env.OPENCLAW_VERSION }}
 
       - name: Install the pinned OpenClaw host
         run: |
@@ -1273,6 +1357,13 @@ jobs:
           cli="$RUNNER_TEMP/openclaw-host/node_modules/.bin/openclaw"
           mise exec node@24.15.0 -- "$cli" --version | grep -qx "OpenClaw $OPENCLAW_VERSION (.*)"
           echo "OPENCLAW_CLI_BIN=$cli" >> "$GITHUB_ENV"
+
+      - name: Save OpenClaw host downloads
+        if: steps.openclaw-host-cache.outputs.cache-hit != 'true' && github.event_name != 'merge_group'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: ${{ steps.npm.outputs.path }}
+          key: ${{ steps.openclaw-host-cache.outputs.cache-primary-key }}
 
       - name: Run OpenClaw with the PowerContext plugin against a real Server
         # Without the binary the cases skip, so refuse to run without it. The Gateway inherits this Node from PATH.
@@ -1300,7 +1391,7 @@ jobs:
     needs: [quality, tests]
     if: ${{ !cancelled() && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').opendal) }}
     timeout-minutes: 20
-    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'powercontext-ci-light' || 'ubuntu-24.04' }}
+    runs-on: powercontext-ci-light
     steps:
       - name: Check out
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -1345,8 +1436,9 @@ jobs:
   check-website:
     needs: [quality]
     if: ${{ !cancelled() && needs.quality.result == 'success' && (fromJSON(needs.quality.outputs.suites || '{}').website) }}
-    timeout-minutes: 20
-    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'powercontext-ci-standard' || 'ubuntu-24.04' }}
+    # Include cold checkout, environment setup, and cache publication.
+    timeout-minutes: 40
+    runs-on: powercontext-ci-standard
     steps:
       - name: Check out
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -1557,7 +1649,7 @@ jobs:
       - release-schema
       - seekdb-lock
     if: ${{ !cancelled() && (github.event_name != 'pull_request' || !github.event.pull_request.draft) }}
-    runs-on: ubuntu-latest
+    runs-on: powercontext-ci-light
     timeout-minutes: 5
     steps:
       - name: Require successful selected checks
@@ -1587,13 +1679,16 @@ jobs:
     name: Helm deployment contracts
     needs: [quality, tests]
     if: ${{ !cancelled() && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').helm) }}
-    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'powercontext-ci-light' || 'ubuntu-24.04' }}
-    timeout-minutes: 10
+    runs-on: powercontext-ci-light
+    # Include cold dependency setup and cache publication around acceptance.
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
       - uses: ./.github/actions/setup-python-env
+        with:
+          shared-cache: 'true'
       - name: Install Helm
         run: |
           curl --fail --silent --show-error --location https://get.helm.sh/helm-v3.19.0-linux-amd64.tar.gz -o /tmp/helm.tar.gz

@@ -215,7 +215,7 @@ use the same policy enforcement point; MCP tool visibility is not permission.
 | --- | --- | --- |
 | Health and capabilities | `/health/*`, `/v1/capabilities` | Probe the deployment and discover enabled runtime behavior |
 | Access Control | `/v1/access/*` | Inspect identity, check decisions, and administer roles, Bindings, and audit events |
-| Source and context | `/v1/sources/content`, `/v1/scopes/{scope_id}/subject-sources`, `/v1/context/prepare` | Capture evidence, write Sources to business and subject Scopes, and prepare bounded context |
+| Source and context | `/v1/sources/content`, `/v1/sources/content/batch`, `/v1/scopes/{scope_id}/subject-sources`, `/v1/context/prepare` | Capture evidence, write Sources to business and subject Scopes, and prepare bounded context |
 | Work continuity | `/v1/work/*` | Create work contracts, prepare or acknowledge Handoffs, and record outcomes |
 | Low-level Handoff | `/v1/handoff/*` | Activate, prepare, finalize, commit, or continue a Handoff |
 | Atomic Memory | `/v1/atomic-memory/*`, `/v1/scopes/{scope_id}/artifacts/*` (`family=atomic-memory`) | Search, list, inspect state, merge, forget, and restore; create, read, and revise content and inspect history |

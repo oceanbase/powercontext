@@ -29,6 +29,7 @@ describe('shared automatic prompt privacy policy', () => {
     if (sensitive) {
       expect(query).not.toContain('synthetic-value-2084')
       expect(query).not.toContain('synthetic_value_2084')
+      expect(query).not.toContain('SyntheticValue2084')
     } else {
       expect(query).toBe(prompt)
     }
