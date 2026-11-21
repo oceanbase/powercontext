@@ -1581,6 +1581,11 @@ def test_scope_binding_isolates_queued_background_work(tmp_path, hermes_modules,
     started = threading.Event()
     old_scope_id = "scp_00000000000000000000000000"
     capture = client.capture_content
+    prepare = client.prepare_context
+
+    def scoped_prepare(scope_id: str, query: str, *, max_bytes: int) -> dict[str, Any]:
+        prepare(scope_id, query, max_bytes=max_bytes)
+        return {"status": "ready", "content": f"context for {scope_id}"}
 
     def blocked_capture(scope_id: str, **kwargs: Any) -> dict[str, Any]:
         result = capture(scope_id, **kwargs)
@@ -1588,6 +1593,7 @@ def test_scope_binding_isolates_queued_background_work(tmp_path, hermes_modules,
         release.wait(timeout=2)
         return result
 
+    monkeypatch.setattr(client, "prepare_context", scoped_prepare)
     monkeypatch.setattr(client, "capture_content", blocked_capture)
     try:
         provider.sync_turn("old in-flight user", "old assistant")
@@ -1606,7 +1612,7 @@ def test_scope_binding_isolates_queued_background_work(tmp_path, hermes_modules,
         assert [(call[1][0], "old in-flight user" in call[1][2]) for call in capture_calls] == [(old_scope_id, True)]
 
         recalled = provider.prefetch("same query")
-        assert recalled
+        assert "context for new:scope" in recalled
         prepare_calls = [call for call in client.calls if call[0] == "prepare_context"]
         assert [call[1][0] for call in prepare_calls] == ["new:scope"]
     finally:
