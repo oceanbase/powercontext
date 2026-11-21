@@ -204,11 +204,15 @@ def test_success_without_durable_acknowledgement_is_a_failure_and_retries(tmp_pa
         async with _profile(tmp_path, "no-ack") as profile:
             await _request(profile.database, "memory-binding", "scope")
             attempts = 0
+            allow_retry_acknowledgement = asyncio.Event()
 
             async def forget_once(_work):
                 nonlocal attempts
                 attempts += 1
-                return ArtifactProcessingWorkerCompletion() if attempts == 1 else None
+                if attempts == 1:
+                    return ArtifactProcessingWorkerCompletion()
+                # Keep the failed attempt observable even after its retry starts.
+                await allow_retry_acknowledgement.wait()
 
             launcher = _Launcher(profile.database, on_work=forget_once)
             async with ArtifactProcessingSupervisor(
@@ -220,7 +224,10 @@ def test_success_without_durable_acknowledgement_is_a_failure_and_retries(tmp_pa
                 retry_jitter=lambda: 1,
             ) as supervisor:
                 await _wait(lambda: supervisor.family_status["memory"]["failed"] == 1)
+                await _wait(lambda: attempts == 2)
+                assert supervisor.family_status["memory"]["completed"] == 0
                 assert (await _intent(profile.database, "memory-binding", "scope")).handled_generation == 0
+                allow_retry_acknowledgement.set()
                 await _wait(lambda: supervisor.family_status["memory"]["completed"] == 1)
                 assert attempts == 2
                 assert (await _intent(profile.database, "memory-binding", "scope")).handled_generation == 1
