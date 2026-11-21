@@ -743,7 +743,8 @@ class AtomicMemorySourceWindowProcessor:
         pending: dict[str, str] = {}
         unseen: dict[str, dict[str, str]] = {}
         compared = {read.ref.artifact_id for item in basis for read in item.origins}
-        labelled = len(basis)
+        # A memory that several created memories recall keeps one label, so the model sees it is the same memory.
+        labels: dict[str, str] = {}
         for key in created:
             found = tuple(
                 item
@@ -753,8 +754,9 @@ class AtomicMemorySourceWindowProcessor:
             if found:
                 label = f"C{len(pending) + 1}"
                 pending[label] = key
-                unseen[label] = {f"M{labelled + index}": item for index, item in enumerate(found, 1)}
-                labelled += len(found)
+                for item in found:
+                    labels.setdefault(item, f"M{len(basis) + len(labels) + 1}")
+                unseen[label] = {labels[item]: item for item in found}
         while pending:
             # Each created memory is decided on its own, so the budget only spreads them over several turns.
             batch = dict(pending)

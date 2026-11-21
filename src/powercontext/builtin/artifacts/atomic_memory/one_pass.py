@@ -56,6 +56,10 @@ ONE_PASS_MEMORIES_PER_QUERY = 5
 ONE_PASS_MAX_MEMORIES = 40
 
 _OPERATION = "atomic-memory-one-pass"
+_SHARED_TARGET = (
+    "an existing memory may be revised or merged by only one operation in a reply; write one operation that states "
+    "the facts of all of them and return noop with that target for the others"
+)
 _ModelT = TypeVar("_ModelT", bound=BaseModel)
 
 _INSTRUCTIONS = """
@@ -213,6 +217,7 @@ def apply_one_pass_operations(
     result = workset.copy()
     evidence = {item.evidence_id: item for item in extraction_input.evidence}
     created: list[str] = []
+    written: set[str] = set()
     for ordinal, operation in enumerate(_parse(reply, OnePassOperations).operations):
         targets = _targets(operation, labels)
         if operation.action == "noop":
@@ -221,7 +226,11 @@ def apply_one_pass_operations(
             continue
         if operation.action == "create" and targets:
             _invalid("create cannot have targets; use revise or merge")
-        related = tuple(result.items[key] for key in dict.fromkeys(result.resolve(target) for target in targets))
+        resolved = tuple(dict.fromkeys(result.resolve(target) for target in targets))
+        related = tuple(result.items[key] for key in resolved)
+        if written.intersection(resolved):
+            # A second write would replace the first one's text with one written from the memory as it was shown.
+            _invalid(_SHARED_TARGET)
         selected = _selected(operation, evidence, related)
         content = _content(operation)
         sources = tuple(evidence[identifier] for identifier in selected if identifier in evidence)
@@ -252,6 +261,7 @@ def apply_one_pass_operations(
                 reason=operation.reason,
             ),
         )
+        written.add(result.resolve(key))
     return result, tuple(created)
 
 
@@ -267,6 +277,7 @@ def apply_one_pass_recheck(
     operations = {operation.id: operation for operation in _parse(reply, OnePassOperations).operations}
     if operations.keys() != created.keys():
         _invalid("return exactly one operation for every listed memory id")
+    written: set[str] = set()
     for label, key in created.items():
         operation = operations[label]
         targets = _targets(operation, unseen[label])
@@ -275,7 +286,10 @@ def apply_one_pass_recheck(
             continue
         proposal = result.items[key]
         related = result.related(key, unseen[label].values())
-        written = operation.action != "noop"
+        writes = operation.action != "noop"
+        resolved = tuple(dict.fromkeys(result.resolve(target) for target in targets))
+        if writes and written.intersection(resolved):
+            _invalid(_SHARED_TARGET)
         _apply(
             result,
             key,
@@ -283,14 +297,16 @@ def apply_one_pass_recheck(
             AtomicMemoryReconciliationOutput(
                 action=operation.action,
                 compared_ids=tuple(item.key for item in related),
-                target_ids=tuple(dict.fromkeys(result.resolve(target) for target in targets)),
-                content=_content(operation, default=proposal.content) if written else None,
+                target_ids=resolved,
+                content=_content(operation, default=proposal.content) if writes else None,
                 evidence_ids=(
-                    (operation.evidence_ids or tuple(item.evidence_id for item in proposal.evidence)) if written else ()
+                    (operation.evidence_ids or tuple(item.evidence_id for item in proposal.evidence)) if writes else ()
                 ),
                 reason=operation.reason,
             ),
         )
+        if writes and resolved:
+            written.add(result.resolve(key))
     return result
 
 

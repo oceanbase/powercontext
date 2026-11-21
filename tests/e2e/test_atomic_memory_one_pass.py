@@ -212,6 +212,89 @@ def test_created_memory_is_rechecked_against_a_memory_its_query_missed(tmp_path:
     _run(tmp_path, conversation, scenario)
 
 
+NOTES = "Rollout notes for the payments service: owner and budget are tracked here."
+
+
+def _published(tmp_path: Path, *replies) -> tuple[set[str], InvalidInferenceOutputError | None]:
+    """Process a window stating the budget and the owner beside the notes memory; return the store and any rejection."""
+
+    conversation = _Conversation(*replies)
+    outcome: list[Any] = []
+
+    async def scenario(contexts, memory) -> None:
+        await contexts.records.create_atomic_memories(SCOPE, ({"kind": "fact", "text": NOTES},))
+        await contexts.process_memory(SCOPE, 1)
+        await contexts.records.capture_source(SCOPE, "content", "second", f"{BUDGET_200} {OWNER}", {})
+        try:
+            await contexts.process_memory(SCOPE, 1)
+        except InvalidInferenceOutputError as error:
+            outcome.append(error)
+        outcome.append(await _texts(memory))
+
+    _run(tmp_path, conversation, scenario)
+    return outcome[-1], outcome[0] if len(outcome) == 2 else None
+
+
+def test_two_operations_revising_one_shown_memory_are_rejected(tmp_path: Path) -> None:
+    def each_on_its_own(shown: dict[str, Any]) -> dict[str, Any]:
+        (notes,) = shown["existing_memories"]
+        return {
+            "operations": [
+                _write("revise", f"{NOTES} {BUDGET_200}", notes["id"]),
+                _write("revise", f"{NOTES} {OWNER}", notes["id"]),
+            ]
+        }
+
+    def combined(shown: dict[str, Any]) -> dict[str, Any]:
+        (notes,) = shown["existing_memories"]
+        return {
+            "operations": [
+                _write("revise", f"{NOTES} {BUDGET_200} {OWNER}", notes["id"]),
+                {"action": "noop", "target_ids": [notes["id"]], "reason": "The revision above states it."},
+            ]
+        }
+
+    # The second revision would replace the first one's text and lose the budget.
+    texts, rejected = _published(tmp_path / "separate", _facts("rollout notes", "payments service"), each_on_its_own)
+    assert rejected is not None and "only one operation" in str(rejected)
+    assert texts == {NOTES}
+
+    texts, rejected = _published(tmp_path / "combined", _facts("rollout notes", "payments service"), combined)
+    assert rejected is None and texts == {f"{NOTES} {BUDGET_200} {OWNER}"}
+
+
+def test_two_rechecked_memories_revising_one_memory_are_rejected(tmp_path: Path) -> None:
+    creates = {"operations": [_write("create", BUDGET_200), _write("create", OWNER)]}
+
+    def each_on_its_own(listed: dict[str, Any]) -> dict[str, Any]:
+        first, second = listed["recheck"]
+        # Both created memories recalled the notes, which carry one label in both lists.
+        (label,) = {item["id"] for entry in listed["recheck"] for item in entry["existing_memories"]}
+        return {
+            "operations": [
+                {**_write("revise", f"{NOTES} {first['text']}", label), "id": first["id"]},
+                {**_write("revise", f"{NOTES} {second['text']}", label), "id": second["id"]},
+            ]
+        }
+
+    def combined(listed: dict[str, Any]) -> dict[str, Any]:
+        first, second = listed["recheck"]
+        label = first["existing_memories"][0]["id"]
+        return {
+            "operations": [
+                {**_write("revise", f"{NOTES} {first['text']} {second['text']}", label), "id": first["id"]},
+                {"id": second["id"], "action": "noop", "target_ids": [label], "reason": "The revision states it."},
+            ]
+        }
+
+    texts, rejected = _published(tmp_path / "separate", _facts("unrelated words"), creates, each_on_its_own)
+    assert rejected is not None and "only one operation" in str(rejected)
+    assert texts == {NOTES}
+
+    texts, rejected = _published(tmp_path / "combined", _facts("unrelated words"), creates, combined)
+    assert rejected is None and texts == {f"{NOTES} {BUDGET_200} {OWNER}"}
+
+
 def test_rejected_operations_leave_the_window_unpublished(tmp_path: Path) -> None:
     conversation = _Conversation(_facts("rollout budget"), {"operations": [_write("revise", BUDGET_100, "M9")]})
 
