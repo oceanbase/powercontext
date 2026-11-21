@@ -1,0 +1,54 @@
+e2e/bub/container-entrypoint.sh
+  s_2ef0feea0a110d::t_013a8781574b94 38-49
+e2e/bub/tests/test_harbor_job_config.py
+  s_2ef0feea0a110d::t_3538912848e393 26,555-566,568,573
+  s_2ef0feea0a110d::t_7c1a7df3527a87 245-250,600-601,622-624
+  s_2ef0feea0a110d::t_73cf6d34f33c41 30,474-483,545-554,567,569-572,574-589
+  s_2ef0feea0a110d::t_512b67a2f11a42 614-616
+  s_2ef0feea0a110d::t_1b9bd37e6ee65c 210-227,229-235,524-544
+  s_2ef0feea0a110d::t_1c2309b59c8631 632-656,658-664
+  s_2ef0feea0a110d::t_946efc0557e30b 236-244,251-253,590-599,602-613,617-621,625-629
+  s_2ef0feea0a110d::t_fb40e19bd94826 657
+  s_2ef0feea0a110d::t_7cbc9c7756e3cd 228
+  s_2ef0feea0a110d::t_f512da8fe4fc63 630-631
+e2e/bub/src/powercontext_e2e/harbor_agent.py
+  s_2ef0feea0a110d::t_fb49c8c4c1092a 57,110-112,127,132
+  s_2ef0feea0a110d::t_4e758648eb5054 26,119,121,130-131,133,157-174
+  s_2ef0feea0a110d::t_2b9e8214e2b226 118,193,195,204
+  s_2ef0feea0a110d::t_7c1a7df3527a87 199,202
+  s_2ef0feea0a110d::t_3282ab4798b509 58,116-117,122,189-192,194,196-198,200-201,203,205-206
+  s_2ef0feea0a110d::t_9e60541acb1ce4 175
+  s_2ef0feea0a110d::t_26801e39f3c5be 207-208
+.github/workflows/e2e-harness.yml
+  s_2ef0feea0a110d::t_3282ab4798b509 785
+  s_2ef0feea0a110d::t_fb49c8c4c1092a 783-784
+e2e/bub/src/powercontext_e2e/runner.py
+  s_2ef0feea0a110d::t_3282ab4798b509 49,452-458,462
+  s_2ef0feea0a110d::t_fb49c8c4c1092a 23,459-461,463
+e2e/bub/README.md
+  s_2ef0feea0a110d::t_013a8781574b94 608-612
+  s_2ef0feea0a110d::t_fb49c8c4c1092a 514,570-575,577-578
+  s_2ef0feea0a110d::t_4e758648eb5054 599-603
+  s_2ef0feea0a110d::t_512b67a2f11a42 576
+  s_2ef0feea0a110d::t_3282ab4798b509 515,579-586
+  s_2ef0feea0a110d::t_95f49c1b5ce1b2 587
+e2e/bub/compose.yaml
+  s_2ef0feea0a110d::t_3282ab4798b509 76
+  s_2ef0feea0a110d::t_fb49c8c4c1092a 74-75
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "56b0f282bc2fefb3c461e12c6cbcf5cd9cd4f16d",
+  "prompts": {},
+  "sessions": {
+    "s_2ef0feea0a110d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1a9cf-a4e7-7f63-9c51-1284f7c332e8",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "frf12 <rongfeng.frf@antgroup.com>"
+    }
+  }
+}
