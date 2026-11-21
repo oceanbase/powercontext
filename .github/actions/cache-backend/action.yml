@@ -1,0 +1,13 @@
+name: Select CI cache backend
+description: Use the configured internal object store on Linux Pod runners
+outputs:
+  backend:
+    description: github or s3
+    value: ${{ steps.backend.outputs.backend }}
+runs:
+  using: composite
+  steps:
+    - id: backend
+      if: always()
+      shell: bash
+      run: python3 "$GITHUB_ACTION_PATH/../../../scripts/ci_cache.py" backend
