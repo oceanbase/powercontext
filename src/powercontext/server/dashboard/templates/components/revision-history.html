@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 -->
 {% if history %}
-<details class="supporting-details mt-4" {% if history.compare or history.compare_error or history.error %}open{% endif %}><summary>{{ t.note_history_short }}</summary>
+<details id="revision-history" class="supporting-details mt-4" {% if history.compare or history.compare_error or history.error %}open{% endif %}><summary>{{ t.note_history_short }}</summary>
 <section class="card mt-4">
   <div class="card-header"><h2 class="card-title mb-0">{{ t.revision_history }}</h2></div>
   <div class="list-group list-group-flush">
@@ -38,14 +38,14 @@ limitations under the License.
             {% elif history.family == "topic-memory" %}
               <a class="btn btn-sm" href="{{ link('topics', topic_artifact=history.artifact_id, topic_revision=item.revision) }}">{{ t.revision }} {{ item.revision }}</a>
             {% elif history.family == "prompt" %}
-              <a class="btn btn-sm" href="{{ link('prompts', prompt_key=history.artifact_id, prompt_revision=item.revision) }}">{{ t.revision }} {{ item.revision }}</a>
+              <a class="btn btn-sm" hx-swap="outerHTML show:#prompt-record-{{ history.artifact_id|replace('.', '-') }}:top" href="{{ link('prompts', prompt_key=history.artifact_id, prompt_revision=item.revision, compare=none, fragment='prompt-record-' ~ history.artifact_id|replace('.', '-')) }}">{{ t.revision }} {{ item.revision }}</a>
             {% elif history.family == "atomic-memory" %}
               <a class="btn btn-sm" href="{{ link('notes', artifact=history.artifact_id, revision=item.revision, compare=none, fragment='note-reading') }}">{{ t.revision }} {{ item.revision }}</a>
             {% else %}
               <a class="btn btn-sm" href="{{ link(none, artifact=history.artifact_id, revision=item.revision) }}">{{ t.revision }} {{ item.revision }}</a>
             {% endif %}
             {% if item.revision != history.selected %}
-              <a class="btn btn-sm" href="{{ link(none, compare=item.revision) }}">{{ t.revision_compare }}</a>
+              <a class="btn btn-sm" hx-swap="outerHTML show:none" href="{{ link(none, compare=item.revision) }}">{{ t.revision_compare }}</a>
             {% endif %}
           </div>
         </div>
@@ -76,6 +76,7 @@ limitations under the License.
     </div>
   {% endif %}
   {% if history.selected != history.head %}
+    <div hx-swap="outerHTML show:none">
     <form class="card-body border-top" method="get" action="/dashboard/{{ page }}">
       <input type="hidden" name="scope" value="{{ scope }}">
       {% if return_to %}<input type="hidden" name="return_to" value="{{ return_to }}">{% endif %}
@@ -96,8 +97,10 @@ limitations under the License.
       <input class="form-control" id="compare-revision" name="compare" type="number" min="1" step="1" required value="{{ history.compare or history.head }}">
       <button class="btn mt-2" type="submit">{{ t.revision_compare }}</button>
     </form>
+    </div>
   {% endif %}
   {% if history.can_rollback and history.selected != history.head and not history.same_content %}
+    <div hx-swap="outerHTML show:none">
     <form class="card-body border-top" method="post" action="/dashboard/rollback">
       <input type="hidden" name="scope" value="{{ scope }}">
       {% if return_to %}<input type="hidden" name="return_to" value="{{ return_to }}">{% endif %}
@@ -110,6 +113,7 @@ limitations under the License.
       <input class="form-control" id="rollback-reason" name="reason" maxlength="1024" required>
       <button class="btn btn-primary mt-3" type="submit">{{ t.revision_confirm }}</button>
     </form>
+    </div>
   {% elif history.same_content and history.selected != history.head %}
     <div class="card-body text-secondary">{{ t.revision_same }}</div>
   {% endif %}

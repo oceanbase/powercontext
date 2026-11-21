@@ -1362,60 +1362,60 @@ def test_race_capability_error_code_translates_to_actionable_message(
     assert CATALOGS["en"]["prompt_write_error_invalid_request"] not in rejected.text
 
 
-def test_browser_back_forward_preserves_scope_specific_draft(dashboard: TestClient) -> None:
-    """Verify unsaved Custom instructions survive HTMX Back/Forward without leaking across Scopes."""
+def _launch_playwright_browser(playwright_api: Any, runtime: Any) -> Any:
     import os
 
+    channel = os.environ.get("POWERCONTEXT_TEST_BROWSER_CHANNEL")
+    try:
+        return runtime.chromium.launch(channel=channel)
+    except playwright_api.Error as error:
+        if "Executable doesn't exist" in str(error) and not channel:
+            for fallback in ("chrome", "msedge"):
+                try:
+                    return runtime.chromium.launch(channel=fallback)
+                except playwright_api.Error:
+                    continue
+        if "Executable doesn't exist" in str(error):
+            pytest.skip("Install Playwright Chromium or set POWERCONTEXT_TEST_BROWSER_CHANNEL")
+        raise
+
+
+def _route_dashboard_browser(page: Any, dashboard: TestClient) -> None:
+    def serve(route: Any) -> None:
+        request = route.request
+        req_headers = {
+            key: value for key, value in request.headers.items() if key.lower() not in {"host", "content-length"}
+        }
+        response = dashboard.request(
+            request.method,
+            request.url,
+            content=request.post_data_buffer,
+            headers=req_headers,
+        )
+        headers = {
+            key: value
+            for key, value in response.headers.items()
+            if key.lower() not in {"content-length", "content-encoding", "transfer-encoding"}
+        }
+        route.fulfill(status=response.status_code, headers=headers, body=response.content)
+
+    page.route("http://testserver/**", serve)
+
+
+def test_browser_back_forward_preserves_scope_specific_draft(dashboard: TestClient) -> None:
+    """Verify unsaved Custom instructions survive HTMX Back/Forward without leaking across Scopes."""
     playwright = pytest.importorskip("playwright.sync_api")
     _set_prompt_registry(dashboard, supported=frozenset({"profile.generate"}))
     scope_a = create_scope(dashboard, "History draft Alpha")["scope_id"]
     scope_b = create_scope(dashboard, "History draft Beta")["scope_id"]
 
     with playwright.sync_playwright() as runtime:
-        channel = os.environ.get("POWERCONTEXT_TEST_BROWSER_CHANNEL")
-        try:
-            browser = runtime.chromium.launch(channel=channel)
-        except playwright.Error as error:
-            if "Executable doesn't exist" in str(error) and not channel:
-                for fallback in ("chrome", "msedge"):
-                    try:
-                        browser = runtime.chromium.launch(channel=fallback)
-                        break
-                    except playwright.Error:
-                        continue
-                else:
-                    pytest.skip("Install Playwright Chromium or set POWERCONTEXT_TEST_BROWSER_CHANNEL")
-            elif "Executable doesn't exist" in str(error):
-                pytest.skip("Install Playwright Chromium or set POWERCONTEXT_TEST_BROWSER_CHANNEL")
-            else:
-                raise
-
+        browser = _launch_playwright_browser(playwright, runtime)
         try:
             page = browser.new_page()
             errors: list[Any] = []
             page.on("pageerror", lambda error: errors.append(error))
-
-            def serve(route: Any) -> None:
-                request = route.request
-                req_headers = {
-                    key: value
-                    for key, value in request.headers.items()
-                    if key.lower() not in {"host", "content-length"}
-                }
-                response = dashboard.request(
-                    request.method,
-                    request.url,
-                    content=request.post_data_buffer,
-                    headers=req_headers,
-                )
-                headers = {
-                    key: value
-                    for key, value in response.headers.items()
-                    if key.lower() not in {"content-length", "content-encoding", "transfer-encoding"}
-                }
-                route.fulfill(status=response.status_code, headers=headers, body=response.content)
-
-            page.route("http://testserver/**", serve)
+            _route_dashboard_browser(page, dashboard)
 
             # 1. Open Home, follow the Prompts navigation link, expand Profile generation, edit Custom.
             page.goto(f"http://testserver/dashboard/home?scope={scope_a}&lang=en", wait_until="domcontentloaded")
@@ -1483,6 +1483,72 @@ def test_browser_back_forward_preserves_scope_specific_draft(dashboard: TestClie
                 )
                 is None
             )
+            assert not errors
+        finally:
+            browser.close()
+
+
+def test_save_compare_and_revision_preserve_scroll_position(dashboard: TestClient) -> None:
+    """Verify Save, Compare, and Revision clicks do not reset viewport scroll to the page top."""
+    playwright = pytest.importorskip("playwright.sync_api")
+    _set_prompt_registry(dashboard, supported=frozenset({"profile.generate"}))
+    scope = create_scope(dashboard, "Scroll preservation")["scope_id"]
+    first = _post_profile_prompt(
+        dashboard,
+        scope=scope,
+        mode="custom",
+        instructions="Revision one instructions.",
+        expected_etag="",
+        lang="en",
+    )
+    assert first.status_code == 303
+
+    with playwright.sync_playwright() as runtime:
+        browser = _launch_playwright_browser(playwright, runtime)
+        try:
+            page = browser.new_page(viewport={"width": 1280, "height": 800})
+            errors: list[Any] = []
+            page.on("pageerror", lambda error: errors.append(error))
+            _route_dashboard_browser(page, dashboard)
+
+            page.goto(
+                f"http://testserver/dashboard/prompts?scope={scope}&prompt_key=profile.generate&lang=en",
+                wait_until="domcontentloaded",
+            )
+            form = page.locator("form[data-profile-prompt-editor]")
+            form.locator('textarea[name="instructions"]').fill("Revision two instructions.")
+            form.locator("[data-prompt-save]").scroll_into_view_if_needed()
+            assert page.evaluate("window.scrollY") > 400
+            form.locator("[data-prompt-save]").click()
+            page.locator("#prompt-record-profile-generate .alert-success").wait_for(state="visible")
+            assert page.evaluate("window.scrollY") > 400
+
+            history = page.locator("#revision-history")
+            history.locator(":scope > summary").click()
+            compare_link = history.locator("a.btn", has_text="Compare").first
+            compare_link.scroll_into_view_if_needed()
+            y_before_compare = page.evaluate("window.scrollY")
+            assert y_before_compare > 400
+            compare_link.click()
+            diff_pre = page.locator("#revision-history pre.page-body-pre").first
+            diff_pre.wait_for(state="visible")
+            y_after_compare = page.evaluate("window.scrollY")
+            assert y_after_compare > 400
+            compare_box = history.evaluate("el => el.getBoundingClientRect()")
+            assert compare_box["top"] < 800
+            assert compare_box["bottom"] > 0
+
+            rev_link = page.locator("#revision-history a.btn", has_text="Revision 1").first
+            rev_link.scroll_into_view_if_needed()
+            rev_link.click()
+            page.wait_for_url("**prompt_revision=1**")
+            page.wait_for_timeout(150)
+            assert page.evaluate("window.scrollY") > 200
+            card_top = page.locator("#prompt-record-profile-generate").evaluate(
+                "el => Math.round(el.getBoundingClientRect().top)"
+            )
+            assert abs(card_top) < 120
+            assert "compare=" not in page.url
             assert not errors
         finally:
             browser.close()

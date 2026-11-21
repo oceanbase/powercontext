@@ -15,9 +15,14 @@ limitations under the License.
 -->
 
 {% from 'components/page-heading.html' import page_heading %}
+{% macro prompt_feedback_alerts() %}
+{% if prompt_saved %}<p class="alert alert-success" role="status">{{ t.prompt_saved_success }}</p>{% endif %}
+{% if prompt_conflict %}<p class="alert alert-warning" role="alert">{{ t.prompt_conflict }} <a href="{{ link('prompts',prompt_key='profile.generate',prompt_revision=none,compare=none,rollback_error=none,prompt_saved=none) }}">{{ t.prompt_reload }} &rarr;</a></p>{% endif %}
+{% if prompt_write_error %}<p class="alert alert-danger" role="alert">{{ t.get('prompt_write_error_' ~ prompt_write_error, t.prompt_write_error_invalid_request) }}</p>{% endif %}
+{% endmacro %}
 {% macro prompt_editor_form(draft_etag, draft_mode, draft_instructions, defaults, saved_mode, saved_text, saved_custom, demonstrations_count, can_return_to_auto, is_draft, is_saved=false) %}
 {% set form_action = '/dashboard/prompts/profile-generate' ~ ('?lang=' ~ language if 'lang' in request.query_params else '') %}
-<form method="post" action="{{ form_action }}" data-profile-prompt-editor data-scope="{{ scope }}" data-prompt-saved="{{ '1' if is_saved else '0' }}" class="mt-3">
+<form method="post" action="{{ form_action }}" hx-swap="outerHTML show:none" data-profile-prompt-editor data-scope="{{ scope }}" data-prompt-saved="{{ '1' if is_saved else '0' }}" class="mt-3">
   <h2 class="section-title">{{ t.prompt_editor_title }}</h2>
   <input type="hidden" name="scope" value="{{ scope }}">
   <input type="hidden" name="expected_etag" value="{{ draft_etag or '' }}">
@@ -207,13 +212,10 @@ limitations under the License.
 {% endmacro %}
 {{ page_heading(t.prompts,t.prompts_subtitle) }}
 {% if scope_descriptor %}<p class="text-secondary small">{{ scope_descriptor.title }} &middot; <code>{{ scope }}</code></p>{% endif %}
-{% if prompt_saved %}<p class="alert alert-success" role="status">{{ t.prompt_saved_success }}</p>{% endif %}
-{% if prompt_conflict %}<p class="alert alert-warning" role="alert">{{ t.prompt_conflict }} <a href="{{ link('prompts',prompt_key='profile.generate',prompt_revision=none,compare=none,rollback_error=none,prompt_saved=none) }}">{{ t.prompt_reload }} &rarr;</a></p>{% endif %}
-{% if prompt_write_error %}<p class="alert alert-danger" role="alert">{{ t.get('prompt_write_error_' ~ prompt_write_error, t.prompt_write_error_invalid_request) }}</p>{% endif %}
 {% if errors.get('prompts') %}{{ read_error(errors.prompts,t.prompts) }}{% endif %}
 {% set has_scope_draft = prompt_draft and prompt_draft.scope == scope %}
 {% if not data.prompts and not errors.get('prompts') and not has_scope_draft %}<div class="quiet-empty"><h2>{{ t.prompt_empty }}</h2><p>{{ t.prompt_empty_body }}</p></div>{% endif %}
-{% set ns = namespace(draft_rendered=false) %}
+{% set ns = namespace(draft_rendered=false, feedback_rendered=false) %}
 <div class="prompt-browser">
 <style>
   me .prompt-overview { display: inline-grid; grid-template-columns: minmax(10rem, 1fr) minmax(12rem, 2fr) auto; gap: 1rem; width: calc(100% - 1rem); align-items: baseline; }
@@ -234,7 +236,7 @@ limitations under the License.
 <summary><strong>{{ t['prompt_group_' ~ group] }}</strong><span class="badge bg-secondary-lt ms-2" data-prompt-count>{{ prompts|length }}</span></summary>
 {% if group == 'topics' %}<p class="text-secondary mt-3">{{ t.prompt_topic_conditional }}</p>{% endif %}
 <div class="record-list">{% for prompt in prompts %}{% set opened = prompt_opened if prompt_opened and prompt.prompt_key == prompt_key else none %}{% set failed = prompt.prompt_key == prompt_key and errors.get('prompt_selected') %}{% set mode = none if failed else (opened.content.mode if opened else prompt.mode) %}
-<article data-prompt-search="{{ (t.get(prompt.prompt_key,prompt.prompt_key) ~ ' ' ~ prompt.prompt_key)|lower }}" data-prompt-source="{{ mode }}"><details class="supporting-details prompt-record" {% if prompt.prompt_key == prompt_key %}open{% endif %}><summary><span class="prompt-overview"><span class="record-row-title">{{ t.get(prompt.prompt_key,prompt.prompt_key) }}</span><span class="text-secondary small">{{ t[prompt.prompt_key ~ '_purpose'] }}</span><span class="text-secondary small">{{ t.prompt_revision_unavailable if failed else (t.prompt_custom if mode == 'custom' else t.prompt_builtin_default) }}</span></span></summary>
+<article id="prompt-record-{{ prompt.prompt_key|replace('.', '-') }}" data-prompt-search="{{ (t.get(prompt.prompt_key,prompt.prompt_key) ~ ' ' ~ prompt.prompt_key)|lower }}" data-prompt-source="{{ mode }}"><details class="supporting-details prompt-record" {% if prompt.prompt_key == prompt_key %}open{% endif %}><summary><span class="prompt-overview"><span class="record-row-title">{{ t.get(prompt.prompt_key,prompt.prompt_key) }}</span><span class="text-secondary small">{{ t[prompt.prompt_key ~ '_purpose'] }}</span><span class="text-secondary small">{{ t.prompt_revision_unavailable if failed else (t.prompt_custom if mode == 'custom' else t.prompt_builtin_default) }}</span></span></summary>
 {% if prompt.prompt_key == 'profile.generate' %}
 {% set unavailable = prompt.reason == 'injected_component' or (not prompt.effective and not prompt.builtin) %}
 {% if not failed %}<p class="small mt-3">{{ t.prompt_mode }}: {{ t.prompt_custom if mode == 'custom' else t.prompt_auto }}</p>{% endif %}
@@ -268,7 +270,9 @@ limitations under the License.
     <li>{{ t.prompt_explain_constraints }}</li>
   </ul>
 </div>
-{% if prompt.artifact %}<a href="{{ link('prompts',prompt_key=prompt.prompt_key,prompt_revision=prompt.artifact.revision) }}">{{ t.revision_history }} &rarr;</a>{% endif %}
+{% if prompt.artifact %}<a hx-swap="outerHTML show:#revision-history:top" href="{{ link('prompts',prompt_key=prompt.prompt_key,prompt_revision=prompt.artifact.revision,fragment='revision-history') }}">{{ t.revision_history }} &rarr;</a>{% endif %}
+{% set ns.feedback_rendered = true %}
+{{ prompt_feedback_alerts() }}
 {% set show_editor = not opened and not failed and not unavailable and (
   (profile_prompt_can_admin and (prompt.status == 'supported' or (prompt.artifact and prompt.mode == 'custom')))
   or has_scope_draft
@@ -298,7 +302,7 @@ limitations under the License.
 {% if not failed %}<p class="small">{{ t.prompt_mode }}: {{ t.prompt_custom if mode == 'custom' else t.prompt_auto }}</p>
 <div class="document-meta mb-3"><code>{{ prompt.prompt_key }}</code> &middot; {{ t.prompt_revision }} {{ opened.revision if opened else (prompt.artifact.revision if prompt.artifact else t.prompt_auto) }} &middot; {{ t.prompt_demonstrations }} {{ opened.content.demonstrations|length if opened else (prompt.effective.demonstrations|length if prompt.effective else 0) }}</div>
 <h2 class="section-title">{{ t.prompt_instructions if opened or prompt.effective else t.prompt_builtin_template }}</h2><pre class="page-body-pre text-break">{{ opened.content.instructions if opened else (prompt.effective.instructions if prompt.effective else (prompt.builtin.instructions if prompt.builtin else '')) }}</pre>
-{% if prompt.artifact %}<a href="{{ link('prompts',prompt_key=prompt.prompt_key,prompt_revision=prompt.artifact.revision) }}">{{ t.revision_history }} &rarr;</a>{% endif %}
+{% if prompt.artifact %}<a hx-swap="outerHTML show:#revision-history:top" href="{{ link('prompts',prompt_key=prompt.prompt_key,prompt_revision=prompt.artifact.revision,fragment='revision-history') }}">{{ t.revision_history }} &rarr;</a>{% endif %}
 {% set demonstrations = opened.content.demonstrations if opened else (prompt.effective.demonstrations if prompt.effective else []) %}
 {% if demonstrations %}<h2 class="section-title">{{ t.prompt_demonstrations }}</h2><pre class="page-body-pre text-break">{{ demonstrations|tojson(indent=2) }}</pre>{% endif %}
 {% else %}<code>{{ prompt.prompt_key }}</code>{{ read_error(errors.prompt_selected,t.prompt_revision) }}{% endif %}
@@ -330,6 +334,7 @@ me().run(browser => {
 });
 </script>
 </div>
+{% if not ns.feedback_rendered %}{{ prompt_feedback_alerts() }}{% endif %}
 {% if has_scope_draft and not ns.draft_rendered %}
 {{ prompt_editor_form(
   prompt_draft.reconcile_etag or '',
