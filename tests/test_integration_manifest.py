@@ -300,6 +300,12 @@ def test_tool_surface_probe_rejects_renamed_or_added_tools() -> None:
             "uv run --frozen /bin/true python ${PLUGIN_ROOT}/hooks/recall.py",
             None,
         ),
+        (
+            "codex",
+            "hooks.json",
+            'uv run --frozen --quiet --project "${PLUGIN_ROOT}" python "${PLUGIN_ROOT}/hooks/token_savings.py"',
+            None,
+        ),
     ],
 )
 def test_prompt_hook_probe_follows_registered_command(
@@ -310,8 +316,12 @@ def test_prompt_hook_probe_follows_registered_command(
     arguments: list[str] | None,
 ) -> None:
     for target_id in ("codex", "claude-code", "workbuddy"):
-        relative_path = Path(target_id, "plugins", "powercontext", "hooks")
-        shutil.copytree(MANIFEST_PATH.parent / relative_path, tmp_path / "integrations" / relative_path)
+        relative_path = Path(target_id, "plugins", "powercontext")
+        shutil.copytree(
+            MANIFEST_PATH.parent / relative_path,
+            tmp_path / "integrations" / relative_path,
+            ignore=shutil.ignore_patterns("__pycache__", ".venv"),
+        )
 
     config_path = tmp_path / "integrations" / integration_id / "plugins/powercontext/hooks" / config_name
     config = json.loads(config_path.read_text(encoding="utf-8"))

@@ -75,6 +75,63 @@ class ScopeReadSnapshot:
         self._as_of = as_of
         self._records = records
 
+    async def context_prepare_diagnostics(
+        self, *, record_id=None, status=None, since=None, until=None, cursor=None, context=None
+    ):
+        from powercontext.builtin.persistence.context_prepare_diagnostics import (
+            ContextPrepareDiagnosticsRepository,
+        )
+
+        application = self._atomic.application
+        security = application.security
+        await security.authorize(self.connection, self.scope_id, context, "read")
+        repository = ContextPrepareDiagnosticsRepository()
+        if record_id is not None:
+            record = await repository.get(self.connection, self.scope_id, record_id)
+            if record is not None:
+                # A retained body can include referenced Scopes. Reauthorize them
+                # today before releasing historical content to a reader.
+                for scope_id in record["diagnostics_payload"]["scope_ids"]:
+                    if scope_id != self.scope_id:
+                        await security.authorize(self.connection, scope_id, context, "read")
+                await _authorize_diagnostic_text(self.connection, security, context, record)
+            return record
+        bound = {
+            "endpoint": "dashboard_context_prepare_diagnostics",
+            "version": 1,
+            "scope_id": self.scope_id,
+            "status": status,
+            "since": since,
+            "until": until,
+            "subject": security.subject(context),
+        }
+
+        lower, upper = _diagnostic_timestamp(since), _diagnostic_timestamp(until)
+        if lower is not None and upper is not None and lower >= upper:
+            raise InvalidBaseAccessRequestError("time", "start must be before end")
+        raw = application.cursor.after_text(cursor, bound)
+        after = None
+        if raw:
+            after = _diagnostic_cursor(raw)
+        items, following = await repository.list_page(
+            self.connection,
+            self.scope_id,
+            status=status,
+            since=lower,
+            until=upper,
+            before=after,
+        )
+        next_cursor = None
+        if following is not None:
+            next_cursor = application.cursor.encode(
+                bound,
+                json.dumps([
+                    following.finished_at.isoformat(),
+                    following.record_id,
+                ]),
+            )
+        return {"items": items, "next_cursor": next_cursor}
+
     async def content(
         self,
         *,
@@ -351,3 +408,46 @@ class ScopeReadSnapshot:
             "items": result["items"],
             "next_cursor": application.cursor.encode(bound, str(position)) if position else None,
         }
+
+
+def _diagnostic_timestamp(value):
+    if value is None:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value)
+    except (ValueError, TypeError) as error:
+        raise InvalidBaseAccessRequestError("time", "requires an ISO timestamp with timezone") from error
+    if parsed.tzinfo is None:
+        raise InvalidBaseAccessRequestError("time", "requires a timezone")
+    return parsed
+
+
+def _diagnostic_cursor(raw):
+    from powercontext.builtin.persistence.context_prepare_diagnostics import PrepareDiagnosticCursor
+
+    try:
+        value = json.loads(raw)
+    except ValueError as error:
+        raise InvalidCursorError from error
+    if not isinstance(value, list) or len(value) != 2 or not all(isinstance(v, str) for v in value):
+        raise InvalidCursorError
+    try:
+        return PrepareDiagnosticCursor(datetime.fromisoformat(value[0]), value[1])
+    except ValueError as error:
+        raise InvalidCursorError from error
+
+
+async def _authorize_diagnostic_text(connection, security, context, record):
+    from powercontext.artifacts import ArtifactRef
+
+    checked = set()
+    for snapshot in record["diagnostics_payload"].get("text_snapshots", []):
+        for item in snapshot.get("items") or ():
+            if item.get("artifact") is None:
+                continue
+            scope_id = snapshot["scope_id"]
+            ref = ArtifactRef.model_validate(item["artifact"])
+            key = (scope_id, ref.family, ref.artifact_id, ref.revision)
+            if key not in checked:
+                await security.authorize(connection, scope_id, context, "read", ref)
+                checked.add(key)

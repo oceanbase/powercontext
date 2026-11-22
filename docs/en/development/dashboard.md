@@ -79,6 +79,69 @@ The processing page reads Content Sources from the existing Source journal and c
 
 Dream details show the persisted status, outcome, reason, attempt count and timestamps, plus saved input-manifest references and a link to the recorded candidate. Candidate publication and current review state are checked in Review. Input-manifest nodes can supply resolved upstream Source references; these execution inputs are not automatically direct evidence for every output. Per-attempt timings, errors and missing history are not invented. Dream records cover only recorded Dream executions, not all automatic Source processing.
 
+### Automatic processing status
+
+Runtime data → Automatic processing shows current-Scope evidence for Memory, Topic Memory, Profile and Experience above the Source directory. Input consumption and local-process execution observations are separate. Input positions and request acknowledgement do not prove publication; missing execution observations do not prove that workers stopped. Dream pending work is excluded; Dream records keep their separate entry.
+
+Expand a type in place to see cursor / input head, the current bottleneck or stage, the latest recorded processing event and the blocked or unconsumed range. These facts remain visible in a compact panel. Cursor positions are not a generated-artifact count or completion percentage. The processing-event time uses a matching durable block or the latest exact-Scope/binding local failure observation, with its source labeled; it does not establish the last successful processing time. No record is shown explicitly when neither is available. Read time is never substituted for processing time. A matching persisted block may provide the last failure in that window, shown using bounded vocabulary; missing or unknown causes are not invented. Request generations and read/observation times stay in a collapsed technical-evidence section. Runtime configuration and the diagnostic guide have separate links. Historical errors do not imply a current failure. The status section offers no retry or budget reset. The Source table's Related artifacts column represents exact Artifact revision lineage. No lineage does not establish processing failure.
+
+Inspection uses selected-Scope read authorization and completed audit, without model calls, work dispatch or business writes. One type's inspection failure preserves other types and independently authorized Source reads. A non-built-in Runtime without a public inspection operation reports unavailable status while Sources remain readable through existing public operations. This is not service-wide monitoring, per-Source execution history or an artifact-completion percentage.
+
+
+### Context diagnostics
+
+The built-in Server captures prepare diagnostics without an enable switch. Capture uses a separate
+`pc_context_prepare_diagnostics` store for all Scopes and actual recall rounds. Standalone SDK use does not write
+this Server store. Records have no expiry, retention limit or cleanup action.
+
+Capture starts after initial request validation, Scope admission and authorization of referenced Scopes it will read. Calls rejected
+before that boundary have no diagnostic record. Each observed execution attempts one best-effort write for its
+ready, empty, failed or cancelled outcome. Storage failure, cancellation during persistence or process termination
+can leave a missing record; this is not a lossless audit ledger.
+
+A record contains UTC start/end times, elapsed milliseconds, existing principal/request/trace identities, the original
+query and normalized digest, byte budget/use, selected count, optional Receipt, final prepared text and available
+same-execution search, rerank and assembly evidence. Elapsed time runs from capture creation to record construction;
+it excludes earlier validation/authorization, diagnostic persistence and response delivery. Stage timings can overlap:
+Memory search includes reranking, so their sum is not total request time.
+
+Capture does not repeat retrieval or model calls, add an unrequested Receipt to the response or change reuse.
+Persistence uses an independent transaction with a two-second deadline; failures do not replace a normal prepare
+result, and request cancellation propagates. Authentication headers, vectors and raw model responses are not copied
+into the record as separate fields. Query and candidate/final text are stored without redaction; secrets present in
+that text remain in the diagnostic copy. Public Receipt v1 remains body-free, with an 8 KiB limit and at most 32 selected
+references. Ordinary logs, metrics and traces remain body-free.
+
+The history page defaults to all dates. It reads query and summary columns without stage payloads, with at most 25
+records per page ordered by finish time and record ID. Signed cursors bind the Scope, result/date filters and current
+subject. Long queries expand in place. Selecting Details opens `/dashboard/context-diagnostic-detail` for one record.
+
+Details show query → retrieval → reranking → budget assembly → final context. Stage tables combine counts, outcomes,
+reasons and original-text drawers. Headings show available measured timings; Profile and Code durations come from
+their recorded search calls. Retrieval counts use pre-rerank candidate snapshots; without a Memory snapshot that
+count stays unknown. Public Receipt search-group counts remain call counts. Reranking shows separate input and output
+text. Assembly text contains only Artifact candidates selected by the same-execution Receipt; without a valid Receipt
+selection is unknown. Code has no supported exact-revision reader here, so its selected reference and assembly text
+are unavailable; captured Code text can still appear in retrieval and final context.
+
+Selected Artifact rows are grouped by family in first-appearance order. They use retained assembly text for the exact
+revision, without filling missing evidence from current content. Omission counts describe excluded candidates;
+`not_retrieved` is a family-level absence marker, not a candidate count. Empty retrieval, failed retrieval and missing
+evidence stay distinct. Topic text contains only the returned title, summary and snippet. Original queries and stage
+text missing from older records are not reconstructed. Final content remains readable when Receipt validation fails;
+Receipt validation checks its shape, byte use and content digest. UTF-8 byte budgets are not character counts.
+
+Reads complete existing authorization and audit. Releasing stored bodies requires current access to the recorded
+Scopes and retained Artifact references. Exact revision links use ordinary authorized reads, with a shared ten-second
+deadline; unavailable links are not rendered. Pages escape stored text and send `Cache-Control: no-store`. Inspection
+does not prepare again, invoke models or write business data. Prepared text does not prove host delivery, model use
+or task benefit.
+
+Migration `000` adds the independent table and indexes, including nullable UTF-8 `query_text`, without rewriting
+existing domain records or backfilling past calls. Existing managed databases require explicit migration before startup.
+The table adds no Scope deletion cascade or new permission path to deleted-Scope content. Recovery follows the
+verified-backup workflow; capture provides no table-drop or history-cleanup operation.
+
 ### Review explains the proposal and the saved result
 
 The inbox directory uses existing reasons and family labels; an opened candidate can use its saved content as its title. The built-in directory keeps its metadata-only reads rather than loading every proposal for a title. Details put readable content fields before raw data. Updates compare the candidate with its recorded target revision, which may no longer be current. An unavailable baseline is shown as an unavailable comparison, not as unchanged content or an empty base.

@@ -25,6 +25,7 @@ from sqlalchemy import Text, and_, cast, func, or_, select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncConnection
 
+from powercontext.artifacts.search import ArtifactSearchExecutionContext
 from powercontext.builtin.artifacts.profile.models import ProfilePolicy
 from powercontext.builtin.artifacts.topic_memory import TOPIC_MEMORY_SOURCE_WINDOW_BINDING
 from powercontext.builtin.dream.bindings import DREAM_OPERATIONS, FAMILY_DREAM_BINDINGS
@@ -86,6 +87,7 @@ class ProcessingStatusBlock:
     source_through: int | None = None
     budget_source_through: int | None = None
     diagnostics: ProcessingDiagnostics | None = None
+    last_error_code: str | None = None
 
     @property
     def persisted(self) -> bool:
@@ -221,6 +223,7 @@ class ProcessingStatusInspector:
         *,
         supervisors: ArtifactProcessingSupervisors | None = None,
         lease_time_floor: datetime | None = None,
+        include_dream: bool = True,
     ) -> ArtifactProcessingStatus:
         scope_id = validate_scope_id(scope_id)
         now = datetime.now(UTC)
@@ -255,10 +258,11 @@ class ProcessingStatusInspector:
         runs: tuple[DreamOperationStatus, ...] = ()
         pending: bool | None = None
         unavailable = None
-        try:
-            runs, pending = await self._dream_status(connection, scope_id, processing_family)
-        except (SQLAlchemyError, InvalidStoredColumnError, InvalidStoredPayloadError):
-            unavailable = "dream_query_failed"
+        if include_dream:
+            try:
+                runs, pending = await self._dream_status(connection, scope_id, processing_family)
+            except (SQLAlchemyError, InvalidStoredColumnError, InvalidStoredPayloadError):
+                unavailable = "dream_query_failed"
         executor = None
         if supervisors is not None:
             executor = next((row for row in supervisors.observe_scope(scope_id) if row.binding == binding), None)
@@ -348,6 +352,7 @@ class ProcessingStatusInspector:
                 source_through=row["source_through"],
                 budget_source_through=row["budget_source_through"],
                 diagnostics=classify_block_code("topic_memory", row["error_code"]),
+                last_error_code=row["last_error_code"],
             )
         if budget["started_at"] is not None and budget["finished_at"] is None:
             group = budget["supervisor_group"]
@@ -425,7 +430,19 @@ class ScopedProcessingStatusApplication:
         self._runtime = runtime
         self.scope_id = validate_scope_id(scope_id)
 
-    async def status(self, family: str, /) -> ArtifactProcessingStatus:
+    async def status(
+        self,
+        family: str,
+        /,
+        *,
+        include_dream: bool = True,
+        context: ArtifactSearchExecutionContext | None = None,
+    ) -> ArtifactProcessingStatus:
+        """Inspect existing records; a supplied request context is authorized in the read snapshot.
+
+        Source-only consumers exclude Dream work and history. Embedded callers
+        without a request context retain responsibility for their own authorization.
+        """
         async with self._runtime._operation():
             lease_time_floor = None
             if family == "topic-memory":
@@ -433,12 +450,20 @@ class ScopedProcessingStatusApplication:
                 async with self._runtime.primary_database.transaction() as connection:
                     lease_time_floor = await database_utc_now(connection)
             async with self._runtime.primary_database.transaction(consistent_snapshot=True) as connection:
+                if context is not None:
+                    from powercontext.builtin.records import BaseOperationNotSupportedError
+
+                    atomic = self._runtime.atomic_memory
+                    if atomic is None:
+                        raise BaseOperationNotSupportedError("artifact_family", family, "processing_status")
+                    await atomic._application.security.authorize(connection, self.scope_id, context, "read")
                 return await ProcessingStatusInspector().status(
                     connection,
                     self.scope_id,
                     family,
                     supervisors=self._runtime.artifact_processing_supervisor,
                     lease_time_floor=lease_time_floor,
+                    include_dream=include_dream,
                 )
 
 
