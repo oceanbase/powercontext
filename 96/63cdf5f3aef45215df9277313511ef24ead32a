@@ -1,0 +1,21 @@
+gateway/crates/pc-gateway-app/src/connection.rs
+  s_2ef0feea0a110d::t_67742bf3eaf9aa 496-497,527,536,538,540,543-544,546,549-555
+  s_2ef0feea0a110d::t_b27e554433b2ed 498-501,504-506,512-526,529-530,533-534,537,541-542,547-548
+  s_2ef0feea0a110d::t_38f0bb4ae776d5 495,502-503,507-511,528,531-532,535,539,545,556
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "9663cdf5f3aef45215df9277313511ef24ead32a",
+  "prompts": {},
+  "sessions": {
+    "s_2ef0feea0a110d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1a9cf-a4e7-7f63-9c51-1284f7c332e8",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "frf12 <rongfeng.frf@antgroup.com>"
+    }
+  }
+}
