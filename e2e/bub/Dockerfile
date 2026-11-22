@@ -24,7 +24,11 @@ COPY --from=uv /uv /uvx /bin/
 COPY --from=docker /usr/local/bin/ /usr/local/bin/
 COPY --from=docker /usr/local/libexec/docker/cli-plugins/ /usr/local/libexec/docker/cli-plugins/
 
-RUN apt-get update \
+ARG POWERCONTEXT_E2E_DEBIAN_MIRROR_URL
+
+RUN --mount=type=bind,source=e2e/bub/scripts/configure_debian_mirror.py,target=/tmp/configure-debian-mirror.py \
+    python /tmp/configure-debian-mirror.py \
+    && apt-get update \
     && apt-get install --yes --no-install-recommends ca-certificates git iproute2 iptables pigz socat \
     && rm -rf /var/lib/apt/lists/* \
     && docker compose version

@@ -581,9 +581,13 @@ their own diagnostics, so prefer an index without URL credentials.
 `https://mirrors.aliyun.com`. Before Bub's dependency installation, Debian task containers replace only the default
 `http://deb.debian.org` or `https://deb.debian.org` repository URIs ending in `/debian` or `/debian-security` with that
 base and the same repository path. Both `.list` and `.sources` formats retain their suites, components, signing keys,
-and custom repository URIs. Other operating systems keep their sources. Compose forwards the setting, and the
-mirror hostname joins the task's proxy exclusions alongside the Python index and private Server routes. No package
-versions, apt arguments, retry policy, or setup deadline change; without the setting, no apt sources are modified.
+and custom repository URIs. Other operating systems keep their sources. Compose also forwards this public URL as a
+harness image build argument, so the same source selection applies before the image installs its Debian packages.
+During the build, APT uses a host-specific `DIRECT` rule for the mirror and retains other proxy settings; during task
+setup, the mirror hostname joins the task's proxy exclusions alongside the Python index and private Server routes.
+The mirror must be directly reachable during both build and task execution. Use a public URL without credentials:
+build arguments and package manager diagnostics are not secret storage. No package versions, apt arguments, retry
+policy, or setup deadline change; without the setting, no apt sources or proxy rules are modified.
 
 The agent container sees only the repository files that installation needs: the `powercontext` package and the host
 integration, and none of them in a paired OFF arm. Workload files, answer keys, and benchmark data stay on the host,
