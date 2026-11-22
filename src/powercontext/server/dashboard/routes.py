@@ -846,7 +846,7 @@ async def profile_prompt_save(request: Request) -> Response:
     ctx = initial_context(request, "prompts")
     if not same_origin(request):
         ctx.update(page_error=ReadError(403, "cross_origin_request"), status=403)
-        return render(request, ctx)
+        return _render_profile_prompt_rejection(request, ctx)
     if len(await request.body()) > MAX_BODY_BYTES:
         ctx.update(status=413, prompt_key=PROMPT_KEY, prompt_write_error="instructions_too_long")
         api = DashboardAPI(request)
@@ -860,7 +860,7 @@ async def profile_prompt_save(request: Request) -> Response:
                 return login_response(request=request)
         finally:
             await api.client.aclose()
-        return render(request, ctx)
+        return _render_profile_prompt_rejection(request, ctx)
     submission = parse_submission(await request.form())
     ctx["scope"] = submission.scope or ctx["scope"]
     api = DashboardAPI(request)
@@ -904,24 +904,44 @@ async def _profile_prompt_rejected(
     except ReadError as error:
         if error.status == 401:
             return login_response(request=request)
-    return render(request, ctx)
+    return _render_profile_prompt_rejection(request, ctx)
+
+
+def _render_profile_prompt_rejection(request: Request, ctx: dict[str, Any]) -> HTMLResponse:
+    """Render a rejected Prompt save without pushing the POST-only action path into browser history."""
+    response = render(request, ctx)
+    response.headers["HX-Push-Url"] = _profile_prompt_url(request, ctx) if ctx["scope"] else "false"
+    return response
+
+
+def _profile_prompt_url(
+    request: Request,
+    ctx: dict[str, Any],
+    *,
+    scope: str | None = None,
+    saved: bool = False,
+    revision: int | None = None,
+) -> str:
+    resolved_scope = ctx["scope"] if scope is None else scope
+    params: dict[str, Any] = {
+        "scope": resolved_scope,
+        "period": ctx["period"],
+        "prompt_key": PROMPT_KEY,
+    }
+    if saved:
+        params["prompt_saved"] = "1"
+        if revision is not None:
+            params["prompt_saved_revision"] = revision
+    if ctx["language"] != "zh" or request.query_params.get("lang"):
+        params["lang"] = ctx["language"]
+    return "/dashboard/prompts?" + urlencode(params)
 
 
 def _profile_prompt_saved_url(
     request: Request, ctx: dict[str, Any], submission: Submission, revision: int | None
 ) -> str:
     """Return to the Prompt page, carrying the saved revision so the page can confirm it by reading it back."""
-    params: dict[str, Any] = {
-        "scope": submission.scope,
-        "period": ctx["period"],
-        "prompt_key": PROMPT_KEY,
-        "prompt_saved": "1",
-    }
-    if revision is not None:
-        params["prompt_saved_revision"] = revision
-    if ctx["language"] != "zh" or request.query_params.get("lang"):
-        params["lang"] = ctx["language"]
-    return "/dashboard/prompts?" + urlencode(params)
+    return _profile_prompt_url(request, ctx, scope=submission.scope, saved=True, revision=revision)
 
 
 @router.get("/{page}")

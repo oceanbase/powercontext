@@ -20,9 +20,9 @@ limitations under the License.
 {% if prompt_conflict %}<p class="alert alert-warning" role="alert">{{ t.prompt_conflict }} <a href="{{ link('prompts',prompt_key='profile.generate',prompt_revision=none,compare=none,rollback_error=none,prompt_saved=none) }}">{{ t.prompt_reload }} &rarr;</a></p>{% endif %}
 {% if prompt_write_error %}<p class="alert alert-danger" role="alert">{{ t.get('prompt_write_error_' ~ prompt_write_error, t.prompt_write_error_invalid_request) }}</p>{% endif %}
 {% endmacro %}
-{% macro prompt_editor_form(draft_etag, draft_mode, draft_instructions, defaults, saved_mode, saved_text, saved_custom, demonstrations_count, can_return_to_auto, is_draft, is_saved=false) %}
+{% macro prompt_editor_form(draft_etag, draft_mode, draft_instructions, defaults, saved_mode, saved_text, saved_custom, demonstrations_count, can_return_to_auto, is_draft, is_saved=false, saved_revision='') %}
 {% set form_action = '/dashboard/prompts/profile-generate' ~ ('?lang=' ~ language if 'lang' in request.query_params else '') %}
-<form method="post" action="{{ form_action }}" hx-swap="outerHTML show:none" data-profile-prompt-editor data-scope="{{ scope }}" data-prompt-saved="{{ '1' if is_saved else '0' }}" class="mt-3">
+<form method="post" action="{{ form_action }}" hx-swap="outerHTML show:none" data-profile-prompt-editor data-scope="{{ scope }}" data-prompt-saved="{{ '1' if is_saved else '0' }}" data-prompt-saved-revision="{{ saved_revision or '' }}" class="mt-3">
   <h2 class="section-title">{{ t.prompt_editor_title }}</h2>
   <input type="hidden" name="scope" value="{{ scope }}">
   <input type="hidden" name="expected_etag" value="{{ draft_etag or '' }}">
@@ -64,10 +64,30 @@ limitations under the License.
       const savedText = {{ saved_text | tojson }};
       const hasDraft = {{ is_draft | tojson }};
       const promptSaved = form.dataset.promptSaved === '1';
+      const promptSavedRevision = form.dataset.promptSavedRevision || '';
       const message = {{ t.prompt_unsaved_changes | tojson }};
       const storageKey = scope ? `powercontext:profile-prompt-draft:${scope}` : '';
+      const savedAckKey = scope ? `powercontext:profile-prompt-saved:${scope}` : '';
       const normalize = value => value.replace(/\r\n/g, '\n');
       const currentMode = () => (radios.find(radio => radio.checked) || {}).value || 'auto';
+      const readSavedAck = () => {
+        if (!savedAckKey) return '';
+        try { return window.sessionStorage.getItem(savedAckKey) || ''; } catch { return ''; }
+      };
+      const writeSavedAck = revision => {
+        if (!savedAckKey || !revision) return;
+        try { window.sessionStorage.setItem(savedAckKey, revision); } catch {}
+      };
+      const stripSavedQuery = () => {
+        if (!window.history || typeof window.history.replaceState !== 'function') return;
+        try {
+          const current = new URL(window.location.href);
+          if (!current.searchParams.has('prompt_saved') && !current.searchParams.has('prompt_saved_revision')) return;
+          current.searchParams.delete('prompt_saved');
+          current.searchParams.delete('prompt_saved_revision');
+          window.history.replaceState(window.history.state, '', `${current.pathname}${current.search}${current.hash}`);
+        } catch {}
+      };
       const readStoredDraft = () => {
         if (!storageKey) return null;
         try {
@@ -87,9 +107,17 @@ limitations under the License.
       let restoredDraft = false;
       // The Custom text outlives a switch to Auto, so toggling back never loses typing.
       let customText = hasDraft ? normalize(textarea.value) : (normalize(textarea.value) || defaults);
+      let consumedSave = false;
       if (promptSaved) {
-        clearStoredDraft();
-      } else if (!hasDraft) {
+        const alreadyConsumed = Boolean(savedAckKey && promptSavedRevision && readSavedAck() === promptSavedRevision);
+        if (!alreadyConsumed) {
+          clearStoredDraft();
+          writeSavedAck(promptSavedRevision);
+          consumedSave = true;
+        }
+        stripSavedQuery();
+      }
+      if (!consumedSave && !hasDraft) {
         const stored = readStoredDraft();
         if (stored) {
           const storedText = typeof stored.instructions === 'string' ? normalize(stored.instructions) : '';
@@ -300,7 +328,8 @@ limitations under the License.
   prompt.effective.demonstrations|length if saved_custom else 0,
   prompt.artifact and prompt.mode == 'custom',
   has_scope_draft,
-  prompt_saved
+  prompt_saved,
+  request.query_params.get('prompt_saved_revision', '') if prompt_saved else ''
 ) }}
 {% endif %}
 {% else %}

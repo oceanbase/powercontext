@@ -1621,3 +1621,128 @@ def test_readonly_prompt_history_uses_back_to_current_label(dashboard: TestClien
         assert page.status_code == 200, page.text
         assert labels["prompt_return_editor"] in page.text
         assert labels["prompt_return_current"] not in page.text
+
+
+def test_rejected_save_sets_hx_push_url_header(dashboard: TestClient) -> None:
+    """Verify rejected saves emit a safe GET HX-Push-Url (or false on missing scope) instead of the POST path."""
+    _set_prompt_registry(dashboard, supported=frozenset({"profile.generate"}))
+    scope = create_scope(dashboard, "Rejected save HX-Push-Url")["scope_id"]
+
+    rejected = _post_profile_prompt(
+        dashboard,
+        scope=scope,
+        mode="custom",
+        instructions="   ",
+        expected_etag="",
+        lang="en",
+        headers={"HX-Request": "true"},
+    )
+    assert rejected.status_code == 422
+    push_url = rejected.headers.get("hx-push-url", "")
+    assert push_url.startswith("/dashboard/prompts?")
+    push_query = parse_qs(urlsplit(push_url).query)
+    assert push_query["scope"] == [scope]
+    assert push_query["prompt_key"] == ["profile.generate"]
+    assert push_query["lang"] == ["en"]
+
+    cross_origin = _post_profile_prompt(
+        dashboard,
+        scope=scope,
+        mode="custom",
+        instructions="Cross origin",
+        expected_etag="",
+        origin="https://evil.example",
+    )
+    assert cross_origin.status_code == 403
+    assert cross_origin.headers.get("hx-push-url") == "false"
+
+
+def test_browser_saved_revisit_and_rejected_save_preserve_draft_and_url(dashboard: TestClient) -> None:
+    """Verify revisiting a saved URL keeps newer drafts and rejected saves keep a GET-safe URL across reload/back."""
+    playwright = pytest.importorskip("playwright.sync_api")
+    _set_prompt_registry(dashboard, supported=frozenset({"profile.generate"}))
+    scope = create_scope(dashboard, "Saved revisit and rejection recovery")["scope_id"]
+
+    with playwright.sync_playwright() as runtime:
+        browser = _launch_playwright_browser(playwright, runtime)
+        try:
+            page = browser.new_page()
+            errors: list[Any] = []
+            page.on("pageerror", lambda error: errors.append(error))
+            _route_dashboard_browser(page, dashboard)
+
+            # 1. Start at Home, follow Prompts link, save revision 1, and verify stripped saved query params.
+            page.goto(f"http://testserver/dashboard/home?scope={scope}&lang=en", wait_until="domcontentloaded")
+            page.locator('a[href*="/dashboard/prompts"]').first.click()
+            page.wait_for_url("**/dashboard/prompts**")
+            profile_group = page.locator("details.prompt-group", has_text="profile.generate").first
+            profile_group.locator(":scope > summary").click()
+            profile_details = profile_group.locator("details.prompt-record", has_text="profile.generate").first
+            profile_details.locator(":scope > summary").click()
+
+            form = profile_details.locator("form[data-profile-prompt-editor]")
+            form.locator('label.form-selectgroup-item:has(input[value="custom"])').click()
+            form.locator('textarea[name="instructions"]').fill("Revision one saved text.")
+            form.locator("[data-prompt-save]").click()
+            page.locator("#prompt-record-profile-generate .alert-success").wait_for(state="visible")
+            assert "prompt_saved=" not in page.url
+
+            # 2. Edit a newer draft after save, press Back then Forward, and revisit raw saved query directly.
+            newer_draft = "Newer draft written after saving revision 1."
+            page.locator('form[data-profile-prompt-editor] textarea[name="instructions"]').fill(newer_draft)
+            page.go_back(wait_until="domcontentloaded")
+            page.go_forward(wait_until="domcontentloaded")
+            page.wait_for_url("**/dashboard/prompts**")
+            assert (
+                page.locator('form[data-profile-prompt-editor] textarea[name="instructions"]').input_value()
+                == newer_draft
+            )
+
+            # Even visiting the raw prompt_saved=1&prompt_saved_revision=1 URL does not delete newer_draft once consumed.
+            page.goto(
+                f"http://testserver/dashboard/prompts?scope={scope}&prompt_key=profile.generate&prompt_saved=1&prompt_saved_revision=1&lang=en",
+                wait_until="domcontentloaded",
+            )
+            assert (
+                page.locator('form[data-profile-prompt-editor] textarea[name="instructions"]').input_value()
+                == newer_draft
+            )
+
+            # 3. Validation rejection keeps a GET-safe URL so page.reload() succeeds instead of hitting 405.
+            page.locator('form[data-profile-prompt-editor] textarea[name="instructions"]').fill("")
+            page.locator("form[data-profile-prompt-editor] [data-prompt-save]").click()
+            page.locator("#prompt-record-profile-generate .alert-danger").wait_for(state="visible")
+            assert "/dashboard/prompts/profile-generate" not in page.url
+            assert "/dashboard/prompts?" in page.url
+            page.once("dialog", lambda dialog: dialog.accept())
+            page.reload(wait_until="domcontentloaded")
+            page.locator('form[data-profile-prompt-editor] textarea[name="instructions"]').wait_for(state="visible")
+            assert page.locator('form[data-profile-prompt-editor] textarea[name="instructions"]').input_value() == ""
+
+            # 4. Concurrent conflict rejection keeps GET-safe URL and preserves draft + reconciled ETag across Back/Forward.
+            conflict_draft = "Conflict draft to retry after navigating back."
+            conflict_form = page.locator("form[data-profile-prompt-editor]")
+            conflict_form.locator('textarea[name="instructions"]').fill(conflict_draft)
+            concurrent = _post_profile_prompt(
+                dashboard,
+                scope=scope,
+                mode="custom",
+                instructions="Concurrent revision two.",
+                expected_etag=conflict_form.locator('input[name="expected_etag"]').input_value(),
+                lang="en",
+            )
+            assert concurrent.status_code == 303
+            conflict_form.locator("[data-prompt-save]").click()
+            page.locator("#prompt-record-profile-generate .alert-warning").wait_for(state="visible")
+            assert "/dashboard/prompts/profile-generate" not in page.url
+
+            page.go_back(wait_until="domcontentloaded")
+            page.go_forward(wait_until="domcontentloaded")
+            page.wait_for_url("**/dashboard/prompts**")
+            retry_form = page.locator("form[data-profile-prompt-editor]")
+            assert retry_form.locator('textarea[name="instructions"]').input_value() == conflict_draft
+            retry_form.locator("[data-prompt-save]").click()
+            page.locator("#prompt-record-profile-generate .alert-success").wait_for(state="visible")
+            assert not errors
+        finally:
+            browser.close()
