@@ -304,8 +304,21 @@ reason 为封闭枚举：
 
 ## 持久化与 MCP
 
-v1 不持久化 Receipt，也不新增按 `receipt_id` 获取的操作。需要耐久记录的评测在 harness 中保存响应本身。以后带 TTL
-的可选存储需要单独 RFC。
+默认 v1 路径不持久化 Receipt，也不新增按 `receipt_id` 获取的操作。评测可以在 harness 中保存响应。
+显式 Server 诊断扩展另行定义独立持久存储。
+
+### 显式 Server 诊断扩展
+
+内置 Server 尝试向 `pc_context_prepare_diagnostics` 保存被观察的 prepare 执行，没有开启开关。
+它采集同一次已授权执行的原始 prepare query、准确最终正文、可用的 Receipt、各类真实返回数、分阶段候选文本以及失败/取消终态证据。
+认证请求头、向量和原始模型响应不作为独立字段复制。查询和候选/最终正文不做脱敏，包含正文中已有的秘密。
+Receipt JSON 自身保持无正文，不注入模型。
+扩展不修改宿主请求、响应、reuse 或公开 Receipt 格式，也不重新执行 prepare。
+
+采集覆盖全部 Server Scope 和轮次。记录永久保留，没有 TTL、容量淘汰或清理操作。
+读取沿用 Dashboard 授权和完整审计，在返回历史正文前检查引用 Scope 的当前权限。
+持久化尽力执行，不能替换业务结果或压制取消。普通日志和 Trace 仍无正文。
+存储、分页及展示见[上下文诊断](../development/dashboard.md#上下文诊断)。
 
 `prepare_context` 仍不进入默认 MCP 工具面。Receipt 不是把 prepare 投影成 Agent 工具的理由。
 
@@ -387,10 +400,11 @@ schema。
 **不要复用 Memory 搜索的 rerank trace。** 该 trace 包含 candidate hits，且仅在进程内。HTTP 搜索已经不返回它。
 PreparedContext 选择发生在 Memory 搜索和 Experience 搜索之后，并使用不同预算。
 
-**不要持久化每一次 prepare。** 请求时召回会变成用户 query 的无界历史。评测可以在 harness 中保留 HTTP 响应。
+**诊断历史不进入公开契约。** Server 诊断扩展在独立记录中尽力保留最终上下文及原始 query；Receipt JSON 和普通运维信号仍排除 query 原文。
+评测可以在 harness 中保留 HTTP 响应。
 
-**不要发明渐进内容缓存。** 通过现有精确读取 API 展开 Receipt 条目，能保持 Artifact 权威。prepare 侧按短暂 id 缓存
-正文会成为 Memory 文本的第二存储。
+**不要发明渐进内容缓存。** 通过现有精确读取 API 展开 Receipt 条目，能保持 Artifact 权威。独立诊断历史是历史证据，
+不能用于命中 prepare 缓存，也不是权威 Memory 存储。
 
 不做的影响：宿主和 benchmark 会继续从注入文本或私有日志反推召回，后续装箱实验也没有共享的省略词表。
 
@@ -425,5 +439,5 @@ v1 保持 `include_receipt` 仅由请求开启。把 Receipt 附到每一次 pre
 - 把 Receipt 省略原因与任务分数拼接的评测报告。
 - 多分辨率装箱（[#1426](https://github.com/oceanbase/powercontext/issues/1426)）通过同一套 Receipt `omitted` 词表
   报告选中层级。
-- 面向审计的可选耐久 Receipt 存储，只保留 query digest 和短 TTL。
+- 面向审计的 Receipt 存储，与诊断历史分离，只保留 query digest 和短 TTL。
 - 召回为空或被截断时，宿主记录 `receipt_id` 和 `content_digest` 的无正文诊断。

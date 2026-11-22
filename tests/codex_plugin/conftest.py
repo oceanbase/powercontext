@@ -40,8 +40,18 @@ def scope_module() -> ModuleType:
 
 
 @pytest.fixture
+def scope_binding_client(scope_module: ModuleType) -> ModuleType:
+    return sys.modules[scope_module.resolve_scope_id.__module__]
+
+
+@pytest.fixture
 def recall_module() -> ModuleType:
     return _load_module("powercontext_codex_recall", PLUGIN_ROOT / "hooks" / "recall.py")
+
+
+@pytest.fixture
+def prompt_flow(recall_module: ModuleType) -> ModuleType:
+    return sys.modules[recall_module.run_user_prompt_submit.__module__]
 
 
 @pytest.fixture(autouse=True)

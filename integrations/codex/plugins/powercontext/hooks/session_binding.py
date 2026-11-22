@@ -25,18 +25,16 @@ from time import monotonic
 from typing import Any, cast
 
 _PLUGIN_ROOT = Path(__file__).resolve().parents[1]
-_SCRIPTS_ROOT = _PLUGIN_ROOT / "scripts"
 sys.path.insert(0, str(_PLUGIN_ROOT))
-sys.path.insert(0, str(_SCRIPTS_ROOT))
 
 from codex_host import CODEX  # noqa: E402
+from powercontext_lifecycle.scope_binding import read_error_code, resolve_scope_id  # noqa: E402
 from powercontext_lifecycle.session_start import (  # noqa: E402
     BootstrapConnection,
     SessionStartEvent,
     hook_event_id,
     run_session_start,
 )
-from scope_binding import read_error_code, resolve_scope_id  # noqa: E402
 from settings import CodexPluginSettings  # noqa: E402
 
 _LIFECYCLES = frozenset({"startup", "resume", "clear", "compact", "restore", "fork"})
@@ -53,9 +51,10 @@ def main(settings: CodexPluginSettings | None = None) -> int:
         if not isinstance(source, str) or source not in _LIFECYCLES:
             settings = CodexPluginSettings() if settings is None else settings
             resolve_scope_id(
+                CODEX,
                 cwd,
                 session_id=session_id,
-                settings=settings,
+                settings=settings.scope_binding_settings(),
                 deadline=monotonic() + settings.http_budget_seconds,
                 persist_session=True,
             )
@@ -78,9 +77,10 @@ def _connect(event: SessionStartEvent, settings: CodexPluginSettings | None) -> 
         max_bytes=loaded.bootstrap_max_bytes,
         handoff=None if loaded.bootstrap_handoff is None else loaded.bootstrap_handoff.model_dump(),
         resolve_scope_id=lambda deadline: resolve_scope_id(
+            CODEX,
             event.cwd,
             session_id=event.session_id,
-            settings=loaded,
+            settings=loaded.scope_binding_settings(),
             deadline=deadline,
             persist_session=True,
         ),

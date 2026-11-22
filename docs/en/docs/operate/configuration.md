@@ -39,7 +39,8 @@ use the same secret and key ID:
 | `POWERCONTEXT_SERVER_RUNTIME_ATOMIC_MEMORY_RELATED_MAX_DISTANCE` | `1.0` | Maximum exact L2 distance for complete related-vector enumeration and for earlier candidates of the same window, nonnegative; does not apply to ordinary searches with a limit |
 | `POWERCONTEXT_SERVER_RUNTIME_ATOMIC_MEMORY_RELATED_FTS_FALLBACK` | `false` | Explicitly permit full-text enumeration when the related query vector is unavailable, profiles mismatch or vector projections are incomplete; ordinary search error handling is unchanged |
 | `POWERCONTEXT_SERVER_RUNTIME_ATOMIC_MEMORY_COMPARISON_BATCH_SIZE` | `20` | Maximum related objects per comparison call, positive integer; it is not a total candidate limit |
-| `POWERCONTEXT_SERVER_RUNTIME_ATOMIC_MEMORY_INPUT_TOKENS_LIMIT` | `24000` | Estimated tokens per extraction/comparison input, including instructions and complete input, positive integer |
+| `POWERCONTEXT_SERVER_RUNTIME_ATOMIC_MEMORY_INPUT_TOKENS_LIMIT` | `64000` | Estimated tokens per extraction/comparison input, including instructions and complete input, positive integer |
+| `POWERCONTEXT_SERVER_RUNTIME_ATOMIC_MEMORY_PROCESSING_MODE` | `per_candidate` | How Atomic Memory processes a Source window. `per_candidate` extracts candidates and compares each with its related memories; `one_pass` lists the memories to write and then returns every operation in one model conversation, which costs fewer model tokens. A window whose conversation input exceeds the token limit is still processed as `per_candidate` |
 
 An unset secret never generates a random process key. Changing the secret or key ID invalidates old tokens; preview
 again. A restoration with a token returns `preview_stale` on changes instead of reinterpreting the intent. The retry
@@ -224,6 +225,9 @@ still occupies an HTTP slot until it finishes; reserve other slots for concurren
 | `POWERCONTEXT_SERVER_INFERENCE_GENERATION_STREAMING` | `disabled` | When `auto`, only generation models whose provider prefix is `anthropic`, `openai`, `openai-chat`, or `openai-responses` use a streamed request aggregated locally into one complete response. Other prefixes stay on non-streaming requests. `disabled` keeps every model on non-streaming requests |
 | `POWERCONTEXT_SERVER_INFERENCE_GENERATION_STREAM_IDLE_TIMEOUT_SECONDS` | `60` | Maximum idle seconds while aggregating a streamed request: while the stream opens and waits for its first model event, and between model events (text, thinking, or tool-call parts). Provider heartbeat frames do not reset this timer; a longer gap fails as a timeout |
 | `POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL_CONTEXT_WINDOW_TOKENS` | `125000` | Total generation-model context window used to budget Topic processing |
+| `POWERCONTEXT_SERVER_INFERENCE_PREFIX_EXTRACTION_GATEWAY_URL` | unset | Base URL of a gateway on the same host; extracts Atomic Memory for a single gateway turn over its cached prefix and falls back to normal extraction. Requires `GENERATION_MODEL`. See [Memory extraction over the cached prefix](deploy-server.md#memory-extraction-over-the-cached-prefix) |
+| `POWERCONTEXT_SERVER_INFERENCE_PREFIX_EXTRACTION_CACHED_INPUT_RATIO` | `0.1` | Price of a cached input token relative to an uncached one for the agent's target, greater than 0 and at most 1; the prefix is reused only when it is estimated to cost less than normal extraction |
+| `POWERCONTEXT_SERVER_INFERENCE_PREFIX_EXTRACTION_GATEWAY_HEADERS` | `{}` | JSON object of static headers for the gateway, such as its `Authorization` key; values are secrets |
 | `POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_MODEL` | unset | Pydantic AI embedding model; requires profile ID and dimension |
 | `POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_BASE_URL` | provider default | Custom OpenAI-compatible embeddings base URL |
 | `POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_HEADERS` | `{}` | JSON object of static embedding client headers; values are secrets |

@@ -47,6 +47,9 @@ export async function getGeneratorInfo() {
     sha256: checksum.sha256.toLowerCase(),
     jar: join(dirname(generatorCli), "versions", `${version}.jar`),
     url: `https://repo.maven.apache.org/maven2/org/openapitools/openapi-generator-cli/${version}/openapi-generator-cli-${version}.jar`,
+    fallbackUrls: [
+      `https://repo1.maven.org/maven2/org/openapitools/openapi-generator-cli/${version}/openapi-generator-cli-${version}.jar`,
+    ],
   };
 }
 
@@ -62,36 +65,45 @@ async function matchesChecksum(path, expected) {
 
 export async function prepareGenerator(info) {
   info ??= await getGeneratorInfo();
-  const { jar, sha256, url, version } = info;
+  const { jar, sha256, url, fallbackUrls = [], version } = info;
   if (await matchesChecksum(jar, sha256)) return jar;
 
   await mkdir(dirname(jar), { recursive: true });
   await rm(jar, { force: true });
   const temporary = `${jar}.${randomUUID()}.tmp`;
   try {
-    // curl honors proxy settings and Retry-After, and retries only download failures.
-    await run(
-      "curl",
-      [
-        "--fail",
-        "--location",
-        "--silent",
-        "--show-error",
-        "--retry",
-        "3",
-        "--retry-connrefused",
-        "--retry-max-time",
-        "120",
-        "--connect-timeout",
-        "10",
-        "--max-time",
-        "45",
-        "--output",
-        temporary,
-        url,
-      ],
-      { timeout: 180_000, windowsHide: true },
-    );
+    const urls = [url, ...fallbackUrls];
+    for (const [index, downloadUrl] of urls.entries()) {
+      try {
+        // curl honors proxy settings and Retry-After, and retries only download failures.
+        await run(
+          "curl",
+          [
+            "--fail",
+            "--location",
+            "--silent",
+            "--show-error",
+            "--retry",
+            "3",
+            "--retry-connrefused",
+            "--retry-max-time",
+            "120",
+            "--connect-timeout",
+            "10",
+            "--max-time",
+            "45",
+            "--output",
+            temporary,
+            downloadUrl,
+          ],
+          { timeout: 180_000, windowsHide: true },
+        );
+        break;
+      } catch (error) {
+        await rm(temporary, { force: true });
+        if (index === urls.length - 1) throw error;
+      }
+    }
     if (!(await matchesChecksum(temporary, sha256))) {
       throw new Error(`SHA-256 mismatch for OpenAPI Generator ${version}`);
     }

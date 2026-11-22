@@ -32,22 +32,24 @@ REPOSITORY_ROOT = PLUGIN_ROOT.parents[3]
 
 def test_scope_resolver_uses_server_binding_and_fixes_new_session(
     scope_module: ModuleType,
+    scope_binding_client: ModuleType,
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     requests: list[tuple[str, dict[str, object], str]] = []
 
-    def post(path, payload, *, settings, deadline, method="POST"):
+    def post(path, payload, *, host, settings, deadline, method="POST"):
         requests.append((path, payload, method))
         return {"scope_id": "scp_00000000000000000000000000"}
 
-    monkeypatch.setattr(scope_module, "_post_json", post)
-    monkeypatch.setattr(scope_module, "_git_value", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(scope_binding_client, "_request_json", post)
+    monkeypatch.setattr(scope_binding_client, "_git_value", lambda *_args, **_kwargs: None)
 
-    resolved = scope_module.resolve_scope_id(
+    resolved = scope_binding_client.resolve_scope_id(
+        scope_module.CODEX,
         str(tmp_path),
         session_id="session-1",
-        settings=scope_module.CodexPluginSettings(),
+        settings=scope_module.CodexPluginSettings().scope_binding_settings(),
         deadline=float("inf"),
         persist_session=True,
     )
@@ -69,7 +71,7 @@ def test_scope_resolver_uses_server_binding_and_fixes_new_session(
     )
 
 
-def test_open_bounded_enforces_the_deadline_while_headers_trickle(scope_module: ModuleType) -> None:
+def test_open_bounded_enforces_the_deadline_while_headers_trickle(scope_binding_client: ModuleType) -> None:
     listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     listener.bind(("127.0.0.1", 0))
     listener.listen()
@@ -89,11 +91,11 @@ def test_open_bounded_enforces_the_deadline_while_headers_trickle(scope_module: 
 
     worker = threading.Thread(target=trickle, daemon=True)
     worker.start()
-    request = scope_module.Request(f"http://127.0.0.1:{port}/v1/stats", data=b"{}", method="POST")
+    request = scope_binding_client.Request(f"http://127.0.0.1:{port}/v1/stats", data=b"{}", method="POST")
     try:
         started = time.monotonic()
         with pytest.raises(TimeoutError):
-            scope_module.open_bounded(request, timeout=0.3)
+            scope_binding_client.open_bounded(request, timeout=0.3)
         elapsed = time.monotonic() - started
     finally:
         listener.close()
