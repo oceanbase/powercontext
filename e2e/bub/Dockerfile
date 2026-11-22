@@ -54,7 +54,9 @@ RUN --mount=type=cache,id=powercontext-bub-e2e-uv,target=/root/.cache/uv \
     && SETUPTOOLS_SCM_PRETEND_VERSION="${POWERCONTEXT_VERSION}" \
     uv sync --project e2e/bub --frozen --no-dev --no-editable --refresh-package powercontext \
     && test "$(e2e/bub/.venv/bin/python -c 'from importlib.metadata import version; print(version("powercontext"))')" \
-    = "${POWERCONTEXT_VERSION}"
+    = "${POWERCONTEXT_VERSION}" \
+    && SETUPTOOLS_SCM_PRETEND_VERSION="${POWERCONTEXT_VERSION}" \
+    uv build --wheel --out-dir "dist/harness-wheels/${POWERCONTEXT_VERSION}"
 
 COPY --chmod=0755 e2e/bub/container-entrypoint.sh /usr/local/bin/powercontext-e2e-container
 RUN chmod 0755 /usr/local/bin/powercontext-e2e-container && test -x /usr/local/bin/powercontext-e2e-container

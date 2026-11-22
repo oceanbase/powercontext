@@ -25,7 +25,7 @@ from typing import Any, Protocol, override
 from harbor.models.trial.config import AgentConfig, ServiceVolumeConfig
 
 from .catalog import E2ETask, MemoryEvaluationSpec, is_paired
-from .harbor_agent import BUB_ACP_SERVER_VERSION, BUB_VERSION, REMOTE_CODEX_AUTH, REMOTE_SOURCE
+from .harbor_agent import BUB_ACP_SERVER_VERSION, BUB_VERSION, POWERCONTEXT_VERSION, REMOTE_CODEX_AUTH, REMOTE_SOURCE
 from .harbor_claude_code import CLAUDE_CODE_VERSION
 from .harbor_codex import CODEX_VERSION
 from .harbor_kimi_code import KIMI_CODE_VERSION, KIMI_TOKEN, plugin_endpoint
@@ -39,9 +39,6 @@ from .settings import (
     prefixed_environment,
     server_api_token,
 )
-
-# Bub installs its plugin against the local powercontext package, so its container gets that package's sources.
-POWERCONTEXT_PACKAGE_PATHS = ("pyproject.toml", "README.md", "LICENSE", "src")
 
 
 class HostAdapter(Protocol):
@@ -99,7 +96,7 @@ class BubHost:
         return {}
 
     def mounts(self, task: E2ETask, repository: Path, *, powercontext: bool) -> list[ServiceVolumeConfig]:
-        paths = (*POWERCONTEXT_PACKAGE_PATHS, "integrations/bub", "e2e/bub/source-overrides.txt")
+        paths = (f"dist/harness-wheels/{POWERCONTEXT_VERSION}", "integrations/bub")
         mounts = source_mounts(repository, paths) if powercontext else []
         # The Codex login authenticates Bub's model, so both arms get it.
         if task.execution.model and (auth_path := codex_auth_path()).is_file():

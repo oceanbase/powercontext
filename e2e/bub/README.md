@@ -104,6 +104,10 @@ export POWERCONTEXT_BUB_TRUST_TRANSPORT_SECURITY=true
 make harness-acceptance
 ```
 
+The acceptance and paired targets build the current SDK's native wheel before starting Bub. Task containers install
+that wheel and the local Bub plugin without compiling Rust. The Compose image prepares the same wheel during its build;
+when invoking the Python CLI directly, run `make harness-wheel` first.
+
 The default run executes all acceptance tasks with collect-all, then reruns `batch:acceptance` with fail-fast. LoCoMo
 stays in its own `batch:locomo`; the database decision and failure-policy tasks share `batch:acceptance`. Explicit
 selection runs only the selected workloads with the requested failure policy.

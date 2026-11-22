@@ -35,10 +35,11 @@ REMOTE_BUB_PROJECT = "/installed-agent/bub-project"
 REMOTE_CODEX_AUTH = "/run/agent-auth/codex-auth.json"
 REMOTE_CODEX_HOME = "/installed-agent/codex"
 REMOTE_SOURCE = "/opt/powercontext/source"
-REMOTE_SOURCE_OVERRIDE = f"{REMOTE_SOURCE}/e2e/bub/source-overrides.txt"
+REMOTE_SOURCE_OVERRIDE = "/installed-agent/powercontext-overrides.txt"
 REMOTE_TOOL_DIR = "/installed-agent/tools"
 BUB_VERSION = version("bub")
 POWERCONTEXT_VERSION = version("powercontext")
+REMOTE_WHEEL_DIRECTORY = f"{REMOTE_SOURCE}/dist/harness-wheels/{POWERCONTEXT_VERSION}"
 # Change ACP_SDK_REQUIREMENT together with this version: it repeats the server's own pin of the ACP SDK.
 BUB_ACP_SERVER_VERSION = "0.1.3"
 # bub-acp-server 0.1.3 pins this pre-release. uv accepts a pre-release only when a direct requirement names it, so the
@@ -178,6 +179,13 @@ def _tool_environment() -> str:
 def _install_bub_command(*, powercontext: bool = True) -> str:
     uv = f"{harbor_acp.AcpAgent._RUNNER_VENV_PATH}/bin/uv"
     plugin = f"--overrides {REMOTE_SOURCE_OVERRIDE} --with {REMOTE_SOURCE}/integrations/bub " if powercontext else ""
+    wheel_override = (
+        f"set -- {REMOTE_WHEEL_DIRECTORY}/powercontext-*.whl; "
+        'test "$#" -eq 1; test -f "$1"; '
+        f"printf 'powercontext[client] @ file://%s\n' \"$1\" > {REMOTE_SOURCE_OVERRIDE}; "
+        if powercontext
+        else ""
+    )
     return (
         "set -eu; "
         f"mkdir -p {REMOTE_BIN_DIR} {REMOTE_BUB_HOME} {REMOTE_BUB_PROJECT} {REMOTE_CODEX_HOME}; "
@@ -185,6 +193,7 @@ def _install_bub_command(*, powercontext: bool = True) -> str:
         f"cp {REMOTE_CODEX_AUTH} {REMOTE_CODEX_HOME}/auth.json; "
         f"chmod 600 {REMOTE_CODEX_HOME}/auth.json; "
         "fi; "
+        f"{wheel_override}"
         f"SETUPTOOLS_SCM_PRETEND_VERSION={shlex.quote(POWERCONTEXT_VERSION)} {_tool_environment()} "
         f"{uv} tool install --force {plugin}"
         f"{shlex.quote(f'bub[app]=={BUB_VERSION}')}"

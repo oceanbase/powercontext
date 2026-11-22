@@ -30,12 +30,12 @@ from powercontext_e2e.harbor_agent import (
     HARBOR_ACP_SDK_REQUIREMENT,
     REMOTE_BIN_DIR,
     REMOTE_SOURCE_OVERRIDE,
+    REMOTE_WHEEL_DIRECTORY,
     _install_acp_server_command,
     _install_bub_command,
 )
 from powercontext_e2e.harbor_codex import MCP_URL_REWRITE, plugin_mcp_url
 
-_SOURCE_OVERRIDE = Path(__file__).resolve().parents[1] / "source-overrides.txt"
 _CODEX_PLUGIN = Path(__file__).resolve().parents[3] / "integrations" / "codex" / "plugins" / "powercontext"
 
 
@@ -45,14 +45,14 @@ def test_install_bub_command_provides_powercontext_version() -> None:
     assert version_assignment in _install_bub_command().split()
 
 
-def test_install_bub_command_overrides_release_floor_for_mounted_source() -> None:
-    command = shlex.split(_install_bub_command())
+def test_install_bub_command_overrides_release_floor_with_current_wheel() -> None:
+    shell_command = _install_bub_command()
+    command = shlex.split(shell_command)
     override_index = command.index("--overrides")
 
     assert command[override_index + 1] == REMOTE_SOURCE_OVERRIDE
-    assert _SOURCE_OVERRIDE.read_text(encoding="utf-8").splitlines()[-1] == (
-        "powercontext[client] @ file:///opt/powercontext/source"
-    )
+    assert f"{REMOTE_WHEEL_DIRECTORY}/powercontext-*.whl" in shell_command
+    assert "powercontext[client] @ file://%s\n" in command
 
 
 def test_off_arm_installs_bub_without_the_powercontext_plugin() -> None:
