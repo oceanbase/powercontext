@@ -146,7 +146,11 @@ def test_cache_helpers_route_restore_outputs_and_builder_downloads(helper: str, 
             "restored-key" if hit else ""
         )
     if helper == "setup-bundle-builder":
-        downloads = [step for step in action["runs"]["steps"] if "pip download" in step.get("run", "")]
+        downloads = [
+            step
+            for step in action["runs"]["steps"]
+            if step.get("name") == "Download and verify pinned build-tool wheels"
+        ]
         assert len(downloads) == 1
         assert cache_expression(downloads[0]["if"], context) == (hit != "true")
         saves = [

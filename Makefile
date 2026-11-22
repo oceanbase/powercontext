@@ -87,7 +87,7 @@ gateway-tck: ## Check gateway protocol behavior against pinned upstream compatib
 
 .PHONY: evaluation-unit-test
 evaluation-unit-test: ## Run the evaluation unit tests, the work-continuity and agent tool recovery suites included.
-	@uv sync --project evaluation --frozen --extra capture-ownership
+	@python3 scripts/ci_python_mirror.py sync --project evaluation --frozen --extra capture-ownership
 	@uv run --project evaluation --extra capture-ownership pytest -c evaluation/pyproject.toml \
 		evaluation/artifact_evolution/tests \
 		evaluation/coding/swebench_pro/tests/unit \
@@ -99,7 +99,7 @@ evaluation-unit-test: ## Run the evaluation unit tests, the work-continuity and 
 
 .PHONY: code-seekdb-test
 code-seekdb-test: ## Exercise native code indexing against a real embedded seekdb instance.
-	@uv sync --locked --extra seekdb --extra code
+	@python3 scripts/ci_python_mirror.py sync --locked --extra seekdb --extra code
 	@uv run --locked --extra seekdb --extra code python -m pytest -o faulthandler_timeout=0 tests/e2e/test_mysql_source_roundtrip.py tests/e2e/test_native_code_seekdb.py
 
 .PHONY: real-e2e-test
@@ -119,12 +119,12 @@ topic-memory-r8-acceptance: ## Run bounded R8 hermetic and available real produc
 
 .PHONY: harness-sync
 harness-sync: ## Install the Bub replay harness environment.
-	@uv sync --project e2e/bub --locked
+	@python3 scripts/ci_python_mirror.py sync --project e2e/bub --locked
 
-OPENDAL_TEST_RUN = uv run --isolated --no-project --python 3.12 \
+OPENDAL_TEST_RUN = python3 scripts/ci_python_mirror.py run --isolated --no-project --python 3.12 \
 	--with-editable ".[server]" \
 	--with-editable ./integrations/opendal \
-	--with pytest --with ruff --with ty
+	--with pytest --with ruff --with ty --
 
 .PHONY: opendal-test
 opendal-test: ## Validate the standalone OpenDAL Connector against this checkout.
@@ -259,7 +259,7 @@ pi-test: ## Install and test the Pi package.
 
 .PHONY: dify-test
 dify-test: ## Check the isolated Dify SDK plugin and real PowerContext HTTP/SQLite tools.
-	@uv sync --locked --project integrations/dify --python 3.12
+	@python3 scripts/ci_python_mirror.py sync --locked --project integrations/dify --python 3.12
 	@uv run --project integrations/dify python integrations/dify/generate_requirements.py --check
 	@uv run --project integrations/dify python -X utf8 integrations/dify/generate_contract.py --check
 	@uv run --project integrations/dify ruff check integrations/dify
@@ -271,7 +271,7 @@ dify-test: ## Check the isolated Dify SDK plugin and real PowerContext HTTP/SQLi
 .PHONY: build
 build: clean-build ## Build wheel file
 	@echo "🚀 Creating wheel file"
-	@uv build
+	@python3 scripts/ci_python_mirror.py build
 
 # Export rather than interpolate VERSION into shell commands.
 export VERSION

@@ -454,6 +454,8 @@ def _job_config(
         if host.name == "bub"
         else []
     )
+    if host.name == "codex" and scope_id is not None:
+        mirror_hosts.append(urlparse(environ.get("PC_CI_PYTHON_MIRROR", "")).hostname)
     if settings.agent_proxy_url is not None or any(mirror_hosts):
         # Explicit task package mirrors are direct routes; runner loopback mirrors are never forwarded.
         bypass = ["127.0.0.1", "localhost", "host-gateway", "powercontext"]

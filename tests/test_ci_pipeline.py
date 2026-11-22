@@ -319,7 +319,7 @@ def test_all_end_to_end_suites_have_extended_timeout():
 def test_installation_roles_use_only_two_python_runners():
     job = workflow("master.yml")["jobs"]["isolated-installations"]
     assert job["strategy"]["matrix"] == {"python-version": ["3.11", "3.14"]}
-    build = [step for step in job["steps"] if "uv build --wheel" in step.get("run", "")]
+    build = [step for step in job["steps"] if "build --wheel" in step.get("run", "")]
     assert len(build) == 1
     verify = next(step for step in job["steps"] if "ci_installation_roles.py" in step.get("run", ""))
     assert not verify.get("continue-on-error")
