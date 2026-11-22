@@ -28,6 +28,7 @@ from powercontext.builtin.inference.model_payload import (
     parse_json_evidence,
 )
 from powercontext.builtin.inference.privacy import PrivacyDecision, PrivacyPolicy
+from powercontext.builtin.inference.responses_stream import inspect_responses_events
 
 
 def _stream_fragments(value: object, parts: dict[tuple[str, ...], list[str]], path: tuple[str, ...] = ()) -> None:
@@ -68,13 +69,13 @@ def _stream_fragments(value: object, parts: dict[tuple[str, ...], list[str]], pa
 def inspect_sse(policy: PrivacyPolicy, body: bytes, profile_id: str) -> PrivacyDecision:  # noqa: C901 - protocol-specific terminal signals
     """Inspect a fully buffered SSE carrier and every supported joined text field.
 
-    This supports OpenAI Chat with one choice, separate from the public JSON
-    carrier. Nothing is yielded before the entire bounded stream passes.
+    This supports OpenAI Chat with one choice and Responses, separate from the
+    public JSON carrier. Nothing is yielded before the entire bounded stream passes.
     """
 
     phase = "before_release"
     profile = policy.config.targets.get(profile_id)
-    if profile is None or not profile.allow_streaming or profile.protocol != "openai-chat":
+    if profile is None or not profile.allow_streaming or profile.protocol not in {"openai-chat", "openai-responses"}:
         return policy.decision(phase, "withhold", "streaming_unsupported")
     if len(body) > policy.config.max_response_bytes:
         return policy.decision(phase, "withhold", "payload_too_large")
@@ -92,6 +93,8 @@ def inspect_sse(policy: PrivacyPolicy, body: bytes, profile_id: str) -> PrivacyD
         events = _sse_events(text)
     except ValueError as error:
         return policy.decision(phase, "withhold", str(error))
+    if profile.protocol == "openai-responses":
+        return inspect_responses_events(policy, events, profile_id)
     for event in events:
         if terminal:
             return policy.decision(phase, "withhold", "sse_data_after_terminal")
@@ -172,7 +175,10 @@ def _sse_events(text: str) -> list[str]:
     """Retain frame data verbatim; EOF inside a frame is incomplete."""
     data_lines: list[str] = []
     events: list[str] = []
-    for line in text.replace("\r\n", "\n").replace("\r", "\n").split("\n"):
+    lines = text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    if not lines[-1]:
+        lines.pop()  # A line terminator is not an additional empty SSE line.
+    for line in lines:
         if not line:
             if data_lines:
                 events.append("\n".join(data_lines))

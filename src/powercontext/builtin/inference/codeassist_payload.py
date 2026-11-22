@@ -69,7 +69,11 @@ def _part_supported(part: object) -> bool:
     if not isinstance(part, dict):
         return False
     if "text" in part:
-        return set(part) <= {"text", "thought"} and isinstance(part.get("text"), str)
+        return (
+            set(part) <= {"text", "thought"}
+            and isinstance(part.get("text"), str)
+            and (part.get("thought") is None or isinstance(part.get("thought"), bool))
+        )
     for key, payload in (("functionCall", "args"), ("functionResponse", "response")):
         if set(part) == {key}:
             call = part.get(key)
@@ -139,10 +143,15 @@ def joined_text(value: dict[str, object]) -> tuple[str, ...]:
         parts = content.get("parts") if isinstance(content, dict) else None
         if not isinstance(parts, list):
             continue
-        fragments = []
+        visible_fragments = []
+        thought_fragments = []
         for part in parts:
-            text = part.get("text") if isinstance(part, dict) else None
+            if not isinstance(part, dict):
+                continue
+            text = part.get("text")
             if isinstance(text, str):
+                # Consumers render thoughts separately; neither channel can interrupt the other's text.
+                fragments = thought_fragments if part.get("thought") is True else visible_fragments
                 fragments.append(text)
-        texts.append("".join(fragments))
+        texts.extend(("".join(visible_fragments), "".join(thought_fragments)))
     return tuple(texts)

@@ -91,7 +91,7 @@ pub(crate) fn codeassist_request(body: &Value, project: &str) -> Result<Value, R
                 .ok()
                 .filter(Value::is_object)
                 .unwrap_or_else(|| json!({"output":text}));
-            parts = vec![json!({"functionResponse":{"name":name,"response":response}})];
+            parts = vec![json!({"functionResponse":{"id":id,"name":name,"response":response}})];
         }
         if let Some(calls) = message.get("tool_calls") {
             if role != "assistant" {
@@ -111,7 +111,7 @@ pub(crate) fn codeassist_request(body: &Value, project: &str) -> Result<Value, R
                     return Err(unsupported());
                 }
                 names.insert(id.to_owned(), name.to_owned());
-                let mut part = json!({"functionCall":{"name":name,"args":args}});
+                let mut part = json!({"functionCall":{"id":id,"name":name,"args":args}});
                 if let Some(signature) = call.pointer("/extra_content/google/thought_signature") {
                     part["thoughtSignature"] = signature.clone();
                 }
@@ -252,7 +252,11 @@ pub fn codeassist_chat_response(bytes: &[u8], model: &str) -> Option<Vec<u8>> {
                 let function = part.get("functionCall")?;
                 let args = function.get("args").filter(|v| v.is_object())?;
                 let name = function.get("name")?.as_str()?;
-                let call = json!({"type":"function","id":format!("{id}-call-{}",calls.len()),
+                let call_id = match function.get("id") {
+                    Some(call_id) => call_id.as_str()?.to_owned(),
+                    None => format!("gemini-call-{}", uuid::Uuid::new_v4()),
+                };
+                let call = json!({"type":"function","id":call_id,
                     "function":{"name":name,"arguments":serde_json::to_string(args).ok()?}});
                 calls.push(call);
             }

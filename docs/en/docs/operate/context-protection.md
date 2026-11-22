@@ -134,9 +134,10 @@ is separate from its five-minute response-correlation deadline. Pass it as `requ
 Current policy, identity, and retained context dependencies are checked again. A release permit cannot authorize a
 new request, and correlation never extends the send deadline. These permits do not provide exactly-once execution.
 
-The public carrier currently supports complete JSON. The local protected transport also supports OpenAI Chat SSE
-with a single choice and explicit `allow_streaming=true`. Other streaming profiles are withheld. It buffers the
-complete stream before release with byte, timeout, and concurrency limits. Do not wrap an SSE
+The public carrier currently supports complete JSON. With explicit `allow_streaming=true`, the local protected
+transport also supports OpenAI Chat SSE with a single choice and Responses SSE ending in a successful
+`response.completed` event. Other streaming profiles are withheld. It buffers and checks the complete stream before
+releasing its original bytes, with byte, timeout, and concurrency limits. Do not wrap an SSE
 summary in the JSON carrier and call it a complete original response. Strict buffering delays first content.
 
 HTTP over a Unix domain socket and remote HTTP(S) use the same DTOs. UDS does not replace bearer authentication.

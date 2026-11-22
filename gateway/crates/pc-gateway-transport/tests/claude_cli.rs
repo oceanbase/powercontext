@@ -17,7 +17,7 @@ use pc_gateway_transport::{
     AdmittedSend, GatewayTransport, ReqwestTransport, SendOutcome, Transport,
 };
 use serde_json::{json, Value};
-use std::{os::unix::fs::PermissionsExt, path::Path, time::Duration};
+use std::{os::unix::fs::PermissionsExt, path::Path};
 
 fn quote(path: &Path) -> String {
     format!("'{}'", path.to_str().unwrap().replace('\'', "'\\''"))
@@ -135,6 +135,8 @@ async fn goose_original_usage_and_errors_with_print_mode_adapter() {
 #[cfg(target_os = "linux")]
 #[tokio::test]
 async fn cancellation_terminates_the_real_cli_process_group() {
+    use std::time::Duration;
+
     let directory = tempfile::tempdir().unwrap();
     let parent = directory.path().join("parent");
     let descendant = directory.path().join("descendant");

@@ -123,9 +123,10 @@ Gateway 只有在可信的 Core 能力发现明确返回 `enforcing=false` 时�
 `completion: "complete"`，再次验证当前策略、身份和准备依赖。
 交付批准不能用于发送新请求，关联期限也不能延长发送期限；绑定不提供恰好一次执行保证。
 
-公开 carrier 当前支持完整 JSON。本地 protected transport 另外支持单 choice 的 OpenAI Chat SSE，
-需要显式设置 `allow_streaming=true`，其他流式 profile 暂缓发送。
-交付前按字节、时间、并发上限缓冲完整流；不能把 SSE 摘要包装成 JSON 并声称是完整原始响应。
+公开 carrier 当前支持完整 JSON。显式设置 `allow_streaming=true` 后，本地 protected transport 另外支持
+单 choice 的 OpenAI Chat SSE，以及以成功的 `response.completed` 事件结束的 Responses SSE。
+其他流式 profile 暂缓交付。按字节、时间、并发上限缓冲并检查完整流后，才交付原始字节；
+不能把 SSE 摘要包装成 JSON 并声称是完整原始响应。
 Strict 缓冲会推迟首段内容到达时间。
 
 HTTP over UDS 与远端 HTTP(S) 使用相同 DTO。UDS 不替代 bearer 认证。
