@@ -1,0 +1,37 @@
+.github/actions/cache-npm/action.yml
+  s_2ef0feea0a110d::t_52858dae56c78e 23-26
+Makefile
+  s_2ef0feea0a110d::t_816888ae3fee94 87,206,223,228,240,251,259,320
+  s_2ef0feea0a110d::t_29a9b04a4b2af2 1-3
+.github/workflows/master.yml
+  s_2ef0feea0a110d::t_816888ae3fee94 321,1111-1117,1121-1127,1132,1276,1337,1495,1523
+.github/actions/cache-pnpm/action.yml
+  s_2ef0feea0a110d::t_52858dae56c78e 30-33
+integrations/dsh/plugins/powercontext/tests/pack-release.test.mjs
+  s_2ef0feea0a110d::t_52858dae56c78e 36-40
+.github/workflows/kimi-code-acceptance.yml
+  s_2ef0feea0a110d::t_3ccce666c16eb1 71-75
+scripts/ci_node_mirror.mjs
+  s_2ef0feea0a110d::t_82741b569a42fa 32,41,50,67,88,90-94,128
+  s_2ef0feea0a110d::t_80390c7e61dfa7 1-31,33-40,42-49,51-66,68-87,89,95-127,129-144
+.github/workflows/gateway.yml
+  s_2ef0feea0a110d::t_52858dae56c78e 74
+tests/test_ci_node_mirror.py
+  s_2ef0feea0a110d::t_fde4f34057facb 1-256
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "96116e3bec6fe8502dfcc420bdc8d3349ca9555d",
+  "prompts": {},
+  "sessions": {
+    "s_2ef0feea0a110d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1a9cf-a4e7-7f63-9c51-1284f7c332e8",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "frf12 <rongfeng.frf@antgroup.com>"
+    }
+  }
+}
