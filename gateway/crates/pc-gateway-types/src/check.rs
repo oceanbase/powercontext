@@ -54,6 +54,13 @@ pub struct ModelJsonPayload {
     pub body: String,
 }
 
+/// Provider response before conversion to the final client protocol.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpstreamResponsePayload {
+    pub content_type: String,
+    pub body: String,
+}
+
 impl ModelJsonPayload {
     pub fn new(headers: BTreeMap<String, String>, body: String) -> Self {
         Self {
@@ -101,6 +108,8 @@ pub enum ContextCheckRequest {
         /// 对应 before_send allow 返回的 binding。
         request_binding: String,
         payload: ModelJsonPayload,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        upstream_payload: Option<UpstreamResponsePayload>,
         completion: String,
     },
 }

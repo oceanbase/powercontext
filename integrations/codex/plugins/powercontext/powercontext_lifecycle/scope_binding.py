@@ -261,7 +261,7 @@ def _read_bounded(response: _Response, *, deadline: float) -> bytes:
     size = 0
     while True:
         _set_response_timeout(response, _remaining_time(deadline))
-        chunk = response.read(1)
+        chunk = response.read(min(65_536, _MAX_RESPONSE_BYTES + 1 - size))
         if not chunk:
             return complete_body(response, b"".join(chunks))
         size += len(chunk)

@@ -22,11 +22,13 @@ from typing import cast
 from powercontext.builtin.inference.model_payload import (
     complete_tool_arguments,
     contains_opaque_content,
+    joined_content_text,
     json_unsigned_integer,
     nested_json_text,
     parse_json_evidence,
 )
 from powercontext.builtin.inference.privacy import PrivacyDecision, PrivacyPolicy
+from powercontext.builtin.inference.responses_stream import inspect_responses_events
 
 
 def _stream_fragments(value: object, parts: dict[tuple[str, ...], list[str]], path: tuple[str, ...] = ()) -> None:
@@ -67,13 +69,13 @@ def _stream_fragments(value: object, parts: dict[tuple[str, ...], list[str]], pa
 def inspect_sse(policy: PrivacyPolicy, body: bytes, profile_id: str) -> PrivacyDecision:  # noqa: C901 - protocol-specific terminal signals
     """Inspect a fully buffered SSE carrier and every supported joined text field.
 
-    This supports OpenAI Chat with one choice, separate from the public JSON
-    carrier. Nothing is yielded before the entire bounded stream passes.
+    This supports OpenAI Chat with one choice and Responses, separate from the
+    public JSON carrier. Nothing is yielded before the entire bounded stream passes.
     """
 
     phase = "before_release"
     profile = policy.config.targets.get(profile_id)
-    if profile is None or not profile.allow_streaming or profile.protocol != "openai-chat":
+    if profile is None or not profile.allow_streaming or profile.protocol not in {"openai-chat", "openai-responses"}:
         return policy.decision(phase, "withhold", "streaming_unsupported")
     if len(body) > policy.config.max_response_bytes:
         return policy.decision(phase, "withhold", "payload_too_large")
@@ -87,21 +89,12 @@ def inspect_sse(policy: PrivacyPolicy, body: bytes, profile_id: str) -> PrivacyD
     terminal = False
     finished = False
     tool_count = 0
-    data_lines: list[str] = []
-    events: list[str] = []
-    # Only blank-line-terminated events are complete. EOF inside a frame with
-    # otherwise valid JSON is still an interrupted carrier.
-    for line in text.replace("\r\n", "\n").replace("\r", "\n").split("\n"):
-        if not line:
-            if data_lines:
-                events.append("\n".join(data_lines))
-                data_lines.clear()
-        elif line.startswith("data:"):
-            data_lines.append(line[5:].removeprefix(" "))
-        elif not line.startswith((":", "event:", "id:", "retry:")):
-            return policy.decision(phase, "withhold", "sse_invalid")
-    if data_lines or len(events) > 16384:
-        return policy.decision(phase, "withhold", "sse_incomplete_or_too_large")
+    try:
+        events = _sse_events(text)
+    except ValueError as error:
+        return policy.decision(phase, "withhold", str(error))
+    if profile.protocol == "openai-responses":
+        return inspect_responses_events(policy, events, profile_id)
     for event in events:
         if terminal:
             return policy.decision(phase, "withhold", "sse_data_after_terminal")
@@ -175,4 +168,82 @@ def inspect_sse(policy: PrivacyPolicy, body: bytes, profile_id: str) -> PrivacyD
         return policy.decision(phase, "withhold", "tool_arguments_incomplete")
     if not terminal or not finished:
         return policy.decision(phase, "withhold", "response_incomplete")
+    return policy.decision(phase, "allow", complete=True)
+
+
+def _sse_events(text: str) -> list[str]:
+    """Retain frame data verbatim; EOF inside a frame is incomplete."""
+    data_lines: list[str] = []
+    events: list[str] = []
+    lines = text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    if not lines[-1]:
+        lines.pop()  # A line terminator is not an additional empty SSE line.
+    for line in lines:
+        if not line:
+            if data_lines:
+                events.append("\n".join(data_lines))
+                data_lines.clear()
+        elif line.startswith("data:"):
+            data_lines.append(line[5:].removeprefix(" "))
+        elif not line.startswith((":", "event:", "id:", "retry:")):
+            raise ValueError("sse_invalid")
+    if data_lines or len(events) > 16384:
+        raise ValueError("sse_incomplete_or_too_large")
+    return events
+
+
+def inspect_upstream_response(  # noqa: C901 - JSON uses its native checker; SSE retains frame and fragment evidence
+    policy: PrivacyPolicy, body: bytes, headers: dict[str, str], profile_id: str
+) -> PrivacyDecision:
+    """Inspect pre-conversion evidence without granting final response admission."""
+    phase = "before_release"
+    profile = policy.config.targets[profile_id]
+    media = headers["content-type"].split(";", 1)[0].strip()
+    try:
+        text = body.decode("utf-8", errors="strict")
+        if policy.forbidden((text, *headers.values())):
+            return policy.decision(phase, "block", "forbidden_content", complete=True)
+        if media == "application/json":
+            if profile.protocol == "google-codeassist-chat":
+                native = profile.model_copy(update={"protocol": "google-codeassist"})
+                policy = PrivacyPolicy(policy.config.model_copy(update={"targets": {profile_id: native}}))
+            return policy.inspect_json(body, phase=phase, target_profile=profile_id, headers=headers)
+        elif media == "text/event-stream" and profile.protocol == "openai-responses":
+            events = _sse_events(text)
+        else:
+            return policy.decision(phase, "withhold", "carrier_unsupported")
+        if not events or all(event == "[DONE]" for event in events):
+            return policy.decision(phase, "withhold", "response_incomplete")
+        parts: dict[tuple[str, ...], list[str]] = defaultdict(list)
+        for event in events:
+            if event == "[DONE]":
+                continue
+            value, strings, duplicate = parse_json_evidence(event, policy.config.max_json_depth)
+            nested, repeated = nested_json_text(strings, policy.config.max_json_depth)
+            if policy.forbidden(strings + nested + joined_content_text(value)):
+                return policy.decision(phase, "block", "forbidden_content", complete=True)
+            if duplicate or repeated:
+                return policy.decision(phase, "withhold", "json_duplicate_key")
+            if contains_opaque_content(value, protocol="openai-responses"):
+                return policy.decision(phase, "withhold", "content_unsupported")
+            event_type = value.get("type")
+            if (
+                event_type in ("response.output_item.added", "response.output_item.done")
+                and contains_opaque_content(value.get("item"))
+            ) or (
+                event_type in ("response.content_part.added", "response.content_part.done")
+                and contains_opaque_content(value.get("part"))
+            ):
+                return policy.decision(phase, "withhold", "content_unsupported")
+            identity = json_unsigned_integer(value.get("output_index")) or 0
+            content = json_unsigned_integer(value.get("content_index")) or 0
+            _stream_fragments(value, parts, (str(identity), str(content), str(event_type)))
+        joined = tuple("".join(fragments) for fragments in parts.values())
+        nested, repeated = nested_json_text(joined, policy.config.max_json_depth)
+        if policy.forbidden(joined + nested):
+            return policy.decision(phase, "block", "forbidden_content", complete=True)
+        if repeated:
+            return policy.decision(phase, "withhold", "json_duplicate_key")
+    except (ValueError, RecursionError, UnicodeError):
+        return policy.decision(phase, "withhold", "upstream_evidence_invalid")
     return policy.decision(phase, "allow", complete=True)

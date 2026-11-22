@@ -98,6 +98,9 @@ jobs:
 
   release-build:
     needs: resolve-release
+    permissions:
+      actions: read
+      contents: read
     uses: ./.github/workflows/upgrade-release.yml
     with:
       release: true

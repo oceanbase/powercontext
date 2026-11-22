@@ -96,6 +96,7 @@ from powercontext.http import (
 from powercontext.http._generated.models import PreparedContext
 from powercontext.server.factory import create_server_app
 from powercontext.server.settings import McpConfig, ServerSettings
+from tests.e2e.server_startup import SERVER_STARTUP_TIMEOUT_SECONDS
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_OUTPUT_ROOT = PROJECT_ROOT / ".powercontext-e2e"
@@ -297,7 +298,6 @@ class Recorder:
         )
 
 
-_SERVER_STARTUP_SECONDS = 15
 _CONFIGURED_SERVER_STARTUP_SECONDS = 60
 _SERVER_SHUTDOWN_WAIT_SECONDS = 15
 
@@ -2052,7 +2052,11 @@ def _start_server(database: Path) -> RunningServer:
         thread.start()
         owned = resources.pop_all()
         _wait_for_server_start(
-            server, thread, timeout=_SERVER_STARTUP_SECONDS, description="PowerContext Server", release=owned.close
+            server,
+            thread,
+            timeout=SERVER_STARTUP_TIMEOUT_SECONDS,
+            description="PowerContext Server",
+            release=owned.close,
         )
         return RunningServer(
             server=server,
