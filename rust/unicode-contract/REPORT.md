@@ -11,7 +11,7 @@ select a production strategy, and does not claim native coverage.
 | CPython 3.11.14 | 14.0.0 | PASS | 26 | 13 passed | PASS | PASS |
 | CPython 3.12.16 | 15.0.0 | PASS | 26 | 13 passed | PASS | PASS |
 | CPython 3.13.3 | 15.1.0 | PASS | 26 | 13 passed | PASS | PASS |
-| CPython 3.14 | 16.0.0 | **BLOCKED** — no interpreter on this host, and this investigation is not permitted to download one | — | — | — | — |
+| CPython 3.14.10 | 16.0.0 | PASS | 26 | 13 passed | PASS | PASS |
 
 Native/Rust execution: **NOT_RUN** for every cell (no Rust extension is built or loaded by this
 task; R/F/E are therefore `N/A`, not `0`).
@@ -19,13 +19,15 @@ task; R/F/E are therefore `N/A`, not `0`).
 ## Reproduce
 
 ```bash
-# 1. three real interpreters + locked dependencies + full matrix; ~1 min after sync
+# 1. four real interpreters + locked dependencies + full matrix; ~1 min after sync
+#    (3.14 was installed with `uv python install 3.14` for this run; it was not available when the
+#     first version of this report was written)
 export PYTHONDONTWRITEBYTECODE=1
 python rust/unicode-contract/probes/run_matrix.py \
   --python "3.11=C:/Users/AORUS/AppData/Roaming/uv/python/cpython-3.11-windows-x86_64-none/python.exe" \
   --python "3.12=C:/Users/AORUS/AppData/Roaming/uv/python/cpython-3.12-windows-x86_64-none/python.exe" \
   --python "3.13=C:/Python313/python.exe" \
-  --missing 3.14 \
+  --python "3.14=C:/Users/AORUS/AppData/Roaming/uv/python/cpython-3.14-windows-x86_64-none/python.exe" \
   --temp-root "$LOCALAPPDATA/Temp/pc2739-matrix" \
   --output rust/unicode-contract/evidence/matrix.json
 
@@ -50,15 +52,15 @@ python rust/unicode-contract/probes/negative_controls.py \
 ```
 
 Evidence written to `rust/unicode-contract/evidence/`:
-`matrix.json`, `cpython-{3.11,3.12,3.13}.json`, `cpython-3.13-replay.json`,
-`generator-{3.11,3.12,3.13}.json`, `negative-{3.11,3.12,3.13}.json`,
+`matrix.json`, `cpython-{3.11,3.12,3.13,3.14}.json`, `cpython-3.14-replay.json`,
+`generator-{3.11,3.12,3.13,3.14}.json`, `negative-{3.11,3.12,3.13,3.14}.json`,
 `candidate-inventory.json`, `public-metadata.json`.
 
 ## Result: where versions actually diverge
 
 26 lossless fixtures, executed against the real `search.analyze_text`,
 `search.lexical_terms_with_spans`, `analyze_text_with_spans`, `chunk_topic_memory_detail` and
-`prepare_topic_memory_projection` entries. All 26 cases behave identically on 3.12 and 3.13.
+`prepare_topic_memory_projection` entries. All 26 cases behave identically on 3.12 and 3.13; UCD 16 (3.14) keeps that 24-case core and differs on the two UCD-16 fixtures described below.
 **Exactly one case differs on 3.11**, and it is a genuine UCD assignment gap:
 
 | Fixture | Input | 3.11 (UCD 14.0.0) | 3.12 / 3.13 (UCD 15.0/15.1) |
@@ -98,6 +100,19 @@ Everything else is version-stable, including the cases most likely to break a Ru
 (`'NoneType' object has no attribute 'detail'` etc.), and the default-argument call is byte-identical
 to the explicit `topic_embedding=None, chunk_embeddings=(), embedding_profile=None` call.
 
+- UCD 16 (CPython 3.14.10) adds **two more divergences** that 3.12/3.13 cannot show, both already
+  represented in the fixed fixture set:
+  - `ucd16_cyrillic_tje` / `A`+U+1C89+`B`: U+1C89 (`CYRILLIC CAPITAL LETTER TJE`) is unassigned
+    before UCD 16 and `Lu` from 16.0, so NFC/casefold keeps `A U+1C89 B` at 3.13 but produces
+    `a U+1C8A b` (U+1C8A, `CYRILLIC SMALL LETTER TJE`) at 3.14 — `analyze_text` changes from
+    `pcu61 pcu62` to `pcu61e1b28a62`.
+  - `ucd_105d2_combining` / `A`+U+105D2+U+0307+`B`: U+105D2 is `TODHRI LETTER I` (`Lo`) from UCD 16,
+    so its `character_properties` row (`category`, `name`, `casefold`, `nfc`) and the resulting
+    `analyze_text`/span rows all differ from 3.13, where the codepoint was unassigned.
+
+  This is the same failure mode as the 3.11 row, now shown on a *newer* UCD: a table generated from
+  one UCD silently changes normalization, term boundaries and codepoint spans under another.
+
 ## Fixed candidate (#2735) table inventory — read-only
 
 `a774fd0b8b2ac1729f5dd9121c34e968dd980905`, 4 tables, 337,951 bytes total:
@@ -132,8 +147,10 @@ treating an unassigned codepoint as "ordinary character" is not stable across ve
 
 ## Limitations / not run
 
-- CPython 3.14 / UCD 16: no interpreter present; `uv python find 3.14` exits 2. Not downloaded by
-  design. Every 3.14 cell is `BLOCKED`, not inferred from the presence of `unicode16.json`.
+- CPython 3.14 / UCD 16 was **executed** (3.14.10, UCD 16.0.0) after installing the interpreter with
+  `uv python install 3.14`: 26 fixtures recorded and replayed, generator and negative controls PASS,
+  13/13 existing tests passed. No later 3.14.x patch level or free-threaded build was tested, and no
+  behaviour is inferred from the presence of `unicode16.json`.
 - No native/Rust path is built or loaded: native behavior, differential results, performance and
   R/F/E are `N/A`.
 - GIL / free-threaded interpreters, other operating systems, wheels and default integration are

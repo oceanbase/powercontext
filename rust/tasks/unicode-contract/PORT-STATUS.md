@@ -16,14 +16,15 @@ Product migration / default integration: **NOT_RUN / N/A**.
 | CPython 3.11.14 | 14.0.0 | 26 PASS | 13 passed | PASS (semantic+LF) | PASS |
 | CPython 3.12.16 | 15.0.0 | 26 PASS | 13 passed | PASS | PASS |
 | CPython 3.13.3 | 15.1.0 | 26 PASS | 13 passed | PASS | PASS |
-| CPython 3.14 | 16.0.0 | BLOCKED (no interpreter; not downloaded) | BLOCKED | BLOCKED | BLOCKED |
+| CPython 3.14.10 | 16.0.0 | 26 PASS | 13 passed | PASS | PASS |
 
 Reproduce: `python rust/unicode-contract/probes/run_matrix.py …` (see `rust/unicode-contract/REPORT.md`).
-Full matrix log: `rust/unicode-contract/evidence/matrix.json` — 23 commands, `unexpected_nonzero=0`.
+Full matrix log: `rust/unicode-contract/evidence/matrix.json` — 34 commands, `unexpected_nonzero=0`.
 
 ## Findings
 
-- 26/26 fixtures identical on 3.12 and 3.13; **1 differs on 3.11**: `ucd_1e4ec_combining`, because
+- 26/26 fixtures identical on 3.12 and 3.13; **2 differ on 3.14** (UCD 16 assigns U+1C89 and
+  U+105D2, changing NFC/casefold and therefore `analyze_text` spans); **1 differs on 3.11**: `ucd_1e4ec_combining`, because
   U+1E4EC is `Cn` under UCD 14.0.0 and `Mn`/`combining=232` from UCD 15.0.0. NFC composes the mark
   cluster on 3.12+ (`a`+U+1E4EC+U+0300 → `à`+U+1E4EC) but not on 3.11, which changes `analyze_text`
   output and term offsets.
@@ -40,7 +41,9 @@ Full matrix log: `rust/unicode-contract/evidence/matrix.json` — 23 commands, `
 
 ## Not run / blocked
 
-- CPython 3.14 / UCD 16 — `BLOCKED`; no interpreter present, download not permitted by the contract.
+- CPython 3.14 beyond 3.14.10 (other patch levels, free-threaded builds), other platforms and other
+  UCD revisions were not executed.
+
 - Any native/Rust path — `NOT_RUN`; no extension built or loaded, so R/F/E = `N/A`.
 - GIL and free-threaded interpreters, other platforms, wheels, default backend selection,
   independent review — `NOT_RUN`.
