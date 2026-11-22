@@ -492,6 +492,68 @@ mod tests {
 
     #[tokio::test]
     async fn handed_off_calls_drain_normally_or_stop_at_the_earlier_absolute_deadline() {
+        if std::env::var_os("PC_TEST_ISOLATED_DRAIN").is_none() {
+            use std::process::{Command, Stdio};
+            const TEST: &str = "connection::tests::handed_off_calls_drain_normally_or_stop_at_the_earlier_absolute_deadline";
+            struct Child {
+                process: std::process::Child,
+                output: std::path::PathBuf,
+            }
+            impl Drop for Child {
+                fn drop(&mut self) {
+                    let _ = self.process.kill();
+                    let _ = self.process.wait();
+                    let _ = std::fs::remove_dir_all(&self.output);
+                }
+            }
+            // Parallel process-spawning tests can inherit a live listener until
+            // exec closes it. Keep this socket-closure observation in its own
+            // process, while the rest of the test binary remains parallel.
+            let output = std::env::temp_dir().join(format!(
+                "pc-drain-test-{}-{}",
+                std::process::id(),
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos()
+            ));
+            std::fs::create_dir(&output).unwrap();
+            // Files avoid waiting for EOF on a pipe temporarily inherited by
+            // another parallel test's child. Only failures include child output.
+            let stdout = std::fs::File::create(output.join("stdout")).unwrap();
+            let stderr = std::fs::File::create(output.join("stderr")).unwrap();
+            let mut child = Child {
+                process: Command::new(std::env::current_exe().unwrap())
+                    .args(["--exact", TEST, "--nocapture"])
+                    .env("PC_TEST_ISOLATED_DRAIN", "1")
+                    .stdout(Stdio::from(stdout))
+                    .stderr(Stdio::from(stderr))
+                    .spawn()
+                    .unwrap(),
+                output,
+            };
+            let started = std::time::Instant::now();
+            let status = loop {
+                if let Some(status) = child.process.try_wait().unwrap() {
+                    break Some(status);
+                }
+                if started.elapsed() >= Duration::from_secs(30) {
+                    child.process.kill().unwrap();
+                    child.process.wait().unwrap();
+                    break None;
+                }
+                std::thread::sleep(Duration::from_millis(5));
+            };
+            let output = std::fs::read_to_string(child.output.join("stdout")).unwrap();
+            let errors = std::fs::read_to_string(child.output.join("stderr")).unwrap();
+            assert!(
+                status.is_some_and(|status| status.success())
+                    && output.lines().any(|line| line == format!("test {TEST} ... ok"))
+                    && output.contains("test result: ok. 1 passed; 0 failed; 0 ignored;"),
+                "isolated drain test did not complete its sole case: {status:?}\n{output}\n{errors}"
+            );
+            return;
+        }
         for mode in [
             "normal",
             "drain",
