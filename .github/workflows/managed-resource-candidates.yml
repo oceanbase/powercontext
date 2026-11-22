@@ -8,21 +8,16 @@ permissions:
   actions: read
 
 jobs:
-  intel-ops-diagnostic:
-    name: One-shot original Intel Ops startup observation
+  intel-ops-overlay:
+    name: One-shot Intel Ops candidate runtime validation
     runs-on: macos-15-intel
-    timeout-minutes: 45
+    timeout-minutes: 20
     defaults:
       run:
         shell: bash
-    env:
-      PACKAGE_SOURCE_SHA: aa8435fda29c0b0f58512e71a1cf52ae881e137e
-      PACKAGE_VERSION: 0.0.0+candidate.aa8435fda29c0b0f58512e71a1cf52ae881e137e
-      DEVELOPER_DIR: /Applications/Xcode_16.4.app/Contents/Developer
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          fetch-depth: 0
           persist-credentials: false
       - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
@@ -30,47 +25,20 @@ jobs:
           enable-cache: true
       - name: Install original locked build-host checks
         run: uv sync --locked --no-dev --group resource-build --python 3.12.10 --no-build-package cryptography --no-build-package jieba
-      - name: Retain exact historical metadata from the known artifact
+      - name: Download the one retained original Intel runtime
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          mkdir -p build/diagnostic-original
-          gh api repos/oceanbase/powercontext/actions/artifacts/14731621913/zip > build/diagnostic-original.zip
-          uv run --no-sync python - <<'PY'
-          import hashlib
-          import zipfile
-          from pathlib import Path
-          path = Path('build/diagnostic-original.zip')
-          assert hashlib.sha256(path.read_bytes()).hexdigest() == 'a0dc2b91387427fa93bb7eacba83cb154d64294341e1e21958ec6fc23d09d59e'
-          expected = {'resource-tests.xml', 'resource-evidence/workflow-status.json', 'resource-inputs/inputs.json', 'resource-inputs/requirements.lock'}
-          with zipfile.ZipFile(path) as archive:
-              assert set(archive.namelist()) == expected
-              assert archive.testzip() is None
-              archive.extractall('build/diagnostic-original')
-          PY
-      - name: Prepare the original pinned interpreter, source, and wheel closure once
+          mkdir -p build
+          gh api repos/oceanbase/powercontext/actions/artifacts/14732741934/zip > build/original-intel.zip
+      - name: Verify original bytes, apply one facade, and exercise real isolated Ops
         run: |
-          uv run --no-sync python scripts/prepare_managed_resources.py --target macos-x86_64 --source-ref "$PACKAGE_SOURCE_SHA" --server-version "$PACKAGE_VERSION" --output build/resource-inputs --download-cache build/resource-downloads
-      - name: Observe one original producer and its original 60-second Ops check
-        run: |
-          uv run --no-sync python scripts/diagnose_managed_ops.py --inputs build/resource-inputs --original-inputs build/diagnostic-original/resource-inputs/inputs.json --output build/resource-candidate --evidence build/ops-diagnostic
-      - name: Preserve the observed copied runtime for offline inspection
-        if: always()
-        run: |
-          if [ -d build/resource-candidate/ops ]; then
-            tar -czf build/ops-diagnostic-runtime.tar.gz -C build/resource-candidate ops
-          fi
-      - name: Retain diagnostic phases, streams, identities, and copied runtime
+          uv run --no-sync python scripts/validate_managed_ops_overlay.py --archive build/original-intel.zip --candidate .github/diagnostics/ops-init-candidate.py --work build/ops-overlay
+      - name: Retain exact candidate identity and all four bounded commands
         if: always()
         uses: ./.github/actions/upload-ci-diagnostics
         with:
-          name: intel-ops-startup-diagnostic-${{ github.run_id }}
-          path: |
-            build/ops-diagnostic/
-            build/ops-diagnostic-runtime.tar.gz
-            build/resource-inputs/inputs.json
-            build/resource-inputs/requirements.lock
-            build/resource-inputs/upstream-requirements.lock
-            build/diagnostic-original/
+          name: intel-ops-candidate-${{ github.run_id }}
+          path: build/ops-overlay/evidence/
           if-no-files-found: error
           retention-days: 7
