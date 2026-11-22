@@ -33,7 +33,7 @@ from pydantic import SecretStr
 from sqlalchemy import delete, event, insert, select, update
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import AsyncConnection, create_async_engine
-from sqlalchemy.pool import QueuePool
+from sqlalchemy.pool import PoolProxiedConnection, QueuePool
 from sqlalchemy.util import await_only
 
 from powercontext.builtin import processing_diagnostics
@@ -455,6 +455,45 @@ def test_an_attempt_that_expires_at_checkout_is_repeated(tmp_path: Path, monkeyp
                 await _assert_connection_restored(database)
             finally:
                 release_checkout.set()
+                await recorder.close()
+
+    asyncio.run(scenario())
+
+
+def test_an_attempt_that_expires_during_sqlite_setup_is_repeated(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Setup expiry applies no usage, so the batch can spend its remaining budget."""
+
+    async def scenario() -> None:
+        config = SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'slow-setup.db'}")
+        async with _database(config) as database:
+            setup_delayed = False
+            original_raw_connection = AsyncConnection.get_raw_connection
+
+            async def raw_connection(connection: AsyncConnection) -> PoolProxiedConnection:
+                nonlocal setup_delayed
+                raw = await original_raw_connection(connection)
+                if not setup_delayed:
+                    setup_delayed = True
+                    # Expire the first 1.25-second slice before its SQL body,
+                    # leaving the rest of the five-second budget for a retry.
+                    await asyncio.sleep(1.5)
+                return raw
+
+            monkeypatch.setattr(AsyncConnection, "get_raw_connection", raw_connection)
+            recorder = _ModelUsageRecorder(
+                database, StatisticsRepository(), write_timeout_seconds=5.0, flush_timeout_seconds=5.0
+            )
+            try:
+                _offer(recorder)
+                await recorder.flush()
+                assert setup_delayed
+                rows = await _rows(database)
+                assert len(rows) == 1
+                assert rows[0].requests == 1
+                await _assert_connection_restored(database)
+            finally:
                 await recorder.close()
 
     asyncio.run(scenario())
