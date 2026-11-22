@@ -133,11 +133,21 @@ Main 的 preflight 已检查全仓库的 lint 和格式；其 harness 验证运�
 
 缓存步骤执行前，后端 helper 读取 Pod 继承的环境变量，通过 `backend` 输出 `s3` 或 `github`。配置了内部地址但缺少必填项时，配置校验会失败。未配置地址时，共用 action 继续使用 GitHub 缓存。Windows、macOS 和 GitHub 托管任务保持原缓存后端，包括托管任务的 Docker 构建缓存。Artifact 的上传和下载也仍使用 GitHub。
 
-内部缓存通过 `runs-on/cache` 存储依赖与工具快照。已迁移任务中的 Python、pnpm、npm、Cargo、Go、mise、OpenAPI generator 和 pre-commit 缓存使用共用 action。已有的依赖安装后显式保存步骤仍在测试前执行；Rust 缓存也会在普通测试失败后保存。恢复 Rust 快照后会保留第三方依赖的编译结果，并重新构建工作区 crate，避免工作区之外的嵌入输入变化后仍使用旧二进制。取消任务或终止 runner 可能导致保存无法完成。GitHub 上已有的缓存对象不会自动复制；内部缓存和 runner 镜像都没有的软件包仍需从软件包源下载，命中缓存时则从内部服务传输内容。
+内部缓存通过 `runs-on/cache` 存储依赖与工具快照。已迁移任务中的 Python、pnpm、npm、pip、Cargo、Go、mise、OpenAPI generator 和 pre-commit 缓存使用共用 action。依赖安装和 pre-commit 环境准备完成后会在检查开始前保存快照；Rust 缓存也会在普通测试失败后保存。恢复 Rust 快照后会保留第三方依赖的编译结果，并重新构建工作区 crate，避免工作区之外的嵌入输入变化后仍使用旧二进制。取消任务或终止 runner 可能导致保存无法完成。GitHub 上已有的缓存对象不会自动复制；内部缓存和 runner 镜像都没有的软件包仍需从软件包源下载，命中缓存时则从内部服务传输内容。
+
+npm helper 根据实际 Node/npm 版本及依赖文件或固定软件包版本生成内容下载缓存键，不恢复已安装的软件包。Bundle 构建根据 Python/pip 版本及导出的依赖清单缓存 pip HTTP 响应，本地构建的 wheel 不进入共享快照。Gateway TCK 任务还会缓存固定提交的上游源码。准备步骤在测试前填充这些缓存；原有的依赖安装、源码版本检查、构建和测试仍会执行。
+
+Bundle 准备过程在隔离环境中安装固定版本的打包工具，并单独缓存其原始 wheel。依赖缓存使用原始依赖清单、工具版本清单及构建环境实际的 Python/pip 版本生成标识。优先使用兼容的锁定 wheel；没有兼容 wheel 时，先校验锁定源码归档，再使用这些工具离线构建。源码构建不限制包名或版本白名单，缺少后端时直接失败，不安装额外工具。每份 bundle 都保留原始依赖清单和源码到 wheel 的来源记录；生成产物的包身份与已校验输入一致后，安装清单才记录最终 wheel 的哈希。重新构建 wheel 不会改变下载缓存标识，也不会将该 wheel 发布到共享下载缓存。
+
+内部 Linux 镜像可以在 `/opt/powercontext-ci-tools` 下预装固定版本的 `license-eye` 可执行文件和 `skill-up`。工作流复用匹配的已安装工具，工具不存在时保留原有下载或构建路径。Helm 同样复用符合要求的已安装版本。
+
+Docker 镜像缓存与依赖快照分开配置。Runner 可以通过 `PC_CI_OCEANBASE_435_IMAGE` 和 `PC_CI_OCEANBASE_442_IMAGE` 使用对应固定版本 OceanBase 镜像的内部副本，也可以通过 `PC_CI_DOCKER_REGISTRY_MIRROR` 为嵌套 E2E daemon 指定 Docker Hub 镜像缓存；runner 外层 daemon 需要单独配置镜像缓存。嵌套 harness 也可以直接接收 `POWERCONTEXT_E2E_DOCKER_REGISTRY_MIRROR`。未配置这些变量时，沿用原有公共镜像地址和 daemon 行为。应逐个预热镜像，核对复制后的平台摘要，再将 runner 切换到内部副本。
 
 内部 mise 缓存还会单独保存启动所需的二进制、版本记录和签名校验文件，并在已安装工具恢复后恢复该快照，避免旧工具快照覆盖这些文件。固定版本的上游 action 仍会在本地校验二进制、安装项目工具并导出环境。已安装工具精确命中时，仍可保存尚未命中的启动快照；显式指定 mise 版本时使用独立的启动缓存键。只发布文件齐全的启动快照；校验文件缺失时仅跳过缓存写入，不使已成功的工具安装失败。
 
-打包历史源码时使用 `$/` action 引用，让缓存工具跟随工作流提交，待构建源码仍保持指定的 checkout。嵌套缓存 action 也使用同一种引用方式。这要求使用 GitHub.com 和 2.336.0 或更高版本的 runner，详见 GitHub 的[同仓库 action 引用发布说明](https://github.blog/changelog/2026-07-30-reference-same-repository-actions-with-self-repository-syntax/)。
+普通 CI 使用源码 checkout 中的 `./.github/actions/` 本地 helper，嵌套 helper 也使用本地引用，因此解析它们不再下载第二份仓库归档。打包历史源码时保留顶层 `$/` 引用：这些 helper 自包含，从自身 action 目录加载工具，同时根据指定 checkout 的源码生成指纹。这要求使用 GitHub.com 和 2.336.0 或更高版本的 runner，详见 GitHub 的[同仓库 action 引用发布说明](https://github.blog/changelog/2026-07-30-reference-same-repository-actions-with-self-repository-syntax/)。
+
+内部 runner 不再在每个任务开始前预下载仓库归档。只有解析远程 action 引用时，runner 才会下载所需归档。包含嵌套 `$/` 引用的旧版工作流继续使用这一原生下载路径；历史源码打包仍使用工作流版本的工具。
 
 缓存服务的存储必须在 worker 回收后保留，且所有 runner Pod 都能访问该服务。helper 会让服务地址的主机绕过出口代理。服务部署、bucket 创建和持久存储由基础设施配置负责，仓库工作流不会创建这些资源。验收时应在不同 Pod 中分别保存和恢复缓存，验证 worker 移除后缓存仍可用，并比较真实 CI 的依赖安装耗时。仅通过 YAML 校验，不能证明后端可用或性能已经提升。
 

@@ -42,7 +42,18 @@ jobs:
       - name: Set up the environment
         uses: ./.github/actions/setup-python-env
         with:
-          shared-cache: ${{ matrix.os == 'ubuntu-latest' && 'true' || 'false' }}
+          # Keep the job-owned post save: installation adds dependencies after uv sync.
+          cache-dependency-glob: |
+            pyproject.toml
+            uv.lock
+            integrations/langchain/pyproject.toml
+            integrations/langgraph/pyproject.toml
+            integrations/opendal/pyproject.toml
+            integrations/deepagents/pyproject.toml
+            tests/native/test_installation.py
+            website/public/install.sh
+            website/public/install.ps1
+            .github/workflows/installation.yml
 
       - name: Build the installation fixture
         shell: bash
@@ -54,7 +65,9 @@ jobs:
       - name: Check shared installer behavior and source resolution
         shell: bash
         run: >-
-          uv run --no-sync pytest -q tests/test_installation_contract.py tests/native/test_install_sources.py
+          uv run --no-sync pytest -q ${{ runner.os == 'Linux' && '-n auto' || '' }}
+          tests/test_installation_contract.py tests/native/test_install_sources.py
+          --durations=20
           --junitxml "$RUNNER_TEMP/installation-contract.xml"
           --basetemp "$RUNNER_TEMP/installation-contract-tests"
 
@@ -62,18 +75,22 @@ jobs:
         shell: bash
         env:
           POWERCONTEXT_INSTALL_WHEEL: ${{ github.workspace }}/dist/installation/powercontext-1.2.0-py3-none-any.whl
+          # Only the version/profile fixture consumes this dependency-index override.
+          POWERCONTEXT_INSTALL_TEST_INDEX_URL: ${{ matrix.os == 'ubuntu-latest' && 'https://mirrors.aliyun.com/pypi/simple/' || '' }}
         run: >-
-          uv run --no-sync pytest -vv --durations=20 tests/native/test_installation.py
+          uv run --no-sync pytest -vv ${{ runner.os == 'Linux' && '-n auto' || '' }}
+          --durations=20 tests/native/test_installation.py
           --junitxml "$RUNNER_TEMP/installation.xml"
           --basetemp "$RUNNER_TEMP/installation-tests"
 
-      - name: Upload installation diagnostics after failure
-        if: failure()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+      - name: Upload installation diagnostics
+        if: always()
+        uses: ./.github/actions/upload-ci-diagnostics
         with:
           name: installation-${{ matrix.os }}
           path: |
             ${{ runner.temp }}/installation.xml
             ${{ runner.temp }}/installation-contract.xml
             ${{ runner.temp }}/installation-tests/**/*.log
+            ${{ runner.temp }}/installation-contract-tests/**/*.log
           if-no-files-found: ignore

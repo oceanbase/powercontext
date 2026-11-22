@@ -23,11 +23,12 @@ generation model, and is torn down when the block exits.
 
 from __future__ import annotations
 
+import asyncio
 import socket
 import threading
 import time
 from collections.abc import Iterator
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from tempfile import TemporaryDirectory
 
 import uvicorn
@@ -58,21 +59,47 @@ def local_powercontext_server(*, token: str | None = None) -> Iterator[str]:
         )
         app = create_server_app(settings=settings)
 
-        listener = socket.socket()
-        listener.bind(("127.0.0.1", 0))
-        host, port = listener.getsockname()
-        server = uvicorn.Server(uvicorn.Config(app, log_level="critical", lifespan="on"))
-        thread = threading.Thread(target=server.run, kwargs={"sockets": [listener]}, daemon=True)
-        thread.start()
+        with socket.socket() as listener:
+            listener.bind(("127.0.0.1", 0))
+            host, port = listener.getsockname()
+            server = uvicorn.Server(uvicorn.Config(app, log_level="critical", lifespan="on"))
+            loop: asyncio.AbstractEventLoop | None = None
+            task: asyncio.Task[None] | None = None
+            failure: BaseException | None = None
 
-        deadline = time.monotonic() + 10
-        while thread.is_alive() and not server.started and time.monotonic() < deadline:
-            time.sleep(0.02)
-        if not server.started:
-            raise RuntimeError("local PowerContext Server did not start")  # noqa: TRY003
+            async def serve() -> None:
+                nonlocal loop, task
+                loop = asyncio.get_running_loop()
+                task = asyncio.current_task()
+                if not server.should_exit:
+                    await server.serve(sockets=[listener])
 
-        try:
-            yield f"http://{host}:{port}"
-        finally:
-            server.should_exit = True
-            thread.join(timeout=10)
+            def run() -> None:
+                nonlocal failure
+                try:
+                    asyncio.run(serve())
+                except BaseException as error:
+                    failure = error
+
+            def cancel() -> None:
+                if loop is not None and task is not None:
+                    # The thread may finish between observing it and scheduling cancellation.
+                    with suppress(RuntimeError):
+                        loop.call_soon_threadsafe(task.cancel)
+
+            thread = threading.Thread(target=run, daemon=True)
+            thread.start()
+            try:
+                deadline = time.monotonic() + 60
+                while thread.is_alive() and not server.started and time.monotonic() < deadline:
+                    time.sleep(0.02)
+                if not server.started:
+                    raise RuntimeError("local PowerContext Server did not start") from failure  # noqa: TRY003
+                yield f"http://{host}:{port}"
+            finally:
+                server.should_exit = True
+                thread.join(timeout=10 if server.started else 0)
+                if thread.is_alive():
+                    cancel()
+                    # asyncio.run also cancels and drains lifespan tasks before closing its loop.
+                    thread.join()

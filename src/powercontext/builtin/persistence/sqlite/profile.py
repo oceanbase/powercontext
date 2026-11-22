@@ -19,7 +19,7 @@ from __future__ import annotations
 import asyncio
 import sqlite3
 from collections.abc import AsyncIterator, Callable
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 from typing import Any, Literal, cast
 from urllib.parse import parse_qsl, unquote, urlsplit
@@ -312,6 +312,22 @@ def _track_sqlite_cursors(connection: Connection) -> WeakSet[Cursor]:
 
     async def open_cursor() -> Cursor:
         result = await original_cursor()
+        close_native = result._cursor.close
+
+        async def execute(fn: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
+            try:
+                return await connection._execute(fn, *args, **kwargs)
+            except Exception:
+                # SQLAlchemy can retain a failed cursor in an exception cycle.
+                # Close its statement on the owning worker before GC can reset
+                # it on the event loop while that worker waits for another writer.
+                # Cancellation still uses the profile's interrupt/rollback path.
+                if fn != close_native:
+                    with suppress(Exception):
+                        await connection._execute(close_native)
+                raise
+
+        setattr(result, "_execute", execute)  # noqa: B010 - wrap only this profile-owned cursor, not the driver class
         cursors.add(result)
         return result
 
