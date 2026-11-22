@@ -15,7 +15,7 @@ telemetry 系统。
 
 | 字段 | 含义 | 取值 |
 |---|---|---|
-| `processing_stage` | 失败所属的处理阶段 | `generation`、`embedding`、`output_parsing`、`business_validation`、`persistence`、`usage_accounting`（预留给账务上报或持久化） |
+| `processing_stage` | 失败所属的处理阶段 | `generation`、`embedding`、`output_parsing`、`business_validation`、`persistence`、`usage_accounting`（模型用量上报和记录） |
 | `failure_reason` | 有证据支持时才给出的有界原因 | `context_overflow`、`output_truncated`、`rate_limit`、`timeout`、`schema_invalid`、`provider_unavailable`、`configuration`、`invalid_output`、`storage_failure`、`usage_limit` |
 | `input_item_count` | 失败调用涉及的输入条目数 | 非负整数 |
 | `estimated_input_tokens` | 估算的输入 token 数；window token 上限触发时为已计费或已预留的 token 数 | 非负整数 |
@@ -47,38 +47,38 @@ Worker/supervisor 值（`worker_process`、`work_admission`、`supervisor`、`le
 
 | Family | Generation | Embedding | Output parsing | Business validation | Persistence | Usage accounting |
 |---|---|---|---|---|---|---|
-| Memory / Atomic Memory | Partial | Covered | Partial | Covered | Partial | Missing |
-| Topic Memory | Partial | Covered | Partial | Covered | Partial | Missing |
-| Experience | Partial | N/A | Partial | Partial | Missing | Missing |
-| Profile | Partial | N/A | Partial | Partial | Missing | Missing |
-| Skill | Partial | N/A | Partial | Partial | Missing | Missing |
-| Handoff | Partial | N/A | Partial | Partial | Partial | Missing |
-| Prompt | Partial | N/A | Partial | Partial | Partial | Missing |
+| Memory / Atomic Memory | Partial | Covered | Partial | Covered | Partial | Partial |
+| Topic Memory | Partial | Covered | Partial | Covered | Partial | Partial |
+| Experience | Partial | N/A | Partial | Partial | Partial | Partial |
+| Profile | Partial | N/A | Partial | Partial | Partial | Partial |
+| Skill | Partial | N/A | Partial | Partial | Partial | Partial |
+| Handoff | Partial | N/A | Partial | Partial | Partial | Partial |
+| Prompt | Partial | N/A | Partial | Partial | Partial | N/A |
 
 Memory / Atomic Memory 与 Topic Memory 作为当前切片，按 operation 粒度跟踪：
 
 | Operation | Stage | 状态 | 说明 |
 |---|---|---|---|
-| `atomic-memory.extract` | Generation | Partial | provider timeout、不可用、限流、配置错误已分类；仅 adapter 暴露 finish reason 时可见。 |
-| `atomic-memory.extract` | Output parsing | Partial | schema 与 Pydantic 输出失败已分类；部分 provider 截断仍表现为 schema 失败。 |
+| `atomic-memory.extract` | Generation | Partial | provider timeout、不可用、限流、配置错误已分类；适配器提供受支持的结束原因时保留最后一次响应的原因。 |
+| `atomic-memory.extract` | Output parsing | Partial | 结构校验失败会保留可用的最终响应元数据。提供方明确报告长度限制时，分类为输出截断。 |
 | `atomic-memory.extract` | Business validation | Covered | 候选内容与引用证据规则输出 `business_validation` / `invalid_output`。 |
 | `atomic-memory.reconcile` | Generation | Partial | 与提取相同的 provider 映射。 |
 | `atomic-memory.reconcile` | Output parsing | Partial | 与提取相同的 schema 映射。 |
 | `atomic-memory.reconcile` | Business validation | Covered | 对账输出与内容规则输出 `business_validation` / `invalid_output`。 |
 | Embedding（提取、对账、查询） | Embedding | Covered | provider 状态、向量数量/顺序/类型错误、profile/input 失败均已分类。 |
 | Publish / index | Persistence | Partial | `AtomicMemoryIndexError` 的 code 已映射；其他存储失败保持 unknown。 |
-| Usage accounting | Usage accounting | Missing | 尚未分类账务上报与持久化失败；推理用量限制归入其来源阶段（generation，或 embedding adapter 上报时归入 embedding）。 |
+| Usage accounting | Usage accounting | Partial | 共享上报器和记录器分类用量失败。推理用量限制仍归生成或嵌入阶段。 |
 
 Topic Memory 的 operation 级覆盖：
 
 | Operation | Stage | 状态 | 说明 |
 |---|---|---|---|
-| `topic-memory` 各阶段（`probe`、`global`、`planner`、`evolve`、`temporary`、`reconcile`） | Generation | Partial | provider timeout、不可用、限流、配置错误已分类；仅 adapter 暴露 finish reason 时可见。 |
+| `topic-memory` 各阶段（`probe`、`global`、`planner`、`evolve`、`temporary`、`reconcile`） | Generation | Partial | provider timeout、不可用、限流、配置错误已分类；适配器提供受支持的结束原因时保留最后一次响应的原因。 |
 | `topic-memory` 各阶段 | Output parsing | Partial | provider schema 失败走共享映射；语义拒绝归为 business validation。 |
 | `topic-memory` 各阶段 | Business validation | Covered | 每个 `TopicMemoryGenerationError` code 都有有界诊断：领域/模型拒绝携带 stage，并在有证据时给出 reason；控制流拒绝只携带 `failure_location`。输入预算失败携带输入计数、token 估算、estimator 标识和生效预算；window token 上限触发时携带已计费 token 与上限，attempt/request 上限通过 block details 报告。 |
 | `topic-memory.index` 与查询嵌入 | Embedding | Covered | 缺少 embedding adapter、向量数量错误均已分类。 |
 | Publish / persistence | Persistence | Partial | 投影内容及向量完整性规则归业务校验；存储不变量失败归 `persistence` / `storage_failure`；不支持的能力归 `configuration`；publisher 冲突保留既有领域结果，其他存储失败保持 unknown。Topic head 冲突将 `head_conflict` 记为该次尝试的最后错误，不消耗 window 尝试次数。 |
-| Usage accounting | Usage accounting | Missing | window provider budget 归为 `generation` / `usage_limit`；账务失败未分类。 |
+| Usage accounting | Usage accounting | Partial | 共享上报器和记录器分类用量失败。窗口 provider 预算仍归 `generation` / `usage_limit`。 |
 
 Experience、Profile 与 Skill 的 operation 级覆盖：
 
@@ -88,8 +88,10 @@ Experience、Profile 与 Skill 的 operation 级覆盖：
 | `profile.generate` | Business validation | Partial | 无效 Markdown 携带输入数量与原始校验异常类型，不暴露内容。 |
 | Experience / Skill typed generation | Output parsing | Partial | 无效 typed 结果使用共享 schema 映射；无法分类的 provider 细节保持 unknown。 |
 | Dream（`refine_experience`、`revise_profile`、`derive_skill`、`revise_skill`） | Generation / business validation | Partial | 捕获的 attempt 失败通过 `dream.attempt.failed` 记录，复用 worker/request 身份。证据超过上限、证据不可用或请求目标不受支持时，记录 `business_validation` 和失败位置。 |
-| Publication / persistence | Persistence | Missing | 这些切片尚未分类全部存储入口。 |
-| Usage accounting | Usage accounting | Missing | 账务失败仍与处理结果分离。 |
+| `experience.create` / `experience.replace`、`profile.create` / `profile.replace`、`skill.create` / `skill.replace` | Business validation / persistence | Partial | Scope 内的管理写入区分无效内容、并发拒绝和数据库驱动失败。 |
+| `experience.approve` / `profile.approve` / `skill.approve` | Business validation / persistence | Partial | Candidate 批准在冲突恢复完成后记录最终失败，目标过期和终态拒绝保留领域结果。 |
+| `profile.commit_generated`、`experience.publish`、`skill.publish` | Persistence | Partial | 生成 Profile 的写入及跨 Scope 发布报告数据库驱动失败，包括事务退出时的故障。Profile 不支持跨 Scope 发布。宿主 Skill 部署和其他存储入口不在此范围。 |
+| Usage accounting | Usage accounting | Partial | 已分类通过共享上报器和记录器的模型用量失败。 |
 
 Handoff 与 Prompt 的 operation 级覆盖：
 
@@ -101,7 +103,8 @@ Handoff 与 Prompt 的 operation 级覆盖：
 | `prompt.generate_demonstrations` | Generation / output parsing / business validation | Partial | Provider 和 schema 错误沿用共享分类，无效示例结果归业务校验。生成示例不会保存 Prompt 版本。 |
 | `prompt.create` / `prompt.replace` | Business validation / persistence | Partial | Scope 管理写入操作报告已知的 Prompt 拒绝和数据库驱动错误，覆盖事务退出时的故障。其他 Prompt 写入路径尚未纳入。 |
 | Handoff / Prompt | Embedding | N/A | 这些处理路径不生成嵌入。 |
-| Handoff / Prompt | Usage accounting | Missing | 用量记账失败单独跟踪。 |
+| Handoff | Usage accounting | Covered | 模型用量上报和记录复用共享诊断。 |
+| Prompt 示例生成 | Usage accounting | N/A | 示例生成目前不向共享记录器提交用量记录。 |
 
 上述入口每次操作失败最多记录一次 `artifact.operation.failed`。对相同 Family、操作、错误码和失败原因，每个进程在任意一秒内最多记录 16 条。
 日志沿用已有 Scope 和已绑定的请求或追踪标识。
@@ -118,13 +121,52 @@ Dream 自身的执行期限耗尽时，Run 以 `budget_exceeded` 终止。对应
 `TimeoutError` 走 `generation_failed` 终止路径，日志记录 `timeout`，省略未知阶段。
 Provider 的 `InferenceTimeoutError` 保留操作对应的 stage 和 `timeout` 原因，仍可在既有 Run 预算内重试。
 
+## 提供方响应证据
+
+结构化生成在 Agent 输出解析结束时使用最后一次响应的元数据。提供方明确报告长度限制时归为
+`generation / output_truncated`，否则保留原有分类。发起下一次提供方请求时清除前一次响应的证据。
+配置的重试与续写规则保持不变，业务校验、用量限制和提供方异常仍采用各自的分类。
+流在缺少结束信号时仍然失败，省略无法确定的原因。
+
+诊断只保留受支持的结束原因和有界、符合标识符格式的提供方响应 ID。上下文溢出需要提供方专用异常、
+受支持的上下文限制错误码，或明确指向输入上下文的提供方消息。输出 token 配置被拒绝时不会推断输入溢出。
+
+内置 Worker 和 Supervisor 对同一次执行保留相同的安全证据。Supervisor 对相同的受控错误码和原因，
+每个进程在任意一秒内最多记录 16 条 `artifact_processing.failed`。Dream attempt 日志使用相同的限额，
+并按 Family、操作、错误码和原因计算。限流不影响取消、处理状态、尝试次数或重试行为。
+
+## 模型用量记账
+
+共享上报器和记录器通过 `model_usage.accounting.failed` 记录失败，使用
+`processing_stage=usage_accounting`、`operation=model_usage` 和 `unit=statistics`。
+模型结果、业务结果和已有的用量重试规则保持原有语义。
+
+| 失败位置 | 含义 | 原因 |
+|---|---|---|
+| `report` | 已绑定的上报回调抛出异常 | 仅在异常类型明确表示超时时记录 `timeout` |
+| `enqueue` / `queue_full` | 记录器无法接收用量记录 | 异常类型明确表示超时时记录 `timeout`，其余省略 |
+| `write` | 记录器结束批次写入尝试 | 超时记录 `timeout`，数据库驱动错误记录 `storage_failure` |
+| `flush_timeout` | 调用方等待已入队记录达到时限 | `timeout` |
+| `drain_timeout` / `cleanup_timeout` | 关闭时，排空或底层清理达到时限 | `timeout` |
+| `consumer` | 消费任务因未预期的异常退出 | 仅在异常类型明确表示超时时记录 `timeout` |
+
+错误码由 `usage_accounting_` 前缀和失败位置组成。超时原因已确认且位置名未以 `_timeout`
+结尾时补上该后缀。未知原因省略。写入失败可能包含提交结果不确定的情况，`flush_timeout` 只说明等待已超时。
+可确定时，`input_item_count` 记录涉及的原始用量记录条数，排空超时时记录将被丢弃的队列积压条数。
+只有归属明确时才记录 Family 和模型能力。后台批次可能来自多个请求，因此写入日志不沿用首条记录的请求或追踪身份。
+内置 Worker 保留已经绑定的 Worker 标识和请求代次。Supervisor 沿用已有丢失计数，具体原因由子进程日志提供。
+
+每个进程对相同 Family、操作、错误码及原因，在任意一秒内最多发出 16 条日志。限流不影响丢弃和写入失败的计数。
+日志不包含用量载荷、SQL 或异常原文。独立的召回 token 测量和各 Family 自有的模型预算计数不在此范围。
+Prompt 示例生成目前没有接入共享记录器。
+
 ## 落地顺序
 
 1. 共享诊断契约、日志白名单字段、Worker 传播，以及 Memory / Atomic Memory 切片。
 2. Topic Memory：标注分阶段生成、索引/嵌入与持久化失败。
 3. Experience、Profile、Skill：标注生成输出校验与持久化入口。
 4. Handoff、Prompt：标注生成与发布失败。
-5. 分类用量记账失败，并继续补齐矩阵中的其他缺口。
+5. 分类共享模型用量上报和记录的失败。
 
 新增 instrumentation 时，需要覆盖可观察行为：分类正确、跨真实 spawn Worker 传播、敏感值不出现，以及诊断
 失败不改变业务结果。

@@ -278,7 +278,7 @@ class RuntimeConfig(BaseModel):
     atomic_memory_related_page_size: int = Field(default=DEFAULT_ATOMIC_MEMORY_RELATED_PAGE_SIZE, ge=1, le=1000)
     atomic_memory_related_fts_fallback: bool = False
     atomic_memory_comparison_batch_size: int = Field(default=20, ge=1)
-    atomic_memory_input_tokens_limit: int = Field(default=24000, ge=1)
+    atomic_memory_input_tokens_limit: int = Field(default=64000, ge=1)
     atomic_memory_restore_retry_budget: int = Field(default=3, ge=0, le=10)
     atomic_memory_preview_signing_secret: SecretStr | None = Field(default=None, repr=False, min_length=32)
     atomic_memory_preview_signing_key_id: str = Field(default="atomic-memory-v1", min_length=1, max_length=128)
@@ -443,6 +443,11 @@ class InferenceConfig(BaseModel):
     generation_model_context_window_tokens: int = Field(default=125_000, ge=1)
     generation_request_budget: GenerationRequestBudgetConfig = Field(default_factory=GenerationRequestBudgetConfig)
     generation_operation_budgets: dict[str, GenerationOperationBudgetConfig] = Field(default_factory=dict)
+    # Opt-in: extract Atomic Memory over the agent's cached conversation prefix through a gateway on the same host.
+    prefix_extraction_gateway_url: AnyHttpUrl | None = None
+    prefix_extraction_gateway_headers: dict[str, SecretStr] = Field(default_factory=dict, repr=False)
+    # Price of a cached input token relative to an uncached one for the agent's target.
+    prefix_extraction_cached_input_ratio: float = Field(default=0.1, gt=0, le=1)
     embedding_model: str | None = None
     embedding_base_url: AnyHttpUrl | None = None
     embedding_headers: dict[str, SecretStr] = Field(default_factory=dict, repr=False)
@@ -730,7 +735,13 @@ class InferenceConfig(BaseModel):
             raise ValueError("embedding normalization must be 'none' or 'unit'")  # noqa: TRY003
         return normalized
 
-    @field_validator("generation_headers", "embedding_headers", "rerank_headers", "decision_headers")
+    @field_validator(
+        "generation_headers",
+        "embedding_headers",
+        "rerank_headers",
+        "decision_headers",
+        "prefix_extraction_gateway_headers",
+    )
     @classmethod
     def validate_headers(cls, value: dict[str, SecretStr]) -> dict[str, SecretStr]:
         normalized_names: set[str] = set()
@@ -766,6 +777,17 @@ class InferenceConfig(BaseModel):
             raise ValueError(  # noqa: TRY003
                 "embedding_model, embedding_profile_id, and embedding_dimension must be configured together"
             )
+        return self
+
+    @model_validator(mode="after")
+    def validate_prefix_extraction(self) -> Self:
+        if self.generation_model is None and (
+            self.prefix_extraction_gateway_url is not None or self.prefix_extraction_gateway_headers
+        ):
+            # Normal extraction is the fallback, so it must be configured.
+            raise ValueError("prefix extraction requires generation_model")  # noqa: TRY003
+        if self.prefix_extraction_gateway_headers and self.prefix_extraction_gateway_url is None:
+            raise ValueError("prefix_extraction_gateway_headers requires prefix_extraction_gateway_url")  # noqa: TRY003
         return self
 
     @model_validator(mode="after")

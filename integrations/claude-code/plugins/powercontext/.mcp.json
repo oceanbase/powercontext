@@ -4,6 +4,7 @@
     "url": "${user_config.server_url}/mcp",
     "headers": {
       "Authorization": "${POWERCONTEXT_CLAUDE_AUTHORIZATION:-}"
-    }
+    },
+    "headersHelper": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/mcp_headers.py\""
   }
 }

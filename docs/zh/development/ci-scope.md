@@ -33,15 +33,17 @@ flowchart TD
 
 | 入口或输入 | Python 验证 | 其他验收 |
 | --- | --- | --- |
-| 普通 ready PR | 3.11/3.14 单元测试，3.12 E2E，共 3 个组合 | 运行选中的 SQLite、安装角色、平台和宿主验收；seekDB/OceanBase 延后至夜间 |
-| PR 修改依赖、共享夹具、CI 策略，或出现未分类文件 | 3.11–3.14 × unit/E2E，共 8 个组合 | 在数据库仅运行 SQLite 的策略内，保守选择相关范围或全部范围 |
-| 已带 `ci:full` 标签的 PR 更新或重新打开 | 8 个组合 | 按完整 PR 变更范围选择，数据库仍仅运行 SQLite |
-| `master` push | 8 个组合 | 从成功主干基线选择，数据库仍仅运行 SQLite |
-| 每日 UTC 18:00（北京时间次日 02:00） | 8 个组合 | 完整 SQLite、seekDB 和 OceanBase 验收，包含 schema 采集和短锁探针 |
-| 手动运行 Main | 8 个组合 | 包含原生数据库的全量范围；升级默认 `full`，可选专门诊断子集 |
+| 普通 ready PR | 3.11/3.14 单元测试，3.12 E2E，共 3 个组合、4 个任务 | 运行选中的 SQLite、安装角色、平台和宿主验收；seekDB/OceanBase 延后至夜间 |
+| PR 修改依赖、共享夹具、CI 策略，或出现未分类文件 | 3.11–3.14 × unit/E2E，共 8 个组合、12 个任务 | 在数据库仅运行 SQLite 的策略内，保守选择相关范围或全部范围 |
+| 已带 `ci:full` 标签的 PR 更新或重新打开 | 8 个组合、12 个任务 | 按完整 PR 变更范围选择，数据库仍仅运行 SQLite |
+| `master` push | 8 个组合、12 个任务 | 从成功主干基线选择，数据库仍仅运行 SQLite |
+| 每日 UTC 18:00（北京时间次日 02:00） | 8 个组合、12 个任务 | 完整 SQLite、seekDB 和 OceanBase 验收，包含 schema 采集和短锁探针 |
+| 手动运行 Main | 8 个组合、12 个任务 | 包含原生数据库的全量范围；升级默认 `full`，可选专门诊断子集 |
 | 正式发布 | 独立的安装包与发布验收 | 完整升级证据、汇总与发布字节绑定；不受 PR 路径跳过影响 |
 
 普通 PR 的 Python 测试组合数由 8 降至 3，减少 62.5%。这是组合数量的变化，不是已经测得的 runner 分钟或等待时间降幅。依赖和 CI 策略变更保持全矩阵，因此修改 CI 的 PR 本身可能仍运行 8 个组合。
+
+每个 Linux E2E 组合运行两个任务，按各测试 ID 的稳定摘要分片。两个分片互不重叠，合并后覆盖完整的并行 E2E 测试集。第一个分片还运行串行 ZCode 验收，每个 Python 版本仅执行一次。单元测试仍为每个 Python 版本一个任务，因此普通层级运行 4 个任务，全量层级运行 12 个任务。每个 Pod 的资源和 55 分钟任务时限保持不变；分片不保证运行时间均分。本地 `make e2e-test` 仍运行完整的并行及串行测试集。
 
 安装验证在 packaging 范围选中时运行两个任务，分别使用 Python 3.11 和 3.14。每个任务只构建一次 wheel，依次验证不带 extras 的 `core`，以及 `builtin`、`cli`、`builtin,cli`、`server,cli`，共五种角色。每个角色使用独立的虚拟环境、应用状态和临时目录，针对已安装 wheel 验证，排除 checkout 源码导入。core 角色检查未安装可选依赖时的公共导入。CLI 角色还检查安装无关的 SQLAlchemy、FastAPI 包后不会启用可选角色。各角色分别产生结果，任何角色失败都会使所属任务失败。全部十个 Python/角色组合仍受验证，同时减少八次 runner 分配和八次重复 wheel 构建。任务数量减少不代表已测得等待时间或吞吐量改善。
 
@@ -117,17 +119,41 @@ Main 的 preflight 已检查全仓库的 lint 和格式；其 harness 验证运�
 
 这些规则减少局部改动带来的无关任务。公共运行时和 CI 策略改动仍保留广泛覆盖；runner 分钟和排队时间需要上线后实测。
 
+## 依赖缓存存储
+
+自托管 Linux runner 提供 `PC_CI_CACHE_ENDPOINT` 时，共用缓存 action 会选择兼容 S3 的后端。以下配置由 runner Pod 提供，工作流文件不包含服务地址或凭据。
+
+| 变量 | 含义 |
+| --- | --- |
+| `PC_CI_CACHE_ENDPOINT` | 内部兼容 S3 的服务地址 |
+| `PC_CI_CACHE_BUCKET` | 已创建的缓存 bucket |
+| `PC_CI_CACHE_ACCESS_KEY` | 由 runner 配置提供的访问密钥 ID |
+| `PC_CI_CACHE_SECRET_KEY` | 由 runner 配置提供的访问密钥 |
+| `PC_CI_CACHE_REGION` | 可选的签名区域，默认 `us-east-1` |
+
+缓存步骤执行前，后端 helper 读取 Pod 继承的环境变量，通过 `backend` 输出 `s3` 或 `github`。配置了内部地址但缺少必填项时，配置校验会失败。未配置地址时，共用 action 继续使用 GitHub 缓存。Windows、macOS 和 GitHub 托管任务保持原缓存后端，包括托管任务的 Docker 构建缓存。Artifact 的上传和下载也仍使用 GitHub。
+
+内部缓存通过 `runs-on/cache` 存储依赖与工具快照。已迁移任务中的 Python、pnpm、npm、Cargo、Go、mise、OpenAPI generator 和 pre-commit 缓存使用共用 action。已有的依赖安装后显式保存步骤仍在测试前执行；Rust 缓存也会在普通测试失败后保存。恢复 Rust 快照后会保留第三方依赖的编译结果，并重新构建工作区 crate，避免工作区之外的嵌入输入变化后仍使用旧二进制。取消任务或终止 runner 可能导致保存无法完成。GitHub 上已有的缓存对象不会自动复制；内部缓存和 runner 镜像都没有的软件包仍需从软件包源下载，命中缓存时则从内部服务传输内容。
+
+内部 mise 缓存还会单独保存启动所需的二进制、版本记录和签名校验文件，并在已安装工具恢复后恢复该快照，避免旧工具快照覆盖这些文件。固定版本的上游 action 仍会在本地校验二进制、安装项目工具并导出环境。已安装工具精确命中时，仍可保存尚未命中的启动快照；显式指定 mise 版本时使用独立的启动缓存键。只发布文件齐全的启动快照；校验文件缺失时仅跳过缓存写入，不使已成功的工具安装失败。
+
+打包历史源码时使用 `$/` action 引用，让缓存工具跟随工作流提交，待构建源码仍保持指定的 checkout。嵌套缓存 action 也使用同一种引用方式。这要求使用 GitHub.com 和 2.336.0 或更高版本的 runner，详见 GitHub 的[同仓库 action 引用发布说明](https://github.blog/changelog/2026-07-30-reference-same-repository-actions-with-self-repository-syntax/)。
+
+缓存服务的存储必须在 worker 回收后保留，且所有 runner Pod 都能访问该服务。helper 会让服务地址的主机绕过出口代理。服务部署、bucket 创建和持久存储由基础设施配置负责，仓库工作流不会创建这些资源。验收时应在不同 Pod 中分别保存和恢复缓存，验证 worker 移除后缓存仍可用，并比较真实 CI 的依赖安装耗时。仅通过 YAML 校验，不能证明后端可用或性能已经提升。
+
 ## 并发预算与取消
 
 | 矩阵 | 每次运行的最大并发 | 失败策略 |
 | --- | --- | --- |
-| Python 测试 | 3 | 首个失败后停止其余组合 |
-| 隔离安装，每个 Python 版本一个任务 | 2 | 单个任务尝试全部角色；任务失败后取消尚未结束的另一个 Python 任务 |
-| 安装发布升级 | 3 | 保留全部用例与证据汇总 |
-| OceanBase 干净迁移分片 | 2 | 保留全部分片与完整性检查 |
-| Candidate replay | 2 | 保留所有后端结果 |
-| 历史 schema 捕获 | 2 | 保留所有配置结果 |
+| Python 测试 | 按可用 runner 调度 | 首个失败后停止其余组合 |
+| 隔离安装，每个 Python 版本一个任务 | 按可用 runner 调度 | 单个任务尝试全部角色；任务失败后取消尚未结束的另一个 Python 任务 |
+| 安装发布升级 | 按可用 runner 调度 | 保留全部用例与证据汇总 |
+| OceanBase 干净迁移分片 | 按可用 runner 调度 | 保留全部分片与完整性检查 |
+| Candidate replay | 按可用 runner 调度 | 保留所有后端结果 |
+| 历史 schema 捕获 | 按可用 runner 调度 | 保留所有配置结果 |
 | 托管资源候选构建 | 2 | 保留全部三个原生平台 |
+
+Linux 矩阵省略 `max-parallel`，由 GitHub 按可用 runner 分发已就绪的任务。内部 runner 各自运行在独立 Pod 中，Kubernetes 根据完整的 Pod 资源声明调度，等待调度的需求驱动 worker 扩容，直至配置的资源池容量上限。回退到 GitHub 托管 runner 时，仍受其并发额度约束。把 `max-parallel` 设成更大的数字不会增加矩阵任务数量，也不会增加 worker 容量。
 
 `max-parallel` 只限制一条矩阵运行，不限制整个仓库或组织。不能把多个 PR 放进一个普通 concurrency 组来模拟全局 semaphore：默认组只保留一个 pending 项，会替换其他 PR 的等待任务。正式发布也不能与普通 PR 共用取消组。
 

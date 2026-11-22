@@ -194,6 +194,7 @@ def test_shared_runtime_inputs_keep_backend_upgrade_and_consumer_coverage(path: 
         "desktop",
         "pi",
         "bub",
+        "claude_code",
         "zcode",
         "cindy",
         "managed_resources",
@@ -264,6 +265,9 @@ def run_selector(repository: Path, event: str, base: str = "", head: str = "") -
             {"tests", "windows-unit-portability", "cindy-package", "zcode-acceptance"},
         ),
         ("deploy/helm/powercontext/values.yaml", {"helm"}),
+        ("plugins/knowledge-base/pc_knowledge_base/content.py", {"knowledge-base"}),
+        ("tests/e2e/test_knowledge_base_ocr.py", {"tests", "knowledge-base"}),
+        ("integrations/claude-code/plugins/powercontext/.mcp.json", {"tests", "claude-code-host"}),
         ("scripts/produce_managed_resources.py", {"managed-resource-candidates"}),
     ],
 )
@@ -286,14 +290,26 @@ def test_changed_shared_input_requires_its_consumers_in_result_gate(repository, 
         ("integrations/pi/plugins/powercontext/package.json", {"tests", "pi", "zcode"}),
         ("tests/e2e/test_cross_host_work_continuity.py", {"tests", "zcode"}),
         ("tests/e2e/cross_host_work_continuity/pi.py", {"tests", "zcode", "pi"}),
-        ("tests/e2e/zcode_acceptance/protocol.py", {"tests", "zcode", "pi", "opencode", "codex", "bub"}),
-        ("tests/e2e/zcode_acceptance/runner.py", {"tests", "zcode", "pi", "opencode", "codex", "bub"}),
+        (
+            "tests/e2e/zcode_acceptance/protocol.py",
+            {"tests", "zcode", "pi", "opencode", "openclaw", "codex", "bub", "claude_code"},
+        ),
+        (
+            "tests/e2e/zcode_acceptance/runner.py",
+            {"tests", "zcode", "pi", "opencode", "openclaw", "codex", "bub", "claude_code"},
+        ),
         ("tests/e2e/test_pi_service_chain.py", {"tests", "pi"}),
         ("tests/e2e/test_opencode_service_chain.py", {"tests", "opencode"}),
+        ("tests/e2e/test_openclaw_service_chain.py", {"tests", "openclaw"}),
         ("tests/e2e/test_bub_service_chain.py", {"tests", "bub"}),
         ("tests/e2e/test_codex_host_service_chain.py", {"tests", "codex"}),
         ("tests/e2e/host_models/responses.py", {"tests", "codex"}),
         ("integrations/codex/plugins/powercontext/hooks/recall.py", {"tests", "codex"}),
+        ("tests/e2e/test_claude_code_host_service_chain.py", {"tests", "claude_code"}),
+        ("tests/e2e/host_models/messages.py", {"tests", "codex", "claude_code"}),
+        ("tests/e2e/host_models/script.py", {"tests", "codex", "claude_code"}),
+        ("integrations/claude-code/plugins/powercontext/hooks/user_prompt_submit.py", {"tests", "claude_code"}),
+        (".claude-plugin/marketplace.json", {"tests", "claude_code"}),
         ("tests/e2e/cross_host_work_continuity/fixtures/task.py", {"tests", "zcode"}),
     ],
 )
@@ -509,8 +525,9 @@ def test_selector_cli_exposes_full_matrix_and_required_jobs_on_missing_baseline(
     run_selector(repository, "pull_request", "", git(repository, "rev-parse", "HEAD"))
     outputs = dict(line.split("=", 1) for line in (repository / "outputs.txt").read_text().splitlines())
     matrix = json.loads(outputs["test-matrix"])
-    assert set(matrix["python-version"]) == {"3.11", "3.12", "3.13", "3.14"}
-    assert set(matrix["suite"]) == {"unit", "e2e"}
+    assert len(matrix["include"]) == 12
+    assert {row["python-version"] for row in matrix["include"]} == {"3.11", "3.12", "3.13", "3.14"}
+    assert {row["suite"] for row in matrix["include"]} == {"unit", "e2e"}
     assert set(json.loads(outputs["required-jobs"])) == {
         job for suite, jobs in RULES["checks"].items() if suite not in RULES["nightly_suites"] for job in jobs
     } | {
@@ -539,3 +556,75 @@ def test_database_execution_policy_controls_required_jobs_even_for_full_scope(re
     assert "release-schema" in required
     if not native:
         assert "deferred to the nightly or manual run" in (repository / "summary.md").read_text()
+
+
+@pytest.mark.parametrize("path", ["src/powercontext/cli/system.py", "src/powercontext/builtin/plugins/writer.py"])
+def test_unrelated_core_changes_skip_optional_plugin_gate(repository, path):
+    base = git(repository, "rev-parse", "HEAD")
+    selected = run_selector(repository, "pull_request", base, commit(repository, path))
+    assert not selected["knowledge_base"]
+    outputs = dict(line.split("=", 1) for line in (repository / "outputs.txt").read_text().splitlines())
+    assert "knowledge-base" not in json.loads(outputs["required-jobs"])
+
+
+@pytest.mark.parametrize("change", ["core", "extra", "test_group", "locked_plugin", "locked_unrelated"])
+def test_plugin_dependency_changes_select_only_relevant_plugin_gate(repository, change):
+    manifest = "\n".join([
+        "[project]",
+        'name = "powercontext"',
+        'dependencies = ["httpx>=1"]',
+        "[project.optional-dependencies]",
+        'knowledge-base = ["rapidocr>=3"]',
+        "[dependency-groups]",
+        'knowledge-base-tests = ["playwright>=1"]',
+    ])
+    lock = "\n".join([
+        "[[package]]",
+        'name = "powercontext"',
+        'version = "1"',
+        "[package.optional-dependencies]",
+        'knowledge-base = [{name="rapidocr"}]',
+        "[package.dev-dependencies]",
+        'knowledge-base-tests = [{name="playwright"}]',
+        "[[package]]",
+        'name = "rapidocr"',
+        'version = "3"',
+        'dependencies = [{name="numpy"}]',
+        "[[package]]",
+        'name = "numpy"',
+        'version = "2"',
+        "[[package]]",
+        'name = "playwright"',
+        'version = "1"',
+        "[[package]]",
+        'name = "httpx"',
+        'version = "1"',
+    ])
+    (repository / "pyproject.toml").write_text(manifest)
+    (repository / "uv.lock").write_text(lock)
+    git(repository, "add", ".")
+    git(repository, "commit", "-m", "Dependency baseline")
+    base = git(repository, "rev-parse", "HEAD")
+    if change == "core":
+        manifest = manifest.replace("httpx>=1", "httpx>=2")
+    elif change == "extra":
+        manifest = manifest.replace("rapidocr>=3", "rapidocr>=4")
+    elif change == "test_group":
+        manifest = manifest.replace("playwright>=1", "playwright>=2")
+    elif change == "locked_plugin":
+        lock = lock.replace('name = "numpy"\nversion = "2"', 'name = "numpy"\nversion = "3"')
+    else:
+        lock = lock.replace('name = "httpx"\nversion = "1"', 'name = "httpx"\nversion = "2"')
+    (repository / "pyproject.toml").write_text(manifest)
+    (repository / "uv.lock").write_text(lock)
+    git(repository, "add", ".")
+    git(repository, "commit", "-m", "Change dependency")
+    selected = run_selector(repository, "pull_request", base, git(repository, "rev-parse", "HEAD"))
+    assert selected["knowledge_base"] is (change not in {"core", "locked_unrelated"})
+
+
+def test_explicit_full_validation_includes_plugin_on_core_only_pr(repository, monkeypatch):
+    base = git(repository, "rev-parse", "HEAD")
+    head = commit(repository, "src/powercontext/cli/system.py")
+    monkeypatch.setenv("CI_FULL_VALIDATION", "true")
+    assert run_selector(repository, "pull_request", base, head)["knowledge_base"]

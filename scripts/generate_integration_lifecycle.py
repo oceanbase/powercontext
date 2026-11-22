@@ -12,10 +12,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Write the copies of the integration lifecycle helpers that plugins ship.
+"""Write the copies of the integration lifecycle helpers that plugins and SDK adapters ship.
 
-Copy-installed Python plugins get the Python helpers. TypeScript host plugins get the TypeScript helpers, which their
-bundlers inline or, for Pi, which the host loads as source.
+Copy-installed Python plugins and the Python SDK adapters get the Python helpers. TypeScript host plugins get the
+TypeScript helpers, which their bundlers inline or, for Pi, which the host loads as source.
 """
 
 from __future__ import annotations
@@ -37,21 +37,43 @@ _DSH = "integrations/dsh/plugins/powercontext"
 _OPENCLAW = "integrations/openclaw/plugins/memory-powercontext"
 _OPENCODE = "integrations/opencode/plugins/powercontext"
 _PI = "integrations/pi/plugins/powercontext"
+# The SDK adapters install with the PowerContext package, but they also support released cores that predate
+# powercontext_integration_lifecycle, so each keeps a private copy beside its own modules.
+_LANGCHAIN = "integrations/langchain/src/powercontext_langchain"
+_LANGGRAPH = "integrations/langgraph/src/powercontext_langgraph"
+_PYDANTIC_AI = "integrations/pydantic-ai/src/powercontext_pydantic_ai"
 # Claude Code and Codex ship the whole package, so a module added to the source reaches both without an entry here.
 # The copies use another name than the source, so a process that has already imported the source, such as the test
 # suite, still loads the plugin's own copy.
 PACKAGE_COPIES = (f"{_CLAUDE_CODE}/powercontext_lifecycle", f"{_CODEX}/powercontext_lifecycle")
-# WorkBuddy and Hermes ship single modules where their hooks and installers already expect them.
+# WorkBuddy, Hermes, and the SDK adapters ship single modules where their hooks, installers, and imports already
+# expect them.
 COPIES = {
     "client_config.py": (
         f"{_HERMES}/powercontext_client_config.py",
         f"{_WORKBUDDY}/hooks/powercontext_client_config.py",
     ),
-    "prepared_context.py": (f"{_WORKBUDDY}/hooks/prepared_context.py",),
+    "prepared_context.py": (
+        f"{_HERMES}/prepared_context.py",
+        f"{_WORKBUDDY}/hooks/prepared_context.py",
+        f"{_LANGCHAIN}/_prepared_context.py",
+        f"{_LANGGRAPH}/_prepared_context.py",
+        f"{_PYDANTIC_AI}/_prepared_context.py",
+    ),
     "prompt_privacy.py": (f"{_WORKBUDDY}/hooks/prompt_privacy.py",),
 }
-# A copy keeps the path its plugin imports, so bundled output still names the same module.
+# Each copy sits at the path its plugin imports.
 TYPESCRIPT_COPIES = {
+    "flush-progress.ts": (
+        f"{_OPENCLAW}/src/flush-progress.ts",
+        f"{_PI}/src/flush-progress.ts",
+    ),
+    "prompt-privacy.ts": (
+        f"{_DSH}/src/prompt-privacy.ts",
+        f"{_OPENCLAW}/src/prompt-privacy.ts",
+        f"{_OPENCODE}/src/prompt-privacy.ts",
+        f"{_PI}/src/prompt-privacy.ts",
+    ),
     "transport.ts": (
         f"{_DSH}/src/transport.ts",
         f"{_OPENCLAW}/src/transport.ts",

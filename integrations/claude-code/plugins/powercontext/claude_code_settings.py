@@ -25,6 +25,8 @@ from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
 
 from powercontext_lifecycle.client_config import load_client_settings, parse_boolean, resolve_allow_insecure_http
+from powercontext_lifecycle.scope_binding import ScopeBindingSettings
+from powercontext_lifecycle.user_prompt_submit import PromptSettings
 
 # Kept in lockstep with powercontext.transport.LOOPBACK_HOSTS; the plugin ships
 # isolated and cannot import powercontext.
@@ -176,6 +178,29 @@ class ClaudeCodePluginSettings:
             ),
         )
 
+    def scope_binding_settings(self) -> ScopeBindingSettings:
+        """Return the values that the Scope client uses."""
+
+        return ScopeBindingSettings(
+            server_url=self.server_url,
+            authorization=self.authorization,
+            scope_id=self.scope_id,
+            request_timeout_seconds=self.request_timeout_seconds,
+        )
+
+    def prompt_settings(self) -> PromptSettings:
+        """Return the values that the prompt flow uses."""
+
+        return PromptSettings(
+            scope_binding=self.scope_binding_settings(),
+            include_code=self.include_code,
+            context_assembly=self.context_assembly,
+            prompt_recall=True,
+            capture_prompts=self.capture_prompts,
+            flush_on_capture=self.flush_on_capture,
+            flush_max_calls=self.flush_max_calls,
+        )
+
 
 def _first_environment(*names: str) -> str | None:
     for name in names:
@@ -275,6 +300,20 @@ def _stored_authorization(*, server_url: str, root: Path) -> str | None:
         return None
 
 
+def mcp_authorization(server_url: str) -> str | None:
+    """Return the credential that setup saved for the MCP endpoint `server_url`, if any.
+
+    Only a credential saved for this same Server is returned, so a token is never sent to another endpoint. The
+    environment is not consulted: Claude Code removes credential-like variables before it runs a plugin's
+    `headersHelper`, so `POWERCONTEXT_CLAUDE_AUTHORIZATION` reaches MCP only through the static header.
+    """
+
+    return _stored_authorization(
+        server_url=server_url,
+        root=Path(os.environ.get("CLAUDE_CONFIG_DIR", Path.home() / ".claude")).expanduser(),
+    )
+
+
 def _http_base_url(value: str, *, allow_insecure_http: bool = False) -> str:
     normalized = value.strip().rstrip("/")
     parsed = urlsplit(normalized)
@@ -302,4 +341,4 @@ def _http_base_url(value: str, *, allow_insecure_http: bool = False) -> str:
     return urlunsplit((scheme, netloc, path, "", "")).rstrip("/")
 
 
-__all__ = ["BootstrapHandoff", "ClaudeCodePluginSettings"]
+__all__ = ["BootstrapHandoff", "ClaudeCodePluginSettings", "mcp_authorization"]

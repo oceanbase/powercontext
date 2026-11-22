@@ -15,8 +15,9 @@ Desktop 宿主的进程内测量与原生安全导出遵循独立的 [Desktop �
 
 ## 只读处理状态检查
 
-`ProcessingStatusApplication` 是后端检查层，不是 Dashboard 或 HTTP 端点。
-调用方必须执行既有的当前 Scope 读取授权。它在 Runtime 生命周期保护下开启一致读快照，不进入会 flush usage
+`ProcessingStatusApplication` 是后端检查层，不提供公开 HTTP 端点。Dashboard 的自动处理状态区通过当前请求上下文读取，
+在一致快照内验证 Scope 权限并完成审计；使用 `include_dream=False` 排除 Dream 待办和历史。
+不传请求上下文的嵌入式调用方仍必须执行既有的当前 Scope 读取授权。它在 Runtime 生命周期保护下开启一致读快照，不进入会 flush usage
 的 scoped operation，不派发工作、不调用 readiness 或模型，也不物化 legacy 诊断记录。
 
 | 路径 | 权威证据 | 含义 |
@@ -175,3 +176,8 @@ Listener 启动预算不包含首次建表与索引创建。CI 在分片 artifac
 `background-metrics/background.log` 中保留日志；该组只有一个 node，因此日志位于
 shard `0`。启动失败时输出 child return code 和有界 log tail。此步骤通过后，才能认定
 backend 验收通过。未设置 backend 变量时，默认测试会跳过此用例。
+
+## 上下文历史
+
+内置 Server 尝试将每次被观察的 prepare 执行保存到[上下文诊断](dashboard.md#上下文诊断)说明的独立存储，
+可以保留原始 prepare query、准确的最终上下文正文及各阶段实际候选文本。它不允许在日志、指标或 Trace 中记录正文和 query，也不改变公开 Receipt 格式或宿主响应。

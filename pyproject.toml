@@ -118,6 +118,12 @@ cli = [
 source-images = [
     "pillow>=11,<13",
 ]
+knowledge-base = [
+    "fastembed>=0.7,<1",
+    "onnxruntime>=1.20,<2",
+    "opendal>=0.46,<1",
+    "rapidocr>=3,<4",
+]
 
 [project.scripts]
 powercontext = "powercontext.cli.app:main"
@@ -182,6 +188,7 @@ notebooks = [
     "python-dotenv>=1,<2",
     "playwright>=1.55,<2",
 ]
+knowledge-base-tests = ["playwright>=1.55,<2"]
 dev = [
     "powercontext[source-images]",
     "powercontext[code]",
@@ -189,9 +196,11 @@ dev = [
     "powercontext[cli,server]",
     "powercontext-langchain",
     "powercontext-langgraph",
+    "powercontext-deepagents",
     "langchain>=1.3,<2",
     "langgraph>=1.2,<2",
     "langchain-core>=1,<2",
+    "langchain-openai>=1,<2",
     "pytest>=9.0.2",
     "time-machine==3.5.0",
     "pytest-cov>=7,<8",
@@ -208,6 +217,7 @@ dev = [
 powercontext-langchain = { path = "integrations/langchain", editable = true }
 powercontext-langgraph = { path = "integrations/langgraph", editable = true }
 powercontext-connector-opendal = { path = "integrations/opendal", editable = true }
+powercontext-deepagents = { path = "integrations/deepagents", editable = true }
 
 [build-system]
 requires = ["hatchling", "hatch-vcs"]
@@ -227,14 +237,13 @@ only-include = ["src", "pyproject.toml", "README.md", "LICENSE", "LICENSES"]
 python = "./.venv"
 python-version = "3.11"
 extra-paths = [
+    "./plugins/knowledge-base",
     "./scripts",
     "./deploy/observability",
     "./desktop/tests",
     "./deploy/observability",
     "./integrations/claude-code/plugins/powercontext",
-    "./integrations/claude-code/plugins/powercontext/scripts",
     "./integrations/codex/plugins/powercontext",
-    "./integrations/codex/plugins/powercontext/scripts",
     "./integrations/workbuddy/plugins/powercontext",
     "./integrations/workbuddy/plugins/powercontext/hooks",
     "./integrations/workbuddy/plugins/powercontext/scripts",
@@ -243,6 +252,8 @@ extra-paths = [
 
 [tool.ty.src]
 exclude = [
+    # The plugin CI installs optional OCR/model dependencies and checks this directory explicitly.
+    "plugins/knowledge-base",
     # Optional Jupyter dependencies and notebook state are validated by notebooks-test.
     "examples/jupyter",
     "e2e/bub",
@@ -299,12 +310,15 @@ fix = true
 [tool.ruff.per-file-target-version]
 # Claude Code runs these hooks with the host's python3, often the macOS system Python 3.9.
 "integrations/claude-code/plugins/powercontext/**/*.py" = "py39"
-# The plugins ship generated copies of these modules. Ruff must check each copy like its source, or a fix that it
-# applies to a copy makes the copy drift.
+# The plugins and SDK adapters ship generated copies of these modules. Ruff must check each copy like its source, or a
+# fix that it applies to a copy makes the copy drift.
 "src/powercontext_integration_lifecycle/**/*.py" = "py39"
 "integrations/codex/plugins/powercontext/powercontext_lifecycle/**/*.py" = "py39"
-"integrations/hermes/plugins/powercontext/powercontext_client_config.py" = "py39"
+"integrations/hermes/plugins/powercontext/{powercontext_client_config,prepared_context}.py" = "py39"
 "integrations/workbuddy/plugins/powercontext/hooks/{powercontext_client_config,prepared_context,prompt_privacy}.py" = "py39"
+"integrations/langchain/src/powercontext_langchain/_prepared_context.py" = "py39"
+"integrations/langgraph/src/powercontext_langgraph/_prepared_context.py" = "py39"
+"integrations/pydantic-ai/src/powercontext_pydantic_ai/_prepared_context.py" = "py39"
 
 [tool.ruff.lint]
 select = [

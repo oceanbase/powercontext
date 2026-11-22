@@ -45,6 +45,11 @@ description: 完整模型请求的发送前检查、执行配额、选材规则�
 普通生成按 `generation_limits(operation)` 执行生效次数和超时。独立 decision/rerank endpoint 采用各自配置；未声明独立
 容量时不借用生成模型的窗口，这类通路不宣称已有容量保护。默认 endpoint 和显式容量均需按实际部署核实。
 
+Atomic Memory 缓存前缀抽取通过 Gateway 的 `/gateway/v1/extract` 调用 Agent 的目标模型，可能不同于 Server 的生成模型。
+该通路保留 Gateway 的 `before_send` 与 `before_release` 检查，不属于本文所述受控 SDK 的请求计量范围，也不继承生成模型
+声明的容量或 operation 预算。回退到普通抽取时，普通生成器仍执行其解析后的预算；其请求次数与超时约束覆盖该次 Agent
+执行，不覆盖前缀尝试与回退合计的请求次数和耗时。
+
 ## 各入口的规则
 
 | Family / 入口 | 请求容量与选材 | 进度和累计额度 |
@@ -89,8 +94,8 @@ HTTP/MCP 的 `inference.budget.rejected` 日志通过 allowlist 输出到 JSON�
 <!-- budget-matrix:begin -->
 | operation | binding dimension | complete input ceiling (tokens) | selection ceiling (tokens) | output reserve (tokens) | safety margin (tokens) | max requests | timeout (s) |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| `atomic_memory.extract` | `context_tokens` | 114654 | 24000 | 4096 | 6250 | 2 | 30 |
-| `atomic_memory.reconcile` | `context_tokens` | 114654 | 24000 | 4096 | 6250 | 2 | 30 |
+| `atomic_memory.extract` | `context_tokens` | 114654 | 64000 | 4096 | 6250 | 2 | 30 |
+| `atomic_memory.reconcile` | `context_tokens` | 114654 | 64000 | 4096 | 6250 | 2 | 30 |
 | `experience.generate` | `context_tokens` | 114654 | not applicable | 4096 | 6250 | 2 | 30 |
 | `experience.incubate` | `context_tokens` | 114654 | not applicable | 4096 | 6250 | 2 | 30 |
 | `handoff.generate` | `context_tokens` | 114654 | not applicable | 4096 | 6250 | 2 | 30 |

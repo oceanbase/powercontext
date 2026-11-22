@@ -16,7 +16,7 @@
 
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
-import { containsSecret, scrubSecrets } from '../src/secrets.ts'
+import { containsSecret, scrubSecrets } from '../src/prompt-privacy.ts'
 
 const { cases } = JSON.parse(readFileSync(
   new URL('../../../../../tests/fixtures/automatic_prompt_privacy.json', import.meta.url), 'utf8',
@@ -29,6 +29,7 @@ describe('shared automatic prompt privacy policy', () => {
     if (sensitive) {
       expect(query).not.toContain('synthetic-value-2084')
       expect(query).not.toContain('synthetic_value_2084')
+      expect(query).not.toContain('SyntheticValue2084')
     } else {
       expect(query).toBe(prompt)
     }

@@ -5,12 +5,12 @@ description: How the database competition uses Harbor for task authoring, partic
 cover: assets/blog/three-days-four-thousand-evaluations/cover.png
 cover_alt: Submission records pass through a bounded queue and independent verification environments into persistent results and delivery records.
 date: 2026-11-05
-updated: 2026-11-11
+updated: 2026-11-18
 authors:
   - chojan-shang
 categories:
   - Engineering
-draft: true
+draft: false
 pin: false
 ---
 

@@ -43,15 +43,19 @@ openclaw
 
 | 事件/入口 | 发送的数据 | 直接接收方 | 默认/触发条件 | 关闭方式 | 关闭后影响 |
 | --- | --- | --- | --- | --- | --- |
-| `before_prompt_build` | 最新用户文本（或 prompt 回退值），限制为 8192 UTF-8 字节且不做凭据脱敏，以及 Scope 和 prepare 预算 | 配置的 PowerContext Server；返回上下文进入宿主模型请求 | `autoRecall=true`，符合条件的私密会话 | `autoRecall=false` | 停止自动准备/注入；捕获和显式工具仍独立工作 |
-| 成功的 `agent_end` | 加上 `User:` 前缀的最新用户文本、确定性 Source ID 和来源元数据 | 配置的 PowerContext Server | `autoCapture=true`，符合条件的私密会话 | `autoCapture=false` | 停止新增自动 Source；召回和显式写入仍可用 |
+| `before_prompt_build` | 最新用户文本（或 prompt 回退值），识别出的凭据替换为 `[REDACTED]` 后限制为 8192 UTF-8 字节，以及 Scope 和 prepare 预算 | 配置的 PowerContext Server；返回上下文进入宿主模型请求 | `autoRecall=true`，符合条件的私密会话 | `autoRecall=false` | 停止自动准备/注入；捕获和显式工具仍独立工作 |
+| 成功的 `agent_end` | 加上 `User:` 前缀的最新用户文本、确定性 Source ID 和来源元数据；文本含有识别出的凭据时不发送 | 配置的 PowerContext Server | `autoCapture=true`，符合条件的私密会话 | `autoCapture=false` | 停止新增自动 Source；召回和显式写入仍可用 |
 | `before_compaction` | 捕获启用时发送同样有界的最新用户 Source；发送 Scope 执行有界 flush | 配置的 PowerContext Server | best-effort 边界事件 | `autoCapture=false` 关闭新增捕获，不关闭 pending flush | 仍可 flush 已接受的 position；不会阻止压缩 |
 | `session_end` / `gateway_stop` | 用于 flush 已接受 pending position 的 Scope；不发送新 transcript | 配置的 PowerContext Server | 存在 pending position 且 extraction 可用 | 没有独立的 flush 关闭设置 | 关闭捕获会阻止新增 Source，但不会取消已有 pending 工作 |
 | 显式 search/get/store/revise/retire | 请求的 query、引用或修改载荷 | 配置的 PowerContext Server | 显式工具执行，受宿主控制和访问检查约束 | 不调用，或在 OpenClaw 中限制工具 | 自动召回/捕获开关不会关闭显式工具 |
 
 自动捕获排除 group、channel 和 incognito 会话。`captureMaxChars` 默认 `4000`（范围 `128`–`20000`）：
 包含 `User: ` 前缀的最新用户文本超限时会被**截断**，而不是拒绝，使用 JavaScript 字符串长度和切片。
-这不是 UTF-8 字节限制，也不是完整 transcript 同步。自动召回和捕获都不做凭据识别或脱敏，插件也没有 secret 检测配置。
+这不是 UTF-8 字节限制，也不是完整 transcript 同步。
+自动召回和捕获遵循[自动 prompt 隐私策略](index.md#自动-prompt-隐私策略)。识别的凭据包括 `api_key=…`、`password: …` 等凭据赋值，
+`Authorization` 和 `Cookie` 头，bearer 与服务商 token，私钥，以及 `tokenEnv` 所指环境变量中的 token。召回查询在截断前
+把它们替换为 `[REDACTED]`；最新用户文本含有其中任一项时不采集，检查针对 `captureMaxChars` 截断前的完整文本。
+只是包含标记字样的普通词语（例如 `token budgets`）不算凭据。该规则识别常见形态，不能覆盖所有 secret。
 会话资格筛选和截断不是 secret 过滤。要阻止这些自动路径向 Server 发送 prompt 文本，需同时设置
 `autoCapture=false` 与 `autoRecall=false`，或排除该会话。显式工具仍独立工作，仍可发送其操作参数。
 

@@ -58,7 +58,10 @@ def character_token_estimator() -> TokenEstimator:
     """
 
     def count(text: str) -> int:
-        units = sum(1 if character.isascii() else _NON_ASCII_CHARACTER_UNITS for character in text)
+        size = len(text)
+        # Retained ASCII bytes count code points without a Python loop, including inputs with lone surrogates.
+        ascii_size = size if text.isascii() else len(text.encode("ascii", "ignore"))
+        units = ascii_size + (size - ascii_size) * _NON_ASCII_CHARACTER_UNITS
         return (units + _CHARACTER_UNITS_PER_TOKEN - 1) // _CHARACTER_UNITS_PER_TOKEN
 
     return TokenEstimator(

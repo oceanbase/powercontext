@@ -23,6 +23,7 @@ CODEX = HostProfile(
     integration="codex",
     user_agent=f"powercontext-codex-plugin/{PLUGIN_VERSION}",
     component="powercontext.codex",
+    prompt_id_field="turn_id",
     diagnostics=DiagnosticThrottle(state_file="codex-diagnostics.json"),
     bootstrap_state=BootstrapState(
         directory_variable="POWERCONTEXT_BOOTSTRAP_STATE_DIR",

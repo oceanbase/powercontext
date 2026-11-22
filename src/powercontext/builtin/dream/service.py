@@ -19,7 +19,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import AsyncIterator, Awaitable, Callable
-from contextlib import AbstractAsyncContextManager, asynccontextmanager, nullcontext
+from contextlib import AbstractAsyncContextManager, asynccontextmanager, nullcontext, suppress
 from datetime import datetime
 from typing import Any, Literal
 from uuid import uuid4
@@ -87,7 +87,11 @@ from powercontext.builtin.persistence.errors import ArtifactProcessingLeadership
 from powercontext.builtin.persistence.processing_intents import ArtifactProcessingIntentRepository
 from powercontext.builtin.persistence.profile import ProfilePolicyRepository
 from powercontext.builtin.persistence.tables import CANDIDATE_HEADS_TABLE, SCOPES_TABLE
-from powercontext.builtin.processing_diagnostics import safe_classify_processing_error, safe_log_fields
+from powercontext.builtin.processing_diagnostics import (
+    allow_processing_failure_log,
+    safe_classify_processing_error,
+    safe_log_fields,
+)
 from powercontext.builtin.review.errors import ArtifactTargetConflictError, InvalidCandidateError
 from powercontext.builtin.review.generation import SkillGenerationOrigin, validate_skill_lineage
 from powercontext.builtin.review.models import Candidate, CandidateStatus
@@ -329,23 +333,32 @@ class DreamService:
     ) -> None:
         work = self.processing
         diagnostic_error = error if classification_error is None else classification_error
+        diagnostics = safe_classify_processing_error(diagnostic_error)
+        operation = record.run.operation
+        family = operation_spec(operation).processing_family
+        code = processing_error_code(type(error))
+        with suppress(Exception):
+            if not allow_processing_failure_log(
+                family or "", operation, code, None if diagnostics is None else diagnostics.reason
+            ):
+                return
         log_safely(
             logger,
             logging.WARNING,
             "Dream processing attempt failed",
             extra={
                 "event": "dream.attempt.failed",
-                "operation": record.run.operation,
+                "operation": operation,
                 "unit": "stage",
                 "outcome": "failure",
-                "family": operation_spec(record.run.operation).processing_family,
+                "family": family,
                 "scope": record.run.scope_id,
                 "binding": None if work is None else work.assignment.binding_name,
                 "worker_id": None if work is None else work.assignment.worker_id,
                 "request_generation": None if work is None else work.assignment.claimed_request_generation,
                 "exception_type": type(error).__name__,
-                "error_code": processing_error_code(type(error)),
-                **safe_log_fields(safe_classify_processing_error(diagnostic_error)),
+                "error_code": code,
+                **safe_log_fields(diagnostics),
             },
         )
 

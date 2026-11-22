@@ -51,6 +51,12 @@ Ordinary generators execute `generation_limits(operation)`. Separate decision/re
 without declared independent capacity they do not borrow the generation window or claim capacity protection. Capacity must
 be checked against the real endpoint in each deployment.
 
+Cached-prefix Atomic Memory extraction calls the Gateway's `/gateway/v1/extract` route against the Agent's target model,
+which can differ from the Server's generation model. That route retains the Gateway's `before_send` and `before_release`
+checks; it is outside the owned-SDK request accounting described here and does not inherit the generation model's declared
+capacity or operation budgets. When it falls back to normal extraction, the ordinary generator applies its resolved budget.
+Its request count and timeout cover that Agent execution, not the combined prefix attempt and fallback.
+
 ## Family and entry-point rules
 
 | Family / entry point | Request capacity and selection | Progress and cumulative allowances |
@@ -102,8 +108,8 @@ resolver as Runtime.
 <!-- budget-matrix:begin -->
 | operation | binding dimension | complete input ceiling (tokens) | selection ceiling (tokens) | output reserve (tokens) | safety margin (tokens) | max requests | timeout (s) |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| `atomic_memory.extract` | `context_tokens` | 114654 | 24000 | 4096 | 6250 | 2 | 30 |
-| `atomic_memory.reconcile` | `context_tokens` | 114654 | 24000 | 4096 | 6250 | 2 | 30 |
+| `atomic_memory.extract` | `context_tokens` | 114654 | 64000 | 4096 | 6250 | 2 | 30 |
+| `atomic_memory.reconcile` | `context_tokens` | 114654 | 64000 | 4096 | 6250 | 2 | 30 |
 | `experience.generate` | `context_tokens` | 114654 | not applicable | 4096 | 6250 | 2 | 30 |
 | `experience.incubate` | `context_tokens` | 114654 | not applicable | 4096 | 6250 | 2 | 30 |
 | `handoff.generate` | `context_tokens` | 114654 | not applicable | 4096 | 6250 | 2 | 30 |

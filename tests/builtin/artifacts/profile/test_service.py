@@ -17,6 +17,7 @@ import asyncio
 
 import pytest
 from sqlalchemy import func, select
+from sqlalchemy.exc import OperationalError
 
 from powercontext.builtin.artifacts.profile.models import ProfileContent, ProfileWriteContent
 from powercontext.builtin.artifacts.prompt import PromptRegistry
@@ -26,6 +27,7 @@ from powercontext.builtin.inference.budget import hard_limit_decision
 from powercontext.builtin.inference.errors import InferenceBudgetExceededError
 from powercontext.builtin.persistence.sqlite import SQLiteConfig, SQLiteProfile
 from powercontext.builtin.persistence.tables import BUILTIN_TABLES, SCOPES_TABLE, SOURCES_TABLE
+from powercontext.builtin.processing_diagnostics import classify_processing_error
 from powercontext.builtin.records import ArtifactWrite, BaseValueConflictError, InvalidBaseAccessRequestError
 from powercontext.builtin.runtime.relational import RelationalContexts
 from powercontext.builtin.scope import ScopeBindingKey, ScopeDraft
@@ -462,7 +464,7 @@ def test_profile_created_after_authorization_cannot_be_overwritten():
     asyncio.run(run())
 
 
-def test_failed_generation_owner_write_preserves_window():
+def test_failed_generation_owner_write_preserves_window(caplog: pytest.LogCaptureFixture):
     async def run():
         async with SQLiteProfile.open(SQLiteConfig(), tables=BUILTIN_TABLES) as db:
             ctx = RelationalContexts(database=db.database)
@@ -471,11 +473,23 @@ def test_failed_generation_owner_write_preserves_window():
             await ctx.records.create_source(sid, "content", "Chinese")
             ctx.profiles.generator = Generator()
 
-            async def failed_owner(*args):
-                raise OSError("simulated owner persistence failure")  # noqa: TRY003
+            async def failed_owner(connection, _artifact, _candidate):
+                await connection.exec_driver_sql("SELECT 1 FROM private_profile_owner")
 
-            with pytest.raises(OSError):
+            with pytest.raises(OperationalError) as caught:
                 await ctx.profiles.flush(sid, on_commit=failed_owner)
+            diagnostics = classify_processing_error(caught.value)
+            assert diagnostics is not None
+            assert diagnostics.log_fields() == {
+                "processing_stage": "persistence",
+                "failure_reason": "storage_failure",
+                "failure_location": "profile-generation-storage",
+                "cause_exception_type": "OperationalError",
+            }
+            (record,) = [item for item in caplog.records if getattr(item, "event", None) == "artifact.operation.failed"]
+            assert vars(record)["operation"] == "profile.commit_generated"
+            assert "private_profile_owner" not in repr(vars(record))
+            assert record.exc_info is None
             result = await ctx.profiles.flush(sid)
             assert result.status == "updated" and result.previous_cursor == 0
             assert result.artifact is not None and result.artifact.revision == 1

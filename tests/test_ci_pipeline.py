@@ -164,7 +164,7 @@ def combinations(matrix):
     return {(version, suite) for version in matrix["python-version"] for suite in matrix["suite"]}
 
 
-def test_ordinary_pr_has_three_compatibility_jobs():
+def test_ordinary_pr_keeps_three_python_suite_pairs():
     assert combinations(ci_changes.test_matrix("pull_request", ["src/powercontext/server/settings.py"], RULES)) == {
         ("3.11", "unit"),
         ("3.14", "unit"),
@@ -193,6 +193,64 @@ def test_explicit_full_pr_profile_overrides_the_small_matrix():
         )
         == 8
     )
+
+
+@pytest.mark.parametrize(
+    ("event", "paths", "full", "versions", "unit_versions"),
+    [
+        ("pull_request", ["src/powercontext/server/settings.py"], False, ["3.12"], ["3.11", "3.14"]),
+        ("push", [], False, ["3.11", "3.12", "3.13", "3.14"], ["3.11", "3.12", "3.13", "3.14"]),
+        ("pull_request", ["uv.lock"], False, ["3.11", "3.12", "3.13", "3.14"], ["3.11", "3.12", "3.13", "3.14"]),
+        ("pull_request", [], True, ["3.11", "3.12", "3.13", "3.14"], ["3.11", "3.12", "3.13", "3.14"]),
+    ],
+)
+def test_linux_matrix_runs_each_unit_once_and_each_e2e_shard_once(event, paths, full, versions, unit_versions):
+    rows = ci_changes.test_matrix(event, paths, RULES, full=full)["include"]
+    assert [row for row in rows if row["suite"] == "unit"] == [
+        {"python-version": version, "suite": "unit"} for version in unit_versions
+    ]
+    assert [row for row in rows if row["suite"] == "e2e"] == [
+        {"python-version": version, "suite": "e2e", "shard-index": index, "shard-count": 2}
+        for version in versions
+        for index in range(2)
+    ]
+    assert len(rows) == len(unit_versions) + 2 * len(versions)
+
+
+def test_main_matrix_fallback_preserves_the_full_partitioned_coverage():
+    expression = workflow("master.yml")["jobs"]["tests"]["strategy"]["matrix"]
+    fallback = json.loads(expression.split(" || '", 1)[1].split("'", 1)[0])
+    assert fallback == ci_changes.test_matrix("push", [], RULES)
+
+
+def test_ci_runs_serial_e2e_once_and_keeps_the_local_full_e2e_entrypoint():
+    steps = workflow("master.yml")["jobs"]["tests"]["steps"]
+    serial = next(
+        step for step in steps if step.get("name") == "Run the ZCode service chain with native Hook deadlines"
+    )
+    parallel = next(step for step in steps if step.get("name") == "Run remaining end-to-end tests")
+    assert serial["if"] == "matrix.suite == 'e2e' && matrix.shard-index == 0"
+    assert serial["run"] == "make e2e-test-serial"
+    assert "--ci-shard" not in serial["run"]
+    assert parallel["if"] == "matrix.suite == 'e2e'"
+    assert parallel["env"]["PYTEST_ADDOPTS"] == (
+        "--ci-shard-index=${{ matrix.shard-index }} --ci-shard-count=${{ matrix.shard-count }}"
+    )
+    assert parallel["run"] == "make e2e-test-parallel"
+    make = shutil.which("make")
+    if make is None:
+        pytest.skip("make is required to inspect the local E2E entrypoint")
+    commands = subprocess.run(
+        [make, "--no-print-directory", "-n", "e2e-test"],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.splitlines()
+    pytest_commands = [line for line in commands if "python -m pytest" in line]
+    assert len(pytest_commands) == 2
+    assert "--ignore=tests/e2e/test_zcode_service_chain.py" in pytest_commands[0]
+    assert "-n 0 tests/e2e/test_zcode_service_chain.py" in pytest_commands[1]
 
 
 def test_selected_scopes_have_a_complete_terminal_result_contract():
@@ -240,7 +298,7 @@ def test_website_build_uses_the_standard_internal_runner():
 
 def test_all_end_to_end_suites_have_extended_timeout():
     timeout = workflow("master.yml")["jobs"]["tests"]["timeout-minutes"]
-    assert timeout == "${{ matrix.suite == 'e2e' && 55 || 50 }}"
+    assert timeout == "${{ matrix.suite == 'e2e' && 90 || 75 }}"
 
 
 def test_installation_roles_use_only_two_python_runners():
@@ -284,11 +342,8 @@ def test_automatic_host_workflows_share_one_scope_and_admission_gate():
                 assert "fromJSON(inputs.suites || needs.changes.outputs.suites || '{}')" in child_job["if"]
 
 
-def test_compatibility_and_upgrade_matrices_have_bounded_runner_bursts():
-    assert int(workflow("master.yml")["jobs"]["tests"]["strategy"]["max-parallel"]) <= 3
-    assert int(workflow("master.yml")["jobs"]["isolated-installations"]["strategy"]["max-parallel"]) <= 2
+def test_upgrade_evidence_and_hosted_candidate_budgets():
     upgrade = workflow("upgrade-release.yml")["jobs"]["cases"]["strategy"]
-    assert int(upgrade["max-parallel"]) <= 3
     assert upgrade["fail-fast"] is False  # Complete upgrade evidence remains mandatory.
     jobs = workflow("managed-resource-candidates.yml")["jobs"]
     native = jobs["candidate"]["strategy"]

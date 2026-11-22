@@ -18,9 +18,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Callable, Sequence
-from contextlib import AsyncExitStack, nullcontext
+import re
+from collections.abc import Callable, Iterator, Sequence
+from contextlib import AsyncExitStack, contextmanager, nullcontext, suppress
+from contextvars import ContextVar
 from copy import copy
+from dataclasses import dataclass, replace
 from typing import Any, Generic, Literal, Self, TypeVar, cast
 
 from pydantic import BaseModel, Field
@@ -64,6 +67,7 @@ from powercontext.builtin.processing_diagnostics import (
     ProcessingFailureReason,
     ProcessingStage,
     attach_diagnostics,
+    diagnostics_of,
     stage_for_operation,
 )
 
@@ -176,8 +180,68 @@ class InferenceLimits(BaseModel):
     allow_continuations: bool = True
 
 
-class _CompleteResponseModel(WrapperModel):
-    """Do not let Agent fold separately billed continuations into one request."""
+_TRUNCATED_FINISH_REASONS = {"length", "max_tokens", "max_output_tokens", "max_completion_tokens"}
+_SAFE_FINISH_REASONS = _TRUNCATED_FINISH_REASONS | {
+    "stop",
+    "end_turn",
+    "tool_call",
+    "tool_calls",
+    "tool_use",
+    "content_filter",
+    "error",
+    "pause_turn",
+}
+
+
+@dataclass(slots=True)
+class _GenerationResponseEvidence:
+    latest: ProcessingDiagnostics | None = None
+
+
+_response_evidence: ContextVar[_GenerationResponseEvidence | None] = ContextVar(
+    "powercontext_generation_response_evidence", default=None
+)
+
+
+@contextmanager
+def _collect_response_evidence() -> Iterator[_GenerationResponseEvidence]:
+    evidence = _GenerationResponseEvidence()
+    token = _response_evidence.set(evidence)
+    try:
+        yield evidence
+    finally:
+        _response_evidence.reset(token)
+
+
+def _response_diagnostics(response: ModelResponse) -> ProcessingDiagnostics | None:
+    with suppress(Exception):
+        normalized = response.finish_reason
+        raw = (response.provider_details or {}).get("finish_reason")
+        # Native adapters can preserve the reason only in their structured metadata.
+        reason = normalized if normalized in _SAFE_FINISH_REASONS else None
+        if isinstance(raw, str) and raw in _TRUNCATED_FINISH_REASONS and normalized not in _TRUNCATED_FINISH_REASONS:
+            reason = raw
+        response_id = response.provider_response_id
+        return ProcessingDiagnostics(
+            stage=ProcessingStage.GENERATION,
+            reason=ProcessingFailureReason.OUTPUT_TRUNCATED if reason in _TRUNCATED_FINISH_REASONS else None,
+            provider_request_id=(
+                response_id
+                if isinstance(response_id, str) and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}", response_id)
+                else None
+            ),
+            finish_reason=reason,
+            failure_location="provider-response",
+        )
+    return None
+
+
+class _ResponseDiagnosticsModel(WrapperModel):
+    """Capture terminal response metadata while preserving the continuation policy."""
+
+    def __init__(self, wrapped: Model, *, allow_continuations: bool) -> None:
+        super().__init__(wrapped)
+        self._allow_continuations = allow_continuations
 
     @override
     async def request(
@@ -186,19 +250,16 @@ class _CompleteResponseModel(WrapperModel):
         model_settings: ModelSettings | None,
         model_request_parameters: ModelRequestParameters,
     ) -> ModelResponse:
+        evidence = _response_evidence.get()
+        if evidence is not None:
+            evidence.latest = None
         response = await self.wrapped.request(messages, model_settings, model_request_parameters)
-        if response.state != "complete":
-            finish_reason = getattr(response, "finish_reason", None)
-            truncated = str(finish_reason or "").lower() in {"length", "max_tokens"}
+        diagnostics = _response_diagnostics(response)
+        if evidence is not None:
+            evidence.latest = diagnostics
+        if not self._allow_continuations and response.state != "complete":
             raise attach_diagnostics(
-                InvalidInferenceOutputError("generate", "provider continuation is not allowed"),
-                ProcessingDiagnostics(
-                    stage=ProcessingStage.GENERATION,
-                    reason=ProcessingFailureReason.OUTPUT_TRUNCATED if truncated else None,
-                    provider_request_id=getattr(response, "provider_response_id", None),
-                    finish_reason=finish_reason,
-                    failure_location="provider-response",
-                ),
+                InvalidInferenceOutputError("generate", "provider continuation is not allowed"), diagnostics
             ) from None
         return response
 
@@ -260,11 +321,14 @@ class StreamingAggregateModel(WrapperModel):
             # authority for the aggregated response.
             response = stream.get()
         if response.state != "complete":
-            raise InvalidInferenceOutputError(
-                "generate",
-                "provider continuation is not allowed"
-                if response.state == "suspended"
-                else "provider stream ended before completion",
+            raise attach_diagnostics(
+                InvalidInferenceOutputError(
+                    "generate",
+                    "provider continuation is not allowed"
+                    if response.state == "suspended"
+                    else "provider stream ended before completion",
+                ),
+                _response_diagnostics(response),
             )
         if (
             stream.provider_name is not None
@@ -275,7 +339,10 @@ class StreamingAggregateModel(WrapperModel):
             # example when a gateway drops the connection before the final chunk.
             # The accumulated content is then truncated even though the stream
             # state defaults to complete, so a missing finish reason is rejected.
-            raise InvalidInferenceOutputError("generate", "provider stream ended without a completion signal")
+            raise attach_diagnostics(
+                InvalidInferenceOutputError("generate", "provider stream ended without a completion signal"),
+                _response_diagnostics(response),
+            )
         if response.usage.input_tokens == 0 and response.usage.output_tokens == 0:
             # Some gateways stream the response without a final usage chunk; usage
             # statistics for this request will be missing. Warn without failing: the
@@ -296,7 +363,7 @@ class StreamingAggregateModel(WrapperModel):
 class PydanticAIStructuredGenerator(Generic[InputT, OutputT]):
     """Bind one injected Pydantic AI model to fixed instructions and schemas."""
 
-    def __init__(
+    def __init__(  # noqa: C901 - bind schema, request budgets, diagnostics and tracing at one boundary
         self,
         *,
         model: Model,
@@ -349,20 +416,16 @@ class PydanticAIStructuredGenerator(Generic[InputT, OutputT]):
                 model,
                 merge_model_settings(model.settings, bounded_settings),
             )
-            # Keep request identity across streaming/continuation wrappers; owned SDK
-            # clients admit their serialized body in the task-local HTTP hook.
-            # Agent discovers explicit instrumentation only on the outermost model.
-            # Keep that layer outside the request-control wrappers.
-            instrumentation = model.instrumentation_settings if isinstance(model, InstrumentedModel) else None
-            agent_model = model.wrapped if isinstance(model, InstrumentedModel) else model
-            guarded_model: Model = (
-                agent_model if self._limits.allow_continuations else _CompleteResponseModel(agent_model)
-            )
-            guarded_model = (
-                InstrumentedModel(guarded_model, instrumentation) if instrumentation is not None else guarded_model
-            )
+            # Keep the instrumentation outermost so Agent retains run spans and prompt metadata.
+            if isinstance(model, InstrumentedModel):
+                model = copy(model)
+                model.wrapped = _ResponseDiagnosticsModel(
+                    model.wrapped, allow_continuations=self._limits.allow_continuations
+                )
+            else:
+                model = _ResponseDiagnosticsModel(model, allow_continuations=self._limits.allow_continuations)
             self._agent = Agent(
-                guarded_model if budget is None else BudgetedModel.wrap(guarded_model),
+                model if budget is None else BudgetedModel.wrap(model),
                 deps_type=input_type,
                 output_type=PromptedOutput(output_type),
                 instructions=instructions,
@@ -406,7 +469,7 @@ class PydanticAIStructuredGenerator(Generic[InputT, OutputT]):
             "max_requests": self._limits.max_requests,
         }
 
-    async def generate(self, value: InputT, /) -> GenerationResult[OutputT]:
+    async def generate(self, value: InputT, /) -> GenerationResult[OutputT]:  # noqa: C901 - retain failure evidence and usage
         """Generate one structured value within the configured request and time limits."""
 
         if not isinstance(value, self._input_type):
@@ -420,7 +483,7 @@ class PydanticAIStructuredGenerator(Generic[InputT, OutputT]):
         except (PydanticSerializationError, PydanticUserError, ValidationError, UnicodeError) as error:
             raise PydanticAIConfigurationError("serialize") from error
 
-        with self._provider_observations.operation():
+        with self._provider_observations.operation(), _collect_response_evidence() as evidence:
             run_usage = RunUsage()
             raw_usage: list[InferenceUsage] = []
             try:
@@ -470,6 +533,8 @@ class PydanticAIStructuredGenerator(Generic[InputT, OutputT]):
                     raise
                 if mapped is error:
                     raise
+                if rejected is None and evidence.latest is not None:
+                    _enrich_output_failure(mapped, evidence.latest)
                 raise mapped from error
 
             usage = approved_usage(raw_usage) if raw_usage else _generation_usage(result.usage)
@@ -667,6 +732,23 @@ def _generation_usage(value: RunUsage) -> InferenceUsage:
     )
 
 
+def _enrich_output_failure(error: InferenceError, response: ProcessingDiagnostics) -> None:
+    """Use evidence from the final response only for mapped output failures."""
+    with suppress(Exception):
+        original = diagnostics_of(error)
+        if original is None or original.reason is not ProcessingFailureReason.SCHEMA_INVALID:
+            return
+        if response.reason is ProcessingFailureReason.OUTPUT_TRUNCATED:
+            attach_diagnostics(error, replace(response, cause_exception_type=original.cause_exception_type))
+        else:
+            attach_diagnostics(
+                error,
+                replace(
+                    original, provider_request_id=response.provider_request_id, finish_reason=response.finish_reason
+                ),
+            )
+
+
 def _checked_rule(error: BaseException) -> InvalidInferenceOutputError | None:
     cause = error.__cause__
     while cause is not None:
@@ -796,20 +878,29 @@ def _map_error(  # noqa: C901 - bounded mapping across status codes and provider
 def _looks_like_context_overflow(error: ModelHTTPError) -> bool:
     """Classify only when the provider's own response names a context limit."""
 
-    body = getattr(error, "body", None)
-    text = str(body if isinstance(body, (str, bytes)) else body or "").lower()
-    return any(
-        term in text
-        for term in (
-            "context length",
-            "context window",
-            "maximum context",
-            "too many tokens",
-            "prompt is too long",
-            "input is too long",
-            "token limit",
-        )
-    )
+    if error.status_code not in {400, 413, 422}:
+        return False
+    details = error.body
+    if isinstance(details, dict):
+        details = details.get("error", details)
+    if isinstance(details, dict):
+        code = details.get("code")
+        if isinstance(code, str) and code in {"context_length_exceeded", "context_window_exceeded"}:
+            return True
+        details = details.get("message")
+    if not isinstance(details, str):
+        return False
+    message = re.sub(r"^(?:400|413|422):\s*", "", details[:1024].lower())
+    if re.match(r"(?:prompt|input) is too long:\s*\d+\s+tokens\s*>\s*\d+\s+maximum\b", message):
+        return True
+    return message.startswith((
+        "this model's maximum context length is",
+        "maximum context length exceeded",
+        "context length exceeded",
+        "context window exceeded",
+        "input is too long for this model",
+        "prompt is too long for this model",
+    ))
 
 
 __all__ = [
