@@ -318,7 +318,7 @@ jobs:
       - name: Install and resolve native DSH configuration test APIs
         if: matrix.suite == 'unit'
         run: |
-          pnpm --dir integrations/dsh/plugins/powercontext/tests/config-runtime install --frozen-lockfile
+          node "$PC_CI_NODE_INSTALLER" pnpm --dir integrations/dsh/plugins/powercontext/tests/config-runtime install --frozen-lockfile
           boot="$(node --input-type=module -e "import { createRequire } from 'node:module'; import { resolve } from 'node:path'; const require = createRequire(resolve('integrations/dsh/plugins/powercontext/tests/config-runtime/package.json')); process.stdout.write(require.resolve('@deepseek-ai/dsh-app-boot'))")"
           test -n "$boot" && test -f "$boot" || { echo "DSH configuration runtime unresolved"; exit 1; }
           echo "DSH_TEST_CONFIG_BOOT=$boot" >> "$GITHUB_ENV"
@@ -1108,14 +1108,28 @@ jobs:
       - name: Test DSH package
         run: make js-test
 
+      - name: Restore DSH archive installation downloads
+        id: dsh-npm-cache
+        uses: ./.github/actions/cache-npm
+        with:
+          packages: '@deepseek-ai/cordis@4.0.1'
+          cache-dependency-glob: integrations/dsh/plugins/powercontext/package.json
+
       - name: Verify DSH npm archive installation
         run: node --test integrations/dsh/plugins/powercontext/tests/pack-release.test.mjs
+
+      - name: Save DSH archive installation downloads
+        if: steps.dsh-npm-cache.outputs.cache-hit != 'true'
+        uses: ./.github/actions/cache-save
+        with:
+          path: ${{ steps.dsh-npm-cache.outputs.cache-path }}
+          key: ${{ steps.dsh-npm-cache.outputs.cache-key }}
 
       - name: Test built plugin in the real DSH runtime
         run: make dsh-runtime-test
 
       - name: Install native DSH configuration test APIs
-        run: pnpm --dir integrations/dsh/plugins/powercontext/tests/config-runtime install --frozen-lockfile
+        run: node "$PC_CI_NODE_INSTALLER" pnpm --dir integrations/dsh/plugins/powercontext/tests/config-runtime install --frozen-lockfile
 
       - name: Resolve required DSH test runtimes
         run: |
@@ -1259,7 +1273,7 @@ jobs:
         env:
           OPENCODE_PACKAGE: ${{ steps.opencode-package.outputs.package }}
         run: |
-          npm install --prefix "$RUNNER_TEMP/opencode-host" \
+          node "$PC_CI_NODE_INSTALLER" npm install --prefix "$RUNNER_TEMP/opencode-host" \
             --registry https://registry.npmjs.org --ignore-scripts --no-audit --no-fund \
             "$OPENCODE_PACKAGE@$OPENCODE_VERSION"
 
@@ -1320,7 +1334,7 @@ jobs:
 
       - name: Install the pinned Codex host
         run: |
-          npm install --prefix "$RUNNER_TEMP/codex-host" \
+          node "$PC_CI_NODE_INSTALLER" npm install --prefix "$RUNNER_TEMP/codex-host" \
             --registry https://registry.npmjs.org --ignore-scripts --no-audit --no-fund \
             "@openai/codex@$CODEX_VERSION"
 
@@ -1478,7 +1492,7 @@ jobs:
           cache-dependency-glob: integrations/openclaw/plugins/memory-powercontext/pnpm-lock.yaml
 
       - name: Install OpenClaw package dependencies
-        run: mise exec node@24.15.0 -- pnpm --dir integrations/openclaw/plugins/memory-powercontext install --frozen-lockfile
+        run: mise exec node@24.15.0 -- node "$PC_CI_NODE_INSTALLER" pnpm --dir integrations/openclaw/plugins/memory-powercontext install --frozen-lockfile
 
       - name: Save OpenClaw package dependencies
         if: steps.pnpm.outputs.cache-hit != 'true' && github.event_name != 'merge_group'
@@ -1506,7 +1520,7 @@ jobs:
 
       - name: Install the pinned OpenClaw host
         run: |
-          mise exec node@24.15.0 -- npm install --prefix "$RUNNER_TEMP/openclaw-host" \
+          mise exec node@24.15.0 -- node "$PC_CI_NODE_INSTALLER" npm install --prefix "$RUNNER_TEMP/openclaw-host" \
             --registry https://registry.npmjs.org --ignore-scripts --no-audit --no-fund "openclaw@$OPENCLAW_VERSION"
           cli="$RUNNER_TEMP/openclaw-host/node_modules/.bin/openclaw"
           mise exec node@24.15.0 -- "$cli" --version | grep -qx "OpenClaw $OPENCLAW_VERSION (.*)"
