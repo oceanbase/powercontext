@@ -77,7 +77,7 @@ jobs:
           from pathlib import Path
 
           version = subprocess.check_output(
-              ["uvx", "--from", "hatchling", "--with", "hatch-vcs", "hatchling", "version"],
+              ["python", os.environ["PC_CI_PYTHON_INSTALLER"], "run", "--no-project", "--with", "hatchling", "--with", "hatch-vcs", "--", "hatchling", "version"],
               text=True,
           ).strip()
           source_sha = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
@@ -100,8 +100,8 @@ jobs:
       - name: Build Python distributions
         run: |
           mkdir -p build/artifact-input/distributions
-          uv build --out-dir build/artifact-input/distributions
-          uvx --from 'twine>=7.0.0' twine check build/artifact-input/distributions/*
+          python "$PC_CI_PYTHON_INSTALLER" build --out-dir build/artifact-input/distributions
+          python "$PC_CI_PYTHON_INSTALLER" run --no-project --with 'twine>=7.0.0' -- twine check build/artifact-input/distributions/*
 
       - name: Export locked runtime dependencies
         run: |

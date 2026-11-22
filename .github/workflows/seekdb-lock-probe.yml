@@ -40,6 +40,7 @@ jobs:
           persist-credentials: false
       - uses: ./.github/actions/setup-python-env
         with:
+          sync-args: "--extra seekdb"
           python-version: ${{ matrix.python }}
       - name: Reproduce migration lifecycle with complete native evidence
         env:

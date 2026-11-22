@@ -52,6 +52,12 @@ def run_release_step(tmp_path: Path):
     uvx = bin_dir / "uvx"
     uvx.write_text(f'#!{sys.executable}\nimport os\nprint(os.environ["TEST_PACKAGE_VERSION"])\n')
     uvx.chmod(0o755)
+    uv = bin_dir / "uv"
+    uv.write_text(
+        f"#!{sys.executable}\nimport os, sys\n"
+        'if sys.argv[-2:] == ["hatchling", "version"]: print(os.environ["TEST_PACKAGE_VERSION"])\n'
+    )
+    uv.chmod(0o755)
     output = tmp_path / "output"
 
     def run(workflow_name: str, tag: str, package_version: str):
@@ -74,6 +80,7 @@ def run_release_step(tmp_path: Path):
             env={
                 **os.environ,
                 "PATH": os.pathsep.join((str(bin_dir), str(Path(sys.executable).parent), os.environ.get("PATH", ""))),
+                "PC_CI_PYTHON_INSTALLER": str(Path(__file__).parents[1] / "scripts/ci_python_mirror.py"),
                 "RELEASE_TAG": tag,
                 "RELEASE_PACKAGE": "powercontext",
                 "TEST_PACKAGE_VERSION": package_version,

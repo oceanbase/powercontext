@@ -99,7 +99,7 @@ jobs:
               )
 
           package_version = subprocess.check_output(
-              ["uvx", "--from", "hatchling", "--with", "hatch-vcs", "hatchling", "version"],
+              ["python", os.environ["PC_CI_PYTHON_INSTALLER"], "run", "--no-project", "--with", "hatchling", "--with", "hatch-vcs", "--", "hatchling", "version"],
               text=True,
           ).strip()
           if package_version != release_version:
@@ -133,8 +133,8 @@ jobs:
 
       - name: Build release distributions
         run: |
-          uv build --out-dir dist
-          uvx --from 'twine>=7.0.0' twine check dist/*
+          python "$PC_CI_PYTHON_INSTALLER" build --out-dir dist
+          python "$PC_CI_PYTHON_INSTALLER" run --no-project --with 'twine>=7.0.0' -- twine check dist/*
 
       - name: Freeze distributions and resolve the source matrix once
         if: ${{ !inputs.skip_upgrade_acceptance }}
@@ -206,7 +206,7 @@ jobs:
           verification="$RUNNER_TEMP/release-fresh-install"
           uv venv "$verification"
           wheels=("$RUNNER_TEMP"/release-without-upgrades/validated-dist/*.whl)
-          uv pip install --python "$verification/bin/python" "${wheels[0]}[cli,server]"
+          python "$PC_CI_PYTHON_INSTALLER" uv-pip install --python "$verification/bin/python" "${wheels[0]}[cli,server]"
           uv pip check --python "$verification/bin/python"
           version="$("$verification/bin/python" -c 'from importlib.metadata import version; print(version("powercontext"))')"
           "$verification/bin/python" scripts/ci_release_smoke.py --version "$version"
