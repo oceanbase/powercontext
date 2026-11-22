@@ -45,6 +45,9 @@ from tests.builtin.runtime.test_processing_scheduler import _Launcher, _wait
 from tests.builtin.runtime.test_topic_memory_processing import _repositories
 from tests.builtin.runtime.test_topic_memory_scope import BINDING, _capture, _Probe, _processor, _state
 
+# Observe cold child imports, execution, and natural exit separately from fault deadlines.
+_WORKER_LIFECYCLE_TIMEOUT_SECONDS = 60
+
 
 async def _seed(database, **overrides):
     async with database.transaction() as connection:
@@ -286,7 +289,7 @@ def test_admission_race_returns_block_diagnostics_from_real_spawn_child(tmp_path
             ) as supervisor:
                 await _wait(
                     lambda: any(getattr(r, "event", None) == "artifact_processing.blocked" for r in caplog.records),
-                    timeout_seconds=30,
+                    timeout_seconds=_WORKER_LIFECYCLE_TIMEOUT_SECONDS,
                 )
                 await asyncio.sleep(0.15)
                 assert launcher.starts == 1

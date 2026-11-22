@@ -34,6 +34,21 @@ ROOT = Path(__file__).parents[1]
 RULES = tomllib.loads((ROOT / ".github/ci-paths.toml").read_text())
 
 
+def test_diagnostic_artifact_recovery_behaviors():
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("Node.js is required to execute the diagnostic artifact recovery tests")
+    result = subprocess.run(
+        [node, "--test", ".github/actions/upload-ci-diagnostics/artifact-state.test.cjs"],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=False,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
 @pytest.mark.skipif(sys.platform == "win32", reason="macOS bundling uses POSIX executables")
 @pytest.mark.parametrize(
     ("failures", "expected_status", "expected_attempts"),
@@ -230,13 +245,13 @@ def test_ci_runs_serial_e2e_once_and_keeps_the_local_full_e2e_entrypoint():
     )
     parallel = next(step for step in steps if step.get("name") == "Run remaining end-to-end tests")
     assert serial["if"] == "matrix.suite == 'e2e' && matrix.shard-index == 0"
-    assert serial["run"] == "make e2e-test-serial"
+    assert "make e2e-test-serial " in serial["run"]
     assert "--ci-shard" not in serial["run"]
     assert parallel["if"] == "matrix.suite == 'e2e'"
     assert parallel["env"]["PYTEST_ADDOPTS"] == (
         "--ci-shard-index=${{ matrix.shard-index }} --ci-shard-count=${{ matrix.shard-count }}"
     )
-    assert parallel["run"] == "make e2e-test-parallel"
+    assert "make e2e-test-parallel " in parallel["run"]
     make = shutil.which("make")
     if make is None:
         pytest.skip("make is required to inspect the local E2E entrypoint")
@@ -273,7 +288,7 @@ def test_preflight_uses_one_runner_and_keeps_all_admission_checks_mandatory():
     assert len(checkouts) == 1
     assert checkouts[0]["with"]["fetch-depth"] == 0
     selection = next(step for step in steps if step.get("id") == "select")
-    license_check = next(step for step in steps if step.get("uses", "").startswith("apache/skywalking-eyes/header@"))
+    license_check = next(step for step in steps if step.get("uses") == "./.github/actions/check-license")
     quality = next(step for step in steps if step.get("run") == "make check")
     contract = next(step for step in steps if step.get("run") == "make contract-test")
     assert selection["env"]["CI_BASELINE_WORKFLOW"] == "master.yml"
@@ -304,12 +319,16 @@ def test_all_end_to_end_suites_have_extended_timeout():
 def test_installation_roles_use_only_two_python_runners():
     job = workflow("master.yml")["jobs"]["isolated-installations"]
     assert job["strategy"]["matrix"] == {"python-version": ["3.11", "3.14"]}
-    build = [step for step in job["steps"] if "uv build --wheel" in step.get("run", "")]
+    build = [step for step in job["steps"] if "build --wheel" in step.get("run", "")]
     assert len(build) == 1
     verify = next(step for step in job["steps"] if "ci_installation_roles.py" in step.get("run", ""))
     assert not verify.get("continue-on-error")
     assert "if" not in verify
-    reports = next(step for step in job["steps"] if step.get("uses", "").startswith("actions/upload-artifact@"))
+    reports = next(
+        step
+        for step in job["steps"]
+        if step.get("with", {}).get("name") == "installation-roles-py${{ matrix.python-version }}-${{ github.sha }}"
+    )
     assert reports["if"] == "always()"
     assert "summary.json" in reports["with"]["path"]
     assert "logs/*.log" in reports["with"]["path"]

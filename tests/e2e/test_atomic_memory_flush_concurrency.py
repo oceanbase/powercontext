@@ -48,6 +48,9 @@ from powercontext.builtin.scope import ScopeDraft
 from powercontext.sources import SourceSequenceLocator
 from tests.e2e.dream_support import atomic_memory_pipeline, memory_source_text
 
+# Event gates establish independence; this budget only bounds write observation.
+_CONCURRENT_WRITE_TIMEOUT_SECONDS = 15
+
 
 class _PausedExtractor:
     def __init__(self) -> None:
@@ -138,7 +141,8 @@ def test_capture_during_extraction_stays_outside_the_selected_window(tmp_path: P
             try:
                 await asyncio.wait_for(extractor.entered.wait(), timeout=3)
                 later = await asyncio.wait_for(
-                    sources.capture(CaptureSource(source_id="later", content="Later fact.", metadata={})), timeout=1
+                    sources.capture(CaptureSource(source_id="later", content="Later fact.", metadata={})),
+                    timeout=_CONCURRENT_WRITE_TIMEOUT_SECONDS,
                 )
                 assert later.sequence == original.sequence + 1
                 assert (await memory.cursor()).sequence == 0
@@ -275,7 +279,7 @@ def test_revision_during_reconciliation_retries_with_current_authority(tmp_path:
                         '"revision:1"',
                         ArtifactWrite(content={"kind": "fact", "text": "Database rollout budget is 3 units."}),
                     ),
-                    timeout=1,
+                    timeout=_CONCURRENT_WRITE_TIMEOUT_SECONDS,
                 )
             finally:
                 reconciler.release.set()

@@ -62,7 +62,7 @@ jobs:
           docker stop --timeout 30 upgrade-oceanbase || true
       - name: Save source schema and provenance
         if: always()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        uses: ./.github/actions/upload-ci-diagnostics
         with:
           name: release-1.4.0-${{ matrix.backend }}-${{ matrix.configuration }}-${{ github.sha }}
           path: ${{ runner.temp }}/release-schema/

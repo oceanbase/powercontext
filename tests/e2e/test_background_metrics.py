@@ -24,6 +24,7 @@ from powercontext.builtin.persistence.oceanbase import OceanBaseConfig
 from powercontext.builtin.runtime.config import RuntimeConfig
 from powercontext.server.settings import ServerSettings
 from tests.e2e.atomic_memory_migration_backend import migration_profile
+from tests.e2e.server_startup import SERVER_STARTUP_TIMEOUT_SECONDS
 
 
 async def _database_objects(config: OceanBaseConfig) -> tuple[tuple[str, str], ...]:
@@ -103,7 +104,7 @@ def test_background_cli_serves_only_authorized_metrics_and_stops_cleanly(tmp_pat
         )
         try:
             base = f"http://127.0.0.1:{port}"
-            deadline = time.monotonic() + 20
+            deadline = time.monotonic() + SERVER_STARTUP_TIMEOUT_SECONDS
             ready = False
             with httpx.Client(timeout=0.5) as client:
                 while time.monotonic() < deadline and process.poll() is None:
