@@ -77,6 +77,75 @@ async def _intent(database, binding, scope):
         return await ArtifactProcessingIntentRepository().load(connection, scope, binding)
 
 
+class _SchedulerLoop:
+    def __init__(self, clock):
+        self.clock = clock
+
+    def time(self):
+        return self.clock.now
+
+    def __getattr__(self, name):
+        return getattr(asyncio.get_running_loop(), name)
+
+
+class _SchedulerClock:
+    """Control scheduler deadlines and idle waits without changing the database's event loop."""
+
+    def __init__(self, monkeypatch):
+        self.now = 0.0
+        self.waiting = None
+        self.retry_times = []
+        monkeypatch.setattr(processing, "asyncio", self)
+
+    def __getattr__(self, name):
+        return getattr(asyncio, name)
+
+    def get_running_loop(self):
+        return _SchedulerLoop(self)
+
+    def retry_jitter(self):
+        self.retry_times.append(self.now)
+        return 1
+
+    async def wait_for(self, awaitable, timeout):  # noqa: ASYNC109 - asyncio-compatible test clock boundary
+        wake = asyncio.ensure_future(awaitable)
+        expired = asyncio.get_running_loop().create_future()
+        waiting = (self.now + timeout, expired)
+        self.waiting = waiting
+        try:
+            await asyncio.wait((wake, expired), return_when=asyncio.FIRST_COMPLETED)
+            if wake.done():
+                return wake.result()
+            raise TimeoutError
+        finally:
+            if self.waiting is waiting:
+                self.waiting = None
+            expired.cancel()
+            wake.cancel()
+            await asyncio.gather(wake, return_exceptions=True)
+
+    def advance_to(self, deadline):
+        assert deadline >= self.now
+        self.now = deadline
+        if self.waiting is not None:
+            due, expired = self.waiting
+            if due <= self.now and not expired.done():
+                expired.set_result(None)
+
+    async def settle_before(self, deadline, predicate, timeout_seconds=5):
+        # Allow bounded discovery pages to finish, but never cross the retry boundary.
+        async with asyncio.timeout(timeout_seconds):
+            while True:
+                if self.waiting is not None:
+                    due, expired = self.waiting
+                    if not expired.done():
+                        if due <= deadline:
+                            self.advance_to(due)
+                        elif predicate():
+                            return
+                await asyncio.sleep(0.005)
+
+
 class _Launcher:
     def __init__(self, database, *, on_work=None, gates=None):
         self.database = database
@@ -597,13 +666,15 @@ def test_overflow_flush_cannot_advance_retry_and_cached_failures_cannot_extend_g
     monkeypatch.setattr(processing, "_CONTROL_CONFLICT_RETRY_SECONDS", 0.2)
 
     async def scenario():
+        clock = _SchedulerClock(monkeypatch)
+        retry_delay = 0.8
         async with _profile(tmp_path, "overflow-pressure") as profile:
             await _request(profile.database, "memory-binding", "cached")
             await _request(profile.database, "memory-binding", "overflow")
             attempts = {"cached": [], "overflow": [], "healthy-tail": []}
 
             async def pressure(work):
-                attempts[work.scope_id].append(asyncio.get_running_loop().time())
+                attempts[work.scope_id].append(clock.now)
                 if work.scope_id == "cached":
                     return ArtifactProcessingWorkerCompletion(ArtifactProcessingWorkerOutcome.CURSOR_CONFLICT)
                 if work.scope_id == "overflow":
@@ -614,22 +685,32 @@ def test_overflow_flush_cannot_advance_retry_and_cached_failures_cannot_extend_g
                 database=profile.database,
                 bindings=(ArtifactProcessingBinding("memory-binding", "memory", launcher),),
                 lease_mode="single-process",
-                retry_base_seconds=0.8,
-                retry_cap_seconds=0.8,
-                retry_jitter=lambda: 1,
+                retry_base_seconds=retry_delay,
+                retry_cap_seconds=retry_delay,
+                retry_jitter=clock.retry_jitter,
             ) as supervisor:
-                await _wait(lambda: supervisor.family_status["memory"]["failed"] == 1)
+                await clock.settle_before(0.1, lambda: supervisor.family_status["memory"]["failed"] == 1)
                 assert supervisor.family_status["memory"]["retry_wait"] == 1
+                retry_at = clock.retry_times[0] + retry_delay
                 await _request(profile.database, "memory-binding", "overflow", dirty=False)
                 await _request(profile.database, "memory-binding", "healthy-tail")
                 # Repeated API wakes must respect the omitted key's cooldown.
-                for _ in range(4):
+                before = clock.now
+                for number in range(1, 5):
+                    clock.advance_to(before + number * 0.04)
+                    previous_wait = clock.waiting
                     supervisor.wake("memory-binding")
+                    await _wait(lambda previous=previous_wait: clock.waiting is not previous)
+                    await clock.settle_before(clock.now, lambda: True)
                     await asyncio.sleep(0.04)
                 assert len(attempts["overflow"]) == 1
                 # Cached retries keep failing, but cannot keep shifting the
                 # finite overflow cohort's gate beyond the original deadline.
-                await _wait(lambda: supervisor.family_status["memory"]["completed"] == 1, timeout_seconds=1.5)
+                await clock.settle_before(
+                    retry_at + retry_delay,
+                    lambda: supervisor.family_status["memory"]["completed"] == 1,
+                    timeout_seconds=1.5,
+                )
                 assert len(attempts["cached"]) >= 3
                 await _wait(lambda: len(attempts["overflow"]) >= 2, timeout_seconds=1.5)
                 assert attempts["overflow"][1] - attempts["overflow"][0] >= 0.78
