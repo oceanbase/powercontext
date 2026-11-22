@@ -3891,3 +3891,20 @@ uv run --no-sync python desktop/tests/real_server.py \
 On 2026-11-19, `desktop/tests/real_server.py` passed anonymous loopback, static Bearer, HTTPS with an explicit CA and base path, and injected-provider authentication with enforced access. The product ConnectionManager selected the bundled qualification and reported matching client and Server contract digests. The checks used SQLite on Linux 5.10 x86_64, glibc 2.32 and Python 3.14.6.
 
 The native probe used Rust 1.97.1 and the product adapter modules in an isolated Cargo crate, with registry dependency pins matching the product Cargo lock. This qualification covers the local SQLite protocol. Installed WebView and platform keyring behavior require separate checks.
+
+## Server 6bb19eec Source target status protocol qualification
+
+`sqlite-codex-source-status-6bb19eec-v1` qualifies the bundled Desktop operations against Server commit
+`6bb19eecf06deb2192760218c5522d035c498b29`. All 819 packaged runtime files match the Git archive.
+
+- Normalized OpenAPI SHA-256: `1538ac84c96527e93a33544a80c581658af40e5ee46f101dd16cca0cbf2b09be`.
+- Wheel: `powercontext-1.5.3.dev335+g6bb19eecf-py3-none-any.whl`.
+- Wheel SHA-256: `c621f395603ef3894875bb5dc7ee20e0b73f411a1a15626b8c73031c27efac4d`.
+- Native debug probe SHA-256: `d4a69dc6596dfef7cb867717d008cf2509648ac5b45d830a698a6ed0c5ee613a`.
+
+On 2026-11-22, the native debug probe and `desktop/tests/real_server.py` passed with SQLite,
+macOS arm64 and Python 3.13.9. All four connection modes passed: anonymous loopback,
+static Bearer, HTTPS with a custom CA and base path, and injected-provider authentication
+with enforced access. The product ConnectionManager selected the bundled record and
+reported matching contract digests. The working tree contained the new qualification
+record during the run. This records local protocol behavior.
