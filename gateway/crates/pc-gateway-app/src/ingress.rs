@@ -196,18 +196,26 @@ pub async fn extract(
     if prefix.target_profile != state.upstream_profile {
         return error(StatusCode::CONFLICT, "target_mismatch");
     }
-    let canonical = prefixed_request(&prefix, &request)
+    // Codex 订阅端点拒绝 `max_output_tokens`，抽取请求不带输出上限。
+    let output_limit = state.subscription.as_ref().map(|auth| auth.kind())
+        != Some(pc_gateway_auth::Subscription::Codex);
+    let canonical = prefixed_request(&prefix, &request, output_limit)
         .and_then(|body| serde_json::from_value::<OpenAiResponsesRequest>(body).ok())
         .and_then(|parsed| to_canonical_responses(parsed).ok());
     let Some(canonical) = canonical else {
         return error(StatusCode::INTERNAL_SERVER_ERROR, "prefix_invalid");
     };
+    let Some((target_url, renderer, upstream_headers)) =
+        upstream_channel(&state, &Format::Responses).await
+    else {
+        return error(StatusCode::BAD_GATEWAY, "subscription_auth_failed");
+    };
     let call = ManagedCall {
         scope_id: state.default_scope.clone(),
         target_profile: state.upstream_profile.clone(),
         request: canonical,
-        target_url: state.upstream_responses.clone(),
-        headers: bearer_headers(&state.upstream_responses_api_key),
+        target_url,
+        headers: upstream_headers,
         degrade_policy: pc_gateway_core::DegradePolicy::Pause,
         inject_context: false,
         include_code: false,
@@ -216,7 +224,6 @@ pub async fn extract(
         sediment: false,
         prepared_contexts: prefix.prepared_contexts.clone(),
     };
-    let renderer = pc_gateway_protocol::GatewayRenderer::Responses(Default::default());
     // 期限从连接开始接收请求时起算，读取请求体的时间也在其中。
     let control = match owner {
         Some(axum::Extension(owner)) => owner.take_control(),
@@ -247,10 +254,11 @@ pub async fn extract(
 
 /// 前缀请求：原始请求的 input 依次接上终止响应的输出（去掉 `id`/`status`，与客户端重放的形式一致）和 Core 的
 /// 指令。其余字段（工具、`prompt_cache_key`、推理设置等）不变，只把 `tool_choice` 设为 `none`、改为非流式，
-/// 并在 Core 给出时设置输出上限：这些字段不影响前缀缓存。
+/// 并在 Core 给出且上游接受（`output_limit`）时设置输出上限：这些字段不影响前缀缓存。
 fn prefixed_request(
     prefix: &pc_gateway_core::PrefixEntry,
     request: &ExtractRequest,
+    output_limit: bool,
 ) -> Option<serde_json::Value> {
     let mut body: serde_json::Value = serde_json::from_slice(&prefix.request_body).ok()?;
     let input = body.get_mut("input")?.as_array_mut()?;
@@ -269,7 +277,7 @@ fn prefixed_request(
     }));
     body["tool_choice"] = "none".into();
     body["stream"] = false.into();
-    if let Some(limit) = request.max_output_tokens {
+    if let Some(limit) = request.max_output_tokens.filter(|_| output_limit) {
         body["max_output_tokens"] = limit.into();
     }
     Some(body)
@@ -472,10 +480,6 @@ async fn ingress_model(
         )
             .into_response();
     }
-    let inner_renderer = match format {
-        Format::Chat => pc_gateway_protocol::GatewayRenderer::Chat(Default::default()),
-        Format::Responses => pc_gateway_protocol::GatewayRenderer::Responses(Default::default()),
-    };
     let subscription_kind = state.subscription.as_ref().map(|auth| auth.kind());
     if subscription_kind == Some(pc_gateway_auth::Subscription::Codex)
         && matches!(format, Format::Chat)
@@ -501,59 +505,13 @@ async fn ingress_model(
         )
             .into_response();
     }
-    let mut renderer = pc_gateway_protocol::SubscriptionRenderer {
-        inner: inner_renderer,
-        subscription: match subscription_kind {
-            Some(pc_gateway_auth::Subscription::Grok) => {
-                Some(pc_gateway_protocol::SubscriptionProtocol::Grok)
-            }
-            Some(pc_gateway_auth::Subscription::Codex) => {
-                Some(pc_gateway_protocol::SubscriptionProtocol::Codex)
-            }
-            Some(pc_gateway_auth::Subscription::Kimi) => {
-                Some(pc_gateway_protocol::SubscriptionProtocol::Kimi)
-            }
-            Some(pc_gateway_auth::Subscription::Claude) => {
-                Some(pc_gateway_protocol::SubscriptionProtocol::Claude)
-            }
-            _ => None,
-        },
-    };
-    let target_url = match format {
-        Format::Chat => state.upstream_chat.clone(),
-        Format::Responses => state.upstream_responses.clone(),
-    };
-    let upstream_headers = if let Some(auth) = state.subscription.as_ref() {
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|v| v.as_secs() as i64)
-            .unwrap_or(0);
-        let result = if auth.kind() == pc_gateway_auth::Subscription::Gemini {
-            auth.gemini_context(&target_url, now)
-                .await
-                .map(|(headers, project)| {
-                    renderer.subscription =
-                        Some(pc_gateway_protocol::SubscriptionProtocol::Gemini { project });
-                    headers
-                })
-        } else {
-            auth.headers(&target_url, now).await
-        };
-        match result {
-            Ok(headers) => headers,
-            Err(_) => {
-                return (
-                    StatusCode::BAD_GATEWAY,
-                    Json(serde_json::json!({"error":"subscription_auth_failed"})),
-                )
-                    .into_response()
-            }
-        }
-    } else {
-        bearer_headers(match format {
-            Format::Chat => &state.upstream_chat_api_key,
-            Format::Responses => &state.upstream_responses_api_key,
-        })
+    let Some((target_url, renderer, upstream_headers)) = upstream_channel(&state, &format).await
+    else {
+        return (
+            StatusCode::BAD_GATEWAY,
+            Json(serde_json::json!({"error":"subscription_auth_failed"})),
+        )
+            .into_response();
     };
 
     let conversation = conversation_id(&headers, &format);
@@ -916,6 +874,66 @@ const CLAUDE_CODE_SESSION_HEADER: &str = "x-claude-code-session-id";
 const CLAUDE_CODE_AGENT_HEADER: &str = "x-claude-code-agent-id";
 const OPENCODE_SESSION_HEADER: &str = "x-opencode-session-id";
 const CODEX_THREAD_ID_HEADER: &str = "thread-id";
+
+/// 路由的上游地址、订阅改写和凭据。模型入口与前缀抽取共用，抽取请求因此以原请求的形式发往同一账号。
+/// 订阅凭据不可用时返回 `None`。
+async fn upstream_channel(
+    state: &AppState,
+    format: &Format,
+) -> Option<(
+    String,
+    pc_gateway_protocol::SubscriptionRenderer,
+    Vec<(String, String)>,
+)> {
+    let subscription_kind = state.subscription.as_ref().map(|auth| auth.kind());
+    let mut renderer = pc_gateway_protocol::SubscriptionRenderer {
+        inner: match format {
+            Format::Chat => pc_gateway_protocol::GatewayRenderer::Chat(Default::default()),
+            Format::Responses => {
+                pc_gateway_protocol::GatewayRenderer::Responses(Default::default())
+            }
+        },
+        subscription: match subscription_kind {
+            Some(pc_gateway_auth::Subscription::Grok) => {
+                Some(pc_gateway_protocol::SubscriptionProtocol::Grok)
+            }
+            Some(pc_gateway_auth::Subscription::Codex) => {
+                Some(pc_gateway_protocol::SubscriptionProtocol::Codex)
+            }
+            Some(pc_gateway_auth::Subscription::Kimi) => {
+                Some(pc_gateway_protocol::SubscriptionProtocol::Kimi)
+            }
+            Some(pc_gateway_auth::Subscription::Claude) => {
+                Some(pc_gateway_protocol::SubscriptionProtocol::Claude)
+            }
+            _ => None,
+        },
+    };
+    let target_url = match format {
+        Format::Chat => state.upstream_chat.clone(),
+        Format::Responses => state.upstream_responses.clone(),
+    };
+    let headers = if let Some(auth) = state.subscription.as_ref() {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|v| v.as_secs() as i64)
+            .unwrap_or(0);
+        if auth.kind() == pc_gateway_auth::Subscription::Gemini {
+            let (headers, project) = auth.gemini_context(&target_url, now).await.ok()?;
+            renderer.subscription =
+                Some(pc_gateway_protocol::SubscriptionProtocol::Gemini { project });
+            headers
+        } else {
+            auth.headers(&target_url, now).await.ok()?
+        }
+    } else {
+        bearer_headers(match format {
+            Format::Chat => &state.upstream_chat_api_key,
+            Format::Responses => &state.upstream_responses_api_key,
+        })
+    };
+    Some((target_url, renderer, headers))
+}
 
 fn bearer_headers(key: &str) -> Vec<(String, String)> {
     if key.is_empty() {
@@ -1654,7 +1672,7 @@ pub(crate) mod tests {
             instruction: "Extract memories.".into(),
             max_output_tokens: Some(2000),
         };
-        let extract = render_responses(&prefixed_request(&prefix, &request).unwrap());
+        let extract = render_responses(&prefixed_request(&prefix, &request, true).unwrap());
 
         let before = sent["input"].as_array().unwrap();
         let after = extract["input"].as_array().unwrap();
@@ -1687,6 +1705,60 @@ pub(crate) mod tests {
             fields
         };
         assert_eq!(rest(&extract), rest(&sent));
+    }
+
+    #[test]
+    fn a_codex_subscription_extraction_request_keeps_the_subscription_form() {
+        use pc_gateway_protocol::WireRenderer;
+        let renderer = pc_gateway_protocol::SubscriptionRenderer {
+            inner: pc_gateway_protocol::GatewayRenderer::Responses(Default::default()),
+            subscription: Some(pc_gateway_protocol::SubscriptionProtocol::Codex),
+        };
+        let render = |body: &serde_json::Value| -> serde_json::Value {
+            let parsed: OpenAiResponsesRequest = serde_json::from_value(body.clone()).unwrap();
+            let payload = renderer
+                .render(&to_canonical_responses(parsed).unwrap(), None)
+                .unwrap();
+            serde_json::from_slice(&payload.bytes).unwrap()
+        };
+        let sent = render(&codex_request(true));
+        let prefix = pc_gateway_core::PrefixEntry {
+            scope_id: "s".into(),
+            target_profile: "codex".into(),
+            conversation_id: "codex-thread:a".into(),
+            request_body: serde_json::to_vec(&sent).unwrap().into(),
+            response_output: Vec::new(),
+            prepared_contexts: Vec::new(),
+        };
+        let request = ExtractRequest {
+            handle: "h".into(),
+            instruction: "Extract memories.".into(),
+            max_output_tokens: Some(2000),
+        };
+        // 订阅端点拒绝输出上限；带着它时请求在发送前就被渲染器拒绝。
+        let parsed: OpenAiResponsesRequest =
+            serde_json::from_value(prefixed_request(&prefix, &request, true).unwrap()).unwrap();
+        assert!(renderer
+            .render(&to_canonical_responses(parsed).unwrap(), None)
+            .is_err());
+
+        let extract = render(&prefixed_request(&prefix, &request, false).unwrap());
+        assert!(extract.get("max_output_tokens").is_none());
+        assert_eq!(extract["stream"], true);
+        assert_eq!(extract["tool_choice"], "none");
+        let rest = |body: &serde_json::Value| {
+            let mut fields = body.as_object().unwrap().clone();
+            for key in ["input", "tool_choice"] {
+                fields.remove(key);
+            }
+            fields
+        };
+        assert_eq!(rest(&extract), rest(&sent));
+        let before = sent["input"].as_array().unwrap();
+        assert_eq!(
+            extract["input"].as_array().unwrap()[..before.len()],
+            before[..]
+        );
     }
 
     #[test]

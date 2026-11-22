@@ -292,11 +292,14 @@ async fn main() {
         ),
         sediment,
         steering,
-        prefix_extraction: subscription_kind.is_none()
-            && matches!(
-                std::env::var("PC_GATEWAY_PREFIX_EXTRACTION").as_deref(),
-                Ok("on")
-            ),
+        // 订阅通道里只有 Codex 支持前缀抽取。
+        prefix_extraction: matches!(
+            subscription_kind,
+            None | Some(pc_gateway_auth::Subscription::Codex)
+        ) && matches!(
+            std::env::var("PC_GATEWAY_PREFIX_EXTRACTION").as_deref(),
+            Ok("on")
+        ),
         default_scope: std::env::var("PC_GATEWAY_DEFAULT_SCOPE")
             .unwrap_or_else(|_| "gateway:default".into()),
         max_body_bytes: model_body_bytes,
