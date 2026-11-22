@@ -35,6 +35,10 @@ from powercontext.builtin.persistence.seekdb import profile as seekdb_profile
 from powercontext.server.factory import create_server_app
 from powercontext.server.settings import ServerSettings
 
+SERVER_SCENARIO_TIMEOUT_SECONDS = 600
+# Leave the child time to finish native cancellation cleanup and interpreter exit.
+SERVER_SCENARIO_PROCESS_TIMEOUT_SECONDS = SERVER_SCENARIO_TIMEOUT_SECONDS + 60
+
 
 def database_snapshot(options: dict[str, object]) -> None:
     """Inspect only this test's embedded socket, with bounded diagnostic reads."""
@@ -142,7 +146,7 @@ async def scenario(directory: Path) -> None:
     try:
         # Two fresh Server databases execute the complete registered migration
         # chain; the other startups verify admission and preserved readback.
-        async with asyncio.timeout(300):
+        async with asyncio.timeout(SERVER_SCENARIO_TIMEOUT_SECONDS):
             stage("seed: opening test")
             # Use the Server's registered schema and public write path so the
             # retained deployment remains valid through full startup admission.

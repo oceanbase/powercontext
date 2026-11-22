@@ -114,7 +114,7 @@ jobs:
             --no-header \
             --no-annotate \
             --format requirements-txt \
-            --output-file build/artifact-input/requirements.lock
+            --output-file build/artifact-input/upstream-requirements.lock
 
           uv export \
             --project integrations/codex/plugins/powercontext \
@@ -124,21 +124,41 @@ jobs:
             --no-header \
             --no-annotate \
             --format requirements-txt \
-            --output-file build/artifact-input/plugin-requirements.lock
+            --output-file build/artifact-input/upstream-plugin-requirements.lock
 
-      - name: Download Linux x86_64 dependency wheels
-        run: |
-          python -m pip download \
-            --require-hashes \
-            --only-binary=:all: \
-            --dest build/artifact-input/wheelhouse \
-            --requirement build/artifact-input/requirements.lock
+      - name: Set up the locked wheel builder
+        id: bundle-builder
+        uses: $/.github/actions/setup-bundle-builder
 
-          python -m pip download \
-            --require-hashes \
-            --only-binary=:all: \
-            --dest build/artifact-input/plugin-wheelhouse \
-            --requirement build/artifact-input/plugin-requirements.lock
+      - name: Restore dependency downloads
+        id: pip-cache
+        # Fingerprint original exports and the actual pinned downloader, never rebuilt wheels.
+        uses: $/.github/actions/cache-pip
+        with:
+          python-executable: ${{ steps.bundle-builder.outputs.python-path }}
+          cache-dependency-glob: |
+            build/artifact-input/upstream-requirements.lock
+            build/artifact-input/upstream-plugin-requirements.lock
+            build/artifact-input/build-tools.lock
+
+      - name: Download locked dependency inputs
+        uses: $/.github/actions/prepare-bundle-wheels
+        with:
+          stage: download
+          python-executable: ${{ steps.bundle-builder.outputs.python-path }}
+
+      - name: Save original dependency downloads before building
+        if: steps.pip-cache.outputs.cache-hit != 'true'
+        uses: $/.github/actions/cache-save
+        with:
+          path: ${{ steps.pip-cache.outputs.cache-path }}
+          key: ${{ steps.pip-cache.outputs.cache-key }}
+
+      - name: Build dependency wheels offline and lock their hashes
+        uses: $/.github/actions/prepare-bundle-wheels
+        with:
+          stage: build
+          python-executable: ${{ steps.bundle-builder.outputs.python-path }}
 
       - name: Assemble customer bundle
         id: bundle
@@ -159,6 +179,11 @@ jobs:
           cp -R build/artifact-input/plugin-wheelhouse "$bundle_root/plugin-wheelhouse"
           cp build/artifact-input/requirements.lock "$bundle_root/requirements.lock"
           cp build/artifact-input/plugin-requirements.lock "$bundle_root/plugin-requirements.lock"
+          cp build/artifact-input/upstream-requirements.lock \
+            build/artifact-input/upstream-plugin-requirements.lock \
+            build/artifact-input/build-tools.lock \
+            build/artifact-input/build-tools.json \
+            build/artifact-input/dependency-provenance.json "$bundle_root/"
           cp -R integrations/codex "$bundle_root/integrations"
           cp openapi/powercontext.yaml "$bundle_root/openapi/powercontext.yaml"
           cp LICENSE README.md "$bundle_root/"

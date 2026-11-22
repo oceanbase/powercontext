@@ -8,6 +8,7 @@ runs:
       env:
         OCEANBASE_IMAGE: ghcr.io/oceanbase/oceanbase-ce:4.3.5.6-106000012026040916
       run: |
+        export OCEANBASE_IMAGE="${PC_CI_OCEANBASE_435_IMAGE:-$OCEANBASE_IMAGE}"
         if ! timeout --kill-after=5s 15s docker image inspect "$OCEANBASE_IMAGE" >/dev/null 2>&1; then
           timeout --kill-after=10s 600s docker pull "$OCEANBASE_IMAGE"
         fi
@@ -16,6 +17,7 @@ runs:
       env:
         OCEANBASE_IMAGE: ghcr.io/oceanbase/oceanbase-ce:4.3.5.6-106000012026040916
       run: |
+        export OCEANBASE_IMAGE="${PC_CI_OCEANBASE_435_IMAGE:-$OCEANBASE_IMAGE}"
         mkdir -p "$RUNNER_TEMP/oceanbase-startup"
         timeout --kill-after=10s 180s docker run --pull never --detach --name upgrade-oceanbase \
           --publish 127.0.0.1:2881:2881 \
