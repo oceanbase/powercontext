@@ -714,10 +714,15 @@ class AtomicMemorySourceWindowProcessor:
                 prepared = await converse(prefixed, source_records(extraction_input.evidence))
             except PrefixedExtractionUnavailable as error:
                 reason = error.reason
-            except InvalidInferenceOutputError:
+            except InvalidInferenceOutputError as error:
+                # Sending the evidence the normal way only adds to an input that is already over its budget.
+                if error.operation == "atomic-memory-input-budget":
+                    raise
                 reason = "invalid_output"
             else:
-                log_prefixed_extraction("success", operation="atomic_memory.one_pass")
+                # An over-budget second step is reported as the one-pass fallback and leaves nothing prepared here.
+                if prepared is not None:
+                    log_prefixed_extraction("success", operation="atomic_memory.one_pass")
                 return prepared
             # Nothing from the prefixed conversation was kept; the window starts again with its evidence sent by Core.
             log_prefixed_extraction("fallback", reason, operation="atomic_memory.one_pass")

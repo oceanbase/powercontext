@@ -284,9 +284,13 @@ tokens, is reported like any other generation.
 With `POWERCONTEXT_SERVER_RUNTIME_ATOMIC_MEMORY_PROCESSING_MODE=one_pass`, the whole one-pass conversation of such a
 window runs after the prefix. The first request carries the one-pass instructions and the Source's provenance. Each
 later step sends the same instruction again with a `continuation`: the model's earlier replies and the Server's later
-messages, in order, which the gateway appends after the instruction. Every step therefore reads the prefix and the
-earlier steps from the prompt cache, and the conversation runs on the agent's target and account, not on the
-Server's generation model. The estimate compares the first two steps, which every window has: twice the cached input
+messages, in order, which the gateway appends after the instruction. Every step therefore repeats the prefix and the
+earlier steps unchanged, which lets the provider read them from its prompt cache; whether a step is read from the
+cache, and its token usage, are decided by the provider and shown in the usage it reports. The conversation runs on
+the agent's target and account, not on the Server's generation model: the existing memories that the later steps
+compare, and the texts they write, are sent to that target. The one-pass instructions arrive as a user message after
+the agent's conversation instead of as system instructions; the Server checks each reply as it does in a normal
+one-pass conversation. The estimate compares the first two steps, which every window has: twice the cached input
 tokens at the cached rate plus the instruction and the final response's output tokens, against the same two steps
 with the Server sending the Source evidence itself. Because the prefix is read at every step, the prefix that still
 pays off is about half as long as for prefixed extraction. When any step cannot complete, or a reply still fails

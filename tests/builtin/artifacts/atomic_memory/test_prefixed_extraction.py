@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from typing import cast
@@ -32,13 +33,16 @@ from powercontext.builtin.artifacts.atomic_memory.extraction import (
 from powercontext.builtin.artifacts.atomic_memory.prefixed_extraction import (
     GatewayPrefixedConversation,
     GatewayPrefixedExtractor,
+    PrefixedExtractionUnavailable,
+    PrefixStart,
 )
 from powercontext.builtin.artifacts.atomic_memory.reconciliation import (
     AtomicMemoryReconciliationContent,
     AtomicMemoryReconciliationInput,
     AtomicMemoryReconciliationOutput,
 )
-from powercontext.builtin.inference import GenerationResult, character_token_estimator
+from powercontext.builtin.inference import GenerationResult, InvalidInferenceOutputError, character_token_estimator
+from powercontext.builtin.inference.models import ConversationTurn
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.runtime import RuntimeConfig
 from powercontext.server.factory import create_server_app
@@ -398,6 +402,8 @@ def test_a_rejected_one_pass_reply_is_corrected_after_the_same_prefix(tmp_path) 
         ([_text(ENTRIES), (404, {"error": "prefix_unavailable"})], "prefix_unavailable"),
         ([_text(ENTRIES), (422, "Failed to deserialize the JSON body")], "gateway_error"),
         ([_text({"candidates": []})] * 3, "invalid_output"),
+        # An empty reply cannot be sent back for correction, so the window starts again at once.
+        ([(200, {"text": " ", "usage": {"input_tokens": 9000, "output_tokens": 0}})], "invalid_output"),
     ],
 )
 def test_a_failed_prefixed_one_pass_window_starts_again_without_the_prefix(tmp_path, caplog, replies, reason) -> None:
@@ -427,3 +433,33 @@ def test_a_one_pass_prefix_that_would_cost_more_is_not_used(tmp_path, caplog, pr
     assert len(conversation.turns) == 2
     assert gateway.memories == [CANDIDATE["text"]]
     assert _prefixed_one_pass_events(caplog) == [("fallback", reason)]
+
+
+@pytest.mark.parametrize("failure", [(404, {"error": "prefix_unavailable"}), httpx.ReadTimeout("timed out")])
+def test_a_failed_correction_keeps_the_usage_already_received(failure) -> None:
+    replies = [_text(ENTRIES), failure]
+
+    def gateway(request: httpx.Request) -> httpx.Response:
+        reply = replies.pop(0)
+        if isinstance(reply, Exception):
+            raise reply
+        return httpx.Response(reply[0], json=reply[1])
+
+    def reject(_: str) -> None:
+        raise InvalidInferenceOutputError("atomic-memory-one-pass", "the reply breaks a rule")
+
+    async def run() -> None:
+        async with httpx.AsyncClient(base_url="http://gateway.local", transport=httpx.MockTransport(gateway)) as client:
+            conversation = GatewayPrefixedConversation(client=client, estimator=character_token_estimator())
+            start = PrefixStart("a" * 32, cached_tokens=10_000, uncached_tokens=50, normal_input_tokens=100_000)
+            await conversation.generate(
+                ConversationTurn(instructions="rules", message="records", check=reject, history=(start,))
+            )
+
+    with pytest.raises(PrefixedExtractionUnavailable) as raised:
+        asyncio.run(run())
+
+    assert replies == []
+    usage = raised.value.usage
+    assert usage is not None
+    assert (usage.requests, usage.input_tokens, usage.output_tokens) == (1, 9000, 40)

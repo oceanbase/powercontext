@@ -191,7 +191,7 @@ const MAX_EXTRACT_CONTINUATION_BYTES: usize = 256 * 1024;
 /// 后续对话从模型的回复开始，回复与用户消息交替，以用户消息结束，这样请求总是以待回答的用户消息收尾。
 fn valid_continuation(messages: &[ContinuationMessage]) -> bool {
     messages.len() <= MAX_EXTRACT_CONTINUATION_MESSAGES
-        && messages.len() % 2 == 0
+        && messages.len().is_multiple_of(2)
         && messages.iter().map(|m| m.text.len()).sum::<usize>() <= MAX_EXTRACT_CONTINUATION_BYTES
         && messages.iter().enumerate().all(|(index, message)| {
             !message.text.trim().is_empty()

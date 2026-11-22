@@ -275,8 +275,17 @@ class GatewayPrefixedConversation:
         usage: InferenceUsage | None = None
         detail = "the reply does not satisfy the turn"
         for _ in range(self.max_requests):
-            text, spent = await self._send(start.handle, instruction, messages[1:])
+            try:
+                text, spent = await self._send(start.handle, instruction, messages[1:])
+            except PrefixedExtractionUnavailable as error:
+                # The requests this turn already made stay accounted for.
+                error.usage = usage
+                raise
             usage = spent if usage is None else combine_inference_usage(usage, spent)
+            if not text.strip():
+                # The gateway accepts no empty reply in a continuation, so this one cannot be corrected.
+                detail = "the reply is empty"
+                break
             messages.append(("assistant", text))
             try:
                 output = value.check(_unfenced(text))
