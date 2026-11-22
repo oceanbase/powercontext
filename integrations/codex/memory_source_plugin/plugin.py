@@ -24,7 +24,7 @@ from pathlib import Path
 from types import ModuleType
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from powercontext.plugins import (
     Collect,
@@ -86,7 +86,14 @@ class CodexMemoryCollector:
         result = CollectResult()
         remaining = request.max_items
         for target in request.targets:
-            selection = MemoryInput.model_validate(target.parameters)
+            try:
+                parameters = MemoryTarget.model_validate(target.parameters)
+                selection = MemoryInput(path=parameters.path)
+            except ValidationError:
+                result.fail(target, code="invalid_memory_path", message="Select a path inside memories")
+                continue
+            if remaining == 0:
+                continue
             try:
                 scanned = await asyncio.to_thread(scan, self.config, selection)
             except (OSError, ValueError) as error:
@@ -101,13 +108,14 @@ class CodexMemoryCollector:
             snapshots = dict(checkpoint.snapshots)
             has_more = False
             for capture in scanned.captures:
-                if snapshots.get(capture.relative_path) == capture.snapshot_id():
+                snapshot_id = capture.snapshot_id()
+                if snapshots.get(capture.relative_path) == snapshot_id:
                     continue
-                items.append(CollectedItem(definition=MEMORY_DEFINITION.name, value=capture))
-                snapshots[capture.relative_path] = capture.snapshot_id()
-                if len(items) >= remaining:
+                if len(items) == remaining:
                     has_more = True
                     break
+                items.append(CollectedItem(definition=MEMORY_DEFINITION.name, value=capture))
+                snapshots[capture.relative_path] = snapshot_id
             result.add(
                 target,
                 items,
@@ -115,8 +123,6 @@ class CodexMemoryCollector:
                 has_more=has_more,
             )
             remaining -= len(items)
-            if remaining <= 0:
-                break
         return result
 
 

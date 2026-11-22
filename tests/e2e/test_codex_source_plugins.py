@@ -79,7 +79,7 @@ async def source_types(admin, scope: str) -> set[str]:
     return {item["source_type"] for item in response.json()["items"]}
 
 
-def test_codex_session_and_memory_plugins_collect_with_server_runner(tmp_path: Path) -> None:
+def test_codex_session_and_memory_plugins_collect_with_device_runner(tmp_path: Path) -> None:
     asyncio.run(_collect(tmp_path))
 
 
@@ -102,10 +102,19 @@ async def _collect(tmp_path: Path) -> None:
     memories = home / "memories"
     memories.mkdir(parents=True)
     (memories / "MEMORY.md").write_text("A derived memory note.\n", encoding="utf-8")
+    (memories / "extra.md").write_text("A second derived memory note.\n", encoding="utf-8")
 
     plugins = tmp_path / "plugins"
     shutil.copytree(ROOT / "integrations/codex/source_plugin", plugins / "codex-history")
     shutil.copytree(ROOT / "integrations/codex/memory_source_plugin", plugins / "codex-memory-history")
+    # Exercise two pages without hundreds of HTTP submissions.
+    entry = plugins / "codex-memory-history" / "plugin.py"
+    entry.write_text(
+        entry.read_text(encoding="utf-8").replace(
+            "Collect(schedule=Interval(seconds=60))", "Collect(schedule=Interval(seconds=60), max_items=1)"
+        ),
+        encoding="utf-8",
+    )
     async with running_server(
         tmp_path, plugins, extra_env={"CODEX_HOME": str(home)}, identities={"robot": ROBOT}
     ) as admin:
@@ -123,7 +132,8 @@ async def _collect(tmp_path: Path) -> None:
         assert robot_grant.status_code == 201, robot_grant.text
         await run_agent(admin, plugins, home)  # Register the device runner before assigning targets.
         history_id = await add_target(admin, scope, "codex-history", {"session_file": "2026/rollout.jsonl"})
-        memory_id = await add_target(admin, scope, "codex-memory-history", {"path": "MEMORY.md"})
+        bad_id = await add_target(admin, scope, "codex-memory-history", {"path": "/outside.md"})
+        memory_id = await add_target(admin, scope, "codex-memory-history", {"path": "."})
         await run_agent(admin, plugins, home)
 
         await wait_for(
@@ -135,3 +145,16 @@ async def _collect(tmp_path: Path) -> None:
         targets = {item["target_id"]: item for item in response.json()["items"]}
         assert targets[history_id]["status"]["last_success_at"] is not None
         assert targets[memory_id]["status"]["last_success_at"] is not None
+        assert targets[memory_id]["status"]["has_more"] is True
+        assert targets[bad_id]["status"]["last_error_code"] == "invalid_memory_path"
+
+        await run_agent(admin, plugins, home)
+        response = await admin.get(f"/v1/scopes/{scope}/source-targets")
+        assert response.status_code == 200, response.text
+        targets = {item["target_id"]: item for item in response.json()["items"]}
+        assert targets[memory_id]["status"]["last_success_at"] is not None
+        assert targets[memory_id]["status"]["last_error_code"] is None
+        assert targets[memory_id]["status"]["has_more"] is False
+        response = await admin.get(f"/v1/scopes/{scope}/sources", params={"limit": 100})
+        assert response.status_code == 200, response.text
+        assert sum(item["source_type"] == "codex-memory-snapshot" for item in response.json()["items"]) == 2

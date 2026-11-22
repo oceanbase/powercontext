@@ -4121,6 +4121,7 @@ async def commit_connector_checkpoint(
         plugin=None if request.plugin is None else request.plugin.name,
         config_version=request.config_version,
         succeeded=None if status is None else status.succeeded,
+        has_more=True if status is None else status.has_more,
         error_code=None if status is None else status.error_code,
         error_message=None if status is None else status.error_message,
     )

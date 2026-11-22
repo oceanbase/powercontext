@@ -40,7 +40,10 @@ pc_source_add({
 
 Use a device runner instead of `server` when the files are on another machine. The runner must have the same plugin installed.
 Adding the target starts collection; the plugin snapshots changed files and records progress in the target checkpoint. To do a
-one-time import, wait for the target's status to report success and disable it:
+one-time import, call `pc_source_status({"scope_id":"SCOPE_ID"})` and find the returned target ID.
+Disable it after `status.last_success_at` is at or after `updated_at`, `status.last_error_code` is null, and
+`status.has_more` is false. A successful batch can still leave files pending. Keep the target enabled while
+`has_more` is true. Upgrade the Server and device runner to the current version before relying on this status:
 
 ```javascript
 pc_source_target_set_enabled({"scope_id":"SCOPE_ID", "target_id":"TARGET_ID", "enabled":false})

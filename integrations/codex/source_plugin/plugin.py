@@ -141,6 +141,9 @@ class CodexHistoryCollector:
                 source_id = prompt.source_id_for_scope(request.scope_id, content=content)
                 if source_id in checkpoint or source_id in queued:
                     continue
+                if len(items) == remaining:
+                    has_more = True
+                    break
                 items.append(
                     CollectedItem(
                         definition=SESSION_DEFINITION.name,
@@ -151,9 +154,6 @@ class CodexHistoryCollector:
                 )
                 checkpoint.add(source_id)
                 queued.add(source_id)
-                if len(items) >= remaining:
-                    has_more = True
-                    break
             result.add(target, items, checkpoint=sorted(checkpoint), has_more=has_more)
             remaining -= len(items)
             if remaining <= 0:

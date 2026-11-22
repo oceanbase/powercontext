@@ -39,7 +39,9 @@ pc_source_add({
 ```
 
 如果文件在其他机器上，将 `server` 改成该设备 Runner 名称，并在 Runner 上安装相同插件。添加目标后即开始采集；插件
-会保存发生变化的文件，并将进度记录在目标 checkpoint 中。只需导入一次时，等待目标状态显示成功后停用目标：
+会保存发生变化的文件，并将进度记录在目标 checkpoint 中。只需导入一次时，调用 `pc_source_status({"scope_id":"SCOPE_ID"})` 并找到返回的目标 ID。
+当 `status.last_success_at` 不早于 `updated_at`、`status.last_error_code` 为 null 且 `status.has_more` 为 false 时，再停用该目标。
+单批成功后可能仍有文件待导入。当 `has_more` 为 true 时保持目标启用。先将 Server 和设备 Runner 升级到当前版本，再使用此状态判断：
 
 ```javascript
 pc_source_target_set_enabled({"scope_id":"SCOPE_ID", "target_id":"TARGET_ID", "enabled":false})

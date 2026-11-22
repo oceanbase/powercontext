@@ -257,6 +257,8 @@ plugins redact known secrets before submission. The separate Source type keeps a
 with an existing live `content` capture of the same prompt. The memory plugin records the original file hash and whether
 redaction changed the captured text.
 
-Target creation starts collection. To make an import one-time, wait for a successful target status and disable the target;
-re-enable it to resume tracking. The memory plugin also has a local preview command described in
+Target creation starts collection. For a one-time import, call `pc_source_status` and wait until
+`status.last_success_at` is at or after `updated_at`, `status.last_error_code` is null, and `status.has_more` is false
+before disabling the target. Use the current Server and device runner versions for this check. Re-enable the target
+to resume tracking. The memory plugin also has a local preview command described in
 [Import Existing Codex Memory](import-codex-memory.md).

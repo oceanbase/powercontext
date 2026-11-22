@@ -904,6 +904,12 @@ class SourceTargetStatus(BaseModel):
     consecutive_failures: Annotated[StrictInt, Field(ge=0)]
     last_error_code: Annotated[StrictStr | None, Field(...)]
     last_error_message: Annotated[StrictStr | None, Field(...)]
+    has_more: Annotated[
+        StrictBool,
+        Field(
+            description="Whether more collection is pending or the runner has not reported completion. Check the latest attempt for success before interpreting this field."
+        ),
+    ]
 
 
 class SourceTargetResultStatus(BaseModel):
@@ -911,6 +917,12 @@ class SourceTargetResultStatus(BaseModel):
         extra="forbid",
     )
     succeeded: StrictBool
+    has_more: Annotated[
+        StrictBool,
+        Field(
+            description="Whether more items remain after this successful attempt. Omission leaves completion unconfirmed."
+        ),
+    ] = True
     error_code: Annotated[StrictStr | None, Field(max_length=128)] = None
     error_message: Annotated[StrictStr | None, Field(max_length=1024)] = None
 

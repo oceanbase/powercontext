@@ -222,5 +222,7 @@ pc_source_add({"scope_id":"SCOPE_ID", "runner":"server", "capability":"codex-mem
 并排除助手回复及宿主生成的上下文；两个插件都会在提交前脱敏已知密钥。独立 Source 类型可避免脱敏后的历史导入与同一 Prompt 的
 实时 `content` 记录冲突。Memory 插件还记录原文件哈希和是否执行过脱敏。
 
-创建目标后即开始采集。若只需导入一次，等待目标状态显示成功后停用；重新启用可恢复跟踪。Memory 插件的本地预览命令见
+创建目标后即开始采集。若只需导入一次，调用 `pc_source_status`，等待 `status.last_success_at` 不早于 `updated_at`、`status.last_error_code`
+为 null 且 `status.has_more` 为 false 后停用目标。请使用当前版本的 Server 和设备 Runner 检查此状态。重新启用可恢复跟踪。
+Memory 插件的本地预览命令见
 [导入已有 Codex Memory](import-codex-memory.md)。

@@ -8721,6 +8721,31 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "consecutive_failures": {"type": "integer", "minimum": 0.0},
                     "last_error_code": {"type": "string", "nullable": True},
                     "last_error_message": {"type": "string", "nullable": True},
+                    "has_more": {
+                        "type": "boolean",
+                        "description": "Whether "
+                        "more "
+                        "collection "
+                        "is "
+                        "pending "
+                        "or "
+                        "the "
+                        "runner "
+                        "has "
+                        "not "
+                        "reported "
+                        "completion. "
+                        "Check "
+                        "the "
+                        "latest "
+                        "attempt "
+                        "for "
+                        "success "
+                        "before "
+                        "interpreting "
+                        "this "
+                        "field.",
+                    },
                 },
                 "additionalProperties": False,
                 "type": "object",
@@ -8730,11 +8755,28 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "consecutive_failures",
                     "last_error_code",
                     "last_error_message",
+                    "has_more",
                 ],
             },
             "SourceTargetResultStatus": {
                 "properties": {
                     "succeeded": {"type": "boolean"},
+                    "has_more": {
+                        "type": "boolean",
+                        "description": "Whether "
+                        "more "
+                        "items "
+                        "remain "
+                        "after "
+                        "this "
+                        "successful "
+                        "attempt. "
+                        "Omission "
+                        "leaves "
+                        "completion "
+                        "unconfirmed.",
+                        "default": True,
+                    },
                     "error_code": {"type": "string", "maxLength": 128, "nullable": True},
                     "error_message": {"type": "string", "maxLength": 1024, "nullable": True},
                 },

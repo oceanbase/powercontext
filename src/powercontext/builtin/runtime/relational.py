@@ -1002,6 +1002,7 @@ class RelationalContexts:
                     target.runner,
                     error_code=None if commit.succeeded else commit.error_code or "collection_failed",
                     error_message=None if commit.succeeded else commit.error_message,
+                    has_more=commit.has_more,
                 )
             await self.repositories.connector_checkpoints.save(
                 connection,
