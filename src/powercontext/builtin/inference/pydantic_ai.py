@@ -251,7 +251,8 @@ class _ResponseDiagnosticsModel(WrapperModel):
         diagnostics = _response_diagnostics(response)
         if evidence is not None:
             evidence.latest = diagnostics
-        if not self._allow_continuations and response.state != "complete":
+        truncated = diagnostics is not None and diagnostics.reason is ProcessingFailureReason.OUTPUT_TRUNCATED
+        if not self._allow_continuations and (response.state != "complete" or truncated):
             raise attach_diagnostics(
                 InvalidInferenceOutputError("generate", "provider continuation is not allowed"), diagnostics
             ) from None

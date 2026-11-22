@@ -105,6 +105,8 @@ JSON pointer，以及解码后 UTF-8 文本的 `start_byte`、`end_byte` 半开�
 网关不能在请求获准后脱敏，或在响应获准后还原值，再把原批准用于变化后的字节。
 变化后的载荷需要单独准入；本 API 不提供占位符映射，也不授予逆转隐私变换的权限。
 
+响应转换改变提供方字节时，应在 `before_release` 的 `upstream_payload` 中携带原始响应。Core 同时检查原始 JSON 或 Responses SSE 与最终交付载荷；两份正文共用响应字节上限。请先升级 Core，再升级发送此字段的 Gateway。旧版 Core 会拒绝该字段，不会批准放行。
+
 要求完整隐私检查的调用方，只有在 `allow` 且 `coverage.complete=true` 时才能继续对应动作。
 `block`、`withhold` 虽然返回 HTTP 200，但都禁止执行；只判断 HTTP 成功是不够的。
 载体或位置不合法返回 422，权限失败返回 401/403，正文超限返回 413。
@@ -121,9 +123,10 @@ Gateway 只有在可信的 Core 能力发现明确返回 `enforcing=false` 时�
 `completion: "complete"`，再次验证当前策略、身份和准备依赖。
 交付批准不能用于发送新请求，关联期限也不能延长发送期限；绑定不提供恰好一次执行保证。
 
-公开 carrier 当前支持完整 JSON。本地 protected transport 另外支持单 choice 的 OpenAI Chat SSE，
-需要显式设置 `allow_streaming=true`，其他流式 profile 暂缓发送。
-交付前按字节、时间、并发上限缓冲完整流；不能把 SSE 摘要包装成 JSON 并声称是完整原始响应。
+公开 carrier 当前支持完整 JSON。显式设置 `allow_streaming=true` 后，本地 protected transport 另外支持
+单 choice 的 OpenAI Chat SSE，以及以成功的 `response.completed` 事件结束的 Responses SSE。
+其他流式 profile 暂缓交付。按字节、时间、并发上限缓冲并检查完整流后，才交付原始字节；
+不能把 SSE 摘要包装成 JSON 并声称是完整原始响应。
 Strict 缓冲会推迟首段内容到达时间。
 
 HTTP over UDS 与远端 HTTP(S) 使用相同 DTO。UDS 不替代 bearer 认证。
