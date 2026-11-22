@@ -1,0 +1,104 @@
+{
+  "source_sha256": "238495c5a5e12043d52a54b1f7b326df95560d20e3ab3921d8b21a3d757309f3",
+  "rule": "R warm median <= max(2 * matching P0 warm median, 1_000_000 ns)",
+  "enforcement": "External evaluation of measured output; bench() itself only records samples.",
+  "rows": [
+    {
+      "n": 1000,
+      "kind": "plain",
+      "R_median_ns": 5071.966666666666,
+      "P0_median_ns": 23333.366666666665,
+      "limit_ns": 1000000,
+      "pass": true
+    },
+    {
+      "n": 1000,
+      "kind": "markdown",
+      "R_median_ns": 7386.0,
+      "P0_median_ns": 88631.53333333334,
+      "limit_ns": 1000000,
+      "pass": true
+    },
+    {
+      "n": 1000,
+      "kind": "unicode",
+      "R_median_ns": 5259.0,
+      "P0_median_ns": 27443.6,
+      "limit_ns": 1000000,
+      "pass": true
+    },
+    {
+      "n": 1000,
+      "kind": "inert_lf",
+      "R_median_ns": 5388.133333333333,
+      "P0_median_ns": 24403.366666666665,
+      "limit_ns": 1000000,
+      "pass": true
+    },
+    {
+      "n": 8000,
+      "kind": "plain",
+      "R_median_ns": 33054.166666666664,
+      "P0_median_ns": 236992.46666666667,
+      "limit_ns": 1000000,
+      "pass": true
+    },
+    {
+      "n": 8000,
+      "kind": "markdown",
+      "R_median_ns": 46433.433333333334,
+      "P0_median_ns": 693818.5666666667,
+      "limit_ns": 1387637.1333333333,
+      "pass": true
+    },
+    {
+      "n": 8000,
+      "kind": "unicode",
+      "R_median_ns": 46675.26666666667,
+      "P0_median_ns": 284311.1,
+      "limit_ns": 1000000,
+      "pass": true
+    },
+    {
+      "n": 8000,
+      "kind": "inert_lf",
+      "R_median_ns": 36684.03333333333,
+      "P0_median_ns": 247102.26666666666,
+      "limit_ns": 1000000,
+      "pass": true
+    },
+    {
+      "n": 125000,
+      "kind": "plain",
+      "R_median_ns": 473035.9,
+      "P0_median_ns": 3591611.933333333,
+      "limit_ns": 7183223.866666666,
+      "pass": true
+    },
+    {
+      "n": 125000,
+      "kind": "markdown",
+      "R_median_ns": 670335.3,
+      "P0_median_ns": 11646766.233333332,
+      "limit_ns": 23293532.466666665,
+      "pass": true
+    },
+    {
+      "n": 125000,
+      "kind": "unicode",
+      "R_median_ns": 698425.1,
+      "P0_median_ns": 4297691.633333334,
+      "limit_ns": 8595383.266666668,
+      "pass": true
+    },
+    {
+      "n": 125000,
+      "kind": "inert_lf",
+      "R_median_ns": 528631.8333333334,
+      "P0_median_ns": 3646705.6333333333,
+      "limit_ns": 7293411.266666667,
+      "pass": true
+    }
+  ],
+  "pass": true
+}

@@ -1,0 +1,33 @@
+{
+  "schema": 1,
+  "runtime": {
+    "installed_core_sources": {
+      "src/powercontext/builtin/artifacts/topic_memory/chunking.py": "dfcdf19312512c1a87f1c93e9d30a6b247ee73dc2061f10f85555f63e7b593ac",
+      "src/powercontext/builtin/artifacts/topic_memory/models.py": "73661ef64afb846d015a9908a8f81ecf2ddda0517000b0c13f6ca7282ed4f0f5"
+    },
+    "python": "3.14.5 (main, May 10 2026, 19:28:16) [Clang 22.1.3 ]",
+    "unicode": "16.0.0",
+    "soabi": "cpython-314-x86_64-linux-gnu",
+    "pydantic": "2.13.4",
+    "pydantic_core": "2.46.4",
+    "powercontext": "1.5.3.dev249+g1840db817",
+    "executable_sha256": "a1512f9a07029c4a9b02a1bb63bbd156d36b0dcb26f49cb7f5ee175f19b222da"
+  },
+  "reference": {
+    "src/powercontext/builtin/artifacts/topic_memory/chunking.py": "dfcdf19312512c1a87f1c93e9d30a6b247ee73dc2061f10f85555f63e7b593ac",
+    "src/powercontext/builtin/artifacts/topic_memory/models.py": "73661ef64afb846d015a9908a8f81ecf2ddda0517000b0c13f6ca7282ed4f0f5",
+    "tests/builtin/artifacts/topic_memory/test_chunking.py": "0be3b592c8a7234cfd27918c8cdc46fd16a14eabce0e417987e401771b7b46a0",
+    "tests/builtin/artifacts/topic_memory/test_models.py": "e418c6495c30192cde7060fcd79b15bfbf82e05ba2978d1bf45e664b5317c5c0",
+    "tests/builtin/persistence/test_topic_memory.py": "2b673944521e01801906ce57480732a9fffa204a8badf9c6a4149c944e8f2b01",
+    "tests/e2e/test_topic_memory_generic_api.py": "6e18190521dbd3cbf13adcfef48e17923eaac1f94f4fc3218df63eb60a43f33a",
+    "uv.lock": "2cf2069dc06554f3170ab624eb47c3b846826dcc07daaa82a2b894f5ed746742",
+    "rust/topic-chunk-rs/tools/harness.py": "5fa49258de98fd92af8e4ac23fdcbfba14831abe90ecdaaf54b4f4f969c5487e",
+    "rust/topic-chunk-rs/python/powercontext_topic_chunk_rs/_harness.py": "031dda78d062e526099af3c15330b51c1596400aec02f6b3b0c5f952513bec1c",
+    "rust/topic-chunk-rs/tools/generate_unicode_tables.py": "056d42c298d645a44eb86d95080d9a958db81bce19afd6636677bff5ac7e681e",
+    "rust/topic-chunk-rs/src/unicode_tables.rs": "43db83576ae1d1eaf3f1b78dec94fa26586221e44134f0661814517571ecde64",
+    "rust/topic-chunk-rs/corpus/cases.json": "17a61f620301636d423b2415c75901d905df28c66aa43d0885e668b77eb9f7bb"
+  },
+  "golden_sha256": "67437e3b37a41c3e713111c3119f6ec34027fbe794b338d63888a1bb5329938a",
+  "cases": 67,
+  "normalization": "No traceback/addresses recorded; exception type/text/args and all Pydantic errors preserved. str-repeat encodes only verified uniform strings; expansion is char*count."
+}
