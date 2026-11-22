@@ -1,0 +1,48 @@
+name: Check license headers
+description: Reuse the pinned license-eye build on internal Linux runners
+
+inputs:
+  config:
+    description: License Eye configuration file
+    default: .licenserc.yaml
+  mode:
+    description: License Eye header mode
+    default: check
+  log:
+    description: License Eye log level
+    default: info
+  token:
+    description: Token used by License Eye for pull request comments
+    default: ${{ github.token }}
+
+runs:
+  using: composite
+  steps:
+    - name: Locate the pinned runner tool
+      id: tool
+      shell: bash
+      run: |
+        binary=/opt/powercontext-ci-tools/license-eye/a196742f472feaffafea537ce5a2a4c3c53a8de4/license-eye
+        if [[ "$RUNNER_OS" == Linux && "$RUNNER_ENVIRONMENT" == self-hosted && -x "$binary" ]]; then
+          echo "binary=$binary" >> "$GITHUB_OUTPUT"
+        fi
+
+    - name: Check headers with the pinned runner tool
+      if: steps.tool.outputs.binary != ''
+      shell: bash
+      env:
+        LICENSE_EYE: ${{ steps.tool.outputs.binary }}
+        GITHUB_TOKEN: ${{ inputs.token }}
+        INPUTS_LOG: ${{ inputs.log }}
+        INPUTS_CONFIG: ${{ inputs.config }}
+        INPUTS_MODE: ${{ inputs.mode }}
+      run: '"$LICENSE_EYE" -v "$INPUTS_LOG" -c "$INPUTS_CONFIG" header "$INPUTS_MODE"'
+
+    - name: Install and run upstream License Eye
+      if: steps.tool.outputs.binary == ''
+      uses: apache/skywalking-eyes/header@a196742f472feaffafea537ce5a2a4c3c53a8de4 # v0.9.0
+      with:
+        config: ${{ inputs.config }}
+        mode: ${{ inputs.mode }}
+        log: ${{ inputs.log }}
+        token: ${{ inputs.token }}

@@ -80,7 +80,7 @@ jobs:
           timeout --kill-after=5s 40s docker stop --timeout 30 upgrade-oceanbase || true
       - name: Save generated inventories and comparisons
         if: always()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        uses: ./.github/actions/upload-ci-diagnostics
         with:
           name: candidate-replay-${{ matrix.backend }}-${{ github.sha }}
           path: |

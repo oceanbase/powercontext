@@ -498,12 +498,26 @@ def test_stalled_usage_write_does_not_delay_or_fail_the_topic_write(tmp_path, mo
     async def scenario():
         release = asyncio.Event()
         entered = asyncio.Event()
+        settled = asyncio.Event()
+        cancelled = asyncio.Event()
         original = StatisticsRepository.record
 
         async def stalled_record(repository, connection, *args):
             entered.set()
-            await release.wait()
-            return await original(repository, connection, *args)
+            try:
+                await release.wait()
+                return await original(repository, connection, *args)
+            except asyncio.CancelledError:
+                cancelled.set()
+                raise
+            finally:
+                settled.set()
+
+        def assert_usage_is_still_held():
+            assert not release.is_set()
+            if flush_timeout == 30.0:
+                assert not cancelled.is_set(), "Usage recording expired before the business response"
+                assert not settled.is_set()
 
         # This test stalls the recorder itself, so the budget must stay far beyond
         # the hold: a record dropped for spending its budget is never entered.
@@ -525,28 +539,28 @@ def test_stalled_usage_write_does_not_delay_or_fail_the_topic_write(tmp_path, mo
             payload = {"family": "topic-memory", "content": _content("stalled")}
             with monkeypatch.context() as injected:
                 injected.setattr(StatisticsRepository, "record", stalled_record)
+                writing = asyncio.create_task(client.post(path, json=payload))
                 try:
-                    # Both statistics budgets exceed the request watchdog. A
-                    # business result must not depend on either budget expiring.
-                    response = await asyncio.wait_for(client.post(path, json=payload), 2)
-                    assert response.status_code == 201, response.text
-                    assert await asyncio.wait_for(entered.wait(), 5)
-                    captured = await asyncio.wait_for(
-                        client.post(
+                    # Observe completion before either long accounting budget can
+                    # expire, while the events prove the recorder is still held.
+                    # This test watchdog is not a business-response latency SLA.
+                    async with asyncio.timeout(15):
+                        await entered.wait()
+                        response = await writing
+                        assert response.status_code == 201, response.text
+                        assert_usage_is_still_held()
+                        captured = await client.post(
                             "/v1/sources/content",
                             json={"scope_id": scope, "source_id": "available", "content": "Still available"},
-                        ),
-                        2,
-                    )
-                    assert captured.status_code == 202, captured.text
-                    searched = await asyncio.wait_for(
-                        client.post(
+                        )
+                        assert captured.status_code == 202, captured.text
+                        assert_usage_is_still_held()
+                        searched = await client.post(
                             "/v1/atomic-memory/search",
                             json={"scope_id": scope, "query": "Still available", "mode": "text"},
-                        ),
-                        2,
-                    )
-                    assert searched.status_code == 200, searched.text
+                        )
+                        assert searched.status_code == 200, searched.text
+                        assert_usage_is_still_held()
                     reading = asyncio.create_task(
                         client.post("/v1/stats", json={"selection": {"mode": "exact", "scope_ids": [scope]}})
                     )
@@ -560,6 +574,9 @@ def test_stalled_usage_write_does_not_delay_or_fail_the_topic_write(tmp_path, mo
                     release.set()
                 finally:
                     release.set()
+                    if not writing.done():
+                        writing.cancel()
+                    await asyncio.gather(writing, return_exceptions=True)
             assert len((await client.get(path + "/topic-memory")).json()["items"]) == 1
             await _await_usage_record(tmp_path / "topics.db", scope, 30.0)
             assert (await client.post(path, json=payload)).status_code == 201
@@ -589,7 +606,9 @@ def test_concurrent_writes_under_a_held_writer_lock_keep_every_usage_record(tmp_
     embedding_timeout = 0.2
     lock_hold_seconds = 0.6
     busy_timeout_ms = 2_000
-    record_write_budget = 3.0
+    # Observe healthy accounting through contention, as in the stalled-write
+    # cancellation case. The model, lock-hold and business-write budgets stay short.
+    record_write_budget = 30.0
 
     async def scenario():
         app = _app(
@@ -661,6 +680,7 @@ def test_cancelling_a_statistics_read_during_a_stalled_usage_write_leaves_the_ru
         release = asyncio.Event()
         entered = asyncio.Event()
         failed = asyncio.Event()
+        settled = asyncio.Event()
         original_record = StatisticsRepository.record
         flushing = asyncio.Event()
         original_flush = RelationalScopedStatistics.flush_model_usage
@@ -672,11 +692,14 @@ def test_cancelling_a_statistics_read_during_a_stalled_usage_write_leaves_the_ru
 
         async def stalled_record(repository, connection, *args):
             entered.set()
-            await release.wait()
-            if record_fails:
-                failed.set()
-                raise ValueError("injected closed usage connection")  # noqa: TRY003
-            return await original_record(repository, connection, *args)
+            try:
+                await release.wait()
+                if record_fails:
+                    failed.set()
+                    raise ValueError("injected closed usage connection")  # noqa: TRY003
+                return await original_record(repository, connection, *args)
+            finally:
+                settled.set()
 
         # Cancelling an await does not end SQLite's native busy-handler wait.
         # Keep that wait below the cancellation assertion's five-second bound.
@@ -704,8 +727,14 @@ def test_cancelling_a_statistics_read_during_a_stalled_usage_write_leaves_the_ru
                 stats_payload = {"selection": {"mode": "exact", "scope_ids": [scope]}}
                 pending = None
                 try:
-                    created = await asyncio.wait_for(client.post(path, json=payload), 2)
-                    assert created.status_code == 201, created.text
+                    # Setup has no response-time SLA. Observe the business write
+                    # before accounting can expire, with the recorder still held.
+                    async with asyncio.timeout(15):
+                        created = await client.post(path, json=payload)
+                        assert created.status_code == 201, created.text
+                        await entered.wait()
+                    assert not release.is_set()
+                    assert not settled.is_set(), "Usage recording ended before the cancellation scenario"
                     pending = asyncio.create_task(client.post("/v1/stats", json=stats_payload))
                     # Statistics reads still wait for their accepted prefix;
                     # cancelling the reader must not cancel the owned recorder.

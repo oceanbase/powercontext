@@ -33,15 +33,17 @@ Draft PRs allocate no automatic CI runners. Marking a PR ready validates its com
 
 | Entry point or input | Python validation | Other acceptance |
 | --- | --- | --- |
-| Ordinary ready PR | 3.11/3.14 unit tests and 3.12 E2E: 3 combinations | Selected SQLite, installation-role, platform and host acceptance; seekDB/OceanBase are deferred to nightly |
-| PR changes dependencies, shared fixtures, CI policy or unclassified files | 3.11–3.14 × unit/E2E: 8 combinations | Conservative affected or full selection within the SQLite-only database policy |
-| PR update/reopen already carrying `ci:full` | 8 combinations | Complete PR scope with SQLite-only database execution |
-| `master` push | 8 combinations | Compare with a successful trunk baseline; database execution remains SQLite-only |
-| Daily at 18:00 UTC (02:00 the following day in Asia/Shanghai) | 8 combinations | Full SQLite, seekDB and OceanBase acceptance, including schema capture and short lock probes |
-| Manual Main | 8 combinations | Full scope including native databases; upgrade selection defaults to `full`, with an explicit diagnostic subset available |
+| Ordinary ready PR | 3.11/3.14 unit tests and 3.12 E2E: 3 combinations, 4 jobs | Selected SQLite, installation-role, platform and host acceptance; seekDB/OceanBase are deferred to nightly |
+| PR changes dependencies, shared fixtures, CI policy or unclassified files | 3.11–3.14 × unit/E2E: 8 combinations, 12 jobs | Conservative affected or full selection within the SQLite-only database policy |
+| PR update/reopen already carrying `ci:full` | 8 combinations, 12 jobs | Complete PR scope with SQLite-only database execution |
+| `master` push | 8 combinations, 12 jobs | Compare with a successful trunk baseline; database execution remains SQLite-only |
+| Daily at 18:00 UTC (02:00 the following day in Asia/Shanghai) | 8 combinations, 12 jobs | Full SQLite, seekDB and OceanBase acceptance, including schema capture and short lock probes |
+| Manual Main | 8 combinations, 12 jobs | Full scope including native databases; upgrade selection defaults to `full`, with an explicit diagnostic subset available |
 | Published release | Independent installed-package and publication checks | Complete upgrade evidence and validated publication bytes; PR scope cannot bypass acceptance |
 
 Ordinary PR Python combinations drop from eight to three, a 62.5% reduction in combination count. This is not a measured reduction in runner minutes or queue latency. Dependency and CI-policy changes keep the full matrix, so a PR editing CI itself may still run eight combinations.
+
+Each Linux E2E combination runs in two jobs, partitioned by a stable digest of each collected test ID. The two partitions are disjoint and together preserve the complete parallel E2E suite. The first partition also runs the serial ZCode acceptance once per Python version. Unit tests remain one job per Python version, so the ordinary profile runs four jobs and the full profile runs twelve. Per-Pod resources and the 55-minute job deadline are unchanged; splitting jobs does not guarantee an equal runtime split. Local `make e2e-test` still runs the complete parallel and serial suites.
 
 When packaging is selected, installation validation uses two jobs, one each for Python 3.11 and 3.14. Each job builds its wheel once and verifies five roles: `core` without extras, plus `builtin`, `cli`, `builtin,cli` and `server,cli`. Each role gets its own virtual environment, application state and temporary directory, and runs against the installed wheel with checkout imports excluded. The core role checks public imports without optional dependencies. The CLI role also verifies that adding unrelated SQLAlchemy and FastAPI packages does not enable optional roles. Every role produces a result; any failed role fails its job. All ten Python/role combinations remain covered while eight runner allocations and eight duplicate wheel builds are removed. The job-count reduction does not establish a queue-latency or throughput improvement without measurements.
 
@@ -116,6 +118,38 @@ Main's preflight covers repository-wide lint and formatting. Its harness validat
 The exact test paths in `[exclusions].database` use SQLite or in-memory behavior and retain ordinary Python coverage, plus any other matching scope. Their test-only edits do not start the broad database suite. Remove an exclusion if that file gains native database cases. Exclusions cannot suppress another changed file, shared fixtures, shared runtime selection or the full fallback. Selected upgrade acceptance runs all 4 SQLite configurations on PRs/pushes and all 12 configurations nightly.
 
 These rules reduce unnecessary work for local changes. Shared-runtime and CI-policy changes retain broad coverage; runner minutes and queue latency require measurement after rollout.
+
+## Dependency cache storage
+
+The shared cache actions select an S3-compatible backend when a self-hosted Linux runner provides `PC_CI_CACHE_ENDPOINT`. The runner Pod supplies the following configuration; workflow files do not contain service addresses or credentials.
+
+| Variable | Meaning |
+| --- | --- |
+| `PC_CI_CACHE_ENDPOINT` | Internal S3-compatible service endpoint |
+| `PC_CI_CACHE_BUCKET` | Existing cache bucket |
+| `PC_CI_CACHE_ACCESS_KEY` | Access key supplied by runner configuration |
+| `PC_CI_CACHE_SECRET_KEY` | Secret key supplied by runner configuration |
+| `PC_CI_CACHE_REGION` | Optional signing region; defaults to `us-east-1` |
+
+The backend helper reads the inherited Pod environment and exposes `backend` as `s3` or `github` before cache steps run. An internal endpoint with missing required settings fails configuration validation. With no endpoint, the shared actions retain GitHub caching. Windows, macOS and GitHub-hosted jobs retain their existing cache backend, including the hosted Docker build cache. Artifact upload and download also remain on GitHub.
+
+Internal caches use `runs-on/cache` to store dependency and tool snapshots. Python, pnpm, npm, pip, Cargo, Go, mise, OpenAPI generator and pre-commit caches use the shared actions in the migrated jobs. Dependency installation and pre-commit environment preparation save their snapshots before checks run; Rust saves also run after ordinary test failures. Restored Rust snapshots retain third-party compiled dependencies, while workspace crates are rebuilt so embedded inputs outside the workspace cannot leave stale binaries. Cancellation or runner termination can prevent a save. GitHub cache objects are not copied automatically; packages absent from both the internal cache and runner image still download from package registries. Cache hits transfer contents from the internal service.
+
+The npm helper keys content downloads by the actual Node/npm versions and dependency files or pinned package specifications. It does not restore installed packages. Bundle builds cache pip HTTP responses using the Python/pip versions and exported requirements; locally built wheels remain outside the shared snapshot. Gateway TCK jobs also cache upstream source checkouts at their pinned revisions. Preparation populates these caches before tests; the normal installation, source revision checks, builds and tests still run.
+
+Bundle preparation installs pinned packaging tools in an isolated environment and caches their original wheels separately. Its dependency cache uses the original requirement exports, tool pins and the builder's actual Python/pip versions. Compatible locked wheels take priority; otherwise a verified locked source archive is built offline with those tools. Source builds have no package/version allowlist, and missing backends fail without installing extra tools. Each bundle retains the original exports and source-to-wheel provenance, and its installation requirements contain the hashes of the resulting wheels after checking their package identities against the verified inputs. Rebuilding a wheel does not change the download-cache identity or publish that wheel to the shared download cache.
+
+Internal Linux images can contain the pinned `license-eye` executable and `skill-up` release under `/opt/powercontext-ci-tools`. The workflows reuse the matching installed tool and retain their existing download or build path when it is absent. Helm likewise reuses the required installed version.
+
+Docker image caching is separate from dependency snapshots. Runner configuration can supply `PC_CI_OCEANBASE_435_IMAGE` and `PC_CI_OCEANBASE_442_IMAGE` with internal copies of the corresponding pinned OceanBase images. It can also supply `PC_CI_DOCKER_REGISTRY_MIRROR` for the Docker Hub mirror used by the nested E2E daemon; the outer runner daemon needs its own mirror configuration. The nested harness accepts `POWERCONTEXT_E2E_DOCKER_REGISTRY_MIRROR` directly. Without these settings, existing public image references and daemon behavior remain in effect. Prewarm images sequentially and verify the copied platform digest before configuring runners to use them.
+
+The internal mise cache also stores its bootstrap binary, version record and signed checksum files in a separate snapshot. It restores this snapshot after the installed tools, so an older tool snapshot cannot remove the bootstrap files. The pinned upstream action still verifies the cached binary locally, installs project tools and exports the environment. An exact installed-tools hit does not prevent saving a missing bootstrap snapshot; an explicit mise version selects its own bootstrap key. Only complete bootstrap snapshots are published. Missing checksum files skip the cache write without failing successful tool setup.
+
+Ordinary CI uses local `./.github/actions/` helpers from its source checkout, including nested helpers, so resolving them does not download a second repository archive. Historical-source bundle builds retain top-level `$/` references: these helpers are self-contained and load tooling relative to their own action directory while fingerprinting the requested source checkout. This requires GitHub.com and runner 2.336.0 or newer; see GitHub's [self-repository action reference announcement](https://github.blog/changelog/2026-07-30-reference-same-repository-actions-with-self-repository-syntax/).
+
+Internal runners do not prewarm the repository archive before each job. The runner downloads an archive only when resolving a remote action reference. Older workflow revisions with nested `$/` references continue to use that native download path; historical-source bundle builds keep their workflow-version tools.
+
+The cache service must have storage that outlives worker reclamation and be reachable from every runner Pod. The helper bypasses the outbound proxy for the endpoint host. Service deployment, bucket provisioning and persistent storage are infrastructure configuration; repository workflows do not create them. Validate a save and restore from different Pods, verify persistence after worker removal, and compare dependency-install duration on real CI runs. YAML validation alone does not establish backend availability or a performance improvement.
 
 ## Parallelism and cancellation budgets
 

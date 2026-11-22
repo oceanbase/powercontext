@@ -185,7 +185,7 @@ def test_duration_assignment_balances_work_and_includes_unknown_nodes():
     assert assigned_nodes(nodes, 1, 3, None) == nodes[1::3]
 
 
-@pytest.mark.parametrize("shards", [2, 3])
+@pytest.mark.parametrize("shards", [2, 3, 6])
 def test_duration_estimates_cannot_exceed_the_per_shard_case_budget(shards):
     nodes = ["slow", *(f"fast-{index}" for index in range(11)), "unmeasured"]
     durations = dict.fromkeys(nodes[:-1], 1.0)
@@ -196,16 +196,17 @@ def test_duration_estimates_cannot_exceed_the_per_shard_case_budget(shards):
 
 
 @pytest.mark.parametrize("corruption", [None, "missing", "duplicate", "incomplete", "collection"])
-def test_balanced_shards_must_cover_every_collected_node_exactly_once(tmp_path, corruption):
+@pytest.mark.parametrize("shards", [2, 6])
+def test_balanced_shards_must_cover_every_collected_node_exactly_once(tmp_path, corruption, shards):
     nodes = ["slow", "fast", "new"]
     durations = {"slow": 100.0, "fast": 1.0}
     paths = []
-    for index in range(2):
-        passed = assigned_nodes(nodes, index, 2, durations)
+    for index in range(shards):
+        passed = assigned_nodes(nodes, index, shards, durations)
         report = {
             "backend": "oceanbase",
             "shard_index": index,
-            "shard_count": 2,
+            "shard_count": shards,
             "complete": True,
             "collected_nodes": nodes.copy(),
             "passed_nodes": passed,
@@ -224,9 +225,9 @@ def test_balanced_shards_must_cover_every_collected_node_exactly_once(tmp_path, 
         paths.append(path)
     if corruption:
         with pytest.raises(ValueError):
-            verify_group(paths, 2, durations)
+            verify_group(paths, shards, durations)
     else:
-        assert verify_group(paths, 2, durations) == len(nodes)
+        assert verify_group(paths, shards, durations) == len(nodes)
 
 
 def test_invalid_duration_baseline_cannot_silently_change_scheduling(tmp_path):
@@ -236,9 +237,10 @@ def test_invalid_duration_baseline_cannot_silently_change_scheduling(tmp_path):
         read_durations(path)
 
 
-def test_all_oceanbase_migration_step_budgets_cover_collected_cases_and_cleanup():
+@pytest.mark.parametrize(("workflow_name", "backend"), [("e2e-harness.yml", "oceanbase"), ("master.yml", "seekdb")])
+def test_migration_step_budgets_cover_collected_cases_and_cleanup(workflow_name, backend):
     root = Path(__file__).parents[1]
-    workflow = yaml.safe_load((root / ".github/workflows/e2e-harness.yml").read_text())
+    workflow = yaml.safe_load((root / ".github/workflows" / workflow_name).read_text())
     budgets = []
     for job in workflow["jobs"].values():
         steps = [step for step in job.get("steps", []) if "run_atomic_memory_clean_migration.py" in step.get("run", "")]
@@ -251,9 +253,12 @@ def test_all_oceanbase_migration_step_budgets_cover_collected_cases_and_cleanup(
             args = shlex.split(command)
             suites = args[args.index("--tests") + 1 :] if "--tests" in args else list(SUITES)
             case_timeout = int(args[args.index("--test-timeout") + 1]) if "--test-timeout" in args else 180
-            shard_count = len(job["strategy"]["matrix"]["shard"]) if "--shard" in args else 1
+            shard_count = 1
+            if "--shard" in args:
+                shard_count = int(args[args.index("--shard") + 1].rsplit("/", 1)[1])
+                assert sorted(job["strategy"]["matrix"]["shard"]) == list(range(shard_count))
             budgets.append((step, suites, case_timeout, shard_count))
-        if steps:
+        if steps and backend == "oceanbase":
             # Keep bounded pull/startup and ten minutes for other setup/evidence outside test ceilings.
             setup = [
                 step
@@ -261,9 +266,13 @@ def test_all_oceanbase_migration_step_budgets_cover_collected_cases_and_cleanup(
                 if step.get("name") in {"Pull the OceanBase image", "Start the isolated OceanBase test instance"}
             ]
             assert job["timeout-minutes"] >= sum(step["timeout-minutes"] for step in [*steps, *setup]) + 10
+        elif steps:
+            # Setup and evidence must retain job time beyond the test-step ceilings.
+            assert job["timeout-minutes"] > sum(step["timeout-minutes"] for step in steps)
+    assert budgets, f"No {backend} migration commands were checked"
     files = sorted({suite for _, suites, _, _ in budgets for suite in suites})
     result = subprocess.run(
-        [sys.executable, "-m", "pytest", "--collect-only", "-q", *files, "-k", "oceanbase"],
+        [sys.executable, "-m", "pytest", "--collect-only", "-q", *files, "-k", backend],
         cwd=root,
         env={**os.environ, "PYTEST_ADDOPTS": ""},
         capture_output=True,
@@ -360,6 +369,26 @@ def test_cold_image_download_does_not_consume_the_container_start_deadline(tmp_p
     assert result.returncode == (124 if cache_state == "pull_failure" else 0), result.stderr
     assert (tmp_path / "container").exists() is (cache_state != "pull_failure")
     assert (tmp_path / "pull").exists() is (cache_state != "warm")
+
+
+def test_seekdb_bootstrap_budget_preserves_scenario_cleanup_and_both_process_attempts():
+    from tests.fixtures.seekdb_legacy_choice import (
+        SERVER_SCENARIO_PROCESS_TIMEOUT_SECONDS,
+        SERVER_SCENARIO_TIMEOUT_SECONDS,
+    )
+
+    root = Path(__file__).parents[1]
+    workflow = yaml.safe_load((root / ".github/workflows/master.yml").read_text())
+    job = workflow["jobs"]["code-seekdb"]
+    step = next(step for step in job["steps"] if step["name"].startswith("Test database bootstrap"))
+    assert SERVER_SCENARIO_PROCESS_TIMEOUT_SECONDS > SERVER_SCENARIO_TIMEOUT_SECONDS
+    # The runner permits two attempts only for a process deadline, and the other
+    # bootstrap cases and evidence still need time after those attempts.
+    assert step["timeout-minutes"] * 60 > 2 * SERVER_SCENARIO_PROCESS_TIMEOUT_SECONDS
+    # Indexing, environment setup and artifacts also need job time outside the
+    # separately bounded bootstrap, archive and migration steps.
+    step_minutes = sum(step.get("timeout-minutes", 0) for step in job["steps"])
+    assert job["timeout-minutes"] > step_minutes
 
 
 def test_recall_job_preserves_startup_and_cleanup_beyond_command_deadlines():
