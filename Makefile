@@ -1,3 +1,6 @@
+CI_NPM = $(if $(PC_CI_NODE_INSTALLER),node "$(PC_CI_NODE_INSTALLER)" npm,npm)
+CI_PNPM = $(if $(PC_CI_NODE_INSTALLER),node "$(PC_CI_NODE_INSTALLER)" pnpm,pnpm)
+
 .PHONY: install
 install: ## Install the virtual environment and install the prek hooks
 	@echo "🚀 Creating virtual environment using uv"
@@ -81,7 +84,7 @@ e2e-test-serial: ## Run service-chain tests with native Hook deadlines without x
 
 .PHONY: gateway-tck
 gateway-tck: ## Check gateway protocol behavior against pinned upstream compatibility suites.
-	@npm ci --prefix gateway/tck --no-audit --no-fund
+	@$(CI_NPM) ci --prefix gateway/tck --no-audit --no-fund
 	@cargo build --locked --manifest-path gateway/Cargo.toml -p pc-gateway-app
 	@uv run --no-project --python 3.11 python tests/e2e/gateway_tck.py $(ARGS)
 
@@ -200,7 +203,7 @@ js-api-generate-check: ## Verify generated JS operations are current.
 
 .PHONY: js-test
 js-test: ## Install, build, and test the DeepSeek Harness plugin.
-	@pnpm --dir integrations/dsh/plugins/powercontext install --frozen-lockfile --config.auto-install-peers=false
+	@$(CI_PNPM) --dir integrations/dsh/plugins/powercontext install --frozen-lockfile --config.auto-install-peers=false
 	@pnpm --dir integrations/dsh/plugins/powercontext test
 	@pnpm --dir integrations/dsh/plugins/powercontext build
 	@git diff --exit-code -- \
@@ -217,12 +220,12 @@ dsh-pet-runtime-test: ## Exercise the packed pet adapter in pinned DSH Web (or s
 
 .PHONY: dsh-runtime-test
 dsh-runtime-test: ## Test the built plugin in the pinned real DSH runtime with a local model fixture.
-	@pnpm --dir integrations/dsh/plugins/powercontext/tests/runtime install --frozen-lockfile
+	@$(CI_PNPM) --dir integrations/dsh/plugins/powercontext/tests/runtime install --frozen-lockfile
 	@pnpm --dir integrations/dsh/plugins/powercontext test:e2e:runtime
 
 .PHONY: cindy-test
 cindy-test: ## Build and test the standalone Cindy hook adapter; no DSH runtime is packaged.
-	@pnpm --dir integrations/dsh/plugins/powercontext install --frozen-lockfile --config.auto-install-peers=false
+	@$(CI_PNPM) --dir integrations/dsh/plugins/powercontext install --frozen-lockfile --config.auto-install-peers=false
 	@pnpm --dir integrations/dsh/plugins/powercontext exec tsdown --config ../../../cindy/tsdown.config.ts
 	@git diff --exit-code -- integrations/cindy/plugins/powercontext-hooks/node/worker.cjs
 	@node --test integrations/cindy/tests/*.test.cjs
@@ -234,7 +237,7 @@ openclaw-plugin-build: ## Build the external OpenClaw memory plugin.
 
 .PHONY: openclaw-plugin-test
 openclaw-plugin-test: ## Install, test, type-check, and build with a Node runtime supported by the OpenClaw SDK.
-	@pnpm --dir integrations/openclaw/plugins/memory-powercontext install --frozen-lockfile
+	@$(CI_PNPM) --dir integrations/openclaw/plugins/memory-powercontext install --frozen-lockfile
 	@pnpm --dir integrations/openclaw/plugins/memory-powercontext test
 	@pnpm --dir integrations/openclaw/plugins/memory-powercontext run typecheck
 	@pnpm --dir integrations/openclaw/plugins/memory-powercontext run build
@@ -245,7 +248,7 @@ openclaw-plugin-pack: ## Build and pack the external OpenClaw memory plugin.
 
 .PHONY: opencode-test
 opencode-test: ## Install, test, type-check, and build the OpenCode plugin; verify the committed bundle is current.
-	@pnpm --dir integrations/opencode/plugins/powercontext install --frozen-lockfile
+	@$(CI_PNPM) --dir integrations/opencode/plugins/powercontext install --frozen-lockfile
 	@pnpm --dir integrations/opencode/plugins/powercontext test
 	@pnpm --dir integrations/opencode/plugins/powercontext run typecheck
 	@pnpm --dir integrations/opencode/plugins/powercontext run build
@@ -253,7 +256,7 @@ opencode-test: ## Install, test, type-check, and build the OpenCode plugin; veri
 
 .PHONY: pi-test
 pi-test: ## Install and test the Pi package.
-	@pnpm --dir integrations/pi/plugins/powercontext install --frozen-lockfile
+	@$(CI_PNPM) --dir integrations/pi/plugins/powercontext install --frozen-lockfile
 	@pnpm --dir integrations/pi/plugins/powercontext test
 	@pnpm --dir integrations/pi/plugins/powercontext run typecheck
 
@@ -314,7 +317,7 @@ build-and-publish: build publish ## Build and publish.
 
 .PHONY: docs-install
 docs-install: ## Install the website dependencies.
-	@cd website && pnpm install --frozen-lockfile
+	@cd website && $(CI_PNPM) install --frozen-lockfile
 
 .PHONY: docs-build
 docs-build: docs-install ## Build the static website, including HTTP and Python API references.

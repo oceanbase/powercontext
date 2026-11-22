@@ -33,8 +33,11 @@ test('release archive installs and loads without checkout files or install scrip
     const archive = process.env.POWERCONTEXT_DSH_TARBALL || join(consumer, JSON.parse(execFileSync(process.execPath,
       [join(root, 'scripts/pack-release.mjs'), version, consumer], { encoding: 'utf8' }))[0].filename)
     writeFileSync(join(consumer, 'package.json'), JSON.stringify({ private: true, type: 'module' }))
-    const installation = spawn.sync('npm', ['install', archive, '@deepseek-ai/cordis@4.0.1',
-      '--ignore-scripts', '--legacy-peer-deps', '--no-audit', '--no-fund', '--registry=https://registry.npmjs.org/'],
+    const installArgs = ['install', archive, '@deepseek-ai/cordis@4.0.1',
+      '--ignore-scripts', '--legacy-peer-deps', '--no-audit', '--no-fund', '--registry=https://registry.npmjs.org/']
+    const installer = process.env.PC_CI_NODE_INSTALLER
+    const installation = spawn.sync(installer ? process.execPath : 'npm',
+      installer ? [installer, 'npm', ...installArgs] : installArgs,
     { cwd: consumer, encoding: 'utf8', timeout: 90000 })
     assert.equal(installation.status, 0, installation.stderr || installation.error?.message)
     const installed = join(consumer, 'node_modules/powercontext-dsh')

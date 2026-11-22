@@ -71,7 +71,7 @@ jobs:
         with:
           cache-dependency-glob: gateway/tck/package-lock.json
       - name: Install protocol runner dependencies
-        run: npm ci --prefix gateway/tck --no-audit --no-fund
+        run: node "$PC_CI_NODE_INSTALLER" npm ci --prefix gateway/tck --no-audit --no-fund
       - name: Save protocol runner downloads
         if: steps.tck-npm-cache.outputs.cache-hit != 'true'
         uses: ./.github/actions/cache-save
