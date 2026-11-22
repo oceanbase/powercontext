@@ -1,0 +1,86 @@
+name: Set up uv with the CI cache backend
+description: Retain uv cache identities while routing configured internal runners to S3
+inputs:
+  version:
+    description: uv version
+    default: ''
+  python-version:
+    description: Python version used by uv
+    default: ''
+  enable-cache:
+    description: Enable dependency caching; auto retains setup-uv defaults
+    default: 'auto'
+  save-cache:
+    description: Save dependencies after the job
+    default: 'auto'
+  restore-cache:
+    description: Restore dependencies before subsequent steps
+    default: 'true'
+  cache-suffix:
+    description: Additional dependency cache identity
+    default: ''
+  cache-dependency-glob:
+    description: Files used to invalidate dependencies
+    default: |
+      **/*requirements*.txt
+      **/*requirements*.in
+      **/*constraints*.txt
+      **/*constraints*.in
+      **/pyproject.toml
+      **/uv.lock
+      **/*.py.lock
+  download-from-astral-mirror:
+    description: Use the uv download mirror
+    default: 'true'
+outputs:
+  cache-key:
+    description: Complete dependency cache key
+    value: ${{ steps.uv.outputs.cache-key }}
+  cache-hit:
+    description: Whether the dependency cache was restored
+    value: ${{ steps.internal-cache.outputs.cache-hit || steps.internal-restore.outputs.cache-hit || steps.uv.outputs.cache-hit }}
+  cache-path:
+    description: uv dependency cache directory
+    value: ${{ steps.path.outputs.cache-path }}
+  uv-version:
+    description: Installed uv version
+    value: ${{ steps.uv.outputs.uv-version }}
+  python-version:
+    description: Python version selected by uv
+    value: ${{ steps.uv.outputs.python-version }}
+runs:
+  using: composite
+  steps:
+    - id: backend
+      uses: $/.github/actions/cache-backend
+
+    - id: uv
+      uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+      with:
+        version: ${{ inputs.version }}
+        python-version: ${{ inputs.python-version }}
+        enable-cache: ${{ inputs.enable-cache }}
+        restore-cache: ${{ steps.backend.outputs.backend == 's3' && 'false' || inputs.restore-cache }}
+        save-cache: ${{ steps.backend.outputs.backend == 's3' && 'false' || inputs.save-cache }}
+        cache-suffix: ${{ inputs.cache-suffix }}
+        cache-dependency-glob: ${{ inputs.cache-dependency-glob }}
+        download-from-astral-mirror: ${{ inputs.download-from-astral-mirror }}
+
+    - id: path
+      shell: bash
+      run: echo "cache-path=$(uv cache dir)" >> "$GITHUB_OUTPUT"
+
+    - id: internal-cache
+      if: steps.backend.outputs.backend == 's3' && steps.uv.outputs.cache-key != '' && inputs.save-cache != 'false' && github.event_name != 'merge_group'
+      uses: $/.github/actions/cache
+      with:
+        path: ${{ steps.path.outputs.cache-path }}
+        key: ${{ steps.uv.outputs.cache-key }}
+        lookup-only: ${{ inputs.restore-cache == 'false' }}
+
+    - id: internal-restore
+      if: steps.backend.outputs.backend == 's3' && steps.uv.outputs.cache-key != '' && inputs.restore-cache != 'false' && (inputs.save-cache == 'false' || github.event_name == 'merge_group')
+      uses: $/.github/actions/cache-restore
+      with:
+        path: ${{ steps.path.outputs.cache-path }}
+        key: ${{ steps.uv.outputs.cache-key }}

@@ -35,6 +35,7 @@ PowerContext 进程启动时从环境变量读取配置。当前工作目录存�
 | `POWERCONTEXT_SERVER_RUNTIME_ATOMIC_MEMORY_RELATED_FTS_FALLBACK` | `false` | 显式允许相关召回在查询向量不可用、profile 不匹配或向量投影不完整时改用全文枚举；不改变普通搜索的错误处理 |
 | `POWERCONTEXT_SERVER_RUNTIME_ATOMIC_MEMORY_COMPARISON_BATCH_SIZE` | `20` | 每次相关记忆判断最多比较的对象数，正整数；不是总候选上限 |
 | `POWERCONTEXT_SERVER_RUNTIME_ATOMIC_MEMORY_INPUT_TOKENS_LIMIT` | `64000` | 每次抽取或判断输入的估算 token 上限，包含指令和完整输入，正整数 |
+| `POWERCONTEXT_SERVER_RUNTIME_ATOMIC_MEMORY_PROCESSING_MODE` | `per_candidate` | 原子记忆处理 Source 窗口的方式。`per_candidate` 先抽取候选，再逐条与相关记忆比较；`one_pass` 在同一段模型对话里先列出要写的记忆、再一次给出全部操作，模型调用成本更低。对话输入超出 token 上限的窗口仍按 `per_candidate` 处理 |
 
 未配置 secret 不会生成随机进程密钥。更换 secret 或 key ID 后，旧 token 无法验证，应重新预览。
 带 token 的恢复遇到变化会返回 `preview_stale`，不会自动重新解释意图；重试预算也不处理提交结果未知的连接失败。

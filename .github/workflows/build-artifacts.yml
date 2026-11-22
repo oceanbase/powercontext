@@ -55,7 +55,8 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
 
       - name: Set up uv
-        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        # Keep cache tooling at the workflow revision when packaging an older source ref.
+        uses: $/.github/actions/setup-uv
         with:
           version: ${{ env.UV_VERSION }}
           enable-cache: true

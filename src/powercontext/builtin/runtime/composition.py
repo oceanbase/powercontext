@@ -1633,6 +1633,7 @@ async def _generation_pipelines(
     )
     from powercontext.builtin.inference.pydantic_ai import (
         InferenceLimits,
+        PydanticAIConversationGenerator,
         PydanticAIStructuredGenerator,
         probe_pydantic_ai_model,
     )
@@ -1814,6 +1815,14 @@ async def _generation_pipelines(
             extraction_instructions=atomic_memory_extraction_instructions(runtime.memory_extraction_profile),
             input_renderer=memory_input_renderer,
             prefixed=_prefixed_extractor(settings, runtime, resources, memory_estimator),
+            conversation=UsageReportingStructuredGenerator(
+                PydanticAIConversationGenerator(
+                    model=generation_model,
+                    limits=generation_limits,
+                    model_settings=generation_request_settings,
+                    name="atomic_memory_one_pass",
+                )
+            ),
         )
         generated_incubation = LLMExperienceCandidatePipeline(UsageReportingStructuredGenerator(experience_generator))
         generated_experience = LLMExperienceGenerator(UsageReportingStructuredGenerator(explicit_experience_generator))

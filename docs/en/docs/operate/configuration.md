@@ -40,6 +40,7 @@ use the same secret and key ID:
 | `POWERCONTEXT_SERVER_RUNTIME_ATOMIC_MEMORY_RELATED_FTS_FALLBACK` | `false` | Explicitly permit full-text enumeration when the related query vector is unavailable, profiles mismatch or vector projections are incomplete; ordinary search error handling is unchanged |
 | `POWERCONTEXT_SERVER_RUNTIME_ATOMIC_MEMORY_COMPARISON_BATCH_SIZE` | `20` | Maximum related objects per comparison call, positive integer; it is not a total candidate limit |
 | `POWERCONTEXT_SERVER_RUNTIME_ATOMIC_MEMORY_INPUT_TOKENS_LIMIT` | `64000` | Estimated tokens per extraction/comparison input, including instructions and complete input, positive integer |
+| `POWERCONTEXT_SERVER_RUNTIME_ATOMIC_MEMORY_PROCESSING_MODE` | `per_candidate` | How Atomic Memory processes a Source window. `per_candidate` extracts candidates and compares each with its related memories; `one_pass` lists the memories to write and then returns every operation in one model conversation, which costs fewer model tokens. A window whose conversation input exceeds the token limit is still processed as `per_candidate` |
 
 An unset secret never generates a random process key. Changing the secret or key ID invalidates old tokens; preview
 again. A restoration with a token returns `preview_stale` on changes instead of reinterpreting the intent. The retry
