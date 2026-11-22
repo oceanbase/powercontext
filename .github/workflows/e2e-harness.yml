@@ -104,6 +104,7 @@ jobs:
             integrations/langchain/pyproject.toml
             integrations/langgraph/pyproject.toml
             integrations/opendal/pyproject.toml
+            integrations/deepagents/pyproject.toml
             integrations/bub/pyproject.toml
             e2e/bub/pyproject.toml
             e2e/bub/uv.lock

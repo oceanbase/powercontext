@@ -54,8 +54,8 @@ test('automatic prompt privacy preserves preparation and original accepted event
       assert.equal(prepares.length, 1, result.stderr)
       assert.equal(state.captures.length, sample.sensitive || !capture ? 0 : 1)
       if (sample.sensitive) {
-        assert.doesNotMatch(JSON.stringify(state.requests.map(item => item.body)), /synthetic[-_]value[-_]2084/)
-        assert.doesNotMatch(JSON.stringify(result), /synthetic[-_]value[-_]2084/)
+        assert.doesNotMatch(JSON.stringify(state.requests.map(item => item.body)), /synthetic[-_]?value[-_]?2084/i)
+        assert.doesNotMatch(JSON.stringify(result), /synthetic[-_]?value[-_]?2084/i)
       } else {
         assert.equal(state.captures[0].content, sample.prompt)
         assert.equal(prepares[0].body.query, sample.prompt)

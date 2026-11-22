@@ -27,12 +27,14 @@ class HostProfile:
     """What the lifecycle flows need to know about one host.
 
     ``integration`` names the host in Server requests, and ``user_agent`` identifies its plugin. ``component`` begins
-    the component of each diagnostic the host reports, such as ``powercontext.claude_code``. ``diagnostics`` and
+    the component of each diagnostic the host reports, such as ``powercontext.claude_code``. ``prompt_id_field`` names
+    the metadata field in which a captured prompt keeps the host's identifier for it. ``diagnostics`` and
     ``bootstrap_state`` locate the host's diagnostic throttle and its bootstrap receipts.
     """
 
     integration: str
     user_agent: str
     component: str
+    prompt_id_field: str
     diagnostics: DiagnosticThrottle
     bootstrap_state: BootstrapState

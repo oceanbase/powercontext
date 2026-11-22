@@ -106,6 +106,7 @@ jobs:
             integrations/langchain/pyproject.toml
             integrations/langgraph/pyproject.toml
             integrations/opendal/pyproject.toml
+            integrations/deepagents/pyproject.toml
       - name: Install locked Server test dependencies
         working-directory: .
         run: uv sync --locked --python 3.12
@@ -326,6 +327,7 @@ jobs:
             integrations/langchain/pyproject.toml
             integrations/langgraph/pyproject.toml
             integrations/opendal/pyproject.toml
+            integrations/deepagents/pyproject.toml
       - name: Install locked Server test dependencies
         working-directory: .
         run: uv sync --locked --python 3.12
@@ -389,6 +391,7 @@ jobs:
             integrations/langchain/pyproject.toml
             integrations/langgraph/pyproject.toml
             integrations/opendal/pyproject.toml
+            integrations/deepagents/pyproject.toml
       - name: Prepare isolated Server fixture
         run: |
           uv sync --locked --python 3.12

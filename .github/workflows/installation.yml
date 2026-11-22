@@ -49,6 +49,7 @@ jobs:
             integrations/langchain/pyproject.toml
             integrations/langgraph/pyproject.toml
             integrations/opendal/pyproject.toml
+            integrations/deepagents/pyproject.toml
             tests/native/test_installation.py
             website/public/install.sh
             website/public/install.ps1

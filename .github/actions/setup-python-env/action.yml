@@ -27,6 +27,7 @@ inputs:
       integrations/langchain/pyproject.toml
       integrations/langgraph/pyproject.toml
       integrations/opendal/pyproject.toml
+      integrations/deepagents/pyproject.toml
 
 outputs:
   cache-path:
@@ -103,6 +104,13 @@ runs:
       run: |
         uv sync --frozen
       shell: bash
+
+    - name: Use a writable cache directory for project tools
+      if: runner.os == 'Linux'
+      shell: bash
+      run: |
+        mkdir -p "$RUNNER_TEMP/project-cache"
+        echo "XDG_CACHE_HOME=$RUNNER_TEMP/project-cache" >> "$GITHUB_ENV"
 
     # Publish before tests so a later failure or timeout cannot discard the download cache.
     - name: Save Python dependencies

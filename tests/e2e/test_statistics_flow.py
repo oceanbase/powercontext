@@ -74,7 +74,8 @@ def _settings(database_kind: str, database: Path) -> ServerSettings:
         auth=BearerAuthConfig(token=SecretStr(_AUTH_TOKEN)),
         access=AccessControlConfig(mode="enforced"),
         inference=InferenceConfig(generation_model="test"),
-        # Exact persistence counts need normal write/flush budgets, not best-effort drops.
+        # This flow verifies persisted accounting and restart recovery. Allow
+        # slow CI writes to settle; bounded-loss deadlines have dedicated tests.
         runtime=RuntimeConfig(model_usage_write_timeout_seconds=5.0, model_usage_flush_timeout_seconds=10.0),
         mcp=McpConfig(enabled=False),
     )

@@ -31,7 +31,7 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Never
 
 import pytest
 from fastapi.testclient import TestClient
@@ -41,6 +41,7 @@ from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanE
 from opentelemetry.trace import StatusCode
 from prometheus_client import CollectorRegistry
 
+from powercontext.builtin import processing_diagnostics
 from powercontext.builtin.authz.errors import AccessDeniedError
 from powercontext.builtin.code.telemetry import stage
 from powercontext.builtin.inference import (
@@ -686,6 +687,38 @@ def test_supervisor_logs_isolate_request_identity_and_preserve_child_cancellatio
     caller = next(record for record in records if record.get("event") == "caller.observed")
     assert caller["request_id"] == "unrelated-parent-request"
     assert _PRIVATE not in output.getvalue() + child_output.out + child_output.err
+
+
+def test_supervisor_failure_log_limit_preserves_failed_attempt_count(caplog, monkeypatch, tmp_path) -> None:
+    class UnavailableLauncher:
+        async def start(self, assignment: ArtifactProcessingWorkAssignment) -> Never:
+            raise InferenceTimeoutError("generate", 1.0)
+
+    monkeypatch.setattr(processing_diagnostics, "monotonic", lambda: 1.0)
+    monkeypatch.setattr(processing_diagnostics, "_failure_log_times", {})
+    binding_name = "memory-source-window"
+
+    async def run() -> None:
+        async with SQLiteProfile.open(
+            SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'failure-burst.db'}"), tables=SHARED_TABLES
+        ) as profile:
+            intents = ArtifactProcessingIntentRepository()
+            async with profile.database.transaction() as connection:
+                for index in range(20):
+                    await intents.request(connection, f"repeat-{index}", binding_name)
+            binding = ArtifactProcessingBinding(binding_name, "memory", UnavailableLauncher(), max_workers=20)
+            async with ArtifactProcessingSupervisor(
+                database=profile.database, bindings=(binding,), lease_mode="single-process"
+            ) as supervisor:
+                async with asyncio.timeout(15):
+                    while int(supervisor.family_status["memory"]["failed"]) < 20:  # noqa: ASYNC110
+                        await asyncio.sleep(0.01)
+                assert supervisor.family_status["memory"]["completed"] == 0
+
+    asyncio.run(run())
+    failures = [item for item in caplog.records if getattr(item, "event", None) == "artifact_processing.failed"]
+    assert len(failures) == 16
+    assert {vars(item)["failure_reason"] for item in failures} == {"timeout"}
 
 
 @dataclass(frozen=True)

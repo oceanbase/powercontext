@@ -34,6 +34,7 @@ from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.runtime.config import InferenceConfig, RuntimeConfig
 from powercontext.builtin.runtime.processing_contracts import WorkerEntrypoint
 from powercontext.server.factory import create_server_app
+from powercontext.server.logging import JsonFormatter, _HumanContextFilter
 from powercontext.server.settings import McpConfig, ServerLoggingConfig, ServerSettings, TracingConfig
 from powercontext.server.worker_tracing import WorkerTracing
 
@@ -73,7 +74,7 @@ class _UsageFaultWorker:
 
 
 @contextmanager
-def _model_server():
+def _model_server(*, truncated: bool = False):
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, format, *args):  # noqa: A002 - stdlib signature.
             return
@@ -91,10 +92,12 @@ def _model_server():
                     "choices": [
                         {
                             "index": 0,
-                            "finish_reason": "stop",
+                            "finish_reason": "length" if truncated else "stop",
                             "message": {
                                 "role": "assistant",
-                                "content": json.dumps({"probes": []} if b"probes" in payload else {"candidates": []}),
+                                "content": "private-truncated-response"
+                                if truncated
+                                else json.dumps({"probes": []} if b"probes" in payload else {"candidates": []}),
                             },
                         }
                     ],
@@ -224,3 +227,64 @@ def test_builtin_worker_usage_losses_reach_server_metrics(tmp_path, monkeypatch,
         assert write_event["family"] == family
         assert "request_id" not in write_event and "exception" not in write_event
         assert "private_usage_fixture_table" not in json.dumps(child_usage)
+
+
+def test_provider_truncation_reaches_both_builtin_worker_and_supervisor_logs(
+    tmp_path, monkeypatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    monkeypatch.setenv("OPENAI_API_KEY", "local-usage-fixture")
+    log_directory = tmp_path / "logs"
+    with _model_server(truncated=True) as endpoint:
+        app = create_server_app(
+            settings=ServerSettings(
+                logging=ServerLoggingConfig(file=True, directory=log_directory, format="json"),
+                database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'truncation.db'}"),
+                inference=InferenceConfig(
+                    generation_model="openai-chat:fixture",
+                    generation_base_url=endpoint + "/model",
+                    generation_max_requests=1,
+                ),
+                runtime=RuntimeConfig(artifact_processing_families=("memory",), memory_schedule_seconds=0.05),
+                mcp=McpConfig(enabled=False),
+            )
+        )
+        with TestClient(app) as client:
+            scope = client.get("/v1/scopes/default").json()["scope_id"]
+            assert (
+                client.post(
+                    "/v1/sources/content",
+                    json={"scope_id": scope, "source_id": "truncated-input", "content": "private-artifact-evidence"},
+                ).status_code
+                == 202
+            )
+            deadline = time.monotonic() + 30
+            while time.monotonic() < deadline:
+                metrics = client.get("/metrics").text
+                if _sample(metrics, "artifact_processing_failed_total", family="memory") >= 1:
+                    break
+                time.sleep(0.01)
+            else:
+                pytest.fail("Built-in Worker did not report the provider failure")
+            assert _sample(metrics, "artifact_processing_completed_total", family="memory") == 0
+
+    records = [json.loads(line) for line in (log_directory / "all.log").read_text(encoding="utf-8").splitlines()]
+    child = next(item for item in records if item.get("event") == "artifact_processing.worker.failed")
+    parent_log = next(
+        item
+        for item in caplog.records
+        if getattr(item, "event", None) == "artifact_processing.failed"
+        and getattr(item, "worker_id", None) == child["worker_id"]
+    )
+    assert _HumanContextFilter(role="all").filter(parent_log)
+    assert 'failure_reason="output_truncated"' in vars(parent_log)["processing_context"]
+    parent = json.loads(JsonFormatter().format(parent_log))
+    for record in (child, parent):
+        assert record["error_code"] == "invalid_model_output"
+        assert record["processing_stage"] == "generation"
+        assert record["failure_reason"] == "output_truncated"
+        assert record["finish_reason"] == "length"
+        assert record["provider_request_id"] == "usage-fixture"
+        rendered = json.dumps(record)
+        assert "private-truncated-response" not in rendered and "private-artifact-evidence" not in rendered
+    assert child["service_role"] == "worker" and parent["service_role"] == "all"
+    assert child["request_generation"] == parent["request_generation"]

@@ -106,6 +106,7 @@ class ToolSurfaceProbe(StrEnum):
     PI_LIFECYCLE = "pi_lifecycle"
     PYDANTIC_AI_TOOLS = "pydantic_ai_tools"
     LANGCHAIN_MIDDLEWARE = "langchain_middleware"
+    DEEPAGENTS_ADAPTER = "deepagents_adapter"
     LANGGRAPH_TOOLS = "langgraph_tools"
     BUB_TOOLS = "bub_tools"
     BUB_LIFECYCLE = "bub_lifecycle"
@@ -675,6 +676,21 @@ def _probe_toolset(probe: ToolSurfaceProbe, root: Path) -> set[str]:
                 "after_agent:capture_content_source": ("after_agent", "_capture("),
             },
         )
+    if probe is ToolSurfaceProbe.DEEPAGENTS_ADAPTER:
+        return _python_method_markers(
+            root / "integrations/deepagents/src/powercontext_deepagents/adapter.py",
+            {
+                "create_powercontext_deep_agent:agent_recall": (
+                    "create_powercontext_deep_agent",
+                    "powercontext_deep_agent_middleware(",
+                ),
+                "create_powercontext_deep_agent:capture_ownership": (
+                    "create_powercontext_deep_agent",
+                    "auto_capture=auto_capture",
+                ),
+                "powercontext_subagents:subagent_recall": ("powercontext_subagents", "_recall_only_subagent("),
+            },
+        )
     if probe is ToolSurfaceProbe.LANGGRAPH_TOOLS:
         return _python_decorator_tool_ids(root / "integrations/langgraph/src/powercontext_langgraph/tools.py")
     if probe is ToolSurfaceProbe.BUB_TOOLS:
@@ -959,6 +975,17 @@ def _is_complete_prompt_hook(script: Path) -> bool:
     if not script.is_file():
         return False
     source = script.read_text(encoding="utf-8")
+    # The hooks put their plugin root on sys.path, so a hook can run the prompt flow from a plugin module. Only the
+    # module that provides the flow counts: other hooks import its HTTP helpers without running the flow.
+    modules = [
+        script.parents[1].joinpath(*node.module.split(".")).with_suffix(".py")
+        for node in ast.walk(ast.parse(source))
+        if isinstance(node, ast.ImportFrom)
+        and node.level == 0
+        and node.module is not None
+        and any(alias.name == "run_user_prompt_submit" for alias in node.names)
+    ]
+    source = "\n".join([source, *(module.read_text(encoding="utf-8") for module in modules if module.is_file())])
     return all(marker in source for marker in ("/v1/context/prepare", "/v1/sources/content", "/v1/memory/flush"))
 
 
