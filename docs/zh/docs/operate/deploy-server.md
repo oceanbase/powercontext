@@ -202,7 +202,9 @@ Gemini 关闭 Gateway 上下文注入。Claude CLI 只接受新的单轮文本�
 
 ### 网关固定指令
 
-`PC_GATEWAY_STEERING_FILE` 指定一个文件，其中是一段简短的固定指令，网关把它加入 Responses 入口（`/gateway/v1/responses`）的每个请求；Chat 入口的请求不受影响。网关只在启动时读取一次该文件。文件必须是 UTF-8，去掉首尾空白后不能为空，不超过 4096 字节，并且不能含有 PowerContext 保留的 `BEGIN_POWERCONTEXT_` 标记；否则网关在启动时退出，而不是不带指令运行。未设置该变量时不加入任何内容。
+网关默认向 Responses 入口（`/gateway/v1/responses`）的每个请求加入内置的成本指导指令（S），提示模型定向搜索、合并读取、集中修改并进行针对性验证；Chat 入口不受影响。`PC_GATEWAY_STEERING=off` 关闭指令；未设置或设为 `on` 时开启，其他值会阻止启动。
+
+`PC_GATEWAY_STEERING_FILE` 用自定义指令替换内置文本。开启指令时，网关只在启动时读取一次该文件。文件必须是 UTF-8，去掉首尾空白后不能为空，不超过 4096 字节，并且不能含有 PowerContext 保留的 `BEGIN_POWERCONTEXT_` 标记；否则网关在启动时退出，不会改用其他指令。`PC_GATEWAY_STEERING=off` 优先于文件配置，关闭时不读取文件。
 
 指令文本成为客户端第一条 developer 消息之后那条 developer 消息的第一个内容块，也就是 Codex 放置自身 `developer_instructions` 的位置。没有这样的消息时，网关在客户端第一条 developer 消息之后插入一条新的 developer 消息；请求中没有 developer 消息时，插在第一条用户消息之前。每个请求中的文本都相同，因此它始终是缓存前缀的一部分。Core 把它作为最终请求的一部分，像其他请求文本一样检查。它与上下文注入、沉淀和重放相互独立。
 
@@ -223,9 +225,9 @@ Rust Gateway 在启动时通过 `/v1/capabilities` 查询一次 `context_protect
 ### 复用缓存前缀抽取记忆
 
 网关与 Server 部署在同一主机时，为一个已沉淀回合抽取 Atomic Memory 可以复用服务商为 Agent 会话写下的提示缓存，
-而不必再次发送对话记录。OAuth 订阅流量使用普通抽取。前缀抽取默认关闭，需要两端同时开启：
+而不必再次发送对话记录。网关对非订阅上游默认开启前缀抽取；`PC_GATEWAY_PREFIX_EXTRACTION=off` 关闭，`on` 显式开启，其他值会阻止启动。原生 OAuth 订阅流量仍不支持这条抽取路径，即使设置 `on` 也不会开启。还需配置沉淀与 Server 回连：
 
-- **网关：** 设置 `PC_GATEWAY_PREFIX_EXTRACTION=on`，并开启沉淀（`PC_GATEWAY_SEDIMENT=on`）。对 Responses 会话，网关
+- **网关：** 设置 `PC_GATEWAY_SEDIMENT=on` 开启沉淀；沉淀仍默认关闭。对 Responses 会话，网关
   在内存中保留每个回合终止响应对应的、实际发出的请求及其响应输出，最多 30 分钟、最多 64 个回合、总计最多 64 MiB，
   超出时先丢弃最早的，抽取前已被丢弃的回合走普通抽取；并在沉淀的 Source
   元数据中记录一个不透明的句柄，以及该终止响应的输入和输出 token 数。请求和响应本身从不进入 Source、证据或日志。
@@ -244,6 +246,10 @@ Rust Gateway 在启动时通过 `/v1/capabilities` 查询一次 `context_protect
 - **Server：** 将 `POWERCONTEXT_SERVER_INFERENCE_PREFIX_EXTRACTION_GATEWAY_URL` 设为网关的监听地址；网关要求密钥时，
   将 `POWERCONTEXT_SERVER_INFERENCE_PREFIX_EXTRACTION_GATEWAY_HEADERS` 设为
   `{"Authorization": "Bearer <PC_GATEWAY_API_KEY>"}`。仍需配置生成模型，因为普通抽取是回退路径。
+
+配置 `POWERCONTEXT_SERVER_INFERENCE_PREFIX_EXTRACTION_GATEWAY_URL` 后，Server 在没有显式指定处理模式时默认使用 `one_pass` 整理 Atomic Memory。设置 `POWERCONTEXT_SERVER_RUNTIME_ATOMIC_MEMORY_PROCESSING_MODE=per_candidate` 可保留逐候选处理，设为 `one_pass` 可显式选择单次整理。未配置回连地址的 Server 和直接使用 SDK 的配置仍默认使用 `per_candidate`。网关不会替独立启动的 Server 自动发现或配置这个地址。
+
+one-pass 在各步骤间复用的是记忆生成自身的对话，正常路径不会复用 Agent 已捕获的原始前缀。下述前缀抽取路径用于逐候选处理，也包括 one-pass 输入超预算后回退到逐候选的情况；同时开启两项配置不代表两种缓存收益叠加，也不保证命中缓存。
 
 命中缓存的输入并非免费，服务商仍按较低的价格计费。处理窗口恰好只含一个这样的回合时，Server 先估算两种请求的成本：
 前缀请求为 Core 的指令加上终止响应的输出 token（按全价），再加上命中缓存的输入 token 乘以

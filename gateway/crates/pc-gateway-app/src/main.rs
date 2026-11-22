@@ -68,9 +68,9 @@ pub struct AppState {
     pub inject_code: bool,
     /// 过检后同步沉淀对话（默认关）。
     pub sediment: bool,
-    /// 运维配置的固定指令（`PC_GATEWAY_STEERING_FILE`），只插入 Responses 请求；未配置时为空。
+    /// 默认内置固定指令，只插入 Responses 请求；文件可覆盖，`PC_GATEWAY_STEERING=off` 可关闭。
     pub steering: Option<String>,
-    /// 为 Core 保留会话前缀以复用缓存抽取记忆：`PC_GATEWAY_PREFIX_EXTRACTION=on`（默认关，#2413）。
+    /// 非订阅上游默认保留记忆抽取前缀；`PC_GATEWAY_PREFIX_EXTRACTION=off` 可关闭（#2413）。
     pub prefix_extraction: bool,
     /// 默认 Scope（启动时读一次，避免热路径读环境变量）。
     pub default_scope: String,
@@ -163,8 +163,20 @@ async fn main() {
         _ => pc_gateway_core::DegradePolicy::Pause,
     };
 
-    // 指令文件只在启动时读取；配置了但无效时拒绝启动，而不是不带指令运行。
-    let steering = match steering::load(std::env::var("PC_GATEWAY_STEERING_FILE").ok().as_deref()) {
+    let steering_enabled = default_on("PC_GATEWAY_STEERING").unwrap_or_else(|reason| {
+        eprintln!("{reason}");
+        std::process::exit(2);
+    });
+    let prefix_extraction = default_on("PC_GATEWAY_PREFIX_EXTRACTION").unwrap_or_else(|reason| {
+        eprintln!("{reason}");
+        std::process::exit(2);
+    });
+    // 显式关闭时不读取指令文件；开启时文件优先于内置文本，配置无效则拒绝启动。
+    let steering = match if steering_enabled {
+        steering::load(std::env::var("PC_GATEWAY_STEERING_FILE").ok().as_deref())
+    } else {
+        Ok(None)
+    } {
         Ok(steering) => steering,
         Err(reason) => {
             tracing::error!("PC_GATEWAY_STEERING_FILE: {reason}");
@@ -292,11 +304,7 @@ async fn main() {
         ),
         sediment,
         steering,
-        prefix_extraction: subscription_kind.is_none()
-            && matches!(
-                std::env::var("PC_GATEWAY_PREFIX_EXTRACTION").as_deref(),
-                Ok("on")
-            ),
+        prefix_extraction: subscription_kind.is_none() && prefix_extraction,
         default_scope: std::env::var("PC_GATEWAY_DEFAULT_SCOPE")
             .unwrap_or_else(|_| "gateway:default".into()),
         max_body_bytes: model_body_bytes,
@@ -327,6 +335,16 @@ async fn main() {
     })
     .await
     .expect("serve");
+}
+
+/// Default-on feature switches reject misspellings instead of silently enabling a feature.
+fn default_on(name: &str) -> Result<bool, String> {
+    match std::env::var(name) {
+        Ok(value) if value == "on" => Ok(true),
+        Ok(value) if value == "off" => Ok(false),
+        Err(std::env::VarError::NotPresent) => Ok(true),
+        _ => Err(format!("{name} must be on or off")),
+    }
 }
 
 fn subscription_from_env(

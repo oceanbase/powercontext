@@ -20,7 +20,11 @@ Use `X-PowerContext-Conversation-ID` to identify a conversation. The Gateway als
 
 Set `PC_GATEWAY_SEDIMENT=on` to capture completed user turns as Sources for later extraction. Capture excludes injected context and provider reasoning ciphertext. Tool continuations remain open until the final response. Long turns are split into Sources, and Core stores all parts in one batch. With a trusted conversation ID, captures share a turn digest and include a digest of the ordered normalized Source parts in their Source IDs. Distinct terminal records are stored independently; identical normalized parts are idempotent even when provider response IDs or usage change. Existing Sources remain unchanged, and a repeated capture under the former turn-only ID creates a new Source. Capture requires a Core that supports batch capture. Capture failure does not prevent response delivery. Blocked and degraded turns are not captured.
 
-For a Responses upstream configured without a subscription, `PC_GATEWAY_PREFIX_EXTRACTION=on` lets Core reuse the provider's cached prefix for memory extraction. Subscription traffic uses normal extraction. See [prefix extraction settings](../docs/en/docs/operate/deploy-server.md#memory-extraction-over-the-cached-prefix).
+For a Responses upstream configured without a subscription, prefix extraction is enabled by default; `PC_GATEWAY_PREFIX_EXTRACTION=off` disables it. Capture remains opt-in. Core also needs its gateway callback URL and generation model configured. With that URL configured, the Server defaults to `one_pass` unless a processing mode was explicitly supplied; `POWERCONTEXT_SERVER_RUNTIME_ATOMIC_MEMORY_PROCESSING_MODE=per_candidate` retains the previous mode. Native subscription prefix extraction remains disabled. One-pass normally caches its own memory-generation conversation, while per-candidate processing can reuse the agent prefix. See [prefix extraction settings](../docs/en/docs/operate/deploy-server.md#memory-extraction-over-the-cached-prefix).
+
+## Steering
+
+Responses requests include the [built-in cost guidance](crates/pc-gateway-app/src/default_steering.txt) by default. Set `PC_GATEWAY_STEERING_FILE` to replace it, or `PC_GATEWAY_STEERING=off` to disable steering even when a file is configured. Chat requests are unchanged. Both `PC_GATEWAY_STEERING` and `PC_GATEWAY_PREFIX_EXTRACTION` accept only `on` or `off` when set. See [instruction settings](../docs/en/docs/operate/deploy-server.md#gateway-instruction).
 
 ## Run
 

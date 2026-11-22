@@ -2,7 +2,7 @@
 
 | 项 | 内容 |
 | --- | --- |
-| 特性类型 | 原子记忆的可选处理模式，**默认关闭** |
+| 特性类型 | 原子记忆处理模式；配置网关回连的 Server 默认开启，其余场景保持逐候选默认 |
 | 对外契约 | 不新增 HTTP API，不改 OpenAPI，不改持久化格式，不新增提示词 key |
 | 新增配置 | 一个 Server 运行时配置项，选择原子记忆处理模式 |
 | 文档状态 | 已实现，评测结果见 §6 |
@@ -18,7 +18,7 @@
 可以命中模型服务的前缀缓存，因此不再为每条候选重复发送整段 Source。
 
 它作为可选模式提供：在两个评测集上，成本是现有流程的 20%–31%，存储条数与现有流程接近，
-编码场景的事实覆盖度持平，对话场景的问答准确率不低于现有流程（见 §6）。默认模式不变，替换默认模式的条件见 §8。
+编码场景的事实覆盖度持平，对话场景的问答准确率不低于现有流程（见 §6）。配置网关前缀抽取回连地址的 Server 默认使用单次整理，显式配置仍优先；SDK 与未配置网关回连的 Server 保持逐候选默认。全面替换默认模式的条件见 §8。
 
 ## 1. 约束
 
@@ -28,7 +28,7 @@
 | C2 | 溯源不变：每条发布的记忆仍带正确的 `sources` | 第 2 步的每个操作给出 `evidence_ids`，Core 校验后按现有方式计算 `sources` |
 | C3 | 校验与读依赖不变 | 每个 revise / merge 转换为 `AtomicMemoryReconciliationOutput` 后由 `workset.apply()` 校验；展示过的已有记忆全部记入 workset 的读依赖，发布时照常做冲突检查 |
 | C4 | 提示词配置不分裂：用户仍只维护 `atomic_memory.extract` 与 `atomic_memory.reconcile` | 流程指令是代码常量；两个 key 的现有配置嵌入其中（§4） |
-| C5 | 默认行为字节级不变 | 未开启时不进入任何新代码路径 |
+| C5 | 显式模式优先，默认值按部署配置选择 | 网关回连已配置且模式未指定的 Server 使用单次整理；其余默认与显式逐候选模式保留原流程 |
 
 ## 2. 现有流程（master）
 
@@ -143,7 +143,7 @@ Core 在应用时记录本次回复已写过的记忆，再次以 revise / merge
 ### 5.1 配置
 
 `RuntimeConfig` 新增 `atomic_memory_processing_mode: Literal["per_candidate", "one_pass"] = "per_candidate"`，
-对应环境变量 `POWERCONTEXT_SERVER_RUNTIME_ATOMIC_MEMORY_PROCESSING_MODE`，中英文配置文档已同步。
+对应环境变量 `POWERCONTEXT_SERVER_RUNTIME_ATOMIC_MEMORY_PROCESSING_MODE`。Server 配置了 `inference.prefix_extraction_gateway_url` 且未显式指定模式时，解析后的运行时默认值为 `one_pass`；显式 `per_candidate` 或 `one_pass` 均优先。SDK 的 `RuntimeConfig` 默认值不变，完整配置序列化中的具体模式也按显式设置处理。
 `AtomicMemoryProcessingConfig.from_runtime()` 读取该值。第 1 步的项数上限（30）、每个检索词展示的记忆数（5）
 与展示总数上限（40）是 `one_pass.py` 中的常量。
 
@@ -258,7 +258,7 @@ Core 在应用时记录本次回复已写过的记忆，再次以 revise / merge
 5. **其他模型服务的前缀缓存。** 成本数据来自一个支持自动前缀缓存的模型服务。不支持前缀缓存、或需要显式
    标记缓存位置的服务上，成本收益会小于 §6.2。
 
-## 8. 替换默认模式的条件
+## 8. 全面替换默认模式的条件
 
 同时满足以下条件后，再讨论把单次整理设为默认：
 
@@ -268,7 +268,7 @@ Core 在应用时记录本次回复已写过的记忆，再次以 revise / merge
 - 存储条数与每条记忆的长度和现有流程接近。
 
 以上各项在 §6 的评测中已满足。评测只覆盖一个模型服务、内置抽取规则和单 Source 窗口（§7），
-在这些条件之外重复得到同样结果后，再提出替换默认模式。
+当前默认切换仅适用于已配置网关回连地址、且未显式指定模式的 Server。在这些条件之外重复得到同样结果后，再提出替换 SDK 与其他 Server 场景的默认模式。
 
 ## 附录 A：流程指令
 
