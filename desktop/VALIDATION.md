@@ -4302,3 +4302,38 @@ cargo test --locked --manifest-path desktop/src-tauri/Cargo.toml --test session
 On 2026-11-19, `desktop/tests/real_server.py` passed anonymous loopback, static Bearer, HTTPS with an explicit CA and base path, and injected-provider authentication with enforced access. The product ConnectionManager selected the bundled qualification and reported matching client and Server contract digests. The checks used SQLite on Linux 5.10 x86_64, glibc 2.32 and Python 3.14.6.
 
 The native probe used Rust 1.97.1 and the product adapter modules in an isolated Cargo crate, with registry dependency pins matching the product Cargo lock. This qualification covers the local SQLite protocol. Installed WebView and platform keyring behavior require separate checks.
+
+## Server 5b75d4e6 memory and OAuth protocol qualification
+
+`sqlite-memory-oauth-5b75d4e6-v1` qualifies all thirteen bundled Desktop operations against
+Server source `5b75d4e6468ba0eaf8a8f92388dce18cf48d7abc` for the combined keyed Memory and OAuth OpenAPI contract.
+
+- Normalized OpenAPI SHA-256: `b24d0adc353792ed18a64e60f6597bd50b7efbd3297407ae9962374db51a0de8`.
+- Wheel: `powercontext-1.5.3.dev355+g5b75d4e64-py3-none-any.whl`.
+- Wheel SHA-256: `60404af75c291e4e40b906d93a8d9d359fe54b1a2e7a5111f59e8d45ecd88e5c`.
+- Native debug probe SHA-256: `8baf742e55adac367538d33f336f79080e6470204bb5f646261cc43a5835634f`.
+
+All 834 packaged runtime files match the exact Git source archive.
+Rust 1.95.0 built the ordinary product probe with `cargo build --locked`. The
+client included the new bundled record during validation.
+
+The real-Server harness passed anonymous loopback, static Bearer, HTTPS with an
+explicit CA and base path, and injected-Provider enforced access in Ubuntu 24.04
+on a Linux x86_64 validation server (kernel 6.5.0, glibc 2.39, Python 3.12.3 and
+SQLite 3.45.1). The product ConnectionManager selected this bundled record.
+Checks exercised Memory saves, search and exact revision reads, Scope
+pagination, lost write responses without replay, Server liveness after client
+exit, and authorization changes in Provider mode. All nine native session tests
+passed. The qualification covers Desktop HTTP/TLS with fixture authentication
+and SQLite. Keyed-write retries use separate Server end-to-end tests.
+
+```sh
+cargo build --locked --manifest-path desktop/src-tauri/Cargo.toml --example server_probe
+uv run --no-sync python desktop/tests/real_server.py \
+  --product-qualification sqlite-memory-oauth-5b75d4e6-v1 \
+  --wheel desktop/.artifacts/server-wheel/powercontext-1.5.3.dev355+g5b75d4e64-py3-none-any.whl
+cargo test --locked --manifest-path desktop/src-tauri/Cargo.toml --test session
+```
+
+真实 Server 的匿名、Bearer、HTTPS 和注入式 Provider 四种模式均通过。
+本次验证覆盖组合契约下的 Desktop HTTP/TLS 与 SQLite 行为，服务端幂等重试由独立端到端用例验证。
