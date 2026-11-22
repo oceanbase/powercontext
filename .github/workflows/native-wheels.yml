@@ -96,6 +96,7 @@ jobs:
         run: python -m cibuildwheel --output-dir wheelhouse
 
       - name: Verify source rebuilds preserve the native payload
+        shell: bash
         env:
           PYTHONPATH: scripts
           RUSTUP_TOOLCHAIN: 1.95.0

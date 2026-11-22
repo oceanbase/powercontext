@@ -49,7 +49,10 @@ jobs:
         env:
           # Qualify this commit using release-shaped metadata, without publishing it.
           SETUPTOOLS_SCM_PRETEND_VERSION: "1.2.0"
-        run: uv build --wheel --out-dir dist/installation
+        run: |
+          uv build --wheel --out-dir dist/installation
+          # The analyzer makes the wheel platform-specific, so resolve its tag instead of assuming one.
+          python -c "import pathlib; print('POWERCONTEXT_INSTALL_WHEEL=' + str(next(pathlib.Path('dist/installation').glob('powercontext-1.2.0-*.whl')).resolve()))" >> "$GITHUB_ENV"
 
       - name: Check shared installer behavior and source resolution
         shell: bash
@@ -60,8 +63,6 @@ jobs:
 
       - name: Exercise bootstrap, version selection, profiles, and persistent memory
         shell: bash
-        env:
-          POWERCONTEXT_INSTALL_WHEEL: ${{ github.workspace }}/dist/installation/powercontext-1.2.0-py3-none-any.whl
         run: >-
           uv run --no-sync pytest -vv --durations=20 tests/native/test_installation.py
           --junitxml "$RUNNER_TEMP/installation.xml"

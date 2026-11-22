@@ -18,18 +18,25 @@ FROM docker.io/astral/uv:0.10.12 AS uv
 
 FROM docker.io/library/docker:27.5.1-dind AS docker
 
+FROM docker.io/library/rust:1.95.0-slim-bookworm AS rust
+
 FROM python:3.12-slim-bookworm
 
 COPY --from=uv /uv /uvx /bin/
 COPY --from=docker /usr/local/bin/ /usr/local/bin/
 COPY --from=docker /usr/local/libexec/docker/cli-plugins/ /usr/local/libexec/docker/cli-plugins/
+COPY --from=rust /usr/local/cargo /usr/local/cargo
+COPY --from=rust /usr/local/rustup /usr/local/rustup
 
 RUN apt-get update \
-    && apt-get install --yes --no-install-recommends ca-certificates git iproute2 iptables pigz socat \
+    && apt-get install --yes --no-install-recommends build-essential ca-certificates git iproute2 iptables pigz pkg-config socat \
     && rm -rf /var/lib/apt/lists/* \
     && docker compose version
 
-ENV PATH="/workspace/powercontext/e2e/bub/.venv/bin:$PATH" \
+ENV PATH="/usr/local/cargo/bin:/workspace/powercontext/e2e/bub/.venv/bin:$PATH" \
+    RUSTUP_HOME=/usr/local/rustup \
+    CARGO_HOME=/usr/local/cargo \
+    RUSTUP_TOOLCHAIN=1.95.0 \
     PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     POWERCONTEXT_E2E_REPOSITORY=/workspace/powercontext \
