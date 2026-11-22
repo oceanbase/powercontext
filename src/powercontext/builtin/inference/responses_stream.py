@@ -49,6 +49,7 @@ class _Fragments:
         self.identity_mismatch = False
         self.refusals: list[list[str]] = [[]]
         self.sdk_parts: dict[tuple[str, int, int], list[str]] = {}
+        self.sdk_identities: dict[str | tuple[str, int], tuple[str, int, int]] = {}
 
     def _part(self, part: object, output: int, content: int) -> None:
         if isinstance(part, dict):
@@ -60,8 +61,73 @@ class _Fragments:
                         kind = "reasoning_summary_text"
                     self.parts[output, content, kind].append(text)
 
+    def _sdk_identity(self, vendor_id: str | tuple[str, int], owner: tuple[str, int, int]) -> None:
+        # Pydantic AI's string-derived keys share one namespace across thinking
+        # and tool parts. Distinct raw item IDs can still alias after derivation.
+        if self.sdk_identities.get(vendor_id, owner) != owner:
+            self.identity_mismatch = True
+        self.sdk_identities[vendor_id] = owner
+
     def _sdk_part(self, kind: str, output: int, content: int, text: str = "") -> None:
+        identity = self.item_ids.get(output)
+        if identity is not None:
+            if kind == "text":
+                self._sdk_identity((identity, content), (kind, output, content))
+            elif kind == "thinking":
+                vendor_id = identity if content == 0 else f"{identity}-{content}"
+                self._sdk_identity(vendor_id, (kind, output, content))
         self.sdk_parts.setdefault((kind, output, content), []).append(text)
+
+    def _sdk_item_identities(self, item: dict[str, object], output: int, *, done: bool) -> None:
+        identity = item.get("id")
+        if not isinstance(identity, str):
+            return
+        kind = item.get("type")
+        if kind == "function_call" or (kind == "tool_search_call" and item.get("execution") == "client"):
+            self._sdk_identity(identity, ("function_call", output, 0))
+        elif kind in {"web_search_call", "file_search_call"}:
+            self._sdk_identity(f"{identity}-call", ("native_call", output, 0))
+            if done:
+                self._sdk_identity(f"{identity}-return", ("native_return", output, 0))
+        elif kind in {"code_interpreter_call", "mcp_call", "mcp_list_tools"}:
+            suffix = "return" if done else "call"
+            self._sdk_identity(f"{identity}-{suffix}", (f"native_{suffix}", output, 0))
+            outputs = item.get("outputs")
+            if kind == "code_interpreter_call" and done and isinstance(outputs, list):
+                images = [value for value in outputs if isinstance(value, dict) and value.get("type") == "image"]
+                for index in range(len(images)):
+                    self._sdk_identity(f"{identity}-file-{index}", ("file", output, index))
+        elif kind == "tool_search_call":
+            self._sdk_identity(f"{identity}-call", ("native_call", output, 0))
+        elif kind == "tool_search_output" and done and item.get("execution") == "server":
+            self._sdk_identity(f"{identity}-return", ("native_return", output, 0))
+
+    def _sdk_terminal_identities(self, value: dict[str, object]) -> None:
+        snapshot = value.get("response")
+        items = snapshot.get("output") if isinstance(snapshot, dict) else None
+        if isinstance(items, list):
+            for index, item in enumerate(items):
+                if isinstance(item, dict) and item.get("type") == "mcp_list_tools":
+                    identity = item.get("id")
+                    output = self.item_positions.get(identity, index) if isinstance(identity, str) else index
+                    # The SDK backfills a list-tools return omitted from item.done.
+                    self._sdk_item_identities(cast(dict[str, object], item), output, done=True)
+
+    def _sdk_argument_identity(self, value: dict[str, object], event_type: str) -> None:
+        if event_type not in {
+            "response.code_interpreter_call_code.delta",
+            "response.code_interpreter_call_code.done",
+            "response.mcp_call_arguments.delta",
+            "response.mcp_call_arguments.done",
+        }:
+            return
+        output = json_unsigned_integer(value.get("output_index"))
+        identity = value.get("item_id")
+        if output is None or not isinstance(identity, str):
+            self.identity_mismatch = True
+            return
+        self._identity(output, identity, required=True)
+        self._sdk_identity(f"{identity}-call", ("native_call", output, 0))
 
     def _sdk_aggregates(self) -> tuple[str, str]:
         # ModelResponse.text separates text with two newlines when a thinking or
@@ -120,6 +186,10 @@ class _Fragments:
                     self._item(cast(dict[str, object], item), index)
 
     def add(self, value: dict[str, object], event_type: str) -> None:  # noqa: C901 - protocol content positions differ by event
+        self._sdk_argument_identity(value, event_type)
+        if event_type == "response.completed":
+            self._sdk_terminal_identities(value)
+            return
         if event_type == "response.refusal.done":
             refusal = value.get("refusal")
             if not isinstance(refusal, str):
@@ -160,6 +230,7 @@ class _Fragments:
             if not isinstance(item, dict):
                 raise ValueError("sse_invalid")
             self._identity(output, item.get("id"))
+            self._sdk_item_identities(cast(dict[str, object], item), output, done=event_type.endswith(".done"))
             if item.get("type") in {
                 "function_call",
                 "web_search_call",

@@ -739,3 +739,217 @@ def test_normal_refusal_is_preserved_for_pydantic_ai() -> None:
     ]
     result, _, _ = asyncio.run(consume(sse(values), pydantic_stream=True))
     assert result.provider_details["refusal"] == "Cannot help."
+
+
+def summary_events(second_id: str) -> list[dict[str, Any]]:
+    items: list[dict[str, Any]] = [
+        {
+            "type": "reasoning",
+            "id": "rs_test",
+            "summary": [{"type": "summary_text", "text": text} for text in ["padding", "sec"]],
+        },
+        {"type": "reasoning", "id": second_id, "summary": [{"type": "summary_text", "text": "ret"}]},
+    ]
+    values: list[dict[str, Any]] = [{"type": "response.created", "response": response([], status="in_progress")}]
+    for output_index, item in enumerate(items):
+        values.append({
+            "type": "response.output_item.added",
+            "output_index": output_index,
+            "item": {**item, "summary": []},
+        })
+        for summary_index, part in enumerate(item["summary"]):
+            values.append({
+                "type": "response.reasoning_summary_part.added",
+                "output_index": output_index,
+                "item_id": item["id"],
+                "summary_index": summary_index,
+                "part": {"type": "summary_text", "text": ""},
+            })
+            values.append({
+                "type": "response.reasoning_summary_text.delta",
+                "output_index": output_index,
+                "item_id": item["id"],
+                "summary_index": summary_index,
+                "delta": part["text"],
+            })
+        values.append({"type": "response.output_item.done", "output_index": output_index, "item": item})
+    values.append({"type": "response.completed", "response": response(items)})
+    for sequence_number, event in enumerate(values):
+        event["sequence_number"] = sequence_number
+    return values
+
+
+@pytest.mark.parametrize("second_id", ["rs_test-1", "rs_other", "rs_test-2"])
+def test_sdk_derived_summary_identity_collisions_are_withheld(second_id: str) -> None:
+    values = summary_events(second_id)
+    if second_id == "rs_test-1":
+        calls: list[httpx2.Request] = []
+        with pytest.raises(InferencePrivacyError) as caught:
+            asyncio.run(consume(sse(values), pydantic_stream=True, calls=calls, forbidden_value="secret"))
+        assert caught.value.phase == "before_release" and caught.value.decision == "withhold"
+        assert len(calls) == 1
+    else:
+        result, usage, _ = asyncio.run(consume(sse(values), pydantic_stream=True, forbidden_value="secret"))
+        assert result.thinking == "padding\n\nsec\n\nret"
+        assert len(usage) == 1 and usage[0].input_tokens == 12
+
+
+@pytest.mark.parametrize("function_id", ["web_test-call", "web_test-function"])
+def test_sdk_native_and_function_tool_keys_share_one_namespace(function_id: str) -> None:
+    items = [
+        {
+            "type": "web_search_call",
+            "id": "web_test",
+            "status": "completed",
+            "action": {"type": "search", "query": "safe"},
+        },
+        {
+            "type": "function_call",
+            "id": function_id,
+            "call_id": "call_test",
+            "name": "lookup",
+            "arguments": "{}",
+            "status": "completed",
+        },
+    ]
+    values: list[dict[str, Any]] = [{"type": "response.created", "response": response([], status="in_progress")}]
+    for index, item in enumerate(items):
+        values.append({"type": "response.output_item.added", "output_index": index, "item": item})
+        values.append({"type": "response.output_item.done", "output_index": index, "item": item})
+    values.append({"type": "response.completed", "response": response(items)})
+    for sequence_number, event in enumerate(values):
+        event["sequence_number"] = sequence_number
+    if function_id == "web_test-call":
+        with pytest.raises(InferencePrivacyError) as caught:
+            asyncio.run(consume(sse(values), pydantic_stream=True))
+        assert caught.value.phase == "before_release" and caught.value.decision == "withhold"
+    else:
+        result, _, _ = asyncio.run(consume(sse(values), pydantic_stream=True))
+        assert result.tool_calls[0].args_as_dict() == {}
+
+
+def test_sdk_text_tuple_does_not_collide_with_reasoning_string_key() -> None:
+    values = [event for event in summary_events("rs_other") if event.get("output_index") != 1][:-1]
+    text_values = events("ret")
+    for event in text_values[1:]:
+        if "output_index" in event:
+            event["output_index"] = 1
+        if "item" in event:
+            event["item"]["id"] = "rs_test-1"
+        if "item_id" in event:
+            event["item_id"] = "rs_test-1"
+        if event["type"] == "response.output_text.delta":
+            event["logprobs"] = []
+        values.append(event)
+    for sequence_number, event in enumerate(values):
+        event["sequence_number"] = sequence_number
+    result, _, _ = asyncio.run(consume(sse(values), pydantic_stream=True, forbidden_value="secret"))
+    assert result.thinking == "padding\n\nsec" and result.text == "ret"
+
+
+@pytest.mark.parametrize("reasoning_id", ["mcp_test-return", "mcp_test-other"])
+def test_sdk_terminal_mcp_backfill_uses_the_return_key_namespace(reasoning_id: str) -> None:
+    values = [event for event in summary_events("rs_other") if event.get("output_index") != 1][:-1]
+    for event in values:
+        if "item" in event:
+            event["item"]["id"] = reasoning_id
+        if "item_id" in event:
+            event["item_id"] = reasoning_id
+    reasoning = values[-1]["item"]
+    tools = {
+        "type": "mcp_list_tools",
+        "id": "mcp_test",
+        "server_label": "public",
+        "tools": [{"name": "lookup", "input_schema": {"type": "object"}}],
+    }
+    values.append({"type": "response.completed", "response": response([reasoning, tools])})
+    for sequence_number, event in enumerate(values):
+        event["sequence_number"] = sequence_number
+    if reasoning_id == "mcp_test-return":
+        with pytest.raises(InferencePrivacyError) as caught:
+            asyncio.run(consume(sse(values), pydantic_stream=True))
+        assert caught.value.phase == "before_release" and caught.value.decision == "withhold"
+    else:
+        result, _, _ = asyncio.run(consume(sse(values), pydantic_stream=True))
+        assert result.thinking == "padding\n\nsec"
+
+
+def test_sdk_raw_reasoning_and_summary_zero_share_one_logical_part() -> None:
+    item = {"type": "reasoning", "id": "rs_test-1", "summary": [{"type": "summary_text", "text": "summary"}]}
+    values: list[dict[str, Any]] = [
+        {"type": "response.created", "response": response([], status="in_progress")},
+        {"type": "response.output_item.added", "output_index": 0, "item": {**item, "summary": []}},
+        {
+            "type": "response.reasoning_text.delta",
+            "output_index": 0,
+            "content_index": 0,
+            "item_id": item["id"],
+            "delta": "first",
+        },
+        {
+            "type": "response.reasoning_text.delta",
+            "output_index": 0,
+            "content_index": 1,
+            "item_id": item["id"],
+            "delta": "second",
+        },
+        {
+            "type": "response.reasoning_summary_text.delta",
+            "output_index": 0,
+            "summary_index": 0,
+            "item_id": item["id"],
+            "delta": "summary",
+        },
+        {"type": "response.output_item.done", "output_index": 0, "item": item},
+        {"type": "response.completed", "response": response([item])},
+    ]
+    for sequence_number, event in enumerate(values):
+        event["sequence_number"] = sequence_number
+    result, _, _ = asyncio.run(consume(sse(values), pydantic_stream=True))
+    assert result.thinking == "summary"
+    assert len(result.parts) == 1
+
+
+@pytest.mark.parametrize("reasoning_id", ["code_test-file-0", "code_test-file-1"])
+def test_sdk_generated_file_keys_count_images_without_logs(reasoning_id: str) -> None:
+    values = [event for event in summary_events("rs_other") if event.get("output_index") != 1][:-1]
+    for event in values:
+        if "item" in event:
+            event["item"]["id"] = reasoning_id
+        if "item_id" in event:
+            event["item_id"] = reasoning_id
+    reasoning = values[-1]["item"]
+    item = {
+        "type": "code_interpreter_call",
+        "id": "code_test",
+        "status": "completed",
+        "container_id": "container_test",
+        "code": "print('safe')",
+        "outputs": [{"type": "logs", "logs": "safe"}, {"type": "image", "url": "data:image/png;base64,AA=="}],
+    }
+    values.extend([
+        {"type": "response.output_item.added", "output_index": 1, "item": {**item, "code": "", "outputs": []}},
+        {
+            "type": "response.code_interpreter_call_code.delta",
+            "output_index": 1,
+            "item_id": "code_test",
+            "delta": item["code"],
+        },
+        {
+            "type": "response.code_interpreter_call_code.done",
+            "output_index": 1,
+            "item_id": "code_test",
+            "code": item["code"],
+        },
+        {"type": "response.output_item.done", "output_index": 1, "item": item},
+        {"type": "response.completed", "response": response([reasoning, item])},
+    ])
+    for sequence_number, event in enumerate(values):
+        event["sequence_number"] = sequence_number
+    if reasoning_id == "code_test-file-0":
+        with pytest.raises(InferencePrivacyError) as caught:
+            asyncio.run(consume(sse(values), pydantic_stream=True))
+        assert caught.value.phase == "before_release" and caught.value.decision == "withhold"
+    else:
+        result, _, _ = asyncio.run(consume(sse(values), pydantic_stream=True))
+        assert result.thinking == "padding\n\nsec" and len(result.files) == 1
