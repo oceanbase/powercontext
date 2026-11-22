@@ -1,0 +1,55 @@
+docs/zh/design/atomic_memory_one_pass_design.md
+  s_7849825a984032::t_88bfd8257d89e8 5,21,31,261,271
+  s_7849825a984032::t_2ace7a5bb82aa3 146
+docs/en/docs/operate/deploy-server.md
+  s_7849825a984032::t_88bfd8257d89e8 203-205,226,228,256-258
+  s_7849825a984032::t_eb99ad495f5f01 259
+gateway/crates/pc-gateway-app/src/steering.rs
+  s_7849825a984032::t_6ee979fd69b233 15,29,32-37,111-113
+  s_7849825a984032::t_359d236fcb7216 18
+gateway/crates/pc-gateway-app/src/main.rs
+  s_7849825a984032::t_6ee979fd69b233 71,73,166-179,307
+  s_7849825a984032::t_9c99294267afb9 340-349
+gateway/crates/pc-gateway-app/tests/gateway_behaviors.rs
+  s_7849825a984032::t_24f22913803290 135-141,212,786-788,791-794,803,811-812,817-818,831-832,839-841,846-850,856-863,884-885,892-907,910-927
+  s_7849825a984032::t_6ee979fd69b233 133-134
+  s_7849825a984032::t_57211389a2ce62 789-790,795-802,804-810,813-816,819-830,833-838,842-845,851-855,864-883,886-891,908-909
+gateway/crates/pc-gateway-app/src/default_steering.txt
+  s_7849825a984032::t_6ee979fd69b233 1
+gateway/README.md
+  s_7849825a984032::t_88bfd8257d89e8 23-27
+src/powercontext/server/settings.py
+  s_7849825a984032::t_98f01cb91e3358 282-285,318-324
+  s_2ef0feea0a110d::t_19cd2fc6a034d8 325-326
+docs/zh/docs/operate/deploy-server.md
+  s_7849825a984032::t_88bfd8257d89e8 205-207,228,230,250-252
+  s_7849825a984032::t_65dff641eb22c8 253
+tests/test_server_generation.py
+  s_7849825a984032::t_91be24cc90085a 148,152
+  s_7849825a984032::t_fdc2417cfe5776 20-21,76-93,97-147,149-151,153
+  s_7849825a984032::t_378bdef99a08a2 94-96
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "17141894cd26832a32f69c6b245351a295038826",
+  "prompts": {},
+  "sessions": {
+    "s_2ef0feea0a110d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1a9cf-a4e7-7f63-9c51-1284f7c332e8",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "frf12 <rongfeng.frf@antgroup.com>"
+    },
+    "s_7849825a984032": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a19cf3-11fa-7bd0-a2ae-2fc05fd0ed02",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "frf12 <rongfeng.frf@antgroup.com>"
+    }
+  }
+}
