@@ -30,7 +30,8 @@ jobs:
       ${{ !cancelled() &&
           ((inputs.suites == '' && needs.changes.result != 'success') || fromJSON(inputs.suites || needs.changes.outputs.suites || '{}').gateway) }}
     runs-on: powercontext-ci-light
-    timeout-minutes: 20
+    # Include Rust/Go toolchains, cold builds, and upstream protocol acceptance.
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -38,7 +39,8 @@ jobs:
       - name: Install pinned Rust toolchain
         run: rustup toolchain install 1.95.0-x86_64-unknown-linux-gnu --profile minimal --component rustfmt --component clippy
       - name: Cache Rust dependencies and compilation
-        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        id: cargo-cache
+        uses: ./.github/actions/setup-rust-cache
         with:
           workspaces: gateway -> target
           shared-key: gateway
@@ -58,7 +60,8 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "22"
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+          package-manager-cache: ${{ !(runner.os == 'Linux' && runner.environment == 'self-hosted') }}
+      - uses: ./.github/actions/setup-go
         with:
           go-version: "1.27.3"
           cache-dependency-path: gateway/tck/upstreams.json
@@ -67,6 +70,12 @@ jobs:
           npm ci --prefix gateway/tck --no-audit --no-fund
           cargo build --locked --manifest-path gateway/Cargo.toml -p pc-gateway-app
           python3 tests/e2e/gateway_tck.py
+      - name: Save Rust dependencies and compilation
+        if: (success() || failure()) && steps.cargo-cache.outputs.cache-backend == 's3' && steps.cargo-cache.outputs.cache-hit != 'true'
+        uses: ./.github/actions/cache-save
+        with:
+          path: ${{ steps.cargo-cache.outputs.cache-path }}
+          key: ${{ steps.cargo-cache.outputs.cache-key }}
       - name: Upload protocol test reports
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

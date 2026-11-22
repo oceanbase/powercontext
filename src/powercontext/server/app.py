@@ -1116,6 +1116,7 @@ class _ScopedContextApplication(Protocol):
         authorize_scopes: Callable[[tuple[str, ...]], Awaitable[None]] | None = None,
         atomic_context=None,
         binding_identity: str = "local",
+        diagnostic_sink: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
     ) -> RuntimePrepareContextResult: ...
 
     async def check(
@@ -4615,6 +4616,11 @@ async def prepare_context(
     )
     scoped = application.context.for_scope(request.scope_id)
     reuse_arguments = {"binding_identity": _context_binding_identity()} if request.include_reuse else {}
+    from powercontext.server.context_diagnostics import diagnostic_sink
+
+    sink = diagnostic_sink(application)
+    if sink is not None:
+        reuse_arguments["diagnostic_sink"] = sink
     access = access_control_for_mode(
         http_request.app.state.access_control,
         mode=http_request.app.state.access_mode,
