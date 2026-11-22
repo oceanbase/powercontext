@@ -1,0 +1,71 @@
+{
+  "schema": "powercontext.unicode-contract.negative-controls.v1",
+  "evidence_kind": "REAL_TARGETED_ASSERTION_FAILURES_IN_DISPOSABLE_COPIES",
+  "python": "3.13.3 (tags/v3.13.3:6280bb5, Apr  8 2025, 14:47:33) [MSC v.1943 64 bit (AMD64)]",
+  "executable": "C:\\Users\\AORUS\\AppData\\Local\\Temp\\opencode\\pc2739-matrix\\env-313\\Scripts\\python.exe",
+  "pair_merge": {
+    "command": [
+      "C:\\Users\\AORUS\\AppData\\Local\\Temp\\opencode\\pc2739-matrix\\env-313\\Scripts\\python.exe",
+      "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739\\rust\\unicode-contract\\probes\\contract_probe.py",
+      "--fixtures",
+      "C:\\Users\\AORUS\\AppData\\Local\\Temp\\opencode\\pc2739-matrix\\pc2739-negative-a_v_53ro\\pair\\cases.json",
+      "--output",
+      "C:\\Users\\AORUS\\AppData\\Local\\Temp\\opencode\\pc2739-matrix\\pc2739-negative-a_v_53ro\\pair\\actual.json",
+      "--check",
+      "C:\\Users\\AORUS\\AppData\\Local\\Temp\\opencode\\pc2739-matrix\\pc2739-negative-a_v_53ro\\pair\\reference.json"
+    ],
+    "exit_code": 1,
+    "stdout": "",
+    "stderr": "Traceback (most recent call last):\n  File \"C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739\\rust\\unicode-contract\\probes\\contract_probe.py\", line 352, in <module>\n    main()\n    ~~~~^^\n  File \"C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739\\rust\\unicode-contract\\probes\\contract_probe.py\", line 344, in main\n    check(actual, json.loads(arguments.check.read_text(encoding=\"utf-8\")))\n    ~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739\\rust\\unicode-contract\\probes\\contract_probe.py\", line 332, in check\n    raise AssertionError(message)\nAssertionError: target mismatch at cases[19].input.codepoints: length 1 != 2\n",
+    "target_assertion_failed": true,
+    "merged_codepoints": [
+      128512
+    ]
+  },
+  "wrong_ucd": {
+    "command": [
+      "C:\\Users\\AORUS\\AppData\\Local\\Temp\\opencode\\pc2739-matrix\\env-313\\Scripts\\python.exe",
+      "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739\\rust\\unicode-contract\\probes\\contract_probe.py",
+      "--fixtures",
+      "C:\\Users\\AORUS\\AppData\\Local\\Temp\\opencode\\pc2739-matrix\\pc2739-negative-a_v_53ro\\ucd\\cases.json",
+      "--output",
+      "C:\\Users\\AORUS\\AppData\\Local\\Temp\\opencode\\pc2739-matrix\\pc2739-negative-a_v_53ro\\ucd\\actual.json",
+      "--check",
+      "C:\\Users\\AORUS\\AppData\\Local\\Temp\\opencode\\pc2739-matrix\\pc2739-negative-a_v_53ro\\ucd\\reference.json"
+    ],
+    "exit_code": 1,
+    "stdout": "",
+    "stderr": "Traceback (most recent call last):\n  File \"C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739\\rust\\unicode-contract\\probes\\contract_probe.py\", line 352, in <module>\n    main()\n    ~~~~^^\n  File \"C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739\\rust\\unicode-contract\\probes\\contract_probe.py\", line 344, in main\n    check(actual, json.loads(arguments.check.read_text(encoding=\"utf-8\")))\n    ~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739\\rust\\unicode-contract\\probes\\contract_probe.py\", line 332, in check\n    raise AssertionError(message)\nAssertionError: target mismatch at cases[23].observations.character_properties[1].assigned_by_generator_rule: False != True\n",
+    "target_assertion_failed": true,
+    "mutated_case": "ucd_105d2_combining",
+    "wrong_expectation": {
+      "codepoint": "U+105D2",
+      "field": "assigned_by_generator_rule",
+      "reference_value": false,
+      "wrong_value": true
+    }
+  },
+  "reference_before": {
+    "fixtures": {
+      "bytes": 2666,
+      "sha256": "f8917c72321d29e637efc120db26c8223a526f2a1e8649e218fb6417e6d1e77b"
+    },
+    "reference": {
+      "bytes": 328422,
+      "sha256": "9bab14d885589fe607e6ceb8d83fd678f629bb66241ebe9079ee211d851ee3b3"
+    }
+  },
+  "reference_after": {
+    "fixtures": {
+      "bytes": 2666,
+      "sha256": "f8917c72321d29e637efc120db26c8223a526f2a1e8649e218fb6417e6d1e77b"
+    },
+    "reference": {
+      "bytes": 328422,
+      "sha256": "9bab14d885589fe607e6ceb8d83fd678f629bb66241ebe9079ee211d851ee3b3"
+    }
+  },
+  "reference_unchanged": true,
+  "status": "PASS",
+  "native_execution": "NOT_RUN"
+}

@@ -1,0 +1,433 @@
+{
+  "schema": "powercontext.unicode-contract.candidate-inventory.v1",
+  "evidence_kind": "READ_ONLY_GIT_TABLES_AND_METADATA",
+  "candidate": "a774fd0b8b2ac1729f5dd9121c34e968dd980905",
+  "native_execution": "NOT_RUN",
+  "generator": {
+    "bytes": 2025,
+    "sha256": "36e6dc3777c3fddaf7beb8bbce3fcb99d305e497bae400196ccaeb8c9cc0770f",
+    "lf_bytes": 2025,
+    "lf_sha256": "36e6dc3777c3fddaf7beb8bbce3fcb99d305e497bae400196ccaeb8c9cc0770f"
+  },
+  "sources": {
+    "scripts/generate_lexical_unicode.py": {
+      "bytes": 2025,
+      "sha256": "36e6dc3777c3fddaf7beb8bbce3fcb99d305e497bae400196ccaeb8c9cc0770f",
+      "lf_bytes": 2025,
+      "lf_sha256": "36e6dc3777c3fddaf7beb8bbce3fcb99d305e497bae400196ccaeb8c9cc0770f"
+    },
+    "src/powercontext/builtin/artifacts/lexical/Cargo.toml": {
+      "bytes": 1203,
+      "sha256": "161e37b0604359bc47d4c4e68b452c5e641436f16b700586b35496186bd73483",
+      "lf_bytes": 1203,
+      "lf_sha256": "161e37b0604359bc47d4c4e68b452c5e641436f16b700586b35496186bd73483"
+    },
+    "src/powercontext/builtin/artifacts/lexical/src/lib.rs": {
+      "bytes": 1732,
+      "sha256": "49ca29043fd2e61171ae696d543b6a9709a0501075db00220f5fee120fe921b5",
+      "lf_bytes": 1732,
+      "lf_sha256": "49ca29043fd2e61171ae696d543b6a9709a0501075db00220f5fee120fe921b5"
+    },
+    "src/powercontext/builtin/artifacts/lexical/src/port.rs": {
+      "bytes": 9758,
+      "sha256": "57d6d45dde5480069be4c7d346750525872c84d1e8489a16fe1b5e42feafb7ae",
+      "lf_bytes": 9758,
+      "lf_sha256": "57d6d45dde5480069be4c7d346750525872c84d1e8489a16fe1b5e42feafb7ae"
+    }
+  },
+  "lock_packages": [
+    {
+      "name": "jieba-rs",
+      "version": "0.11.0",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum": "0a3a7d02ea31e6fc6f2fe10495dc7c5efcf381e1f21d7172f58ba792efa1c2fd"
+    },
+    {
+      "name": "pyo3",
+      "version": "0.30.1",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum": "229ca13b8a15bb0d1487b81ab975bfcd97513416499a8312011b6036e42e0de4"
+    },
+    {
+      "name": "serde",
+      "version": "1.0.229",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum": "4148590afebada386688f18773da617792bf2ef03ffc1e4cbd2b1d45b023e0ba"
+    },
+    {
+      "name": "serde_json",
+      "version": "1.0.154",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum": "e7e9cc8b1b85264074fbcc02a88680c4096b1e47df8f739dceb03bf482f04bd6"
+    },
+    {
+      "name": "sha2",
+      "version": "0.10.9",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum": "a7507d819769d01a365ab707794a4084392c824f54a7a6a7862f8c3d0892b283"
+    },
+    {
+      "name": "unicode-normalization",
+      "version": "0.1.24",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum": "5033c97c4262335cded6d6fc3e5c18ab755e1a3dc96376350f3d8e9f009ad956"
+    }
+  ],
+  "tables": {
+    "14.0.0": {
+      "path": "src/powercontext/builtin/artifacts/lexical/data/unicode14.json",
+      "git_blob_oid": "d705156f96cc0702cb3049222af4a8ed1d37ff5d",
+      "git_blob": {
+        "bytes": 83210,
+        "sha256": "b9d457d5ab09465ede1c94466ea7e0423eff79c9697aa245840715fadaeb8f14",
+        "lf_bytes": 83210,
+        "lf_sha256": "b9d457d5ab09465ede1c94466ea7e0423eff79c9697aa245840715fadaeb8f14"
+      },
+      "summary": {
+        "unicode": "14.0.0",
+        "casefold_entries": 1530,
+        "word_ranges": 734,
+        "assigned_ranges": 698,
+        "frequency_correction": 3,
+        "selected_codepoints": {
+          "U+01F0": {
+            "assigned": true,
+            "word": true,
+            "casefold_codepoints": [
+              106,
+              780
+            ]
+          },
+          "U+0130": {
+            "assigned": true,
+            "word": true,
+            "casefold_codepoints": [
+              105,
+              775
+            ]
+          },
+          "U+00DF": {
+            "assigned": true,
+            "word": true,
+            "casefold_codepoints": [
+              115,
+              115
+            ]
+          },
+          "U+0300": {
+            "assigned": true,
+            "word": false,
+            "casefold_codepoints": null
+          },
+          "U+0307": {
+            "assigned": true,
+            "word": false,
+            "casefold_codepoints": null
+          },
+          "U+0663": {
+            "assigned": true,
+            "word": true,
+            "casefold_codepoints": null
+          },
+          "U+1C89": {
+            "assigned": false,
+            "word": false,
+            "casefold_codepoints": null
+          },
+          "U+1C8A": {
+            "assigned": false,
+            "word": false,
+            "casefold_codepoints": null
+          },
+          "U+1D7D8": {
+            "assigned": true,
+            "word": true,
+            "casefold_codepoints": null
+          },
+          "U+105D2": {
+            "assigned": false,
+            "word": false,
+            "casefold_codepoints": null
+          },
+          "U+1E4EC": {
+            "assigned": false,
+            "word": false,
+            "casefold_codepoints": null
+          },
+          "U+20000": {
+            "assigned": true,
+            "word": true,
+            "casefold_codepoints": null
+          }
+        }
+      }
+    },
+    "15.0.0": {
+      "path": "src/powercontext/builtin/artifacts/lexical/data/unicode15.json",
+      "git_blob_oid": "802c0697bf84aa458ccb532a2008814c7385764d",
+      "git_blob": {
+        "bytes": 84112,
+        "sha256": "748af36cd4b6a762b01039b0a0beb56ccdf7a6e6605a338a0e3cdff1089b3033",
+        "lf_bytes": 84112,
+        "lf_sha256": "748af36cd4b6a762b01039b0a0beb56ccdf7a6e6605a338a0e3cdff1089b3033"
+      },
+      "summary": {
+        "unicode": "15.0.0",
+        "casefold_entries": 1530,
+        "word_ranges": 748,
+        "assigned_ranges": 707,
+        "frequency_correction": 3,
+        "selected_codepoints": {
+          "U+01F0": {
+            "assigned": true,
+            "word": true,
+            "casefold_codepoints": [
+              106,
+              780
+            ]
+          },
+          "U+0130": {
+            "assigned": true,
+            "word": true,
+            "casefold_codepoints": [
+              105,
+              775
+            ]
+          },
+          "U+00DF": {
+            "assigned": true,
+            "word": true,
+            "casefold_codepoints": [
+              115,
+              115
+            ]
+          },
+          "U+0300": {
+            "assigned": true,
+            "word": false,
+            "casefold_codepoints": null
+          },
+          "U+0307": {
+            "assigned": true,
+            "word": false,
+            "casefold_codepoints": null
+          },
+          "U+0663": {
+            "assigned": true,
+            "word": true,
+            "casefold_codepoints": null
+          },
+          "U+1C89": {
+            "assigned": false,
+            "word": false,
+            "casefold_codepoints": null
+          },
+          "U+1C8A": {
+            "assigned": false,
+            "word": false,
+            "casefold_codepoints": null
+          },
+          "U+1D7D8": {
+            "assigned": true,
+            "word": true,
+            "casefold_codepoints": null
+          },
+          "U+105D2": {
+            "assigned": false,
+            "word": false,
+            "casefold_codepoints": null
+          },
+          "U+1E4EC": {
+            "assigned": true,
+            "word": false,
+            "casefold_codepoints": null
+          },
+          "U+20000": {
+            "assigned": true,
+            "word": true,
+            "casefold_codepoints": null
+          }
+        }
+      }
+    },
+    "15.1.0": {
+      "path": "src/powercontext/builtin/artifacts/lexical/data/unicode15_1.json",
+      "git_blob_oid": "24a82364aff66bb1b5f019a295af68247dc28392",
+      "git_blob": {
+        "bytes": 84154,
+        "sha256": "bf36295ee39f67a4531e5898cf9048bc3c7888cb8bf5c78040ebc290a7f07a3f",
+        "lf_bytes": 84154,
+        "lf_sha256": "bf36295ee39f67a4531e5898cf9048bc3c7888cb8bf5c78040ebc290a7f07a3f"
+      },
+      "summary": {
+        "unicode": "15.1.0",
+        "casefold_entries": 1530,
+        "word_ranges": 749,
+        "assigned_ranges": 707,
+        "frequency_correction": 3,
+        "selected_codepoints": {
+          "U+01F0": {
+            "assigned": true,
+            "word": true,
+            "casefold_codepoints": [
+              106,
+              780
+            ]
+          },
+          "U+0130": {
+            "assigned": true,
+            "word": true,
+            "casefold_codepoints": [
+              105,
+              775
+            ]
+          },
+          "U+00DF": {
+            "assigned": true,
+            "word": true,
+            "casefold_codepoints": [
+              115,
+              115
+            ]
+          },
+          "U+0300": {
+            "assigned": true,
+            "word": false,
+            "casefold_codepoints": null
+          },
+          "U+0307": {
+            "assigned": true,
+            "word": false,
+            "casefold_codepoints": null
+          },
+          "U+0663": {
+            "assigned": true,
+            "word": true,
+            "casefold_codepoints": null
+          },
+          "U+1C89": {
+            "assigned": false,
+            "word": false,
+            "casefold_codepoints": null
+          },
+          "U+1C8A": {
+            "assigned": false,
+            "word": false,
+            "casefold_codepoints": null
+          },
+          "U+1D7D8": {
+            "assigned": true,
+            "word": true,
+            "casefold_codepoints": null
+          },
+          "U+105D2": {
+            "assigned": false,
+            "word": false,
+            "casefold_codepoints": null
+          },
+          "U+1E4EC": {
+            "assigned": true,
+            "word": false,
+            "casefold_codepoints": null
+          },
+          "U+20000": {
+            "assigned": true,
+            "word": true,
+            "casefold_codepoints": null
+          }
+        }
+      }
+    },
+    "16.0.0": {
+      "path": "src/powercontext/builtin/artifacts/lexical/data/unicode16.json",
+      "git_blob_oid": "105b7b3f142c6deba089a7a845523c1499674b88",
+      "git_blob": {
+        "bytes": 86475,
+        "sha256": "6eff99a899ea87ad25c2e2c2fd1ca4a02ddd47741892169e5df0e2eb02076c13",
+        "lf_bytes": 86475,
+        "lf_sha256": "6eff99a899ea87ad25c2e2c2fd1ca4a02ddd47741892169e5df0e2eb02076c13"
+      },
+      "summary": {
+        "unicode": "16.0.0",
+        "casefold_entries": 1557,
+        "word_ranges": 771,
+        "assigned_ranges": 731,
+        "frequency_correction": 3,
+        "selected_codepoints": {
+          "U+01F0": {
+            "assigned": true,
+            "word": true,
+            "casefold_codepoints": [
+              106,
+              780
+            ]
+          },
+          "U+0130": {
+            "assigned": true,
+            "word": true,
+            "casefold_codepoints": [
+              105,
+              775
+            ]
+          },
+          "U+00DF": {
+            "assigned": true,
+            "word": true,
+            "casefold_codepoints": [
+              115,
+              115
+            ]
+          },
+          "U+0300": {
+            "assigned": true,
+            "word": false,
+            "casefold_codepoints": null
+          },
+          "U+0307": {
+            "assigned": true,
+            "word": false,
+            "casefold_codepoints": null
+          },
+          "U+0663": {
+            "assigned": true,
+            "word": true,
+            "casefold_codepoints": null
+          },
+          "U+1C89": {
+            "assigned": true,
+            "word": true,
+            "casefold_codepoints": [
+              7306
+            ]
+          },
+          "U+1C8A": {
+            "assigned": true,
+            "word": true,
+            "casefold_codepoints": null
+          },
+          "U+1D7D8": {
+            "assigned": true,
+            "word": true,
+            "casefold_codepoints": null
+          },
+          "U+105D2": {
+            "assigned": true,
+            "word": true,
+            "casefold_codepoints": null
+          },
+          "U+1E4EC": {
+            "assigned": true,
+            "word": false,
+            "casefold_codepoints": null
+          },
+          "U+20000": {
+            "assigned": true,
+            "word": true,
+            "casefold_codepoints": null
+          }
+        }
+      }
+    }
+  },
+  "table_total_bytes": 337951
+}

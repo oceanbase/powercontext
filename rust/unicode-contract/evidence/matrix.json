@@ -1,0 +1,521 @@
+{
+  "schema": "powercontext.unicode-contract.matrix-run.v1",
+  "candidate": "a774fd0b8b2ac1729f5dd9121c34e968dd980905",
+  "native_execution": "NOT_RUN",
+  "commands": [
+    {
+      "purpose": "candidate_inventory",
+      "command": [
+        "C:\\Users\\AORUS\\AppData\\Local\\hermes\\hermes-agent\\venv\\Scripts\\python.exe",
+        "-B",
+        "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739\\rust\\unicode-contract\\probes\\candidate_inventory.py",
+        "--candidate",
+        "a774fd0b8b2ac1729f5dd9121c34e968dd980905",
+        "--output",
+        "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739\\rust\\unicode-contract\\evidence\\candidate-inventory.json"
+      ],
+      "cwd": "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739",
+      "exit_code": 0,
+      "stdout": "inventoried 4 fixed tables; 337951 bytes; native=NOT_RUN\n",
+      "stderr": "",
+      "outcome": "EXECUTED_EXIT_0",
+      "wall_seconds": 0.42888290000064444,
+      "requested_python": "metadata"
+    },
+    {
+      "purpose": "locked_sync",
+      "command": [
+        "uv",
+        "sync",
+        "--locked",
+        "--no-dev",
+        "--group",
+        "resource-build",
+        "--extra",
+        "builtin",
+        "--python",
+        "C:/Users/AORUS/AppData/Roaming/uv/python/cpython-3.11-windows-x86_64-none/python.exe"
+      ],
+      "cwd": "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739",
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": "Resolved 296 packages in 4ms\nChecked 81 packages in 7ms\n",
+      "outcome": "EXECUTED_EXIT_0",
+      "wall_seconds": 0.1656823000002987,
+      "requested_python": "3.11"
+    },
+    {
+      "purpose": "identity",
+      "command": [
+        "C:\\Users\\AORUS\\AppData\\Local\\Temp\\opencode\\pc2739-matrix\\env-311\\Scripts\\python.exe",
+        "-B",
+        "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739\\rust\\unicode-contract\\probes\\pyver.py"
+      ],
+      "cwd": "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739",
+      "exit_code": 0,
+      "stdout": "executable: C:\\Users\\AORUS\\AppData\\Local\\Temp\\opencode\\pc2739-matrix\\env-311\\Scripts\\python.exe\nversion: 3.11.14 (main, Dec  9 2025, 18:59:10) [MSC v.1944 64 bit (AMD64)]\nversion_info: (3, 11, 14, 'final', 0)\nimplementation: cpython\nplatform: Windows-10-10.0.19045-SP0\nsysconfig_platform: win-amd64\nmaxunicode: 1114111\nunicodedata_version: 14.0.0\nbyteorder: little\nabi_flags: None\nexe_sha256: 1475a1410f8c3a098398a92dcc547cb9bc7d89572ed20f2db0c487d6672edd7a\n",
+      "stderr": "",
+      "outcome": "EXECUTED_EXIT_0",
+      "wall_seconds": 0.09359760000006645,
+      "requested_python": "3.11"
+    },
+    {
+      "purpose": "record_public_entries",
+      "command": [
+        "C:\\Users\\AORUS\\AppData\\Local\\Temp\\opencode\\pc2739-matrix\\env-311\\Scripts\\python.exe",
+        "-B",
+        "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739\\rust\\unicode-contract\\probes\\contract_probe.py",
+        "--fixtures",
+        "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739\\rust\\unicode-contract\\fixtures\\cases.json",
+        "--output",
+        "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739\\rust\\unicode-contract\\evidence\\cpython-3.11.json"
+      ],
+      "cwd": "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739",
+      "exit_code": 0,
+      "stdout": "recorded 26 cases; CPython 3.11.14; UCD 14.0.0; output=C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739\\rust\\unicode-contract\\evidence\\cpython-3.11.json\n",
+      "stderr": "",
+      "outcome": "EXECUTED_EXIT_0",
+      "wall_seconds": 1.2393898999998783,
+      "requested_python": "3.11"
+    },
+    {
+      "purpose": "verify_public_entries",
+      "command": [
+        "C:\\Users\\AORUS\\AppData\\Local\\Temp\\opencode\\pc2739-matrix\\env-311\\Scripts\\python.exe",
+        "-B",
+        "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739\\rust\\unicode-contract\\probes\\contract_probe.py",
+        "--fixtures",
+        "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739\\rust\\unicode-contract\\fixtures\\cases.json",
+        "--output",
+        "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739\\rust\\unicode-contract\\evidence\\cpython-3.11-replay.json",
+        "--check",
+        "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739\\rust\\unicode-contract\\evidence\\cpython-3.11.json"
+      ],
+      "cwd": "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739",
+      "exit_code": 0,
+      "stdout": "recorded 26 cases; CPython 3.11.14; UCD 14.0.0; output=C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739\\rust\\unicode-contract\\evidence\\cpython-3.11-replay.json\n",
+      "stderr": "",
+      "outcome": "EXECUTED_EXIT_0",
+      "wall_seconds": 1.0525239999997211,
+      "requested_python": "3.11"
+    },
+    {
+      "purpose": "fixed_generator",
+      "command": [
+        "C:\\Users\\AORUS\\AppData\\Local\\Temp\\opencode\\pc2739-matrix\\env-311\\Scripts\\python.exe",
+        "-B",
+        "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739\\rust\\unicode-contract\\probes\\generator_probe.py",
+        "--candidate",
+        "a774fd0b8b2ac1729f5dd9121c34e968dd980905",
+        "--output",
+        "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739\\rust\\unicode-contract\\evidence\\generator-3.11.json",
+        "--temp-root",
+        "C:\\Users\\AORUS\\AppData\\Local\\Temp\\opencode\\pc2739-matrix"
+      ],
+      "cwd": "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739",
+      "exit_code": 0,
+      "stdout": "PASS: UCD 14.0.0; semantic=True; LF=True; raw=False; 0.228s\n",
+      "stderr": "",
+      "outcome": "EXECUTED_EXIT_0",
+      "wall_seconds": 0.37697690000004513,
+      "requested_python": "3.11"
+    },
+    {
+      "purpose": "negative_controls",
+      "command": [
+        "C:\\Users\\AORUS\\AppData\\Local\\Temp\\opencode\\pc2739-matrix\\env-311\\Scripts\\python.exe",
+        "-B",
+        "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739\\rust\\unicode-contract\\probes\\negative_controls.py",
+        "--fixtures",
+        "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739\\rust\\unicode-contract\\fixtures\\cases.json",
+        "--reference",
+        "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739\\rust\\unicode-contract\\evidence\\cpython-3.11.json",
+        "--output",
+        "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739\\rust\\unicode-contract\\evidence\\negative-3.11.json",
+        "--temp-root",
+        "C:\\Users\\AORUS\\AppData\\Local\\Temp\\opencode\\pc2739-matrix"
+      ],
+      "cwd": "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739",
+      "exit_code": 0,
+      "stdout": "PASS: pair_exit=1; ucd_exit=1; reference_unchanged=True\n",
+      "stderr": "",
+      "outcome": "EXECUTED_EXIT_0",
+      "wall_seconds": 2.4247858999997334,
+      "requested_python": "3.11"
+    },
+    {
+      "purpose": "existing_tests",
+      "command": [
+        "C:\\Users\\AORUS\\AppData\\Local\\Temp\\opencode\\pc2739-matrix\\env-311\\Scripts\\python.exe",
+        "-B",
+        "-m",
+        "pytest",
+        "tests/builtin/artifacts/test_text_search_admission.py",
+        "tests/builtin/artifacts/topic_memory/test_chunking.py",
+        "-q",
+        "-rs"
+      ],
+      "cwd": "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739",
+      "exit_code": 0,
+      "stdout": ".............                                                            [100%]\n============================== warnings summary ===============================\ntests/builtin/artifacts/test_text_search_admission.py::test_query_normalization_preserves_quotes_domain_conditions_and_identifiers[\\u8bf7\\u4fdd\\u7559 release_gate_v3 \\u5e76\\u4e14\\u4e0d\\u8981\\u90e8\\u7f72\\u672a\\u5ba1\\u6838\\u7684\\u7248\\u672c\\u3002-release_gate_v3 \\u4e0d\\u8981\\u90e8\\u7f72\\u672a\\u5ba1\\u6838\\u7248\\u672c]\n  C:\\Users\\AORUS\\AppData\\Local\\Temp\\opencode\\pc2739-matrix\\env-311\\Lib\\site-packages\\jieba\\__init__.py:44: DeprecationWarning: invalid escape sequence '\\.'\n    re_han_default = re.compile(\"([\\u4E00-\\u9FD5a-zA-Z0-9+#&\\._%\\-]+)\", re.U)\n\ntests/builtin/artifacts/test_text_search_admission.py::test_query_normalization_preserves_quotes_domain_conditions_and_identifiers[\\u8bf7\\u4fdd\\u7559 release_gate_v3 \\u5e76\\u4e14\\u4e0d\\u8981\\u90e8\\u7f72\\u672a\\u5ba1\\u6838\\u7684\\u7248\\u672c\\u3002-release_gate_v3 \\u4e0d\\u8981\\u90e8\\u7f72\\u672a\\u5ba1\\u6838\\u7248\\u672c]\n  C:\\Users\\AORUS\\AppData\\Local\\Temp\\opencode\\pc2739-matrix\\env-311\\Lib\\site-packages\\jieba\\__init__.py:46: DeprecationWarning: invalid escape sequence '\\s'\n    re_skip_default = re.compile(\"(\\r\\n|\\s)\", re.U)\n\ntests/builtin/artifacts/test_text_search_admission.py::test_query_normalization_preserves_quotes_domain_conditions_and_identifiers[\\u8bf7\\u4fdd\\u7559 release_gate_v3 \\u5e76\\u4e14\\u4e0d\\u8981\\u90e8\\u7f72\\u672a\\u5ba1\\u6838\\u7684\\u7248\\u672c\\u3002-release_gate_v3 \\u4e0d\\u8981\\u90e8\\u7f72\\u672a\\u5ba1\\u6838\\u7248\\u672c]\n  C:\\Users\\AORUS\\AppData\\Local\\Temp\\opencode\\pc2739-matrix\\env-311\\Lib\\site-packages\\jieba\\finalseg\\__init__.py:78: DeprecationWarning: invalid escape sequence '\\.'\n    re_skip = re.compile(\"([a-zA-Z0-9]+(?:\\.\\d+)?%?)\")\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n13 passed, 3 warnings in 1.49s\n",
+      "stderr": "",
+      "outcome": "EXECUTED_EXIT_0",
+      "wall_seconds": 2.070395400000052,
+      "requested_python": "3.11"
+    },
+    {
+      "purpose": "locked_sync",
+      "command": [
+        "uv",
+        "sync",
+        "--locked",
+        "--no-dev",
+        "--group",
+        "resource-build",
+        "--extra",
+        "builtin",
+        "--python",
+        "C:/Users/AORUS/AppData/Roaming/uv/python/cpython-3.12-windows-x86_64-none/python.exe"
+      ],
+      "cwd": "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739",
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": "Resolved 296 packages in 3ms\nChecked 81 packages in 4ms\n",
+      "outcome": "EXECUTED_EXIT_0",
+      "wall_seconds": 0.04122230000029958,
+      "requested_python": "3.12"
+    },
+    {
+      "purpose": "identity",
+      "command": [
+        "C:\\Users\\AORUS\\AppData\\Local\\Temp\\opencode\\pc2739-matrix\\env-312\\Scripts\\python.exe",
+        "-B",
+        "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739\\rust\\unicode-contract\\probes\\pyver.py"
+      ],
+      "cwd": "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739",
+      "exit_code": 0,
+      "stdout": "executable: C:\\Users\\AORUS\\AppData\\Local\\Temp\\opencode\\pc2739-matrix\\env-312\\Scripts\\python.exe\nversion: 3.12.16 (main, Oct 26 2026, 14:10:56) [MSC v.1944 64 bit (AMD64)]\nversion_info: (3, 12, 16, 'final', 0)\nimplementation: cpython\nplatform: Windows-10-10.0.19045-SP0\nsysconfig_platform: win-amd64\nmaxunicode: 1114111\nunicodedata_version: 15.0.0\nbyteorder: little\nabi_flags: None\nexe_sha256: fcbcba14502b6dca3e1df82d60a703eeb3cc22bba90af5c1b3a949766f669157\n",
+      "stderr": "",
+      "outcome": "EXECUTED_EXIT_0",
+      "wall_seconds": 0.15078929999981483,
+      "requested_python": "3.12"
+    },
+    {
+      "purpose": "record_public_entries",
+      "command": [
+        "C:\\Users\\AORUS\\AppData\\Local\\Temp\\opencode\\pc2739-matrix\\env-312\\Scripts\\python.exe",
+        "-B",
+        "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739\\rust\\unicode-contract\\probes\\contract_probe.py",
+        "--fixtures",
+        "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739\\rust\\unicode-contract\\fixtures\\cases.json",
+        "--output",
+        "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739\\rust\\unicode-contract\\evidence\\cpython-3.12.json"
+      ],
+      "cwd": "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739",
+      "exit_code": 0,
+      "stdout": "recorded 26 cases; CPython 3.12.16; UCD 15.0.0; output=C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739\\rust\\unicode-contract\\evidence\\cpython-3.12.json\n",
+      "stderr": "C:\\Users\\AORUS\\AppData\\Local\\Temp\\opencode\\pc2739-matrix\\env-312\\Lib\\site-packages\\jieba\\__init__.py:44: SyntaxWarning: invalid escape sequence '\\.'\n  re_han_default = re.compile(\"([\\u4E00-\\u9FD5a-zA-Z0-9+#&\\._%\\-]+)\", re.U)\nC:\\Users\\AORUS\\AppData\\Local\\Temp\\opencode\\pc2739-matrix\\env-312\\Lib\\site-packages\\jieba\\__init__.py:46: SyntaxWarning: invalid escape sequence '\\s'\n  re_skip_default = re.compile(\"(\\r\\n|\\s)\", re.U)\nC:\\Users\\AORUS\\AppData\\Local\\Temp\\opencode\\pc2739-matrix\\env-312\\Lib\\site-packages\\jieba\\finalseg\\__init__.py:78: SyntaxWarning: invalid escape sequence '\\.'\n  re_skip = re.compile(\"([a-zA-Z0-9]+(?:\\.\\d+)?%?)\")\n",
+      "outcome": "EXECUTED_EXIT_0",
+      "wall_seconds": 1.3991691999999603,
+      "requested_python": "3.12"
+    },
+    {
+      "purpose": "verify_public_entries",
+      "command": [
+        "C:\\Users\\AORUS\\AppData\\Local\\Temp\\opencode\\pc2739-matrix\\env-312\\Scripts\\python.exe",
+        "-B",
+        "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739\\rust\\unicode-contract\\probes\\contract_probe.py",
+        "--fixtures",
+        "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739\\rust\\unicode-contract\\fixtures\\cases.json",
+        "--output",
+        "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739\\rust\\unicode-contract\\evidence\\cpython-3.12-replay.json",
+        "--check",
+        "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739\\rust\\unicode-contract\\evidence\\cpython-3.12.json"
+      ],
+      "cwd": "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739",
+      "exit_code": 0,
+      "stdout": "recorded 26 cases; CPython 3.12.16; UCD 15.0.0; output=C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739\\rust\\unicode-contract\\evidence\\cpython-3.12-replay.json\n",
+      "stderr": "C:\\Users\\AORUS\\AppData\\Local\\Temp\\opencode\\pc2739-matrix\\env-312\\Lib\\site-packages\\jieba\\__init__.py:44: SyntaxWarning: invalid escape sequence '\\.'\n  re_han_default = re.compile(\"([\\u4E00-\\u9FD5a-zA-Z0-9+#&\\._%\\-]+)\", re.U)\nC:\\Users\\AORUS\\AppData\\Local\\Temp\\opencode\\pc2739-matrix\\env-312\\Lib\\site-packages\\jieba\\__init__.py:46: SyntaxWarning: invalid escape sequence '\\s'\n  re_skip_default = re.compile(\"(\\r\\n|\\s)\", re.U)\nC:\\Users\\AORUS\\AppData\\Local\\Temp\\opencode\\pc2739-matrix\\env-312\\Lib\\site-packages\\jieba\\finalseg\\__init__.py:78: SyntaxWarning: invalid escape sequence '\\.'\n  re_skip = re.compile(\"([a-zA-Z0-9]+(?:\\.\\d+)?%?)\")\n",
+      "outcome": "EXECUTED_EXIT_0",
+      "wall_seconds": 1.2337913999999728,
+      "requested_python": "3.12"
+    },
+    {
+      "purpose": "fixed_generator",
+      "command": [
+        "C:\\Users\\AORUS\\AppData\\Local\\Temp\\opencode\\pc2739-matrix\\env-312\\Scripts\\python.exe",
+        "-B",
+        "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739\\rust\\unicode-contract\\probes\\generator_probe.py",
+        "--candidate",
+        "a774fd0b8b2ac1729f5dd9121c34e968dd980905",
+        "--output",
+        "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739\\rust\\unicode-contract\\evidence\\generator-3.12.json",
+        "--temp-root",
+        "C:\\Users\\AORUS\\AppData\\Local\\Temp\\opencode\\pc2739-matrix"
+      ],
+      "cwd": "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739",
+      "exit_code": 0,
+      "stdout": "PASS: UCD 15.0.0; semantic=True; LF=True; raw=False; 0.239s\n",
+      "stderr": "",
+      "outcome": "EXECUTED_EXIT_0",
+      "wall_seconds": 0.43663139999989653,
+      "requested_python": "3.12"
+    },
+    {
+      "purpose": "negative_controls",
+      "command": [
+        "C:\\Users\\AORUS\\AppData\\Local\\Temp\\opencode\\pc2739-matrix\\env-312\\Scripts\\python.exe",
+        "-B",
+        "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739\\rust\\unicode-contract\\probes\\negative_controls.py",
+        "--fixtures",
+        "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739\\rust\\unicode-contract\\fixtures\\cases.json",
+        "--reference",
+        "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739\\rust\\unicode-contract\\evidence\\cpython-3.12.json",
+        "--output",
+        "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739\\rust\\unicode-contract\\evidence\\negative-3.12.json",
+        "--temp-root",
+        "C:\\Users\\AORUS\\AppData\\Local\\Temp\\opencode\\pc2739-matrix"
+      ],
+      "cwd": "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739",
+      "exit_code": 0,
+      "stdout": "PASS: pair_exit=1; ucd_exit=1; reference_unchanged=True\n",
+      "stderr": "",
+      "outcome": "EXECUTED_EXIT_0",
+      "wall_seconds": 2.5992840999997497,
+      "requested_python": "3.12"
+    },
+    {
+      "purpose": "existing_tests",
+      "command": [
+        "C:\\Users\\AORUS\\AppData\\Local\\Temp\\opencode\\pc2739-matrix\\env-312\\Scripts\\python.exe",
+        "-B",
+        "-m",
+        "pytest",
+        "tests/builtin/artifacts/test_text_search_admission.py",
+        "tests/builtin/artifacts/topic_memory/test_chunking.py",
+        "-q",
+        "-rs"
+      ],
+      "cwd": "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739",
+      "exit_code": 0,
+      "stdout": ".............                                                            [100%]\n============================== warnings summary ===============================\ntests/builtin/artifacts/test_text_search_admission.py::test_query_normalization_preserves_quotes_domain_conditions_and_identifiers[\\u8bf7\\u4fdd\\u7559 release_gate_v3 \\u5e76\\u4e14\\u4e0d\\u8981\\u90e8\\u7f72\\u672a\\u5ba1\\u6838\\u7684\\u7248\\u672c\\u3002-release_gate_v3 \\u4e0d\\u8981\\u90e8\\u7f72\\u672a\\u5ba1\\u6838\\u7248\\u672c]\n  C:\\Users\\AORUS\\AppData\\Local\\Temp\\opencode\\pc2739-matrix\\env-312\\Lib\\site-packages\\jieba\\__init__.py:44: SyntaxWarning: invalid escape sequence '\\.'\n    re_han_default = re.compile(\"([\\u4E00-\\u9FD5a-zA-Z0-9+#&\\._%\\-]+)\", re.U)\n\ntests/builtin/artifacts/test_text_search_admission.py::test_query_normalization_preserves_quotes_domain_conditions_and_identifiers[\\u8bf7\\u4fdd\\u7559 release_gate_v3 \\u5e76\\u4e14\\u4e0d\\u8981\\u90e8\\u7f72\\u672a\\u5ba1\\u6838\\u7684\\u7248\\u672c\\u3002-release_gate_v3 \\u4e0d\\u8981\\u90e8\\u7f72\\u672a\\u5ba1\\u6838\\u7248\\u672c]\n  C:\\Users\\AORUS\\AppData\\Local\\Temp\\opencode\\pc2739-matrix\\env-312\\Lib\\site-packages\\jieba\\__init__.py:46: SyntaxWarning: invalid escape sequence '\\s'\n    re_skip_default = re.compile(\"(\\r\\n|\\s)\", re.U)\n\ntests/builtin/artifacts/test_text_search_admission.py::test_query_normalization_preserves_quotes_domain_conditions_and_identifiers[\\u8bf7\\u4fdd\\u7559 release_gate_v3 \\u5e76\\u4e14\\u4e0d\\u8981\\u90e8\\u7f72\\u672a\\u5ba1\\u6838\\u7684\\u7248\\u672c\\u3002-release_gate_v3 \\u4e0d\\u8981\\u90e8\\u7f72\\u672a\\u5ba1\\u6838\\u7248\\u672c]\n  C:\\Users\\AORUS\\AppData\\Local\\Temp\\opencode\\pc2739-matrix\\env-312\\Lib\\site-packages\\jieba\\finalseg\\__init__.py:78: SyntaxWarning: invalid escape sequence '\\.'\n    re_skip = re.compile(\"([a-zA-Z0-9]+(?:\\.\\d+)?%?)\")\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n13 passed, 3 warnings in 1.74s\n",
+      "stderr": "",
+      "outcome": "EXECUTED_EXIT_0",
+      "wall_seconds": 2.382846000000427,
+      "requested_python": "3.12"
+    },
+    {
+      "purpose": "locked_sync",
+      "command": [
+        "uv",
+        "sync",
+        "--locked",
+        "--no-dev",
+        "--group",
+        "resource-build",
+        "--extra",
+        "builtin",
+        "--python",
+        "C:/Python313/python.exe"
+      ],
+      "cwd": "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739",
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": "Resolved 296 packages in 3ms\nChecked 81 packages in 4ms\n",
+      "outcome": "EXECUTED_EXIT_0",
+      "wall_seconds": 0.042515999999523046,
+      "requested_python": "3.13"
+    },
+    {
+      "purpose": "identity",
+      "command": [
+        "C:\\Users\\AORUS\\AppData\\Local\\Temp\\opencode\\pc2739-matrix\\env-313\\Scripts\\python.exe",
+        "-B",
+        "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739\\rust\\unicode-contract\\probes\\pyver.py"
+      ],
+      "cwd": "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739",
+      "exit_code": 0,
+      "stdout": "executable: C:\\Users\\AORUS\\AppData\\Local\\Temp\\opencode\\pc2739-matrix\\env-313\\Scripts\\python.exe\nversion: 3.13.3 (tags/v3.13.3:6280bb5, Apr  8 2025, 14:47:33) [MSC v.1943 64 bit (AMD64)]\nversion_info: (3, 13, 3, 'final', 0)\nimplementation: cpython\nplatform: Windows-10-10.0.19045-SP0\nsysconfig_platform: win-amd64\nmaxunicode: 1114111\nunicodedata_version: 15.1.0\nbyteorder: little\nabi_flags: None\nexe_sha256: 4febf6a25b0c0fdfad27707e8b89aafc0fb76485e9fe7e0e2b523eb3374e4e4f\n",
+      "stderr": "",
+      "outcome": "EXECUTED_EXIT_0",
+      "wall_seconds": 0.08735169999999925,
+      "requested_python": "3.13"
+    },
+    {
+      "purpose": "record_public_entries",
+      "command": [
+        "C:\\Users\\AORUS\\AppData\\Local\\Temp\\opencode\\pc2739-matrix\\env-313\\Scripts\\python.exe",
+        "-B",
+        "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739\\rust\\unicode-contract\\probes\\contract_probe.py",
+        "--fixtures",
+        "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739\\rust\\unicode-contract\\fixtures\\cases.json",
+        "--output",
+        "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739\\rust\\unicode-contract\\evidence\\cpython-3.13.json"
+      ],
+      "cwd": "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739",
+      "exit_code": 0,
+      "stdout": "recorded 26 cases; CPython 3.13.3; UCD 15.1.0; output=C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739\\rust\\unicode-contract\\evidence\\cpython-3.13.json\n",
+      "stderr": "",
+      "outcome": "EXECUTED_EXIT_0",
+      "wall_seconds": 0.7625730999998268,
+      "requested_python": "3.13"
+    },
+    {
+      "purpose": "verify_public_entries",
+      "command": [
+        "C:\\Users\\AORUS\\AppData\\Local\\Temp\\opencode\\pc2739-matrix\\env-313\\Scripts\\python.exe",
+        "-B",
+        "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739\\rust\\unicode-contract\\probes\\contract_probe.py",
+        "--fixtures",
+        "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739\\rust\\unicode-contract\\fixtures\\cases.json",
+        "--output",
+        "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739\\rust\\unicode-contract\\evidence\\cpython-3.13-replay.json",
+        "--check",
+        "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739\\rust\\unicode-contract\\evidence\\cpython-3.13.json"
+      ],
+      "cwd": "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739",
+      "exit_code": 0,
+      "stdout": "recorded 26 cases; CPython 3.13.3; UCD 15.1.0; output=C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739\\rust\\unicode-contract\\evidence\\cpython-3.13-replay.json\n",
+      "stderr": "",
+      "outcome": "EXECUTED_EXIT_0",
+      "wall_seconds": 0.7156518000001597,
+      "requested_python": "3.13"
+    },
+    {
+      "purpose": "fixed_generator",
+      "command": [
+        "C:\\Users\\AORUS\\AppData\\Local\\Temp\\opencode\\pc2739-matrix\\env-313\\Scripts\\python.exe",
+        "-B",
+        "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739\\rust\\unicode-contract\\probes\\generator_probe.py",
+        "--candidate",
+        "a774fd0b8b2ac1729f5dd9121c34e968dd980905",
+        "--output",
+        "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739\\rust\\unicode-contract\\evidence\\generator-3.13.json",
+        "--temp-root",
+        "C:\\Users\\AORUS\\AppData\\Local\\Temp\\opencode\\pc2739-matrix"
+      ],
+      "cwd": "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739",
+      "exit_code": 0,
+      "stdout": "PASS: UCD 15.1.0; semantic=True; LF=True; raw=False; 0.234s\n",
+      "stderr": "",
+      "outcome": "EXECUTED_EXIT_0",
+      "wall_seconds": 0.37200380000012956,
+      "requested_python": "3.13"
+    },
+    {
+      "purpose": "negative_controls",
+      "command": [
+        "C:\\Users\\AORUS\\AppData\\Local\\Temp\\opencode\\pc2739-matrix\\env-313\\Scripts\\python.exe",
+        "-B",
+        "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739\\rust\\unicode-contract\\probes\\negative_controls.py",
+        "--fixtures",
+        "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739\\rust\\unicode-contract\\fixtures\\cases.json",
+        "--reference",
+        "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739\\rust\\unicode-contract\\evidence\\cpython-3.13.json",
+        "--output",
+        "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739\\rust\\unicode-contract\\evidence\\negative-3.13.json",
+        "--temp-root",
+        "C:\\Users\\AORUS\\AppData\\Local\\Temp\\opencode\\pc2739-matrix"
+      ],
+      "cwd": "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739",
+      "exit_code": 0,
+      "stdout": "PASS: pair_exit=1; ucd_exit=1; reference_unchanged=True\n",
+      "stderr": "",
+      "outcome": "EXECUTED_EXIT_0",
+      "wall_seconds": 1.4309315999998944,
+      "requested_python": "3.13"
+    },
+    {
+      "purpose": "existing_tests",
+      "command": [
+        "C:\\Users\\AORUS\\AppData\\Local\\Temp\\opencode\\pc2739-matrix\\env-313\\Scripts\\python.exe",
+        "-B",
+        "-m",
+        "pytest",
+        "tests/builtin/artifacts/test_text_search_admission.py",
+        "tests/builtin/artifacts/topic_memory/test_chunking.py",
+        "-q",
+        "-rs"
+      ],
+      "cwd": "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739",
+      "exit_code": 0,
+      "stdout": ".............                                                            [100%]\n13 passed in 1.12s\n",
+      "stderr": "",
+      "outcome": "EXECUTED_EXIT_0",
+      "wall_seconds": 1.73229850000007,
+      "requested_python": "3.13"
+    },
+    {
+      "purpose": "locate_existing_interpreter",
+      "command": [
+        "uv",
+        "python",
+        "find",
+        "3.14"
+      ],
+      "cwd": "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739",
+      "exit_code": 2,
+      "stdout": "",
+      "stderr": "error: No interpreter found for Python 3.14 in virtual environments, managed installations, search path, or registry\n",
+      "outcome": "EXECUTED_NONZERO",
+      "wall_seconds": 0.03296559999944293,
+      "requested_python": "3.14"
+    }
+  ],
+  "versions": {
+    "metadata": {
+      "candidate_inventory_exit_code": 0,
+      "native_execution": "NOT_RUN"
+    },
+    "3.11": {
+      "requested_interpreter": "C:/Users/AORUS/AppData/Roaming/uv/python/cpython-3.11-windows-x86_64-none/python.exe",
+      "status": "EXECUTED_ALL_COMMANDS_EXIT_0",
+      "steps": {
+        "locked_sync": "EXECUTED_EXIT_0",
+        "identity": "EXECUTED_EXIT_0",
+        "record_public_entries": "EXECUTED_EXIT_0",
+        "verify_public_entries": "EXECUTED_EXIT_0",
+        "fixed_generator": "EXECUTED_EXIT_0",
+        "negative_controls": "EXECUTED_EXIT_0",
+        "existing_tests": "EXECUTED_EXIT_0"
+      }
+    },
+    "3.12": {
+      "requested_interpreter": "C:/Users/AORUS/AppData/Roaming/uv/python/cpython-3.12-windows-x86_64-none/python.exe",
+      "status": "EXECUTED_ALL_COMMANDS_EXIT_0",
+      "steps": {
+        "locked_sync": "EXECUTED_EXIT_0",
+        "identity": "EXECUTED_EXIT_0",
+        "record_public_entries": "EXECUTED_EXIT_0",
+        "verify_public_entries": "EXECUTED_EXIT_0",
+        "fixed_generator": "EXECUTED_EXIT_0",
+        "negative_controls": "EXECUTED_EXIT_0",
+        "existing_tests": "EXECUTED_EXIT_0"
+      }
+    },
+    "3.13": {
+      "requested_interpreter": "C:/Python313/python.exe",
+      "status": "EXECUTED_ALL_COMMANDS_EXIT_0",
+      "steps": {
+        "locked_sync": "EXECUTED_EXIT_0",
+        "identity": "EXECUTED_EXIT_0",
+        "record_public_entries": "EXECUTED_EXIT_0",
+        "verify_public_entries": "EXECUTED_EXIT_0",
+        "fixed_generator": "EXECUTED_EXIT_0",
+        "negative_controls": "EXECUTED_EXIT_0",
+        "existing_tests": "EXECUTED_EXIT_0"
+      }
+    },
+    "3.14": {
+      "requested_interpreter": null,
+      "status": "BLOCKED_NO_EXISTING_INTERPRETER",
+      "steps": {
+        "locate_existing_interpreter": "EXECUTED_NONZERO"
+      },
+      "behavior": "BLOCKED",
+      "generator": "BLOCKED",
+      "existing_tests": "BLOCKED",
+      "native_execution": "NOT_RUN"
+    }
+  }
+}
