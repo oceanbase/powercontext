@@ -33,6 +33,7 @@ mod lifecycle;
 mod prefix_store;
 mod replay_cache;
 mod transcript;
+mod turn_message;
 mod uds_gate_client;
 
 pub use executor::*;
