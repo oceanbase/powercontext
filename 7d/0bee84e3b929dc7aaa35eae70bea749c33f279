@@ -1,0 +1,21 @@
+e2e/bub/uv.lock
+  s_2ef0feea0a110d::t_8f84e9205b185a 1851,1858
+evaluation/uv.lock
+  s_2ef0feea0a110d::t_f1315ff8804201 2007,2014
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "7d0bee84e3b929dc7aaa35eae70bea749c33f279",
+  "prompts": {},
+  "sessions": {
+    "s_2ef0feea0a110d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1a9cf-a4e7-7f63-9c51-1284f7c332e8",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "frf12 <rongfeng.frf@antgroup.com>"
+    }
+  }
+}
