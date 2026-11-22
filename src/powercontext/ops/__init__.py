@@ -14,6 +14,24 @@
 
 """Independent, explicitly authorized personal Server operations."""
 
-from powercontext.ops.runtime import Ops, TargetBinding
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from powercontext.ops.runtime import Ops, TargetBinding
 
 __all__ = ["Ops", "TargetBinding"]
+
+
+def __getattr__(name: str) -> object:
+    if name in __all__:
+        # CLI help and protocol validation do not need Server or backend initialization.
+        from powercontext.ops.runtime import Ops, TargetBinding
+
+        globals().update(Ops=Ops, TargetBinding=TargetBinding)
+        return globals()[name]
+    message = f"module {__name__!r} has no attribute {name!r}"
+    raise AttributeError(message)
+
+
+def __dir__() -> list[str]:
+    return sorted(set(globals()) | set(__all__))
