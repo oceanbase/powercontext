@@ -120,45 +120,178 @@ NESTED_MESSAGE = (
 # The JavaScript copies drop the only TypeScript syntax that the helpers they come from may use: the types of plain
 # parameters, made of names, arrays, and unions, and the return type, on a one-line function signature, and `as const`
 # after a closing bracket at the end of a line. Without a TypeScript parser, the conversion rejects every other
-# construct that it recognizes as TypeScript rather than copy it. The Kimi Code and ZCode tests then run each copy
-# against the shared privacy fixture.
+# construct that it recognizes as TypeScript rather than copy it. It first scans the source for comments, quoted
+# strings, and regular expression literals, following JavaScript's rules for where each ends, and it rewrites and
+# inspects only the code around them. Generation stops where the scan cannot tell: at a template literal, a string that
+# continues past its line, a `/` that may either start a regular expression or divide, and, in code, any character
+# other than ASCII names, numbers, spaces, and operators. The Kimi Code and ZCode tests then run each copy against the
+# shared privacy fixture.
 _SIGNATURE = re.compile(
-    r"(?P<head>\s*(?:export\s+)?(?:async\s+)?function\s+\w+)\((?P<parameters>[^()]*)\)(?:\s*:[^{]*?)?(?P<tail>\s*\{)"
+    r"(?P<head>\s*(?:export\s+)?(?:async\s+)?function\s+[\w$]+)\((?P<parameters>[^()]*)\)(?:\s*:[^{]*?)?(?P<tail>\s*\{)"
 )
-_PARAMETER = re.compile(r"(?P<name>\w+)\??(?:\s*:\s*[\w.\[\]| ]+)?")
+_PARAMETER = re.compile(r"(?P<name>[\w$]+)\??(?:\s*:\s*[\w.\[\]| ]+)?")
 _CONST_ASSERTION = re.compile(r"(?<=[\])}])\s+as\s+const(?=[;,)]?$)")
 _TYPESCRIPT_ONLY = re.compile(
     r"^\s*(?:export\s+)?(?:declare|type|interface|enum|namespace|abstract)\b|^\s*(?:import|export)\s+type\b|"
     r"^\s*(?:export\s+)?(?:const|let|var)\s+\w+\s*[!:]|\bfunction\b|\([^()]*:[^()]*\)\s*(?::[^=]*)?=>|"
-    r"\bas\s+\w|\bsatisfies\b|\b(?:private|protected|public|readonly)\s+\w|\w!\.|\w<(?![<=])"
+    r"\bas\s+\S|\bsatisfies\b|\b(?:private|protected|public|readonly)\s+\w|\w!\.|\w<(?![<=])"
 )
+# Stands in for every character of a comment or literal, so that no pattern matches inside one.
+_MASK = "\0"
+_WORD = re.compile(r"[\w$]+", re.ASCII)
+# A number keeps its decimal point, so a keyword after `1.` stays a keyword.
+_NUMBER = re.compile(r"\d[\w$]*(?:\.[\w$]*)?", re.ASCII)
+# JavaScript's line terminators. Python's str.splitlines also breaks at form feeds and other characters that JavaScript
+# treats as spaces, which would end a `//` comment early.
+_LINE = re.compile(r"[^\r\n\u2028\u2029]*(?:\r\n|[\r\n\u2028\u2029]|$)")
+# A `/` starts a regular expression at the start of the file, after one of these punctuators, and after one of these
+# keywords. It divides after a value, `]`, a property name, or any other name that is not a reserved word. After `)`,
+# `}`, `++`, `--`, `of`, another reserved word, or a name after a `.` that does not follow a value, it can do either,
+# so the scan stops there.
+_BEFORE_REGEX = frozenset({"", "...", *"(,=:[!&|?{};+-*%<>~^"})
+_KEYWORDS_BEFORE_REGEX = frozenset({
+    *("await", "case", "default", "delete", "do", "else", "extends", "in", "instanceof", "new", "return", "throw"),
+    *("typeof", "void", "yield"),
+})
+_STARTS_REGEX = _BEFORE_REGEX | _KEYWORDS_BEFORE_REGEX
+_VALUE_KEYWORDS = frozenset({"false", "null", "super", "this", "true"})
+_RESERVED = frozenset({
+    *("break", "catch", "class", "const", "continue", "debugger", "enum", "export", "finally", "for", "function"),
+    *("if", "implements", "import", "interface", "let", "of", "package", "private", "protected", "public", "static"),
+    *("switch", "try", "var", "while", "with"),
+})
+
+
+def _end_of_literal(line: str, index: int, closing: str) -> int:
+    """Return the index after the literal whose body starts at `index`, or -1 when it continues past the line."""
+
+    in_class = False
+    while index < len(line):
+        character = line[index]
+        if character == "\\":
+            index += 2
+            continue
+        if closing == "/" and character in "[]":
+            in_class = character == "["
+        elif character == closing and not in_class:
+            flags = _WORD.match(line, index + 1) if closing == "/" else None
+            return flags.end() if flags else index + 1
+        index += 1
+    return -1
+
+
+def _next_token(line: str, index: int, previous: str) -> tuple[int, bool, str]:
+    """Return where the token at `index` ends, whether it is code, and the token a following `/` is judged by.
+
+    Raises ValueError, naming what the scan cannot follow.
+    """
+
+    character = line[index]
+    if line.startswith(("//", "/*"), index):
+        closing = line.find("*/", index + 2) if line[index + 1] == "*" else -1
+        return (len(line) if closing < 0 else closing + 2), False, previous
+    if character == "`":
+        raise ValueError("a template literal")  # noqa: TRY003
+    if character in "'\"" or (character == "/" and previous in _STARTS_REGEX):
+        end = _end_of_literal(line, index + 1, character)
+        if end < 0:
+            raise ValueError("a literal that continues past its line")  # noqa: TRY003
+        return end, False, "value"
+    end, previous = _code_token(line, index, previous)
+    return end, True, previous
+
+
+def _code_token(line: str, index: int, previous: str) -> tuple[int, str]:
+    """Return where the code token at `index` ends and the token a following `/` is judged by."""
+
+    character = line[index]
+    if not character.isascii() or character in "\\#":
+        # Escapes, private names, and other Unicode in names would hide where a name or keyword ends.
+        raise ValueError("a character other than an ASCII name, number, space, or operator")  # noqa: TRY003
+    name = bool(_WORD.fullmatch(previous)) and previous not in _RESERVED | _STARTS_REGEX
+    value = previous in {"value", "]"} | _VALUE_KEYWORDS or name
+    if character == "/" and not value:
+        raise ValueError("a `/` that may start a regular expression or divide")  # noqa: TRY003
+    if number := _NUMBER.match(line, index):
+        return number.end(), "value"
+    if word := _WORD.match(line, index):
+        # A property name is a value even when it is spelled like a keyword. After a `.` that does not follow a value,
+        # the scan cannot tell, so a `/` after the name stops it.
+        kinds = {".": "value", "loose .": "unknown name"}
+        return word.end(), kinds.get(previous, word[0])
+    if character.isspace():
+        return index + 1, previous
+    if line.startswith("...", index):
+        return index + 3, "..."
+    if line.startswith("?.", index) and not line[index + 2 : index + 3].isdigit():
+        return index + 2, "."
+    if character == ".":
+        return index + 1, "." if value or previous == ")" else "loose ."
+    if character in "+-" and line.startswith(character * 2, index):
+        return index + 2, character * 2
+    return index + 1, character
+
+
+def _code_masks(source: Path, lines: list[str]) -> list[str]:
+    """Return each line with its comments and literals masked, or stop where the scan cannot follow the source."""
+
+    masks, in_comment, previous = [], False, ""
+    for number, line in enumerate(lines, start=1):
+        masked, index = [], 0
+        if number == 1 and line.startswith("#!"):
+            # A hashbang line is a comment.
+            masks.append(_MASK * len(line))
+            continue
+        if in_comment:
+            closing = line.find("*/")
+            in_comment, index = closing < 0, len(line) if closing < 0 else closing + 2
+            masked.append(_MASK * index)
+        while index < len(line):
+            try:
+                end, code, previous = _next_token(line, index, previous)
+            except ValueError as error:
+                raise SystemExit(  # noqa: TRY003
+                    f"{source.relative_to(ROOT)}:{number}: the JavaScript copies cannot convert {error}"
+                ) from None
+            in_comment = line.startswith("/*", index) and line.find("*/", index + 2) < 0
+            masked.append(line[index:end] if code else _MASK * (end - index))
+            index = end
+        masks.append("".join(masked))
+    if in_comment:
+        raise SystemExit(f"{source.relative_to(ROOT)}: the JavaScript copies cannot convert an unclosed comment")  # noqa: TRY003
+    return masks
 
 
 def javascript(source: Path, text: str) -> str:
     """Return a TypeScript helper without the types, or stop at the first line the conversion cannot handle."""
 
-    lines = []
-    for number, line in enumerate(text.splitlines(keepends=True), start=1):
-        body = line.rstrip("\r\n")
+    lines = [line for line in _LINE.findall(text) if line]
+    bodies = [line.rstrip("\r\n\u2028\u2029") for line in lines]
+    converted = []
+    for number, (line, body, masked) in enumerate(zip(lines, bodies, _code_masks(source, bodies), strict=True), 1):
         ending = line[len(body) :]
-        # Comments and the regular expression literals of the pattern tables hold no TypeScript.
-        if not body.lstrip().startswith(("/", "*")):
-            if signature := _SIGNATURE.fullmatch(body):
-                items = [item.strip() for item in signature["parameters"].split(",") if item.strip()]
-                parameters = [_PARAMETER.fullmatch(item) for item in items]
-                unsupported = not all(parameters)
-                if not unsupported:
-                    names = ", ".join(parameter["name"] for parameter in parameters if parameter)
-                    body = f"{signature['head']}({names}){signature['tail']}"
-            else:
-                body = _CONST_ASSERTION.sub("", body)
-                unsupported = bool(_TYPESCRIPT_ONLY.search(body))
-            if unsupported:
-                raise SystemExit(  # noqa: TRY003
-                    f"{source.relative_to(ROOT)}:{number}: the JavaScript copies cannot drop this TypeScript syntax"
-                )
-        lines.append(body + ending)
-    return "".join(lines)
+        # The patterns see the code up to its last character, so a trailing comment does not hide a signature.
+        code = masked.rstrip(_MASK + " \t")
+        unsupported = False
+        if signature := _SIGNATURE.fullmatch(code):
+            items = [item.strip() for item in signature["parameters"].split(",") if item.strip()]
+            parameters = [_PARAMETER.fullmatch(item) for item in items]
+            unsupported = not all(parameters)
+            if not unsupported:
+                names = ", ".join(parameter["name"] for parameter in parameters if parameter)
+                start, end = signature.start("parameters") - 1, signature.start("tail")
+                body = f"{body[:start]}({names}){body[end:]}"
+        else:
+            if assertion := _CONST_ASSERTION.search(code):
+                body = body[: assertion.start()] + body[assertion.end() :]
+                code = code[: assertion.start()] + code[assertion.end() :]
+            unsupported = bool(_TYPESCRIPT_ONLY.search(code))
+        if unsupported:
+            raise SystemExit(  # noqa: TRY003
+                f"{source.relative_to(ROOT)}:{number}: the JavaScript copies cannot drop this TypeScript syntax"
+            )
+        converted.append(body + ending)
+    return "".join(converted)
 
 
 def render(source: Path, target: str) -> str:

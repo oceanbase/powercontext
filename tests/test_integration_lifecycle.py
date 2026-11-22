@@ -119,6 +119,54 @@ def test_javascript_copies_refuse_typescript_they_cannot_drop(typescript: str) -
         javascript(TYPESCRIPT_SOURCE / "prompt-privacy.ts", f"{typescript}\n")
 
 
+@pytest.mark.parametrize(
+    "typescript",
+    [
+        "const note = `first line\n] as const\n`",
+        "const note = `${`\n] as const\n`}`",
+        "const note = '`' + `\n] as const\n` + '`'",
+        "const note = /[`]/.source + `\n] as const\n`",
+        "const note = 1 /* ` */ + `\n] as const\n`",
+        "const count = 2\n* `\n] as const\n*`.length",
+        "const note = 'first line \\\n] as const'",
+        "const half = (total) / 2",
+        'let of = 4\nconst half = of / 2; const note = "/ ] as const"; // "',
+        "const café = 1",
+        "const x² = 1",
+        'const half = this.#return / 2; const note = "/ ] as const"; // "',
+        'const half = x\u200dreturn / 2; const note = "/ ] as const"; // "',
+        'const half = x\\u{41}return / 2; const note = "/ ] as const"; // "',
+    ],
+)
+def test_javascript_copies_refuse_literals_they_cannot_follow(typescript: str) -> None:
+    # The conversion rewrites code only, so it must know where every literal ends; it would otherwise drop ` as const`
+    # from a literal's runtime value.
+    with pytest.raises(SystemExit, match="cannot convert"):
+        javascript(TYPESCRIPT_SOURCE / "prompt-privacy.ts", f"{typescript}\n")
+
+
+@pytest.mark.parametrize(
+    "typescript",
+    [
+        "/*\n] as const\n*/",
+        "const pattern = /] as const/u",
+        "const note = '] as const' // ] as const",
+        "export function scrub(text: string) { // (text: string): string {",
+        'const half = limits.return / 2; const note = "/ ] as const"; // "',
+        'export default /\'/; const note = "\' ] as const"; // "',
+        '// note\f/*\nconst note = "*/ ] as const"; // "',
+        '#!/usr/bin/env node /*\nconst note = "*/ ] as const"; // "',
+        'const kinds = [...typeof /\'/]; const note = "\' ] as const"; // "',
+        'const inside = 1. in /\'/; const note = "\' ] as const"; // "',
+        'const half = limits?.return / 2; const note = "/ ] as const"; // "',
+    ],
+)
+def test_javascript_copies_leave_comments_and_literals_unchanged(typescript: str) -> None:
+    converted = javascript(TYPESCRIPT_SOURCE / "prompt-privacy.ts", f"{typescript}\n")
+    assert converted.count("] as const") == typescript.count("] as const")
+    assert converted.count("(text: string): string {") == typescript.count("(text: string): string {")
+
+
 def test_prompt_event_repr_leaves_out_the_prompt_and_the_working_directory() -> None:
     event = UserPromptEvent(
         prompt="Remember the synthetic launch phrase.",
