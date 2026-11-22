@@ -83,16 +83,22 @@ class Cron(BaseModel):
     def runners_can_compute_the_next_time(self) -> Cron:
         # The Server and device runners compute the next fire time with these same two
         # parsers; reject here so a schedule they cannot compute fails the plugin load.
+        # Pass a zone explicitly so the load never depends on this machine having a
+        # discoverable local zone: the declared zone when one is set, otherwise a
+        # neutral zone — the runners resolve the local zone themselves at schedule time.
+        from datetime import UTC
         from zoneinfo import ZoneInfo
 
         from apscheduler.triggers.cron import CronTrigger
 
-        if self.timezone is not None:
+        if self.timezone is None:
+            zone = UTC
+        else:
             try:
-                ZoneInfo(self.timezone)
+                zone = ZoneInfo(self.timezone)
             except (KeyError, ValueError) as error:
                 raise ValueError(f"timezone {self.timezone!r} is not an IANA time zone name") from error  # noqa: TRY003
-        CronTrigger.from_crontab(self.expression)
+        CronTrigger.from_crontab(self.expression, timezone=zone)
         return self
 
 

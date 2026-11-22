@@ -122,6 +122,24 @@ def test_a_valid_cron_collect_schedule_still_loads(tmp_path) -> None:
     assert report == [{"name": "ticket-chat", "version": "1.0.0", "error": None}]
 
 
+def test_a_declared_timezone_keeps_the_load_independent_of_the_local_zone(tmp_path, monkeypatch) -> None:
+    import apscheduler.triggers.cron as cron_trigger_module
+
+    def no_local_zone():
+        from zoneinfo import ZoneInfoNotFoundError
+
+        raise ZoneInfoNotFoundError()
+
+    monkeypatch.setattr(cron_trigger_module, "get_localzone", no_local_zone)
+    plugins = tmp_path / "plugins"
+    write_plugin_with_collect_schedule(plugins, "ticket-chat", 'Cron(expression="*/5 * * * *", timezone="UTC")')
+
+    loaded, report = load_source_plugins(plugins)
+
+    assert list(loaded) == ["ticket-chat"]
+    assert report == [{"name": "ticket-chat", "version": "1.0.0", "error": None}]
+
+
 def test_a_plugin_whose_next_time_cannot_be_computed_does_not_block_the_others(tmp_path, monkeypatch) -> None:
     plugins = tmp_path / "plugins"
     write_plugin_with_collect_schedule(plugins, "slow", "Interval(seconds=60)")
