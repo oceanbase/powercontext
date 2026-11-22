@@ -4,6 +4,9 @@ inputs:
   packages:
     description: Pinned npm package specifications, separated by whitespace
     default: ''
+  cache-scope:
+    description: Optional namespace isolating downloads and restore fallbacks from other npm jobs
+    default: ''
   cache-dependency-glob:
     description: Dependency file globs relative to the source checkout, one per line
     default: ''
@@ -28,6 +31,7 @@ runs:
       shell: bash
       env:
         CI_CACHE_PACKAGES: ${{ inputs.packages }}
+        CI_CACHE_SCOPE: ${{ inputs.cache-scope }}
         CI_CACHE_DEPENDENCY_PATH: ${{ inputs.cache-dependency-glob }}
       run: python3 "$GITHUB_ACTION_PATH/../../../scripts/ci_cache.py" npm
 

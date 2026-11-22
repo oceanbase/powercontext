@@ -259,13 +259,22 @@ def npm() -> None:
         check=True,
     ).stdout.strip()
     version = subprocess.run(["npm", "--version"], capture_output=True, text=True, check=True).stdout.strip()  # noqa: S607
-    cache_dir = subprocess.run(
-        ["npm", "config", "get", "cache"],  # noqa: S607
-        capture_output=True,
-        text=True,
-        check=True,
-    ).stdout.strip()
-    prefix = f"npm-v1-{platform_key()}-{digest([runtime, version])}-"
+    scope = os.environ.get("CI_CACHE_SCOPE", "")
+    if scope:
+        scope_identity = digest(scope)
+        cache_dir = str(Path(os.environ["RUNNER_TEMP"]) / "powercontext-npm-cache" / scope_identity)
+        prefix = f"npm-scoped-v1-{platform_key()}-{digest([runtime, version])}-{scope_identity}-"
+        # Keep both the restored snapshot and later installs separate from the
+        # runner's shared npm cache, including other scopes used in this job.
+        write_command_file("GITHUB_ENV", {"npm_config_cache": cache_dir, "NPM_CONFIG_CACHE": cache_dir})
+    else:
+        cache_dir = subprocess.run(
+            ["npm", "config", "get", "cache"],  # noqa: S607
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()
+        prefix = f"npm-v1-{platform_key()}-{digest([runtime, version])}-"
     write_command_file(
         "GITHUB_OUTPUT",
         {

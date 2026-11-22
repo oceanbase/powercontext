@@ -1112,6 +1112,7 @@ jobs:
         id: dsh-npm-cache
         uses: ./.github/actions/cache-npm
         with:
+          cache-scope: dsh-archive
           packages: '@deepseek-ai/cordis@4.0.1'
           cache-dependency-glob: integrations/dsh/plugins/powercontext/package.json
 
