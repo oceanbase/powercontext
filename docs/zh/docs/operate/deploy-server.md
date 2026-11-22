@@ -265,6 +265,15 @@ Rust Gateway 在启动时通过 `/v1/capabilities` 查询一次 `context_protect
 [日志、指标与追踪](observability.md#operational-fields-与关联)。模型用量（包括命中缓存的输入 token）与其他
 生成一样上报。
 
+设置 `POWERCONTEXT_SERVER_RUNTIME_ATOMIC_MEMORY_PROCESSING_MODE=one_pass` 时，这类窗口的整段单次整理对话都接在前缀
+之后进行。第一次请求携带单次整理的流程指令和 Source 的溯源信息。之后每一步重发同一条指令，并带上
+`continuation`：模型此前的回复和 Server 的后续消息，按顺序排列，由网关追加在指令之后。因此每一步都从提示词缓存
+读取前缀和此前各步；这段对话发往智能体自己的目标和账号，而不是 Server 的生成模型。估算比较的是每个窗口都有的
+前两步：缓存输入 token 按缓存价格计两次，加上指令和最终响应的输出 token，与 Server 自己发送 Source 证据时的同样
+两步相比。由于每一步都要读一遍前缀，仍然划算的前缀长度大约是前缀抽取的一半。任何一步无法完成，或回复在请求数上限
+允许的纠正之后仍未通过校验时，这段对话的结果全部丢弃，窗口按普通的单次整理对话重新开始。不接受 `continuation`
+的网关会拒绝第二步，这样的窗口要多付一次第一步的费用；请将网关与 Server 一同升级。
+
 ## 使用 Docker 运行
 
 在仓库根目录构建镜像：

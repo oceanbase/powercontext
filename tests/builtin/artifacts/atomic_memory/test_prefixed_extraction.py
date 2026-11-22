@@ -29,7 +29,10 @@ from powercontext.builtin.artifacts.atomic_memory.extraction import (
     AtomicMemoryExtractionOutput,
     AtomicMemoryGenerationPipeline,
 )
-from powercontext.builtin.artifacts.atomic_memory.prefixed_extraction import GatewayPrefixedExtractor
+from powercontext.builtin.artifacts.atomic_memory.prefixed_extraction import (
+    GatewayPrefixedConversation,
+    GatewayPrefixedExtractor,
+)
 from powercontext.builtin.artifacts.atomic_memory.reconciliation import (
     AtomicMemoryReconciliationContent,
     AtomicMemoryReconciliationInput,
@@ -40,6 +43,7 @@ from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.runtime import RuntimeConfig
 from powercontext.server.factory import create_server_app
 from powercontext.server.settings import McpConfig, ServerSettings
+from tests.e2e.test_atomic_memory_one_pass import _Conversation
 
 # A turn whose tool output makes resending the transcript cost more than reading the cached prefix.
 TRANSCRIPT = json.dumps({
@@ -281,3 +285,145 @@ def test_a_window_with_only_some_parts_of_a_turn_uses_normal_extraction(tmp_path
 
     assert gateway.requests == []
     assert extractor.calls == 1
+
+
+ENTRIES = {"items": [{"memory": "Deployment day", "details": ["deploys only on Tuesdays"], "query": "deployment day"}]}
+OPERATIONS = {
+    "operations": [{"action": "create", "target_ids": [], "reason": "No shown memory states it.", **CANDIDATE}]
+}
+
+
+class _ScriptedGateway(_Gateway):
+    """The gateway's extraction route answering successive requests from a script of ``(status, payload)``."""
+
+    def __init__(self, *replies: tuple[int, object]) -> None:
+        super().__init__(200, None)
+        self.replies = list(replies)
+
+    def __call__(self, request: httpx.Request) -> httpx.Response:
+        self.status, self.payload = self.replies.pop(0)
+        return super().__call__(request)
+
+
+def _text(reply: object) -> tuple[int, object]:
+    return 200, {"text": json.dumps(reply), "usage": {"input_tokens": 9000, "output_tokens": 40}}
+
+
+def _flush_one_pass(tmp_path, gateway: _Gateway, source: dict[str, object], *fallback_replies) -> _Conversation:
+    """Process one gateway turn in one-pass mode; the returned conversation is the one Core runs without the prefix."""
+
+    conversation = _Conversation(*fallback_replies)
+    client = httpx.AsyncClient(
+        base_url="http://gateway.local",
+        headers={"Authorization": "Bearer gateway-key"},
+        transport=httpx.MockTransport(gateway),
+    )
+    app = create_server_app(
+        settings=ServerSettings(
+            database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'prefixed.db'}"),
+            runtime=RuntimeConfig(artifact_processing_families=(), atomic_memory_processing_mode="one_pass"),
+            mcp=McpConfig(enabled=False),
+        ),
+        candidate_pipeline=AtomicMemoryGenerationPipeline(
+            extractor=_Extractor(),
+            reconciler=_CreatingReconciler(),
+            estimator=character_token_estimator(),
+            conversation=conversation,
+            prefixed_conversation=GatewayPrefixedConversation(client=client, estimator=character_token_estimator()),
+        ),
+    )
+    with TestClient(app) as test_client:
+        scope_id = test_client.get("/v1/scopes/default").json()["scope_id"]
+        captured = test_client.post("/v1/sources/content", json={"scope_id": scope_id, **source})
+        assert captured.status_code == 202, captured.text
+        flushed = test_client.post("/v1/memory/flush", json={"scope_id": scope_id})
+        assert flushed.status_code == 200, flushed.text
+        listed = test_client.post("/v1/memory/entries/list", json={"scope_id": scope_id})
+        assert listed.status_code == 200, listed.text
+        gateway.memories = [entry["text"] for entry in listed.json()["entries"]]
+    return conversation
+
+
+def _prefixed_one_pass_events(caplog) -> list[tuple[object, object]]:
+    return [
+        (getattr(record, "outcome", None), getattr(record, "fallback_reason", None))
+        for record in caplog.records
+        if getattr(record, "event", None) == "atomic_memory.prefixed_extraction"
+        and getattr(record, "operation", None) == "atomic_memory.one_pass"
+    ]
+
+
+def test_a_one_pass_window_continues_the_prefix_through_every_step(tmp_path, caplog) -> None:
+    gateway = _ScriptedGateway(_text(ENTRIES), _text(OPERATIONS))
+    with caplog.at_level(logging.INFO):
+        conversation = _flush_one_pass(tmp_path, gateway, _turn("turn-1", prefix_tokens=(10_000, 50)))
+
+    assert conversation.turns == []
+    assert gateway.memories == [CANDIDATE["text"]]
+    first, second = gateway.requests
+    instruction = first["instruction"]
+    assert isinstance(instruction, str)
+    assert first["handle"] == second["handle"] == "a" * 32
+    assert "continuation" not in first
+    # The evidence is the prefix: the instruction lists the Source but does not resend its transcript.
+    assert '"evidence_id": "source:1"' in instruction
+    assert "deploys only on Tuesdays" not in instruction
+    assert "prefix_input_tokens" not in instruction
+    assert "Your reply to this message is step 1." in instruction
+    # Step 2 resends the same instruction, then the step 1 reply and the recalled memories.
+    assert second["instruction"] == instruction
+    reply, memories = cast("list[dict[str, str]]", second["continuation"])
+    assert reply == {"role": "assistant", "text": json.dumps(ENTRIES)}
+    assert memories["role"] == "user"
+    assert _prefixed_one_pass_events(caplog) == [("success", None)]
+
+
+def test_a_rejected_one_pass_reply_is_corrected_after_the_same_prefix(tmp_path) -> None:
+    unknown_label = {"operations": [{**OPERATIONS["operations"][0], "action": "revise", "target_ids": ["M9"]}]}
+    gateway = _ScriptedGateway(_text(ENTRIES), _text(unknown_label), _text(OPERATIONS))
+    _flush_one_pass(tmp_path, gateway, _turn("turn-1", prefix_tokens=(10_000, 50)))
+
+    assert gateway.memories == [CANDIDATE["text"]]
+    continuation = cast("list[dict[str, str]]", gateway.requests[2]["continuation"])
+    assert [message["role"] for message in continuation] == ["assistant", "user", "assistant", "user"]
+    assert continuation[2]["text"] == json.dumps(unknown_label)
+    assert "Fix the errors and try again." in continuation[3]["text"]
+
+
+@pytest.mark.parametrize(
+    ("replies", "reason"),
+    [
+        ([(404, {"error": "prefix_unavailable"})], "prefix_unavailable"),
+        # The prefix expires between the steps: nothing of the prefixed conversation is kept.
+        ([_text(ENTRIES), (404, {"error": "prefix_unavailable"})], "prefix_unavailable"),
+        ([_text(ENTRIES), (422, "Failed to deserialize the JSON body")], "gateway_error"),
+        ([_text({"candidates": []})] * 3, "invalid_output"),
+    ],
+)
+def test_a_failed_prefixed_one_pass_window_starts_again_without_the_prefix(tmp_path, caplog, replies, reason) -> None:
+    gateway = _ScriptedGateway(*replies)
+    with caplog.at_level(logging.INFO):
+        conversation = _flush_one_pass(
+            tmp_path, gateway, _turn("turn-1", prefix_tokens=(10_000, 50)), ENTRIES, OPERATIONS
+        )
+
+    assert gateway.replies == []
+    assert len(conversation.turns) == 2
+    # Core sends the evidence itself this time.
+    assert "deploys only on Tuesdays" in conversation.turns[0].message
+    assert gateway.memories == [CANDIDATE["text"]]
+    assert _prefixed_one_pass_events(caplog) == [("fallback", reason)]
+
+
+@pytest.mark.parametrize(("prefix_tokens", "reason"), [((400_000, 50), "not_cheaper"), (None, "prefix_size_unknown")])
+def test_a_one_pass_prefix_that_would_cost_more_is_not_used(tmp_path, caplog, prefix_tokens, reason) -> None:
+    gateway = _ScriptedGateway()
+    with caplog.at_level(logging.INFO):
+        conversation = _flush_one_pass(
+            tmp_path, gateway, _turn("turn-1", prefix_tokens=prefix_tokens), ENTRIES, OPERATIONS
+        )
+
+    assert gateway.requests == []
+    assert len(conversation.turns) == 2
+    assert gateway.memories == [CANDIDATE["text"]]
+    assert _prefixed_one_pass_events(caplog) == [("fallback", reason)]

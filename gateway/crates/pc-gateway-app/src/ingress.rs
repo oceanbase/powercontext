@@ -162,11 +162,47 @@ pub struct ExtractRequest {
     handle: String,
     /// Core 的抽取指令，作为一条用户消息追加在前缀之后。
     instruction: String,
+    /// 指令之后的对话：模型此前的回复与 Core 的后续消息，按顺序追加。Core 在一段对话里分步处理同一轮时使用，
+    /// 每一步都重发指令和此前的消息，使前缀与此前各步都能命中缓存。
+    #[serde(default)]
+    continuation: Vec<ContinuationMessage>,
     #[serde(default)]
     max_output_tokens: Option<u32>,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ContinuationMessage {
+    role: ContinuationRole,
+    text: String,
+}
+
+#[derive(Debug, Deserialize, PartialEq, Eq, Clone, Copy)]
+#[serde(rename_all = "lowercase")]
+enum ContinuationRole {
+    Assistant,
+    User,
+}
+
 const MAX_EXTRACT_INSTRUCTION_BYTES: usize = 64 * 1024;
+const MAX_EXTRACT_CONTINUATION_MESSAGES: usize = 16;
+const MAX_EXTRACT_CONTINUATION_BYTES: usize = 256 * 1024;
+
+/// 后续对话从模型的回复开始，回复与用户消息交替，以用户消息结束，这样请求总是以待回答的用户消息收尾。
+fn valid_continuation(messages: &[ContinuationMessage]) -> bool {
+    messages.len() <= MAX_EXTRACT_CONTINUATION_MESSAGES
+        && messages.len() % 2 == 0
+        && messages.iter().map(|m| m.text.len()).sum::<usize>() <= MAX_EXTRACT_CONTINUATION_BYTES
+        && messages.iter().enumerate().all(|(index, message)| {
+            !message.text.trim().is_empty()
+                && message.role
+                    == if index % 2 == 0 {
+                        ContinuationRole::Assistant
+                    } else {
+                        ContinuationRole::User
+                    }
+        })
+}
 
 /// 在保留的前缀后追加 Core 的抽取指令并发送。请求照常经过 before_send/before_release 检查，沿用原请求里注入块的
 /// 绑定与位置；不再注入、不沉淀、不保留前缀。前缀不可用时返回 404，由 Core 回退到普通抽取。
@@ -189,6 +225,9 @@ pub async fn extract(
         || request.instruction.len() > MAX_EXTRACT_INSTRUCTION_BYTES
     {
         return error(StatusCode::BAD_REQUEST, "invalid_instruction");
+    }
+    if !valid_continuation(&request.continuation) {
+        return error(StatusCode::BAD_REQUEST, "invalid_continuation");
     }
     let Some(prefix) = state.executor.prefix(&request.handle, &state.default_scope) else {
         return error(StatusCode::NOT_FOUND, "prefix_unavailable");
@@ -245,8 +284,8 @@ pub async fn extract(
     }
 }
 
-/// 前缀请求：原始请求的 input 依次接上终止响应的输出（去掉 `id`/`status`，与客户端重放的形式一致）和 Core 的
-/// 指令。其余字段（工具、`prompt_cache_key`、推理设置等）不变，只把 `tool_choice` 设为 `none`、改为非流式，
+/// 前缀请求：原始请求的 input 依次接上终止响应的输出（去掉 `id`/`status`，与客户端重放的形式一致）、Core 的
+/// 指令和指令之后的对话。其余字段（工具、`prompt_cache_key`、推理设置等）不变，只把 `tool_choice` 设为 `none`、改为非流式，
 /// 并在 Core 给出时设置输出上限：这些字段不影响前缀缓存。
 fn prefixed_request(
     prefix: &pc_gateway_core::PrefixEntry,
@@ -267,6 +306,20 @@ fn prefixed_request(
         "role": "user",
         "content": [{"type": "input_text", "text": request.instruction}],
     }));
+    for message in &request.continuation {
+        input.push(match message.role {
+            ContinuationRole::Assistant => serde_json::json!({
+                "type": "message",
+                "role": "assistant",
+                "content": [{"type": "output_text", "text": message.text}],
+            }),
+            ContinuationRole::User => serde_json::json!({
+                "type": "message",
+                "role": "user",
+                "content": [{"type": "input_text", "text": message.text}],
+            }),
+        });
+    }
     body["tool_choice"] = "none".into();
     body["stream"] = false.into();
     if let Some(limit) = request.max_output_tokens {
@@ -1652,6 +1705,7 @@ pub(crate) mod tests {
         let request = ExtractRequest {
             handle: "h".into(),
             instruction: "Extract memories.".into(),
+            continuation: Vec::new(),
             max_output_tokens: Some(2000),
         };
         let extract = render_responses(&prefixed_request(&prefix, &request).unwrap());
@@ -1687,6 +1741,89 @@ pub(crate) mod tests {
             fields
         };
         assert_eq!(rest(&extract), rest(&sent));
+    }
+
+    fn continuation(messages: &[(&str, &str)]) -> Vec<ContinuationMessage> {
+        serde_json::from_value(serde_json::Value::Array(
+            messages
+                .iter()
+                .map(|(role, text)| serde_json::json!({"role": role, "text": text}))
+                .collect(),
+        ))
+        .unwrap()
+    }
+
+    #[test]
+    fn a_continued_extraction_request_extends_the_earlier_step_unchanged() {
+        let sent = render_responses(&codex_request(false));
+        let prefix = pc_gateway_core::PrefixEntry {
+            scope_id: "s".into(),
+            target_profile: "codex".into(),
+            conversation_id: "codex-thread:a".into(),
+            request_body: serde_json::to_vec(&sent).unwrap().into(),
+            response_output: vec![serde_json::json!({"id": "msg_1", "type": "message",
+                "role": "assistant", "status": "completed",
+                "content": [{"type": "output_text", "text": "done", "annotations": []}]})],
+            prepared_contexts: Vec::new(),
+        };
+        let step = |messages: &[(&str, &str)]| {
+            let request = ExtractRequest {
+                handle: "h".into(),
+                instruction: "List the memories.".into(),
+                continuation: continuation(messages),
+                max_output_tokens: None,
+            };
+            render_responses(&prefixed_request(&prefix, &request).unwrap())
+        };
+        let first = step(&[]);
+        let second = step(&[
+            ("assistant", "{\"items\":[]}"),
+            ("user", "Existing memories: none."),
+        ]);
+
+        let before = first["input"].as_array().unwrap();
+        let after = second["input"].as_array().unwrap();
+        assert_eq!(
+            after[..before.len()],
+            before[..],
+            "the first step is a prefix of the second"
+        );
+        assert_eq!(
+            after[before.len()..],
+            [
+                serde_json::json!({"type": "message", "role": "assistant",
+                    "content": [{"type": "output_text", "text": "{\"items\":[]}"}]}),
+                serde_json::json!({"role": "user",
+                    "content": [{"type": "input_text", "text": "Existing memories: none."}]}),
+            ]
+        );
+        let mut rest = (first.clone(), second.clone());
+        rest.0.as_object_mut().unwrap().remove("input");
+        rest.1.as_object_mut().unwrap().remove("input");
+        assert_eq!(rest.0, rest.1);
+    }
+
+    #[test]
+    fn a_continuation_alternates_from_a_reply_and_ends_with_a_user_message() {
+        assert!(valid_continuation(&continuation(&[])));
+        assert!(valid_continuation(&continuation(&[
+            ("assistant", "a"),
+            ("user", "b")
+        ])));
+        assert!(!valid_continuation(&continuation(&[("assistant", "a")])));
+        assert!(!valid_continuation(&continuation(&[
+            ("user", "a"),
+            ("assistant", "b")
+        ])));
+        assert!(!valid_continuation(&continuation(&[
+            ("assistant", "a"),
+            ("user", " ")
+        ])));
+        let long = "x".repeat(MAX_EXTRACT_CONTINUATION_BYTES);
+        assert!(!valid_continuation(&continuation(&[
+            ("assistant", &long),
+            ("user", "b")
+        ])));
     }
 
     #[test]

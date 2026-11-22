@@ -281,6 +281,19 @@ Each attempt is logged as `atomic_memory.prefixed_extraction`; see
 [Logs, metrics, and tracing](observability.md#operational-fields-and-correlation). Model usage, including cached input
 tokens, is reported like any other generation.
 
+With `POWERCONTEXT_SERVER_RUNTIME_ATOMIC_MEMORY_PROCESSING_MODE=one_pass`, the whole one-pass conversation of such a
+window runs after the prefix. The first request carries the one-pass instructions and the Source's provenance. Each
+later step sends the same instruction again with a `continuation`: the model's earlier replies and the Server's later
+messages, in order, which the gateway appends after the instruction. Every step therefore reads the prefix and the
+earlier steps from the prompt cache, and the conversation runs on the agent's target and account, not on the
+Server's generation model. The estimate compares the first two steps, which every window has: twice the cached input
+tokens at the cached rate plus the instruction and the final response's output tokens, against the same two steps
+with the Server sending the Source evidence itself. Because the prefix is read at every step, the prefix that still
+pays off is about half as long as for prefixed extraction. When any step cannot complete, or a reply still fails
+validation after the corrections the request limit allows, nothing of that conversation is kept and the window starts
+again as a normal one-pass conversation. A gateway that does not accept `continuation` rejects the second step, so
+such a window pays for one extra first step; upgrade the gateway together with the Server.
+
 ## Run with Docker
 
 Build the image from the repository root:

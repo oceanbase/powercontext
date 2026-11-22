@@ -36,6 +36,7 @@ from powercontext.builtin.artifacts.atomic_memory.extraction import (
     AtomicMemoryEvidence,
     AtomicMemoryExtractionInput,
     AtomicMemoryGenerationPipeline,
+    log_prefixed_extraction,
     project_atomic_memory_evidence,
     require_atomic_memory_pipeline,
 )
@@ -49,6 +50,12 @@ from powercontext.builtin.artifacts.atomic_memory.one_pass import (
     parse_one_pass_entries,
     render_existing_memories,
     render_recheck,
+)
+from powercontext.builtin.artifacts.atomic_memory.prefixed_extraction import (
+    PrefixedExtractionUnavailable,
+    prefix_handle,
+    prefix_start,
+    source_records,
 )
 from powercontext.builtin.artifacts.atomic_memory.reconciliation import (
     ATOMIC_MEMORY_RECONCILIATION_INSTRUCTIONS,
@@ -76,6 +83,7 @@ from powercontext.builtin.inference import (
     embed_query,
 )
 from powercontext.builtin.inference.models import ConversationReply, ConversationTurn
+from powercontext.builtin.inference.protocols import StructuredGenerator
 from powercontext.builtin.persistence.atomic_memory_index import (
     DEFAULT_ATOMIC_MEMORY_RELATED_PAGE_SIZE,
     AtomicMemoryIndexError,
@@ -661,19 +669,21 @@ class AtomicMemorySourceWindowProcessor:
             for prompt in (extraction_prompt, reconciliation_prompt)
             if prompt is not None and prompt.artifact is not None
         )
+        extraction_rules = (
+            pipeline.extraction_instructions if extraction_prompt is None else extraction_prompt.compiled_instructions
+        )
+        # The compiled reconciliation Prompt describes the per-candidate reply; only its Scope-owned text applies here.
+        guidance = (
+            reconciliation_prompt.instructions
+            if reconciliation_prompt is not None and reconciliation_prompt.selection == "artifact"
+            else None
+        )
+        metadata = None if extraction_prompt is None else extraction_prompt.trace_attributes()
         conversation = _OnePassConversation(
             pipeline,
-            one_pass_instructions(
-                pipeline.extraction_instructions
-                if extraction_prompt is None
-                else extraction_prompt.compiled_instructions,
-                # The compiled reconciliation Prompt describes the per-candidate reply; only its Scope-owned text
-                # applies here.
-                reconciliation_prompt.instructions
-                if reconciliation_prompt is not None and reconciliation_prompt.selection == "artifact"
-                else None,
-            ),
-            None if extraction_prompt is None else extraction_prompt.trace_attributes(),
+            pipeline.conversation,
+            one_pass_instructions(extraction_rules, guidance),
+            metadata,
             self.config.input_tokens_limit,
         )
         evidence = (
@@ -684,9 +694,42 @@ class AtomicMemorySourceWindowProcessor:
         if not conversation.fits(evidence):
             _log_one_pass("fallback", conversation, "entries_input_over_budget", conversation.estimate(evidence))
             return None
+
+        async def converse(conversation: _OnePassConversation, first: str):
+            return await self._converse_one_pass(
+                scope_id, eligible, context, conversation, first, extraction_input, prompt_refs, local_policy
+            )
+
+        if pipeline.prefixed_conversation is not None and prefix_handle(extraction_input) is not None:
+            # The agent's conversation already holds the evidence, so the first message only lists the Sources.
+            try:
+                prefixed = _OnePassConversation(
+                    pipeline,
+                    pipeline.prefixed_conversation,
+                    one_pass_instructions(extraction_rules, guidance, evidence_in_prefix=True),
+                    metadata,
+                    self.config.input_tokens_limit,
+                    (prefix_start(extraction_input, conversation.estimate(evidence)),),
+                )
+                prepared = await converse(prefixed, source_records(extraction_input.evidence))
+            except PrefixedExtractionUnavailable as error:
+                reason = error.reason
+            except InvalidInferenceOutputError:
+                reason = "invalid_output"
+            else:
+                log_prefixed_extraction("success", operation="atomic_memory.one_pass")
+                return prepared
+            # Nothing from the prefixed conversation was kept; the window starts again with its evidence sent by Core.
+            log_prefixed_extraction("fallback", reason, operation="atomic_memory.one_pass")
+        return await converse(conversation, evidence)
+
+    async def _converse_one_pass(
+        self, scope_id, eligible, context, conversation, first, extraction_input, prompt_refs, local_policy
+    ):
+        """Run the steps of one conversation whose first message is ``first``; ``None`` when step 2 is over budget."""
         workset = AtomicMemoryWindowWorkset()
         await self._authorize_model_input(scope_id, context, eligible, prompt_refs)
-        entries = await conversation.turn(evidence, parse_one_pass_entries)
+        entries = await conversation.turn(first, parse_one_pass_entries)
         await self._authorize_model_input(scope_id, context, eligible, prompt_refs)
 
         async def recall(query: str) -> tuple[str, ...]:
@@ -1305,9 +1348,12 @@ class _OnePassConversation:
     """
 
     pipeline: AtomicMemoryGenerationPipeline
+    generator: StructuredGenerator[ConversationTurn[Any], ConversationReply[Any]]
     instructions: str
     metadata: dict[str, str | int] | None
     input_tokens_limit: int
+    # The history the first turn continues; a prefixed conversation starts from the agent's prefix.
+    start: tuple[object, ...] = ()
 
     def estimate(self, message: str, previous: ConversationReply[Any] | None = None) -> int:
         transcript = () if previous is None else previous.transcript
@@ -1317,14 +1363,12 @@ class _OnePassConversation:
         return self.estimate(message, previous) <= self.input_tokens_limit
 
     async def turn(self, message, check, previous: ConversationReply[Any] | None = None):
-        generator = self.pipeline.conversation
-        assert generator is not None  # noqa: S101 - one-pass preparation requires it before the first turn
-        result = await generator.generate(
+        result = await self.generator.generate(
             ConversationTurn(
                 instructions=self.instructions,
                 message=message,
                 check=check,
-                history=() if previous is None else previous.history,
+                history=self.start if previous is None else previous.history,
                 metadata=self.metadata,
             )
         )
