@@ -18,7 +18,7 @@ limitations under the License.
 <section class="card mt-4">
   <div class="card-header d-flex flex-wrap align-items-center justify-content-between gap-2">
     <h2 class="card-title mb-0">{{ t.revision_history }}</h2>
-    {% if prompt_opened %}<a class="btn btn-sm" hx-swap="outerHTML show:none" href="{{ link('prompts', prompt_key=history.artifact_id, prompt_revision=none, compare=none, rollback_error=none, prompt_saved=none) }}">{{ t.prompt_return_editor }}</a>{% endif %}
+    {% if prompt_opened %}<a class="btn btn-sm" hx-swap="outerHTML show:none" href="{{ link('prompts', prompt_key=history.artifact_id, prompt_revision=none, compare=none, rollback_error=none, prompt_saved=none) }}">{{ t.prompt_return_editor if history.artifact_id == 'profile.generate' else t.prompt_return_current }}</a>{% endif %}
   </div>
   {% if prompt_opened %}
     <div class="card-body border-bottom" data-revision-preview>

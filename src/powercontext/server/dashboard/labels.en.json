@@ -728,5 +728,6 @@
   "prompt_revision_unavailable": "Selected revision unavailable",
   "revision_viewing": "Viewing",
   "prompt_return_editor": "Back to editor",
+  "prompt_return_current": "Back to current",
   "prompt_opened_auto_summary": "This revision uses Auto mode (built-in deployment defaults at runtime)."
 }

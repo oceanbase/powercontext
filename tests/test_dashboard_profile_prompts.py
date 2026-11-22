@@ -1567,3 +1567,57 @@ def test_save_compare_and_revision_preserve_scroll_position(dashboard: TestClien
             assert not errors
         finally:
             browser.close()
+
+
+def test_readonly_prompt_history_uses_back_to_current_label(dashboard: TestClient) -> None:
+    """Verify read-only prompt revisions label the return link 'Back to current' rather than 'Back to editor'."""
+    _set_prompt_registry(dashboard, supported=frozenset({"profile.generate", "experience.incubate"}))
+    scope = create_scope(dashboard, "Readonly prompt label")["scope_id"]
+    created = dashboard.post(
+        f"/v1/scopes/{scope}/artifacts",
+        json={
+            "family": "prompt",
+            "prompt_key": "experience.incubate",
+            "content": {
+                "schema_version": "powercontext.prompt.v1",
+                "mode": "custom",
+                "instructions": "Custom experience incubate instructions.",
+                "demonstrations": [],
+            },
+        },
+    )
+    assert created.status_code in (200, 201), created.text
+    for lang in ("en", "zh"):
+        labels = CATALOGS[lang]
+        page = dashboard.get(
+            "/dashboard/prompts",
+            params={"scope": scope, "prompt_key": "experience.incubate", "prompt_revision": "1", "lang": lang},
+        )
+        assert page.status_code == 200, page.text
+        assert labels["prompt_return_current"] in page.text
+        assert labels["prompt_return_editor"] not in page.text
+        assert "Custom experience incubate instructions." in page.text
+
+    profile_created = dashboard.post(
+        f"/v1/scopes/{scope}/artifacts",
+        json={
+            "family": "prompt",
+            "prompt_key": "profile.generate",
+            "content": {
+                "schema_version": "powercontext.prompt.v1",
+                "mode": "custom",
+                "instructions": "Custom profile generate instructions.",
+                "demonstrations": [],
+            },
+        },
+    )
+    assert profile_created.status_code in (200, 201), profile_created.text
+    for lang in ("en", "zh"):
+        labels = CATALOGS[lang]
+        page = dashboard.get(
+            "/dashboard/prompts",
+            params={"scope": scope, "prompt_key": "profile.generate", "prompt_revision": "1", "lang": lang},
+        )
+        assert page.status_code == 200, page.text
+        assert labels["prompt_return_editor"] in page.text
+        assert labels["prompt_return_current"] not in page.text

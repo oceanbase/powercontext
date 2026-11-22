@@ -728,5 +728,6 @@
   "prompt_revision_unavailable": "所选版本不可用",
   "revision_viewing": "查看中",
   "prompt_return_editor": "返回编辑当前配置",
+  "prompt_return_current": "返回当前配置",
   "prompt_opened_auto_summary": "该版本为自动模式，运行时使用部署内置的默认指令。"
 }
