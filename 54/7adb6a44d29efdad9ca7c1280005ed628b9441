@@ -1,0 +1,29 @@
+src/powercontext/builtin/inference/responses_stream.py
+  s_6a2bddf5f4af27::t_1a2a06e80ffb2e 52,64-70,72-78,81-94,100-131,189-192,233
+  s_6a2bddf5f4af27::t_72852488053d52 95-99
+tests/builtin/inference/test_protected_responses_stream.py
+  s_6a2bddf5f4af27::t_acb15132a408f5 875-886,888-893,895-900,902-910
+  s_6a2bddf5f4af27::t_e0e3127e2d779a 742-744,751-754,760,775-794
+  s_6a2bddf5f4af27::t_1a2a06e80ffb2e 746-750,755-759,761-774,800-813
+  s_6a2bddf5f4af27::t_f50cf1090072d8 745
+  s_6a2bddf5f4af27::t_fdd3c541f21b62 852-858,864,866-867,869-873,911-922,928-931,944-955
+  s_6a2bddf5f4af27::t_ed25c211aa4cf5 795-799,814-847
+  s_6a2bddf5f4af27::t_72852488053d52 923-927,932-943
+  s_6a2bddf5f4af27::t_8f6545f4984419 848-851,859-863,865,868,874,887,894,901
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "547adb6a44d29efdad9ca7c1280005ed628b9441",
+  "prompts": {},
+  "sessions": {
+    "s_6a2bddf5f4af27": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1c45c-bac8-7d52-8be4-c694d60c4b0b",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "frf12 <rongfeng.frf@antgroup.com>"
+    }
+  }
+}
