@@ -190,32 +190,34 @@ pub async fn extract(
     {
         return error(StatusCode::BAD_REQUEST, "invalid_instruction");
     }
+    // Codex 订阅端点拒绝 `max_output_tokens`：调用方要求的上限无法生效，明确拒绝而不是忽略它。
+    if request.max_output_tokens.is_some()
+        && state.subscription.as_ref().map(|auth| auth.kind())
+            == Some(pc_gateway_auth::Subscription::Codex)
+    {
+        return error(StatusCode::BAD_REQUEST, "output_limit_unsupported");
+    }
     let Some(prefix) = state.executor.prefix(&request.handle, &state.default_scope) else {
         return error(StatusCode::NOT_FOUND, "prefix_unavailable");
     };
     if prefix.target_profile != state.upstream_profile {
         return error(StatusCode::CONFLICT, "target_mismatch");
     }
-    // Codex 订阅端点拒绝 `max_output_tokens`，抽取请求不带输出上限。
-    let output_limit = state.subscription.as_ref().map(|auth| auth.kind())
-        != Some(pc_gateway_auth::Subscription::Codex);
-    let canonical = prefixed_request(&prefix, &request, output_limit)
+    let canonical = prefixed_request(&prefix, &request)
         .and_then(|body| serde_json::from_value::<OpenAiResponsesRequest>(body).ok())
         .and_then(|parsed| to_canonical_responses(parsed).ok());
     let Some(canonical) = canonical else {
         return error(StatusCode::INTERNAL_SERVER_ERROR, "prefix_invalid");
     };
-    let Some((target_url, renderer, upstream_headers)) =
-        upstream_channel(&state, &Format::Responses).await
-    else {
-        return error(StatusCode::BAD_GATEWAY, "subscription_auth_failed");
+    let Ok(channel) = upstream_channel(&state, &Format::Responses).await else {
+        return subscription_auth_failed();
     };
     let call = ManagedCall {
         scope_id: state.default_scope.clone(),
         target_profile: state.upstream_profile.clone(),
         request: canonical,
-        target_url,
-        headers: upstream_headers,
+        target_url: channel.target_url,
+        headers: channel.headers,
         degrade_policy: pc_gateway_core::DegradePolicy::Pause,
         inject_context: false,
         include_code: false,
@@ -234,17 +236,15 @@ pub async fn extract(
     };
     match state
         .executor
-        .run(control, call, &renderer, state.evidence.as_ref())
+        .run(control, call, &channel.renderer, state.evidence.as_ref())
         .await
     {
         ManagedOutcome::Released { status, body, .. } if (200..300).contains(&status) => {
             match serde_json::from_slice::<serde_json::Value>(&body) {
-                Ok(response) => Json(serde_json::json!({
-                    "text": responses_output_text(&response),
-                    "usage": response.get("usage").cloned().unwrap_or(serde_json::Value::Null),
-                    "model": response.get("model").cloned().unwrap_or(serde_json::Value::Null),
-                }))
-                .into_response(),
+                Ok(response) => match extraction_reply(&response) {
+                    Ok(reply) => Json(reply).into_response(),
+                    Err(failure) => (StatusCode::BAD_GATEWAY, Json(failure)).into_response(),
+                },
                 Err(_) => error(StatusCode::BAD_GATEWAY, "invalid_upstream_response"),
             }
         }
@@ -252,13 +252,30 @@ pub async fn extract(
     }
 }
 
+/// 抽取的回复。订阅通道把流折叠成终止响应，失败的响应因此也以 200 到达：按响应状态区分，失败时返回供应商的
+/// 错误对象，与上游直接以错误状态码返回时的形式一致。
+fn extraction_reply(response: &serde_json::Value) -> Result<serde_json::Value, serde_json::Value> {
+    let error = response.get("error").filter(|error| !error.is_null());
+    if error.is_some() || matches!(response["status"].as_str(), Some("failed" | "cancelled")) {
+        let error = error
+            .filter(|error| error.is_object())
+            .cloned()
+            .unwrap_or_else(|| serde_json::json!({"code": "response_failed"}));
+        return Err(serde_json::json!({ "error": error }));
+    }
+    Ok(serde_json::json!({
+        "text": responses_output_text(response),
+        "usage": response.get("usage").cloned().unwrap_or(serde_json::Value::Null),
+        "model": response.get("model").cloned().unwrap_or(serde_json::Value::Null),
+    }))
+}
+
 /// 前缀请求：原始请求的 input 依次接上终止响应的输出（去掉 `id`/`status`，与客户端重放的形式一致）和 Core 的
 /// 指令。其余字段（工具、`prompt_cache_key`、推理设置等）不变，只把 `tool_choice` 设为 `none`、改为非流式，
-/// 并在 Core 给出且上游接受（`output_limit`）时设置输出上限：这些字段不影响前缀缓存。
+/// 并在 Core 给出时设置输出上限：这些字段不影响前缀缓存。
 fn prefixed_request(
     prefix: &pc_gateway_core::PrefixEntry,
     request: &ExtractRequest,
-    output_limit: bool,
 ) -> Option<serde_json::Value> {
     let mut body: serde_json::Value = serde_json::from_slice(&prefix.request_body).ok()?;
     let input = body.get_mut("input")?.as_array_mut()?;
@@ -277,7 +294,7 @@ fn prefixed_request(
     }));
     body["tool_choice"] = "none".into();
     body["stream"] = false.into();
-    if let Some(limit) = request.max_output_tokens.filter(|_| output_limit) {
+    if let Some(limit) = request.max_output_tokens {
         body["max_output_tokens"] = limit.into();
     }
     Some(body)
@@ -505,13 +522,13 @@ async fn ingress_model(
         )
             .into_response();
     }
-    let Some((target_url, renderer, upstream_headers)) = upstream_channel(&state, &format).await
+    let Ok(UpstreamChannel {
+        target_url,
+        renderer,
+        headers: upstream_headers,
+    }) = upstream_channel(&state, &format).await
     else {
-        return (
-            StatusCode::BAD_GATEWAY,
-            Json(serde_json::json!({"error":"subscription_auth_failed"})),
-        )
-            .into_response();
+        return subscription_auth_failed();
     };
 
     let conversation = conversation_id(&headers, &format);
@@ -875,16 +892,17 @@ const CLAUDE_CODE_AGENT_HEADER: &str = "x-claude-code-agent-id";
 const OPENCODE_SESSION_HEADER: &str = "x-opencode-session-id";
 const CODEX_THREAD_ID_HEADER: &str = "thread-id";
 
-/// 路由的上游地址、订阅改写和凭据。模型入口与前缀抽取共用，抽取请求因此以原请求的形式发往同一账号。
-/// 订阅凭据不可用时返回 `None`。
+/// 路由的上游地址、订阅改写和凭据。模型入口与前缀抽取共用，抽取请求因此以原请求的形式和凭据发出。
+struct UpstreamChannel {
+    target_url: String,
+    renderer: pc_gateway_protocol::SubscriptionRenderer,
+    headers: Vec<(String, String)>,
+}
+
 async fn upstream_channel(
     state: &AppState,
     format: &Format,
-) -> Option<(
-    String,
-    pc_gateway_protocol::SubscriptionRenderer,
-    Vec<(String, String)>,
-)> {
+) -> Result<UpstreamChannel, pc_gateway_auth::AuthError> {
     let subscription_kind = state.subscription.as_ref().map(|auth| auth.kind());
     let mut renderer = pc_gateway_protocol::SubscriptionRenderer {
         inner: match format {
@@ -919,12 +937,12 @@ async fn upstream_channel(
             .map(|v| v.as_secs() as i64)
             .unwrap_or(0);
         if auth.kind() == pc_gateway_auth::Subscription::Gemini {
-            let (headers, project) = auth.gemini_context(&target_url, now).await.ok()?;
+            let (headers, project) = auth.gemini_context(&target_url, now).await?;
             renderer.subscription =
                 Some(pc_gateway_protocol::SubscriptionProtocol::Gemini { project });
             headers
         } else {
-            auth.headers(&target_url, now).await.ok()?
+            auth.headers(&target_url, now).await?
         }
     } else {
         bearer_headers(match format {
@@ -932,7 +950,19 @@ async fn upstream_channel(
             Format::Responses => &state.upstream_responses_api_key,
         })
     };
-    Some((target_url, renderer, headers))
+    Ok(UpstreamChannel {
+        target_url,
+        renderer,
+        headers,
+    })
+}
+
+fn subscription_auth_failed() -> Response {
+    (
+        StatusCode::BAD_GATEWAY,
+        Json(serde_json::json!({"error":"subscription_auth_failed"})),
+    )
+        .into_response()
 }
 
 fn bearer_headers(key: &str) -> Vec<(String, String)> {
@@ -1672,7 +1702,7 @@ pub(crate) mod tests {
             instruction: "Extract memories.".into(),
             max_output_tokens: Some(2000),
         };
-        let extract = render_responses(&prefixed_request(&prefix, &request, true).unwrap());
+        let extract = render_responses(&prefixed_request(&prefix, &request).unwrap());
 
         let before = sent["input"].as_array().unwrap();
         let after = extract["input"].as_array().unwrap();
@@ -1707,21 +1737,90 @@ pub(crate) mod tests {
         assert_eq!(rest(&extract), rest(&sent));
     }
 
-    #[test]
-    fn a_codex_subscription_extraction_request_keeps_the_subscription_form() {
+    /// 使用 Codex 订阅的网关状态；凭据文件是合成的，测试不发出网络请求。
+    fn codex_subscription_state(name: &str) -> (Arc<AppState>, std::path::PathBuf) {
+        use pc_gateway_core::{Executor, HttpGateClient};
+        let path = std::env::temp_dir().join(format!(
+            "pc-gateway-codex-auth-{}-{name}.json",
+            std::process::id()
+        ));
+        std::fs::write(
+            &path,
+            r#"{"auth_mode":"chatgpt","tokens":{"access_token":"SYNTHETIC_SUBSCRIPTION_TOKEN","account_id":"acct-1"}}"#,
+        )
+        .unwrap();
+        let state = Arc::new(AppState {
+            executor: Arc::new(Executor::new(
+                crate::link::CoreLink::Http(HttpGateClient::with_token("http://127.0.0.1:9", None)),
+                pc_gateway_transport::GatewayTransport::new(
+                    pc_gateway_transport::ReqwestTransport::new(std::time::Duration::from_secs(1)),
+                ),
+                std::num::NonZeroU32::new(1).unwrap(),
+            )),
+            evidence: Arc::new(pc_gateway_evidence::NoopEvidenceSink),
+            upstream_profile: "test".into(),
+            upstream_chat: String::new(),
+            upstream_responses: "https://chatgpt.com/backend-api/codex/responses".into(),
+            upstream_chat_api_key: String::new(),
+            upstream_responses_api_key: "SYNTHETIC_STATIC_KEY".into(),
+            subscription: Some(
+                pc_gateway_auth::SubscriptionAuth::new(
+                    pc_gateway_auth::Subscription::Codex,
+                    path.clone(),
+                )
+                .unwrap(),
+            ),
+            api_key: None,
+            degrade: pc_gateway_core::DegradePolicy::Pause,
+            injection: Injection::Off,
+            inject_responses: false,
+            inject_code: false,
+            sediment: false,
+            steering: None,
+            prefix_extraction: true,
+            default_scope: "test".into(),
+            max_body_bytes: 1024 * 1024,
+            degradation_allowed: true,
+        });
+        (state, path)
+    }
+
+    #[tokio::test]
+    async fn the_extraction_channel_of_a_codex_subscription_carries_its_credentials_and_form() {
         use pc_gateway_protocol::WireRenderer;
-        let renderer = pc_gateway_protocol::SubscriptionRenderer {
-            inner: pc_gateway_protocol::GatewayRenderer::Responses(Default::default()),
-            subscription: Some(pc_gateway_protocol::SubscriptionProtocol::Codex),
+        let (state, path) = codex_subscription_state("channel");
+        let channel = upstream_channel(&state, &Format::Responses).await;
+        std::fs::remove_file(&path).unwrap();
+        let channel = channel.unwrap();
+
+        assert_eq!(
+            channel.target_url,
+            "https://chatgpt.com/backend-api/codex/responses"
+        );
+        let header = |name: &str| {
+            channel
+                .headers
+                .iter()
+                .find(|(key, _)| key.eq_ignore_ascii_case(name))
+                .map(|(_, value)| value.as_str())
         };
-        let render = |body: &serde_json::Value| -> serde_json::Value {
-            let parsed: OpenAiResponsesRequest = serde_json::from_value(body.clone()).unwrap();
-            let payload = renderer
+        // 订阅的令牌和账号，而不是静态的上游 key。
+        assert_eq!(
+            header("authorization"),
+            Some("Bearer SYNTHETIC_SUBSCRIPTION_TOKEN")
+        );
+        assert_eq!(header("chatgpt-account-id"), Some("acct-1"));
+
+        // 抽取请求以订阅的形式发出，其余字段与保留的请求一致。
+        let render = |body: serde_json::Value| -> serde_json::Value {
+            let parsed: OpenAiResponsesRequest = serde_json::from_value(body).unwrap();
+            let payload = channel
+                .renderer
                 .render(&to_canonical_responses(parsed).unwrap(), None)
                 .unwrap();
             serde_json::from_slice(&payload.bytes).unwrap()
         };
-        let sent = render(&codex_request(true));
+        let sent = render(codex_request(true));
         let prefix = pc_gateway_core::PrefixEntry {
             scope_id: "s".into(),
             target_profile: "codex".into(),
@@ -1733,18 +1832,11 @@ pub(crate) mod tests {
         let request = ExtractRequest {
             handle: "h".into(),
             instruction: "Extract memories.".into(),
-            max_output_tokens: Some(2000),
+            max_output_tokens: None,
         };
-        // 订阅端点拒绝输出上限；带着它时请求在发送前就被渲染器拒绝。
-        let parsed: OpenAiResponsesRequest =
-            serde_json::from_value(prefixed_request(&prefix, &request, true).unwrap()).unwrap();
-        assert!(renderer
-            .render(&to_canonical_responses(parsed).unwrap(), None)
-            .is_err());
-
-        let extract = render(&prefixed_request(&prefix, &request, false).unwrap());
-        assert!(extract.get("max_output_tokens").is_none());
+        let extract = render(prefixed_request(&prefix, &request).unwrap());
         assert_eq!(extract["stream"], true);
+        assert_eq!(extract["store"], false);
         assert_eq!(extract["tool_choice"], "none");
         let rest = |body: &serde_json::Value| {
             let mut fields = body.as_object().unwrap().clone();
@@ -1758,6 +1850,71 @@ pub(crate) mod tests {
         assert_eq!(
             extract["input"].as_array().unwrap()[..before.len()],
             before[..]
+        );
+    }
+
+    #[tokio::test]
+    async fn unreadable_subscription_credentials_fail_the_extraction_channel() {
+        let (state, path) = codex_subscription_state("missing");
+        std::fs::remove_file(&path).unwrap();
+        assert!(upstream_channel(&state, &Format::Responses).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn a_codex_subscription_rejects_an_extraction_output_limit() {
+        use tower::ServiceExt;
+        let (state, path) = codex_subscription_state("limit");
+        std::fs::remove_file(&path).unwrap();
+        let router = crate::router(state, crate::proxy::ProxyState::from_env());
+        let response = router
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/gateway/v1/extract")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(axum::body::Body::from(
+                        r#"{"handle":"h","instruction":"Extract memories.","max_output_tokens":2000}"#,
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let body = axum::body::to_bytes(response.into_body(), 4096)
+            .await
+            .unwrap();
+        let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(body["error"], "output_limit_unsupported");
+    }
+
+    #[test]
+    fn a_failed_terminal_response_is_an_extraction_error() {
+        let completed = serde_json::json!({
+            "status": "completed", "model": "m", "usage": {"input_tokens": 3},
+            "output": [{"type": "message", "role": "assistant",
+                "content": [{"type": "output_text", "text": "{}"}]}]
+        });
+        assert_eq!(
+            extraction_reply(&completed),
+            Ok(serde_json::json!({"text": "{}", "usage": {"input_tokens": 3}, "model": "m"}))
+        );
+        // 被截断的响应仍交给 Core 校验，与上游以 200 返回它时一致。
+        let incomplete = serde_json::json!({"status": "incomplete", "output": [],
+            "incomplete_details": {"reason": "max_output_tokens"}});
+        assert!(extraction_reply(&incomplete).is_ok());
+
+        let failed = serde_json::json!({"status": "failed", "output": [],
+            "error": {"code": "server_error", "message": "upstream failed"}});
+        assert_eq!(
+            extraction_reply(&failed),
+            Err(
+                serde_json::json!({"error": {"code": "server_error", "message": "upstream failed"}})
+            )
+        );
+        let cancelled = serde_json::json!({"status": "cancelled", "output": []});
+        assert_eq!(
+            extraction_reply(&cancelled),
+            Err(serde_json::json!({"error": {"code": "response_failed"}}))
         );
     }
 

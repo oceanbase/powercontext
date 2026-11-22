@@ -221,7 +221,7 @@ These are per-body and per-class concurrency limits. They do not measure retaine
 ### Memory extraction over the cached prefix
 
 When the gateway runs on the same host as the Server, Atomic Memory extraction for a captured turn can reuse the
-provider's prompt cache for the agent's conversation instead of sending the transcript again. With an OAuth subscription, only `codex` supports it: the extraction request goes to the subscription account like the agent's own requests and carries no output limit, which that endpoint rejects; traffic of the other subscriptions uses normal extraction. Prefix extraction is off by default and needs both sides:
+provider's prompt cache for the agent's conversation instead of sending the transcript again. With an OAuth subscription, only `codex` supports it, and only when the Server is not enforcing: the extraction request goes out with the subscription's credentials like the agent's own requests, counts against that account's usage limits, and cannot carry an output limit, which that endpoint rejects. Traffic of the other subscriptions uses normal extraction. Prefix extraction is off by default and needs both sides:
 
 - **Gateway:** `PC_GATEWAY_PREFIX_EXTRACTION=on` together with capture (`PC_GATEWAY_SEDIMENT=on`). For a Responses
   conversation, the gateway keeps the exact request it sent and the response output of each turn's final response in
