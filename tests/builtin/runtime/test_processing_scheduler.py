@@ -273,11 +273,15 @@ def test_success_without_durable_acknowledgement_is_a_failure_and_retries(tmp_pa
         async with _profile(tmp_path, "no-ack") as profile:
             await _request(profile.database, "memory-binding", "scope")
             attempts = 0
+            allow_retry_acknowledgement = asyncio.Event()
 
             async def forget_once(_work):
                 nonlocal attempts
                 attempts += 1
-                return ArtifactProcessingWorkerCompletion() if attempts == 1 else None
+                if attempts == 1:
+                    return ArtifactProcessingWorkerCompletion()
+                # Keep the failed attempt observable even after its retry starts.
+                await allow_retry_acknowledgement.wait()
 
             launcher = _Launcher(profile.database, on_work=forget_once)
             async with ArtifactProcessingSupervisor(
@@ -289,7 +293,10 @@ def test_success_without_durable_acknowledgement_is_a_failure_and_retries(tmp_pa
                 retry_jitter=lambda: 1,
             ) as supervisor:
                 await _wait(lambda: supervisor.family_status["memory"]["failed"] == 1)
+                await _wait(lambda: attempts == 2)
+                assert supervisor.family_status["memory"]["completed"] == 0
                 assert (await _intent(profile.database, "memory-binding", "scope")).handled_generation == 0
+                allow_retry_acknowledgement.set()
                 await _wait(lambda: supervisor.family_status["memory"]["completed"] == 1)
                 assert attempts == 2
                 assert (await _intent(profile.database, "memory-binding", "scope")).handled_generation == 1
@@ -301,6 +308,8 @@ def test_retry_backoff_is_quiet_and_failure_does_not_starve_other_scopes(tmp_pat
     monkeypatch.setattr(processing, "_DISCOVERY_PAGE_SIZE", 2)
 
     async def scenario():
+        clock = _SchedulerClock(monkeypatch)
+        retry_delay = 1
         async with _profile(tmp_path, "fair-retry") as profile:
             for scope in ("bad", "a", "b", "c", "d", "e"):
                 await _request(profile.database, "memory-binding", scope)
@@ -310,19 +319,33 @@ def test_retry_backoff_is_quiet_and_failure_does_not_starve_other_scopes(tmp_pat
                     raise RuntimeError
 
             launcher = _Launcher(profile.database, on_work=fail_bad)
+            observed = _ObservedIntents()
             async with _CycleSupervisor(
                 database=profile.database,
                 bindings=(ArtifactProcessingBinding("memory-binding", "memory", launcher),),
                 lease_mode="single-process",
-                retry_base_seconds=1,
-                retry_cap_seconds=1,
-                retry_jitter=lambda: 1,
+                intents=observed,
+                retry_base_seconds=retry_delay,
+                retry_cap_seconds=retry_delay,
+                retry_jitter=clock.retry_jitter,
+                pending_observation_interval_seconds=30,
             ) as supervisor:
-                await _wait(lambda: supervisor.family_status["memory"]["completed"] == 5)
+                await clock.settle_before(0.5, lambda: supervisor.family_status["memory"]["completed"] == 5)
                 assert Counter(work.scope_id for work in launcher.assignments)["bad"] == 1
+                retry_at = clock.retry_times[0] + retry_delay
                 before = supervisor.cycles
+                scans = list(observed.scans)
+                await clock.settle_before(retry_at - 0.1, lambda: True)
+                clock.advance_to(retry_at - 0.1)
                 await asyncio.sleep(0.1)
                 assert supervisor.cycles - before <= 2
+                assert observed.scans == scans
+                assert Counter(work.scope_id for work in launcher.assignments)["bad"] == 1
+                assert (await _intent(profile.database, "memory-binding", "bad")).handled_generation == 0
+                clock.advance_to(retry_at)
+                await _wait(lambda: supervisor.family_status["memory"]["failed"] == 2)
+                assert Counter(work.scope_id for work in launcher.assignments)["bad"] == 2
+                assert supervisor.family_status["memory"]["completed"] == 5
                 assert (await _intent(profile.database, "memory-binding", "bad")).handled_generation == 0
 
     asyncio.run(scenario())
@@ -768,10 +791,14 @@ def test_terminal_cache_overflow_does_not_launch_blocked_workers_or_starve_healt
 
 
 @pytest.mark.parametrize("error_type", [OSError, TimeoutError])
-def test_work_admission_error_isolates_one_scope_and_preserves_transient_backoff(tmp_path, caplog, error_type):
+def test_work_admission_error_isolates_one_scope_and_preserves_transient_backoff(
+    tmp_path, caplog, monkeypatch, error_type
+):
     caplog.set_level(logging.ERROR, logger=processing.__name__)
 
     async def scenario():
+        clock = _SchedulerClock(monkeypatch)
+        retry_delay = 1
         async with _profile(tmp_path, "admission-error") as profile:
             await _request(profile.database, "topic-binding", "bad")
             await _request(profile.database, "topic-binding", "healthy")
@@ -786,17 +813,28 @@ def test_work_admission_error_isolates_one_scope_and_preserves_transient_backoff
                 database=profile.database,
                 bindings=(ArtifactProcessingBinding("topic-binding", "topic-memory", launcher, work_block=check),),
                 lease_mode="single-process",
-                retry_base_seconds=1,
-                retry_jitter=lambda: 1,
+                retry_base_seconds=retry_delay,
+                retry_jitter=clock.retry_jitter,
             ) as supervisor:
-                await _wait(lambda: supervisor.family_status["topic-memory"]["completed"] == 1)
+                await clock.settle_before(0.5, lambda: supervisor.family_status["topic-memory"]["completed"] == 1)
                 await _request(profile.database, "topic-binding", "bad", dirty=False)
+                previous_wait = clock.waiting
                 supervisor.wake("topic-binding")
+                await _wait(lambda: clock.waiting is not previous_wait)
+                retry_at = clock.retry_times[0] + retry_delay
+                await clock.settle_before(retry_at - 0.1, lambda: True)
+                clock.advance_to(retry_at - 0.1)
                 await asyncio.sleep(0.1)
                 assert [a.scope_id for a in launcher.assignments] == ["healthy"]
                 assert supervisor.status is processing.ArtifactProcessingSupervisorStatus.LEADER
                 records = [r for r in caplog.records if getattr(r, "stage", None) == "work_admission"]
                 assert len(records) == 1 and records[0].scope == "bad"
+                assert (await _intent(profile.database, "topic-binding", "bad")).handled_generation == 0
+                clock.advance_to(retry_at)
+                await _wait(
+                    lambda: len([r for r in caplog.records if getattr(r, "stage", None) == "work_admission"]) == 2
+                )
+                assert [a.scope_id for a in launcher.assignments] == ["healthy"]
                 assert (await _intent(profile.database, "topic-binding", "bad")).handled_generation == 0
 
     asyncio.run(scenario())
@@ -844,7 +882,6 @@ def test_slow_admission_page_does_not_monopolize_other_families(tmp_path, caplog
 @pytest.mark.parametrize("failure", ["io", "timeout", "deadline"])
 def test_blocked_recheck_errors_preserve_spacing_diagnostics_and_explicit_wakes(tmp_path, monkeypatch, caplog, failure):
     caplog.set_level(logging.WARNING, logger=processing.__name__)
-    monkeypatch.setattr(processing, "_DISCOVERY_TIMEOUT_SECONDS", 0.3)
     monkeypatch.setattr(processing, "_ADMISSION_PROBE_TIMEOUT_SECONDS", 0.3)
 
     async def scenario():

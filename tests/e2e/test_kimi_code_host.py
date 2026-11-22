@@ -247,11 +247,11 @@ class ModelHandler(BaseHTTPRequestHandler):
 
 @contextmanager
 def serving(app, *, startup_diagnostic: Path | None = None):
-    with socket.socket() as probe:
-        probe.bind(("127.0.0.1", 0))
-        port = probe.getsockname()[1]
+    listener = socket.socket()
+    listener.bind(("127.0.0.1", 0))
+    port = listener.getsockname()[1]
     server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port, log_level="error"))
-    thread = threading.Thread(target=server.run, daemon=True)
+    thread = threading.Thread(target=server.run, kwargs={"sockets": [listener]}, daemon=True)
     thread.start()
     failure = None
     try:
@@ -283,6 +283,8 @@ def serving(app, *, startup_diagnostic: Path | None = None):
     finally:
         server.should_exit = True
         thread.join(timeout=10)
+        if not thread.is_alive():
+            listener.close()
         if failure is not None and startup_diagnostic is not None:
             failure["thread_alive_after_shutdown"] = thread.is_alive()
             startup_diagnostic.write_text(json.dumps(failure, indent=2) + "\n", encoding="utf-8")

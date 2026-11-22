@@ -38,10 +38,12 @@ jieba 或 maturin。先安装完整 `server`/`ops` extra 会在固定构建器�
 单独记录，不能与被打包的 Server 源提交混为一谈。`matches_committed_files=false` 表示执行了工作区中的生产器，不能称为已提交的发布构建器。
 
 运行依赖从该源提交锁定的 `ops` 与 `cli` extra 导出；`ops` 已包含 `server`。准备阶段按固定解释器的真实 wheel 标签和环境标记选择
-兼容产物，再核对原始 `uv.lock` 中的大小和摘要。只有 `jieba==0.42.1` 可以使用锁定的 sdist，因为它没有上游 wheel。准备脚本先核对源码
-摘要，再用 `scripts/managed_resource_build_tools.json` 中完整固定版本与摘要的工具闭包构建，不启用构建隔离，也不允许构建后端额外下载依赖。
-项目 wheel 是另一个明确的源码构建；Intel macOS 还对精确锁定的 `cryptography==50.0.0` 使用下述专门源码构建路径。
-其他没有兼容 wheel 的依赖会明确失败，不会自动放开源码编译。
+兼容产物，再核对原始 `uv.lock` 中的大小和摘要。没有兼容 wheel 时，可使用 `scripts/managed_resource_build_tools.json` 中完整固定版本与
+摘要的工具闭包构建锁定的 sdist。先核对源码身份与摘要；构建不使用包索引或构建隔离，也不安装后端依赖。缺少后端或后端不兼容时，
+构建会失败，不会额外下载工具。这条路径支持与固定构建环境兼容的源码，包括 `jieba`，不以包名或版本白名单限制；它不保证任意后端或
+原生编译都可用。项目 wheel 也从固定源码构建。Intel macOS cryptography 保留下述专用原生配方，接受的包名与版本从
+`scripts/managed_resource_intel_build.json` 读取；不兼容的版本需要显式更新配方。所有生成 wheel 的包名与版本必须匹配选定的锁定依赖和
+请求的项目版本，随后才在 `requirements.lock` 中冻结精确版本与各 wheel 的摘要。
 
 准备阶段可以联网。最终资源生产只安装冻结的 `requirements.lock` 与 wheelhouse，使用离线、仅 wheel 和强制摘要校验。固定工具输入并不
 保证任意主机/工具链上的源码构建都产生相同字节，因此必须保留实际 wheel 及摘要。相同冻结输入的重复资源生产必须生成相同归档和清单。

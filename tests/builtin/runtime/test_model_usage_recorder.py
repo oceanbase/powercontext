@@ -101,7 +101,10 @@ def test_flush_persists_copied_usage_with_unknown_tokens_and_original_date(tmp_p
     async def scenario() -> None:
         config = SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'usage.db'}") if file_backed else SQLiteConfig()
         async with _database(config) as database:
-            recorder = _ModelUsageRecorder(database, StatisticsRepository())
+            # Exact copied counts need write/flush time; separate tests cover deadline-driven drops.
+            recorder = _ModelUsageRecorder(
+                database, StatisticsRepository(), write_timeout_seconds=5.0, flush_timeout_seconds=10.0
+            )
             try:
                 usage = InferenceUsage(
                     requests=2,
@@ -159,7 +162,9 @@ def test_backlogged_usage_coalesces_without_losing_known_token_subtotals() -> No
                     writes += 1
 
             event.listen(database.engine.sync_engine, "before_cursor_execute", observe_write)
-            recorder = _ModelUsageRecorder(database, StatisticsRepository(), flush_timeout_seconds=5)
+            recorder = _ModelUsageRecorder(
+                database, StatisticsRepository(), write_timeout_seconds=5.0, flush_timeout_seconds=5
+            )
             try:
                 for _ in range(40):
                     _offer(recorder, InferenceUsage(requests=1, input_tokens=3, output_tokens=5))
@@ -1178,14 +1183,46 @@ class _BlockingNativeRepository(StatisticsRepository):
         await super().record(connection, scope_id, usage_date, purpose, operation, usage)
 
 
-def test_uninterruptible_native_call_keeps_connection_owned_until_real_cleanup() -> None:
+def test_uninterruptible_native_call_keeps_connection_owned_until_real_cleanup(monkeypatch: pytest.MonkeyPatch) -> None:
     async def scenario() -> None:
         async with _database(SQLiteConfig(busy_timeout_ms=137)) as database:
             repository = _BlockingNativeRepository()
-            recorder = _ModelUsageRecorder(database, repository, write_timeout_seconds=0.03, flush_timeout_seconds=0.02)
+            loop = asyncio.get_running_loop()
+            native_interrupted = asyncio.Event()
+            interrupted_while_blocked: list[bool] = []
+            call_at = loop.call_at
+
+            def observe_native_interrupt(when, callback, *args, **kwargs):
+                if getattr(callback, "__name__", None) == "interrupt" and isinstance(
+                    getattr(callback, "__self__", None), sqlite3.Connection
+                ):
+
+                    def interrupt() -> None:
+                        interrupted_while_blocked.append(
+                            repository.entered.is_set() and not repository.release.is_set()
+                        )
+                        callback(*args)
+                        native_interrupted.set()
+
+                    return call_at(when, interrupt, **kwargs)
+                return call_at(when, callback, *args, **kwargs)
+
+            monkeypatch.setattr(loop, "call_at", observe_native_interrupt)
+            # Let checkout and SQLite setup finish before exercising expiration
+            # inside the native call. The recorder still schedules the real
+            # interrupt; the observer neither reschedules nor invokes it early.
+            write_timeout_seconds = 30.0
+            recorder = _ModelUsageRecorder(
+                database, repository, write_timeout_seconds=write_timeout_seconds, flush_timeout_seconds=0.02
+            )
             try:
                 _offer(recorder)
-                assert await asyncio.to_thread(repository.entered.wait, 1)
+                assert await asyncio.to_thread(repository.entered.wait, 10)
+                await asyncio.wait_for(native_interrupted.wait(), write_timeout_seconds)
+                assert interrupted_while_blocked and all(interrupted_while_blocked)
+                # The already-running attempt owns its original deadline. Keep
+                # the short shutdown window after observing its real expiry.
+                recorder._write_timeout_seconds = 0.03
                 await recorder.close()
                 # sqlite3_interrupt cannot preempt a native user-defined
                 # function. Do not report cancellation or reuse the connection.
@@ -1194,7 +1231,9 @@ def test_uninterruptible_native_call_keeps_connection_owned_until_real_cleanup()
                 await asyncio.sleep(0)
                 assert not reader.done()
                 repository.release.set()
-                await asyncio.wait_for(reader, 1)
+                # This observes healthy cleanup after release, not the short
+                # write/close failure budgets exercised while the call is held.
+                await asyncio.wait_for(reader, 10)
                 await recorder.close()
                 assert recorder._consumer.done()
                 assert await _rows(database) == ()
@@ -1209,7 +1248,9 @@ def test_uninterruptible_native_call_keeps_connection_owned_until_real_cleanup()
 def test_cancelled_flush_propagates_without_cancelling_consumer() -> None:
     async def scenario() -> None:
         async with _database() as database:
-            recorder = _ModelUsageRecorder(database, StatisticsRepository())
+            recorder = _ModelUsageRecorder(
+                database, StatisticsRepository(), write_timeout_seconds=5.0, flush_timeout_seconds=10.0
+            )
             try:
                 async with database.transaction():
                     _offer(recorder)
@@ -1247,7 +1288,7 @@ def test_consumer_does_not_inherit_the_request_context() -> None:
     async def scenario() -> None:
         async with _database() as database:
             repository = ContextRepository()
-            recorder = _ModelUsageRecorder(database, repository)
+            recorder = _ModelUsageRecorder(database, repository, write_timeout_seconds=5.0, flush_timeout_seconds=10.0)
             try:
                 token = _REQUEST_CONTEXT.set("request")
                 try:
@@ -1397,8 +1438,13 @@ def test_commit_unknown_is_not_retried(
 
             monkeypatch.setattr(database, "statistics_transaction", lost_commit_reply)
             observations = []
+            # Reach the committed-but-unknown outcome before testing that it is never retried.
             recorder = _ModelUsageRecorder(
-                database, StatisticsRepository(), observer=lambda *snapshot: observations.append(snapshot)
+                database,
+                StatisticsRepository(),
+                observer=lambda *snapshot: observations.append(snapshot),
+                write_timeout_seconds=5.0,
+                flush_timeout_seconds=10.0,
             )
             try:
                 for _ in range(records):

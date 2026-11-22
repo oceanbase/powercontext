@@ -36,6 +36,10 @@ from powercontext.server.factory import create_server_app
 from powercontext.server.settings import McpConfig, ServerSettings, TracingConfig
 from powercontext.server.telemetry import service_resource
 from powercontext.server.tracing import ServerTracing
+from tests.e2e.server_startup import wait_for_server_startup
+
+# Observe cold child imports, execution, and natural exit separately from fault deadlines.
+_WORKER_LIFECYCLE_TIMEOUT_SECONDS = 60
 
 OTLPSpanExporter = pytest.importorskip("opentelemetry.exporter.otlp.proto.http.trace_exporter").OTLPSpanExporter
 ExportTraceServiceRequest = pytest.importorskip(
@@ -212,7 +216,7 @@ def test_spawned_worker_policy_block_preserves_child_and_supervisor_trace_catego
                 async with ArtifactProcessingSupervisor(
                     database=profile.database, bindings=(binding,), lease_mode="single-process", tracing=tracing
                 ):
-                    async with asyncio.timeout(20):
+                    async with asyncio.timeout(_WORKER_LIFECYCLE_TIMEOUT_SECONDS):
                         while not any(  # noqa: ASYNC110 - bounded wait for actual OTLP reception.
                             span.name == "artifact_processing.worker" for span, _ in _spans(received)
                         ):
@@ -296,7 +300,7 @@ def test_builtin_spawned_worker_exports_model_and_execution_spans_to_otlp(
                 )
                 spans = []
                 executions = []
-                deadline = time.monotonic() + 30
+                deadline = time.monotonic() + _WORKER_LIFECYCLE_TIMEOUT_SECONDS
                 while time.monotonic() < deadline:
                     spans = _spans(received)
                     executions = [
@@ -419,10 +423,7 @@ def _api_server(app):
         thread = threading.Thread(target=server.run, kwargs={"sockets": [listener]}, daemon=True)
         thread.start()
         try:
-            deadline = time.monotonic() + 10
-            while not server.started and thread.is_alive() and time.monotonic() < deadline:
-                time.sleep(0.01)
-            assert server.started
+            wait_for_server_startup(server, thread)
             yield f"http://127.0.0.1:{listener.getsockname()[1]}"
         finally:
             server.should_exit = True
@@ -450,7 +451,7 @@ def test_pydantic_ai_host_propagates_context_over_real_http(tmp_path):
                 )
                 host.start()
                 try:
-                    host.join(timeout=20)
+                    host.join(timeout=_WORKER_LIFECYCLE_TIMEOUT_SECONDS)
                     assert host.exitcode == 0
                 finally:
                     if host.is_alive():
@@ -499,7 +500,7 @@ def test_exporter_outage_does_not_prevent_builtin_worker_acknowledgement(tmp_pat
                 == 202
             )
             text = ""
-            deadline = time.monotonic() + 20
+            deadline = time.monotonic() + _WORKER_LIFECYCLE_TIMEOUT_SECONDS
             while time.monotonic() < deadline:
                 text = client.get("/metrics").text
                 if 'powercontext_server_artifact_processing_completed_total{family="memory"} 1.0' in text:
