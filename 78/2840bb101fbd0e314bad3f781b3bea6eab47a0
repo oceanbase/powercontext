@@ -1,0 +1,565 @@
+frontend/knowledge-base/build.mjs
+  s_2ef0feea0a110d::t_4f17424aa623ad 1-61
+docs/zh/docs/operate/troubleshoot.md
+  s_2ef0feea0a110d::t_4f17424aa623ad 263
+src/powercontext/server/app.py
+  s_2ef0feea0a110d::t_4f17424aa623ad 1119,4619-4623
+integrations/claude-code/plugins/powercontext/powercontext_lifecycle/host_profile.py
+  s_2ef0feea0a110d::t_4f17424aa623ad 33-34,41
+integrations/codex/plugins/powercontext/codex_host.py
+  s_2ef0feea0a110d::t_4f17424aa623ad 26
+tests/e2e/test_source_citation_locators.py
+  s_2ef0feea0a110d::t_4f17424aa623ad 80,89
+docs/en/docs/operate/database-migrations.md
+  s_2ef0feea0a110d::t_4f17424aa623ad 152-155,157-159,177,179,182-183,194,197,200-202,213-296,901-907
+integrations/zcode/plugins/powercontext/shared/prompt-privacy.mjs
+  s_2ef0feea0a110d::t_4f17424aa623ad 19-33
+plugins/knowledge-base/plugin.py
+  s_2ef0feea0a110d::t_4f17424aa623ad 1-84
+tests/builtin/persistence/test_release140_server_migrations.py
+  s_2ef0feea0a110d::t_4f17424aa623ad 162,376
+tests/e2e/test_statistics_flow.py
+  s_2ef0feea0a110d::t_4f17424aa623ad 77-78
+tests/builtin/inference/test_pydantic_ai.py
+  s_2ef0feea0a110d::t_4f17424aa623ad 839-840,866,878-884,1060-1127,1134,1143,1159-1302,1409-1412,1414,1494-1540,1542
+  s_2ef0feea0a110d::t_92567d0eea1e38 1541
+scripts/run_upgrade_release_gate.py
+  s_2ef0feea0a110d::t_4f17424aa623ad 95-98
+integrations/codex/plugins/powercontext/powercontext_lifecycle/user_prompt_submit.py
+  s_2ef0feea0a110d::t_4f17424aa623ad 1-653
+src/powercontext/builtin/artifacts/atomic_memory/reconciliation.py
+  s_2ef0feea0a110d::t_4f17424aa623ad 216-225
+plugins/knowledge-base/pc_knowledge_base/models.py
+  s_2ef0feea0a110d::t_4f17424aa623ad 1-123
+tests/builtin/artifacts/prompt/test_prompt_service.py
+  s_2ef0feea0a110d::t_4f17424aa623ad 32,134-135,183
+plugins/knowledge-base/pc_knowledge_base/service.py
+  s_2ef0feea0a110d::t_4f17424aa623ad 1-759
+.github/workflows/e2e-harness.yml
+  s_2ef0feea0a110d::t_8e5eac222d32a9 107
+frontend/knowledge-base/src/components/Feedback.tsx
+  s_2ef0feea0a110d::t_4f17424aa623ad 1-21
+tests/fixtures/recorded_host_payloads/codex.json
+  s_2ef0feea0a110d::t_4f17424aa623ad 2-3,31-40
+frontend/knowledge-base/src/components/SearchHit.tsx
+  s_2ef0feea0a110d::t_4f17424aa623ad 1-57
+tests/builtin/runtime/test_prepared_context.py
+  s_2ef0feea0a110d::t_4f17424aa623ad 1554-1577
+tests/test_schema_release.py
+  s_2ef0feea0a110d::t_4f17424aa623ad 1-543
+src/powercontext/server/dashboard/templates/processing.html
+  s_2ef0feea0a110d::t_4f17424aa623ad 92
+docs/en/docs/integrations/index.md
+  s_2ef0feea0a110d::t_4f17424aa623ad 72-107,137
+src/powercontext/server/dashboard/processing.py
+  s_2ef0feea0a110d::t_4f17424aa623ad 123-132,145,155-156
+integrations/deepagents/README.md
+  s_2ef0feea0a110d::t_4f17424aa623ad 1-42
+integrations/claude-code/plugins/powercontext/claude_code_host.py
+  s_2ef0feea0a110d::t_4f17424aa623ad 25
+tests/test_migration_revision_names.py
+  s_2ef0feea0a110d::t_4f17424aa623ad 73,76,91,109
+tests/test_dashboard_processing_status.py
+  s_2ef0feea0a110d::t_4f17424aa623ad 1-212
+tests/knowledge_base/test_content_store.py
+  s_2ef0feea0a110d::t_4f17424aa623ad 1-215
+src/powercontext/server/dashboard/templates/components/processing-sources-table.html
+  s_2ef0feea0a110d::t_4f17424aa623ad 17,19
+src/powercontext/builtin/artifacts/atomic_memory/one_pass.py
+  s_2ef0feea0a110d::t_4f17424aa623ad 1-415
+tests/codex_plugin/test_scope_binding.py
+  s_2ef0feea0a110d::t_4f17424aa623ad 59,217,293,360,400,406,452,464,575,613-615,619-621,625,631,635-636,638-641,652,656,659-660,662-665,670,676,680-686,688-689,700,713,725,729
+frontend/knowledge-base/src/pages/Documents.tsx
+  s_2ef0feea0a110d::t_4f17424aa623ad 1-249
+tests/builtin/persistence/test_portable_storage_migration.py
+  s_2ef0feea0a110d::t_4f17424aa623ad 73,136,138,206,219,222
+integrations/claude-code/plugins/powercontext/powercontext_lifecycle/prompt_privacy.py
+  s_2ef0feea0a110d::t_4f17424aa623ad 24-59,70-73
+integrations/opencode/plugins/powercontext/tests/prompt-privacy.spec.ts
+  s_2ef0feea0a110d::t_4f17424aa623ad 32
+integrations/deepagents/examples/full_flow.py
+  s_2ef0feea0a110d::t_4f17424aa623ad 1-113
+src/powercontext/builtin/runtime/application.py
+  s_2ef0feea0a110d::t_4f17424aa623ad 218-224,258,274,1156,1170-1179,1181-1183,1189-1196,1198-1208,1277-1283,1345-1346,1366-1383,1387-1392,1402,1418-1420,1422,1442-1443,1535-1584,1698,1700-1729,1733-1734,1783-1785,1795-1812,1825-1834,2242-2243,2274-2281,2309-2311,2345-2346,2367-2374,2384-2391,2407-2408,2435-2442,2457-2470
+tests/e2e/test_knowledge_base_retries.py
+  s_2ef0feea0a110d::t_4f17424aa623ad 1-510
+src/powercontext/server/dashboard/templates/context-diagnostic-detail.html
+  s_2ef0feea0a110d::t_4f17424aa623ad 1-121
+src/powercontext/server/dashboard/templates/macros.html
+  s_2ef0feea0a110d::t_4f17424aa623ad 19
+tests/codex_plugin/test_contract.py
+  s_2ef0feea0a110d::t_4f17424aa623ad 35,41,45-46,48-49,52,74,94,98
+src/powercontext/builtin/persistence/context_prepare_diagnostics.py
+  s_2ef0feea0a110d::t_4f17424aa623ad 1-139
+tests/test_dashboard_context_diagnostics.py
+  s_2ef0feea0a110d::t_4f17424aa623ad 1-330
+frontend/knowledge-base/src/actions/Import.tsx
+  s_2ef0feea0a110d::t_4f17424aa623ad 1-184
+integrations/deepagents/examples/quickstart.py
+  s_2ef0feea0a110d::t_4f17424aa623ad 1-81
+integrations/codex/plugins/powercontext/hooks/bind_tools.py
+  s_2ef0feea0a110d::t_4f17424aa623ad 45-46,162,169,185,188
+src/powercontext/builtin/persistence/tables.py
+  s_2ef0feea0a110d::t_4f17424aa623ad 1395-1425,1536
+src/powercontext/builtin/runtime/scope_reads.py
+  s_2ef0feea0a110d::t_4f17424aa623ad 73-129,390-432
+plugins/knowledge-base/ui/app.js
+  s_2ef0feea0a110d::t_4f17424aa623ad 1-733
+src/powercontext/builtin/runtime/composition.py
+  s_2ef0feea0a110d::t_4f17424aa623ad 1635,1815-1822
+integrations/pi/plugins/powercontext/src/prompt-privacy.ts
+  s_2ef0feea0a110d::t_4f17424aa623ad 24-38
+src/powercontext/server/dashboard/content.py
+  s_2ef0feea0a110d::t_4f17424aa623ad 281-284
+tests/e2e/test_knowledge_base_dashboard.py
+  s_2ef0feea0a110d::t_4f17424aa623ad 1-479
+integrations/claude-code/plugins/powercontext/hooks/session_start.py
+  s_2ef0feea0a110d::t_4f17424aa623ad 31,75,78
+integrations/claude-code/plugins/powercontext/hooks/user_prompt_submit.py
+  s_2ef0feea0a110d::t_4f17424aa623ad 25,32-35,39,52-65
+src/powercontext/builtin/persistence/migrations/server_resources/schemas/sqlite-000.json
+  s_2ef0feea0a110d::t_4f17424aa623ad 1-7
+frontend/knowledge-base/index.html
+  s_2ef0feea0a110d::t_4f17424aa623ad 1-30
+integrations/codex/plugins/powercontext/powercontext_lifecycle/scope_binding.py
+  s_2ef0feea0a110d::t_4f17424aa623ad 1-263,265-292
+  s_2ef0feea0a110d::t_7a6673734b89fa 264
+pyproject.toml
+  s_2ef0feea0a110d::t_4f17424aa623ad 123-128,193,201,205,222,242,257-258
+integrations/workbuddy/plugins/powercontext/hooks/workbuddy_powercontext_hook.py
+  s_2ef0feea0a110d::t_4f17424aa623ad 16-17
+tests/builtin/test_processing_status.py
+  s_2ef0feea0a110d::t_4f17424aa623ad 165-180
+docs/zh/design/atomic_memory_one_pass_design.md
+  s_2ef0feea0a110d::t_4f17424aa623ad 1-281
+integrations/workbuddy/plugins/powercontext/hooks/prompt_privacy.py
+  s_2ef0feea0a110d::t_4f17424aa623ad 24-59,70-73
+.github/workflows/gateway.yml
+  s_2ef0feea0a110d::t_4f17424aa623ad 33-34
+frontend/knowledge-base/src/components/Markdown.tsx
+  s_2ef0feea0a110d::t_4f17424aa623ad 1-72
+integrations/claude-code/plugins/powercontext/powercontext_lifecycle/user_prompt_submit.py
+  s_2ef0feea0a110d::t_4f17424aa623ad 1-653
+integrations/deepagents/pyproject.toml
+  s_2ef0feea0a110d::t_4f17424aa623ad 1-33
+desktop/scripts/prepare-openapi-generator.test.mjs
+  s_2ef0feea0a110d::t_4f17424aa623ad 108-141
+docs/zh/docs/workflows/knowledge-base.md
+  s_2ef0feea0a110d::t_4f17424aa623ad 1-214
+plugins/knowledge-base/ui/app.css
+  s_2ef0feea0a110d::t_4f17424aa623ad 1-16
+tests/builtin/runtime/test_context_diagnostic_text.py
+  s_2ef0feea0a110d::t_4f17424aa623ad 1-162
+tests/e2e/test_atomic_memory_description_upgrade.py
+  s_2ef0feea0a110d::t_4f17424aa623ad 88,90
+integrations/claude-code/plugins/powercontext/claude_code_settings.py
+  s_2ef0feea0a110d::t_4f17424aa623ad 28-29,181-202
+  s_2ef0feea0a110d::t_9605a6a3f99434 203
+frontend/knowledge-base/tsconfig.json
+  s_2ef0feea0a110d::t_4f17424aa623ad 1-19
+.github/workflows/master.yml
+  s_2ef0feea0a110d::t_b6f739ef2d7c43 246,256
+  s_2ef0feea0a110d::t_4887634a0ad04a 236,238-240
+  s_2ef0feea0a110d::t_4f17424aa623ad 184,209-210,215-217,247,262-270,280-281,461-462,970-971,1451-1452,1589-1590,1759-1789,1804,1865-1866
+  s_2ef0feea0a110d::t_8e5eac222d32a9 551,991
+tests/builtin/persistence/test_mysql_initialization_preflight.py
+  s_2ef0feea0a110d::t_4f17424aa623ad 256-265
+tests/claude_code_plugin/conftest.py
+  s_2ef0feea0a110d::t_4f17424aa623ad 39,43,87-91,121-123
+  s_2ef0feea0a110d::t_acf42a9425ef11 124-125
+frontend/knowledge-base/src/actions/BatchDocuments.tsx
+  s_2ef0feea0a110d::t_4f17424aa623ad 1-130
+frontend/knowledge-base/src/actions/index.ts
+  s_2ef0feea0a110d::t_4f17424aa623ad 1-24
+frontend/knowledge-base/src/pages/Retrieval.tsx
+  s_2ef0feea0a110d::t_4f17424aa623ad 1-129
+tests/test_managed_atomic_maintenance.py
+  s_2ef0feea0a110d::t_4f17424aa623ad 79,106
+tests/claude_code_plugin/test_contract.py
+  s_2ef0feea0a110d::t_4f17424aa623ad 156,162,166-167,169-170,176-177
+tests/fixtures/recorded_host_payloads/claude-code.json
+  s_2ef0feea0a110d::t_4f17424aa623ad 2-3,42-50
+integrations/zcode/plugins/powercontext/tests/plugin.test.mjs
+  s_2ef0feea0a110d::t_4f17424aa623ad 61-62
+scripts/schema_release.py
+  s_2ef0feea0a110d::t_4f17424aa623ad 1-409
+docs/zh/docs/operate/database-migrations.md
+  s_2ef0feea0a110d::t_4f17424aa623ad 124-126,128-129,147,149,152-153,164,167,170-171,180-245,665-670
+tests/test_automatic_prompt_privacy.py
+  s_2ef0feea0a110d::t_4f17424aa623ad 139-141
+tests/builtin/persistence/test_mysql_migration_runner.py
+  s_2ef0feea0a110d::t_4f17424aa623ad 479,772,903,913,980,1048,1212,1234,1314
+docs/zh/development/dashboard.md
+  s_2ef0feea0a110d::t_4f17424aa623ad 82-135
+tests/e2e/test_knowledge_base_dashboard_navigation.py
+  s_2ef0feea0a110d::t_4f17424aa623ad 1-235
+integrations/pi/plugins/powercontext/tests/prompt-privacy.spec.ts
+  s_2ef0feea0a110d::t_4f17424aa623ad 32
+frontend/knowledge-base/src/actions/Document.tsx
+  s_2ef0feea0a110d::t_4f17424aa623ad 1-189
+tests/test_ci_pipeline.py
+  s_2ef0feea0a110d::t_4f17424aa623ad 316
+src/powercontext/builtin/persistence/migrations/revision_names.py
+  s_2ef0feea0a110d::t_4f17424aa623ad 39,42-43,48-50,56
+src/powercontext/builtin/dream/service.py
+  s_2ef0feea0a110d::t_4f17424aa623ad 22,89-93,335-343,350,353,359-360
+docs/zh/docs/integrations/deepagents.md
+  s_2ef0feea0a110d::t_4f17424aa623ad 1-135
+integrations/openclaw/plugins/memory-powercontext/src/prompt-privacy.test.ts
+  s_2ef0feea0a110d::t_4f17424aa623ad 36
+src/powercontext/builtin/runtime/artifact_processing.py
+  s_2ef0feea0a110d::t_4f17424aa623ad 68,1834-1841
+frontend/knowledge-base/src/services.ts
+  s_2ef0feea0a110d::t_4f17424aa623ad 1-137
+src/powercontext/server/dashboard/templates/context-diagnostics.html
+  s_2ef0feea0a110d::t_4f17424aa623ad 1-18
+tests/e2e/test_knowledge_base_dashboard_batch.py
+  s_2ef0feea0a110d::t_4f17424aa623ad 1-156
+src/powercontext/server/dashboard/templates/components/automatic-status.html
+  s_2ef0feea0a110d::t_4f17424aa623ad 1-129
+scripts/upgrade_release_gate.py
+  s_2ef0feea0a110d::t_4f17424aa623ad 516-518
+integrations/codex/plugins/powercontext/settings.py
+  s_2ef0feea0a110d::t_4f17424aa623ad 28-29,222-243
+  s_2ef0feea0a110d::t_04f8da30acdb74 244
+README_CN.md
+  s_2ef0feea0a110d::t_4f17424aa623ad 268-276
+integrations/deepagents/src/powercontext_deepagents/adapter.py
+  s_2ef0feea0a110d::t_4f17424aa623ad 1-212
+integrations/claude-code/plugins/powercontext/scripts/statusline.py
+  s_2ef0feea0a110d::t_4f17424aa623ad 35,37,279,282
+src/powercontext/builtin/persistence/migrations/server_resources/manifest.json
+  s_2ef0feea0a110d::t_4f17424aa623ad 59-62,107-109,175,416-420,444
+gateway/README.md
+  s_2ef0feea0a110d::t_4f17424aa623ad 22,60
+docs/en/docs/workflows/knowledge-base.md
+  s_2ef0feea0a110d::t_4f17424aa623ad 1-244
+integrations/claude-code/plugins/powercontext/scripts/workspace_scope.py
+  s_2ef0feea0a110d::t_4f17424aa623ad 16,23,30,32,42-44,46,49-50
+tests/builtin/persistence/test_atomic_evidence_upgrade_history.py
+  s_2ef0feea0a110d::t_4f17424aa623ad 172,204,258
+tests/test_integration_lifecycle.py
+  s_2ef0feea0a110d::t_4f17424aa623ad 36-37,86-97
+integrations/deepagents/LICENSE
+  s_2ef0feea0a110d::t_4f17424aa623ad 1-202
+docs/zh/development/processing-failures.md
+  s_2ef0feea0a110d::t_4f17424aa623ad 62-63,76,124-136
+  s_2ef0feea0a110d::t_3dca8068531128 137
+frontend/knowledge-base/.npmrc
+  s_2ef0feea0a110d::t_4f17424aa623ad 1-3
+docs/zh/docs/integrations/index.md
+  s_2ef0feea0a110d::t_4f17424aa623ad 66-94,116
+AGENTS.md
+  s_2ef0feea0a110d::t_4f17424aa623ad 79,84-111
+integrations/openclaw/plugins/memory-powercontext/src/prompt-privacy.ts
+  s_2ef0feea0a110d::t_4f17424aa623ad 24-38
+plugins/knowledge-base/pc_knowledge_base/embedding.py
+  s_2ef0feea0a110d::t_4f17424aa623ad 1-98
+scripts/integration_manifest.py
+  s_2ef0feea0a110d::t_4f17424aa623ad 109,679-693,978-988
+src/powercontext/builtin/runtime/config.py
+  s_2ef0feea0a110d::t_4f17424aa623ad 267
+tests/claude_code_plugin/test_bootstrap.py
+  s_2ef0feea0a110d::t_4f17424aa623ad 89,153,157-158,569
+integrations/codex/plugins/powercontext/powercontext_lifecycle/prompt_privacy.py
+  s_2ef0feea0a110d::t_4f17424aa623ad 24-59,70-73
+src/powercontext/server/dashboard/routes.py
+  s_2ef0feea0a110d::t_4f17424aa623ad 51-57,72-73,207-211,361-362,850-856
+docs/en/development/dashboard.md
+  s_2ef0feea0a110d::t_4f17424aa623ad 82-144
+tests/builtin/persistence/test_full_server_migrations.py
+  s_2ef0feea0a110d::t_4f17424aa623ad 76,90
+integrations/codex/plugins/powercontext/powercontext_lifecycle/host_profile.py
+  s_2ef0feea0a110d::t_4f17424aa623ad 33-34,41
+.github/ci-paths.toml
+  s_2ef0feea0a110d::t_4f17424aa623ad 25-26,137,256,293-297
+tests/knowledge_base/test_sql_backends.py
+  s_2ef0feea0a110d::t_4f17424aa623ad 1-104
+integrations/opencode/plugins/powercontext/lib/index.js
+  s_2ef0feea0a110d::t_4f17424aa623ad 2264-2267
+integrations/dsh/plugins/dsh-pet/lib/index.js
+  s_2ef0feea0a110d::t_4f17424aa623ad 2196-2199
+integrations/dsh/plugins/powercontext/tests/prompt-privacy.spec.ts
+  s_2ef0feea0a110d::t_4f17424aa623ad 44
+src/powercontext/builtin/artifacts/atomic_memory/extraction.py
+  s_2ef0feea0a110d::t_4f17424aa623ad 37,172-173
+src/powercontext/builtin/runtime/prepared_code.py
+  s_2ef0feea0a110d::t_4f17424aa623ad 162-163,187,194
+integrations/codex/plugins/powercontext/hooks/session_binding.py
+  s_2ef0feea0a110d::t_4f17424aa623ad 31,54,57,80,83
+tests/test_registered_source_maintenance_cli.py
+  s_2ef0feea0a110d::t_4f17424aa623ad 69
+tests/knowledge_base/test_ocr.py
+  s_2ef0feea0a110d::t_4f17424aa623ad 1-39
+integrations/codex/plugins/powercontext/hooks/token_savings.py
+  s_2ef0feea0a110d::t_4f17424aa623ad 35,42-48,51,290,293
+src/powercontext_integration_lifecycle/prompt_privacy.py
+  s_2ef0feea0a110d::t_4f17424aa623ad 21-56,67-70
+frontend/knowledge-base/src/components/ProcessingWatcher.tsx
+  s_2ef0feea0a110d::t_4f17424aa623ad 1-64
+src/powercontext/builtin/runtime/atomic_memory.py
+  s_2ef0feea0a110d::t_4f17424aa623ad 109,1144,1160,1162-1165,1181-1184,1193-1196,1208-1209,1217,1223-1224,1229-1239,1352,1362-1364
+docs/en/docs/operate/configuration.md
+  s_2ef0feea0a110d::t_4f17424aa623ad 43
+integrations/dsh/plugins/powercontext/src/prompt-privacy.ts
+  s_2ef0feea0a110d::t_4f17424aa623ad 24-38
+src/powercontext/server/dashboard/api.py
+  s_2ef0feea0a110d::t_4f17424aa623ad 175-193
+tests/e2e/test_knowledge_base_changes.py
+  s_2ef0feea0a110d::t_4f17424aa623ad 1-236
+desktop/scripts/prepare-openapi-generator.mjs
+  s_2ef0feea0a110d::t_4f17424aa623ad 50-52,68,75-106
+frontend/knowledge-base/src/actions/RetryProcessing.tsx
+  s_2ef0feea0a110d::t_4f17424aa623ad 1-83
+src/powercontext/builtin/inference/models.py
+  s_2ef0feea0a110d::t_4f17424aa623ad 19,107-136
+tests/e2e/test_knowledge_base_context.py
+  s_2ef0feea0a110d::t_4f17424aa623ad 1-160
+plugins/knowledge-base/README.md
+  s_2ef0feea0a110d::t_4f17424aa623ad 1-19
+tests/knowledge_base/test_identity_storage.py
+  s_2ef0feea0a110d::t_4f17424aa623ad 1-113
+src/powercontext/builtin/persistence/migrations/server_resources/schemas/mysql-000.json
+  s_2ef0feea0a110d::t_4f17424aa623ad 1-1203
+docs/zh/docs/integrations/capabilities.md
+  s_2ef0feea0a110d::t_4f17424aa623ad 45
+frontend/knowledge-base/src/styles.scss
+  s_2ef0feea0a110d::t_4f17424aa623ad 1-169
+tests/fixtures/automatic_prompt_privacy.json
+  s_2ef0feea0a110d::t_4f17424aa623ad 24-63,159-333
+docs/en/docs/operate/troubleshoot.md
+  s_2ef0feea0a110d::t_4f17424aa623ad 272
+tests/test_schema_draft.py
+  s_2ef0feea0a110d::t_4f17424aa623ad 1-36
+src/powercontext/builtin/runtime/prepared_context.py
+  s_2ef0feea0a110d::t_4f17424aa623ad 291-293,300,354,366,482,545,547,599,604
+docs/en/docs/integrations/capabilities.md
+  s_2ef0feea0a110d::t_4f17424aa623ad 45
+Makefile
+  s_2ef0feea0a110d::t_4f17424aa623ad 22,292,351-360
+docs/zh/docs/operate/configuration.md
+  s_2ef0feea0a110d::t_4f17424aa623ad 38
+README.md
+  s_2ef0feea0a110d::t_4f17424aa623ad 271-279
+src/powercontext_integration_lifecycle/user_prompt_submit.py
+  s_2ef0feea0a110d::t_4f17424aa623ad 1-650
+tests/codex_plugin/test_recall.py
+  s_2ef0feea0a110d::t_4f17424aa623ad 177,185,187,189,191,193,215,225,227,230,232,236,238,265,272,277,284,293,299,308,315-316,318,320,341,347,349,352,354,357,359,382,386,388,391,393,395,424-461,464,467-468,470,472,507,511,513,515-516,850,854,856,862-863,866,882,890,895,897,899,938,944,949,951,953,973,980,984-985,1007,1012,1018,1020,1023,1025,1047,1051,1058-1059,1062,1080,1085,1089-1090,1093,1103,1107,1112-1114,1119,1123,1125,1131-1132,1135,1149,1155,1158,1165-1166,1169,1189,1194-1195,1197,1200,1235,1238-1240,1242,1245,1281,1290,1297-1303,1305-1307,1311,1314-1316,1320,1343,1353,1360,1362-1363,1366,1378,1388,1391-1392,1395,1404,1434,1437-1438,1445,1461-1462,1465-1466,1478,1505-1506,1509-1510,1521,1545,1548-1549,1558,1561,1563-1564,1567-1568,1601,1626-1627,1630,1641-1673
+integrations/deepagents/src/powercontext_deepagents/__init__.py
+  s_2ef0feea0a110d::t_4f17424aa623ad 1-23
+src/powercontext/server/dashboard/labels.json
+  s_2ef0feea0a110d::t_4f17424aa623ad 692-883
+frontend/knowledge-base/src/pages/Reader.tsx
+  s_2ef0feea0a110d::t_4f17424aa623ad 1-314
+.licenserc.yaml
+  s_2ef0feea0a110d::t_4f17424aa623ad 43
+tests/e2e/test_knowledge_base_dashboard_lifecycle.py
+  s_2ef0feea0a110d::t_4f17424aa623ad 1-463
+src/powercontext/builtin/inference/pydantic_ai.py
+  s_2ef0feea0a110d::t_4f17424aa623ad 21-24,26,46-47,64,118,177-238,247-249,251-254,256,318-325,336-339,398-405,407,465,508-509,516-642,831-847,974-996
+docs/en/rfcs/1435_explainable_prepared_context_receipts.md
+  s_2ef0feea0a110d::t_4f17424aa623ad 340-356,446-448,451,490
+tests/e2e/test_knowledge_base.py
+  s_2ef0feea0a110d::t_4f17424aa623ad 1-322
+tests/knowledge_base/test_request_status.py
+  s_2ef0feea0a110d::t_4f17424aa623ad 1-50
+src/powercontext/builtin/persistence/migrations/server_resources/mysql/versions/000.py
+  s_2ef0feea0a110d::t_4f17424aa623ad 1-24
+src/powercontext/server/dashboard/templates/components/context-stage-texts.html
+  s_2ef0feea0a110d::t_4f17424aa623ad 1-36
+src/powercontext/server/dashboard/templates/components/navigation.html
+  s_2ef0feea0a110d::t_4f17424aa623ad 39
+tests/builtin/persistence/test_atomic_description_vector_layout.py
+  s_2ef0feea0a110d::t_4f17424aa623ad 46,159,169,179
+frontend/knowledge-base/package.json
+  s_2ef0feea0a110d::t_4f17424aa623ad 1-27
+docs/en/development/observability.md
+  s_2ef0feea0a110d::t_4f17424aa623ad 17-20,186-191
+tests/native/test_oceanbase_engine_recovery.py
+  s_2ef0feea0a110d::t_4f17424aa623ad 178
+docs/zh/docs/integrations/meta.json
+  s_2ef0feea0a110d::t_4f17424aa623ad 26
+frontend/knowledge-base/src/types.ts
+  s_2ef0feea0a110d::t_4f17424aa623ad 1-75
+frontend/knowledge-base/src/actions/RemoveChunks.tsx
+  s_2ef0feea0a110d::t_4f17424aa623ad 1-80
+tests/test_integration_manifest.py
+  s_2ef0feea0a110d::t_4f17424aa623ad 303-308,319-324
+tests/test_user_prompt_submit_shells.py
+  s_2ef0feea0a110d::t_4f17424aa623ad 1-66
+tests/deepagents_adapter/test_adapter.py
+  s_2ef0feea0a110d::t_4f17424aa623ad 1-705
+integrations/lifecycle/prompt-privacy.ts
+  s_2ef0feea0a110d::t_4f17424aa623ad 21-35
+integrations/kimi-code/plugins/powercontext/shared/prompt-privacy.mjs
+  s_2ef0feea0a110d::t_4f17424aa623ad 19-33
+integrations/capabilities.toml
+  s_2ef0feea0a110d::t_4f17424aa623ad 903-914,1090-1099
+  s_2ef0feea0a110d::t_c0e03314b7706e 902,1100
+integrations/kimi-code/plugins/powercontext/tests/plugin.test.mjs
+  s_2ef0feea0a110d::t_4f17424aa623ad 57-58
+integrations/dsh/plugins/powercontext/tests/explicit-write-privacy.spec.ts
+  s_2ef0feea0a110d::t_4f17424aa623ad 58
+docs/en/docs/operate/observability.md
+  s_2ef0feea0a110d::t_4f17424aa623ad 159-169
+docs/zh/rfcs/1435_explainable_prepared_context_receipts.md
+  s_2ef0feea0a110d::t_4f17424aa623ad 307-321,403-404,406-407,442
+plugins/knowledge-base/pc_knowledge_base/__init__.py
+  s_2ef0feea0a110d::t_4f17424aa623ad 1-15
+src/powercontext/server/dashboard/context_diagnostics.py
+  s_2ef0feea0a110d::t_4f17424aa623ad 1-350
+tests/claude_code_plugin/test_statusline.py
+  s_2ef0feea0a110d::t_4f17424aa623ad 474-479,483-484,524-525
+tests/test_ci_changes.py
+  s_2ef0feea0a110d::t_4f17424aa623ad 268-269,559-630
+.github/workflows/desktop.yml
+  s_2ef0feea0a110d::t_8e5eac222d32a9 109,330,394
+src/powercontext/server/dashboard/templates/components/context-diagnostic-history.html
+  s_2ef0feea0a110d::t_4f17424aa623ad 1-36
+tests/builtin/persistence/test_diagnostic_query_migration.py
+  s_2ef0feea0a110d::t_4f17424aa623ad 1-60
+integrations/opencode/plugins/powercontext/src/prompt-privacy.ts
+  s_2ef0feea0a110d::t_4f17424aa623ad 24-38
+docs/zh/development/observability.md
+  s_2ef0feea0a110d::t_4f17424aa623ad 18-20,179-183
+plugins/knowledge-base/pc_knowledge_base/content.py
+  s_2ef0feea0a110d::t_4f17424aa623ad 1-303
+plugins/knowledge-base/ui/index.html
+  s_2ef0feea0a110d::t_4f17424aa623ad 1-30
+frontend/knowledge-base/src/actions/Create.tsx
+  s_2ef0feea0a110d::t_4f17424aa623ad 1-90
+src/powercontext/builtin/runtime/prepare_diagnostics.py
+  s_2ef0feea0a110d::t_4f17424aa623ad 1-160
+tests/e2e/test_knowledge_base_ocr.py
+  s_2ef0feea0a110d::t_4f17424aa623ad 1-95
+tests/e2e/test_atomic_memory_one_pass.py
+  s_2ef0feea0a110d::t_4f17424aa623ad 1-502
+gateway/crates/pc-gateway-core/src/executor.rs
+  s_2ef0feea0a110d::t_4f17424aa623ad 648,682-688,706,717-718,749,1181
+tests/builtin/persistence/test_plugin_storage_migration.py
+  s_2ef0feea0a110d::t_4f17424aa623ad 162,164,190
+tests/codex_plugin/conftest.py
+  s_2ef0feea0a110d::t_4f17424aa623ad 42-46,52-54
+  s_2ef0feea0a110d::t_0e743951387f78 55-56
+frontend/knowledge-base/src/main.tsx
+  s_2ef0feea0a110d::t_4f17424aa623ad 1-43
+src/powercontext_integration_lifecycle/scope_binding.py
+  s_2ef0feea0a110d::t_3855e33a32f111 261
+  s_2ef0feea0a110d::t_4f17424aa623ad 1-260,262-289
+tests/e2e/test_dashboard_business_diagnostics.py
+  s_2ef0feea0a110d::t_4f17424aa623ad 1-148
+integrations/dsh/plugins/powercontext/lib/index.js
+  s_2ef0feea0a110d::t_4f17424aa623ad 3008-3011
+.github/actions/setup-python-env/action.yml
+  s_2ef0feea0a110d::t_8e5eac222d32a9 30
+  s_2ef0feea0a110d::t_4f17424aa623ad 108-114
+docs/en/development/processing-failures.md
+  s_2ef0feea0a110d::t_4f17424aa623ad 68-69,82,135-153
+  s_2ef0feea0a110d::t_2a801b714c313d 154
+tests/claude_code_plugin/test_hook.py
+  s_2ef0feea0a110d::t_4f17424aa623ad 190,198,200,202,204,206,225,235,237,240,242,246,248,271,278,283,290,299,305,314,321-322,324,326,344,350,352,355,357,360,362,385,389,394,396,400,402,420,424,429,431,435,437,456,460,465,467,470,497,501,503,505-506,821,826,831,836,838,857,861,866,871,873,898,907,914-920,925,929-930,956,962,964,969-970,973,992,998,1001,1008-1009,1012,1032,1037-1038,1040,1043,1071,1074-1076,1078,1081,1112,1117,1122-1123,1126,1137,1168,1171-1172,1179,1194-1195,1198-1199,1211,1237-1238,1241-1242,1250,1271-1275,1278-1279
+plugins/knowledge-base/pc_knowledge_base/sources.py
+  s_2ef0feea0a110d::t_4f17424aa623ad 1-67
+tests/native/test_personal_service_lifecycle.py
+  s_2ef0feea0a110d::t_4f17424aa623ad 405
+tests/test_dashboard_context_capture.py
+  s_2ef0feea0a110d::t_4f17424aa623ad 1-588
+src/powercontext_integration_lifecycle/host_profile.py
+  s_2ef0feea0a110d::t_4f17424aa623ad 30-31,38
+docs/zh/docs/operate/observability.md
+  s_2ef0feea0a110d::t_4f17424aa623ad 150-156
+integrations/cindy/plugins/powercontext-hooks/node/worker.cjs
+  s_2ef0feea0a110d::t_4f17424aa623ad 2194-2197
+docs/en/docs/integrations/deepagents.md
+  s_2ef0feea0a110d::t_4f17424aa623ad 1-144
+docs/en/docs/integrations/meta.json
+  s_2ef0feea0a110d::t_4f17424aa623ad 26
+src/powercontext/builtin/persistence/migrations/server_resources/versions/000.py
+  s_2ef0feea0a110d::t_4f17424aa623ad 1-29
+README_JP.md
+  s_2ef0feea0a110d::t_4f17424aa623ad 268-276
+tests/e2e/test_knowledge_base_spaces.py
+  s_2ef0feea0a110d::t_4f17424aa623ad 1-132
+integrations/claude-code/plugins/powercontext/powercontext_lifecycle/scope_binding.py
+  s_2ef0feea0a110d::t_4f17424aa623ad 1-263,265-292
+  s_2ef0feea0a110d::t_7a6673734b89fa 264
+docs/zh/rfcs/2570-knowledge-base.md
+  s_2ef0feea0a110d::t_4f17424aa623ad 1-423
+frontend/knowledge-base/src/App.tsx
+  s_2ef0feea0a110d::t_4f17424aa623ad 1-230
+src/powercontext/builtin/runtime/diagnostic_text.py
+  s_2ef0feea0a110d::t_4f17424aa623ad 1-54
+src/powercontext/server/context_diagnostics.py
+  s_2ef0feea0a110d::t_4f17424aa623ad 1-42
+src/powercontext/builtin/persistence/migrations/server_sources/1.4.0/manifest.json
+  s_2ef0feea0a110d::t_4f17424aa623ad 58-61,106-108,174,420-424,448
+frontend/knowledge-base/README.md
+  s_2ef0feea0a110d::t_4f17424aa623ad 1-25
+frontend/knowledge-base/src/hooks.ts
+  s_2ef0feea0a110d::t_4f17424aa623ad 1-289
+docs/en/rfcs/2570-knowledge-base.md
+  s_2ef0feea0a110d::t_4f17424aa623ad 1-499
+release/upgrade-support.json
+  s_2ef0feea0a110d::t_738f0f5998e2d4 6-7
+tests/e2e/test_worker_logging.py
+  s_2ef0feea0a110d::t_4f17424aa623ad 34,44,692-721
+  s_2ef0feea0a110d::t_40eac7cf7786be 722-723
+tests/e2e/test_worker_model_usage.py
+  s_2ef0feea0a110d::t_4f17424aa623ad 37,77,95,98-100,230-290
+tests/test_session_start_shells.py
+  s_2ef0feea0a110d::t_4f17424aa623ad 17-18,43,71
+plugins/knowledge-base/pc_knowledge_base/store.py
+  s_2ef0feea0a110d::t_4f17424aa623ad 1-326
+integrations/codex/plugins/powercontext/scripts/scope_binding.py
+  s_2ef0feea0a110d::t_4f17424aa623ad 16,23,30-31,42-44,46,49-50
+scripts/ci_changes.py
+  s_2ef0feea0a110d::t_4f17424aa623ad 94-151,226-230,240-241
+tests/codex_plugin/test_bootstrap.py
+  s_2ef0feea0a110d::t_4f17424aa623ad 93,121,183,187-188,589
+src/powercontext/builtin/runtime/receipt_builder.py
+  s_2ef0feea0a110d::t_4f17424aa623ad 15,23,145-152,162-189,192-202,215-229,245-247,249-257
+src/powercontext/builtin/processing_status.py
+  s_2ef0feea0a110d::t_4f17424aa623ad 28,88,137,172-176,266,344-356,364-370,377
+.github/workflows/installation.yml
+  s_2ef0feea0a110d::t_8e5eac222d32a9 52
+frontend/knowledge-base/src/pages/Settings.tsx
+  s_2ef0feea0a110d::t_4f17424aa623ad 1-90
+src/powercontext/server/dashboard/labels.en.json
+  s_2ef0feea0a110d::t_4f17424aa623ad 692-883
+tests/test_managed_processing_maintenance.py
+  s_2ef0feea0a110d::t_4f17424aa623ad 78
+tests/codex_plugin/test_token_savings.py
+  s_2ef0feea0a110d::t_4f17424aa623ad 676,698,700-702,778
+gateway/crates/pc-gateway-core/tests/executor_semantics.rs
+  s_2ef0feea0a110d::t_4f17424aa623ad 3220-3307,3310-3311,3358-3359,3400,4505,4541,4543,4609-4658
+src/powercontext/builtin/runtime/atomic_memory_processing.py
+  s_2ef0feea0a110d::t_4f17424aa623ad 24,26,38,43-52,78,131,136,158,510-515,638-641,648-802,866-873,875,880-884,888,892-914,1299-1333,1407-1434
+integrations/codex/plugins/powercontext/hooks/recall.py
+  s_2ef0feea0a110d::t_4f17424aa623ad 27,33-36,52,56-60,62-65,68-71,73,84,101,110-114
+integrations/opencode/plugins/powercontext/lib/tui.js
+  s_2ef0feea0a110d::t_4f17424aa623ad 2207-2210
+e2e/bub/uv.lock
+  s_2ef0feea0a110d::t_d6b7f9d5ca716a 909-910,1682,1718-1719,1781,1815,1822,1827,1841
+evaluation/uv.lock
+  s_2ef0feea0a110d::t_ac01d41ca54a31 842-843,914,1788,1824-1825,1887,1921,1928,1933,1947,2842-2843
+frontend/knowledge-base/package-lock.json
+  s_2ef0feea0a110d::t_b2d22c928933f4 1-12594
+uv.lock
+  s_2ef0feea0a110d::t_dc3f91d1e5bd8b 2,7-8,599-610,824-841,946-967,1049-1065,1092-1093,1106-1107,1111-1112,1128-1166,1274-1297,1379-1398,1413,1990,1997-2011,2013,2018,2021,2033-2048,2050,2070,2075,2077,2102,2112,2114,2119,2125,2127,2145,2154,2156,2161,2166,2179,2181,2202-2214,2368-2516,2700-2701,2750-2799,2829-2848,2880-2881,3387-3392,3500,3503,3517-3519,3589,3625-3626,3688,3722,3729,3734,3748,3798-3799,3808-3822,3992-4064,4078-4114,4703-4724,5117-5191,5513-5546,5673-5684,6321-6329
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "782840bb101fbd0e314bad3f781b3bea6eab47a0",
+  "prompts": {},
+  "sessions": {
+    "s_2ef0feea0a110d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1a9cf-a4e7-7f63-9c51-1284f7c332e8",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "frf12 <rongfeng.frf@antgroup.com>"
+    }
+  }
+}
