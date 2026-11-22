@@ -1,103 +1,24 @@
 name: Managed resource candidates
 
 on:
-  workflow_call:
-    inputs:
-      suites:
-        description: Scope already selected by the Main orchestrator
-        required: true
-        type: string
-      targets:
-        description: JSON array of resource targets to qualify; empty selects every target
-        required: false
-        type: string
-        default: ''
-      concurrency_suffix:
-        description: Suffix that isolates independent callers of this reusable workflow
-        required: false
-        type: string
-        default: default
   workflow_dispatch:
-    inputs:
-      concurrency_suffix:
-        description: Suffix that isolates this manual run from other callers
-        required: false
-        type: string
-        default: manual
 
 permissions:
-  actions: read
   contents: read
-
-concurrency:
-  group: managed-resource-candidates-${{ github.event.pull_request.number || github.ref }}-${{ github.event_name }}-${{ inputs.concurrency_suffix || 'default' }}
-  cancel-in-progress: true
+  actions: read
 
 jobs:
-  changes:
-    if: ${{ inputs.suites == '' }}
-    uses: ./.github/workflows/ci-changes.yml
-    with:
-      baseline-workflow: managed-resource-candidates.yml
-
-  select-targets:
-    name: Select candidate targets
-    runs-on: powercontext-ci-light
-    outputs:
-      matrix: ${{ steps.select.outputs.matrix }}
-    steps:
-      - id: select
-        env:
-          TARGETS: ${{ inputs.targets }}
-        run: |
-          python3 - <<'PY' >> "$GITHUB_OUTPUT"
-          import json
-          import os
-
-          rows = [
-              {"target": "linux-x86_64", "runner": "ubuntu-24.04", "optional": True},
-              {"target": "windows-x86_64", "runner": "windows-2025", "optional": False},
-              {"target": "macos-arm64", "runner": "macos-15", "optional": False},
-              {"target": "macos-x86_64", "runner": "macos-15-intel", "optional": False},
-          ]
-          requested = os.environ["TARGETS"].strip()
-          selected = set(json.loads(requested)) if requested else {row["target"] for row in rows}
-          if not selected:
-              raise SystemExit("at least one managed-resource target must be selected")
-          known = {row["target"] for row in rows}
-          unknown = selected - known
-          if unknown:
-              raise SystemExit(f"unsupported managed-resource target(s): {sorted(unknown)}")
-          print("matrix=" + json.dumps(
-              {"include": [row for row in rows if row["target"] in selected]},
-              separators=(",", ":"),
-          ))
-          PY
-
-  candidate:
-    needs: [changes, select-targets]
-    if: >-
-      ${{ !cancelled() &&
-          ((inputs.suites == '' && needs.changes.result != 'success') ||
-           fromJSON(inputs.suites || needs.changes.outputs.suites || '{}').managed_resources) }}
-    name: Candidate ${{ matrix.target }}
-    # Linux candidate qualification is optional for #2110. Keep its result and
-    # diagnostics visible without allowing it to fail the required Windows/macOS
-    # candidate aggregate.
-    continue-on-error: ${{ matrix.optional }}
-    strategy:
-      max-parallel: 2
-      fail-fast: false
-      matrix: ${{ fromJSON(needs.select-targets.outputs.matrix) }}
-    runs-on: ${{ matrix.runner }}
-    timeout-minutes: 90
+  intel-ops-diagnostic:
+    name: One-shot original Intel Ops startup observation
+    runs-on: macos-15-intel
+    timeout-minutes: 45
     defaults:
       run:
         shell: bash
     env:
-      RESOURCE_TARGET: ${{ matrix.target }}
-      PACKAGE_SOURCE_SHA: ${{ github.sha }}
-      PACKAGE_VERSION: 0.0.0+candidate.${{ github.sha }}
+      PACKAGE_SOURCE_SHA: aa8435fda29c0b0f58512e71a1cf52ae881e137e
+      PACKAGE_VERSION: 0.0.0+candidate.aa8435fda29c0b0f58512e71a1cf52ae881e137e
+      DEVELOPER_DIR: /Applications/Xcode_16.4.app/Contents/Developer
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -107,98 +28,49 @@ jobs:
         with:
           version: '0.13.5'
           enable-cache: true
-      - name: Install locked build-host checks
-        run: uv sync --locked --no-dev --group resource-build --python 3.12 --no-build-package cryptography --no-build-package jieba
-      - name: Verify native source builders are not bootstrapped through Server extras
+      - name: Install original locked build-host checks
+        run: uv sync --locked --no-dev --group resource-build --python 3.12.10 --no-build-package cryptography --no-build-package jieba
+      - name: Retain exact historical metadata from the known artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
+          mkdir -p build/diagnostic-original
+          gh api repos/oceanbase/powercontext/actions/artifacts/14731621913/zip > build/diagnostic-original.zip
           uv run --no-sync python - <<'PY'
-          import importlib.util
-          for module in ('cryptography', 'jieba', 'maturin'):
-              if importlib.util.find_spec(module) is not None:
-                  raise RuntimeError(f'{module} must be acquired by pinned input preparation')
-          PY
-      - name: Select pinned Intel native compiler and SDK
-        if: matrix.target == 'macos-x86_64'
-        run: echo 'DEVELOPER_DIR=/Applications/Xcode_16.4.app/Contents/Developer' >> "$GITHUB_ENV"
-      - name: Check producer sources
-        run: |
-          uv run --no-sync ruff check --no-fix scripts/prepare_managed_resources.py scripts/produce_managed_resources.py scripts/ci_managed_resource_smoke.py scripts/build_intel_managed_wheel.py tests/test_managed_resource_producer.py
-          uv run --no-sync ruff format --check scripts/prepare_managed_resources.py scripts/produce_managed_resources.py scripts/ci_managed_resource_smoke.py scripts/build_intel_managed_wheel.py tests/test_managed_resource_producer.py
-          uv run --no-sync ty check scripts/prepare_managed_resources.py scripts/produce_managed_resources.py scripts/ci_managed_resource_smoke.py scripts/build_intel_managed_wheel.py tests/test_managed_resource_producer.py
-      - name: Acquire pinned interpreter and freeze native wheel closure
-        run: |
-          uv run --no-sync python scripts/prepare_managed_resources.py --target "$RESOURCE_TARGET" --source-ref "$PACKAGE_SOURCE_SHA" --server-version "$PACKAGE_VERSION" --output build/resource-inputs --download-cache build/resource-downloads
-          uv run --no-sync python - <<'PY'
-          import hashlib, os
+          import hashlib
+          import zipfile
           from pathlib import Path
-          inputs = Path('build/resource-inputs').resolve()
-          digest = hashlib.sha256((inputs / 'inputs.json').read_bytes()).hexdigest()
-          with Path(os.environ['GITHUB_ENV']).open('a', encoding='utf-8') as output:
-              output.write(f'POWERCONTEXT_RESOURCE_TEST_INPUTS={inputs}\n')
-              output.write(f'POWERCONTEXT_RESOURCE_TEST_INPUTS_SHA256={digest}\n')
-              output.write(f'POWERCONTEXT_RESOURCE_TEST_OUTPUT={Path("build/resource-candidate").resolve()}\n')
-              output.write(f'POWERCONTEXT_RESOURCE_TEST_EVIDENCE={Path("build/resource-evidence").resolve()}\n')
+          path = Path('build/diagnostic-original.zip')
+          assert hashlib.sha256(path.read_bytes()).hexdigest() == 'a0dc2b91387427fa93bb7eacba83cb154d64294341e1e21958ec6fc23d09d59e'
+          expected = {'resource-tests.xml', 'resource-evidence/workflow-status.json', 'resource-inputs/inputs.json', 'resource-inputs/requirements.lock'}
+          with zipfile.ZipFile(path) as archive:
+              assert set(archive.namelist()) == expected
+              assert archive.testzip() is None
+              archive.extractall('build/diagnostic-original')
           PY
-      - name: Produce twice, compare bytes, consume catalog, and run bundled launcher/Ops
-        run: uv run --no-sync pytest -q tests/test_managed_resource_producer.py tests/test_ops_resources.py --junitxml build/resource-tests.xml
-      - name: Install Linux Desktop dependencies for native Ops acceptance
-        if: matrix.target == 'linux-x86_64'
+      - name: Prepare the original pinned interpreter, source, and wheel closure once
         run: |
-          sudo apt-get update
-          sudo apt-get install --no-install-recommends -y \
-            build-essential \
-            dbus-x11 \
-            gnome-keyring \
-            libayatana-appindicator3-dev \
-            libgtk-3-dev \
-            libsecret-1-dev \
-            libssl-dev \
-            libwebkit2gtk-4.1-dev \
-            librsvg2-dev \
-            libxdo-dev \
-            openjdk-17-jre-headless \
-            pkg-config
-      - name: Install pinned Rust toolchain for native Ops acceptance
-        if: matrix.target == 'linux-x86_64'
-        run: rustup toolchain install 1.95.0 --profile minimal
-      - name: Verify the real Linux Ops bundle through the native trust boundary
-        if: matrix.target == 'linux-x86_64'
+          uv run --no-sync python scripts/prepare_managed_resources.py --target macos-x86_64 --source-ref "$PACKAGE_SOURCE_SHA" --server-version "$PACKAGE_VERSION" --output build/resource-inputs --download-cache build/resource-downloads
+      - name: Observe one original producer and its original 60-second Ops check
         run: |
-          mkdir -p build/resource-evidence
-          export POWERCONTEXT_OPS_TEST_BUNDLE="$GITHUB_WORKSPACE/build/resource-candidate/ops"
-          export POWERCONTEXT_OPS_TEST_BUNDLE_SHA256="$(sha256sum "$POWERCONTEXT_OPS_TEST_BUNDLE/bundle.json" | cut -d ' ' -f1)"
-          {
-            echo "bundle=$POWERCONTEXT_OPS_TEST_BUNDLE"
-            echo "bundle_manifest_sha256=$POWERCONTEXT_OPS_TEST_BUNDLE_SHA256"
-            CARGO_BUILD_JOBS=2 rustup run 1.95.0 cargo test --locked --manifest-path desktop/src-tauri/Cargo.toml --lib actual_independent_bundle_runs_through_native_trust_and_read_only_bridge -- --ignored
-          } 2>&1 | tee build/resource-evidence/native-ops-bridge.txt
-      - name: Retain unqualified candidate evidence
-        if: success()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
-        with:
-          name: unqualified-managed-resource-${{ matrix.target }}-${{ github.sha }}
-          path: |
-            build/resource-candidate/
-            build/resource-inputs/inputs.json
-            build/resource-inputs/requirements.lock
-            build/resource-inputs/upstream-requirements.lock
-            build/resource-tests.xml
-          if-no-files-found: error
-          retention-days: 7
-      - name: Record workflow diagnostics status
+          uv run --no-sync python scripts/diagnose_managed_ops.py --inputs build/resource-inputs --original-inputs build/diagnostic-original/resource-inputs/inputs.json --output build/resource-candidate --evidence build/ops-diagnostic
+      - name: Preserve the observed copied runtime for offline inspection
         if: always()
         run: |
-          mkdir -p build/resource-evidence
-          printf '%s\n' '{"status":"${{ job.status }}","target":"${{ matrix.target }}","qualification":"unqualified_candidate"}' > build/resource-evidence/workflow-status.json
-      - name: Retain bounded diagnostics and input identities
+          if [ -d build/resource-candidate/ops ]; then
+            tar -czf build/ops-diagnostic-runtime.tar.gz -C build/resource-candidate ops
+          fi
+      - name: Retain diagnostic phases, streams, identities, and copied runtime
         if: always()
         uses: ./.github/actions/upload-ci-diagnostics
         with:
-          name: managed-resource-diagnostics-${{ matrix.target }}-${{ github.sha }}
+          name: intel-ops-startup-diagnostic-${{ github.run_id }}
           path: |
-            build/resource-evidence/
-            build/resource-tests.xml
+            build/ops-diagnostic/
+            build/ops-diagnostic-runtime.tar.gz
             build/resource-inputs/inputs.json
             build/resource-inputs/requirements.lock
-          if-no-files-found: warn
+            build/resource-inputs/upstream-requirements.lock
+            build/diagnostic-original/
+          if-no-files-found: error
           retention-days: 7
