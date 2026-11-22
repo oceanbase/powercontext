@@ -1,0 +1,106 @@
+{
+  "schema": "powercontext.migration-harness.v1",
+  "note": "Fixed, synthetic codec corpus for the migration harness. Public/synthetic text only; no prompts, queries or production data.",
+  "cases": [
+    {
+      "id": "ascii_basic",
+      "note": "Baseline Latin text with punctuation and digits.",
+      "input": "PowerContext migration harness case 1: token, 2 tokens, 3.5 tokens."
+    },
+    {
+      "id": "han_mixed",
+      "note": "Han text mixed with ASCII so Jieba segmentation and re-run boundaries are both exercised.",
+      "input": "迁移 harness 需要保留 中文 与 english 混合的 词边界。"
+    },
+    {
+      "id": "explicit_surrogate_pair",
+      "note": "Explicit UTF-16 surrogate pair (U+D83D U+DE00) written as two surrogate codepoints.",
+      "input": "A\ud83d\ude00B"
+    },
+    {
+      "id": "real_scalar_emoji",
+      "note": "The same emoji as a single real scalar U+1F600; must never compare equal to the pair form.",
+      "input": "A\ud83d\ude00B"
+    },
+    {
+      "id": "surrogate_pair_only",
+      "note": "Bare explicit surrogate pair with no surrounding text.",
+      "input": "\ud83d\ude00"
+    },
+    {
+      "id": "real_scalar_only",
+      "note": "Bare real scalar emoji.",
+      "input": "\ud83d\ude00"
+    },
+    {
+      "id": "lone_high_surrogate",
+      "note": "Lone high surrogate; str-level analysis tolerates it, the validated chunk boundary does not.",
+      "input": "x\ud83dy"
+    },
+    {
+      "id": "lone_low_surrogate",
+      "note": "Lone low surrogate.",
+      "input": "x\udcaay"
+    },
+    {
+      "id": "nfc_j_caron",
+      "note": "Precomposed U+01F0 must unify with decomposed j + U+030C after NFC-then-casefold.",
+      "input": "\u01f0"
+    },
+    {
+      "id": "decomposed_j_caron",
+      "note": "Decomposed counterpart of the previous case.",
+      "input": "j\u030c"
+    },
+    {
+      "id": "capital_i_with_dot",
+      "note": "Casefold expansion: U+0130 becomes i + U+0307, changing length.",
+      "input": "\u0130stanbul"
+    },
+    {
+      "id": "sharp_s",
+      "note": "Length-changing casefold: \u00df becomes ss.",
+      "input": "Stra\u00dfe"
+    },
+    {
+      "id": "capital_sharp_s",
+      "note": "Uppercase counterpart U+1E9E also casefolds to ss.",
+      "input": "STRA\u1e9eE"
+    },
+    {
+      "id": "non_ascii_numbers",
+      "note": "Non-ASCII decimal digits that re \\d matches but ASCII-only parsing does not.",
+      "input": "digits \u0661\u0662\u0663 and \uff11\uff12\uff13"
+    },
+    {
+      "id": "apostrophes",
+      "note": "ASCII apostrophe and U+2019 inside words.",
+      "input": "don't stop, can\u2019t stop"
+    },
+    {
+      "id": "non_ascii_whitespace",
+      "note": "U+00A0, U+2003 and U+3000 whitespace forms.",
+      "input": "a\u00a0b\u2003c\u3000d"
+    },
+    {
+      "id": "line_and_paragraph_separators",
+      "note": "U+0085, U+2028 and U+2029 must stay inside one LF-delimited record.",
+      "input": "a\u0085b\u2028c\u2029d"
+    },
+    {
+      "id": "empty",
+      "note": "Empty input must be recorded, not dropped.",
+      "input": ""
+    },
+    {
+      "id": "whitespace_only",
+      "note": "Whitespace-only input.",
+      "input": "   \t  "
+    },
+    {
+      "id": "case_duplicate_of_ascii",
+      "note": "Input identical to ascii_basic under a different id: ids differ, inputs do not.",
+      "input": "PowerContext migration harness case 1: token, 2 tokens, 3.5 tokens."
+    }
+  ]
+}

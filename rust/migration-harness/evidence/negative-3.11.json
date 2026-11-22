@@ -1,0 +1,76 @@
+{
+  "controls": {
+    "missing_native": {
+      "error": "ValueError: unknown selectors: ['analyze_text_native_missing']",
+      "fail_closed": true,
+      "status": "ERROR",
+      "target_hit": true
+    },
+    "wrong_order": {
+      "error": null,
+      "expected_path_prefix": "cases[0].observations",
+      "mismatch_paths": [
+        "cases[0].observations.analyze_text",
+        "cases[0].observations.analyze_text_with_spans",
+        "cases[0].observations.lexical_terms_with_spans",
+        "cases[1].observations.analyze_text",
+        "cases[1].observations.analyze_text_with_spans",
+        "cases[1].observations.lexical_terms_with_spans"
+      ],
+      "mismatched": 6,
+      "status": "FAIL",
+      "target_hit": true
+    },
+    "wrong_type": {
+      "error": null,
+      "expected_path_prefix": "cases[0].observations.analyze_text",
+      "mismatch_paths": [
+        "cases[0].observations.analyze_text"
+      ],
+      "mismatched": 1,
+      "status": "FAIL",
+      "target_hit": true
+    },
+    "wrong_value": {
+      "error": null,
+      "expected_path_prefix": "cases[0].observations.analyze_text",
+      "mismatch_paths": [
+        "cases[0].observations.analyze_text"
+      ],
+      "mismatched": 1,
+      "status": "FAIL",
+      "target_hit": true
+    }
+  },
+  "delivered_after": {
+    "reference-3.11.manifest.json": {
+      "bytes": 1743,
+      "sha256": "08bbfbed3bce8a3e29efe686dc6fb2b9a038aad9bea54266dce4835b26af242c"
+    },
+    "reference-3.11.ndjson": {
+      "bytes": 29122,
+      "sha256": "a6b2669dd17b2b991bedc7713c9cf8e428460d09aece0ebca7af32fb7de0280a"
+    }
+  },
+  "delivered_before": {
+    "reference-3.11.manifest.json": {
+      "bytes": 1743,
+      "sha256": "08bbfbed3bce8a3e29efe686dc6fb2b9a038aad9bea54266dce4835b26af242c"
+    },
+    "reference-3.11.ndjson": {
+      "bytes": 29122,
+      "sha256": "a6b2669dd17b2b991bedc7713c9cf8e428460d09aece0ebca7af32fb7de0280a"
+    }
+  },
+  "delivered_unchanged": true,
+  "evidence_kind": "REAL_TARGETED_ASSERTION_FAILURES_IN_DISPOSABLE_COPIES",
+  "python": "3.11.14 (main, Dec  9 2025, 18:59:10) [MSC v.1944 64 bit (AMD64)]",
+  "record": "negative-controls",
+  "schema": "powercontext.migration-harness.v1",
+  "selectors": [
+    "analyze_text",
+    "analyze_text_with_spans",
+    "lexical_terms_with_spans"
+  ],
+  "status": "PASS"
+}
