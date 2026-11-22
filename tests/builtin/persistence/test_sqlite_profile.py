@@ -700,3 +700,97 @@ def test_sqlite_pragmas_enforce_lineage_source_foreign_keys() -> None:
                     )
 
     asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("operation", ["execute", "executemany"])
+def test_failed_statement_collection_does_not_block_another_writer(tmp_path, operation) -> None:
+    import gc
+
+    async def scenario() -> None:
+        config = SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'cursor.db'}", busy_timeout_ms=2_000)
+        async with (
+            SQLiteProfile.open(config, tables=()) as profile,
+            profile.database.engine.connect() as contender,
+            profile.database.engine.connect() as writer,
+        ):
+            await writer.exec_driver_sql("CREATE TABLE probe (value INTEGER PRIMARY KEY)")
+            await writer.exec_driver_sql("INSERT INTO probe VALUES (1)")
+            await writer.commit()
+
+            async def fail_statement():
+                try:
+                    parameters = [(1,), (1,)] if operation == "executemany" else (1,)
+                    await contender.exec_driver_sql("INSERT INTO probe VALUES (?)", parameters)
+                except IntegrityError as error:
+                    # Model an error retained by cyclic request/diagnostic state
+                    # so native cleanup cannot rely on immediate refcount disposal.
+                    retained = [error]
+                    retained.append(retained)
+                    return retained
+                pytest.fail("The duplicate key must remain an error")
+
+            collecting = gc.isenabled()
+            gc.disable()
+            pending = None
+            driver = cast(aiosqlite.Connection, (await contender.get_raw_connection()).driver_connection)
+            try:
+                failed = await fail_statement()
+                await contender.rollback()
+                await writer.exec_driver_sql("INSERT INTO probe VALUES (2)")
+                started = asyncio.Event()
+                loop = asyncio.get_running_loop()
+
+                def trace(statement: str) -> None:
+                    if statement == "INSERT INTO probe VALUES (3)":
+                        loop.call_soon_threadsafe(started.set)
+
+                await driver.set_trace_callback(trace)
+                pending = asyncio.create_task(contender.exec_driver_sql("INSERT INTO probe VALUES (3)"))
+                await asyncio.wait_for(started.wait(), 5)
+                # Collect the earlier exception while this connection's worker
+                # waits for the other writer. Collection must leave the event
+                # loop free to release that writer, rather than await its lock.
+                del failed
+                gc.collect()
+                await writer.commit()
+                await pending
+                await contender.commit()
+                assert (await contender.exec_driver_sql("SELECT value FROM probe ORDER BY value")).scalars().all() == [
+                    1,
+                    2,
+                    3,
+                ]
+            finally:
+                await writer.rollback()
+                if pending is not None:
+                    await asyncio.gather(pending, return_exceptions=True)
+                await driver.set_trace_callback(lambda _statement: None)
+                if collecting:
+                    gc.enable()
+
+    asyncio.run(scenario())
+
+
+def test_failed_cursor_cleanup_preserves_the_statement_error(tmp_path, monkeypatch) -> None:
+    async def scenario() -> None:
+        config = SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'cleanup-error.db'}")
+        async with SQLiteProfile.open(config, tables=()) as profile, profile.database.engine.connect() as connection:
+            await connection.exec_driver_sql("CREATE TABLE probe (value INTEGER PRIMARY KEY)")
+            await connection.exec_driver_sql("INSERT INTO probe VALUES (1)")
+            await connection.commit()
+            driver = cast(aiosqlite.Connection, (await connection.get_raw_connection()).driver_connection)
+            original_execute = driver._execute
+
+            async def unavailable_close(fn, *args, **kwargs):
+                if isinstance(getattr(fn, "__self__", None), sqlite3.Cursor) and fn.__name__ == "close":
+                    raise RuntimeError("cursor cleanup unavailable")  # noqa: TRY003
+                return await original_execute(fn, *args, **kwargs)
+
+            with monkeypatch.context() as patch:
+                patch.setattr(driver, "_execute", unavailable_close)
+                with pytest.raises(IntegrityError, match="UNIQUE constraint failed"):
+                    await connection.exec_driver_sql("INSERT INTO probe VALUES (1)")
+            await connection.rollback()
+            assert (await connection.exec_driver_sql("SELECT value FROM probe")).scalar_one() == 1
+
+    asyncio.run(scenario())
