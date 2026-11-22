@@ -38,7 +38,10 @@ python rust/unicode-contract/probes/contract_probe.py \
   --output rust/unicode-contract/evidence/cpython-3.13-replay.json \
   --check rust/unicode-contract/evidence/cpython-3.13.json
 
-# 3. red test: merge a surrogate pair and poison a UCD expectation, in disposable copies only
+# 3. red test: mutate a recorded surrogate-pair observation and poison a UCD expectation, in
+#    disposable copies only. The pair case rewrites `observations.spans.normalized.value.codepoints`
+#    (not the input metadata) so the comparator must fail on the observation path, which is what a
+#    silently-merging implementation would actually produce.
 python rust/unicode-contract/probes/negative_controls.py \
   --fixtures rust/unicode-contract/fixtures/cases.json \
   --reference rust/unicode-contract/evidence/cpython-3.13.json \
@@ -73,10 +76,18 @@ Everything else is version-stable, including the cases most likely to break a Ru
 - `sharp_s` / `capital_sharp_s`: `ß` and `ẞ` both → `ss` (length-changing casefold).
 - `non_ascii_numbers`, `han_and_extensions`, `apostrophes`, `non_ascii_whitespace`: `re` `\w`/`\d`/`\s`
   and Jieba run boundaries agree on all three versions.
-- `explicit_surrogate_pair` (`A`+U+D83D+U+DE00+`B`) vs `pair_only` vs `scalar_only` (U+1F600):
-  **the explicit pair is never merged with the real scalar.** Codepoint counts differ (4 vs 3),
-  `utf-8 strict` raises while `utf-8 surrogatepass` succeeds (`41eda08042`), and both stay distinct
-  through `analyze_text` and chunking.
+- `explicit_surrogate_pair` (`A`+U+D83D+U+DE00+`B`) vs `real_scalar_emoji` (U+1F600, same
+  context) vs `pair_only` / `scalar_only` (bare): **the explicit pair is never merged with the real
+  scalar**, but the observable difference is boundary-specific, not universal:
+  - Codepoint counts differ (4 vs 3) and `utf-8 strict` raises while `utf-8 surrogatepass`
+    succeeds (`61eda0bdedb88062` for the pair vs `f09f9880` for the scalar); NFC/casefold preserves
+    both forms unchanged.
+  - `analyze_text` is **identical** for both forms — `pcu61 pcu62` with context and an empty string
+    when bare — so a contract keyed on `analyze_text` cannot tell them apart.
+  - The distinction shows up in term offsets: `analyze_text_with_spans` and
+    `lexical_terms_with_spans` report `b` at `(3,4)` for the pair and `(2,3)` for the scalar.
+  - Chunking diverges in outcome: the pair raises `ValidationError (string_unicode)` while the
+    scalar is accepted as one chunk.
 - `lone_high_surrogate` / `lone_low_surrogate`: `analyze_text` returns a result for the string but
   chunking raises `ValidationError` (`string_unicode`) — raw string handling and the validated
   chunk boundary are different contracts and must be recorded separately.

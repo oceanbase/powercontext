@@ -27,9 +27,12 @@ Full matrix log: `rust/unicode-contract/evidence/matrix.json` — 23 commands, `
   U+1E4EC is `Cn` under UCD 14.0.0 and `Mn`/`combining=232` from UCD 15.0.0. NFC composes the mark
   cluster on 3.12+ (`a`+U+1E4EC+U+0300 → `à`+U+1E4EC) but not on 3.11, which changes `analyze_text`
   output and term offsets.
-- Explicit surrogate pairs are never merged with real scalars: distinct codepoints, `utf-8 strict`
-  raises while `surrogatepass` yields `41eda08042`, and the distinction survives `analyze_text` and
-  chunking.
+- Explicit surrogate pairs are never merged with real scalars, but the observable difference is
+  boundary-specific: codepoint counts differ (4 vs 3) and `utf-8 strict` raises while
+  `surrogatepass` yields `61eda0bdedb88062` vs `f09f9880`. `analyze_text` returns the **same** value
+  for both (`pcu61 pcu62` with context, empty when bare), so the distinction is only visible in
+  `analyze_text_with_spans` / `lexical_terms_with_spans` offsets (`b` at `(3,4)` vs `(2,3)`) and in
+  the chunk outcome (pair raises `ValidationError`, scalar accepted).
 - `str`-level analysis tolerates lone surrogates; the validated chunk boundary raises
   `ValidationError (string_unicode)`. Two distinct contracts, recorded separately.
 - Candidate tables are 337,951 B total and regenerate in ~0.2 s per interpreter; raw bytes differ

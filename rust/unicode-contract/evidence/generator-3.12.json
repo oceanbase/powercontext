@@ -12,7 +12,7 @@
   "exit_code": 0,
   "stdout": "unicode15.json: Unicode 15.0.0\n",
   "stderr": "",
-  "wall_seconds_one_sample": 0.2386796000000686,
+  "wall_seconds_one_sample": 0.23759160000008706,
   "status": "PASS",
   "candidate_generator_git_blob": {
     "bytes": 2025,

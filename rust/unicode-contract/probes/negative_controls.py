@@ -52,12 +52,19 @@ def run_check(root: Path, fixtures: Path, reference: Path, output: Path) -> dict
         capture_output=True,
         timeout=180,
     )
+    location = None
+    for line in completed.stderr.splitlines():
+        marker = "target mismatch at "
+        index = line.find(marker)
+        if index >= 0:
+            location = line[index + len(marker) :].strip()
     return {
         "command": command,
         "exit_code": completed.returncode,
         "stdout": completed.stdout,
         "stderr": completed.stderr,
-        "target_assertion_failed": completed.returncode != 0 and "target mismatch at" in completed.stderr,
+        "mismatch_location": location,
+        "target_assertion_failed": completed.returncode != 0 and location is not None,
     }
 
 
@@ -90,18 +97,32 @@ def main() -> None:
         ):
             shutil.copyfile(source, destination)
 
-        pair_document = json.loads(pair_fixtures.read_text(encoding="utf-8"))
+        pair_document = json.loads(pair_reference.read_text(encoding="utf-8"))
         pair_case = next(case for case in pair_document["cases"] if case["id"] == "pair_only")
-        explicit_pair = decode_string(pair_case["input"])
+        fixture_case = next(
+            case
+            for case in json.loads(arguments.fixtures.read_text(encoding="utf-8"))["cases"]
+            if case["id"] == "pair_only"
+        )
+        explicit_pair = decode_string(fixture_case["input"])
         # This deliberately unsafe UTF-16 round-trip is confined to the disposable fixture.
         merged = explicit_pair.encode("utf-16-le", "surrogatepass").decode("utf-16-le")
         if codepoints(merged) != [0x1F600]:
             message = "negative setup did not produce the intended merged scalar"
             raise AssertionError(message)
-        pair_case["input"] = {"type": "str", "codepoints": codepoints(merged)}
-        dump_json(pair_fixtures, pair_document)
+        # Keep the recorded input metadata intact and corrupt the expected *observation*
+        # instead: this is what an implementation that silently merged the pair would return,
+        # so the comparator must reject the result rather than the input record.
+        normalized = pair_case["observations"]["spans"]["normalized"]
+        if normalized["value"]["codepoints"] != codepoints(explicit_pair):
+            message = "negative setup expected an unmerged normalized observation"
+            raise AssertionError(message)
+        normalized["value"]["codepoints"] = codepoints(merged)
+        normalized["value"]["python_type"] = "builtins.str"
+        dump_json(pair_reference, pair_document)
         pair_result = run_check(root, pair_fixtures, pair_reference, pair_root / "actual.json")
         pair_result["merged_codepoints"] = codepoints(merged)
+        pair_result["mutated_field"] = "observations.spans.normalized.value.codepoints"
 
         ucd_document = json.loads(ucd_reference.read_text(encoding="utf-8"))
         ucd_case = next(case for case in ucd_document["cases"] if case["id"] == "ucd_105d2_combining")
@@ -124,7 +145,12 @@ def main() -> None:
     reference_unchanged = before == after
     status = (
         "PASS"
-        if pair_result["target_assertion_failed"] and ucd_result["target_assertion_failed"] and reference_unchanged
+        if pair_result["target_assertion_failed"]
+        and ucd_result["target_assertion_failed"]
+        and reference_unchanged
+        and pair_result["mismatch_location"] is not None
+        and pair_result["mismatch_location"].startswith("cases[")
+        and "observations." in pair_result["mismatch_location"]
         else "FAIL"
     )
     result = {

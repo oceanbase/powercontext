@@ -31,6 +31,15 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 CANDIDATE = "a774fd0b8b2ac1729f5dd9121c34e968dd980905"
 
 
+def decode_capture(value: str | bytes | None) -> str | None:
+    """Normalize captured output to text; TimeoutExpired yields bytes under text=True."""
+    if value is None:
+        return None
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace")
+    return value
+
+
 def execute(
     purpose: str,
     command: list[str],
@@ -59,13 +68,15 @@ def execute(
             "outcome": "EXECUTED_EXIT_0" if completed.returncode == 0 else "EXECUTED_NONZERO",
         }
     except subprocess.TimeoutExpired as error:
+        # `TimeoutExpired` exposes raw bytes even under text=True; decode with the same
+        # policy as the success path so a timeout still serializes as BLOCKED_TIMEOUT.
         result = {
             "purpose": purpose,
             "command": command,
             "cwd": str(REPO_ROOT),
             "exit_code": None,
-            "stdout": error.stdout,
-            "stderr": error.stderr,
+            "stdout": decode_capture(error.stdout),
+            "stderr": decode_capture(error.stderr),
             "outcome": "BLOCKED_TIMEOUT",
         }
     result["wall_seconds"] = time.perf_counter() - started
@@ -153,6 +164,11 @@ def main() -> None:
         common = [str(environment_python), "-B"]
         steps = [
             ("identity", [common[0], common[1], str(TASK_ROOT / "probes" / "pyver.py")], 60),
+            (
+                "dependency_resolution",
+                [arguments.uv, "pip", "list", "--python", common[0], "--format=json"],
+                60,
+            ),
             (
                 "record_public_entries",
                 [
