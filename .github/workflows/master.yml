@@ -1108,7 +1108,8 @@ jobs:
         run: make pi-test
 
       - name: Cache Gateway dependencies and compilation
-        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        id: cargo-cache
+        uses: ./.github/actions/setup-rust-cache
         with:
           workspaces: gateway -> target
           shared-key: gateway
@@ -1122,6 +1123,13 @@ jobs:
         env:
           POWERCONTEXT_TEST_PI_HOST: "1"
         run: uv run pytest tests/e2e/test_pi_service_chain.py tests/e2e/test_pi_gateway_chain.py
+
+      - name: Save Gateway dependencies and compilation
+        if: (success() || failure()) && steps.cargo-cache.outputs.cache-backend == 's3' && steps.cargo-cache.outputs.cache-hit != 'true'
+        uses: ./.github/actions/cache-save
+        with:
+          path: ${{ steps.cargo-cache.outputs.cache-path }}
+          key: ${{ steps.cargo-cache.outputs.cache-key }}
 
   opencode-package:
     needs: [quality, tests]
