@@ -573,6 +573,27 @@ describe("PowerContext lifecycle", () => {
     expect(harness.warnings).toEqual([]);
   });
 
+  it("recalls with the end of a long prompt", async () => {
+    const harness = createLifecycleHarness();
+    const beforePromptBuild = harness.hooks.get("before_prompt_build")!;
+    const request = "Where did we leave the cache migration?";
+
+    await beforePromptBuild(
+      { messages: [{ role: "user", content: `${"pasted log line\n".repeat(1000)}${request}` }], prompt: "" },
+      {
+        agentId: "main",
+        sessionId: "session-long-prompt",
+        sessionKey: "agent:main:telegram:direct:user-1",
+      },
+    );
+
+    expect(harness.contextQueries).toHaveLength(1);
+    const query = harness.contextQueries[0];
+    expect(query.endsWith(`\n${request}`)).toBe(true);
+    expect(query.length).toBe(8192);
+    expect(harness.warnings).toEqual([]);
+  });
+
   it("captures a turn under the projects its prompt was built with", async () => {
     const harness = createLifecycleHarness();
     const beforePromptBuild = harness.hooks.get("before_prompt_build")!;

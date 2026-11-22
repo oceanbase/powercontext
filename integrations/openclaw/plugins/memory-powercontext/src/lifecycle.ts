@@ -20,6 +20,7 @@ import { normalizeAgentId, parseAgentSessionKey } from "openclaw/plugin-sdk/rout
 import type { PowerContextConfig } from "./config.js";
 import { opaqueSessionId } from "./config.js";
 import {
+  boundedRecallQuery,
   captureTranscript,
   deterministicSourceId,
   escapePowerContextBoundary,
@@ -438,7 +439,7 @@ export function registerPowerContextLifecycle(api: OpenClawPluginApi, deps: Life
       });
       const prepared = await deps.client.post<unknown>("/v1/context/prepare", {
         scope_id: scopeId,
-        query: truncateUtf8(scrubSecrets(query, serverToken(config)), 8192),
+        query: boundedRecallQuery(scrubSecrets(query, serverToken(config))),
         max_bytes: config.prepareMaxBytes,
         ...(config.contextAssembly !== undefined ? { assembly: config.contextAssembly } : {}),
       });
