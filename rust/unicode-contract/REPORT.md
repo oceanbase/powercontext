@@ -101,17 +101,22 @@ Everything else is version-stable, including the cases most likely to break a Ru
 to the explicit `topic_embedding=None, chunk_embeddings=(), embedding_profile=None` call.
 
 - UCD 16 (CPython 3.14.10) adds **two more divergences** that 3.12/3.13 cannot show, both already
-  represented in the fixed fixture set:
+  represented in the fixed fixture set. Neither is a span-only difference: the normalized text
+  itself changes, so `analyze_text` changes too.
   - `ucd16_cyrillic_tje` / `A`+U+1C89+`B`: U+1C89 (`CYRILLIC CAPITAL LETTER TJE`) is unassigned
-    before UCD 16 and `Lu` from 16.0, so NFC/casefold keeps `A U+1C89 B` at 3.13 but produces
-    `a U+1C8A b` (U+1C8A, `CYRILLIC SMALL LETTER TJE`) at 3.14 — `analyze_text` changes from
-    `pcu61 pcu62` to `pcu61e1b28a62`.
-  - `ucd_105d2_combining` / `A`+U+105D2+U+0307+`B`: U+105D2 is `TODHRI LETTER I` (`Lo`) from UCD 16,
-    so its `character_properties` row (`category`, `name`, `casefold`, `nfc`) and the resulting
-    `analyze_text`/span rows all differ from 3.13, where the codepoint was unassigned.
+    before UCD 16 and `Lu` from 16.0. Casefold of the newly assigned capital yields U+1C8A
+    (`CYRILLIC SMALL LETTER TJE`), so the normalized text goes from `A U+1C89 B` to `a U+1C8A b`
+    and `analyze_text` changes from `pcu61 pcu62` to `pcu61e1b28a62`.
+  - `ucd_105d2_combining` / `A`+U+105D2+U+0307+`B`: U+105D2 is `TODHRI LETTER I` (`Lo`) from UCD 16
+    and now participates in canonical composition, absorbing the following COMBINING DOT ABOVE
+    (U+0307, `Mn`/`ccc=230`) into U+105C9. At 3.13 the codepoint is unassigned, so NFC keeps
+    `A U+105D2 U+0307 B`; at 3.14 it becomes `a U+105C9 b`. `analyze_text` changes from
+    `pcu61 pcu62` to `pcu61f090978962`, and the `character_properties` row for U+105D2
+    (`category`, `name`, `casefold`, `nfc`) differs as well.
 
   This is the same failure mode as the 3.11 row, now shown on a *newer* UCD: a table generated from
-  one UCD silently changes normalization, term boundaries and codepoint spans under another.
+  one UCD silently changes normalization and therefore term boundaries, `analyze_text` output and
+  codepoint spans under another.
 
 ## Fixed candidate (#2735) table inventory — read-only
 
