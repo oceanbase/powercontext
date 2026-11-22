@@ -286,8 +286,7 @@ def test_healthy_combined_api_exposes_idle_stalled_and_stopped_processing(  # no
                 failures_before = supervisor.family_status["memory"]["pending_observation_failures"]
                 intents.fail_observation = True
                 intents.release_observation.set()
-                # Exercise the real pending-read deadline. Shortening its shared
-                # timeout would also make healthy Scope discovery fail under load.
+                # Preserve the real observation deadline without shortening discovery.
                 async with asyncio.timeout(10):
                     while (  # noqa: ASYNC110
                         supervisor.family_status["memory"]["pending_observation_failures"] == failures_before
@@ -326,7 +325,7 @@ def test_healthy_combined_api_exposes_idle_stalled_and_stopped_processing(  # no
 
             async def recover_observation():
                 intents.fail_observation = False
-                async with asyncio.timeout(10):
+                async with asyncio.timeout(3):
                     while (  # noqa: ASYNC110
                         supervisor.family_status["memory"]["requested_snapshot_timestamp_seconds"]
                         == previous["requested_snapshot_timestamp_seconds"]
