@@ -174,12 +174,13 @@ literal mutable draft ID `000`. The following registered names remain unchanged:
 | `v1_5_0_004` | 1.5.0 | 4 | `v1_5_0_004` | Source citation position locators |
 | `v1_5_0_005` | 1.5.0 | 5 | `v1_5_0_005` | Remove previous plugin-framework storage and add nullable Artifact metadata |
 | `v1_5_2_pr2639` | 1.5.2 | PR #2639 | `v1_5_2_pr2639` | Source collection runner and target tables; remove the write plugin registry |
+| `000` | — | Draft | `v1_5_2_pr2639` | Independent prepare diagnostics |
 
-Both registered source paths reach `v1_5_2_pr2639`; only 1.3.0 is selected for CI upgrade acceptance:
+Both registered source paths reach the `000` draft after `v1_5_2_pr2639`; only 1.3.0 is selected for CI upgrade acceptance:
 
 ```text
-1.3.0: v1_3_0_000 -> v1_4_1_001 -> v1_4_1_002 -> v1_4_1_003 -> v1_4_1_004 -> v1_4_1_005 -> v1_4_1_006 -> v1_5_0_001 -> v1_5_0_002 -> v1_5_0_003 -> v1_5_0_004 -> v1_5_0_005 -> v1_5_2_pr2639
-1.4.0: v1_4_0_000 -> v1_4_1_001 -> v1_4_1_002 -> v1_4_1_003 -> v1_4_1_004 -> v1_4_1_005 -> v1_4_1_006 -> v1_5_0_001 -> v1_5_0_002 -> v1_5_0_003 -> v1_5_0_004 -> v1_5_0_005 -> v1_5_2_pr2639
+1.3.0: v1_3_0_000 -> v1_4_1_001 -> v1_4_1_002 -> v1_4_1_003 -> v1_4_1_004 -> v1_4_1_005 -> v1_4_1_006 -> v1_5_0_001 -> v1_5_0_002 -> v1_5_0_003 -> v1_5_0_004 -> v1_5_0_005 -> v1_5_2_pr2639 -> 000
+1.4.0: v1_4_0_000 -> v1_4_1_001 -> v1_4_1_002 -> v1_4_1_003 -> v1_4_1_004 -> v1_4_1_005 -> v1_4_1_006 -> v1_5_0_001 -> v1_5_0_002 -> v1_5_0_003 -> v1_5_0_004 -> v1_5_0_005 -> v1_5_2_pr2639 -> 000
 ```
 
 `status` and `plan` show `source_migration`, `target_migration` and `pending_migrations`
@@ -897,3 +898,10 @@ remaining missing values from the original text and completes `NOT NULL` constra
 `NOT NULL` do not receive another `MODIFY COLUMN`. Original Scope titles, summaries, external references, and binding
 identifiers are preserved. This compatibility repair remains for unmanaged profiles. Managed Server storage uses the
 registered migration chain and read-only startup admission; its startup never invokes this repair to upgrade the schema.
+
+### Prepare diagnostic storage
+
+The `000` draft adds only `pc_context_prepare_diagnostics` and its Scope/time/status indexes. It does not change existing
+records or backfill past prepare calls. The table has no Scope deletion foreign key or cascade. Existing managed
+installations must migrate before startup. Capture is always on for the Server; recovery uses the existing
+verified-backup workflow and never automatically drops diagnostic records.

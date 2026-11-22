@@ -128,6 +128,10 @@ def main(arguments: list[str]) -> int:
             references_checked += 1
             if reference.startswith("./") or reference.startswith("../"):
                 continue
+            # GitHub binds self-repository actions to the running workflow's
+            # commit, independently of the source ref checked out by the job.
+            if reference.startswith("$/") and "@" not in reference:
+                continue
             if "@" not in reference or not COMMIT_SHA.fullmatch(reference.rsplit("@", 1)[1]):
                 display_reference = _display_reference(reference)
                 violations.append(f"{path}: uses reference '{display_reference}' must use a 40-character commit SHA")
