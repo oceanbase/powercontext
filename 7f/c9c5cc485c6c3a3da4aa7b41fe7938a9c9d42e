@@ -1,0 +1,28 @@
+e2e/bub/Dockerfile
+  s_2ef0feea0a110d::t_3c2250473d6646 27-31
+e2e/bub/README.md
+  s_2ef0feea0a110d::t_3c2250473d6646 584-590
+e2e/bub/scripts/configure_debian_mirror.py
+  s_2ef0feea0a110d::t_3c2250473d6646 1-60
+e2e/bub/tests/test_debian_build_mirror.py
+  s_2ef0feea0a110d::t_3c2250473d6646 16,28,55
+  s_2ef0feea0a110d::t_bb010b08c93f1b 1-15,17-27,29-54,56-71
+e2e/bub/compose.yaml
+  s_2ef0feea0a110d::t_3c2250473d6646 61
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "7fc9c5cc485c6c3a3da4aa7b41fe7938a9c9d42e",
+  "prompts": {},
+  "sessions": {
+    "s_2ef0feea0a110d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1a9cf-a4e7-7f63-9c51-1284f7c332e8",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "frf12 <rongfeng.frf@antgroup.com>"
+    }
+  }
+}
