@@ -55,7 +55,15 @@ jobs:
     outputs:
       matrix: ${{ steps.plan.outputs.matrix }}
     steps:
+      # Fetch current files through the action's retryable fetch, before using a
+      # partial clone for history. Checkout must not need an unguarded lazy fetch.
       - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Fetch version history
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
@@ -667,11 +675,18 @@ jobs:
       matrix: ${{ fromJSON(needs.validate.outputs.matrix) }}
     name: Acceptance (${{ matrix.database }})
     steps:
+      # Fetch current files through the action's retryable fetch, before using a
+      # partial clone for history. Checkout must not need an unguarded lazy fetch.
       - name: Check out
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Fetch version history
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
           fetch-depth: 0
-          # Keep version history and tags without downloading every historical file.
           filter: blob:none
           persist-credentials: false
 
