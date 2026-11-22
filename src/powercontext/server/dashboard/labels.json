@@ -725,5 +725,8 @@
   "topic_memory.temporary_purpose": "处理超出输入限制的资料",
   "topic_memory.reduce_purpose": "压缩中间结果并保留证据",
   "topic_memory.reconcile_purpose": "协调新增内容与已有主题",
-  "prompt_revision_unavailable": "所选版本不可用"
+  "prompt_revision_unavailable": "所选版本不可用",
+  "revision_viewing": "查看中",
+  "prompt_return_editor": "返回编辑当前配置",
+  "prompt_opened_auto_summary": "该版本为自动模式，运行时使用部署内置的默认指令。"
 }

@@ -1545,14 +1545,25 @@ def test_save_compare_and_revision_preserve_scroll_position(dashboard: TestClien
             page.wait_for_url("**prompt_revision=1**")
             page.wait_for_timeout(150)
             y_after_rev = page.evaluate("window.scrollY")
-            assert y_after_rev > 400
+            assert y_after_rev > 200
             assert abs(y_after_rev - y_before_rev) < 600
             assert page.locator("#revision-history").evaluate("el => el.open") is True
+            assert CATALOGS["en"]["revision_viewing"] in page.locator("#revision-history").inner_text()
+            preview = page.locator("#revision-history [data-revision-preview]")
+            assert preview.is_visible()
+            assert "Revision one instructions." in preview.inner_text()
             rev_box = page.locator("#revision-history").evaluate("el => el.getBoundingClientRect()")
             assert rev_box["top"] < 800
             assert rev_box["bottom"] > 0
             assert "compare=" not in page.url
             assert "#" not in page.url
+
+            # Clicking Back to editor (or current head link) restores the editable form.
+            back_btn = page.locator("#revision-history a.btn", has_text=CATALOGS["en"]["prompt_return_editor"])
+            assert back_btn.is_visible()
+            back_btn.click()
+            page.locator("form[data-profile-prompt-editor]").wait_for(state="visible")
+            assert "prompt_revision=" not in page.url
             assert not errors
         finally:
             browser.close()

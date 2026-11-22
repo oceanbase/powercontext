@@ -251,12 +251,18 @@ limitations under the License.
 {% else %}
 {% set shown = opened.content.instructions if opened else (prompt.effective.instructions if prompt.effective else (prompt.builtin.instructions if prompt.builtin else '')) %}
 <h2 class="section-title">{{ t.prompt_instructions if opened or prompt.effective else t.prompt_builtin_template }}</h2>
+{% if opened and opened.content.mode == 'auto' and not shown %}
+<p class="text-secondary">{{ t.prompt_opened_auto_summary }}</p>
+{% else %}
 <pre class="page-body-pre text-break">{{ shown }}</pre>
+{% endif %}
 {% if prompt.builtin %}
-{% if shown != prompt.builtin.instructions %}<h2 class="section-title">{{ t.prompt_builtin_template }}</h2>
-<pre class="page-body-pre text-break">{{ prompt.builtin.instructions }}</pre>
-{% elif opened or prompt.effective %}<p class="text-secondary small mb-1">{{ t.prompt_builtin_matches_effective }}</p>{% endif %}
+{% if shown != prompt.builtin.instructions %}
+<details class="supporting-details mb-3"><summary>{{ t.prompt_builtin_template }} &middot; {{ prompt.builtin.version }}</summary><pre class="page-body-pre text-break mt-2">{{ prompt.builtin.instructions }}</pre></details>
+{% else %}
+{% if opened or prompt.effective %}<p class="text-secondary small mb-1">{{ t.prompt_builtin_matches_effective }}</p>{% endif %}
 <p class="text-secondary small">{{ t.prompt_builtin_version }}: {{ prompt.builtin.version }}</p>
+{% endif %}
 {% endif %}
 {% set demonstrations = opened.content.demonstrations if opened else (prompt.effective.demonstrations if prompt.effective else []) %}
 {% if demonstrations %}<h2 class="section-title">{{ t.prompt_demonstrations }}</h2><pre class="page-body-pre text-break">{{ demonstrations|tojson(indent=2) }}</pre>{% endif %}
@@ -270,7 +276,7 @@ limitations under the License.
     <li>{{ t.prompt_explain_constraints }}</li>
   </ul>
 </div>
-{% if prompt.artifact %}<a hx-swap="outerHTML show:#revision-history:top" href="{{ link('prompts',prompt_key=prompt.prompt_key,prompt_revision=prompt.artifact.revision,fragment='revision-history') }}">{{ t.revision_history }} &rarr;</a>{% endif %}
+{% if opened %}<a hx-swap="outerHTML show:none" href="{{ link('prompts',prompt_key=prompt.prompt_key,prompt_revision=none,compare=none,rollback_error=none,prompt_saved=none) }}">&larr; {{ t.prompt_return_editor }}</a>{% elif prompt.artifact %}<a hx-swap="outerHTML show:#revision-history:top" href="{{ link('prompts',prompt_key=prompt.prompt_key,prompt_revision=prompt.artifact.revision,fragment='revision-history') }}">{{ t.revision_history }} &rarr;</a>{% endif %}
 {% set ns.feedback_rendered = true %}
 {{ prompt_feedback_alerts() }}
 {% set show_editor = not opened and not failed and not unavailable and (
@@ -302,7 +308,7 @@ limitations under the License.
 {% if not failed %}<p class="small">{{ t.prompt_mode }}: {{ t.prompt_custom if mode == 'custom' else t.prompt_auto }}</p>
 <div class="document-meta mb-3"><code>{{ prompt.prompt_key }}</code> &middot; {{ t.prompt_revision }} {{ opened.revision if opened else (prompt.artifact.revision if prompt.artifact else t.prompt_auto) }} &middot; {{ t.prompt_demonstrations }} {{ opened.content.demonstrations|length if opened else (prompt.effective.demonstrations|length if prompt.effective else 0) }}</div>
 <h2 class="section-title">{{ t.prompt_instructions if opened or prompt.effective else t.prompt_builtin_template }}</h2><pre class="page-body-pre text-break">{{ opened.content.instructions if opened else (prompt.effective.instructions if prompt.effective else (prompt.builtin.instructions if prompt.builtin else '')) }}</pre>
-{% if prompt.artifact %}<a hx-swap="outerHTML show:#revision-history:top" href="{{ link('prompts',prompt_key=prompt.prompt_key,prompt_revision=prompt.artifact.revision,fragment='revision-history') }}">{{ t.revision_history }} &rarr;</a>{% endif %}
+{% if opened %}<a hx-swap="outerHTML show:none" href="{{ link('prompts',prompt_key=prompt.prompt_key,prompt_revision=none,compare=none,rollback_error=none,prompt_saved=none) }}">&larr; {{ t.prompt_return_editor }}</a>{% elif prompt.artifact %}<a hx-swap="outerHTML show:#revision-history:top" href="{{ link('prompts',prompt_key=prompt.prompt_key,prompt_revision=prompt.artifact.revision,fragment='revision-history') }}">{{ t.revision_history }} &rarr;</a>{% endif %}
 {% set demonstrations = opened.content.demonstrations if opened else (prompt.effective.demonstrations if prompt.effective else []) %}
 {% if demonstrations %}<h2 class="section-title">{{ t.prompt_demonstrations }}</h2><pre class="page-body-pre text-break">{{ demonstrations|tojson(indent=2) }}</pre>{% endif %}
 {% else %}<code>{{ prompt.prompt_key }}</code>{{ read_error(errors.prompt_selected,t.prompt_revision) }}{% endif %}
