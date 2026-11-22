@@ -23,9 +23,11 @@ import os
 import shutil
 import socket
 import subprocess
+import sys
 import threading
 import time
 import urllib.request
+from contextlib import contextmanager
 from pathlib import Path
 from types import SimpleNamespace
 from typing import NamedTuple
@@ -44,7 +46,7 @@ from harbor.models.job.config import JobConfig
 from harbor.models.task.config import TaskOS
 from harbor.utils.env import resolve_env_vars
 
-from powercontext_e2e import harbor_agent, harbor_kimi_code
+from powercontext_e2e import harbor_agent, harbor_codex, harbor_kimi_code
 from powercontext_e2e.catalog import E2ETask, load_tasks
 from powercontext_e2e.harbor_agent import PowerContextBubAcpAgent
 from powercontext_e2e.harbor_claude_code import PowerContextClaudeCodeAgent
@@ -205,6 +207,50 @@ def _host_proxy_settings() -> dict[str, str]:
     return {name: value for name, value in os.environ.items() if name.lower() in ("http_proxy", "https_proxy")}
 
 
+@pytest.mark.parametrize("proxy", [None, "http://proxy.invalid:3128"])
+def test_explicit_python_index_bypasses_task_proxy_without_losing_private_routes(
+    monkeypatch, tmp_path: Path, proxy: str | None
+) -> None:
+    index = "https://user:pass@packages.example.test/simple"
+    monkeypatch.setenv("POWERCONTEXT_E2E_PYTHON_INDEX_URL", index)
+    if proxy is not None:
+        monkeypatch.setenv("POWERCONTEXT_E2E_AGENT_PROXY_URL", proxy)
+
+    config = _config(_task("project-database-decision"), tmp_path)
+    env = _agent_env(config)
+
+    for name in ("NO_PROXY", "no_proxy"):
+        assert set(env[name].split(",")) == {
+            "127.0.0.1",
+            "localhost",
+            "host-gateway",
+            "powercontext",
+            "packages.example.test",
+        }
+    assert index not in config.model_dump_json()
+    assert "user:pass" not in config.model_dump_json()
+    if proxy is not None:
+        assert resolve_env_vars(env)["HTTPS_PROXY"] == proxy
+
+
+def test_explicit_debian_mirror_keeps_both_package_routes_direct(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("POWERCONTEXT_E2E_AGENT_PROXY_URL", "http://proxy.invalid:3128")
+    monkeypatch.setenv("POWERCONTEXT_E2E_PYTHON_INDEX_URL", "https://python.example.test/simple")
+    monkeypatch.setenv("POWERCONTEXT_E2E_DEBIAN_MIRROR_URL", "https://debian.example.test")
+
+    env = _agent_env(_config(_task("project-database-decision"), tmp_path))
+
+    for name in ("NO_PROXY", "no_proxy"):
+        assert set(env[name].split(",")) == {
+            "127.0.0.1",
+            "localhost",
+            "host-gateway",
+            "powercontext",
+            "python.example.test",
+            "debian.example.test",
+        }
+
+
 def test_batch_job_binds_scopes_per_invocation_instead_of_per_job(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setenv("POWERCONTEXT_BUB_SCOPE_ID", "host-scope")
     tasks = tuple(task for task in _TASKS if "batch:acceptance" in task.categories)
@@ -333,6 +379,40 @@ def _paired_config(tmp_path: Path, host: str, scope_id: str | None) -> JobConfig
     return _job_config(_PAIRED_TASK, "run-1", scope_id, output_dir, settings, host=host_adapter(host))
 
 
+@pytest.mark.parametrize("proxy", [None, "http://proxy.invalid:3128"])
+@pytest.mark.parametrize("scope_id", [None, "scope-1"])
+def test_codex_plugin_mirror_bypasses_only_task_proxy(
+    monkeypatch, tmp_path: Path, proxy: str | None, scope_id: str | None
+) -> None:
+    mirror = "https://mirrors.aliyun.com/pypi/simple/"
+    monkeypatch.setenv("PC_CI_PYTHON_MIRROR", mirror)
+    monkeypatch.setenv("POWERCONTEXT_E2E_CODEX_MODEL", "model-test")
+    monkeypatch.setenv("POWERCONTEXT_CODEX_SERVER_URL", "http://host-gateway:8000")
+    monkeypatch.setenv("HTTPS_PROXY", "http://127.0.0.1:7897")
+    if proxy is not None:
+        monkeypatch.setenv("POWERCONTEXT_E2E_AGENT_PROXY_URL", proxy)
+    host_proxy = _host_proxy_settings()
+
+    config = _paired_config(tmp_path, "codex", scope_id)
+    env = _agent_env(config)
+
+    if scope_id is not None or proxy is not None:
+        expected = {"127.0.0.1", "localhost", "host-gateway", "powercontext"}
+        if scope_id is not None:
+            expected.add("mirrors.aliyun.com")
+        for name in ("NO_PROXY", "no_proxy"):
+            assert set(env[name].split(",")) == expected
+    else:
+        assert "NO_PROXY" not in env
+        assert "no_proxy" not in env
+    if proxy is not None:
+        assert resolve_env_vars(env)["HTTPS_PROXY"] == proxy
+    else:
+        assert "HTTPS_PROXY" not in env
+    assert _host_proxy_settings() == host_proxy
+    assert mirror not in config.model_dump_json()
+
+
 @pytest.mark.parametrize("host", _PLUGIN_HOSTS, ids=lambda host: host.name)
 def test_plugin_host_off_arm_has_nothing_of_powercontext(monkeypatch, tmp_path: Path, host: _PluginHost) -> None:
     # An OFF agent that can find PowerContext files or credentials searches for PowerContext instead of working
@@ -425,6 +505,16 @@ class _RecordingEnvironment:
         self.commands: list[str] = []
         self.envs: list[dict[str, str]] = []
         self._failing = failing
+        self.output_callback = None
+
+    @contextmanager
+    def scoped_output_callback(self, callback):
+        previous = self.output_callback
+        self.output_callback = callback
+        try:
+            yield
+        finally:
+            self.output_callback = previous
 
     async def exec(self, command: str, **kwargs: object) -> ExecResult:
         self.commands.append(command)
@@ -465,6 +555,283 @@ def test_bub_runtime_install_uses_its_own_index_and_compatible_harbor_sdk(
     constraint_path = install_env["PIP_CONSTRAINT"]
     assert f"upload harbor-acp-constraints.txt {constraint_path}" in environment.commands
     assert (tmp_path / "harbor-acp-constraints.txt").read_text(encoding="utf-8") == "agent-client-protocol==0.10.0\n"
+    for command, env in zip(environment.commands, environment.envs, strict=True):
+        if " tool install " in command or "/bub install " in command:
+            assert "UV_INDEX_URL" not in env
+
+
+def test_explicit_python_index_reaches_runtime_bub_and_acp_installs(monkeypatch, tmp_path: Path) -> None:
+    index = "https://packages.example.test/simple"
+    monkeypatch.setenv("POWERCONTEXT_E2E_PYTHON_INDEX_URL", index)
+    monkeypatch.setenv("POWERCONTEXT_E2E_PIP_INDEX_URL", "https://old-pip.example.test/simple")
+    monkeypatch.setenv("PIP_INDEX_URL", "http://127.0.0.1:3141/simple")
+    monkeypatch.setenv("UV_INDEX_URL", "http://127.0.0.1:3141/simple")
+    environment = _RecordingEnvironment()
+
+    asyncio.run(PowerContextBubAcpAgent(logs_dir=tmp_path, powercontext=False).install(environment))
+
+    for installer in ("pip install", " tool install ", "/bub install "):
+        (env,) = [
+            env for command, env in zip(environment.commands, environment.envs, strict=True) if installer in command
+        ]
+        assert env["PIP_INDEX_URL"] == index
+        assert env["UV_INDEX_URL"] == index
+
+
+def test_bub_mirror_failure_retries_only_each_python_installer(monkeypatch, tmp_path: Path) -> None:
+    index = "https://packages.example.test/simple"
+    monkeypatch.setenv("POWERCONTEXT_E2E_PYTHON_INDEX_URL", index)
+    runner = tmp_path / "runner"
+    bin_dir = runner / "bin"
+    bin_dir.mkdir(parents=True)
+    log = tmp_path / "installs.jsonl"
+    installer = (
+        f"#!{sys.executable}\n"
+        "import json, os, sys\n"
+        f"with open({str(log)!r}, 'a') as log:\n"
+        "    log.write(json.dumps({'args': sys.argv[1:], 'index': os.getenv('PIP_INDEX_URL'), "
+        "'uv_index': os.getenv('UV_INDEX_URL'), 'constraint': os.getenv('PIP_CONSTRAINT')}) + '\\n')\n"
+        "sys.exit(7 if os.getenv('PIP_INDEX_URL') != 'https://pypi.org/simple' else 0)\n"
+    )
+    for name in ("pip", "uv", "bub"):
+        path = bin_dir / name
+        path.write_text(installer, encoding="utf-8")
+        path.chmod(0o755)
+    monkeypatch.setattr(harbor_acp.AcpAgent, "_RUNNER_VENV_PATH", str(runner))
+    for name in ("REMOTE_BIN_DIR", "REMOTE_BUB_HOME", "REMOTE_BUB_PROJECT", "REMOTE_CODEX_HOME", "REMOTE_TOOL_DIR"):
+        monkeypatch.setattr(harbor_agent, name, str(bin_dir if name == "REMOTE_BIN_DIR" else tmp_path / name))
+    marker = tmp_path / "setup.log"
+    monkeypatch.setattr(
+        harbor_acp.AcpAgent,
+        "_build_dependencies_command",
+        lambda self, kind: f"set -eu; echo setup >> {marker}; {bin_dir}/pip install agent-client-protocol",
+    )
+    environment = _RecordingEnvironment()
+    asyncio.run(PowerContextBubAcpAgent(logs_dir=tmp_path, powercontext=False).install(environment))
+
+    for command, env in zip(environment.commands, environment.envs, strict=True):
+        if not any(installer in command for installer in ("pip install", " tool install ", "/bub install ")):
+            continue
+        completed = subprocess.run(  # noqa: S603 - generated installer setup with local fake executables
+            ["/bin/bash", "-c", command],
+            env={"PATH": os.defpath, **env},
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert completed.returncode == 0, completed.stderr
+
+    calls = [json.loads(line) for line in log.read_text(encoding="utf-8").splitlines()]
+    assert [call["index"] for call in calls] == [index, "https://pypi.org/simple"] * 3
+    assert [call["uv_index"] for call in calls] == [index, "https://pypi.org/simple"] * 3
+    for first, fallback in zip(calls[::2], calls[1::2], strict=True):
+        assert first["args"] == fallback["args"]
+        assert first["constraint"] == fallback["constraint"]
+    assert marker.read_text(encoding="utf-8") == "setup\n"
+
+
+@pytest.mark.parametrize("mirror", [False, True])
+def test_codex_mirror_sync_preserves_mounted_plugin_lock(monkeypatch, tmp_path: Path, mirror: bool) -> None:
+    if mirror:
+        monkeypatch.setenv("PC_CI_PYTHON_MIRROR", "https://mirrors.aliyun.com/pypi/simple/")
+    else:
+        monkeypatch.delenv("PC_CI_PYTHON_MIRROR", raising=False)
+    source = tmp_path / "source"
+    source.mkdir()
+    original_lock = (
+        b'[[package]]\nname = "fixture"\nwheels = [{ url = "https://files.pythonhosted.org/packages/fixture.whl" }]\n'
+    )
+    (source / "uv.lock").write_bytes(original_lock)
+    (source / "pyproject.toml").write_text("[tool.uv]\npackage = false\n", encoding="utf-8")
+    monkeypatch.setattr(harbor_codex, "REMOTE_PLUGIN_PROJECT", str(source))
+    monkeypatch.setattr(harbor_codex, "REMOTE_PLUGIN_ENV", str(tmp_path / "venv"))
+    monkeypatch.setattr(harbor_codex, "REMOTE_UV_PYTHON", str(tmp_path / "python"))
+    monkeypatch.setattr(harbor_codex, "REMOTE_PLUGIN_RUNTIME_PROJECT", str(tmp_path / "runtime"), raising=False)
+    remote_helper = tmp_path / "ci_python_mirror.py"
+    monkeypatch.setattr(harbor_codex, "REMOTE_PYTHON_INSTALLER", str(remote_helper), raising=False)
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    log = tmp_path / "sync.jsonl"
+    uv = bin_dir / "uv"
+    uv.write_text(
+        f"#!{sys.executable}\n"
+        "import json, os, pathlib, sys\n"
+        "args = sys.argv[1:]\n"
+        "if args == ['--version']:\n"
+        "    print('uv 0.10.12 fixture'); sys.exit(0)\n"
+        "if args[0] == 'run':\n"
+        "    command = args[args.index('--') + 1:]\n"
+        "    os.execv(sys.executable, [sys.executable, *command[1:]])\n"
+        "project = pathlib.Path(args[args.index('--project') + 1])\n"
+        "lock = (project / 'uv.lock').read_text()\n"
+        f"with open({str(log)!r}, 'a') as log:\n"
+        "    log.write(json.dumps({'args': args, 'project': str(project), 'lock': lock}) + '\\n')\n"
+        "sys.exit(8 if 'mirrors.aliyun.com' in lock else 0)\n",
+        encoding="utf-8",
+    )
+    uv.chmod(0o755)
+
+    async def installed_codex(self, environment) -> None:
+        return None
+
+    monkeypatch.setattr(Codex, "install", installed_codex)
+
+    class UploadedEnvironment(_RecordingEnvironment):
+        async def upload_file(self, *, source_path: Path, target_path: str) -> None:
+            shutil.copy2(source_path, target_path)
+            await super().upload_file(source_path=source_path, target_path=target_path)
+
+    environment = UploadedEnvironment()
+    asyncio.run(PowerContextCodexAgent(logs_dir=tmp_path, server_url="http://host-gateway:8000").install(environment))
+    ((command, env),) = [
+        (command, env)
+        for command, env in zip(environment.commands, environment.envs, strict=True)
+        if "sync --quiet --frozen" in command
+    ]
+    completed = subprocess.run(  # noqa: S603 - generated setup uses the local fixture uv executable
+        ["/bin/bash", "-c", command],
+        env={"PATH": f"{bin_dir}:{Path(sys.executable).parent}:{os.defpath}", **env},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert completed.returncode == 0, completed.stderr
+    calls = [json.loads(line) for line in log.read_text(encoding="utf-8").splitlines()]
+    if mirror:
+        assert len(calls) == 2
+        assert "mirrors.aliyun.com/pypi/packages/fixture.whl" in calls[0]["lock"]
+        assert calls[1]["lock"] == original_lock.decode()
+        assert calls[0]["args"] == calls[1]["args"]
+        assert calls[0]["project"] != str(source)
+    else:
+        assert len(calls) == 1
+        assert calls[0]["lock"] == original_lock.decode()
+        assert calls[0]["project"] == str(source)
+        assert not remote_helper.exists()
+    assert "--frozen" in calls[0]["args"]
+    assert "--no-install-project" in calls[0]["args"]
+    assert (Path(calls[0]["project"]) / "uv.lock").read_bytes() == original_lock
+    assert (source / "uv.lock").read_bytes() == original_lock
+
+
+@pytest.mark.parametrize("outcome", ["success", "failure", "cancel"])
+def test_bub_setup_retains_complete_output_without_changing_outcome(tmp_path: Path, outcome: str) -> None:
+    stdout = "package progress\n" * 200 + "final stdout diagnostic\n"
+    stderr = "package warning\n" * 200 + "final stderr diagnostic\n"
+
+    class OutputEnvironment(_RecordingEnvironment):
+        async def exec(self, command: str, **kwargs: object) -> ExecResult:
+            await super().exec(command, **kwargs)
+            completed = subprocess.run(  # noqa: S603 - fixed Python output/exit fixture, no task command is executed
+                [
+                    sys.executable,
+                    "-c",
+                    "import sys; sys.stdout.write('package progress\\n' * 200 + 'final stdout diagnostic\\n'); "
+                    "sys.stderr.write('package warning\\n' * 200 + 'final stderr diagnostic\\n'); "
+                    f"sys.exit({100 if outcome == 'failure' else 0})",
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            if self.output_callback is not None:
+                for text, stream in ((completed.stdout, "stdout"), (completed.stderr, "stderr")):
+                    await self.output_callback(text[:1000], stream)
+                    await self.output_callback(text[1000:], stream)
+            if outcome == "cancel":
+                raise asyncio.CancelledError
+            return ExecResult(stdout=completed.stdout, stderr=completed.stderr, return_code=completed.returncode)
+
+    agent = PowerContextBubAcpAgent(logs_dir=tmp_path, powercontext=False)
+    environment = OutputEnvironment()
+    if outcome == "failure":
+        with pytest.raises(NonZeroAgentExitCodeError, match=r"exit 100"):
+            asyncio.run(agent.install(environment))
+    elif outcome == "cancel":
+        with pytest.raises(asyncio.CancelledError):
+            asyncio.run(agent.install(environment))
+    else:
+        asyncio.run(agent.install(environment))
+
+    phases = ("dependencies", "bub", "acp") if outcome == "success" else ("dependencies",)
+    for phase in phases:
+        assert (tmp_path / "setup" / f"{phase}.stdout.log").read_text(encoding="utf-8") == stdout
+        assert (tmp_path / "setup" / f"{phase}.stderr.log").read_text(encoding="utf-8") == stderr
+
+
+@pytest.mark.parametrize(("distribution", "suite"), [("debian", "bookworm"), ("debian", "trixie"), ("ubuntu", "noble")])
+def test_debian_mirror_changes_only_default_repository_uris(tmp_path: Path, distribution: str, suite: str) -> None:
+    apt = tmp_path / "apt"
+    sources = apt / "sources.list.d"
+    sources.mkdir(parents=True)
+    os_release = tmp_path / "os-release"
+    os_release.write_text(f"ID={distribution}\nVERSION_CODENAME={suite}\n", encoding="utf-8")
+    original = {
+        apt
+        / "sources.list": f"# http://deb.debian.org/debian is the default\ndeb http://deb.debian.org/debian {suite} main\n",
+        sources / "security.list": f"deb-src https://deb.debian.org/debian-security/ {suite}-security main\n",
+        sources / "debian.sources": (
+            "Types: deb\nURIs: http://deb.debian.org/debian https://custom.test/debian\n"
+            f"Suites: {suite} {suite}-updates\nComponents: main\nSigned-By: /usr/share/keyrings/debian.gpg\n"
+        ),
+        sources / "custom.list": f"deb https://custom.test/debian {suite} main\n",
+    }
+    for path, content in original.items():
+        path.write_text(content, encoding="utf-8")
+    command = harbor_agent._debian_mirror_command("https://mirror.example.test/")
+    command = command.replace("/etc/apt", str(apt)).replace("/etc/os-release", str(os_release))
+
+    shell = shutil.which("sh")
+    assert shell is not None
+    subprocess.run([shell, "-c", command], check=True)  # noqa: S603 - adapter script against isolated fixture files
+
+    for path, content in original.items():
+        expected = content
+        if distribution == "debian" and path.name != "custom.list":
+            expected = "\n".join(
+                line
+                if line.startswith("#")
+                else line.replace("http://deb.debian.org", "https://mirror.example.test").replace(
+                    "https://deb.debian.org", "https://mirror.example.test"
+                )
+                for line in content.split("\n")
+            )
+        assert path.read_text(encoding="utf-8") == expected
+
+
+@pytest.mark.parametrize("preparation_fails", [False, True])
+def test_debian_mirror_preserves_install_shell_options_and_preparation_failure(
+    monkeypatch, tmp_path: Path, preparation_fails: bool
+) -> None:
+    apt = tmp_path / "apt"
+    apt.mkdir()
+    (apt / "sources.list").write_text("deb http://deb.debian.org/debian trixie main\n", encoding="utf-8")
+    os_release = tmp_path / "os-release"
+    os_release.write_text("ID=debian\n", encoding="utf-8")
+    monkeypatch.setenv("POWERCONTEXT_E2E_DEBIAN_MIRROR_URL", "https://mirror.example.test")
+    monkeypatch.delenv("HARBOR_TEST_UNSET", raising=False)
+    environment = _RecordingEnvironment()
+    agent = PowerContextBubAcpAgent(logs_dir=tmp_path, powercontext=False)
+    monkeypatch.setattr(agent, "_build_dependencies_command", lambda _: 'printf "installed:%s\\n" "$HARBOR_TEST_UNSET"')
+    asyncio.run(agent.install(environment))
+    (command,) = [command for command in environment.commands if "HARBOR_TEST_UNSET" in command]
+    command = command.replace("/etc/apt", str(apt)).replace("/etc/os-release", str(os_release))
+    if preparation_fails:
+        bin_dir = tmp_path / "bin"
+        bin_dir.mkdir()
+        awk = bin_dir / "awk"
+        awk.write_text("#!/bin/sh\nexit 42\n", encoding="utf-8")
+        awk.chmod(0o755)
+        monkeypatch.setenv("PATH", f"{bin_dir}:{os.environ['PATH']}")
+
+    shell = shutil.which("bash")
+    assert shell is not None
+    completed = subprocess.run(  # noqa: S603 - adapter script against isolated fixture files
+        [shell, "-c", command], capture_output=True, text=True, check=False
+    )
+
+    assert completed.returncode == (42 if preparation_fails else 0), completed.stderr
+    assert completed.stdout == ("" if preparation_fails else "installed:\n")
 
 
 def _opencode_agent(tmp_path: Path, *, powercontext: bool) -> PowerContextOpenCodeAgent:

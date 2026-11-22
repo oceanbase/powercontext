@@ -1156,10 +1156,14 @@ class RelationalAtomicMemoryIndex:
         if not recoverable:
             return False
         new_channels = [f"({lower} AND NOT {admitted})" for admitted, lower in zip(current, recoverable, strict=True)]
-        probe = (
-            "SELECT 1 FROM pc_atomic_memory_current WHERE scope_id = :scope_id "  # noqa: S608
-            f"AND ({eligibility}) AND ({' OR '.join(new_channels)}) LIMIT 1"
-        )
+        # Keep channel predicates in separate query blocks. Expanding their OR
+        # inside one WHERE can make OceanBase duplicate long lexical expressions
+        # while planning, before it has inspected any eligible rows.
+        probes = [
+            "EXISTS (SELECT 1 FROM pc_atomic_memory_current WHERE scope_id = :scope_id "  # noqa: S608
+            f"AND ({eligibility}) AND {channel} LIMIT 1)"
+            for channel in new_channels
+        ]
         invalid = "0 = 1"
         profile = self.profile
         if request.mode in {"vector", "hybrid"} and profile is not None:
@@ -1175,7 +1179,7 @@ class RelationalAtomicMemoryIndex:
                 "OR profile_fingerprint IS NULL OR profile_fingerprint <> :profile "
                 f"OR projection_format <> :projection_format{length}) LIMIT 1)"
             )
-        statement = text(f"SELECT CASE WHEN {invalid} THEN -1 ELSE EXISTS ({probe}) END")
+        statement = text(f"SELECT CASE WHEN {invalid} THEN -1 ELSE ({' OR '.join(probes)}) END")
         if request.mode in {"vector", "hybrid"} and dialect == "mysql":
             statement = statement.bindparams(bindparam("probe_vector", type_=self.table.c.embedding.type))
         result = await connection.scalar(statement, parameters)

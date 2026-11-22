@@ -30,7 +30,8 @@ runs:
   using: composite
   steps:
     - id: backend
-      uses: $/.github/actions/cache-backend
+      shell: bash
+      run: python3 "$GITHUB_ACTION_PATH/../../../scripts/ci_cache.py" backend
 
     - id: github
       if: steps.backend.outputs.backend == 'github'

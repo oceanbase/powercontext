@@ -20,10 +20,9 @@ import asyncio
 import hashlib
 import json
 import os
-import socket
 import sys
 from collections.abc import Callable, Mapping
-from contextlib import asynccontextmanager
+from contextlib import AsyncExitStack, asynccontextmanager
 from pathlib import Path
 from typing import Any
 
@@ -31,6 +30,14 @@ import httpx
 
 ADMIN_AUTHORIZATION_VALUE = "plugin-e2e-admin"
 REPOSITORY = Path(__file__).resolve().parents[2]
+
+
+async def _published_server_port(process: asyncio.subprocess.Process, directory: Path) -> int:
+    port_file = directory / "server-port.json"
+    while not port_file.exists():
+        assert process.returncode is None, (directory / "server.log").read_text()
+        await asyncio.sleep(0.01)
+    return json.loads(port_file.read_text())["port"]
 
 
 @asynccontextmanager
@@ -47,9 +54,8 @@ async def running_server(
     An ``extra_env`` value of ``None`` removes that default variable.
     """
 
-    with socket.socket() as sock:
-        sock.bind(("127.0.0.1", 0))
-        port = sock.getsockname()[1]
+    port_file = directory / "server-port.json"
+    port_file.unlink(missing_ok=True)
     env = {key: value for key, value in os.environ.items() if not key.startswith("POWERCONTEXT_SERVER_")}
     env.update({
         "POWERCONTEXT_SERVER_DATABASE": json.dumps({
@@ -82,26 +88,30 @@ async def running_server(
     with (directory / "server.log").open("a") as log:
         process = await asyncio.create_subprocess_exec(
             sys.executable,
+            str(Path(__file__).with_name("plugin_server_process.py")),
             str(entrypoint),
+            str(port_file),
             "server",
             "run",
             "--no-env-file",
             "--host",
             "127.0.0.1",
-            "--port",
-            str(port),
             cwd=directory,
             env=env,
             stdout=log,
             stderr=log,
         )
         try:
-            async with httpx.AsyncClient(
-                base_url=f"http://127.0.0.1:{port}",
-                headers={"Authorization": f"Bearer {ADMIN_AUTHORIZATION_VALUE}"},
-                timeout=20,
-            ) as client:
+            async with AsyncExitStack() as resources:
                 async with asyncio.timeout(startup_seconds):
+                    port = await _published_server_port(process, directory)
+                    client = await resources.enter_async_context(
+                        httpx.AsyncClient(
+                            base_url=f"http://127.0.0.1:{port}",
+                            headers={"Authorization": f"Bearer {ADMIN_AUTHORIZATION_VALUE}"},
+                            timeout=20,
+                        )
+                    )
                     while True:
                         assert process.returncode is None, (directory / "server.log").read_text()
                         try:
