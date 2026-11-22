@@ -381,9 +381,9 @@ async def _sqlite_model_usage_transaction(connection: AsyncConnection, deadline:
     loop = asyncio.get_running_loop()
     remaining = deadline - loop.time()
     if remaining <= 0:
-        # The record's budget was already gone when this attempt started, so
-        # there is nothing left to repeat it with.
-        raise TimeoutError
+        # No usage statement ran. The recorder owns the batch deadline and
+        # decides whether a fresh attempt can use its remaining budget.
+        raise ModelUsageAttemptExpired
     # The worker thread uses a monotonic clock, not the event loop's clock API.
     stop_at = time.monotonic() + remaining
     async with driver.execute("PRAGMA busy_timeout") as cursor:

@@ -2001,6 +2001,21 @@ class ModelJsonPayload(BaseModel):
     ]
 
 
+class UpstreamResponsePayload(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    content_type: Annotated[StrictStr, Field(max_length=1024, min_length=1, pattern="^[^\\r\\n]+$")]
+    body: Annotated[
+        StrictStr,
+        Field(
+            description="Complete raw UTF-8 provider JSON or Responses SSE before conversion.",
+            max_length=1048576,
+            min_length=2,
+        ),
+    ]
+
+
 class Schema8(StrEnum):
     POWERCONTEXT_MODEL_JSON_TEXT_LOCATION_V1 = "powercontext.model-json-text-location.v1"
 
@@ -2055,6 +2070,12 @@ class CheckContextBeforeRelease(BaseModel):
     target_profile: Annotated[StrictStr, Field(max_length=128, min_length=1)]
     request_binding: Annotated[StrictStr, Field(max_length=65536, min_length=1)]
     payload: ModelJsonPayload
+    upstream_payload: Annotated[
+        UpstreamResponsePayload | None,
+        Field(
+            description="Optional pre-conversion response evidence. Core inspects it in addition to the final payload; both bodies share the response byte limit."
+        ),
+    ] = None
     completion: Completion
 
 
@@ -2100,6 +2121,9 @@ class TargetProtocol(StrEnum):
     OPENAI_EMBEDDINGS = "openai-embeddings"
     MINIMAX_EMBEDDINGS = "minimax-embeddings"
     JEV_RERANK = "jev-rerank"
+    GOOGLE_CODEASSIST = "google-codeassist"
+    GOOGLE_CODEASSIST_CHAT = "google-codeassist-chat"
+    CLAUDE_CLI_PROMPT = "claude-cli-prompt"
 
 
 class ContextCheckResult(BaseModel):

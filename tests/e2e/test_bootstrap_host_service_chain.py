@@ -22,7 +22,6 @@ import socket
 import subprocess
 import sys
 import threading
-import time
 from pathlib import Path
 
 import httpx
@@ -38,6 +37,7 @@ from powercontext.http import (
 )
 from powercontext.server.factory import create_server_app
 from powercontext.server.settings import McpConfig, MetricsConfig, ServerSettings
+from tests.e2e.server_startup import wait_for_server_startup
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 PLUGIN_ROOTS = {
@@ -87,7 +87,7 @@ def test_packaged_host_hooks_complete_the_live_bootstrap_chain(
     thread = threading.Thread(target=server.run, kwargs={"sockets": [listener]}, daemon=True)
     thread.start()
     try:
-        _wait_until_started(server, thread)
+        wait_for_server_startup(server, thread)
         scope_id = asyncio.run(_seed_bootstrap_memory(base_url, host))
         plugin = _copy_plugin(tmp_path, host, base_url)
         environment = _hook_environment(tmp_path, host, base_url, scope_id)
@@ -228,10 +228,3 @@ def _run_hook(
         check=True,
         timeout=15,
     )
-
-
-def _wait_until_started(server: uvicorn.Server, thread: threading.Thread) -> None:
-    deadline = time.monotonic() + 10
-    while thread.is_alive() and not server.started and time.monotonic() < deadline:
-        time.sleep(0.01)
-    assert server.started

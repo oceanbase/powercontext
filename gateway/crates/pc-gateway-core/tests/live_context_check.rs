@@ -88,6 +88,7 @@ async fn before_send(scope: &str) -> Result<ContextCheckResult, GateError> {
 async fn before_release(scope: &str, binding: &str) -> Result<ContextCheckResult, GateError> {
     client()
         .check(ContextCheckRequest::BeforeRelease {
+            upstream_payload: None,
             scope_id: scope.to_string(),
             target_profile: TARGET_PROFILE.to_string(),
             request_binding: binding.to_string(),

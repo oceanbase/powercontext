@@ -14,9 +14,9 @@ See the License for the specific language governing permissions and
 limitations under the License.
 -->
 {% from 'components/artifact-type.html' import artifact_type %}
-<div class="table-responsive" role="region" aria-label="{{ t.processing_sources }}" tabindex="0">
+<div id="automatic-source-list" class="table-responsive" role="region" aria-label="{{ t.processing_sources }}" tabindex="0">
 <table class="processing-sources-table">
-  <thead><tr><th scope="col">{{ t.processing_source_saved_time }}</th><th scope="col">{{ t.processing_table_source_id }}</th><th scope="col">{{ t.processing_table_original }}</th><th scope="col">{{ t.processing_source_type }}</th><th scope="col">{{ t.processing_table_status }}</th><th scope="col">{{ t.home_record_action }}</th></tr></thead>
+  <thead><tr><th scope="col">{{ t.processing_source_saved_time }}</th><th scope="col">{{ t.processing_table_source_id }}</th><th scope="col">{{ t.processing_table_original }}</th><th scope="col">{{ t.processing_source_type }}</th><th scope="col">{{ t.auto_related_artifacts }}</th><th scope="col">{{ t.home_record_action }}</th></tr></thead>
   <tbody>{% for item in processing_items %}
     <tr class="processing-source-row">
       <td>{% if item.saved_at %}<time>{{ item.saved_at|display_time }}</time>{% else %}<span class="text-secondary">{{ t.unknown_value }}</span>{% endif %}</td>

@@ -19,7 +19,7 @@ notebooks-test: ## Execute provider-free tutorials in fresh kernels; use ARGS fo
 	@uv run --locked --group notebooks python examples/jupyter/run.py $(ARGS)
 
 .PHONY: check
-check: version-check upgrade-policy-check workflow-actions-check integration-manifest-check integration-guidance-check integration-lifecycle-check ## Run code quality tools.
+check: schema-check version-check upgrade-policy-check workflow-actions-check integration-manifest-check integration-guidance-check integration-lifecycle-check ## Run code quality tools.
 
 .PHONY: integration-guidance integration-guidance-check
 integration-guidance: ## Copy shared Skills into native packages.
@@ -51,6 +51,7 @@ workflow-actions-check: ## Verify third-party GitHub Actions use immutable commi
 
 # pytest-xdist worker count; set PYTEST_WORKERS=0 to disable parallel workers.
 PYTEST_WORKERS ?= auto
+PYTEST_ARGS ?=
 
 # Fixed Hook deadlines must not compete with unrelated xdist CPU and disk work.
 SERIAL_E2E_TESTS := tests/e2e/test_zcode_service_chain.py
@@ -63,12 +64,20 @@ test: ## Test the code with pytest
 
 .PHONY: unit-test
 unit-test: ## Run tests that do not cross the Server boundary end to end.
-	@uv run python -m pytest -n $(PYTEST_WORKERS) --doctest-modules --ignore=tests/e2e
+	@uv run python -m pytest -n $(PYTEST_WORKERS) --doctest-modules --ignore=tests/e2e $(PYTEST_ARGS)
 
 .PHONY: e2e-test
 e2e-test: ## Run CLI to Client SDK to Server end-to-end tests.
-	@uv run python -m pytest -n $(PYTEST_WORKERS) tests/e2e $(addprefix --ignore=,$(SERIAL_E2E_TESTS))
-	@uv run python -m pytest -n 0 $(SERIAL_E2E_TESTS)
+	@$(MAKE) e2e-test-parallel
+	@$(MAKE) e2e-test-serial
+
+.PHONY: e2e-test-parallel
+e2e-test-parallel: ## Run end-to-end tests that can share xdist workers.
+	@uv run python -m pytest -n $(PYTEST_WORKERS) tests/e2e $(addprefix --ignore=,$(SERIAL_E2E_TESTS)) $(PYTEST_ARGS)
+
+.PHONY: e2e-test-serial
+e2e-test-serial: ## Run service-chain tests with native Hook deadlines without xdist contention.
+	@uv run python -m pytest -n 0 $(SERIAL_E2E_TESTS) $(PYTEST_ARGS)
 
 .PHONY: gateway-tck
 gateway-tck: ## Check gateway protocol behavior against pinned upstream compatibility suites.
@@ -280,7 +289,7 @@ version-check: ## Check release references and generated API code; optionally as
 	@$(MAKE) api-generate-check js-api-generate-check
 
 .PHONY: release-check
-release-check: version-check upgrade-policy-check docs-install ## Check version references and require matching bilingual notes for a stable release.
+release-check: schema-release-check version-check upgrade-policy-check docs-install ## Check version references and require matching bilingual notes for a stable release.
 	@cd website && node --import tsx --test tests/releases.test.ts
 
 .PHONY: upgrade-policy-check
@@ -339,3 +348,13 @@ help:
 	[[print(f'\033[36m{m[0]:<20}\033[0m {m[1]}') for m in re.findall(r'^([a-zA-Z0-9_-]+):.*?## (.*)$$', open(makefile).read(), re.M)] for makefile in ('$(MAKEFILE_LIST)').strip().split()]"
 
 .DEFAULT_GOAL := help
+
+.PHONY: schema-check schema-release-check schema-freeze
+schema-check: ## Validate the shared draft and registered Server migration chains.
+	@uv run --locked python scripts/schema_release.py check
+
+schema-release-check: ## Reject an unfrozen 000 migration before publication.
+	@uv run --locked python scripts/schema_release.py check --release
+
+schema-freeze: ## Freeze shared 000 resources after version-bump: VERSION=X.Y.Z.
+	@uv run --locked python scripts/schema_release.py freeze

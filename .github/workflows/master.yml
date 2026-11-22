@@ -34,10 +34,13 @@ jobs:
     needs: [quality, tests]
     if: ${{ !cancelled() && contains(fromJSON('["schedule","workflow_dispatch"]'), github.event_name) && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').upgrade) }}
     name: SeekDB managed startup regression (priority)
-    timeout-minutes: 20
+    timeout-minutes: 30
     runs-on: powercontext-ci-light
     env:
       POWERCONTEXT_TEST_MIGRATION_SEEKDB: "1"
+      POWERCONTEXT_TEST_SEEKDB_DIAGNOSTICS: ${{ github.workspace }}/.powercontext/managed-startup-seekdb/native-failures
+      PYTHONPATH: ${{ github.workspace }}/.github/scripts
+      PYTEST_ADDOPTS: -p pytest_ci_diagnostics
       PYTHONUNBUFFERED: "1"
       MIGRATION_REPORTS: ${{ github.workspace }}/.powercontext/managed-startup-seekdb
     steps:
@@ -52,14 +55,15 @@ jobs:
           python-version: "3.12"
 
       - name: Test concurrent managed startup without skips
-        # Collection and three isolated cases retain their 180s process deadlines.
-        timeout-minutes: 15
+        # Each process includes cold schema preparation, the startup assertions,
+        # and native shutdown. Three 360s cases plus collection fit within 25m.
+        timeout-minutes: 25
         env:
           TMPDIR: ${{ runner.temp }}/am-seekdb
         run: |
           mkdir -p "$TMPDIR"
           uv run --locked --extra seekdb --extra server python scripts/run_atomic_memory_clean_migration.py \
-            seekdb --output "$MIGRATION_REPORTS" --tests \
+            seekdb --test-timeout 360 --output "$MIGRATION_REPORTS" --tests \
             tests/e2e/test_managed_startup_read_consistency.py
           test "$(wc -l < "$MIGRATION_REPORTS/nodes.txt")" -eq 3
 
@@ -77,7 +81,7 @@ jobs:
 
       - name: Save managed startup reports
         if: always()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        uses: ./.github/actions/upload-ci-diagnostics
         with:
           name: managed-startup-seekdb-${{ github.sha }}
           path: ${{ env.MIGRATION_REPORTS }}/
@@ -167,7 +171,7 @@ jobs:
           docker stop --timeout 30 upgrade-oceanbase || true
       - name: Save engine recovery evidence
         if: always()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        uses: ./.github/actions/upload-ci-diagnostics
         with:
           name: oceanbase-engine-recovery-${{ github.sha }}
           path: ${{ runner.temp }}/oceanbase-engine-recovery/
@@ -177,7 +181,7 @@ jobs:
   quality:
     name: CI preflight
     if: ${{ github.event_name != 'pull_request' || !github.event.pull_request.draft }}
-    timeout-minutes: 30
+    timeout-minutes: 45
     runs-on: powercontext-ci-light
     outputs:
       suites: ${{ steps.select.outputs.suites }}
@@ -202,46 +206,83 @@ jobs:
         run: python3 scripts/ci_changes.py
 
       - name: Check License Header
-        timeout-minutes: 10
-        uses: apache/skywalking-eyes/header@a196742f472feaffafea537ce5a2a4c3c53a8de4 # v0.9.0
+        # Include a cold Go toolchain download and license-eye build.
+        timeout-minutes: 20
+        uses: ./.github/actions/check-license
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           INSTALL_DIR: ${{ runner.temp }}
+          # Self-hosted runner home caches may be owned by the image build user.
+          GOCACHE: ${{ runner.temp }}/license-go-build
+          GOMODCACHE: ${{ runner.temp }}/license-go-mod
           PATH: ${{ runner.temp }}:/usr/local/go/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
         with:
           config: .licenserc.yaml
           mode: check
 
       - name: Set up the environment
+        id: python-env
         uses: ./.github/actions/setup-python-env
-
-      - name: Resolve Python version for hook cache
-        id: python
-        run: echo "version=$(python -c 'import platform; print(platform.python_version())')" >> "$GITHUB_OUTPUT"
-
-      - name: Cache prek environments
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
-          path: ~/.cache/prek
-          key: prek-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.python.outputs.version }}-${{ hashFiles('.pre-commit-config.yaml') }}
+          save-cache: 'false'
+
+      - name: Save preflight Python dependencies
+        if: steps.python-env.outputs.cache-hit != 'true' && github.event_name != 'merge_group'
+        uses: ./.github/actions/cache-save
+        with:
+          path: ${{ steps.python-env.outputs.cache-path }}
+          key: ${{ steps.python-env.outputs.cache-key }}
+
+      - name: Resolve Python version and hook cache directory
+        id: python
+        run: |
+          echo "version=$(python -c 'import platform; print(platform.python_version())')" >> "$GITHUB_OUTPUT"
+          echo "PREK_HOME=$RUNNER_TEMP/prek" >> "$GITHUB_ENV"
+
+      - name: Restore prek environments
+        id: prek-cache
+        uses: ./.github/actions/cache-restore
+        with:
+          path: ${{ env.PREK_HOME }}
+          key: prek-v2-${{ runner.os }}-${{ runner.arch }}-${{ steps.python.outputs.version }}-${{ hashFiles('.pre-commit-config.yaml') }}
+
+      - name: Prepare prek environments
+        run: uv run prek install-hooks
+
+      - name: Save prek environments
+        if: steps.prek-cache.outputs.cache-hit != 'true' && github.event_name != 'merge_group'
+        uses: ./.github/actions/cache-save
+        with:
+          path: ${{ env.PREK_HOME }}
+          key: ${{ steps.prek-cache.outputs.cache-primary-key }}
 
       - name: Run checks
         run: make check
+
+      - name: Validate cumulative migration against the PR base
+        if: github.event_name == 'pull_request'
+        env:
+          SCHEMA_BASE: ${{ github.event.pull_request.base.sha }}
+        run: uv run --locked python scripts/schema_release.py check --base-ref "$SCHEMA_BASE"
+
+      - name: Test cumulative schema freezing and replay
+        run: uv run --locked pytest tests/test_schema_release.py tests/test_schema_draft.py -q
 
       - name: Check OpenAPI contract
         run: make contract-test
 
   tests:
-    name: tests (${{ matrix.python-version }}, ${{ matrix.suite }})
+    name: tests (${{ matrix.python-version }}, ${{ matrix.suite }}${{ matrix.suite == 'e2e' && format(', shard {0}', matrix.shard-index) || '' }})
     needs: [quality]
     if: ${{ !cancelled() && needs.quality.result == 'success' && (fromJSON(needs.quality.outputs.suites || '{}').tests) }}
     # Unit jobs must outlast pytest plus uv cache publication. End-to-end jobs
     # also need time for subprocess tails on internal runners.
-    timeout-minutes: ${{ matrix.suite == 'e2e' && 55 || 50 }}
-    runs-on: powercontext-ci-standard
+    # Python 3.11/3.12 can exceed 55 minutes while the full E2E suite is still progressing.
+    timeout-minutes: ${{ matrix.suite == 'e2e' && 90 || 75 }}
+    runs-on: powercontext-ci-python
     strategy:
-      fail-fast: true
-      matrix: ${{ fromJSON(needs.quality.outputs.test-matrix || '{"python-version":["3.11","3.12","3.13","3.14"],"suite":["unit","e2e"]}') }}
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.quality.outputs.test-matrix || '{"include":[{"python-version":"3.11","suite":"unit"},{"python-version":"3.12","suite":"unit"},{"python-version":"3.13","suite":"unit"},{"python-version":"3.14","suite":"unit"},{"python-version":"3.11","suite":"e2e","shard-index":0,"shard-count":2},{"python-version":"3.11","suite":"e2e","shard-index":1,"shard-count":2},{"python-version":"3.12","suite":"e2e","shard-index":0,"shard-count":2},{"python-version":"3.12","suite":"e2e","shard-index":1,"shard-count":2},{"python-version":"3.13","suite":"e2e","shard-index":0,"shard-count":2},{"python-version":"3.13","suite":"e2e","shard-index":1,"shard-count":2},{"python-version":"3.14","suite":"e2e","shard-index":0,"shard-count":2},{"python-version":"3.14","suite":"e2e","shard-index":1,"shard-count":2}]}') }}
     defaults:
       run:
         shell: bash
@@ -251,6 +292,11 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Record runner resources during tests
+        run: |
+          mkdir -p "$RUNNER_TEMP/pytest-diagnostics"
+          python3 .github/scripts/ci_resource_sampler.py > "$RUNNER_TEMP/pytest-diagnostics/resource-sampler.log" 2>&1 &
+
       - name: Set up the environment
         uses: ./.github/actions/setup-python-env
         with:
@@ -259,7 +305,7 @@ jobs:
           python-version: ${{ matrix.python-version }}
 
       - name: Set up project tools
-        uses: jdx/mise-action@d5574b52816a478f9d4e6529a3f6ff17a8a36785 # v5.2.8
+        uses: ./.github/actions/setup-mise
 
       - name: Cache DSH configuration dependencies
         if: matrix.suite == 'unit'
@@ -284,7 +330,9 @@ jobs:
         if: matrix.suite == 'unit'
         env:
           PYTEST_ADDOPTS: --require-dsh-config-runtime --require-claude-code-python-floor
-        run: make unit-test
+        run: |
+          PYTHONPATH="$PWD/.github/scripts${PYTHONPATH:+:$PYTHONPATH}" \
+            make unit-test PYTEST_ARGS="-p pytest_ci_diagnostics --junitxml=$RUNNER_TEMP/pytest-diagnostics/unit.xml"
 
       - name: Check Source serialization with minimum Pydantic
         if: matrix.suite == 'unit' && matrix.python-version == '3.11'
@@ -293,8 +341,9 @@ jobs:
           tests/test_source_locators.py tests/test_source_observations.py tests/test_api_contract.py -q
 
       - name: Cache Gateway dependencies and compilation
+        id: cargo-cache
         if: matrix.suite == 'e2e'
-        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        uses: ./.github/actions/setup-rust-cache
         with:
           workspaces: gateway -> target
           shared-key: gateway
@@ -302,15 +351,39 @@ jobs:
           cache-on-failure: true
 
       - name: Run the ZCode service chain with native Hook deadlines
-        if: matrix.suite == 'e2e'
+        if: matrix.suite == 'e2e' && matrix.shard-index == 0
         # Preserve the real Hook deadlines without competing with xdist workers.
-        run: uv run python -m pytest -n 0 tests/e2e/test_zcode_service_chain.py
+        run: |
+          PYTHONPATH="$PWD/.github/scripts${PYTHONPATH:+:$PYTHONPATH}" \
+            make e2e-test-serial PYTEST_ARGS="-p pytest_ci_diagnostics --junitxml=$RUNNER_TEMP/pytest-diagnostics/serial.xml"
 
       - name: Run remaining end-to-end tests
         if: matrix.suite == 'e2e'
         env:
-          PYTEST_ADDOPTS: --ignore=tests/e2e/test_zcode_service_chain.py
-        run: make e2e-test
+          PYTEST_ADDOPTS: --ci-shard-index=${{ matrix.shard-index }} --ci-shard-count=${{ matrix.shard-count }}
+        run: |
+          PYTHONPATH="$PWD/.github/scripts${PYTHONPATH:+:$PYTHONPATH}" \
+            make e2e-test-parallel PYTEST_ARGS="-p pytest_ci_diagnostics --junitxml=$RUNNER_TEMP/pytest-diagnostics/e2e.xml"
+
+      - name: Save Gateway dependencies and compilation
+        if: (success() || failure()) && steps.cargo-cache.outputs.cache-backend == 's3' && steps.cargo-cache.outputs.cache-hit != 'true'
+        uses: ./.github/actions/cache-save
+        with:
+          path: ${{ steps.cargo-cache.outputs.cache-path }}
+          key: ${{ steps.cargo-cache.outputs.cache-key }}
+
+      - name: Preserve pytest and process diagnostics
+        if: always()
+        run: python3 .github/scripts/collect_pytest_diagnostics.py
+
+      - name: Save Python test evidence
+        if: always()
+        uses: ./.github/actions/upload-ci-diagnostics
+        with:
+          name: python-tests-${{ matrix.python-version }}-${{ matrix.suite }}-${{ matrix.shard-index || 0 }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/pytest-diagnostics/
+          if-no-files-found: warn
+          retention-days: 7
 
   isolated-installations:
     needs: [quality, tests]
@@ -333,7 +406,7 @@ jobs:
           python-version: ${{ matrix.python-version }}
 
       - name: Set up uv
-        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        uses: ./.github/actions/setup-uv
         with:
           version: "0.10.12"
 
@@ -372,7 +445,7 @@ jobs:
 
       - name: Save installation role reports
         if: always()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        uses: ./.github/actions/upload-ci-diagnostics
         with:
           name: installation-roles-py${{ matrix.python-version }}-${{ github.sha }}
           path: |
@@ -385,7 +458,8 @@ jobs:
   docs-tests:
     needs: [quality]
     if: ${{ !cancelled() && needs.quality.result == 'success' && (fromJSON(needs.quality.outputs.suites || '{}').docs_tests) }}
-    timeout-minutes: 15
+    # Include cold checkout, environment setup, and cache publication.
+    timeout-minutes: 30
     runs-on: powercontext-ci-light
     steps:
       - name: Check out
@@ -448,7 +522,7 @@ jobs:
 
       - name: Save worker observability results
         if: always()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        uses: ./.github/actions/upload-ci-diagnostics
         with:
           name: worker-observability
           path: ${{ runner.temp }}/worker-observability.xml
@@ -474,6 +548,7 @@ jobs:
             integrations/langchain/pyproject.toml
             integrations/langgraph/pyproject.toml
             integrations/opendal/pyproject.toml
+            integrations/deepagents/pyproject.toml
             evaluation/pyproject.toml
             evaluation/uv.lock
 
@@ -519,16 +594,16 @@ jobs:
   code-seekdb:
     needs: [quality, tests]
     if: ${{ !cancelled() && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').database) }}
-    # Shard 0 also runs indexing, bootstrap (20m), and archive validation (5m)
-    # before migrations (50m). Preserve each step's deadline and leave time
+    # Shard 0 also runs indexing, bootstrap (30m), and archive validation (5m)
+    # before migrations (65m). Preserve each step's deadline and leave time
     # for environment setup and diagnostic uploads.
-    timeout-minutes: 90
+    timeout-minutes: 120
     runs-on: powercontext-ci-standard
     strategy:
       fail-fast: false
       matrix:
         python-version: ["3.11", "3.14"]
-        migration-shard: [0, 1, 2]
+        migration-shard: [0, 1, 2, 3, 4, 5]
     steps:
       - name: Check out
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -547,9 +622,9 @@ jobs:
 
       - name: Test database bootstrap with embedded seekdb without skips
         if: matrix.migration-shard == 0
-        # Two 360s native-process deadlines still leave room for the remaining
+        # Two 660s native-process deadlines still leave room for the remaining
         # bootstrap cases and diagnostic upload before the step deadline.
-        timeout-minutes: 20
+        timeout-minutes: 30
         env:
           POWERCONTEXT_TEST_BOOTSTRAP_SEEKDB: "1"
           POWERCONTEXT_TEST_BOOTSTRAP_DIAGNOSTICS: ${{ github.workspace }}/.powercontext/database-bootstrap-ci
@@ -581,13 +656,19 @@ jobs:
 
       - name: Test unified migrations with embedded seekdb
         if: ${{ !cancelled() && steps.seekdb_setup.outcome == 'success' }}
-        # Last-client shutdown adds native startup work. Partition runner nodes;
-        # Full Server cases can pass at 175s; allow process startup and native shutdown as well.
-        timeout-minutes: 50
+        # The process watchdog includes cold migrations, repeated native opens,
+        # and cleanup; it is separate from each test's business deadlines.
+        # Six shards distribute the same collected nodes; shard 0 also runs the
+        # backend contract group and two independent baseline stability runs.
+        timeout-minutes: 65
         env:
           SEEKDB_MIGRATION_SHARD: ${{ matrix.migration-shard }}
+          SEEKDB_MIGRATION_SHARD_COUNT: "6"
           POWERCONTEXT_TEST_MIGRATION_SEEKDB: "1"
           POWERCONTEXT_TEST_MIGRATION_SQL_LOG: "1"
+          POWERCONTEXT_TEST_SEEKDB_DIAGNOSTICS: ${{ github.workspace }}/.powercontext/seekdb-native-failures
+          PYTHONPATH: ${{ github.workspace }}/.github/scripts
+          PYTEST_ADDOPTS: -p pytest_ci_diagnostics
           PYTHONUNBUFFERED: "1"
           TMPDIR: ${{ runner.temp }}/seekdb-migration
         run: |
@@ -628,12 +709,12 @@ jobs:
             exit 1
           fi
           for index in "${!seekdb_runner_nodes[@]}"; do
-            if [ "$((index % 3))" -ne "$SEEKDB_MIGRATION_SHARD" ]; then
+            if [ "$((index % SEEKDB_MIGRATION_SHARD_COUNT))" -ne "$SEEKDB_MIGRATION_SHARD" ]; then
               continue
             fi
             seekdb_runner_node="${seekdb_runner_nodes[$index]}"
             uv run --locked --extra seekdb --extra code python .github/scripts/run_seekdb_migration_test.py \
-              --timeout 210 "$seekdb_runner_node" \
+              --timeout 360 "$seekdb_runner_node" \
               2>&1 | tee -a seekdb-migrations.log
           done
           # These are required independent runs, not retries: any failure stops
@@ -642,6 +723,7 @@ jobs:
             for repetition in 2 3; do
               echo "Baseline adoption stability run $repetition/3" | tee -a seekdb-migrations.log
               uv run --locked --extra seekdb --extra code python .github/scripts/run_seekdb_migration_test.py \
+                --timeout 360 \
                 'tests/builtin/persistence/test_mysql_migration_runner.py::test_mysql_baseline_adoption_recovers_an_empty_committed_version_table[seekdb]' \
                 2>&1 | tee -a seekdb-migrations.log
             done
@@ -649,7 +731,7 @@ jobs:
 
       - name: Upload seekdb bootstrap diagnostics
         if: always()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        uses: ./.github/actions/upload-ci-diagnostics
         with:
           name: seekdb-bootstrap-${{ matrix.python-version }}-${{ matrix.migration-shard }}
           path: .powercontext/database-bootstrap-ci/
@@ -657,7 +739,7 @@ jobs:
 
       - name: Upload seekdb migration diagnostics
         if: always()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        uses: ./.github/actions/upload-ci-diagnostics
         with:
           name: seekdb-migrations-${{ matrix.python-version }}-${{ matrix.migration-shard }}
           path: |
@@ -665,17 +747,26 @@ jobs:
             seekdb-native.log
             seekdb-native.tar.gz
             seekdb-live-diagnostics.log
+            .powercontext/seekdb-native-failures/
+          include-hidden-files: true
           if-no-files-found: ignore
 
   atomic-memory-clean-seekdb:
     needs: [quality, seekdb-managed-startup, tests]
     if: ${{ !cancelled() && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').database) }}
-    name: Atomic Memory clean migration (SeekDB)
+    name: Atomic Memory clean migration (SeekDB shard ${{ matrix.shard }}/6)
     # Reserve 10m beyond the two test steps for setup and diagnostics.
     timeout-minutes: 90
     runs-on: powercontext-ci-standard
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5]
     env:
       POWERCONTEXT_TEST_MIGRATION_SEEKDB: "1"
+      POWERCONTEXT_TEST_SEEKDB_DIAGNOSTICS: ${{ github.workspace }}/.powercontext/atomic-memory-clean-seekdb/native-failures
+      PYTHONPATH: ${{ github.workspace }}/.github/scripts
+      PYTEST_ADDOPTS: -p pytest_ci_diagnostics
       PYTHONUNBUFFERED: "1"
       MIGRATION_REPORTS: ${{ github.workspace }}/.powercontext/atomic-memory-clean-seekdb
     steps:
@@ -690,22 +781,23 @@ jobs:
           python-version: "3.12"
 
       - name: Run clean migration evidence, grants and vectors without skips
-        timeout-minutes: 45
+        # Isolated processes include native initialization and cleanup.
+        timeout-minutes: 55
         env:
           TMPDIR: ${{ runner.temp }}/am-seekdb
         run: |
           mkdir -p "$TMPDIR"
           uv run --locked --extra seekdb python scripts/run_atomic_memory_clean_migration.py \
-            seekdb --output "$MIGRATION_REPORTS"
+            seekdb --test-timeout 360 --shard "${{ matrix.shard }}/6" --output "$MIGRATION_REPORTS"
 
       - name: Test long-query retrieval and admission without skips
-        # Ten cases at 180s each, plus collection and termination grace.
-        timeout-minutes: 35
+        # Partition the collected cases independently of the migration group.
+        timeout-minutes: 25
         env:
           TMPDIR: ${{ runner.temp }}/am-seekdb
         run: |
           uv run --locked --extra seekdb python scripts/run_atomic_memory_clean_migration.py \
-            seekdb --output "$MIGRATION_REPORTS/long-query" --tests \
+            seekdb --test-timeout 360 --shard "${{ matrix.shard }}/6" --output "$MIGRATION_REPORTS/long-query" --tests \
             tests/e2e/test_atomic_artifact_search_http.py \
             tests/e2e/test_atomic_memory_long_fts_query.py \
             tests/e2e/test_atomic_memory_fts_coverage.py
@@ -724,9 +816,9 @@ jobs:
 
       - name: Save clean migration reports
         if: always()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        uses: ./.github/actions/upload-ci-diagnostics
         with:
-          name: atomic-memory-clean-seekdb-${{ github.sha }}
+          name: atomic-memory-clean-seekdb-${{ matrix.shard }}-${{ github.sha }}
           path: ${{ env.MIGRATION_REPORTS }}/
           include-hidden-files: true
           if-no-files-found: error
@@ -737,6 +829,9 @@ jobs:
     if: ${{ !cancelled() && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').tests) }}
     timeout-minutes: 20
     runs-on: windows-latest
+    env:
+      PYTHONPATH: ${{ github.workspace }}/.github/scripts
+      PYTEST_ADDOPTS: -p pytest_ci_diagnostics
     steps:
       - name: Check out
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -753,16 +848,21 @@ jobs:
           tests/builtin/runtime/test_artifact_processing.py
 
       - name: Verify spawned worker lifecycle on Windows
-        run: uv run --locked --no-sync pytest -q tests/builtin/runtime/test_artifact_processing.py
+        run: >-
+          uv run --locked --no-sync pytest -q tests/builtin/runtime/test_artifact_processing.py
+          --junitxml="${{ runner.temp }}/pytest-diagnostics/worker-lifecycle.xml"
 
       - name: Verify spawned worker logging on Windows
-        run: uv run --locked --no-sync pytest -q tests/e2e/test_worker_logging.py
+        run: >-
+          uv run --locked --no-sync pytest -q tests/e2e/test_worker_logging.py
+          --junitxml="${{ runner.temp }}/pytest-diagnostics/worker-logging.xml"
 
       - name: Verify subprocess diagnostics and process probes on Windows
         run: >-
           uv run --locked --no-sync python -m pytest -q
           tests/e2e/test_database_bootstrap.py tests/test_upgrade_release_gate.py
           -k "scenario_runner or scenario_diagnostics or vanished_descendant"
+          --junitxml="${{ runner.temp }}/pytest-diagnostics/process-diagnostics.xml"
 
       - name: Verify offline ownership migration on Windows
         run: >-
@@ -773,12 +873,14 @@ jobs:
           tests/e2e/test_ownership_maintenance_dispatch.py
           tests/e2e/test_owner_recovery_http.py::test_offline_migration_preserves_external_owner_evidence
           tests/e2e/test_candidate_ownership_migration.py
+          --junitxml="${{ runner.temp }}/pytest-diagnostics/ownership-migration.xml"
 
       - name: Verify bootstrap receipt persistence and failure recovery on Windows
         run: >-
           uv run --locked --no-sync pytest -q
           tests/claude_code_plugin/test_bootstrap.py
           tests/codex_plugin/test_bootstrap.py
+          --junitxml="${{ runner.temp }}/pytest-diagnostics/bootstrap.xml"
 
       - name: Verify unsupported native indexing is skipped on Windows
         run: >-
@@ -786,6 +888,7 @@ jobs:
           tests/builtin/test_native_code.py
           tests/builtin/test_native_code_multilanguage.py
           tests/e2e/test_native_code_multilanguage.py
+          --junitxml="${{ runner.temp }}/pytest-diagnostics/native-indexing.xml"
 
       - name: Verify Codex resolves and launches cmd shims on Windows
         run: >-
@@ -807,6 +910,7 @@ jobs:
           tests/test_system_cli.py::test_codex_batch_install_rejects_unsafe_returned_marketplace
           tests/test_system_cli.py::test_codex_batch_runners_reject_unsafe_executable_path
           tests/test_system_cli.py::test_codex_native_executable_preserves_arguments
+          --junitxml="${{ runner.temp }}/pytest-diagnostics/codex-cmd-shims.xml"
 
       - name: Verify installation failures preserve user content on Windows
         run: >-
@@ -815,6 +919,7 @@ jobs:
           tests/test_opencode_installation.py
           tests/test_cli_zcode.py::test_zcode_upgrade_rejects_missing_packaged_reference_and_preserves_installation
           tests/test_setup_rollback.py
+          --junitxml="${{ runner.temp }}/pytest-diagnostics/installation-failures.xml"
 
       - name: Exercise fixtures without Windows long-path support
         shell: pwsh
@@ -827,6 +932,7 @@ jobs:
           tests/builtin/portability/test_bundle.py
           tests/test_archive_cli.py
           tests/e2e/test_portable_archive.py
+          --junitxml="${{ runner.temp }}/pytest-diagnostics/archive-portability.xml"
 
       # Keep pytest's default temporary root: a short --basetemp would hide
       # regressions in the nested checkout fixtures covered by issue #1501.
@@ -843,11 +949,26 @@ jobs:
           tests/test_service.py
           tests/test_service_bootstrap.py
           tests/test_service_environment.py
+          --junitxml="${{ runner.temp }}/pytest-diagnostics/portability.xml"
+
+      - name: Collect Windows process diagnostics
+        if: always()
+        run: uv run --locked --no-sync python .github/scripts/collect_pytest_diagnostics.py
+
+      - name: Upload Windows test diagnostics
+        if: always()
+        uses: ./.github/actions/upload-ci-diagnostics
+        with:
+          name: windows-unit-portability-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/pytest-diagnostics/
+          if-no-files-found: warn
+          retention-days: 7
 
   dify-tools:
     needs: [quality, tests]
     if: ${{ !cancelled() && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').dify) }}
-    timeout-minutes: 15
+    # Include cold dependency setup and cache publication around acceptance.
+    timeout-minutes: 30
     runs-on: powercontext-ci-light
     steps:
       - name: Check out
@@ -867,6 +988,7 @@ jobs:
             integrations/langchain/pyproject.toml
             integrations/langgraph/pyproject.toml
             integrations/opendal/pyproject.toml
+            integrations/deepagents/pyproject.toml
             integrations/dify/pyproject.toml
             integrations/dify/uv.lock
 
@@ -875,7 +997,7 @@ jobs:
 
       - name: Save complete Dify dependencies
         if: steps.python.outputs.cache-hit != 'true' && github.event_name != 'merge_group'
-        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        uses: ./.github/actions/cache-save
         with:
           path: ${{ steps.python.outputs.cache-path }}
           key: ${{ steps.python.outputs.cache-key }}
@@ -908,13 +1030,16 @@ jobs:
           persist-credentials: false
 
       - name: Set up Go for daemon entity serialization
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        uses: ./.github/actions/setup-go
         with:
           go-version-file: .artifacts/dify-daemon/go.mod
           cache-dependency-path: .artifacts/dify-daemon/go.sum
 
-      - name: Set up project tools
-        uses: jdx/mise-action@d5574b52816a478f9d4e6529a3f6ff17a8a36785 # v5.2.8
+      - name: Set up Node for host compatibility probes
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .mise.toml
+          package-manager-cache: false
 
       - name: Check daemon serialization, host casting, Workflow selectors and SDK HTTP readback
         env:
@@ -968,7 +1093,7 @@ jobs:
           shared-cache: 'true'
 
       - name: Set up project tools
-        uses: jdx/mise-action@d5574b52816a478f9d4e6529a3f6ff17a8a36785 # v5.2.8
+        uses: ./.github/actions/setup-mise
 
       - name: Cache DSH dependencies
         uses: ./.github/actions/cache-pnpm
@@ -1020,7 +1145,7 @@ jobs:
           shared-cache: 'true'
 
       - name: Set up project tools
-        uses: jdx/mise-action@d5574b52816a478f9d4e6529a3f6ff17a8a36785 # v5.2.8
+        uses: ./.github/actions/setup-mise
 
       - name: Cache shared JavaScript build tooling
         uses: ./.github/actions/cache-pnpm
@@ -1065,7 +1190,7 @@ jobs:
           shared-cache: 'true'
 
       - name: Set up project tools
-        uses: jdx/mise-action@d5574b52816a478f9d4e6529a3f6ff17a8a36785 # v5.2.8
+        uses: ./.github/actions/setup-mise
 
       - name: Cache Pi dependencies
         uses: ./.github/actions/cache-pnpm
@@ -1100,7 +1225,7 @@ jobs:
         with:
           shared-cache: 'true'
 
-      - uses: jdx/mise-action@d5574b52816a478f9d4e6529a3f6ff17a8a36785 # v5.2.8
+      - uses: ./.github/actions/setup-mise
       - name: Cache OpenCode dependencies
         uses: ./.github/actions/cache-pnpm
         with:
@@ -1109,17 +1234,43 @@ jobs:
       - name: Test OpenCode package
         run: make opencode-test
 
-      - name: Install the pinned OpenCode host
+      - name: Select the pinned OpenCode package
+        id: opencode-package
         run: |
           package="opencode-$(node -p 'process.platform + "-" + process.arch')"
           # OpenCode's default x64 build needs AVX2; its own installer falls back to the baseline build without it.
           if [ "$package" = opencode-linux-x64 ] && ! grep -qw avx2 /proc/cpuinfo; then
             package=opencode-linux-x64-baseline
           fi
+          echo "package=$package" >> "$GITHUB_OUTPUT"
+
+      - name: Restore OpenCode host downloads
+        if: runner.os == 'Linux' && runner.environment == 'self-hosted'
+        id: opencode-npm-cache
+        uses: ./.github/actions/cache-npm
+        with:
+          packages: ${{ steps.opencode-package.outputs.package }}@${{ env.OPENCODE_VERSION }}
+
+      - name: Install the pinned OpenCode host
+        env:
+          OPENCODE_PACKAGE: ${{ steps.opencode-package.outputs.package }}
+        run: |
           npm install --prefix "$RUNNER_TEMP/opencode-host" \
             --registry https://registry.npmjs.org --ignore-scripts --no-audit --no-fund \
-            "$package@$OPENCODE_VERSION"
-          cli="$RUNNER_TEMP/opencode-host/node_modules/$package/bin/opencode"
+            "$OPENCODE_PACKAGE@$OPENCODE_VERSION"
+
+      - name: Save OpenCode host downloads
+        if: runner.os == 'Linux' && runner.environment == 'self-hosted' && steps.opencode-npm-cache.outputs.cache-hit != 'true'
+        uses: ./.github/actions/cache-save
+        with:
+          path: ${{ steps.opencode-npm-cache.outputs.cache-path }}
+          key: ${{ steps.opencode-npm-cache.outputs.cache-key }}
+
+      - name: Verify the pinned OpenCode host
+        env:
+          OPENCODE_PACKAGE: ${{ steps.opencode-package.outputs.package }}
+        run: |
+          cli="$RUNNER_TEMP/opencode-host/node_modules/$OPENCODE_PACKAGE/bin/opencode"
           test "$("$cli" --version)" = "$OPENCODE_VERSION"
           echo "OPENCODE_CLI_BIN=$cli" >> "$GITHUB_ENV"
 
@@ -1131,7 +1282,7 @@ jobs:
 
       - name: Upload OpenCode host logs
         if: failure()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        uses: ./.github/actions/upload-ci-diagnostics
         with:
           name: opencode-host-logs-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/opencode-e2e/**/opencode.log
@@ -1155,12 +1306,29 @@ jobs:
       - name: Set up the Python environment
         uses: ./.github/actions/setup-python-env
 
-      - uses: jdx/mise-action@d5574b52816a478f9d4e6529a3f6ff17a8a36785 # v5.2.8
+      - uses: ./.github/actions/setup-mise
+      - name: Restore Codex host downloads
+        if: runner.os == 'Linux' && runner.environment == 'self-hosted'
+        id: codex-npm-cache
+        uses: ./.github/actions/cache-npm
+        with:
+          packages: '@openai/codex@${{ env.CODEX_VERSION }}'
+
       - name: Install the pinned Codex host
         run: |
           npm install --prefix "$RUNNER_TEMP/codex-host" \
             --registry https://registry.npmjs.org --ignore-scripts --no-audit --no-fund \
             "@openai/codex@$CODEX_VERSION"
+
+      - name: Save Codex host downloads
+        if: runner.os == 'Linux' && runner.environment == 'self-hosted' && steps.codex-npm-cache.outputs.cache-hit != 'true'
+        uses: ./.github/actions/cache-save
+        with:
+          path: ${{ steps.codex-npm-cache.outputs.cache-path }}
+          key: ${{ steps.codex-npm-cache.outputs.cache-key }}
+
+      - name: Verify the pinned Codex host
+        run: |
           cli="$RUNNER_TEMP/codex-host/node_modules/.bin/codex"
           test "$("$cli" --version)" = "codex-cli $CODEX_VERSION"
           echo "CODEX_CLI_BIN=$cli" >> "$GITHUB_ENV"
@@ -1173,7 +1341,7 @@ jobs:
 
       - name: Upload Codex host logs
         if: failure()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        uses: ./.github/actions/upload-ci-diagnostics
         with:
           name: codex-host-logs-${{ github.run_id }}-${{ github.run_attempt }}
           # pytest also links each case's directory as *current; upload each log once.
@@ -1229,7 +1397,7 @@ jobs:
 
       - name: Upload Claude Code host logs
         if: failure()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        uses: ./.github/actions/upload-ci-diagnostics
         with:
           name: claude-code-host-logs-${{ github.run_id }}-${{ github.run_attempt }}
           # pytest also links each case's directory as *current; upload each log once.
@@ -1267,7 +1435,7 @@ jobs:
 
       - name: Upload Bub host logs
         if: failure()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        uses: ./.github/actions/upload-ci-diagnostics
         with:
           name: bub-host-logs-${{ github.run_id }}-${{ github.run_attempt }}
           # Skip pytest's `*current` links to the same directories.
@@ -1280,7 +1448,8 @@ jobs:
   openclaw-package:
     needs: [quality, tests]
     if: ${{ !cancelled() && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').openclaw) }}
-    timeout-minutes: 20
+    # Include cold dependency setup and cache publication around acceptance.
+    timeout-minutes: 40
     runs-on: powercontext-ci-light
     env:
       OPENCLAW_VERSION: '2026.8.1'
@@ -1293,7 +1462,7 @@ jobs:
         with:
           shared-cache: 'true'
 
-      - uses: jdx/mise-action@d5574b52816a478f9d4e6529a3f6ff17a8a36785 # v5.2.8
+      - uses: ./.github/actions/setup-mise
       # The pinned OpenClaw SDK requires the SQLite runtime shipped with Node 24.15+.
       - run: mise install node@24.15.0
       - name: Cache OpenClaw dependencies
@@ -1309,7 +1478,7 @@ jobs:
 
       - name: Save OpenClaw package dependencies
         if: steps.pnpm.outputs.cache-hit != 'true' && github.event_name != 'merge_group'
-        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        uses: ./.github/actions/cache-save
         with:
           path: ${{ steps.pnpm.outputs.cache-path }}
           key: ${{ steps.pnpm.outputs.cache-key }}
@@ -1326,7 +1495,7 @@ jobs:
 
       - name: Restore OpenClaw host downloads
         id: openclaw-host-cache
-        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        uses: ./.github/actions/cache-restore
         with:
           path: ${{ steps.npm.outputs.path }}
           key: npm-openclaw-v1-${{ runner.os }}-${{ runner.arch }}-node24.15.0-${{ env.OPENCLAW_VERSION }}
@@ -1341,7 +1510,7 @@ jobs:
 
       - name: Save OpenClaw host downloads
         if: steps.openclaw-host-cache.outputs.cache-hit != 'true' && github.event_name != 'merge_group'
-        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        uses: ./.github/actions/cache-save
         with:
           path: ${{ steps.npm.outputs.path }}
           key: ${{ steps.openclaw-host-cache.outputs.cache-primary-key }}
@@ -1354,7 +1523,7 @@ jobs:
 
       - name: Upload OpenClaw host logs
         if: failure()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        uses: ./.github/actions/upload-ci-diagnostics
         with:
           name: openclaw-host-logs-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
@@ -1417,7 +1586,8 @@ jobs:
   check-website:
     needs: [quality]
     if: ${{ !cancelled() && needs.quality.result == 'success' && (fromJSON(needs.quality.outputs.suites || '{}').website) }}
-    timeout-minutes: 20
+    # Include cold checkout, environment setup, and cache publication.
+    timeout-minutes: 40
     runs-on: powercontext-ci-standard
     steps:
       - name: Check out
@@ -1427,9 +1597,20 @@ jobs:
 
       - name: Set up the environment
         uses: ./.github/actions/setup-python-env
+        with:
+          cache-dependency-glob: |
+            pyproject.toml
+            uv.lock
+            integrations/langchain/pyproject.toml
+            integrations/langgraph/pyproject.toml
+            integrations/opendal/pyproject.toml
+            integrations/deepagents/pyproject.toml
+            website/python/pyproject.toml
+            website/python/uv.lock
+            website/pnpm-lock.yaml
 
       - name: Set up website tools
-        uses: jdx/mise-action@d5574b52816a478f9d4e6529a3f6ff17a8a36785 # v5.2.8
+        uses: ./.github/actions/setup-mise
 
       - name: Cache website dependencies
         uses: ./.github/actions/cache-pnpm
@@ -1586,6 +1767,37 @@ jobs:
     with:
       suites: ${{ needs.quality.outputs.suites }}
 
+  knowledge-base:
+    needs: [quality, tests]
+    if: ${{ !cancelled() && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').knowledge_base) }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-python-env
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/knowledge-base/package-lock.json
+      - name: Build and verify plugin Dashboard assets
+        run: |
+          npm ci --prefix frontend/knowledge-base --no-audit --no-fund
+          npm run build --prefix frontend/knowledge-base
+          git diff --exit-code -- plugins/knowledge-base/ui
+      - name: Install plugin dependencies
+        run: uv sync --locked --extra knowledge-base --group knowledge-base-tests
+      - name: Check plugin types with its optional dependencies
+        run: uv run --no-sync ty check --no-force-exclude plugins/knowledge-base
+      - name: Install browser for plugin navigation regressions
+        run: uv run --no-sync playwright install --with-deps chromium
+      - name: Exercise Server, Worker, revision lifecycle and real OCR
+        run: uv run --no-sync pytest tests/knowledge_base tests/e2e/test_knowledge_base*.py tests/e2e/test_plugin_pages.py
+
   ci-result:
     name: CI result
     needs:
@@ -1600,6 +1812,7 @@ jobs:
       - worker-observability
       - evaluation-tests
       - code-seekdb
+      - knowledge-base
       - atomic-memory-clean-seekdb
       - windows-unit-portability
       - dify-tools
@@ -1660,7 +1873,8 @@ jobs:
     needs: [quality, tests]
     if: ${{ !cancelled() && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').helm) }}
     runs-on: powercontext-ci-light
-    timeout-minutes: 10
+    # Include cold dependency setup and cache publication around acceptance.
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -1670,6 +1884,10 @@ jobs:
           shared-cache: 'true'
       - name: Install Helm
         run: |
+          if command -v helm >/dev/null && [ "$(helm version --template '{{.Version}}')" = v3.19.0 ]; then
+            helm version --short
+            exit 0
+          fi
           curl --fail --silent --show-error --location https://get.helm.sh/helm-v3.19.0-linux-amd64.tar.gz -o /tmp/helm.tar.gz
           curl --fail --silent --show-error --location https://get.helm.sh/helm-v3.19.0-linux-amd64.tar.gz.sha256sum -o /tmp/helm.sha256
           EXPECTED=$(cut -d ' ' -f 1 /tmp/helm.sha256)

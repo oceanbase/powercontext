@@ -33,6 +33,8 @@ from pathlib import Path
 import pytest
 from generate_integration_lifecycle import COPIES
 
+from powercontext_integration_lifecycle.user_prompt_submit import UserPromptEvent
+
 ROOT = Path(__file__).parents[1]
 SOURCE = ROOT / "src/powercontext_integration_lifecycle"
 TYPESCRIPT_SOURCE = ROOT / "integrations/lifecycle"
@@ -81,3 +83,15 @@ def test_plugin_copies_match_their_source() -> None:
         timeout=60,
     )
     assert result.returncode == 0, result.stderr
+
+
+def test_prompt_event_repr_leaves_out_the_prompt_and_the_working_directory() -> None:
+    event = UserPromptEvent(
+        prompt="Remember the synthetic launch phrase.",
+        cwd="/workspace/synthetic-private-project",
+        session_id="session-1",
+        prompt_id="prompt-1",
+    )
+
+    assert "synthetic launch phrase" not in repr(event)
+    assert "synthetic-private-project" not in repr(event)

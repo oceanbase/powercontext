@@ -65,6 +65,7 @@ from powercontext.builtin.persistence.supervision import (
 from powercontext.builtin.persistence.tables import ARTIFACT_PROCESSING_LEASES_TABLE
 from powercontext.builtin.processing_diagnostics import (
     ProcessingDiagnostics,
+    allow_processing_failure_log,
     classify_block_code,
     safe_classify_processing_error,
     safe_log_fields,
@@ -1830,6 +1831,14 @@ class ArtifactProcessingSupervisor:
             if isinstance(error, _WorkerExecutionError) and error.failure.diagnostics is not None
             else safe_classify_processing_error(error)
         )
+        with suppress(Exception):
+            if not cancelled and not allow_processing_failure_log(
+                "",
+                "artifact_processing.failed",
+                _worker_error_code(error),
+                None if diagnostics is None else diagnostics.reason,
+            ):
+                return
         log_safely(
             logger,
             logging.INFO if cancelled else logging.ERROR,

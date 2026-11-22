@@ -35,6 +35,8 @@ pub struct AdmittedSend {
 pub struct RawResponse {
     pub status: u16,
     pub body: Bytes,
+    /// Exact provider response retained when transport conversion changes bytes.
+    pub upstream_payload: Option<pc_gateway_types::UpstreamResponsePayload>,
     /// 响应的 Content-Type（SSE 为 text/event-stream），释放时原样使用。
     pub content_type: String,
     /// Send handoff to first nonempty HTTP body chunk, including response-header wait. Not model TTFT.

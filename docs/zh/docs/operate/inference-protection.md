@@ -89,7 +89,7 @@ Memory 写入 gate 遇到这类拒绝时，flush 会在发布前失败，Source 
 
 供应商报告的输入、输出、缓存读取、缓存写入和推理 Token 计数与估算分开，缺失计数保持未知。响应被拒绝交付时仍可能产生费用；已知用量保留在异常中，并通过现有 Scope 用量记录器报告。缓存读取 Token 可能已包含在输入 Token 中，不能重复相加。
 
-本地流式支持限定为单 choice 的有界 OpenAI Chat SSE，需要显式配置 `allow_streaming=true`。交付前缓冲完整响应，拼接并检查文本、工具参数、`reasoning` 与 `reasoning_content`，包括跨事件拆分的内容。工具索引只接受无符号 JSON 整数写法；`-0`、`0.0`、`0e0` 等歧义写法会在交付前暂缓。字节数、超时和并发限制仍然生效，其他流式协议暂缓交付。严格缓冲会延迟首段内容。
+本地 protected transport 支持单 choice 的有界 OpenAI Chat SSE 和 Responses SSE，需要显式配置 `allow_streaming=true`。交付前缓冲完整响应，拼接并检查文本、工具参数、思考和拒绝内容，包括跨事件拆分的内容。Chat 检查包含 `reasoning` 与 `reasoning_content`。Responses 必须收到成功的 `response.completed` 事件；即使最终快照省略了内容，初始内容和增量仍会被检查。条目身份冲突、流不完整或出现提供方错误事件时，响应暂缓交付。获准的流保留原始字节供 SDK 读取。用于组装内容的索引只接受无符号 JSON 整数写法；`-0`、`0.0`、`0e0` 等歧义写法会在交付前暂缓。字节数、超时和并发限制仍然生效，其他流式协议暂缓交付。严格缓冲会延迟首段内容。
 
 本机 HTTP/SSE 与独立 worker 测试使用受控响应验证边界，不代表外部供应商兼容性、隐藏路由或保留策略，也不证明模型质量。
 

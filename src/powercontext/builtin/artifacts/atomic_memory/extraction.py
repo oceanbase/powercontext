@@ -34,6 +34,7 @@ from powercontext.builtin.artifacts.atomic_memory.summary import DESCRIPTION_RUL
 from powercontext.builtin.artifacts.atomic_memory.temporal import preserves_time_literals, source_time_literals
 from powercontext.builtin.artifacts.memory.prompts import MemoryExtractionProfile
 from powercontext.builtin.inference import InvalidInferenceOutputError, StructuredGenerator, TokenEstimator
+from powercontext.builtin.inference.models import ConversationReply, ConversationTurn
 from powercontext.builtin.persistence.records import _canonical_source_text
 from powercontext.builtin.persistence.sources import SourceRepository, StoredSource
 from powercontext.builtin.processing_diagnostics import (
@@ -168,6 +169,8 @@ class AtomicMemoryGenerationPipeline:
     input_renderer: Callable[[AtomicMemoryExtractionInput | AtomicMemoryReconciliationInput], str] | None = None
     # Opt-in extraction over the agent's cached conversation prefix; any failure falls back to ``extractor``.
     prefixed: StructuredGenerator[AtomicMemoryExtractionInput, AtomicMemoryExtractionOutput] | None = None
+    # One-pass processing continues one conversation instead of calling the extractor and reconciler.
+    conversation: StructuredGenerator[ConversationTurn[Any], ConversationReply[Any]] | None = None
 
     async def extract(self, value: AtomicMemoryExtractionInput) -> tuple[AtomicMemoryCandidate, ...]:
         if self.prefixed is not None and prefix_handle(value) is not None:

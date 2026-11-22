@@ -20,6 +20,7 @@ import re
 import shutil
 from collections.abc import Mapping
 from datetime import UTC, datetime
+from os import environ
 from pathlib import Path, PurePosixPath
 from typing import Any, Literal, NamedTuple, cast
 from urllib.parse import unquote, urlparse
@@ -45,6 +46,7 @@ from .artifacts import write_artifacts
 from .catalog import E2ETask, MemoryEvaluationSpec, OutcomeEvaluationSpec, is_paired
 from .evaluation import evaluate_observation, matches_forbidden_context
 from .evidence import fingerprint, load_resolved_instructions, redact, write_evaluation_report, write_evidence
+from .harbor_agent import DEBIAN_MIRROR_SETTING, PYTHON_INDEX_SETTING
 from .hosts import HostAdapter, host_adapter
 from .models import (
     AtomicMemorySnapshot,
@@ -444,11 +446,21 @@ def _job_config(
         agent.env.update({
             "HTTP_PROXY": proxy_url,
             "HTTPS_PROXY": proxy_url,
-            "NO_PROXY": "127.0.0.1,localhost,host-gateway,powercontext",
             "http_proxy": proxy_url,
             "https_proxy": proxy_url,
-            "no_proxy": "127.0.0.1,localhost,host-gateway,powercontext",
         })
+    mirror_hosts = (
+        [urlparse(environ.get(setting, "")).hostname for setting in (PYTHON_INDEX_SETTING, DEBIAN_MIRROR_SETTING)]
+        if host.name == "bub"
+        else []
+    )
+    if settings.agent_proxy_url is not None or any(mirror_hosts):
+        # Explicit task package mirrors are direct routes; runner loopback mirrors are never forwarded.
+        bypass = ["127.0.0.1", "localhost", "host-gateway", "powercontext"]
+        for name in ("NO_PROXY", "no_proxy"):
+            bypass.extend(filter(None, agent.env.get(name, "").split(",")))
+        bypass.extend(host for host in mirror_hosts if host is not None)
+        agent.env.update(dict.fromkeys(("NO_PROXY", "no_proxy"), ",".join(dict.fromkeys(bypass))))
 
     return JobConfig(
         job_name=run_id,
