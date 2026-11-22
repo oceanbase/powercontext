@@ -696,6 +696,10 @@ jobs:
         with:
           version: ${{ env.UV_VERSION }}
 
+      - name: Install native acceptance dependencies
+        if: matrix.native
+        run: python3 scripts/ci_python_mirror.py sync --locked --extra server
+
       - name: Start and configure the shared OceanBase instance
         id: oceanbase_setup
         timeout-minutes: 15
@@ -727,7 +731,6 @@ jobs:
         env:
           OCEANBASE_CONTAINER: ${{ steps.oceanbase_setup.outputs.container_id }}
         run: |
-          python3 scripts/ci_python_mirror.py sync --locked --extra server
           native_deadline=$((SECONDS + 3450))
           test -n "$OCEANBASE_CONTAINER"
           uv run --locked --extra server python - <<'PY'
