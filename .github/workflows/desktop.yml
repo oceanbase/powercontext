@@ -113,6 +113,7 @@ jobs:
             integrations/langchain/pyproject.toml
             integrations/langgraph/pyproject.toml
             integrations/opendal/pyproject.toml
+            integrations/deepagents/pyproject.toml
       - name: Install locked Server test dependencies
         working-directory: .
         run: uv sync --locked --python 3.12
@@ -234,7 +235,7 @@ jobs:
         run: python3 scripts/build_macos.py
       - name: Upload macOS build diagnostics
         if: ${{ failure() || steps.macos_build.outputs.retried == 'true' }}
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        uses: ./.github/actions/upload-ci-diagnostics
         with:
           name: desktop-macos-${{ matrix.runner }}-build-diagnostics
           include-hidden-files: true
@@ -340,6 +341,7 @@ jobs:
             integrations/langchain/pyproject.toml
             integrations/langgraph/pyproject.toml
             integrations/opendal/pyproject.toml
+            integrations/deepagents/pyproject.toml
       - name: Install locked Server test dependencies
         working-directory: .
         run: uv sync --locked --python 3.12
@@ -410,6 +412,7 @@ jobs:
             integrations/langchain/pyproject.toml
             integrations/langgraph/pyproject.toml
             integrations/opendal/pyproject.toml
+            integrations/deepagents/pyproject.toml
       - name: Prepare the native analyzer toolchain
         run: rustup toolchain install 1.95.0-x86_64-pc-windows-msvc --profile minimal
       - name: Prepare isolated Server fixture

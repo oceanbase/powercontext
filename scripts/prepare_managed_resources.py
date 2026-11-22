@@ -42,7 +42,7 @@ from urllib.parse import unquote, urlsplit
 
 import build_intel_managed_wheel
 from packaging.requirements import Requirement
-from packaging.utils import canonicalize_name, parse_wheel_filename
+from packaging.utils import canonicalize_name, parse_sdist_filename, parse_wheel_filename
 from packaging.version import Version
 
 from powercontext.ops.resources import MAX_FILES, MAX_UNPACKED_BYTES, ResourceFile
@@ -270,11 +270,21 @@ def _wheel_identity(path: Path) -> dict[str, Any]:
     }
 
 
+def _wheel_closure(wheels: Path, dependencies: list[dict[str, Any]], server_version: str) -> list[dict[str, Any]]:
+    closure = [_wheel_identity(path) for path in sorted(wheels.glob("*.whl"))]
+    expected = [(canonicalize_name(item["name"]), Version(item["version"])) for item in dependencies]
+    expected.append((canonicalize_name("powercontext"), Version(server_version)))
+    if sorted((item["name"], Version(item["version"])) for item in closure) != sorted(expected):
+        raise ValueError("Built wheel closure does not match the requested Server version and dependencies")
+    return closure
+
+
 def _locked_dependencies(  # noqa: C901 - exact requirement and platform-artifact selection
     export: str, lock: dict[str, Any], markers: dict[str, str], tags: list[str], target: str | None = None
 ) -> list[dict[str, Any]]:
     records = []
     ranks = {tag: index for index, tag in enumerate(tags)}
+    native = json.loads(build_intel_managed_wheel.PINS.read_bytes())
     for line in export.replace("\\\n", " ").splitlines():
         line = line.partition("#")[0].strip()
         if not line:
@@ -297,18 +307,21 @@ def _locked_dependencies(  # noqa: C901 - exact requirement and platform-artifac
         if candidates:
             _rank, filename, artifact = min(candidates)
             kind = "wheel"
-        elif (name, version) == ("jieba", "0.42.1"):
-            artifact = package["sdist"]
-            filename = "jieba-0.42.1.tar.gz"
-            kind = "sdist"
-        elif target == "macos-x86_64" and (name, version) == ("cryptography", "50.0.0"):
-            artifact = package["sdist"]
-            filename = "cryptography-50.0.0.tar.gz"
-            kind = "intel-cryptography-sdist"
         else:
-            raise ValueError(
-                f"No locked compatible wheel for {name}=={version}; source builds are not implicitly allowed"
-            )
+            if "sdist" not in package:
+                raise ValueError(f"No locked compatible wheel or source archive for {name}=={version}")
+            artifact = package["sdist"]
+            filename = unquote(PurePosixPath(urlsplit(artifact["url"]).path).name)
+            source_name, source_version = parse_sdist_filename(filename)
+            if (source_name, source_version) != (name, Version(version)):
+                raise ValueError("Locked source archive identity differs from the exported requirement")
+            kind = "sdist"
+            if target == native["target"] and name == native["package"]:
+                if version != native["version"]:
+                    raise ValueError(
+                        f"The native build recipe does not cover {name}=={version}; update its explicit pins"
+                    )
+                kind = "intel-cryptography-sdist"
         digest = artifact["hash"].removeprefix("sha256:")
         if f"--hash=sha256:{digest}" not in line:
             raise ValueError("Selected artifact is not covered by the exported requirement hashes")
@@ -519,10 +532,7 @@ def prepare(args: argparse.Namespace) -> None:  # noqa: C901 - ordered acquisiti
             env=env,
             cwd=work,
         )
-        closure = [_wheel_identity(path) for path in sorted(wheels.glob("*.whl"))]
-        project = [item for item in closure if item["name"] == "powercontext"]
-        if len(project) != 1 or project[0]["version"] != args.server_version or len(closure) != len(dependencies) + 1:
-            raise ValueError("Built wheel closure does not match the requested Server version and dependencies")
+        closure = _wheel_closure(wheels, dependencies, args.server_version)
         requirements = output / "requirements.lock"
         requirements.write_text(
             "".join(

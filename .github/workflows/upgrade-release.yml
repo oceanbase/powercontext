@@ -33,6 +33,7 @@ on:
         default: false
 
 permissions:
+  actions: read
   contents: read
 
 env:
@@ -287,7 +288,8 @@ jobs:
     needs: prepare
     if: ${{ !inputs.skip_upgrade_acceptance }}
     runs-on: ${{ inputs.internal_runner && 'powercontext-ci-standard' || 'ubuntu-24.04' }}
-    timeout-minutes: ${{ matrix.backend == 'oceanbase' && 75 || 60 }}
+    # Include cold provisioning, separate installs, full acceptance and evidence cleanup.
+    timeout-minutes: 120
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
@@ -320,6 +322,10 @@ jobs:
         with:
           name: upgrade-prepared
           path: ${{ runner.temp }}/upgrade-prepared/
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ github.run_id }}
+          digest-mismatch: error
       - name: Start the isolated upgrade OceanBase environment
         if: matrix.backend == 'oceanbase'
         uses: ./.github/actions/setup-upgrade-oceanbase

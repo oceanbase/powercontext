@@ -34,11 +34,33 @@ if is_loopback_proxy "${http_proxy:-}"; then unset http_proxy; fi
 if is_loopback_proxy "${https_proxy:-}"; then unset https_proxy; fi
 if is_loopback_proxy "${all_proxy:-}"; then unset all_proxy; fi
 
-dockerd \
-    --host=unix:///var/run/docker.sock \
-    --storage-driver="$storage_driver" \
-    --log-level=error \
-    >"$docker_log" 2>&1 &
+start_dockerd() {
+    parent_interface=$(ip -o route show default | awk '{ for (i = 1; i < NF; i++) if ($i == "dev") { print $(i + 1); exit } }')
+    if [ -z "$parent_interface" ]; then
+        parent_interface=$(ip -o -6 route show default | awk '{ for (i = 1; i < NF; i++) if ($i == "dev") { print $(i + 1); exit } }')
+    fi
+    if [ -z "$parent_interface" ] || [ ! -r "/sys/class/net/$parent_interface/mtu" ]; then
+        echo "Cannot determine the parent interface MTU for nested Docker." >&2
+        exit 1
+    fi
+    read -r parent_mtu <"/sys/class/net/$parent_interface/mtu"
+    # Cover both docker0 and the user-defined bridge networks Harbor creates through Compose.
+    set -- --host=unix:///var/run/docker.sock --storage-driver="$storage_driver" --log-level=error \
+        --mtu="$parent_mtu" --default-network-opt="bridge=com.docker.network.driver.mtu=$parent_mtu"
+    mirror=${POWERCONTEXT_E2E_DOCKER_REGISTRY_MIRROR:-}
+    if [ -n "$mirror" ]; then
+        set -- "$@" --registry-mirror "$mirror"
+        case "$mirror" in
+            http://*)
+                registry=${mirror#http://}
+                set -- "$@" --insecure-registry "${registry%/}"
+                ;;
+        esac
+    fi
+    dockerd "$@" >"$docker_log" 2>&1 &
+}
+
+start_dockerd
 
 attempt=0
 until docker info >/dev/null 2>&1; do

@@ -1,0 +1,1326 @@
+{
+  "schema_version": 1,
+  "profiles": {
+    "codex-cli": {
+      "credential_ownership": "external-read-only",
+      "resource_url": "https://chatgpt.com/backend-api/codex/responses",
+      "allowed_resource_origin": "https://chatgpt.com",
+      "refresh_url": null,
+      "refresh_leeway_seconds": null
+    },
+    "grok-cli": {
+      "credential_ownership": "shared-file-refresh",
+      "resource_url": "https://api.x.ai/v1/responses",
+      "allowed_resource_origin": "https://api.x.ai",
+      "refresh_url": "https://auth.x.ai/oauth2/token",
+      "refresh_leeway_seconds": 60,
+      "lock_file": "auth.json.lock",
+      "issuer": "https://auth.x.ai",
+      "client_id": "b1a00492-073a-47ea-816f-4c329264a828",
+      "credential_scope": "https://auth.x.ai::b1a00492-073a-47ea-816f-4c329264a828"
+    }
+  },
+  "scenarios": [
+    {
+      "id": "codex-cli-valid",
+      "profile": "codex-cli",
+      "now": 2000000000,
+      "credentials": {
+        "tokens": {
+          "access_token": "synthetic-access",
+          "refresh_token": "synthetic-refresh",
+          "account_id": "synthetic-account"
+        }
+      },
+      "http": {
+        "token_responses": [],
+        "resource_response": {
+          "status": 200,
+          "json": {
+            "ok": true
+          }
+        }
+      },
+      "actions": [
+        {
+          "type": "request",
+          "outcome": "success"
+        }
+      ],
+      "expect": {
+        "resource_tokens": [
+          "synthetic-access"
+        ],
+        "refresh_forms": [],
+        "store": {
+          "mode": "unchanged"
+        }
+      }
+    },
+    {
+      "id": "codex-cli-hot-reload",
+      "profile": "codex-cli",
+      "now": 2000000000,
+      "credentials": {
+        "tokens": {
+          "access_token": "synthetic-access",
+          "refresh_token": "synthetic-refresh",
+          "account_id": "synthetic-account"
+        }
+      },
+      "http": {
+        "token_responses": [],
+        "resource_response": {
+          "status": 200,
+          "json": {
+            "ok": true
+          }
+        }
+      },
+      "actions": [
+        {
+          "type": "request",
+          "outcome": "success"
+        },
+        {
+          "type": "replace_credentials",
+          "credentials": {
+            "tokens": {
+              "access_token": "synthetic-login",
+              "refresh_token": "synthetic-refresh",
+              "account_id": "synthetic-account-new"
+            }
+          }
+        },
+        {
+          "type": "request",
+          "outcome": "success"
+        }
+      ],
+      "expect": {
+        "resource_tokens": [
+          "synthetic-access",
+          "synthetic-login"
+        ],
+        "refresh_forms": [],
+        "store": {
+          "mode": "unchanged"
+        }
+      }
+    },
+    {
+      "id": "codex-cli-rejected-no-replay",
+      "profile": "codex-cli",
+      "now": 2000000000,
+      "credentials": {
+        "tokens": {
+          "access_token": "synthetic-access",
+          "refresh_token": "synthetic-refresh",
+          "account_id": "synthetic-account"
+        }
+      },
+      "http": {
+        "token_responses": [],
+        "resource_response": {
+          "status": 401,
+          "json": {
+            "error": "unauthorized"
+          }
+        }
+      },
+      "actions": [
+        {
+          "type": "request",
+          "outcome": "http_error",
+          "status": 401
+        }
+      ],
+      "expect": {
+        "resource_tokens": [
+          "synthetic-access"
+        ],
+        "refresh_forms": [],
+        "store": {
+          "mode": "unchanged"
+        }
+      }
+    },
+    {
+      "id": "codex-cli-foreign-host",
+      "profile": "codex-cli",
+      "now": 2000000000,
+      "credentials": {
+        "tokens": {
+          "access_token": "synthetic-access",
+          "refresh_token": "synthetic-refresh",
+          "account_id": "synthetic-account"
+        }
+      },
+      "http": {
+        "token_responses": [],
+        "resource_response": {
+          "status": 200,
+          "json": {
+            "ok": true
+          }
+        }
+      },
+      "actions": [
+        {
+          "type": "request",
+          "url": "https://chatgpt.com.attacker.test/v1/responses",
+          "outcome": "auth_error"
+        }
+      ],
+      "expect": {
+        "resource_tokens": [],
+        "refresh_forms": [],
+        "store": {
+          "mode": "unchanged"
+        }
+      }
+    },
+    {
+      "id": "codex-cli-plaintext",
+      "profile": "codex-cli",
+      "now": 2000000000,
+      "credentials": {
+        "tokens": {
+          "access_token": "synthetic-access",
+          "refresh_token": "synthetic-refresh",
+          "account_id": "synthetic-account"
+        }
+      },
+      "http": {
+        "token_responses": [],
+        "resource_response": {
+          "status": 200,
+          "json": {
+            "ok": true
+          }
+        }
+      },
+      "actions": [
+        {
+          "type": "request",
+          "url": "http://chatgpt.com/v1/responses",
+          "outcome": "auth_error"
+        }
+      ],
+      "expect": {
+        "resource_tokens": [],
+        "refresh_forms": [],
+        "store": {
+          "mode": "unchanged"
+        }
+      }
+    },
+    {
+      "id": "codex-cli-foreign-port",
+      "profile": "codex-cli",
+      "now": 2000000000,
+      "credentials": {
+        "tokens": {
+          "access_token": "synthetic-access",
+          "refresh_token": "synthetic-refresh",
+          "account_id": "synthetic-account"
+        }
+      },
+      "http": {
+        "token_responses": [],
+        "resource_response": {
+          "status": 200,
+          "json": {
+            "ok": true
+          }
+        }
+      },
+      "actions": [
+        {
+          "type": "request",
+          "url": "https://chatgpt.com:444/v1/responses",
+          "outcome": "auth_error"
+        }
+      ],
+      "expect": {
+        "resource_tokens": [],
+        "refresh_forms": [],
+        "store": {
+          "mode": "unchanged"
+        }
+      }
+    },
+    {
+      "id": "codex-cli-malformed-store",
+      "profile": "codex-cli",
+      "now": 2000000000,
+      "credentials": null,
+      "http": {
+        "token_responses": [],
+        "resource_response": {
+          "status": 200,
+          "json": {
+            "ok": true
+          }
+        }
+      },
+      "actions": [
+        {
+          "type": "request",
+          "outcome": "auth_error"
+        }
+      ],
+      "expect": {
+        "resource_tokens": [],
+        "refresh_forms": [],
+        "store": {
+          "mode": "unchanged"
+        }
+      }
+    },
+    {
+      "id": "grok-cli-valid",
+      "profile": "grok-cli",
+      "now": 2000000000,
+      "credentials": {
+        "https://auth.x.ai::b1a00492-073a-47ea-816f-4c329264a828": {
+          "key": "synthetic-access",
+          "refresh_token": "synthetic-refresh",
+          "expires_at": "2033-05-18T04:33:20+00:00",
+          "oidc_issuer": "https://auth.x.ai",
+          "oidc_client_id": "b1a00492-073a-47ea-816f-4c329264a828",
+          "principal_type": "Team",
+          "principal_id": "synthetic-team",
+          "user_id": "synthetic-user",
+          "coding_data_retention_opt_out": true
+        },
+        "unrelated-provider": {
+          "key": "preserve-me"
+        }
+      },
+      "http": {
+        "token_responses": [],
+        "resource_response": {
+          "status": 200,
+          "json": {
+            "ok": true
+          }
+        }
+      },
+      "actions": [
+        {
+          "type": "request",
+          "outcome": "success"
+        }
+      ],
+      "expect": {
+        "resource_tokens": [
+          "synthetic-access"
+        ],
+        "refresh_forms": [],
+        "store": {
+          "mode": "unchanged"
+        }
+      }
+    },
+    {
+      "id": "grok-cli-hot-reload",
+      "profile": "grok-cli",
+      "now": 2000000000,
+      "credentials": {
+        "https://auth.x.ai::b1a00492-073a-47ea-816f-4c329264a828": {
+          "key": "synthetic-access",
+          "refresh_token": "synthetic-refresh",
+          "expires_at": "2033-05-18T04:33:20+00:00",
+          "oidc_issuer": "https://auth.x.ai",
+          "oidc_client_id": "b1a00492-073a-47ea-816f-4c329264a828",
+          "principal_type": "Team",
+          "principal_id": "synthetic-team",
+          "user_id": "synthetic-user",
+          "coding_data_retention_opt_out": true
+        },
+        "unrelated-provider": {
+          "key": "preserve-me"
+        }
+      },
+      "http": {
+        "token_responses": [],
+        "resource_response": {
+          "status": 200,
+          "json": {
+            "ok": true
+          }
+        }
+      },
+      "actions": [
+        {
+          "type": "request",
+          "outcome": "success"
+        },
+        {
+          "type": "replace_credentials",
+          "credentials": {
+            "https://auth.x.ai::b1a00492-073a-47ea-816f-4c329264a828": {
+              "key": "synthetic-login",
+              "refresh_token": "synthetic-refresh",
+              "expires_at": "2033-05-18T04:33:20+00:00",
+              "oidc_issuer": "https://auth.x.ai",
+              "oidc_client_id": "b1a00492-073a-47ea-816f-4c329264a828",
+              "principal_type": "Team",
+              "principal_id": "synthetic-team",
+              "user_id": "synthetic-user",
+              "coding_data_retention_opt_out": true
+            },
+            "unrelated-provider": {
+              "key": "preserve-me"
+            }
+          }
+        },
+        {
+          "type": "request",
+          "outcome": "success"
+        }
+      ],
+      "expect": {
+        "resource_tokens": [
+          "synthetic-access",
+          "synthetic-login"
+        ],
+        "refresh_forms": [],
+        "store": {
+          "mode": "unchanged"
+        }
+      }
+    },
+    {
+      "id": "grok-cli-rejected-no-replay",
+      "profile": "grok-cli",
+      "now": 2000000000,
+      "credentials": {
+        "https://auth.x.ai::b1a00492-073a-47ea-816f-4c329264a828": {
+          "key": "synthetic-access",
+          "refresh_token": "synthetic-refresh",
+          "expires_at": "2033-05-18T04:33:20+00:00",
+          "oidc_issuer": "https://auth.x.ai",
+          "oidc_client_id": "b1a00492-073a-47ea-816f-4c329264a828",
+          "principal_type": "Team",
+          "principal_id": "synthetic-team",
+          "user_id": "synthetic-user",
+          "coding_data_retention_opt_out": true
+        },
+        "unrelated-provider": {
+          "key": "preserve-me"
+        }
+      },
+      "http": {
+        "token_responses": [],
+        "resource_response": {
+          "status": 401,
+          "json": {
+            "error": "unauthorized"
+          }
+        }
+      },
+      "actions": [
+        {
+          "type": "request",
+          "outcome": "http_error",
+          "status": 401
+        }
+      ],
+      "expect": {
+        "resource_tokens": [
+          "synthetic-access"
+        ],
+        "refresh_forms": [],
+        "store": {
+          "mode": "unchanged"
+        }
+      }
+    },
+    {
+      "id": "grok-cli-foreign-host",
+      "profile": "grok-cli",
+      "now": 2000000000,
+      "credentials": {
+        "https://auth.x.ai::b1a00492-073a-47ea-816f-4c329264a828": {
+          "key": "synthetic-access",
+          "refresh_token": "synthetic-refresh",
+          "expires_at": "1970-01-01T00:00:00+00:00",
+          "oidc_issuer": "https://auth.x.ai",
+          "oidc_client_id": "b1a00492-073a-47ea-816f-4c329264a828",
+          "principal_type": "Team",
+          "principal_id": "synthetic-team",
+          "user_id": "synthetic-user",
+          "coding_data_retention_opt_out": true
+        },
+        "unrelated-provider": {
+          "key": "preserve-me"
+        }
+      },
+      "http": {
+        "token_responses": [],
+        "resource_response": {
+          "status": 200,
+          "json": {
+            "ok": true
+          }
+        }
+      },
+      "actions": [
+        {
+          "type": "request",
+          "url": "https://api.x.ai.attacker.test/v1/responses",
+          "outcome": "auth_error"
+        }
+      ],
+      "expect": {
+        "resource_tokens": [],
+        "refresh_forms": [],
+        "store": {
+          "mode": "unchanged"
+        }
+      }
+    },
+    {
+      "id": "grok-cli-plaintext",
+      "profile": "grok-cli",
+      "now": 2000000000,
+      "credentials": {
+        "https://auth.x.ai::b1a00492-073a-47ea-816f-4c329264a828": {
+          "key": "synthetic-access",
+          "refresh_token": "synthetic-refresh",
+          "expires_at": "1970-01-01T00:00:00+00:00",
+          "oidc_issuer": "https://auth.x.ai",
+          "oidc_client_id": "b1a00492-073a-47ea-816f-4c329264a828",
+          "principal_type": "Team",
+          "principal_id": "synthetic-team",
+          "user_id": "synthetic-user",
+          "coding_data_retention_opt_out": true
+        },
+        "unrelated-provider": {
+          "key": "preserve-me"
+        }
+      },
+      "http": {
+        "token_responses": [],
+        "resource_response": {
+          "status": 200,
+          "json": {
+            "ok": true
+          }
+        }
+      },
+      "actions": [
+        {
+          "type": "request",
+          "url": "http://api.x.ai/v1/responses",
+          "outcome": "auth_error"
+        }
+      ],
+      "expect": {
+        "resource_tokens": [],
+        "refresh_forms": [],
+        "store": {
+          "mode": "unchanged"
+        }
+      }
+    },
+    {
+      "id": "grok-cli-foreign-port",
+      "profile": "grok-cli",
+      "now": 2000000000,
+      "credentials": {
+        "https://auth.x.ai::b1a00492-073a-47ea-816f-4c329264a828": {
+          "key": "synthetic-access",
+          "refresh_token": "synthetic-refresh",
+          "expires_at": "1970-01-01T00:00:00+00:00",
+          "oidc_issuer": "https://auth.x.ai",
+          "oidc_client_id": "b1a00492-073a-47ea-816f-4c329264a828",
+          "principal_type": "Team",
+          "principal_id": "synthetic-team",
+          "user_id": "synthetic-user",
+          "coding_data_retention_opt_out": true
+        },
+        "unrelated-provider": {
+          "key": "preserve-me"
+        }
+      },
+      "http": {
+        "token_responses": [],
+        "resource_response": {
+          "status": 200,
+          "json": {
+            "ok": true
+          }
+        }
+      },
+      "actions": [
+        {
+          "type": "request",
+          "url": "https://api.x.ai:444/v1/responses",
+          "outcome": "auth_error"
+        }
+      ],
+      "expect": {
+        "resource_tokens": [],
+        "refresh_forms": [],
+        "store": {
+          "mode": "unchanged"
+        }
+      }
+    },
+    {
+      "id": "grok-cli-malformed-store",
+      "profile": "grok-cli",
+      "now": 2000000000,
+      "credentials": null,
+      "http": {
+        "token_responses": [],
+        "resource_response": {
+          "status": 200,
+          "json": {
+            "ok": true
+          }
+        }
+      },
+      "actions": [
+        {
+          "type": "request",
+          "outcome": "auth_error"
+        }
+      ],
+      "expect": {
+        "resource_tokens": [],
+        "refresh_forms": [],
+        "store": {
+          "mode": "unchanged"
+        }
+      }
+    },
+    {
+      "id": "codex-cli-expired-read-only",
+      "profile": "codex-cli",
+      "now": 2000000000,
+      "credentials": {
+        "tokens": {
+          "access_token": "e30.eyJleHAiOjB9.signature",
+          "refresh_token": "synthetic-refresh",
+          "account_id": "synthetic-account"
+        }
+      },
+      "http": {
+        "token_responses": [],
+        "resource_response": {
+          "status": 200,
+          "json": {
+            "ok": true
+          }
+        }
+      },
+      "actions": [
+        {
+          "type": "request",
+          "outcome": "success"
+        }
+      ],
+      "expect": {
+        "resource_tokens": [
+          "e30.eyJleHAiOjB9.signature"
+        ],
+        "refresh_forms": [],
+        "store": {
+          "mode": "unchanged"
+        }
+      }
+    },
+    {
+      "id": "grok-cli-expired-rotate",
+      "profile": "grok-cli",
+      "now": 2000000000,
+      "credentials": {
+        "https://auth.x.ai::b1a00492-073a-47ea-816f-4c329264a828": {
+          "key": "synthetic-access",
+          "refresh_token": "synthetic-refresh",
+          "expires_at": "1970-01-01T00:00:00+00:00",
+          "oidc_issuer": "https://auth.x.ai",
+          "oidc_client_id": "b1a00492-073a-47ea-816f-4c329264a828",
+          "principal_type": "Team",
+          "principal_id": "synthetic-team",
+          "user_id": "synthetic-user",
+          "coding_data_retention_opt_out": true
+        },
+        "unrelated-provider": {
+          "key": "preserve-me"
+        }
+      },
+      "http": {
+        "token_responses": [
+          {
+            "status": 200,
+            "json": {
+              "access_token": "synthetic-renewed",
+              "refresh_token": "synthetic-rotated",
+              "expires_in": 3600
+            }
+          }
+        ],
+        "resource_response": {
+          "status": 200,
+          "json": {
+            "ok": true
+          }
+        }
+      },
+      "actions": [
+        {
+          "type": "request",
+          "outcome": "success"
+        }
+      ],
+      "expect": {
+        "resource_tokens": [
+          "synthetic-renewed"
+        ],
+        "refresh_forms": [
+          {
+            "grant_type": "refresh_token",
+            "refresh_token": "synthetic-refresh",
+            "client_id": "b1a00492-073a-47ea-816f-4c329264a828",
+            "principal_type": "Team",
+            "principal_id": "synthetic-team"
+          }
+        ],
+        "store": {
+          "mode": "updated",
+          "access_token": "synthetic-renewed",
+          "refresh_token": "synthetic-rotated",
+          "expires_at": 2000003600
+        }
+      }
+    },
+    {
+      "id": "grok-cli-concurrent-refresh",
+      "profile": "grok-cli",
+      "now": 2000000000,
+      "credentials": {
+        "https://auth.x.ai::b1a00492-073a-47ea-816f-4c329264a828": {
+          "key": "synthetic-access",
+          "refresh_token": "synthetic-refresh",
+          "expires_at": "1970-01-01T00:00:00+00:00",
+          "oidc_issuer": "https://auth.x.ai",
+          "oidc_client_id": "b1a00492-073a-47ea-816f-4c329264a828",
+          "principal_type": "Team",
+          "principal_id": "synthetic-team",
+          "user_id": "synthetic-user",
+          "coding_data_retention_opt_out": true
+        },
+        "unrelated-provider": {
+          "key": "preserve-me"
+        }
+      },
+      "http": {
+        "token_responses": [
+          {
+            "status": 200,
+            "json": {
+              "access_token": "synthetic-renewed",
+              "refresh_token": "synthetic-rotated",
+              "expires_in": 3600
+            }
+          }
+        ],
+        "resource_response": {
+          "status": 200,
+          "json": {
+            "ok": true
+          }
+        }
+      },
+      "actions": [
+        {
+          "type": "concurrent_requests",
+          "count": 4,
+          "outcome": "success"
+        }
+      ],
+      "expect": {
+        "resource_tokens": [
+          "synthetic-renewed",
+          "synthetic-renewed",
+          "synthetic-renewed",
+          "synthetic-renewed"
+        ],
+        "refresh_forms": [
+          {
+            "grant_type": "refresh_token",
+            "refresh_token": "synthetic-refresh",
+            "client_id": "b1a00492-073a-47ea-816f-4c329264a828",
+            "principal_type": "Team",
+            "principal_id": "synthetic-team"
+          }
+        ],
+        "store": {
+          "mode": "updated",
+          "access_token": "synthetic-renewed",
+          "refresh_token": "synthetic-rotated",
+          "expires_at": 2000003600
+        }
+      }
+    },
+    {
+      "id": "grok-cli-retain-refresh-token",
+      "profile": "grok-cli",
+      "now": 2000000000,
+      "credentials": {
+        "https://auth.x.ai::b1a00492-073a-47ea-816f-4c329264a828": {
+          "key": "synthetic-access",
+          "refresh_token": "synthetic-refresh",
+          "expires_at": "1970-01-01T00:00:00+00:00",
+          "oidc_issuer": "https://auth.x.ai",
+          "oidc_client_id": "b1a00492-073a-47ea-816f-4c329264a828",
+          "principal_type": "Team",
+          "principal_id": "synthetic-team",
+          "user_id": "synthetic-user",
+          "coding_data_retention_opt_out": true
+        },
+        "unrelated-provider": {
+          "key": "preserve-me"
+        }
+      },
+      "http": {
+        "token_responses": [
+          {
+            "status": 200,
+            "json": {
+              "access_token": "synthetic-renewed",
+              "expires_in": 3600
+            }
+          }
+        ],
+        "resource_response": {
+          "status": 200,
+          "json": {
+            "ok": true
+          }
+        }
+      },
+      "actions": [
+        {
+          "type": "request",
+          "outcome": "success"
+        }
+      ],
+      "expect": {
+        "resource_tokens": [
+          "synthetic-renewed"
+        ],
+        "refresh_forms": [
+          {
+            "grant_type": "refresh_token",
+            "refresh_token": "synthetic-refresh",
+            "client_id": "b1a00492-073a-47ea-816f-4c329264a828",
+            "principal_type": "Team",
+            "principal_id": "synthetic-team"
+          }
+        ],
+        "store": {
+          "mode": "updated",
+          "access_token": "synthetic-renewed",
+          "refresh_token": "synthetic-refresh",
+          "expires_at": 2000003600
+        }
+      }
+    },
+    {
+      "id": "grok-cli-refresh-rejected",
+      "profile": "grok-cli",
+      "now": 2000000000,
+      "credentials": {
+        "https://auth.x.ai::b1a00492-073a-47ea-816f-4c329264a828": {
+          "key": "synthetic-access",
+          "refresh_token": "synthetic-refresh",
+          "expires_at": "1970-01-01T00:00:00+00:00",
+          "oidc_issuer": "https://auth.x.ai",
+          "oidc_client_id": "b1a00492-073a-47ea-816f-4c329264a828",
+          "principal_type": "Team",
+          "principal_id": "synthetic-team",
+          "user_id": "synthetic-user",
+          "coding_data_retention_opt_out": true
+        },
+        "unrelated-provider": {
+          "key": "preserve-me"
+        }
+      },
+      "http": {
+        "token_responses": [
+          {
+            "status": 400,
+            "json": {
+              "error": "invalid_grant",
+              "error_description": "synthetic-secret-error"
+            }
+          }
+        ],
+        "resource_response": {
+          "status": 200,
+          "json": {
+            "ok": true
+          }
+        }
+      },
+      "actions": [
+        {
+          "type": "request",
+          "outcome": "auth_error"
+        }
+      ],
+      "expect": {
+        "resource_tokens": [],
+        "refresh_forms": [
+          {
+            "grant_type": "refresh_token",
+            "refresh_token": "synthetic-refresh",
+            "client_id": "b1a00492-073a-47ea-816f-4c329264a828",
+            "principal_type": "Team",
+            "principal_id": "synthetic-team"
+          }
+        ],
+        "store": {
+          "mode": "unchanged"
+        }
+      }
+    },
+    {
+      "id": "grok-cli-refresh-malformed-json",
+      "profile": "grok-cli",
+      "now": 2000000000,
+      "credentials": {
+        "https://auth.x.ai::b1a00492-073a-47ea-816f-4c329264a828": {
+          "key": "synthetic-access",
+          "refresh_token": "synthetic-refresh",
+          "expires_at": "1970-01-01T00:00:00+00:00",
+          "oidc_issuer": "https://auth.x.ai",
+          "oidc_client_id": "b1a00492-073a-47ea-816f-4c329264a828",
+          "principal_type": "Team",
+          "principal_id": "synthetic-team",
+          "user_id": "synthetic-user",
+          "coding_data_retention_opt_out": true
+        },
+        "unrelated-provider": {
+          "key": "preserve-me"
+        }
+      },
+      "http": {
+        "token_responses": [
+          {
+            "status": 200,
+            "text": "synthetic-secret-error"
+          }
+        ],
+        "resource_response": {
+          "status": 200,
+          "json": {
+            "ok": true
+          }
+        }
+      },
+      "actions": [
+        {
+          "type": "request",
+          "outcome": "auth_error"
+        }
+      ],
+      "expect": {
+        "resource_tokens": [],
+        "refresh_forms": [
+          {
+            "grant_type": "refresh_token",
+            "refresh_token": "synthetic-refresh",
+            "client_id": "b1a00492-073a-47ea-816f-4c329264a828",
+            "principal_type": "Team",
+            "principal_id": "synthetic-team"
+          }
+        ],
+        "store": {
+          "mode": "unchanged"
+        }
+      }
+    },
+    {
+      "id": "grok-cli-refresh-missing-token",
+      "profile": "grok-cli",
+      "now": 2000000000,
+      "credentials": {
+        "https://auth.x.ai::b1a00492-073a-47ea-816f-4c329264a828": {
+          "key": "synthetic-access",
+          "refresh_token": "synthetic-refresh",
+          "expires_at": "1970-01-01T00:00:00+00:00",
+          "oidc_issuer": "https://auth.x.ai",
+          "oidc_client_id": "b1a00492-073a-47ea-816f-4c329264a828",
+          "principal_type": "Team",
+          "principal_id": "synthetic-team",
+          "user_id": "synthetic-user",
+          "coding_data_retention_opt_out": true
+        },
+        "unrelated-provider": {
+          "key": "preserve-me"
+        }
+      },
+      "http": {
+        "token_responses": [
+          {
+            "status": 200,
+            "json": {
+              "expires_in": 3600
+            }
+          }
+        ],
+        "resource_response": {
+          "status": 200,
+          "json": {
+            "ok": true
+          }
+        }
+      },
+      "actions": [
+        {
+          "type": "request",
+          "outcome": "auth_error"
+        }
+      ],
+      "expect": {
+        "resource_tokens": [],
+        "refresh_forms": [
+          {
+            "grant_type": "refresh_token",
+            "refresh_token": "synthetic-refresh",
+            "client_id": "b1a00492-073a-47ea-816f-4c329264a828",
+            "principal_type": "Team",
+            "principal_id": "synthetic-team"
+          }
+        ],
+        "store": {
+          "mode": "unchanged"
+        }
+      }
+    },
+    {
+      "id": "grok-cli-refresh-invalid-expiry",
+      "profile": "grok-cli",
+      "now": 2000000000,
+      "credentials": {
+        "https://auth.x.ai::b1a00492-073a-47ea-816f-4c329264a828": {
+          "key": "synthetic-access",
+          "refresh_token": "synthetic-refresh",
+          "expires_at": "1970-01-01T00:00:00+00:00",
+          "oidc_issuer": "https://auth.x.ai",
+          "oidc_client_id": "b1a00492-073a-47ea-816f-4c329264a828",
+          "principal_type": "Team",
+          "principal_id": "synthetic-team",
+          "user_id": "synthetic-user",
+          "coding_data_retention_opt_out": true
+        },
+        "unrelated-provider": {
+          "key": "preserve-me"
+        }
+      },
+      "http": {
+        "token_responses": [
+          {
+            "status": 200,
+            "json": {
+              "access_token": "synthetic-renewed",
+              "expires_in": "invalid"
+            }
+          }
+        ],
+        "resource_response": {
+          "status": 200,
+          "json": {
+            "ok": true
+          }
+        }
+      },
+      "actions": [
+        {
+          "type": "request",
+          "outcome": "auth_error"
+        }
+      ],
+      "expect": {
+        "resource_tokens": [],
+        "refresh_forms": [
+          {
+            "grant_type": "refresh_token",
+            "refresh_token": "synthetic-refresh",
+            "client_id": "b1a00492-073a-47ea-816f-4c329264a828",
+            "principal_type": "Team",
+            "principal_id": "synthetic-team"
+          }
+        ],
+        "store": {
+          "mode": "unchanged"
+        }
+      }
+    },
+    {
+      "id": "grok-cli-refresh-empty-rotation",
+      "profile": "grok-cli",
+      "now": 2000000000,
+      "credentials": {
+        "https://auth.x.ai::b1a00492-073a-47ea-816f-4c329264a828": {
+          "key": "synthetic-access",
+          "refresh_token": "synthetic-refresh",
+          "expires_at": "1970-01-01T00:00:00+00:00",
+          "oidc_issuer": "https://auth.x.ai",
+          "oidc_client_id": "b1a00492-073a-47ea-816f-4c329264a828",
+          "principal_type": "Team",
+          "principal_id": "synthetic-team",
+          "user_id": "synthetic-user",
+          "coding_data_retention_opt_out": true
+        },
+        "unrelated-provider": {
+          "key": "preserve-me"
+        }
+      },
+      "http": {
+        "token_responses": [
+          {
+            "status": 200,
+            "json": {
+              "access_token": "synthetic-renewed",
+              "refresh_token": "",
+              "expires_in": 3600
+            }
+          }
+        ],
+        "resource_response": {
+          "status": 200,
+          "json": {
+            "ok": true
+          }
+        }
+      },
+      "actions": [
+        {
+          "type": "request",
+          "outcome": "auth_error"
+        }
+      ],
+      "expect": {
+        "resource_tokens": [],
+        "refresh_forms": [
+          {
+            "grant_type": "refresh_token",
+            "refresh_token": "synthetic-refresh",
+            "client_id": "b1a00492-073a-47ea-816f-4c329264a828",
+            "principal_type": "Team",
+            "principal_id": "synthetic-team"
+          }
+        ],
+        "store": {
+          "mode": "unchanged"
+        }
+      }
+    },
+    {
+      "id": "grok-cli-cancel-refresh",
+      "profile": "grok-cli",
+      "now": 2000000000,
+      "credentials": {
+        "https://auth.x.ai::b1a00492-073a-47ea-816f-4c329264a828": {
+          "key": "synthetic-access",
+          "refresh_token": "synthetic-refresh",
+          "expires_at": "1970-01-01T00:00:00+00:00",
+          "oidc_issuer": "https://auth.x.ai",
+          "oidc_client_id": "b1a00492-073a-47ea-816f-4c329264a828",
+          "principal_type": "Team",
+          "principal_id": "synthetic-team",
+          "user_id": "synthetic-user",
+          "coding_data_retention_opt_out": true
+        },
+        "unrelated-provider": {
+          "key": "preserve-me"
+        }
+      },
+      "http": {
+        "token_responses": [
+          {
+            "wait_for_cancel": true
+          }
+        ],
+        "resource_response": {
+          "status": 200,
+          "json": {
+            "ok": true
+          }
+        }
+      },
+      "actions": [
+        {
+          "type": "cancel_during_refresh",
+          "outcome": "cancelled"
+        }
+      ],
+      "expect": {
+        "resource_tokens": [],
+        "refresh_forms": [
+          {
+            "grant_type": "refresh_token",
+            "refresh_token": "synthetic-refresh",
+            "client_id": "b1a00492-073a-47ea-816f-4c329264a828",
+            "principal_type": "Team",
+            "principal_id": "synthetic-team"
+          }
+        ],
+        "store": {
+          "mode": "unchanged"
+        }
+      }
+    },
+    {
+      "id": "grok-cli-missing-refresh",
+      "profile": "grok-cli",
+      "now": 2000000000,
+      "credentials": {
+        "https://auth.x.ai::b1a00492-073a-47ea-816f-4c329264a828": {
+          "key": "synthetic-access",
+          "expires_at": "1970-01-01T00:00:00+00:00",
+          "oidc_issuer": "https://auth.x.ai",
+          "oidc_client_id": "b1a00492-073a-47ea-816f-4c329264a828",
+          "principal_type": "Team",
+          "principal_id": "synthetic-team",
+          "user_id": "synthetic-user",
+          "coding_data_retention_opt_out": true
+        },
+        "unrelated-provider": {
+          "key": "preserve-me"
+        }
+      },
+      "http": {
+        "token_responses": [],
+        "resource_response": {
+          "status": 200,
+          "json": {
+            "ok": true
+          }
+        }
+      },
+      "actions": [
+        {
+          "type": "request",
+          "outcome": "auth_error"
+        }
+      ],
+      "expect": {
+        "resource_tokens": [],
+        "refresh_forms": [],
+        "store": {
+          "mode": "unchanged"
+        }
+      }
+    },
+    {
+      "id": "grok-cli-invalid-issuer",
+      "profile": "grok-cli",
+      "now": 2000000000,
+      "credentials": {
+        "https://auth.x.ai::b1a00492-073a-47ea-816f-4c329264a828": {
+          "key": "synthetic-access",
+          "refresh_token": "synthetic-refresh",
+          "expires_at": "2033-05-18T04:33:20+00:00",
+          "oidc_issuer": "https://attacker.test",
+          "oidc_client_id": "b1a00492-073a-47ea-816f-4c329264a828",
+          "principal_type": "Team",
+          "principal_id": "synthetic-team",
+          "user_id": "synthetic-user",
+          "coding_data_retention_opt_out": true
+        },
+        "unrelated-provider": {
+          "key": "preserve-me"
+        }
+      },
+      "http": {
+        "token_responses": [],
+        "resource_response": {
+          "status": 200,
+          "json": {
+            "ok": true
+          }
+        }
+      },
+      "actions": [
+        {
+          "type": "request",
+          "outcome": "auth_error"
+        }
+      ],
+      "expect": {
+        "resource_tokens": [],
+        "refresh_forms": [],
+        "store": {
+          "mode": "unchanged"
+        }
+      }
+    },
+    {
+      "id": "grok-cli-refresh-redirect",
+      "profile": "grok-cli",
+      "now": 2000000000,
+      "credentials": {
+        "https://auth.x.ai::b1a00492-073a-47ea-816f-4c329264a828": {
+          "key": "synthetic-access",
+          "refresh_token": "synthetic-refresh",
+          "expires_at": "1970-01-01T00:00:00+00:00",
+          "oidc_issuer": "https://auth.x.ai",
+          "oidc_client_id": "b1a00492-073a-47ea-816f-4c329264a828",
+          "principal_type": "Team",
+          "principal_id": "synthetic-team",
+          "user_id": "synthetic-user",
+          "coding_data_retention_opt_out": true
+        },
+        "unrelated-provider": {
+          "key": "preserve-me"
+        }
+      },
+      "http": {
+        "token_responses": [
+          {
+            "status": 307,
+            "headers": {
+              "location": "https://attacker.test/token"
+            }
+          }
+        ],
+        "resource_response": {
+          "status": 200,
+          "json": {
+            "ok": true
+          }
+        }
+      },
+      "actions": [
+        {
+          "type": "request",
+          "outcome": "auth_error"
+        }
+      ],
+      "expect": {
+        "resource_tokens": [],
+        "refresh_forms": [
+          {
+            "grant_type": "refresh_token",
+            "refresh_token": "synthetic-refresh",
+            "client_id": "b1a00492-073a-47ea-816f-4c329264a828",
+            "principal_type": "Team",
+            "principal_id": "synthetic-team"
+          }
+        ],
+        "store": {
+          "mode": "unchanged"
+        }
+      }
+    }
+  ]
+}
