@@ -288,7 +288,8 @@ def test_explicit_memory_writes_complete_while_generation_capacity_is_occupied(o
                     pending = memory.merge(tuple(item.as_read() for item in initial.records), content)
                 else:
                     pending = memory.restore(original.ref.artifact_id)
-                await asyncio.wait_for(pending, timeout=2)
+                # The paused reranker proves independence; this budget only bounds the observation.
+                await asyncio.wait_for(pending, timeout=TIMEOUT_SECONDS)
                 assert not searching.done()
                 current = (await memory.list()).items
                 assert any(

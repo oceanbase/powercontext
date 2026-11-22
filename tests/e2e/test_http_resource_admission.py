@@ -18,7 +18,6 @@ import asyncio
 import json
 import socket
 import threading
-import time
 from pathlib import Path
 
 import httpx
@@ -30,6 +29,7 @@ from fastmcp.client.transports import StreamableHttpTransport
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.server.factory import create_server_app
 from powercontext.server.settings import ServerSettings
+from tests.e2e.server_startup import wait_for_server_startup
 
 
 @pytest.mark.parametrize("max_requests", [1, 2])
@@ -48,10 +48,7 @@ def test_configured_http_limits_preserve_real_http_and_mcp_operations(
     thread = threading.Thread(target=server.run, kwargs={"sockets": [listener]}, daemon=True)
     thread.start()
     try:
-        deadline = time.monotonic() + 10
-        while not server.started and thread.is_alive() and time.monotonic() < deadline:
-            time.sleep(0.01)
-        assert server.started, "Server did not start"
+        wait_for_server_startup(server, thread)
 
         with httpx.Client(base_url=base_url) as http:
             for content in (b"x" * 1025, iter([b"x" * 512, b"x" * 513])):
