@@ -596,6 +596,19 @@ def test_overflow_flush_cannot_advance_retry_and_cached_failures_cannot_extend_g
     monkeypatch.setattr(processing, "_CHANNEL_QUEUE_LIMIT", 2)
     monkeypatch.setattr(processing, "_CONTROL_CONFLICT_RETRY_SECONDS", 0.2)
 
+    class ObservedSupervisor(_CycleSupervisor):
+        cached_gate_changes: list[tuple[float, float]]
+
+        def __init__(self, **kwargs):
+            super().__init__(**kwargs)
+            self.cached_gate_changes = []
+
+        def _defer(self, state, scope, *args, **kwargs):
+            previous_gate = state.overflow_not_before
+            super()._defer(state, scope, *args, **kwargs)
+            if scope == "cached" and previous_gate > 0:
+                self.cached_gate_changes.append((previous_gate, state.overflow_not_before))
+
     async def scenario():
         async with _profile(tmp_path, "overflow-pressure") as profile:
             await _request(profile.database, "memory-binding", "cached")
@@ -610,7 +623,7 @@ def test_overflow_flush_cannot_advance_retry_and_cached_failures_cannot_extend_g
                     raise RuntimeError
 
             launcher = _Launcher(profile.database, on_work=pressure)
-            async with _CycleSupervisor(
+            async with ObservedSupervisor(
                 database=profile.database,
                 bindings=(ArtifactProcessingBinding("memory-binding", "memory", launcher),),
                 lease_mode="single-process",
@@ -626,13 +639,19 @@ def test_overflow_flush_cannot_advance_retry_and_cached_failures_cannot_extend_g
                 for _ in range(4):
                     supervisor.wake("memory-binding")
                     await asyncio.sleep(0.04)
-                assert len(attempts["overflow"]) == 1
                 # Cached retries keep failing, but cannot keep shifting the
-                # finite overflow cohort's gate beyond the original deadline.
-                await _wait(lambda: supervisor.family_status["memory"]["completed"] == 1, timeout_seconds=1.5)
-                assert len(attempts["cached"]) >= 3
-                await _wait(lambda: len(attempts["overflow"]) >= 2, timeout_seconds=1.5)
+                # gate. Check the actual deadline independently of CI I/O latency.
+                await _wait(
+                    lambda: (
+                        supervisor.family_status["memory"]["completed"] == 1
+                        and len(attempts["overflow"]) >= 2
+                        and len(attempts["cached"]) >= 3
+                        and bool(supervisor.cached_gate_changes)
+                    ),
+                    timeout_seconds=15,
+                )
                 assert attempts["overflow"][1] - attempts["overflow"][0] >= 0.78
+                assert all(before == after for before, after in supervisor.cached_gate_changes)
                 assert supervisor.max_resident <= 1 + 4 + 1
                 assert (await _intent(profile.database, "memory-binding", "healthy-tail")).handled_generation == 1
 
