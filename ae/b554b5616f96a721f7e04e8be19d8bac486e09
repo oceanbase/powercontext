@@ -1,0 +1,26 @@
+scripts/capture_release_schema.py
+  s_2ef0feea0a110d::t_51c0b84a5c1c07 154-165,168,173
+docs/en/development/released-schema-capture.md
+  s_2ef0feea0a110d::t_366f4fca2a51c4 15-21
+tests/test_release_schema_capture.py
+  s_2ef0feea0a110d::t_e3d204e753b0a6 1-49,58-130,134-144,150-175
+  s_2ef0feea0a110d::t_3c0769a6683f14 50-57,131-133,145-149
+docs/zh/development/released-schema-capture.md
+  s_2ef0feea0a110d::t_366f4fca2a51c4 13-17
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "aeb554b5616f96a721f7e04e8be19d8bac486e09",
+  "prompts": {},
+  "sessions": {
+    "s_2ef0feea0a110d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1a9cf-a4e7-7f63-9c51-1284f7c332e8",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "frf12 <rongfeng.frf@antgroup.com>"
+    }
+  }
+}
