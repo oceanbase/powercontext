@@ -44,10 +44,10 @@ from powercontext.builtin.artifacts.atomic_memory.reconciliation import (
 from powercontext.builtin.inference import GenerationResult, InvalidInferenceOutputError, character_token_estimator
 from powercontext.builtin.inference.models import ConversationTurn
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
-from powercontext.builtin.runtime import RuntimeConfig
+from powercontext.builtin.runtime import BuiltinConfig, RuntimeConfig, open_builtin_contexts
 from powercontext.server.factory import create_server_app
 from powercontext.server.settings import McpConfig, ServerSettings
-from tests.e2e.test_atomic_memory_one_pass import _Conversation
+from tests.e2e.test_atomic_memory_one_pass import BUDGET_100, BUDGET_200, SCOPE, _Conversation, _facts, _write
 
 # A turn whose tool output makes resending the transcript cost more than reading the cached prefix.
 TRANSCRIPT = json.dumps({
@@ -463,3 +463,114 @@ def test_a_failed_correction_keeps_the_usage_already_received(failure) -> None:
     usage = raised.value.usage
     assert usage is not None
     assert (usage.requests, usage.input_tokens, usage.output_tokens) == (1, 9000, 40)
+
+
+def _run_one_pass(tmp_path, gateway: _Gateway, scenario, *, input_tokens_limit: int = 24_000) -> _Conversation:
+    """Run ``scenario`` in one-pass mode over a Scope whose gateway turns carry a short prefix."""
+
+    conversation = _Conversation()
+    config = BuiltinConfig(
+        database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'prefixed.db'}"),
+        runtime=RuntimeConfig(
+            atomic_memory_related_mode="fts",
+            atomic_memory_processing_mode="one_pass",
+            atomic_memory_input_tokens_limit=input_tokens_limit,
+        ),
+    )
+
+    async def run() -> None:
+        async with httpx.AsyncClient(
+            base_url="http://gateway.local",
+            headers={"Authorization": "Bearer gateway-key"},
+            transport=httpx.MockTransport(gateway),
+        ) as client:
+            pipeline = AtomicMemoryGenerationPipeline(
+                extractor=_Extractor(),
+                reconciler=_CreatingReconciler(),
+                estimator=character_token_estimator(),
+                conversation=conversation,
+                prefixed_conversation=GatewayPrefixedConversation(client=client, estimator=character_token_estimator()),
+            )
+            async with open_builtin_contexts(config, candidate_pipeline=pipeline) as contexts:
+                await contexts.get(SCOPE)
+                await scenario(contexts)
+
+    asyncio.run(run())
+    return conversation
+
+
+async def _capture_turn(contexts) -> None:
+    turn = _turn("turn-1", prefix_tokens=(100, 50))
+    content = json.dumps({"kind": "gateway_turn", "user": " ".join(["Raise the rollout budget."] * 160)})
+    await contexts.records.capture_source(SCOPE, "content", turn["source_id"], content, turn["metadata"])
+
+
+def _request_estimate(request: dict[str, object]) -> int:
+    continuation = cast("list[dict[str, str]]", request.get("continuation", []))
+    texts = (cast("str", request["instruction"]), *(message["text"] for message in continuation))
+    return character_token_estimator().estimate("\n".join(texts))
+
+
+def test_a_prefixed_window_over_the_step_two_budget_is_prepared_per_candidate(tmp_path, caplog) -> None:
+    gateway = _ScriptedGateway(_text(_facts("rollout budget payments")))
+    detail = " ".join(f"condition{index}" for index in range(300))
+
+    async def scenario(contexts) -> None:
+        await contexts.records.create_atomic_memories(
+            SCOPE, tuple({"kind": "fact", "text": f"{BUDGET_100} Case {index}: {detail}."} for index in range(5))
+        )
+        await contexts.process_memory(SCOPE, 5)
+        await _capture_turn(contexts)
+        with caplog.at_level(logging.INFO):
+            assert (await contexts.process_memory(SCOPE, 1)).current_cursor == 6
+
+    # The turn fits this budget sent either way; step 1 plus the five memories it recalled does not.
+    conversation = _run_one_pass(tmp_path, gateway, scenario, input_tokens_limit=5500)
+
+    # Step 1 ran after the prefix and step 2 was never sent, with or without the prefix.
+    assert len(gateway.requests) == 1
+    assert conversation.turns == []
+    assert _prefixed_one_pass_events(caplog) == []
+    assert [
+        getattr(record, "fallback_reason", None)
+        for record in caplog.records
+        if getattr(record, "event", None) == "atomic_memory.one_pass"
+    ] == ["operations_input_over_budget"]
+
+
+def test_a_prefixed_recheck_over_its_budget_does_not_restart_the_window(tmp_path, caplog) -> None:
+    # The long step 2 reply is resent by the recheck, which makes it the one request over the budget.
+    operation = {**_write("create", BUDGET_200), "reason": " ".join(["Keep the new rollout budget."] * 500)}
+
+    def gateway() -> _ScriptedGateway:
+        recheck = {"operations": [{**_write("create", BUDGET_200), "id": "C1"}]}
+        return _ScriptedGateway(_text(_facts("unrelated words")), _text({"operations": [operation]}), _text(recheck))
+
+    async def prepare(contexts) -> None:
+        await contexts.records.create_atomic_memories(SCOPE, ({"kind": "fact", "text": BUDGET_100},))
+        await contexts.process_memory(SCOPE, 1)
+        await _capture_turn(contexts)
+
+    measured = gateway()
+
+    async def measure(contexts) -> None:
+        await prepare(contexts)
+        await contexts.process_memory(SCOPE, 1)
+
+    (tmp_path / "measure").mkdir()
+    _run_one_pass(tmp_path / "measure", measured, measure)
+    step_two, recheck = (_request_estimate(request) for request in measured.requests[1:])
+    limited = gateway()
+
+    async def scenario(contexts) -> None:
+        await prepare(contexts)
+        with caplog.at_level(logging.INFO), pytest.raises(InvalidInferenceOutputError) as captured:
+            await contexts.process_memory(SCOPE, 1)
+        assert captured.value.operation == "atomic-memory-input-budget"
+
+    conversation = _run_one_pass(tmp_path, limited, scenario, input_tokens_limit=(step_two + recheck) // 2)
+
+    # The recheck was not sent, and the window did not start again with a larger input.
+    assert len(limited.requests) == 2
+    assert conversation.turns == []
+    assert _prefixed_one_pass_events(caplog) == []
