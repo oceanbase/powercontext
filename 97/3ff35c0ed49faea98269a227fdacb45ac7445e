@@ -1,0 +1,28 @@
+tests/builtin/persistence/test_sqlite_profile.py
+  s_2ef0feea0a110d::t_259f36a8451dac 767
+  s_2ef0feea0a110d::t_6f33cdb43ec95d 725-726
+  s_2ef0feea0a110d::t_e7d9a44fc231a8 703-724,727-766,768-796
+src/powercontext/builtin/persistence/sqlite/profile.py
+  s_2ef0feea0a110d::t_259f36a8451dac 283,285,291
+  s_2ef0feea0a110d::t_21d2ed28cf9530 296
+  s_2ef0feea0a110d::t_405a757ecc570d 22,281-282,284,286-290,292-295
+release/upgrade-support.json
+  s_2ef0feea0a110d::t_e04c939bbfcfd9 7
+  s_2ef0feea0a110d::t_9fa98dd6f89af7 6
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "973ff35c0ed49faea98269a227fdacb45ac7445e",
+  "prompts": {},
+  "sessions": {
+    "s_2ef0feea0a110d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1a9cf-a4e7-7f63-9c51-1284f7c332e8",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "frf12 <rongfeng.frf@antgroup.com>"
+    }
+  }
+}
