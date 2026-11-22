@@ -1,0 +1,62 @@
+name: Cache
+description: Keep internal runner archives in S3 and hosted runner archives in GitHub
+
+inputs:
+  path:
+    description: Files and directories to archive
+    required: true
+  key:
+    description: Cache identity
+    required: true
+  restore-keys:
+    description: Ordered fallback key prefixes
+    default: ''
+  lookup-only:
+    description: Check cache existence without extracting it
+    default: 'false'
+
+outputs:
+  cache-backend:
+    description: Selected cache backend
+    value: ${{ steps.backend.outputs.backend }}
+  cache-primary-key:
+    description: Requested cache key
+    value: ${{ inputs.key }}
+  cache-hit:
+    description: Whether the requested key was restored
+    value: ${{ steps.s3.outputs.cache-hit || steps.github.outputs.cache-hit }}
+  cache-matched-key:
+    description: Restored cache key when available
+    value: ${{ steps.s3.outputs.cache-matched-key || steps.github.outputs.cache-matched-key }}
+
+runs:
+  using: composite
+  steps:
+    - id: backend
+      uses: $/.github/actions/cache-backend
+
+    - id: github
+      if: steps.backend.outputs.backend == 'github'
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+      with:
+        path: ${{ inputs.path }}
+        key: ${{ inputs.key }}
+        restore-keys: ${{ inputs.restore-keys }}
+        lookup-only: ${{ inputs.lookup-only }}
+
+    - id: s3
+      if: steps.backend.outputs.backend == 's3'
+      uses: runs-on/cache@3c223729b4fda74ee12f4976048dd69b420fdd26
+      with:
+        path: ${{ inputs.path }}
+        key: ${{ inputs.key }}
+        restore-keys: ${{ inputs.restore-keys }}
+        lookup-only: ${{ inputs.lookup-only }}
+      env:
+        AWS_ACCESS_KEY_ID: ${{ env.PC_CI_CACHE_ACCESS_KEY }}
+        AWS_SECRET_ACCESS_KEY: ${{ env.PC_CI_CACHE_SECRET_KEY }}
+        AWS_REGION: ${{ env.PC_CI_CACHE_REGION }}
+        RUNS_ON_S3_BUCKET_CACHE: ${{ env.PC_CI_CACHE_BUCKET }}
+        RUNS_ON_S3_BUCKET_ENDPOINT: ${{ env.PC_CI_CACHE_ENDPOINT }}
+        RUNS_ON_S3_FORCE_PATH_STYLE: 'true'
+        RUNS_ON_RUNNER_NAME: ''

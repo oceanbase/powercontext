@@ -836,7 +836,8 @@ def test_invalid_structured_output_maps_to_stable_error() -> None:
     asyncio.run(scenario())
 
 
-def test_instrumented_generation_spans_exclude_schema_retry_content() -> None:
+@pytest.mark.parametrize("allow_continuations", [True, False])
+def test_instrumented_generation_spans_exclude_schema_retry_content(allow_continuations: bool) -> None:
     exporter = InMemorySpanExporter()
     provider = TracerProvider(shutdown_on_exit=False)
     provider.add_span_processor(SimpleSpanProcessor(exporter))
@@ -862,6 +863,7 @@ def test_instrumented_generation_spans_exclude_schema_retry_content() -> None:
             instructions="Propose candidates.",
             input_type=Question,
             output_type=Proposal,
+            limits=InferenceLimits(allow_continuations=allow_continuations),
         )
 
         result = await generator.generate(Question("bounded evidence"))
@@ -873,7 +875,13 @@ def test_instrumented_generation_spans_exclude_schema_retry_content() -> None:
     spans = exporter.get_finished_spans()
     # Both responses consumed and two chat spans recorded prove the retry path ran.
     assert not pending
-    assert len([span for span in spans if span.name.startswith("chat ")]) == 2
+    inference = [span for span in spans if span.name.startswith("invoke_agent ")]
+    assert len(inference) == 1
+    requests = [span for span in spans if span.name.startswith("chat ")]
+    assert len(requests) == 2
+    for span in requests:
+        assert span.parent is not None
+        assert span.parent.span_id == inference[0].context.span_id
     for span in spans:
         assert "traveler prefers aisle seats" not in str(span.attributes)
 
@@ -1049,14 +1057,81 @@ def test_embedding_adapter_classifies_a_provider_context_limit_without_leaking_t
     asyncio.run(scenario())
 
 
-def test_structured_generator_classifies_a_length_finish_reason_as_truncated_output() -> None:
+@pytest.mark.parametrize(
+    ("provider", "failure"),
+    [
+        ("anthropic", "context"),
+        ("anthropic", "prefixed-context"),
+        ("openai", "context"),
+        ("openai", "prefixed-context"),
+        ("openai", "compatible-context"),
+        ("openai", "prefixed-compatible-context"),
+        ("anthropic", "output-setting"),
+        ("openai", "output-setting"),
+    ],
+)
+def test_native_provider_context_errors_keep_their_classification(provider: str, failure: str) -> None:
+    import anthropic._base_client as _anthropic_client
+
+    _http = (
+        (vars(_anthropic_client).get("httpx") or vars(_anthropic_client)["httpx2"])
+        if provider == "anthropic"
+        else httpx2
+    )
+    message = (
+        "prompt is too long: 210000 tokens > 200000 maximum"
+        if provider == "anthropic" or "compatible" in failure
+        else "This model's maximum context length is 8192 tokens. You requested 9000 tokens."
+    )
+    if failure.startswith("prefixed-"):
+        message = f"400: {message}"
+    elif failure == "output-setting":
+        message = "The requested output token limit is unsupported"
+    message += " private-provider-detail"
+
+    def respond(request: _http.Request) -> _http.Response:
+        return _http.Response(
+            400, json={"type": "error", "error": {"type": "invalid_request_error", "message": message}}
+        )
+
+    async def scenario() -> None:
+        async with _http.AsyncClient(transport=_http.MockTransport(respond)) as client:
+            model = (
+                AnthropicModel("claude-sonnet-5-5", provider=AnthropicProvider(api_key="fixture", http_client=client))
+                if provider == "anthropic"
+                else OpenAIChatModel("gpt-4o", provider=OpenAIProvider(api_key="fixture", http_client=client))
+            )
+            generator = PydanticAIStructuredGenerator(
+                model=model,
+                instructions="Return a value.",
+                input_type=Question,
+                output_type=Answer,
+                limits=InferenceLimits(max_requests=1),
+            )
+            with pytest.raises(PydanticAIConfigurationError) as caught:
+                await generator.generate(Question("bounded evidence"))
+            diagnostics = classify_processing_error(caught.value)
+            assert diagnostics is not None
+            assert diagnostics.stage is ProcessingStage.GENERATION
+            assert diagnostics.reason is (
+                ProcessingFailureReason.CONFIGURATION
+                if failure == "output-setting"
+                else ProcessingFailureReason.CONTEXT_OVERFLOW
+            )
+            assert "private-provider-detail" not in repr(diagnostics) + str(caught.value)
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("allow_continuations", [True, False])
+def test_structured_generator_classifies_a_length_finish_reason_as_truncated_output(allow_continuations: bool) -> None:
     async def truncated(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
         del messages, info
         return ModelResponse(
             parts=[TextPart("partial")],
             provider_response_id="req-truncated",
             finish_reason="length",
-            state="incomplete",
+            state="complete" if allow_continuations else "incomplete",
         )
 
     async def scenario() -> None:
@@ -1065,7 +1140,7 @@ def test_structured_generator_classifies_a_length_finish_reason_as_truncated_out
             instructions="Return a value.",
             input_type=Question,
             output_type=Answer,
-            limits=InferenceLimits(allow_continuations=False),
+            limits=InferenceLimits(allow_continuations=allow_continuations),
         )
 
         with pytest.raises(InvalidInferenceOutputError) as error:
@@ -1077,6 +1152,150 @@ def test_structured_generator_classifies_a_length_finish_reason_as_truncated_out
         assert diagnostics.reason is ProcessingFailureReason.OUTPUT_TRUNCATED
         assert diagnostics.finish_reason == "length"
         assert diagnostics.provider_request_id == "req-truncated"
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("final_response", ["schema", "timeout", "success"])
+def test_generation_does_not_reuse_truncation_evidence_across_retries(final_response: str) -> None:
+    calls = 0
+
+    async def respond(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return ModelResponse(
+                parts=[TextPart('{"value":')],
+                provider_response_id="first-length",
+                finish_reason="length",
+            )
+        if final_response == "timeout":
+            raise TimeoutError
+        return ModelResponse(
+            parts=[TextPart('{"value":"final"}' if final_response == "success" else "private-invalid-json")],
+            provider_response_id="second-stop",
+            finish_reason="stop",
+        )
+
+    async def scenario() -> None:
+        generator = PydanticAIStructuredGenerator(
+            model=FunctionModel(respond),
+            instructions="Return a value.",
+            input_type=Question,
+            output_type=Answer,
+            limits=InferenceLimits(max_requests=2),
+        )
+        if final_response == "success":
+            assert (await generator.generate(Question("bounded evidence"))).output == Answer("final")
+        else:
+            expected_error = InferenceTimeoutError if final_response == "timeout" else InvalidInferenceOutputError
+            with pytest.raises(expected_error) as caught:
+                await generator.generate(Question("bounded evidence"))
+            diagnostics = classify_processing_error(caught.value)
+            assert diagnostics is not None
+            if final_response == "timeout":
+                assert diagnostics.reason is ProcessingFailureReason.TIMEOUT
+                assert diagnostics.provider_request_id is None
+            else:
+                assert diagnostics.reason is ProcessingFailureReason.SCHEMA_INVALID
+                assert diagnostics.provider_request_id == "second-stop"
+                assert diagnostics.finish_reason == "stop"
+                assert "private-invalid-json" not in repr(diagnostics)
+        assert calls == 2
+
+    asyncio.run(scenario())
+
+
+def test_concurrent_generation_keeps_response_evidence_separate() -> None:
+    async def scenario() -> None:
+        ready = asyncio.Event()
+        arrivals = 0
+
+        async def respond(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
+            nonlocal arrivals
+            prompt = next(part.content for part in messages[-1].parts if isinstance(part, UserPromptPart))
+            arrivals += 1
+            if arrivals == 2:
+                ready.set()
+            await ready.wait()
+            return ModelResponse(
+                parts=[TextPart("invalid-json")],
+                provider_response_id="req-length" if prompt == "length" else "req-stop",
+                finish_reason="length" if prompt == "length" else "stop",
+            )
+
+        generator = PydanticAIStructuredGenerator(
+            model=FunctionModel(respond),
+            instructions="Return a value.",
+            input_type=Question,
+            output_type=Answer,
+            input_renderer=lambda value: value.value,
+            limits=InferenceLimits(max_requests=1),
+        )
+
+        async def generate(finish: str) -> None:
+            with pytest.raises(InvalidInferenceOutputError) as caught:
+                await generator.generate(Question(finish))
+            diagnostics = classify_processing_error(caught.value)
+            assert diagnostics is not None
+            assert diagnostics.provider_request_id == f"req-{finish}"
+            assert diagnostics.finish_reason == finish
+            assert diagnostics.reason is (
+                ProcessingFailureReason.OUTPUT_TRUNCATED
+                if finish == "length"
+                else ProcessingFailureReason.SCHEMA_INVALID
+            )
+
+        await asyncio.wait_for(asyncio.gather(generate("length"), generate("stop")), timeout=5)
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("final_response", ["length", "stop", "success"])
+def test_generation_continuation_uses_terminal_response_evidence(final_response: str) -> None:
+    calls = 0
+
+    async def respond(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return ModelResponse(
+                parts=[],
+                provider_details={"finish_reason": "pause_turn"},
+                state="suspended",
+                provider_response_id="earlier-paused",
+                provider_name="function",
+            )
+        return ModelResponse(
+            parts=[TextPart('{"value":"final"}' if final_response == "success" else "invalid-json")],
+            finish_reason="length" if final_response == "length" else "stop",
+            provider_response_id="terminal-response",
+            provider_name="function",
+        )
+
+    async def scenario() -> None:
+        generator = PydanticAIStructuredGenerator(
+            model=FunctionModel(respond),
+            instructions="Return a value.",
+            input_type=Question,
+            output_type=Answer,
+            limits=InferenceLimits(max_requests=1),
+        )
+        if final_response == "success":
+            assert (await generator.generate(Question("bounded evidence"))).output == Answer("final")
+        else:
+            with pytest.raises(InvalidInferenceOutputError) as caught:
+                await generator.generate(Question("bounded evidence"))
+            diagnostics = classify_processing_error(caught.value)
+            assert diagnostics is not None
+            assert diagnostics.provider_request_id == "terminal-response"
+            assert diagnostics.finish_reason == final_response
+            assert diagnostics.reason is (
+                ProcessingFailureReason.OUTPUT_TRUNCATED
+                if final_response == "length"
+                else ProcessingFailureReason.SCHEMA_INVALID
+            )
+        assert calls == 2
 
     asyncio.run(scenario())
 
@@ -1187,9 +1406,12 @@ def test_usage_limit_public_generate_path_reports_generation_stage() -> None:
     asyncio.run(scenario())
 
 
-def test_a_413_without_context_evidence_is_not_context_overflow() -> None:
+@pytest.mark.parametrize(
+    ("status", "message"), [(413, "upload too large"), (400, "The requested output token limit is unsupported")]
+)
+def test_http_rejection_without_input_context_evidence_is_not_context_overflow(status: int, message: str) -> None:
     mapped = _map_error(
-        ModelHTTPError(413, "test-model", {"error": "upload too large"}),
+        ModelHTTPError(status, "test-model", {"error": {"message": message}}),
         operation="generate",
         timeout_seconds=1.0,
     )
@@ -1267,5 +1489,54 @@ def test_embedding_public_path_reports_usage_limit_in_embedding_stage() -> None:
         assert diagnostics.stage is ProcessingStage.EMBEDDING
         assert diagnostics.reason is ProcessingFailureReason.USAGE_LIMIT
         assert diagnostics.cause_exception_type == "UsageLimitExceeded"
+
+    asyncio.run(scenario())
+
+
+def test_conversation_turns_share_one_request_prefix_and_correct_a_rejected_reply() -> None:
+    from pydantic_ai.messages import ModelRequest, ModelResponse, TextPart
+    from pydantic_ai.models.function import FunctionModel
+
+    from powercontext.builtin.inference import InvalidInferenceOutputError
+    from powercontext.builtin.inference.models import ConversationTurn
+    from powercontext.builtin.inference.pydantic_ai import InferenceLimits, PydanticAIConversationGenerator
+
+    requests = []
+
+    async def respond(messages, _info):
+        requests.append(messages)
+        return ModelResponse(parts=[TextPart(f"reply {len(requests)}")])
+
+    def sent(messages):
+        return [
+            (type(message).__name__, [getattr(part, "content", None) for part in message.parts]) for message in messages
+        ]
+
+    def check(reply: str) -> str:
+        if reply == "reply 2":
+            raise InvalidInferenceOutputError("fixture", "use only the labels shown")
+        return reply.upper()
+
+    async def scenario() -> None:
+        generator = PydanticAIConversationGenerator(model=FunctionModel(respond), limits=InferenceLimits())
+        first = await generator.generate(ConversationTurn(instructions="Rules.", message="evidence", check=check))
+        second = await generator.generate(
+            ConversationTurn(instructions="Rules.", message="memories", check=check, history=first.output.history)
+        )
+        assert (first.output.output, second.output.output) == ("REPLY 1", "REPLY 3")
+        assert first.usage.requests == 1 and second.usage.requests == 2
+        # The second turn resends the first exchange unchanged, under the same instructions.
+        assert sent(requests[1])[:2] == [*sent(requests[0]), ("ModelResponse", ["reply 1"])]
+        assert sent(requests[1])[2] == ("ModelRequest", ["memories"])
+        assert {message.instructions for call in requests for message in call if isinstance(message, ModelRequest)} == {
+            "Rules."
+        }
+        # The rejected reply and the broken rule stay in the conversation for the correction.
+        assert "use only the labels shown" in str(sent(requests[2])[-1])
+        # The transcript is the text of the conversation a next turn would resend, corrections included.
+        assert first.output.transcript == ("evidence", "reply 1")
+        assert second.output.transcript[:4] == ("evidence", "reply 1", "memories", "reply 2")
+        assert "use only the labels shown" in second.output.transcript[4]
+        assert second.output.transcript[5:] == ("reply 3",)
 
     asyncio.run(scenario())
