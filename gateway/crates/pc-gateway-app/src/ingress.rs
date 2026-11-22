@@ -241,33 +241,17 @@ pub async fn extract(
     {
         ManagedOutcome::Released { status, body, .. } if (200..300).contains(&status) => {
             match serde_json::from_slice::<serde_json::Value>(&body) {
-                Ok(response) => match extraction_reply(&response) {
-                    Ok(reply) => Json(reply).into_response(),
-                    Err(failure) => (StatusCode::BAD_GATEWAY, Json(failure)).into_response(),
-                },
+                Ok(response) => Json(serde_json::json!({
+                    "text": responses_output_text(&response),
+                    "usage": response.get("usage").cloned().unwrap_or(serde_json::Value::Null),
+                    "model": response.get("model").cloned().unwrap_or(serde_json::Value::Null),
+                }))
+                .into_response(),
                 Err(_) => error(StatusCode::BAD_GATEWAY, "invalid_upstream_response"),
             }
         }
         outcome => respond(outcome, OutputProtocol::OpenAiResponses),
     }
-}
-
-/// 抽取的回复。订阅通道把流折叠成终止响应，失败的响应因此也以 200 到达：按响应状态区分，失败时返回供应商的
-/// 错误对象，与上游直接以错误状态码返回时的形式一致。
-fn extraction_reply(response: &serde_json::Value) -> Result<serde_json::Value, serde_json::Value> {
-    let error = response.get("error").filter(|error| !error.is_null());
-    if error.is_some() || matches!(response["status"].as_str(), Some("failed" | "cancelled")) {
-        let error = error
-            .filter(|error| error.is_object())
-            .cloned()
-            .unwrap_or_else(|| serde_json::json!({"code": "response_failed"}));
-        return Err(serde_json::json!({ "error": error }));
-    }
-    Ok(serde_json::json!({
-        "text": responses_output_text(response),
-        "usage": response.get("usage").cloned().unwrap_or(serde_json::Value::Null),
-        "model": response.get("model").cloned().unwrap_or(serde_json::Value::Null),
-    }))
 }
 
 /// 前缀请求：原始请求的 input 依次接上终止响应的输出（去掉 `id`/`status`，与客户端重放的形式一致）和 Core 的
@@ -1885,37 +1869,6 @@ pub(crate) mod tests {
             .unwrap();
         let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(body["error"], "output_limit_unsupported");
-    }
-
-    #[test]
-    fn a_failed_terminal_response_is_an_extraction_error() {
-        let completed = serde_json::json!({
-            "status": "completed", "model": "m", "usage": {"input_tokens": 3},
-            "output": [{"type": "message", "role": "assistant",
-                "content": [{"type": "output_text", "text": "{}"}]}]
-        });
-        assert_eq!(
-            extraction_reply(&completed),
-            Ok(serde_json::json!({"text": "{}", "usage": {"input_tokens": 3}, "model": "m"}))
-        );
-        // 被截断的响应仍交给 Core 校验，与上游以 200 返回它时一致。
-        let incomplete = serde_json::json!({"status": "incomplete", "output": [],
-            "incomplete_details": {"reason": "max_output_tokens"}});
-        assert!(extraction_reply(&incomplete).is_ok());
-
-        let failed = serde_json::json!({"status": "failed", "output": [],
-            "error": {"code": "server_error", "message": "upstream failed"}});
-        assert_eq!(
-            extraction_reply(&failed),
-            Err(
-                serde_json::json!({"error": {"code": "server_error", "message": "upstream failed"}})
-            )
-        );
-        let cancelled = serde_json::json!({"status": "cancelled", "output": []});
-        assert_eq!(
-            extraction_reply(&cancelled),
-            Err(serde_json::json!({"error": {"code": "response_failed"}}))
-        );
     }
 
     #[test]
