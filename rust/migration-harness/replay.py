@@ -95,6 +95,46 @@ def load_manifest(path: Path) -> dict[str, Any]:
     return manifest
 
 
+def verify_recording(records: list[dict[str, Any]], manifest: dict[str, Any]) -> None:
+    """Reject a recording that the manifest does not describe as a whole.
+
+    A recording truncated on a record boundary still parses, so the case count and every per-case
+    reference fingerprint are checked against the manifest before any comparison runs. A mismatch
+    means the expectations and the identity that justifies them belong to different runs.
+    """
+
+    expected = manifest.get("records")
+    corpus = manifest.get("corpus", {})
+    expected_cases = corpus.get("cases")
+    if expected is not None and expected != len(records):
+        message = f"recording has {len(records)} records but the manifest declares {expected}"
+        raise ValueError(message)
+    if expected_cases is not None and expected_cases != len(records):
+        message = f"recording has {len(records)} records but the manifest corpus declares {expected_cases}"
+        raise ValueError(message)
+    identifiers = [record.get("id") for record in records]
+    if len(set(identifiers)) != len(identifiers):
+        message = "recording contains duplicate case ids"
+        raise ValueError(message)
+    reference = {
+        "python": manifest.get("python", {}).get("version"),
+        "unicode": manifest.get("python", {}).get("unicode"),
+        "source_sha256": manifest.get("source", {}).get("source_sha256"),
+    }
+    for record in records:
+        fingerprint = record.get("reference")
+        if not isinstance(fingerprint, dict):
+            message = f"record {record.get('id')!r} has no reference fingerprint"
+            raise TypeError(message)
+        for field, value in reference.items():
+            if field in fingerprint and fingerprint[field] != value:
+                message = (
+                    f"record {record.get('id')!r} reference {field} is {fingerprint[field]!r} "
+                    f"but the manifest says {value!r}"
+                )
+                raise ValueError(message)
+
+
 def replay(
     records_path: Path,
     manifest_path: Path,
@@ -116,6 +156,7 @@ def replay(
     if limit is not None and limit < len(selectors):
         message = f"limit {limit} is below the selection size {len(selectors)}; refusing to truncate"
         raise ValueError(message)
+    verify_recording(records, manifest)
 
     comparison = Comparison()
     executed = 0
@@ -132,10 +173,16 @@ def replay(
     summary = comparison.summary()
     candidate = dict(manifest.get("candidate", {}))
     candidate.update(candidate_identity())
-    status = "PASS" if summary["mismatched"] == 0 and summary["compared"] > 0 else "FAIL"
+    # A selected observation that was never compared is missing coverage, not a pass: an explicitly
+    # requested migration operation must be exercised on every recorded case.
+    complete = summary["mismatched"] == 0 and summary["uncompared"] == 0 and summary["compared"] > 0
+    status = "PASS" if complete else "FAIL"
     if summary["compared"] == 0:
         status = "FAIL"
         summary["reason"] = "no observation was compared"
+    elif summary["uncompared"]:
+        status = "FAIL"
+        summary["reason"] = "a selected observation was not recorded for every case"
     return {
         "schema": SCHEMA_ID,
         "record": "replay",

@@ -1,6 +1,6 @@
 {
   "schema": "powercontext.migration-harness.v1",
-  "note": "Fixed, synthetic codec corpus for the migration harness. Public/synthetic text only; no prompts, queries or production data.",
+  "note": "Fixed, synthetic codec corpus for the migration harness. Public/synthetic text only; no prompts, queries or production data. A case carries either `input` (plain text) or `codepoints` (explicit code point list); `codepoints` is required where JSON surrogate escapes would be folded into a scalar, so an explicit UTF-16 pair stays observable.",
   "cases": [
     {
       "id": "ascii_basic",
@@ -14,33 +14,33 @@
     },
     {
       "id": "explicit_surrogate_pair",
-      "note": "Explicit UTF-16 surrogate pair (U+D83D U+DE00) written as two surrogate codepoints.",
-      "input": "A\ud83d\ude00B"
+      "note": "Explicit UTF-16 surrogate pair (U+D83D U+DE00) written as two surrogate codepoints. Stored as codepoints because json.loads would fold the two escapes into one scalar.",
+      "codepoints": [65, 55357, 56832, 66]
     },
     {
       "id": "real_scalar_emoji",
       "note": "The same emoji as a single real scalar U+1F600; must never compare equal to the pair form.",
-      "input": "A\ud83d\ude00B"
+      "codepoints": [65, 128512, 66]
     },
     {
       "id": "surrogate_pair_only",
       "note": "Bare explicit surrogate pair with no surrounding text.",
-      "input": "\ud83d\ude00"
+      "codepoints": [55357, 56832]
     },
     {
       "id": "real_scalar_only",
       "note": "Bare real scalar emoji.",
-      "input": "\ud83d\ude00"
+      "codepoints": [128512]
     },
     {
       "id": "lone_high_surrogate",
       "note": "Lone high surrogate; str-level analysis tolerates it, the validated chunk boundary does not.",
-      "input": "x\ud83dy"
+      "codepoints": [120, 55357, 121]
     },
     {
       "id": "lone_low_surrogate",
       "note": "Lone low surrogate.",
-      "input": "x\udcaay"
+      "codepoints": [120, 56490, 121]
     },
     {
       "id": "nfc_j_caron",

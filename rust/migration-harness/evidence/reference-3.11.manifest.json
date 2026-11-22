@@ -1,9 +1,9 @@
 {
   "corpus": {
-    "bytes": 3424,
+    "bytes": 3875,
     "cases": 20,
     "path": "rust/migration-harness/fixtures/corpus.json",
-    "sha256": "c22918c9c07c1fe8c075b346c4343d99819d8ab55cc56dcaecfc6802981dc8c3"
+    "sha256": "23ff7be9ee6d326adfd27621a95616d07d63eeb73126c834d6fb7945b0dfd12a"
   },
   "dependencies": {
     "jieba": {
@@ -45,6 +45,11 @@
   },
   "record": "manifest",
   "records": 20,
+  "reference_module": {
+    "file": "search.py",
+    "module": "powercontext.builtin.artifacts.search",
+    "relative_path": "builtin/artifacts/search.py"
+  },
   "schema": "powercontext.migration-harness.v1",
   "selectors": [
     "analyze_text",

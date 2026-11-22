@@ -77,10 +77,28 @@ def sha256(raw: bytes) -> str:
     return hashlib.sha256(raw).hexdigest()
 
 
-def untracked_entries() -> list[dict[str, Any]]:
+def _exclusion(output: Path | None) -> list[str]:
+    """Return the git pathspec that keeps the snapshot output out of its own description.
+
+    Writing the manifest immediately changes the tree it describes, so an output inside the
+    repository would make every snapshot self-contradictory: its own untracked hash or tracked diff
+    would be captured from the pre-write state. The path is excluded by pathspec rather than being
+    filtered afterwards, so the staged, unstaged and untracked views all agree.
+    """
+
+    if output is None:
+        return []
+    try:
+        relative = output.resolve().relative_to(REPO_ROOT).as_posix()
+    except ValueError:
+        return []
+    return [f":(exclude){relative}"]
+
+
+def untracked_entries(exclude: list[str] | None = None) -> list[dict[str, Any]]:
     """Describe every untracked file by relative path, type, mode and raw-byte hash."""
 
-    listing = git("ls-files", "--others", "--exclude-standard", "-z")
+    listing = git("ls-files", "--others", "--exclude-standard", "-z", "--", ".", *(exclude or []))
     entries: list[dict[str, Any]] = []
     for relative in sorted(item for item in listing.split("\0") if item):
         path = REPO_ROOT / relative
@@ -104,10 +122,12 @@ def untracked_entries() -> list[dict[str, Any]]:
     return entries
 
 
-def build() -> dict[str, Any]:
-    status = git("status", "--porcelain=v2", "--untracked-files=all")
-    staged = git_bytes("diff", "--cached", "--binary", "--no-ext-diff")
-    unstaged = git_bytes("diff", "--binary", "--no-ext-diff")
+def build(output: Path | None = None) -> dict[str, Any]:
+    exclude = _exclusion(output)
+    pathspec = ["--", ".", *exclude] if exclude else []
+    status = git("status", "--porcelain=v2", "--untracked-files=all", *pathspec)
+    staged = git_bytes("diff", "--cached", "--binary", "--no-ext-diff", *pathspec)
+    unstaged = git_bytes("diff", "--binary", "--no-ext-diff", *pathspec)
     manifest: dict[str, Any] = {
         "schema": SCHEMA_ID,
         "record": "snapshot",
@@ -121,7 +141,8 @@ def build() -> dict[str, Any]:
         "status_sha256": sha256(status.encode("utf-8")),
         "staged_diff_sha256": sha256(staged),
         "unstaged_diff_sha256": sha256(unstaged),
-        "untracked": untracked_entries(),
+        "excluded_paths": exclude,
+        "untracked": untracked_entries(exclude),
         "toolchain": {
             "python": platform.python_version(),
             "implementation": platform.python_implementation(),
@@ -139,7 +160,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Write a deterministic delivery snapshot manifest.")
     parser.add_argument("--output", type=Path, required=True)
     arguments = parser.parse_args()
-    manifest = build()
+    manifest = build(arguments.output)
     arguments.output.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     print(f"snapshot_id={manifest['snapshot_id']} untracked={len(manifest['untracked'])} -> {arguments.output}")
 

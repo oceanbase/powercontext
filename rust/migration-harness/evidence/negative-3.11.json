@@ -44,22 +44,22 @@
   },
   "delivered_after": {
     "reference-3.11.manifest.json": {
-      "bytes": 1743,
-      "sha256": "08bbfbed3bce8a3e29efe686dc6fb2b9a038aad9bea54266dce4835b26af242c"
+      "bytes": 1908,
+      "sha256": "440446eb964ef8e3e4b1966ee353f64bfc702f47ae7008eb3dff1ecfd9c439aa"
     },
     "reference-3.11.ndjson": {
-      "bytes": 29122,
-      "sha256": "a6b2669dd17b2b991bedc7713c9cf8e428460d09aece0ebca7af32fb7de0280a"
+      "bytes": 29216,
+      "sha256": "19b3855f6e0def339d53a540351d63ab03c187ca6d3f6f35a2790d4cd7155437"
     }
   },
   "delivered_before": {
     "reference-3.11.manifest.json": {
-      "bytes": 1743,
-      "sha256": "08bbfbed3bce8a3e29efe686dc6fb2b9a038aad9bea54266dce4835b26af242c"
+      "bytes": 1908,
+      "sha256": "440446eb964ef8e3e4b1966ee353f64bfc702f47ae7008eb3dff1ecfd9c439aa"
     },
     "reference-3.11.ndjson": {
-      "bytes": 29122,
-      "sha256": "a6b2669dd17b2b991bedc7713c9cf8e428460d09aece0ebca7af32fb7de0280a"
+      "bytes": 29216,
+      "sha256": "19b3855f6e0def339d53a540351d63ab03c187ca6d3f6f35a2790d4cd7155437"
     }
   },
   "delivered_unchanged": true,

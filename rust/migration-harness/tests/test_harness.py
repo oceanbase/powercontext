@@ -162,6 +162,40 @@ def test_corpus_is_fixed_and_non_empty() -> None:
     assert cases[0]["id"] != cases[19]["id"]
 
 
+def test_corpus_keeps_the_explicit_pair_distinct_from_the_scalar() -> None:
+    """The pair form must survive JSON decoding, or the distinguishing input never exists."""
+
+    cases = {case["id"]: case for case in recorder.load_corpus(CORPUS)}
+    pair = cases["explicit_surrogate_pair"]["codepoints"]
+    scalar = cases["real_scalar_emoji"]["codepoints"]
+    assert pair == [0x41, 0xD83D, 0xDE00, 0x42]
+    assert scalar == [0x41, 0x1F600, 0x42]
+    assert pair != scalar
+    assert cases["surrogate_pair_only"]["codepoints"] == [0xD83D, 0xDE00]
+    assert cases["real_scalar_only"]["codepoints"] == [0x1F600]
+    assert cases["lone_high_surrogate"]["codepoints"] == [0x78, 0xD83D, 0x79]
+
+
+def test_recorded_inputs_are_not_folded_into_scalars(tmp_path: Path) -> None:
+    records_path, _ = _record_corpus(tmp_path, ["analyze_text", "analyze_text_with_spans"])
+    records = {record["id"]: record for record in codec.read_records(records_path)}
+    pair = codec.decode_value(records["explicit_surrogate_pair"]["input"])
+    scalar = codec.decode_value(records["real_scalar_emoji"]["input"])
+    assert [ord(character) for character in pair] == [0x41, 0xD83D, 0xDE00, 0x42]
+    assert [ord(character) for character in scalar] == [0x41, 0x1F600, 0x42]
+    assert pair != scalar
+    # `analyze_text` normalizes both forms to the same token, which is why the recorded set includes
+    # a span-bearing selector: the difference is only visible in the offsets.
+    assert (
+        records["explicit_surrogate_pair"]["observations"]["analyze_text"]
+        == (records["real_scalar_emoji"]["observations"]["analyze_text"])
+    )
+    assert (
+        records["explicit_surrogate_pair"]["observations"]["analyze_text_with_spans"]
+        != (records["real_scalar_emoji"]["observations"]["analyze_text_with_spans"])
+    )
+
+
 def _record_corpus(tmp_path: Path, selectors: list[str]) -> tuple[Path, Path]:
     # The default selector set is registered from the imported reference package; module-level
     # registration is not done at import time because recording must happen explicitly.
@@ -169,7 +203,11 @@ def _record_corpus(tmp_path: Path, selectors: list[str]) -> tuple[Path, Path]:
     manifest = recorder.record(CORPUS, selectors)
     records = manifest.pop("_records")
     for row in records:
-        row["reference"] = {"source_sha256": manifest["source"]["source_sha256"]}
+        row["reference"] = {
+            "python": manifest["python"]["version"],
+            "unicode": manifest["python"]["unicode"],
+            "source_sha256": manifest["source"]["source_sha256"],
+        }
     records_path = tmp_path / "records.ndjson"
     codec.write_records(records_path, records)
     manifest_path = tmp_path / "manifest.json"
@@ -281,3 +319,47 @@ def test_controls_do_not_modify_delivered_files(tmp_path: Path) -> None:
     assert result["status"] == "PASS"
     assert result["delivered_unchanged"] is True
     assert result["controls"]["missing_native"]["fail_closed"] is True
+
+
+def test_replay_rejects_a_truncated_recording(tmp_path: Path) -> None:
+    records_path, manifest_path = _record_corpus(tmp_path, ["analyze_text"])
+    records = codec.read_records(records_path)
+    truncated = tmp_path / "truncated.ndjson"
+    codec.write_records(truncated, records[:1])
+    with pytest.raises(ValueError):
+        replay.replay(truncated, manifest_path, ["analyze_text"])
+
+
+def test_replay_fails_when_a_selected_observation_was_not_recorded(tmp_path: Path) -> None:
+    records_path, manifest_path = _record_corpus(tmp_path, ["analyze_text"])
+    result = replay.replay(records_path, manifest_path, ["analyze_text", "lexical_terms_with_spans"])
+    assert result["status"] == "FAIL"
+    assert result["summary"]["uncompared"] == 20
+    assert result["summary"]["reason"] == "a selected observation was not recorded for every case"
+
+
+def test_replay_rejects_records_from_another_manifest(tmp_path: Path) -> None:
+    records_path, manifest_path = _record_corpus(tmp_path, ["analyze_text"])
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["source"]["source_sha256"] = "0" * 64
+    foreign_manifest = tmp_path / "foreign.json"
+    foreign_manifest.write_text(json.dumps(manifest), encoding="utf-8")
+    with pytest.raises(ValueError):
+        replay.replay(records_path, foreign_manifest, ["analyze_text"])
+
+
+def test_recording_refuses_a_substituted_selector(tmp_path: Path) -> None:
+    """A `.py` candidate registered under the reference name must be rejected as non-reference."""
+
+    recorder._register_default_selectors()
+    original = recorder.SELECTORS["analyze_text"]
+
+    def analyze_text(text: str) -> str:
+        return text
+
+    try:
+        recorder.SELECTORS["analyze_text"] = analyze_text
+        with pytest.raises(RuntimeError):
+            recorder.record(CORPUS, ["analyze_text"])
+    finally:
+        recorder.SELECTORS["analyze_text"] = original

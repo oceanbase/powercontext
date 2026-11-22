@@ -1,16 +1,19 @@
 {
   "contract_version": "2026-11-22.1",
+  "excluded_paths": [
+    ":(exclude)rust/migration-harness/evidence/snapshot.json"
+  ],
   "record": "snapshot",
   "repository": {
     "branch": "issue-2737-harness",
-    "head": "0b22a60f783e3d43613359ff9970a36192e1adc8",
+    "head": "6df6adde4babda945ff2bf55b4454b1179e993e8",
     "root_name": "wt-pc2737"
   },
   "schema": "powercontext.migration-harness.v1",
-  "snapshot_id": "16b94e468b290d38e1216de18cb1479950622a12d051a7d7816783ce5ac67008",
+  "snapshot_id": "30cb1c1c1db11f166341abaecd789da7be5128b6d28f6074d796c1094d323ee9",
   "staged_diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-  "status_porcelain_v2": "? rust/migration-harness/README.md\n? rust/migration-harness/codec.py\n? rust/migration-harness/evidence/negative-3.11.json\n? rust/migration-harness/evidence/reference-3.11.manifest.json\n? rust/migration-harness/evidence/reference-3.11.ndjson\n? rust/migration-harness/evidence/replay-3.11.json\n? rust/migration-harness/evidence/snapshot.json\n? rust/migration-harness/fixtures/corpus.json\n? rust/migration-harness/negative_controls.py\n? rust/migration-harness/recorder.py\n? rust/migration-harness/replay.py\n? rust/migration-harness/snapshot.py\n? rust/migration-harness/tests/test_harness.py\n? rust/migration-harness/tests/test_snapshot.py\n? rust/tasks/harness/DECISIONS.md\n? rust/tasks/harness/PORT-PLAN.md\n? rust/tasks/harness/PORT-STATUS.md\n",
-  "status_sha256": "fe57c9d1bf476937faab741ab6c68b2bbfb20e1240038541d6b60d33440d784e",
+  "status_porcelain_v2": "1 .M N... 100644 100644 100644 8d11fa363d82ea89ce9347f4ebeca81008d1ea3f 8d11fa363d82ea89ce9347f4ebeca81008d1ea3f rust/migration-harness/README.md\n1 .M N... 100644 100644 100644 edb229d312f08ef1e60d687f973c86f720852409 edb229d312f08ef1e60d687f973c86f720852409 rust/migration-harness/evidence/negative-3.11.json\n1 .M N... 100644 100644 100644 e12e1d5cfa699e4c6781bd72af1109dd955e370f e12e1d5cfa699e4c6781bd72af1109dd955e370f rust/migration-harness/evidence/reference-3.11.manifest.json\n1 .M N... 100644 100644 100644 89940e8655ee2373b3c93a42385723bfaf0074cf 89940e8655ee2373b3c93a42385723bfaf0074cf rust/migration-harness/evidence/reference-3.11.ndjson\n1 .M N... 100644 100644 100644 d02a1024e4aa8bbee3050c7d4c90aed6e301e947 d02a1024e4aa8bbee3050c7d4c90aed6e301e947 rust/migration-harness/evidence/replay-3.11.json\n1 .M N... 100644 100644 100644 54b84bc69f772a66f875ff18bee54deab31a4803 54b84bc69f772a66f875ff18bee54deab31a4803 rust/migration-harness/fixtures/corpus.json\n1 .M N... 100644 100644 100644 2c7d3bc5c7e3cbdb2b22b54caabaaa1f7984fc8f 2c7d3bc5c7e3cbdb2b22b54caabaaa1f7984fc8f rust/migration-harness/recorder.py\n1 .M N... 100644 100644 100644 46d84c39d1185dda3343921eeb1852a9a23ffba7 46d84c39d1185dda3343921eeb1852a9a23ffba7 rust/migration-harness/replay.py\n1 .M N... 100644 100644 100644 2ff1badd4cfdd42252f11602e2f90196e6dca8b8 2ff1badd4cfdd42252f11602e2f90196e6dca8b8 rust/migration-harness/snapshot.py\n1 .M N... 100644 100644 100644 d994add9f9a6ba26d3d277f8d6423beefd08d68b d994add9f9a6ba26d3d277f8d6423beefd08d68b rust/migration-harness/tests/test_harness.py\n1 .M N... 100644 100644 100644 4b50bb553bfcb72449758b0aa3f85a1bb88119c3 4b50bb553bfcb72449758b0aa3f85a1bb88119c3 rust/migration-harness/tests/test_snapshot.py\n1 .M N... 100644 100644 100644 5074edbab6ce3c261b4d27f4daf0d7dc48459eb8 5074edbab6ce3c261b4d27f4daf0d7dc48459eb8 rust/tasks/harness/DECISIONS.md\n1 .M N... 100644 100644 100644 7be067fe041b3488506c614a4844ae3e4680d9e7 7be067fe041b3488506c614a4844ae3e4680d9e7 rust/tasks/harness/PORT-STATUS.md\n",
+  "status_sha256": "25a4a6dbba1ce71eefe427c28fee34a7f6970ea6958e757ce174e315be5b039b",
   "toolchain": {
     "implementation": "CPython",
     "machine": "AMD64",
@@ -18,126 +21,6 @@
     "python": "3.11.14",
     "unicode": "14.0.0"
   },
-  "unstaged_diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-  "untracked": [
-    {
-      "bytes": 4674,
-      "mode": "0o666",
-      "path": "rust/migration-harness/README.md",
-      "sha256": "9cff44354f5809d275afa5da5b43af5a8f0485aa231a675c932dc623d69bebeb",
-      "type": "file"
-    },
-    {
-      "bytes": 10372,
-      "mode": "0o666",
-      "path": "rust/migration-harness/codec.py",
-      "sha256": "3e86c4377fedf4dea3ac8629224b48a53a585ac080063e99572b33652599fe97",
-      "type": "file"
-    },
-    {
-      "bytes": 2390,
-      "mode": "0o666",
-      "path": "rust/migration-harness/evidence/negative-3.11.json",
-      "sha256": "e8f4154b5766e6fcf2bdd160bf1c8b4efbd090c89cd4bf38b76ba8255e8ed4dd",
-      "type": "file"
-    },
-    {
-      "bytes": 1743,
-      "mode": "0o666",
-      "path": "rust/migration-harness/evidence/reference-3.11.manifest.json",
-      "sha256": "08bbfbed3bce8a3e29efe686dc6fb2b9a038aad9bea54266dce4835b26af242c",
-      "type": "file"
-    },
-    {
-      "bytes": 29122,
-      "mode": "0o666",
-      "path": "rust/migration-harness/evidence/reference-3.11.ndjson",
-      "sha256": "a6b2669dd17b2b991bedc7713c9cf8e428460d09aece0ebca7af32fb7de0280a",
-      "type": "file"
-    },
-    {
-      "bytes": 902,
-      "mode": "0o666",
-      "path": "rust/migration-harness/evidence/replay-3.11.json",
-      "sha256": "da8da8f5ca7d0977633e67ebe10db86f35f69bf47bf94b6ee761fce388e338f5",
-      "type": "file"
-    },
-    {
-      "bytes": 4426,
-      "mode": "0o666",
-      "path": "rust/migration-harness/evidence/snapshot.json",
-      "sha256": "3c5bd3f54bd9e7aa5f81d886173cd4e664d0237bc85650721cd113bfcad9f526",
-      "type": "file"
-    },
-    {
-      "bytes": 3424,
-      "mode": "0o666",
-      "path": "rust/migration-harness/fixtures/corpus.json",
-      "sha256": "c22918c9c07c1fe8c075b346c4343d99819d8ab55cc56dcaecfc6802981dc8c3",
-      "type": "file"
-    },
-    {
-      "bytes": 8633,
-      "mode": "0o666",
-      "path": "rust/migration-harness/negative_controls.py",
-      "sha256": "ff9936fe9f9e775fcb1a49c59c5e6e64d090a426208543fe7e1a392051371054",
-      "type": "file"
-    },
-    {
-      "bytes": 9481,
-      "mode": "0o666",
-      "path": "rust/migration-harness/recorder.py",
-      "sha256": "5e6b12e1bc8ca5d4e07a2434a71a344f5847c43863dac5871fbe8929817ce80a",
-      "type": "file"
-    },
-    {
-      "bytes": 7299,
-      "mode": "0o666",
-      "path": "rust/migration-harness/replay.py",
-      "sha256": "a96ccf879dd45519f5f1f9455524cf0e279fe188734e585bed2a924bb1b902f8",
-      "type": "file"
-    },
-    {
-      "bytes": 5761,
-      "mode": "0o666",
-      "path": "rust/migration-harness/snapshot.py",
-      "sha256": "2e4eb565b0f77d4226c2c3bfe46d1a8bd5e749a06039c7f6cca79fbd4cc21e0a",
-      "type": "file"
-    },
-    {
-      "bytes": 11543,
-      "mode": "0o666",
-      "path": "rust/migration-harness/tests/test_harness.py",
-      "sha256": "b1260654f1aee9ed6c8a318884ed9fee1a8091a2119f99fa03b84c7e53686501",
-      "type": "file"
-    },
-    {
-      "bytes": 2218,
-      "mode": "0o666",
-      "path": "rust/migration-harness/tests/test_snapshot.py",
-      "sha256": "f109cef8dc0d06a9d6076c7f234abb5690bf801fde80aef3a78cfeb1f4e119e8",
-      "type": "file"
-    },
-    {
-      "bytes": 4326,
-      "mode": "0o666",
-      "path": "rust/tasks/harness/DECISIONS.md",
-      "sha256": "176bb61c740dbaf4d12ddfdcfc73d594f4a920c85a31ca1a4e57e14f3ecce298",
-      "type": "file"
-    },
-    {
-      "bytes": 3240,
-      "mode": "0o666",
-      "path": "rust/tasks/harness/PORT-PLAN.md",
-      "sha256": "f2c646c950ff704db9f539e8087e01be2207d1973c3f26cd7aeec51c15aa44f3",
-      "type": "file"
-    },
-    {
-      "bytes": 4107,
-      "mode": "0o666",
-      "path": "rust/tasks/harness/PORT-STATUS.md",
-      "sha256": "29fb5cebfda7f33c18a4da98251d9f15624ac4257e5067c01ef9deb78cedabf7",
-      "type": "file"
-    }
-  ]
+  "unstaged_diff_sha256": "7c0a79912f14c64395a5382936821a542e7fa57a666e33713540b58a91d33805",
+  "untracked": []
 }

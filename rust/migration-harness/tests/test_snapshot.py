@@ -58,3 +58,15 @@ def test_snapshot_describes_untracked_files_by_hash() -> None:
             assert len(entry["sha256"]) == 64
             assert entry["bytes"] >= 0
             assert entry["mode"].startswith("0o")
+
+
+def test_snapshot_excludes_its_own_output(tmp_path: Path) -> None:
+    """The output must not appear in the tree it describes, even inside the repository."""
+
+    inside = snapshot.REPO_ROOT / "rust" / "migration-harness" / "evidence" / "snapshot-self-test.json"
+    manifest = snapshot.build(inside)
+    relative = inside.resolve().relative_to(snapshot.REPO_ROOT).as_posix()
+    assert manifest["excluded_paths"] == [f":(exclude){relative}"]
+    assert all(entry["path"] != relative for entry in manifest["untracked"])
+    assert relative not in manifest["status_porcelain_v2"]
+    assert snapshot.build(inside)["snapshot_id"] == manifest["snapshot_id"]

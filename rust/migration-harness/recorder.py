@@ -123,18 +123,75 @@ def dependency_fingerprint() -> dict[str, Any]:
     return identity
 
 
+REFERENCE_MODULE = "powercontext.builtin.artifacts.search"
+REFERENCE_RELATIVE_PATH = "builtin/artifacts/search.py"
+NATIVE_SUFFIXES = frozenset({".pyd", ".so", ".dylib", ".dll"})
+
+
+def reference_identity() -> dict[str, Any]:
+    """Return the identity of the reference module, or raise if it is not the packaged reference.
+
+    A file suffix alone does not establish provenance: a hand-written ``candidate.py`` loaded under
+    the reference module name also ends in ``.py``. The guard therefore requires the module file to
+    be exactly the packaged reference path **and** the registered callables to be defined in that
+    very file.
+    """
+
+    search = importlib.import_module(REFERENCE_MODULE)
+    package = importlib.import_module("powercontext")
+    package_root = Path(package.__file__).resolve().parent
+    module_file = Path(getattr(search, "__file__", "") or "").resolve()
+    expected = (package_root / REFERENCE_RELATIVE_PATH).resolve()
+    if module_file.suffix in NATIVE_SUFFIXES:
+        message = f"refusing to record with a non-source module: {module_file.suffix}"
+        raise RuntimeError(message)
+    if module_file != expected:
+        message = f"refusing to record: the imported module is not the packaged reference ({module_file} != {expected})"
+        raise RuntimeError(message)
+    for name, function in SELECTORS.items():
+        if getattr(function, "__module__", None) != REFERENCE_MODULE:
+            message = f"refusing to record: selector {name!r} does not belong to {REFERENCE_MODULE}"
+            raise RuntimeError(message)
+        code_file = Path(getattr(getattr(function, "__code__", None), "co_filename", "")).resolve()
+        if code_file != expected:
+            message = f"refusing to record: selector {name!r} is defined in {code_file}, not the reference"
+            raise RuntimeError(message)
+    loaded = sys.modules.get("powercontext.artifacts.search")
+    if loaded is not None and getattr(loaded, "__file__", "").endswith(tuple(NATIVE_SUFFIXES)):
+        message = "refusing to record after a native candidate module was imported"
+        raise RuntimeError(message)
+    return {"module": REFERENCE_MODULE, "relative_path": REFERENCE_RELATIVE_PATH, "file": module_file.name}
+
+
 def ensure_reference_only() -> None:
     """Refuse to record after a candidate/native module replaced the reference implementation."""
 
-    search = importlib.import_module("powercontext.builtin.artifacts.search")
-    module_file = Path(search.__file__).resolve()
-    if module_file.suffix != ".py":
-        message = f"refusing to record with a non-source module: {module_file.suffix}"
-        raise RuntimeError(message)
-    loaded = sys.modules.get("powercontext.artifacts.search")
-    if loaded is not None and getattr(loaded, "__file__", "").endswith((".pyd", ".so", ".dll")):
-        message = "refusing to record after a native candidate module was imported"
-        raise RuntimeError(message)
+    reference_identity()
+
+
+def _case_text(case: dict[str, Any]) -> str:
+    """Resolve a case input, preferring an explicit code point list over JSON text.
+
+    A JSON escape pair (``"a\\ud83d\\ude00b"``) is folded into one scalar by ``json.loads``, so the
+    pair form cannot be expressed as JSON text. ``codepoints`` keeps it observable.
+    """
+
+    if "codepoints" in case:
+        codepoints = case["codepoints"]
+        if not isinstance(codepoints, list) or not codepoints:
+            message = f"corpus case {case.get('id')!r} codepoints must be a non-empty array"
+            raise ValueError(message)
+        if not all(
+            isinstance(value, int) and not isinstance(value, bool) and 0 <= value <= 0x10FFFF for value in codepoints
+        ):
+            message = f"corpus case {case.get('id')!r} codepoints must be integers in 0..0x10FFFF"
+            raise ValueError(message)
+        return "".join(chr(value) for value in codepoints)
+    text = case.get("input")
+    if not isinstance(text, str):
+        message = f"corpus case {case.get('id')!r} input must be a str"
+        raise TypeError(message)
+    return text
 
 
 def load_corpus(path: Path) -> list[dict[str, Any]]:
@@ -147,7 +204,15 @@ def load_corpus(path: Path) -> list[dict[str, Any]]:
     if len(set(identifiers)) != len(identifiers):
         message = "corpus case ids must be unique"
         raise ValueError(message)
-    return cases
+    resolved = []
+    for case in cases:
+        resolved.append({
+            "id": case["id"],
+            "note": case["note"],
+            "input": _case_text(case),
+            "codepoints": [ord(character) for character in _case_text(case)],
+        })
+    return resolved
 
 
 def observe(function: Callable[[str], Any], text: str) -> dict[str, Any]:
@@ -173,15 +238,12 @@ def record(corpus: Path, selectors: list[str]) -> dict[str, Any]:
     records = []
     for case in cases:
         text = case["input"]
-        if not isinstance(text, str):
-            message = f"corpus case {case.get('id')!r} input must be a str"
-            raise TypeError(message)
         observations = {selector: observe(SELECTORS[selector], text) for selector in selectors}
         records.append({
             "schema": SCHEMA_ID,
             "record": "case",
             "id": case["id"],
-            "note": case.get("note", ""),
+            "note": case["note"],
             "input": encode_value(text),
             "selectors": selectors,
             "observations": observations,
@@ -196,6 +258,7 @@ def record(corpus: Path, selectors: list[str]) -> dict[str, Any]:
             "cases": len(cases),
         },
         "selectors": selectors,
+        "reference_module": reference_identity(),
         "python": {
             "version": platform.python_version(),
             "implementation": platform.python_implementation(),
