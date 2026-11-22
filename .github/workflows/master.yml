@@ -1815,7 +1815,19 @@ jobs:
       - name: Install browser for plugin navigation regressions
         run: uv run --no-sync playwright install --with-deps chromium
       - name: Exercise Server, Worker, revision lifecycle and real OCR
-        run: uv run --no-sync pytest tests/knowledge_base tests/e2e/test_knowledge_base*.py tests/e2e/test_plugin_pages.py
+        run: |
+          uv run --no-sync pytest --basetemp "$RUNNER_TEMP/knowledge-base-e2e" \
+            tests/knowledge_base tests/e2e/test_knowledge_base*.py tests/e2e/test_plugin_pages.py
+      - name: Upload browser failure diagnostics
+        if: failure()
+        uses: ./.github/actions/upload-ci-diagnostics
+        with:
+          name: knowledge-base-browser-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/knowledge-base-e2e/**/trace.zip
+            ${{ runner.temp }}/knowledge-base-e2e/**/dashboard.png
+          if-no-files-found: ignore
+          retention-days: 7
 
   ci-result:
     name: CI result
