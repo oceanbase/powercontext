@@ -1,0 +1,19 @@
+tests/builtin/runtime/test_processing_scheduler.py
+  s_6a2bddf5f4af27::t_a2da82ddfacc23 80-148,669-670,677,688-690,692,694,698-701,703-704,709-713
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "3f022fd5d44859a4f5e90d90140e22ca595e591f",
+  "prompts": {},
+  "sessions": {
+    "s_6a2bddf5f4af27": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1c45c-bac8-7d52-8be4-c694d60c4b0b",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "frf12 <rongfeng.frf@antgroup.com>"
+    }
+  }
+}
