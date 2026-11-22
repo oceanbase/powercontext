@@ -30,18 +30,17 @@ from urllib.error import HTTPError
 from urllib.request import Request
 
 _PLUGIN_ROOT = Path(__file__).resolve().parents[1]
-_SCRIPTS_ROOT = _PLUGIN_ROOT / "scripts"
 sys.path.insert(0, str(_PLUGIN_ROOT))
-sys.path.insert(0, str(_SCRIPTS_ROOT))
 
+from claude_code_host import CLAUDE_CODE  # noqa: E402
 from claude_code_settings import ClaudeCodePluginSettings  # noqa: E402
+from powercontext_lifecycle.scope_binding import resolve_scope_id  # noqa: E402
 from powercontext_lifecycle.scope_binding_errors import (  # noqa: E402
     ScopeBindingRejectedError,
     ScopeBindingStatusError,
     ScopeBindingUnavailableError,
 )
 from powercontext_lifecycle.transport import bind_response_deadline, complete_body, open_bounded  # noqa: E402
-from workspace_scope import resolve_scope_id  # noqa: E402
 
 _MAX_RESPONSE_BYTES = 1024 * 1024
 _USER_AGENT = "powercontext-claude-code-statusline/0.1.0"
@@ -277,9 +276,10 @@ def render(server_url: str) -> str:
         session_id = value.get("session_id")
         http_deadline = monotonic() + settings.http_budget_seconds
         scope_id = resolve_scope_id(
+            CLAUDE_CODE,
             cwd or os.getcwd(),
             session_id=session_id if isinstance(session_id, str) else None,
-            settings=settings,
+            settings=settings.scope_binding_settings(),
             deadline=http_deadline,
         )
         today = _load_stats(settings, scope_id, "today", deadline=http_deadline)

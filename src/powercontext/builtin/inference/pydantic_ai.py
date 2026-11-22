@@ -18,9 +18,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Callable, Sequence
-from contextlib import AsyncExitStack, nullcontext
+import re
+from collections.abc import Awaitable, Callable, Iterator, Sequence
+from contextlib import AsyncExitStack, contextmanager, nullcontext, suppress
+from contextvars import ContextVar
 from copy import copy
+from dataclasses import dataclass, replace
 from typing import Any, Generic, Literal, Self, TypeVar, cast
 
 from pydantic import BaseModel, Field
@@ -40,6 +43,8 @@ from powercontext.builtin.inference.errors import (
     find_privacy_error,
 )
 from powercontext.builtin.inference.models import (
+    ConversationReply,
+    ConversationTurn,
     EmbeddingResult,
     GenerationResult,
     InferenceUsage,
@@ -56,6 +61,7 @@ from powercontext.builtin.processing_diagnostics import (
     ProcessingFailureReason,
     ProcessingStage,
     attach_diagnostics,
+    diagnostics_of,
     stage_for_operation,
 )
 
@@ -109,6 +115,7 @@ try:
         UserPromptPart,
     )
     from pydantic_ai.models import Model, ModelRequestParameters
+    from pydantic_ai.models.instrumented import InstrumentedModel
     from pydantic_ai.models.wrapper import WrapperModel
     from pydantic_ai.profiles.openai import SAMPLING_PARAMS
     from pydantic_ai.settings import ModelSettings, merge_model_settings
@@ -167,8 +174,68 @@ class InferenceLimits(BaseModel):
     allow_continuations: bool = True
 
 
-class _CompleteResponseModel(WrapperModel):
-    """Do not let Agent fold separately billed continuations into one request."""
+_TRUNCATED_FINISH_REASONS = {"length", "max_tokens", "max_output_tokens", "max_completion_tokens"}
+_SAFE_FINISH_REASONS = _TRUNCATED_FINISH_REASONS | {
+    "stop",
+    "end_turn",
+    "tool_call",
+    "tool_calls",
+    "tool_use",
+    "content_filter",
+    "error",
+    "pause_turn",
+}
+
+
+@dataclass(slots=True)
+class _GenerationResponseEvidence:
+    latest: ProcessingDiagnostics | None = None
+
+
+_response_evidence: ContextVar[_GenerationResponseEvidence | None] = ContextVar(
+    "powercontext_generation_response_evidence", default=None
+)
+
+
+@contextmanager
+def _collect_response_evidence() -> Iterator[_GenerationResponseEvidence]:
+    evidence = _GenerationResponseEvidence()
+    token = _response_evidence.set(evidence)
+    try:
+        yield evidence
+    finally:
+        _response_evidence.reset(token)
+
+
+def _response_diagnostics(response: ModelResponse) -> ProcessingDiagnostics | None:
+    with suppress(Exception):
+        normalized = response.finish_reason
+        raw = (response.provider_details or {}).get("finish_reason")
+        # Native adapters can preserve the reason only in their structured metadata.
+        reason = normalized if normalized in _SAFE_FINISH_REASONS else None
+        if isinstance(raw, str) and raw in _TRUNCATED_FINISH_REASONS and normalized not in _TRUNCATED_FINISH_REASONS:
+            reason = raw
+        response_id = response.provider_response_id
+        return ProcessingDiagnostics(
+            stage=ProcessingStage.GENERATION,
+            reason=ProcessingFailureReason.OUTPUT_TRUNCATED if reason in _TRUNCATED_FINISH_REASONS else None,
+            provider_request_id=(
+                response_id
+                if isinstance(response_id, str) and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}", response_id)
+                else None
+            ),
+            finish_reason=reason,
+            failure_location="provider-response",
+        )
+    return None
+
+
+class _ResponseDiagnosticsModel(WrapperModel):
+    """Capture terminal response metadata while preserving the continuation policy."""
+
+    def __init__(self, wrapped: Model, *, allow_continuations: bool) -> None:
+        super().__init__(wrapped)
+        self._allow_continuations = allow_continuations
 
     @override
     async def request(
@@ -177,19 +244,16 @@ class _CompleteResponseModel(WrapperModel):
         model_settings: ModelSettings | None,
         model_request_parameters: ModelRequestParameters,
     ) -> ModelResponse:
+        evidence = _response_evidence.get()
+        if evidence is not None:
+            evidence.latest = None
         response = await self.wrapped.request(messages, model_settings, model_request_parameters)
-        if response.state != "complete":
-            finish_reason = getattr(response, "finish_reason", None)
-            truncated = str(finish_reason or "").lower() in {"length", "max_tokens"}
+        diagnostics = _response_diagnostics(response)
+        if evidence is not None:
+            evidence.latest = diagnostics
+        if not self._allow_continuations and response.state != "complete":
             raise attach_diagnostics(
-                InvalidInferenceOutputError("generate", "provider continuation is not allowed"),
-                ProcessingDiagnostics(
-                    stage=ProcessingStage.GENERATION,
-                    reason=ProcessingFailureReason.OUTPUT_TRUNCATED if truncated else None,
-                    provider_request_id=getattr(response, "provider_response_id", None),
-                    finish_reason=finish_reason,
-                    failure_location="provider-response",
-                ),
+                InvalidInferenceOutputError("generate", "provider continuation is not allowed"), diagnostics
             ) from None
         return response
 
@@ -251,11 +315,14 @@ class StreamingAggregateModel(WrapperModel):
             # authority for the aggregated response.
             response = stream.get()
         if response.state != "complete":
-            raise InvalidInferenceOutputError(
-                "generate",
-                "provider continuation is not allowed"
-                if response.state == "suspended"
-                else "provider stream ended before completion",
+            raise attach_diagnostics(
+                InvalidInferenceOutputError(
+                    "generate",
+                    "provider continuation is not allowed"
+                    if response.state == "suspended"
+                    else "provider stream ended before completion",
+                ),
+                _response_diagnostics(response),
             )
         if (
             stream.provider_name is not None
@@ -266,7 +333,10 @@ class StreamingAggregateModel(WrapperModel):
             # example when a gateway drops the connection before the final chunk.
             # The accumulated content is then truncated even though the stream
             # state defaults to complete, so a missing finish reason is rejected.
-            raise InvalidInferenceOutputError("generate", "provider stream ended without a completion signal")
+            raise attach_diagnostics(
+                InvalidInferenceOutputError("generate", "provider stream ended without a completion signal"),
+                _response_diagnostics(response),
+            )
         if response.usage.input_tokens == 0 and response.usage.output_tokens == 0:
             # Some gateways stream the response without a final usage chunk; usage
             # statistics for this request will be missing. Warn without failing: the
@@ -325,8 +395,16 @@ class PydanticAIStructuredGenerator(Generic[InputT, OutputT]):
                 model,
                 merge_model_settings(model.settings, bounded_settings),
             )
+            # Keep the instrumentation outermost so Agent retains run spans and prompt metadata.
+            if isinstance(model, InstrumentedModel):
+                model = copy(model)
+                model.wrapped = _ResponseDiagnosticsModel(
+                    model.wrapped, allow_continuations=self._limits.allow_continuations
+                )
+            else:
+                model = _ResponseDiagnosticsModel(model, allow_continuations=self._limits.allow_continuations)
             self._agent = Agent(
-                model if self._limits.allow_continuations else _CompleteResponseModel(model),
+                model,
                 deps_type=input_type,
                 output_type=PromptedOutput(output_type),
                 instructions=instructions,
@@ -384,7 +462,7 @@ class PydanticAIStructuredGenerator(Generic[InputT, OutputT]):
         except (PydanticSerializationError, PydanticUserError, ValidationError, UnicodeError) as error:
             raise PydanticAIConfigurationError("serialize") from error
 
-        with self._provider_observations.operation():
+        with self._provider_observations.operation(), _collect_response_evidence() as evidence:
             run_usage = RunUsage()
             raw_usage: list[InferenceUsage] = []
             try:
@@ -427,10 +505,139 @@ class PydanticAIStructuredGenerator(Generic[InputT, OutputT]):
                     raise
                 if mapped is error:
                     raise
+                if rejected is None and evidence.latest is not None:
+                    _enrich_output_failure(mapped, evidence.latest)
                 raise mapped from error
 
             usage = approved_usage(raw_usage) if raw_usage else _generation_usage(result.usage)
             return GenerationResult(output=cast(OutputT, result.output), usage=usage)
+
+
+class PydanticAIConversationGenerator:
+    """Continue one text conversation with an injected Pydantic AI model.
+
+    Each turn sends its instructions, the earlier messages unchanged and one new message. The reply is plain text
+    checked by the turn itself, so every step of a conversation shares one request prefix whatever shape its reply has.
+    """
+
+    def __init__(
+        self,
+        *,
+        model: Model,
+        limits: InferenceLimits | None = None,
+        model_settings: ModelSettings | None = None,
+        name: str | None = None,
+    ) -> None:
+        if isinstance(model, str) or not isinstance(model, Model):
+            raise PydanticAIConfigurationError("model-instance")
+        self._limits = InferenceLimits() if limits is None else limits
+        self._provider_observations = ProviderObservationSource(
+            provider_name(model.system), "generation", current_provider_observer()
+        )
+        bounded_settings = model_settings
+        if self._limits.max_output_tokens_per_request is not None:
+            bounded_settings = merge_model_settings(
+                model_settings,
+                ModelSettings(max_tokens=self._limits.max_output_tokens_per_request),
+            )
+        # Keep the instrumentation outermost so Agent retains run spans and prompt metadata.
+        if isinstance(model, InstrumentedModel):
+            model = copy(model)
+            model.wrapped = _ResponseDiagnosticsModel(
+                model.wrapped, allow_continuations=self._limits.allow_continuations
+            )
+        else:
+            model = _ResponseDiagnosticsModel(model, allow_continuations=self._limits.allow_continuations)
+        self._agent = Agent(
+            model,
+            deps_type=ConversationTurn,
+            output_type=str,
+            model_settings=bounded_settings,
+            retries=self._limits.max_requests - 1,
+            name=name,
+        )
+
+        def check(context: RunContext[ConversationTurn[Any]], output: str) -> Any:
+            try:
+                return context.deps.check(output)
+            except InvalidInferenceOutputError as error:
+                raise ModelRetry(error.detail) from error
+
+        self._agent.output_validator(check)
+
+    async def generate(self, value: ConversationTurn[OutputT], /) -> GenerationResult[ConversationReply[OutputT]]:
+        """Generate one checked reply within the configured request and time limits."""
+
+        if not value.instructions.strip():
+            raise PydanticAIConfigurationError("instructions")
+        with self._provider_observations.operation(), self._agent.override(instructions=value.instructions):
+            result, usage = await _run_bounded(
+                lambda run_usage, usage_limits: self._agent.run(
+                    value.message,
+                    deps=value,
+                    message_history=cast("list[ModelMessage]", list(value.history)) or None,
+                    usage=run_usage,
+                    usage_limits=usage_limits,
+                    metadata=None if value.metadata is None else dict(value.metadata),
+                ),
+                self._limits,
+            )
+        history = tuple(result.all_messages())
+        reply = ConversationReply(output=cast(OutputT, result.output), history=history, transcript=_transcript(history))
+        return GenerationResult(output=reply, usage=usage)
+
+
+def _transcript(messages: Sequence[ModelMessage], /) -> tuple[str, ...]:
+    """The text a later turn resends for these messages: prompts, replies and correction requests."""
+
+    texts: list[str] = []
+    for message in messages:
+        for part in message.parts:
+            # A correction request is sent as its rendered response; every other text part is sent as its content.
+            rendered = getattr(part, "model_response", None)
+            content = rendered() if callable(rendered) else getattr(part, "content", None)
+            if isinstance(content, str):
+                texts.append(content)
+    return tuple(texts)
+
+
+async def _run_bounded(
+    run: Callable[[RunUsage, UsageLimits], Awaitable[Any]], limits: InferenceLimits, /
+) -> tuple[Any, InferenceUsage]:
+    """Run one Agent call within the limits and map its failures, keeping the usage known so far."""
+
+    run_usage = RunUsage()
+    raw_usage: list[InferenceUsage] = []
+    with _collect_response_evidence() as evidence:
+        try:
+            with collect_approved_usage() as raw_usage:
+                result = await asyncio.wait_for(
+                    run(
+                        run_usage,
+                        UsageLimits(request_limit=limits.max_requests, output_tokens_limit=limits.output_tokens_limit),
+                    ),
+                    timeout=limits.timeout_seconds,
+                )
+        except asyncio.CancelledError:
+            raise
+        except Exception as error:
+            # An exhausted retry budget reports the rule the last response broke, not a generic failure.
+            rejected = _checked_rule(error) if isinstance(error, UnexpectedModelBehavior) else None
+            mapped = rejected or _map_error(error, operation="generate", timeout_seconds=limits.timeout_seconds)
+            if mapped is not None and raw_usage:
+                prior = approved_usage(raw_usage)
+                mapped.usage = prior if mapped.usage is None else combine_inference_usage(prior, mapped.usage)
+            elif isinstance(mapped, InferencePrivacyError) and run_usage.requests:
+                prior = _generation_usage(run_usage)
+                mapped.usage = prior if mapped.usage is None else combine_inference_usage(prior, mapped.usage)
+            if mapped is None:
+                raise
+            if mapped is error:
+                raise
+            if rejected is None and evidence.latest is not None:
+                _enrich_output_failure(mapped, evidence.latest)
+            raise mapped from error
+    return result, approved_usage(raw_usage) if raw_usage else _generation_usage(result.usage)
 
 
 class PydanticAIEmbeddingModel:
@@ -621,6 +828,23 @@ def _generation_usage(value: RunUsage) -> InferenceUsage:
     )
 
 
+def _enrich_output_failure(error: InferenceError, response: ProcessingDiagnostics) -> None:
+    """Use evidence from the final response only for mapped output failures."""
+    with suppress(Exception):
+        original = diagnostics_of(error)
+        if original is None or original.reason is not ProcessingFailureReason.SCHEMA_INVALID:
+            return
+        if response.reason is ProcessingFailureReason.OUTPUT_TRUNCATED:
+            attach_diagnostics(error, replace(response, cause_exception_type=original.cause_exception_type))
+        else:
+            attach_diagnostics(
+                error,
+                replace(
+                    original, provider_request_id=response.provider_request_id, finish_reason=response.finish_reason
+                ),
+            )
+
+
 def _checked_rule(error: BaseException) -> InvalidInferenceOutputError | None:
     cause = error.__cause__
     while cause is not None:
@@ -747,20 +971,29 @@ def _map_error(  # noqa: C901 - bounded mapping across status codes and provider
 def _looks_like_context_overflow(error: ModelHTTPError) -> bool:
     """Classify only when the provider's own response names a context limit."""
 
-    body = getattr(error, "body", None)
-    text = str(body if isinstance(body, (str, bytes)) else body or "").lower()
-    return any(
-        term in text
-        for term in (
-            "context length",
-            "context window",
-            "maximum context",
-            "too many tokens",
-            "prompt is too long",
-            "input is too long",
-            "token limit",
-        )
-    )
+    if error.status_code not in {400, 413, 422}:
+        return False
+    details = error.body
+    if isinstance(details, dict):
+        details = details.get("error", details)
+    if isinstance(details, dict):
+        code = details.get("code")
+        if isinstance(code, str) and code in {"context_length_exceeded", "context_window_exceeded"}:
+            return True
+        details = details.get("message")
+    if not isinstance(details, str):
+        return False
+    message = re.sub(r"^(?:400|413|422):\s*", "", details[:1024].lower())
+    if re.match(r"(?:prompt|input) is too long:\s*\d+\s+tokens\s*>\s*\d+\s+maximum\b", message):
+        return True
+    return message.startswith((
+        "this model's maximum context length is",
+        "maximum context length exceeded",
+        "context length exceeded",
+        "context window exceeded",
+        "input is too long for this model",
+        "prompt is too long for this model",
+    ))
 
 
 __all__ = [
