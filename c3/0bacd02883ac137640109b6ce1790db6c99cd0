@@ -1,0 +1,193 @@
+gateway/README.md
+  s_624ad8983708a5::t_7acf04be46d8ff 5-6,25-29
+tests/builtin/persistence/test_release140_server_migrations.py
+  s_624ad8983708a5::t_7acf04be46d8ff 161-162,376
+tests/e2e/test_atomic_memory_description_upgrade.py
+  s_624ad8983708a5::t_7acf04be46d8ff 88,90
+src/powercontext/builtin/persistence/migrations/server_resources/mysql/versions/v1_6_0.py
+  s_624ad8983708a5::t_7acf04be46d8ff 1-24
+integrations/dsh/plugins/powercontext/README.md
+  s_624ad8983708a5::t_7acf04be46d8ff 49-50
+src/powercontext/builtin/persistence/migrations/server_resources/mysql/versions/v1_5_0_006.py
+  s_624ad8983708a5::t_7acf04be46d8ff 1-24
+gateway/crates/pc-gateway-app/src/ingress.rs
+  s_624ad8983708a5::t_7acf04be46d8ff 165-168,173-186,188-205,229-238,251-255,260-261,280,298-299,320-333,564-579,932-952,961-1045,1777,1782,1820-2112
+  s_624ad8983708a5::t_e3cee22c8cb253 2113
+desktop/VALIDATION.md
+  s_624ad8983708a5::t_7acf04be46d8ff 4033-4067
+  s_624ad8983708a5::t_8d3d292d61a13f 4032,4068
+gateway/SUBSCRIPTIONS.md
+  s_624ad8983708a5::t_7acf04be46d8ff 65-68
+tests/test_server.py
+  s_624ad8983708a5::t_7acf04be46d8ff 283
+tests/test_registered_source_maintenance_cli.py
+  s_624ad8983708a5::t_7acf04be46d8ff 69
+tests/builtin/persistence/test_portable_storage_migration.py
+  s_624ad8983708a5::t_7acf04be46d8ff 135-136,138,205-206,218-219,222
+tests/builtin/persistence/test_plugin_storage_migration.py
+  s_624ad8983708a5::t_7acf04be46d8ff 15,162,164,190
+src/powercontext/builtin/persistence/migrations/server_resources/manifest.json
+  s_624ad8983708a5::t_7acf04be46d8ff 56-58,60-62,105,108,344,412,417,444-445
+gateway/crates/pc-gateway-app/tests/gateway_behaviors.rs
+  s_624ad8983708a5::t_7acf04be46d8ff 133-142,157,161,213,787-954
+docs/zh/development/releasing.md
+  s_624ad8983708a5::t_7acf04be46d8ff 187,235
+gateway/crates/pc-gateway-core/src/lib.rs
+  s_624ad8983708a5::t_7acf04be46d8ff 42
+tests/test_managed_atomic_maintenance.py
+  s_624ad8983708a5::t_7acf04be46d8ff 79,106
+gateway/crates/pc-gateway-app/src/main.rs
+  s_624ad8983708a5::t_7acf04be46d8ff 71,73,166-180,250-262,321,354-361
+  s_624ad8983708a5::t_0574c37247875b 362-363
+docs/en/docs/get-started/install-and-run.md
+  s_624ad8983708a5::t_7acf04be46d8ff 85,88,93,152,155-156,169,172,230,340,344,360
+tests/test_server_generation.py
+  s_624ad8983708a5::t_7acf04be46d8ff 20-21,76-153
+tests/builtin/persistence/test_diagnostic_query_migration.py
+  s_624ad8983708a5::t_7acf04be46d8ff 42-43
+src/powercontext/http/_generated/operations.py
+  s_624ad8983708a5::t_7acf04be46d8ff 250
+website/src/lib/releases.ts
+  s_624ad8983708a5::t_7acf04be46d8ff 32-66
+  s_624ad8983708a5::t_cc11c8aa5d325b 31
+src/powercontext/builtin/persistence/migrations/server_resources/versions/v1_6_0.py
+  s_624ad8983708a5::t_7acf04be46d8ff 1-29
+docs/zh/docs/operate/database-migrations.md
+  s_624ad8983708a5::t_7acf04be46d8ff 17-18,81,124,128-129,146-147,149,152-153,207-209,245-247,670
+src/powercontext/builtin/persistence/migrations/server_resources/schemas/sqlite-v1_5_0_006.json
+  s_624ad8983708a5::t_7acf04be46d8ff 1-8
+release/upgrade-support.json
+  s_624ad8983708a5::t_7acf04be46d8ff 3,6-7
+docs/en/docs/operate/database-migrations.md
+  s_624ad8983708a5::t_7acf04be46d8ff 18,20-21,98,152,157,159,176-177,179,182-183,247-251,296-298,907
+docs/en/development/releasing.md
+  s_624ad8983708a5::t_7acf04be46d8ff 203,263
+docs/zh/docs/get-started/quickstart.md
+  s_624ad8983708a5::t_7acf04be46d8ff 10
+tests/native/test_oceanbase_engine_recovery.py
+  s_624ad8983708a5::t_7acf04be46d8ff 178
+docs/zh/docs/operate/deploy-server.md
+  s_624ad8983708a5::t_7acf04be46d8ff 205-207,228,230,250-251,272-282
+  s_624ad8983708a5::t_367d678f87afc0 283
+docs/en/docs/get-started/manual-start.md
+  s_624ad8983708a5::t_7acf04be46d8ff 52,182,217
+README_CN.md
+  s_624ad8983708a5::t_7acf04be46d8ff 14-23,140-142,155,185
+src/powercontext/builtin/runtime/atomic_memory_processing.py
+  s_624ad8983708a5::t_7acf04be46d8ff 39,54-59,86,672-681,684-686,697-734,737,1356,1360-1361,1371,1376
+docs/zh/design/atomic_memory_one_pass_design.md
+  s_624ad8983708a5::t_7acf04be46d8ff 5,21,31,146,159,170-202,208,290-293,296,306
+docs/en/docs/get-started/configure-models.md
+  s_624ad8983708a5::t_7acf04be46d8ff 23-24,47-68
+  s_624ad8983708a5::t_ad0ac5481a5b4e 69
+docs/en/docs/get-started/quickstart.md
+  s_624ad8983708a5::t_7acf04be46d8ff 10
+gateway/crates/pc-gateway-core/src/prefix_store.rs
+  s_624ad8983708a5::t_7acf04be46d8ff 44-46,49-51,132
+README.md
+  s_624ad8983708a5::t_7acf04be46d8ff 14-23,142-144,157,187
+README_JP.md
+  s_624ad8983708a5::t_7acf04be46d8ff 16-25,140-142,155,185
+gateway/crates/pc-gateway-app/src/default_steering.txt
+  s_624ad8983708a5::t_7acf04be46d8ff 1
+src/powercontext/builtin/persistence/migrations/server_resources/schemas/mysql-v1_6_0.json
+  s_624ad8983708a5::t_7acf04be46d8ff 1-1203
+src/powercontext/server/settings.py
+  s_624ad8983708a5::t_7acf04be46d8ff 282-285,318-324
+  s_624ad8983708a5::t_5175781af4e24f 325-326
+tests/builtin/persistence/test_atomic_evidence_upgrade_history.py
+  s_624ad8983708a5::t_7acf04be46d8ff 171-172,203-204,258
+tests/builtin/persistence/test_full_server_migrations.py
+  s_624ad8983708a5::t_7acf04be46d8ff 76,89-90
+tests/builtin/persistence/test_mysql_initialization_preflight.py
+  s_624ad8983708a5::t_7acf04be46d8ff 262-263
+tests/builtin/persistence/test_owner_recovery_migration.py
+  s_624ad8983708a5::t_7acf04be46d8ff 73
+desktop/src-tauri/src/connections/compatibility.json
+  s_624ad8983708a5::t_7acf04be46d8ff 2107-2126
+  s_624ad8983708a5::t_33ba02dc85311a 2105-2106
+gateway/crates/pc-gateway-core/tests/executor_semantics.rs
+  s_624ad8983708a5::t_7acf04be46d8ff 4444-4445,4465-4466
+integrations/dify/plugin/powercontext_dify/contract.json
+  s_624ad8983708a5::t_7acf04be46d8ff 2
+.licenserc.yaml
+  s_624ad8983708a5::t_7acf04be46d8ff 76-77
+openapi/powercontext.yaml
+  s_624ad8983708a5::t_7acf04be46d8ff 19
+release/notes/powercontext-v1.6.0.md
+  s_624ad8983708a5::t_7acf04be46d8ff 1-69
+docs/en/docs/operate/deploy-server.md
+  s_624ad8983708a5::t_7acf04be46d8ff 203-205,226,228,256-257,288-303
+  s_624ad8983708a5::t_35081e9666c33f 304
+src/powercontext/builtin/artifacts/atomic_memory/extraction.py
+  s_624ad8983708a5::t_7acf04be46d8ff 174-175,198,200,204-208,217
+src/powercontext/builtin/persistence/migrations/server_sources/1.4.0/manifest.json
+  s_624ad8983708a5::t_7acf04be46d8ff 55-57,59-61,104,107,348,416,421,448-449
+docs/zh/docs/get-started/install-and-run.md
+  s_624ad8983708a5::t_7acf04be46d8ff 85,88,93,152,155-156,169,172,230,333,337,353
+tests/builtin/artifacts/atomic_memory/test_prefixed_extraction.py
+  s_624ad8983708a5::t_7acf04be46d8ff 19,33-38,44-45,47,50,191-192,294-578
+gateway/crates/pc-gateway-app/src/steering.rs
+  s_624ad8983708a5::t_7acf04be46d8ff 15,18,29,32-37,111-113
+tests/builtin/persistence/test_atomic_description_vector_layout.py
+  s_624ad8983708a5::t_7acf04be46d8ff 46,159,168-169,179
+tests/builtin/persistence/test_mysql_migration_runner.py
+  s_624ad8983708a5::t_7acf04be46d8ff 479,772,903,913,980,1048,1212,1234,1314
+docs/zh/docs/get-started/configure-models.md
+  s_624ad8983708a5::t_7acf04be46d8ff 22,43-63
+  s_624ad8983708a5::t_edaad22dd70fc7 64
+docs/en/docs/operate/observability.md
+  s_624ad8983708a5::t_7acf04be46d8ff 156,158-162
+docs/zh/docs/operate/observability.md
+  s_624ad8983708a5::t_7acf04be46d8ff 147,149-152
+src/powercontext/builtin/artifacts/atomic_memory/prefixed_extraction.py
+  s_624ad8983708a5::t_7acf04be46d8ff 25-28,42-48,73-75,190-213,225-348
+docs/zh/docs/get-started/manual-start.md
+  s_624ad8983708a5::t_7acf04be46d8ff 52,182,217
+tests/release_upgrades/README.md
+  s_624ad8983708a5::t_7acf04be46d8ff 9,11
+src/powercontext/builtin/persistence/migrations/server_resources/versions/v1_5_0_006_source_collection.py
+  s_624ad8983708a5::t_7acf04be46d8ff 1-29
+src/powercontext/builtin/artifacts/atomic_memory/one_pass.py
+  s_624ad8983708a5::t_7acf04be46d8ff 39,66-77,82,141-144,146-154
+tests/e2e/test_source_citation_locators.py
+  s_624ad8983708a5::t_7acf04be46d8ff 72,89
+tests/test_release_version.py
+  s_624ad8983708a5::t_7acf04be46d8ff 125
+tests/native/test_personal_service_lifecycle.py
+  s_624ad8983708a5::t_7acf04be46d8ff 405
+gateway/crates/pc-gateway-core/src/executor.rs
+  s_624ad8983708a5::t_7acf04be46d8ff 853-859
+tests/test_managed_processing_maintenance.py
+  s_624ad8983708a5::t_7acf04be46d8ff 78
+src/powercontext/builtin/persistence/migrations/server_resources/schemas/sqlite-v1_6_0.json
+  s_624ad8983708a5::t_7acf04be46d8ff 1-7
+tests/test_migration_revision_names.py
+  s_624ad8983708a5::t_7acf04be46d8ff 72-73,76,91,108-109
+src/powercontext/builtin/runtime/composition.py
+  s_624ad8983708a5::t_7acf04be46d8ff 248,1549-1560,1562,1565-1568,1584-1590,1831-1833,1840-1841
+src/powercontext/builtin/persistence/migrations/server_resources/schemas/mysql-v1_5_0_006.json
+  s_624ad8983708a5::t_7acf04be46d8ff 1-696
+src/powercontext/http/_generated/schema.py
+  s_624ad8983708a5::t_7acf04be46d8ff 10
+desktop/src-tauri/src/transport/operations.json
+  s_624ad8983708a5::t_955c3f63bffd65 2
+desktop/ui/src/generated/operations.ts
+  s_624ad8983708a5::t_5ec12c68ac761e 18
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "c30bacd02883ac137640109b6ce1790db6c99cd0",
+  "prompts": {},
+  "sessions": {
+    "s_624ad8983708a5": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1ab57-e572-7090-b0f7-d55ee829f4b0",
+        "model": "gpt-6.2-astra"
+      },
+      "human_author": "Frey <370805886@qq.com>"
+    }
+  }
+}
