@@ -117,6 +117,12 @@ where the gateway forwards the stream. An enforcing Core withholds that turn, an
 non-enforcing Core, including the default `disabled` mode, lets the gateway release the streamed response, but the
 gateway does not capture the turn, because it captures only JSON responses.
 
+Core also needs a target for the profile that `PC_GATEWAY_UPSTREAM_PROFILE` names (`default` unless set), in every
+privacy mode, including `disabled`. Without one, Core withholds each request with `target_unsupported`, and the gateway
+returns HTTP 400 for every turn on either route, not only for streamed Chat Completions turns. The `reason_codes` field
+of the gateway's response body names the reason and tells the two cases apart. See
+[Configure a supported target](../operate/inference-protection.md#configure-a-supported-target).
+
 ## Verify the installation
 
 ### Recover a failed refresh

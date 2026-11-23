@@ -104,6 +104,11 @@ Core 仍会执行它的其他请求和响应规则。`@ai-sdk/openai-compatible`
 enforcing 模式的 Core 会扣留这一轮，gateway 返回 HTTP 400。非 enforcing 模式的 Core（包括默认的 `disabled`
 模式）下，gateway 会放行流式响应，但不会采集这一轮，因为它只采集 JSON 响应。
 
+在任何隐私模式下（包括 `disabled`），Core 都需要为 `PC_GATEWAY_UPSTREAM_PROFILE` 指定的 profile（未设置时为
+`default`）配置目标。没有目标时，Core 以 `target_unsupported` 扣留每个请求，gateway 对两条路由上的每一轮都返回
+HTTP 400，而不只是流式的 Chat Completions 轮次。gateway 响应体的 `reason_codes` 字段写明原因，可据此区分这两种情况。
+见[配置受支持的目标](../operate/inference-protection.md#配置受支持的目标)。
+
 ## 验证安装
 
 ### 恢复失败的更新
