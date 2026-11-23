@@ -1,0 +1,19 @@
+.github/workflows/gateway-glibc-validation.yml
+  s_6a8444cedb8f98::t_0015eab5d80fb2 1-47
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "b32a90f1feb7f29401bbfbfbb537f92928ca3f75",
+  "prompts": {},
+  "sessions": {
+    "s_6a8444cedb8f98": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a20894-fcd6-7122-b920-7431199c49c5",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "frf12 <rongfeng.frf@antgroup.com>"
+    }
+  }
+}
