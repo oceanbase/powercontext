@@ -59,12 +59,16 @@ def rewrite_archive(archive, replacement):
     archive.with_name(archive.name + ".sha256").write_text(f"{distribution.sha256(archive)}  {archive.name}\n")
 
 
-def test_downloaded_archive_preserves_executable_and_identity(archive, tmp_path):
-    binary = distribution.unpack(archive, tmp_path / "installed", VERSION, COMMIT, TARGET)
+@pytest.mark.parametrize("target", [TARGET, "aarch64-unknown-linux-gnu"])
+def test_downloaded_archive_preserves_executable_and_identity(tmp_path, target):
+    archive = distribution.package(
+        fixture_binary(tmp_path / "fixture", target), tmp_path / "dist", VERSION, COMMIT, target
+    )
+    binary = distribution.unpack(archive, tmp_path / "installed", VERSION, COMMIT, target)
     assert binary.is_file() and os.access(binary, os.X_OK)
     metadata = json.loads((binary.parent / "manifest.json").read_text())
     assert metadata["source_commit"] == COMMIT
-    assert metadata["minimum_platform"] == "Linux glibc 2.35+"
+    assert metadata["minimum_platform"] == "Linux glibc 2.28+"
 
 
 def test_corrupt_download_is_rejected_before_extraction(archive, tmp_path):

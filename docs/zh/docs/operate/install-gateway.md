@@ -15,13 +15,17 @@ Gateway 是名为 `pc-gateway` 的独立可执行文件，需要连接正在运�
 
 | 系统 | 架构 | 压缩包目标 | 运行环境基线 |
 | --- | --- | --- | --- |
-| Linux | x86_64 | `x86_64-unknown-linux-gnu` | glibc 2.35+，在 Ubuntu 22.04 验证 |
-| Linux | arm64 | `aarch64-unknown-linux-gnu` | glibc 2.35+，在 Ubuntu 22.04 验证 |
+| Linux | x86_64 | `x86_64-unknown-linux-gnu` | glibc 2.28+ |
+| Linux | arm64 | `aarch64-unknown-linux-gnu` | glibc 2.28+ |
 | macOS | Intel | `x86_64-apple-darwin` | macOS 15+ |
 | macOS | Apple Silicon | `aarch64-apple-darwin` | macOS 15+ |
 
 Linux 压缩包不是 Alpine/musl 构建。macOS 压缩包未签名、未公证，系统可能要求按正常安全机制批准运行。
 目前不提供 Windows 压缩包和 Gateway 容器镜像。通过 CLI 运行的订阅通道仍需要在 Gateway 所在主机安装对应 CLI 并登录。
+
+Linux 发布检查覆盖两个架构上的原生 Ubuntu 22.04 环境和 Rocky Linux 8 容器用户空间。
+容器共享 runner 的内核，因此这些检查不能证明历史内核或整个旧发行版的兼容性。
+Core 对 Python、SQLite 的要求，以及各供应商 CLI 的运行要求，均独立于 Gateway 的 glibc 基线。
 
 ### Windows
 

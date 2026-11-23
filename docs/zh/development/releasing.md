@@ -325,6 +325,12 @@ Python 发布任务通过不能替代这些验证。
 发布标签的源码必须包含分发工作流；已经发布且不包含此工作流的旧标签不能通过重跑旧工作流获得这些二进制。
 
 Core 冒烟检查使用携带 SQLite 3.38+ 的 uv 管理 Python，并在失败时输出子进程诊断日志。
-Linux 构建使用 Ubuntu 22.04（glibc 2.35+），macOS 构建以 macOS 15+ 为基线。macOS 二进制未签名、未公证。
+Linux 构建在各架构的原生 Ubuntu 22.04 runner 上运行，固定使用 cargo-zigbuild 0.24.1 和 Zig 0.15.2，
+显式指定 `x86_64-unknown-linux-gnu.2.28` 或 `aarch64-unknown-linux-gnu.2.28` 目标。
+生成的二进制不得引用高于 2.28 的 glibc 符号。两个架构均须通过原生环境中的真实 Core 冒烟检查，
+以及 Rocky Linux 8 容器冒烟检查；Core 运行在 runner 上，通过 UDS 与容器中的 Gateway 连接。
+这些容器共享 runner 的内核，验证范围限于用户空间兼容性，不覆盖历史内核或整个旧发行版。
+Core 对 Python、SQLite 的要求，以及供应商 CLI 的运行要求，独立于 Gateway 的 glibc 基线。
+macOS 构建以 macOS 15+ 为基线；macOS 二进制未签名、未公证。
 压缩包不包含 Core 和供应商 CLI，这些检查也不代表真实供应商验收。详见[Gateway 安装](../docs/operate/install-gateway.md)。
 Docker 分发留待后续实现。

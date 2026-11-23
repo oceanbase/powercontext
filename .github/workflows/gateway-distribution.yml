@@ -38,6 +38,11 @@ jobs:
     env:
       MACOSX_DEPLOYMENT_TARGET: '15.0'
       PC_GATEWAY_BUILD_TARGET: ${{ matrix.target }}
+      GATEWAY_GLIBC_VERSION: '2.28'
+      GATEWAY_ZIG_VERSION: '0.15.2'
+      GATEWAY_CARGO_ZIGBUILD_VERSION: '0.24.1'
+      # Rocky Linux 8 multiarch image; keep the runtime check pinned with the build tools.
+      GATEWAY_GLIBC_IMAGE: rockylinux:8@sha256:bb506c7fb739275cb4af329f8ff21c558af43b4398bf1bb3d93ae417dac92732
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -82,15 +87,32 @@ jobs:
       - name: Install pinned Rust
         if: ${{ !inputs.published }}
         run: rustup toolchain install 1.95.0 --profile minimal
+      - name: Install pinned Linux linker tools
+        if: ${{ runner.os == 'Linux' && !inputs.published }}
+        run: |
+          uv venv --python 3.12 "$RUNNER_TEMP/gateway-build-tools"
+          uv pip install --python "$RUNNER_TEMP/gateway-build-tools/bin/python" \
+            "cargo-zigbuild==$GATEWAY_CARGO_ZIGBUILD_VERSION" "ziglang==$GATEWAY_ZIG_VERSION"
+          echo "$RUNNER_TEMP/gateway-build-tools/bin" >> "$GITHUB_PATH"
+          echo "CARGO_ZIGBUILD_PYTHON_PATH=$RUNNER_TEMP/gateway-build-tools/bin/python" >> "$GITHUB_ENV"
+          "$RUNNER_TEMP/gateway-build-tools/bin/python" -m ziglang version
+          "$RUNNER_TEMP/gateway-build-tools/bin/cargo-zigbuild" --version
       - name: Cache native build
         if: ${{ !inputs.published }}
         uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           workspaces: gateway -> target
-          key: distribution-${{ matrix.runner }}-${{ matrix.target }}
+          key: distribution-${{ matrix.runner }}-${{ matrix.target }}-glibc${{ env.GATEWAY_GLIBC_VERSION }}-zig${{ env.GATEWAY_ZIG_VERSION }}-zigbuild${{ env.GATEWAY_CARGO_ZIGBUILD_VERSION }}
       - name: Build release executable
         if: ${{ !inputs.published }}
-        run: cargo +1.95.0 build --locked --manifest-path gateway/Cargo.toml --release -p pc-gateway-app --target "$PC_GATEWAY_BUILD_TARGET"
+        run: |
+          if [ "$RUNNER_OS" = Linux ]; then
+            cargo +1.95.0 zigbuild --locked --manifest-path gateway/Cargo.toml --release \
+              -p pc-gateway-app --target "$PC_GATEWAY_BUILD_TARGET.$GATEWAY_GLIBC_VERSION"
+          else
+            cargo +1.95.0 build --locked --manifest-path gateway/Cargo.toml --release \
+              -p pc-gateway-app --target "$PC_GATEWAY_BUILD_TARGET"
+          fi
       - name: Package executable
         if: ${{ !inputs.published }}
         run: >-
@@ -120,12 +142,31 @@ jobs:
           binary = pathlib.Path(os.environ['RUNNER_TEMP']) / 'gateway-unpacked' / 'pc-gateway'
           output = subprocess.check_output(['readelf', '--version-info', str(binary)], text=True)
           versions = {tuple(map(int, version.split('.'))) for version in re.findall(r'GLIBC_([0-9.]+)', output)}
-          if not versions or max(versions) > (2, 35):
+          baseline = tuple(map(int, os.environ['GATEWAY_GLIBC_VERSION'].split('.')))
+          if not versions or max(versions) > baseline:
               raise SystemExit(f'Unexpected glibc requirements: {sorted(versions)}')
-          print(f'Maximum referenced glibc version: {max(versions)}; supported baseline: 2.35')
+          print(f'Maximum referenced glibc version: {max(versions)}; supported baseline: {baseline}')
           PYTHON
       - name: Run unpacked binary against real Core
         run: uv run --frozen python tests/e2e/gateway_distribution_smoke.py --binary "$RUNNER_TEMP/gateway-unpacked/pc-gateway"
+      - name: Run Gateway in glibc 2.28 userspace against real Core
+        if: runner.os == 'Linux'
+        run: |
+          docker pull "$GATEWAY_GLIBC_IMAGE"
+          test "$(docker run --rm "$GATEWAY_GLIBC_IMAGE" getconf GNU_LIBC_VERSION)" = "glibc $GATEWAY_GLIBC_VERSION"
+          cat > "$RUNNER_TEMP/gateway-glibc-baseline" <<'SH'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          exec docker run --rm --network host \
+            --user "$(id -u):$(id -g)" \
+            --volume "$RUNNER_TEMP:$RUNNER_TEMP" \
+            --env PC_GATEWAY_CORE_UDS --env PC_GATEWAY_CORE_TOKEN \
+            --env PC_GATEWAY_API_KEY --env PC_GATEWAY_LISTEN \
+            --env PC_GATEWAY_INJECTION --env PC_GATEWAY_SEDIMENT --env RUST_LOG \
+            "$GATEWAY_GLIBC_IMAGE" "$RUNNER_TEMP/gateway-unpacked/pc-gateway" "$@"
+          SH
+          chmod +x "$RUNNER_TEMP/gateway-glibc-baseline"
+          uv run --frozen python tests/e2e/gateway_distribution_smoke.py --binary "$RUNNER_TEMP/gateway-glibc-baseline"
       - name: Upload qualified distribution
         if: ${{ !inputs.published }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7

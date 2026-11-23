@@ -359,6 +359,12 @@ Keep the distribution workflow in the release tag's source. Existing published t
 binaries by rerunning the old workflow.
 
 Core smoke checks use uv-managed Python with SQLite 3.38+ and print subprocess diagnostics on failure.
-Linux builds use Ubuntu 22.04 (glibc 2.35+); macOS builds target macOS 15+. macOS binaries are unsigned and not notarized.
+Linux builds run on native Ubuntu 22.04 runners with pinned cargo-zigbuild 0.24.1 and Zig 0.15.2, explicitly targeting
+`x86_64-unknown-linux-gnu.2.28` or `aarch64-unknown-linux-gnu.2.28`. The resulting binaries must not reference glibc symbols
+newer than 2.28. Both architectures must pass the native real-Core smoke checks and a Rocky Linux 8 container
+smoke check with Core running on the runner and connected over UDS. These containers verify userspace compatibility
+while sharing the runner's kernel; they do not validate historical kernels or entire older distributions.
+Core's Python and SQLite requirements and provider CLI requirements are separate from the Gateway's glibc baseline.
+macOS builds target macOS 15+; macOS binaries are unsigned and not notarized.
 These packages do not include Core or provider CLIs, and do not establish real-provider acceptance. See
 [Gateway installation](../docs/operate/install-gateway.md). Docker distribution is separate future work.

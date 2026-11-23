@@ -30,8 +30,8 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 TARGETS = {
-    "x86_64-unknown-linux-gnu": "Linux glibc 2.35+",
-    "aarch64-unknown-linux-gnu": "Linux glibc 2.35+",
+    "x86_64-unknown-linux-gnu": "Linux glibc 2.28+",
+    "aarch64-unknown-linux-gnu": "Linux glibc 2.28+",
     "x86_64-apple-darwin": "macOS 15+ (unsigned, not notarized)",
     "aarch64-apple-darwin": "macOS 15+ (unsigned, not notarized)",
 }

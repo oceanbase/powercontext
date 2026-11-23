@@ -15,14 +15,19 @@ successful **Gateway distribution** verification; an existing tag alone does not
 
 | System | Architecture | Archive target | Runtime baseline |
 | --- | --- | --- | --- |
-| Linux | x86_64 | `x86_64-unknown-linux-gnu` | glibc 2.35+, tested on Ubuntu 22.04 |
-| Linux | arm64 | `aarch64-unknown-linux-gnu` | glibc 2.35+, tested on Ubuntu 22.04 |
+| Linux | x86_64 | `x86_64-unknown-linux-gnu` | glibc 2.28+ |
+| Linux | arm64 | `aarch64-unknown-linux-gnu` | glibc 2.28+ |
 | macOS | Intel | `x86_64-apple-darwin` | macOS 15+ |
 | macOS | Apple Silicon | `aarch64-apple-darwin` | macOS 15+ |
 
 Linux archives are not Alpine/musl builds. macOS archives are unsigned and not notarized; macOS may require
 approval under its normal security controls. Windows archives and a Gateway container image are not provided.
 CLI-backed subscription routes still require their provider CLI and sign-in on the Gateway host.
+
+Linux release checks cover native Ubuntu 22.04 and Rocky Linux 8 container userspace on both architectures.
+Containers share the runner's kernel, so these checks do not establish compatibility with historical kernels or
+entire older distributions. Core's Python and SQLite requirements and each provider CLI's requirements apply
+separately from the Gateway's glibc baseline.
 
 ### Windows
 
