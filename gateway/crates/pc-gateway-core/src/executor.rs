@@ -850,6 +850,13 @@ where
                 request_body: sent.clone(),
                 response_output,
                 prepared_contexts: call.prepared_contexts.clone(),
+                session_id: call
+                    .headers
+                    .iter()
+                    .find(|(name, _)| {
+                        name.eq_ignore_ascii_case(crate::prefix_store::UPSTREAM_SESSION_HEADER)
+                    })
+                    .map(|(_, value)| value.clone()),
             },
             now_ms(),
         )?;

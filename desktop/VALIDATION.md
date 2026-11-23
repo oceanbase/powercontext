@@ -3981,3 +3981,88 @@ uv run --no-sync python desktop/tests/real_server.py \
 On 2026-11-19, `desktop/tests/real_server.py` passed anonymous loopback, static Bearer, HTTPS with an explicit CA and base path, and injected-provider authentication with enforced access. The product ConnectionManager selected the bundled qualification and reported matching client and Server contract digests. The checks used SQLite on Linux 5.10 x86_64, glibc 2.32 and Python 3.14.6.
 
 The native probe used Rust 1.97.1 and the product adapter modules in an isolated Cargo crate, with registry dependency pins matching the product Cargo lock. This qualification covers the local SQLite protocol. Installed WebView and platform keyring behavior require separate checks.
+
+## Snapshot-authorized processing status protocol qualification
+
+`sqlite-processing-snapshot-dfe4d18b-v1` qualifies all thirteen Desktop protocol operations against Server
+source `dfe4d18bad9ba352431fcff0686520cf4718f113`. This source includes master
+`d053c094b1e0930e2b8e639e81001219f8392e61` and the processing-status endpoint's snapshot-bound Scope
+authorization and deferred decision audit. Revoked access and audit failures return no processing evidence.
+
+- Normalized OpenAPI SHA-256: `b858a8311610bd72428daa98dc5277bf2dbe7c236a8751aff281449759cfc177`.
+- Wheel: `powercontext-1.5.3.dev330+gdfe4d18ba-py3-none-any.whl`.
+- Wheel SHA-256: `f654523d2ce2dda6c36b388624e7140a9bafaed8e2440086fd225cb79df6997a`.
+- Native debug probe SHA-256: `dd73d30cdbfb1eaf4c6ec3806fbd55b1c55cef06b7233812213ceda34811909a`.
+
+On 2026-11-23, macOS 15.8.2 arm64, Rust 1.95.0 and managed Python 3.12.13 passed anonymous loopback,
+static Bearer, HTTPS with explicit CA/base path, and enforced Provider modes of
+`desktop/tests/real_server.py`. The native probe used the ordinary product `ConnectionManager`, the
+product Cargo lock and this bundled qualification, without `ci-fixtures`. Client and Server contract
+digests match. Debug information was disabled with `CARGO_PROFILE_DEV_DEBUG=0`.
+
+[The qualification run](https://github.com/oceanbase/powercontext/actions/runs/45101697355) retains the
+wheel, profile, probe digest and four-mode report in `desktop-protocol-qualification-2725`. Its
+verification checkout is `16c21e9c44d740d032ce110a76d5424878505a91`; Server and Desktop source files match
+the qualified implementation commit. The report records a dirty Desktop worktree because this exact
+compatibility entry was added before compiling the product probe. The temporary verification workflow
+is not part of the feature change.
+
+The same run passes complete OpenAPI generation verification, Rust formatting, clippy with denied
+warnings, Rust tests, IPC generation, frontend lint/type checks/tests/build, `make contract-test`, and
+the full Dashboard/Client/inspector regression suite. It also installs the complete locked Python
+dependencies and passes `make check`, including pre-commit hooks and repository type checks. Regression
+cases cover revocation between admission and reading through HTTP and Dashboard with built-in and
+Casbin authorization, and audit failure before returning evidence.
+
+These results qualify the observed local SQLite protocol, not installed WebView behavior, signed
+distributions, other platforms, native database upgrades or release acceptance.
+
+Reproduce using the retained wheel (the archive contains a `qualification/` subdirectory):
+
+```sh
+gh run download 45101697355 --repo oceanbase/powercontext \
+  --name desktop-protocol-qualification-2725 --dir desktop/.artifacts/processing-snapshot
+uv sync --locked --python 3.12.13 --managed-python
+RUSTUP_TOOLCHAIN=1.95.0 CARGO_PROFILE_DEV_DEBUG=0 \
+  cargo build --locked --manifest-path desktop/src-tauri/Cargo.toml --example server_probe
+uv run --no-sync python desktop/tests/real_server.py \
+  --product-qualification sqlite-processing-snapshot-dfe4d18b-v1 \
+  --wheel desktop/.artifacts/processing-snapshot/qualification/server-wheel/powercontext-1.5.3.dev330+gdfe4d18ba-py3-none-any.whl
+```
+
+## PowerContext 1.6.0 release protocol qualification
+
+`sqlite-release-1-6-0-98a9b1f7-v1` qualifies all thirteen Desktop protocol operations against Server source
+`98a9b1f7f58628ef8b7129b0d7c7cee7efe75daf`, with OpenAPI release version `1.6.0`.
+
+- OpenAPI SHA-256: `dba1e669da2c38f0c52a5720a300ea43b7020c58c62f503e18b588237f870374`.
+- Wheel: `powercontext-1.5.3.dev327+g98a9b1f7f-py3-none-any.whl`.
+- Wheel SHA-256: `d6b4f64fee1a5b6d65ab99e0f9ec99edf26cae9e7d92ad828f5b6fd806082644`.
+- Native debug probe SHA-256: `d8ae8d1845104a631c7554b84dc0768e7f2b9325f3e5ecef52f19ecda9a96803`.
+- Report SHA-256: `23dec383957805d50936c93f1b0f6455f6b4046d843fa2a91fb130a5d660a8d5`.
+
+On 2026-11-23, Linux 5.10 x86_64, glibc 2.32 and Python 3.14.6 passed anonymous loopback, static Bearer,
+HTTPS with an explicit CA/base path, and injected-provider/enforced-access modes. The ordinary product
+ConnectionManager selected the bundled qualification. The harness checks save, search, exact revision reads,
+lost write responses without replay, Server survival, Principal changes and revocation, Scope pagination,
+and scoped authorization. Model usage is controlled fixture input.
+
+The first run passed the first three modes but timed out waiting for the Provider fixture to become ready.
+A local harness wrapper raised only the startup wait to 60 seconds; all four modes then passed. The checked-in
+harness, native probe, HTTP assertions and request timeouts were unchanged. The wrapper and report are retained
+under `/data/codex-tmp/release-1.6.0/`.
+
+The native protocol probe used Rust 1.96.0, the current product adapter modules and registry pins from the
+product Cargo lock in an isolated crate, without Tauri/WebView and without `ci-fixtures`. Its library suite
+passed 39 tests with two ignored. Every packaged runtime file was compared byte-for-byte against the recorded
+Git commit before execution. The wheel has a Git-derived development version because no release tag was created.
+This evidence qualifies the observed SQLite protocol; it does not establish packaged Desktop/WebView behavior,
+other operating systems, native database upgrade acceptance or the final tagged release artifacts.
+
+Reproduce with the recorded artifact (allow sufficient local startup time):
+
+```sh
+.venv/bin/python desktop/tests/real_server.py \
+  --product-qualification sqlite-release-1-6-0-98a9b1f7-v1 \
+  --wheel /data/codex-tmp/release-1.6.0/wheel/powercontext-1.5.3.dev327+g98a9b1f7f-py3-none-any.whl
+```
