@@ -4,10 +4,6 @@ on:
   workflow_dispatch:
   workflow_call:
     inputs:
-      suites:
-        description: Scope already selected by the Main orchestrator
-        type: string
-        default: ''
       source_ref:
         type: string
         required: false
@@ -21,20 +17,9 @@ on:
 
 permissions:
   contents: read
-  actions: read
 
 jobs:
-  changes:
-    if: ${{ inputs.suites == '' }}
-    uses: ./.github/workflows/ci-changes.yml
-    with:
-      baseline-workflow: gateway-distribution.yml
-
   native:
-    needs: changes
-    if: >-
-      ${{ !cancelled() &&
-          ((inputs.suites == '' && needs.changes.result != 'success') || fromJSON(inputs.suites || needs.changes.outputs.suites || '{}').gateway_distribution) }}
     name: Gateway ${{ matrix.target }} (${{ inputs.published && 'download' || 'build' }})
     strategy:
       fail-fast: false

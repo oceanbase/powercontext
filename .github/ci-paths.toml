@@ -24,7 +24,6 @@ ignore = [
 
 knowledge_base = ["frontend/knowledge-base/**", "plugins/knowledge-base/**", "tests/knowledge_base/**", "tests/e2e/test_knowledge_base*.py"]
 
-gateway_distribution = ["gateway/**", "src/**", "pyproject.toml", "uv.lock", "scripts/gateway_distribution.py", "tests/test_gateway_distribution.py", "tests/e2e/gateway_distribution_smoke.py", ".github/workflows/gateway-distribution.yml", ".github/workflows/release.yml"]
 gateway = ["gateway/**", ".github/workflows/gateway.yml", "tests/e2e/gateway_tck.py"]
 
 helm = ["deploy/helm/**", "tests/test_helm*.py", "tests/e2e/helm_*.py"]
@@ -39,6 +38,7 @@ tests = [
   "scripts/check_atomic_memory_migration_shards.py",
   "scripts/oceanbase_ci.py", ".github/oceanbase-migration-durations.json",
   "scripts/ci_role_smoke.py", "scripts/ci_installation_roles.py",
+  ".github/workflows/gateway-distribution.yml", "scripts/gateway_distribution.py",
   # Release tooling is covered by unit tests; the packaging and publication workflows are manual.
   ".github/workflows/desktop-candidate.yml", "scripts/desktop_candidate.py",
   ".github/workflows/desktop-release.yml", "scripts/desktop_publication_manifest.py",
@@ -287,7 +287,6 @@ release_schema = ["release-schema"]
 seekdb_lock = ["seekdb-lock"]
 skill_guidance = ["skill-guidance"]
 gateway = ["gateway-validation"]
-gateway_distribution = ["gateway-distribution"]
 
 # Native prerequisites join the result gate only on scheduled or manual runs.
 [nightly_checks]

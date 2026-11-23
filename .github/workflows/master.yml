@@ -1668,16 +1668,6 @@ jobs:
     with:
       suites: ${{ needs.quality.outputs.suites }}
 
-  gateway-distribution:
-    needs: [quality, tests]
-    if: >-
-      ${{ !cancelled() && needs.quality.result == 'success' &&
-          contains(fromJSON('["success","skipped"]'), needs.tests.result) &&
-          (fromJSON(needs.quality.outputs.suites || '{}').gateway_distribution) }}
-    uses: ./.github/workflows/gateway-distribution.yml
-    with:
-      suites: ${{ needs.quality.outputs.suites }}
-
   desktop-validation:
     needs: [quality, tests]
     if: >-
@@ -1871,7 +1861,6 @@ jobs:
       - check-website
       - harness-validation
       - gateway-validation
-      - gateway-distribution
       - desktop-validation
       - managed-resource-candidates
       - helm
