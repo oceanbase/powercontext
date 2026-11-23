@@ -225,7 +225,7 @@ Rust Gateway 在启动时通过 `/v1/capabilities` 查询一次 `context_protect
 ### 复用缓存前缀抽取记忆
 
 网关与 Server 部署在同一主机时，为一个已沉淀回合抽取 Atomic Memory 可以复用服务商为 Agent 会话写下的提示缓存，
-而不必再次发送对话记录。网关对非订阅上游默认开启前缀抽取；`PC_GATEWAY_PREFIX_EXTRACTION=off` 关闭，`on` 显式开启，其他值会阻止启动。原生 OAuth 订阅流量仍不支持这条抽取路径，即使设置 `on` 也不会开启。还需配置沉淀与 Server 回连：
+而不必再次发送对话记录。网关对支持的上游默认开启前缀抽取；`PC_GATEWAY_PREFIX_EXTRACTION=off` 关闭，`on` 显式开启，其他值会阻止启动。使用 OAuth 订阅时，只有 `codex` 支持前缀抽取，并且必须确认 Server 为非 enforcing：抽取请求和 agent 自己的请求一样用订阅的凭据发出，计入该账号的用量限额，并且不能带输出上限（该端点拒绝这个参数）。其他订阅的流量使用普通抽取。还需配置沉淀与 Server 回连：
 
 - **网关：** 设置 `PC_GATEWAY_SEDIMENT=on` 开启沉淀；沉淀仍默认关闭。对 Responses 会话，网关
   在内存中保留每个回合终止响应对应的、实际发出的请求及其响应输出，最多 30 分钟、最多 64 个回合、总计最多 64 MiB，
@@ -249,8 +249,6 @@ Rust Gateway 在启动时通过 `/v1/capabilities` 查询一次 `context_protect
 
 配置 `POWERCONTEXT_SERVER_INFERENCE_PREFIX_EXTRACTION_GATEWAY_URL` 后，Server 在没有显式指定处理模式时默认使用 `one_pass` 整理 Atomic Memory。设置 `POWERCONTEXT_SERVER_RUNTIME_ATOMIC_MEMORY_PROCESSING_MODE=per_candidate` 可保留逐候选处理，设为 `one_pass` 可显式选择单次整理。未配置回连地址的 Server 和直接使用 SDK 的配置仍默认使用 `per_candidate`。网关不会替独立启动的 Server 自动发现或配置这个地址。
 
-one-pass 在各步骤间复用的是记忆生成自身的对话，正常路径不会复用 Agent 已捕获的原始前缀。下述前缀抽取路径用于逐候选处理，也包括 one-pass 输入超预算后回退到逐候选的情况；同时开启两项配置不代表两种缓存收益叠加，也不保证命中缓存。
-
 命中缓存的输入并非免费，服务商仍按较低的价格计费。处理窗口恰好只含一个这样的回合时，Server 先估算两种请求的成本：
 前缀请求为 Core 的指令加上终止响应的输出 token（按全价），再加上命中缓存的输入 token 乘以
 `POWERCONTEXT_SERVER_INFERENCE_PREFIX_EXTRACTION_CACHED_INPUT_RATIO`（默认 `0.1`）；普通抽取为其指令加上 Source
@@ -270,6 +268,18 @@ one-pass 在各步骤间复用的是记忆生成自身的对话，正常路径�
 出错，以及回复未通过校验。每次尝试都记录为 `atomic_memory.prefixed_extraction` 日志事件，参见
 [日志、指标与追踪](observability.md#operational-fields-与关联)。模型用量（包括命中缓存的输入 token）与其他
 生成一样上报。
+
+设置 `POWERCONTEXT_SERVER_RUNTIME_ATOMIC_MEMORY_PROCESSING_MODE=one_pass` 时，这类窗口的整段单次整理对话都接在前缀
+之后进行。第一次请求携带单次整理的流程指令和 Source 的溯源信息。之后每一步重发同一条指令，并带上
+`continuation`：模型此前的回复和 Server 的后续消息，按顺序排列，由网关追加在指令之后。因此每一步都原样重复前缀和
+此前各步，模型服务可以从提示词缓存读取它们；某一步是否命中缓存以及 token 用量由模型服务决定，以它上报的用量为准。
+这段对话发往智能体自己的目标和账号，而不是 Server 的生成模型：后续步骤要比对的已有记忆和写入的文本都会发往该目标。
+单次整理的流程指令是智能体会话之后的一条用户消息，而不是系统指令；Server 对每次回复的校验与普通的单次整理对话
+相同。估算比较的是每个窗口都有的
+前两步：缓存输入 token 按缓存价格计两次，加上指令和最终响应的输出 token，与 Server 自己发送 Source 证据时的同样
+两步相比。由于每一步都要读一遍前缀，仍然划算的前缀长度大约是前缀抽取的一半。任何一步无法完成，或回复在请求数上限
+允许的纠正之后仍未通过校验时，这段对话的结果全部丢弃，窗口按普通的单次整理对话重新开始。不接受 `continuation`
+的网关会拒绝第二步，这样的窗口要多付一次第一步的费用；请将网关与 Server 一同升级。
 
 ## 使用 Docker 运行
 

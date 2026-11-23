@@ -62,6 +62,8 @@ Core must approve the final target, model and protocol through `PC_GATEWAY_UPSTR
 
 Codex's endpoint rejects `max_output_tokens`. A Core policy requiring that explicit output cap withholds the request with `output_limit_required`; a configured profile limit cannot make the upstream enforce an unsupported parameter.
 
+Memory extraction over the cached prefix is enabled by default on `codex` when Core is confirmed as non-enforcing at startup; `PC_GATEWAY_PREFIX_EXTRACTION=off` disables it. Each extraction request is sent with the credentials in the Codex login at that moment, counts against that account's usage limits, and has no output limit; a request that asks for one is refused with `output_limit_unsupported`, and Core uses normal extraction. See [prefix extraction settings](../docs/en/docs/operate/deploy-server.md#memory-extraction-over-the-cached-prefix).
+
 Gemini maps Chat output limits to `request.generationConfig.maxOutputTokens`. Responses containing thought signatures are withheld; signed tool continuations are unsupported. Plain thought text is retained in the checked result. Claude checks cannot inspect the CLI's internal HTTP calls, retries or token budget, so enforcing Core always withholds this execution path, including after a runtime policy change.
 
 Do not route Core's own generation calls back through a Gateway with automatic recall or capture enabled without a separate recursion boundary. These global features cannot distinguish internal generation from ordinary clients.

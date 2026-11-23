@@ -131,13 +131,14 @@ enum Startup {
 impl Gateway {
     async fn start(replies: Vec<Reply>, deny: Option<(&'static str, &'static str)>) -> Self {
         // Golden protocol fixtures exercise requests without operator steering.
-        Self::start_with_env(replies, deny, &[("PC_GATEWAY_STEERING", "off")]).await
+        Self::start_with_env(replies, deny, &[("PC_GATEWAY_STEERING", "off")], true).await
     }
 
     async fn start_with_env(
         replies: Vec<Reply>,
         deny: Option<(&'static str, &'static str)>,
         settings: &[(&str, &str)],
+        enforcing: bool,
     ) -> Self {
         let peers = Arc::new(Peers {
             replies: Mutex::new(replies.into()),
@@ -153,11 +154,11 @@ impl Gateway {
             // streaming semantics, so advertise the same ceiling as Core's v1 parser.
             .route(
                 "/v1/capabilities",
-                axum::routing::get(|| async {
+                axum::routing::get(move || async move {
                     Json(json!({"context_protection": {
                         "check_versions": ["powercontext.context-check.v1"],
                         "payload_versions": ["powercontext.model-json-payload.v1"],
-                        "reuse_versions": [], "reuse_families": [], "enforcing": true,
+                        "reuse_versions": [], "reuse_families": [], "enforcing": enforcing,
                         "limits": {"payload_bytes": 1_048_576, "binding_bytes": 8192,
                             "prepared_contexts": 16, "dependencies": 256,
                             "send_seconds": 60, "correlate_seconds": 300}
@@ -816,6 +817,7 @@ async fn default_steering_and_overrides_reach_only_responses() {
             ],
             None,
             &settings,
+            true,
         )
         .await;
         assert!(gateway
@@ -859,30 +861,51 @@ async fn default_steering_and_overrides_reach_only_responses() {
 
 #[tokio::test]
 async fn prefix_extraction_defaults_on_but_respects_off_and_subscription_boundary() {
-    for (settings, expected) in [
-        (vec![], "prefix_unavailable"),
+    for (subscription, setting, enforcing, expected) in [
+        (None, None, true, "prefix_unavailable"),
+        (None, Some("off"), true, "prefix_extraction_disabled"),
+        (Some("codex"), None, false, "prefix_unavailable"),
+        (Some("codex"), Some("on"), false, "prefix_unavailable"),
         (
-            vec![("PC_GATEWAY_PREFIX_EXTRACTION", "off")],
+            Some("codex"),
+            Some("off"),
+            false,
             "prefix_extraction_disabled",
         ),
+        (Some("codex"), None, true, "prefix_extraction_disabled"),
         (
-            vec![
-                ("PC_GATEWAY_PREFIX_EXTRACTION", "on"),
-                ("PC_GATEWAY_SUBSCRIPTION", "codex"),
+            Some("codex"),
+            Some("on"),
+            true,
+            "prefix_extraction_disabled",
+        ),
+        (Some("kimi"), None, false, "prefix_extraction_disabled"),
+        (
+            Some("kimi"),
+            Some("on"),
+            false,
+            "prefix_extraction_disabled",
+        ),
+    ] {
+        let mut settings = Vec::new();
+        if let Some(setting) = setting {
+            settings.push(("PC_GATEWAY_PREFIX_EXTRACTION", setting));
+        }
+        if let Some(subscription) = subscription {
+            let (_, responses) = pc_gateway_auth::Subscription::parse(subscription)
+                .unwrap()
+                .default_targets();
+            settings.extend([
+                ("PC_GATEWAY_SUBSCRIPTION", subscription),
                 (
                     "PC_GATEWAY_SUBSCRIPTION_CREDENTIALS",
                     "/synthetic/not-read-by-extract.json",
                 ),
                 ("PC_GATEWAY_UPSTREAM_URL_CHAT", ""),
-                (
-                    "PC_GATEWAY_UPSTREAM_URL_RESPONSES",
-                    "https://chatgpt.com/backend-api/codex/responses",
-                ),
-            ],
-            "prefix_extraction_disabled",
-        ),
-    ] {
-        let gateway = Gateway::start_with_env(vec![], None, &settings).await;
+                ("PC_GATEWAY_UPSTREAM_URL_RESPONSES", responses),
+            ]);
+        }
+        let gateway = Gateway::start_with_env(vec![], None, &settings, enforcing).await;
         let response = gateway
             .post(
                 "extract",
@@ -890,7 +913,11 @@ async fn prefix_extraction_defaults_on_but_respects_off_and_subscription_boundar
             )
             .await;
         assert_eq!(response.status(), 404);
-        assert_eq!(response.json::<Value>().await.unwrap()["error"], expected);
+        assert_eq!(
+            response.json::<Value>().await.unwrap()["error"],
+            expected,
+            "subscription: {subscription:?}, setting: {setting:?}, enforcing: {enforcing}"
+        );
         assert!(gateway.peers.sent.lock().unwrap().is_empty());
     }
 }

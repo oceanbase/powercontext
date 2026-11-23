@@ -223,7 +223,7 @@ These are per-body and per-class concurrency limits. They do not measure retaine
 ### Memory extraction over the cached prefix
 
 When the gateway runs on the same host as the Server, Atomic Memory extraction for a captured turn can reuse the
-provider's prompt cache for the agent's conversation instead of sending the transcript again. The gateway enables prefix extraction by default for non-subscription upstreams; `PC_GATEWAY_PREFIX_EXTRACTION=off` disables it, and `on` explicitly enables it. Other values prevent startup. Native OAuth subscription traffic still does not support this extraction path, even with `on`. Capture and the Server callback must also be configured:
+provider's prompt cache for the agent's conversation instead of sending the transcript again. The gateway enables prefix extraction by default for supported upstreams; `PC_GATEWAY_PREFIX_EXTRACTION=off` disables it, and `on` explicitly enables it. Other values prevent startup. With an OAuth subscription, only `codex` supports it, and only when the Server is confirmed as non-enforcing: the extraction request goes out with the subscription's credentials like the agent's own requests, counts against that account's usage limits, and cannot carry an output limit, which that endpoint rejects. Traffic of the other subscriptions uses normal extraction. Capture and the Server callback must also be configured:
 
 - **Gateway:** Enable capture with `PC_GATEWAY_SEDIMENT=on`; capture remains off by default. For a Responses
   conversation, the gateway keeps the exact request it sent and the response output of each turn's final response in
@@ -255,8 +255,6 @@ provider's prompt cache for the agent's conversation instead of sending the tran
 
 With `POWERCONTEXT_SERVER_INFERENCE_PREFIX_EXTRACTION_GATEWAY_URL` configured, the Server defaults Atomic Memory processing to `one_pass` unless a mode was explicitly supplied. Set `POWERCONTEXT_SERVER_RUNTIME_ATOMIC_MEMORY_PROCESSING_MODE=per_candidate` to retain per-candidate extraction, or `one_pass` to select one-pass explicitly. A Server without the callback URL and direct SDK configurations keep their existing `per_candidate` default. The gateway cannot discover or configure this URL for a separately started Server.
 
-One-pass reuses its own memory-generation conversation across steps. Its normal path does not reuse the agent's captured prefix. The prefix-extraction path below applies to per-candidate processing, including one-pass input-budget fallback; enabling both settings does not combine their cache benefits or guarantee a cache hit.
-
 Cached input is not free: the provider still bills it at a reduced rate. When a processing window holds exactly one
 such turn, the Server first estimates both requests. The prefixed request costs Core's instruction plus the final
 response's output tokens at the full rate, plus the cached input tokens multiplied by
@@ -286,6 +284,23 @@ handle, a target mismatch, a withheld or blocked check, a provider or gateway er
 Each attempt is logged as `atomic_memory.prefixed_extraction`; see
 [Logs, metrics, and tracing](observability.md#operational-fields-and-correlation). Model usage, including cached input
 tokens, is reported like any other generation.
+
+With `POWERCONTEXT_SERVER_RUNTIME_ATOMIC_MEMORY_PROCESSING_MODE=one_pass`, the whole one-pass conversation of such a
+window runs after the prefix. The first request carries the one-pass instructions and the Source's provenance. Each
+later step sends the same instruction again with a `continuation`: the model's earlier replies and the Server's later
+messages, in order, which the gateway appends after the instruction. Every step therefore repeats the prefix and the
+earlier steps unchanged, which lets the provider read them from its prompt cache; whether a step is read from the
+cache, and its token usage, are decided by the provider and shown in the usage it reports. The conversation runs on
+the agent's target and account, not on the Server's generation model: the existing memories that the later steps
+compare, and the texts they write, are sent to that target. The one-pass instructions arrive as a user message after
+the agent's conversation instead of as system instructions; the Server checks each reply as it does in a normal
+one-pass conversation. The estimate compares the first two steps, which every window has: twice the cached input
+tokens at the cached rate plus the instruction and the final response's output tokens, against the same two steps
+with the Server sending the Source evidence itself. Because the prefix is read at every step, the prefix that still
+pays off is about half as long as for prefixed extraction. When any step cannot complete, or a reply still fails
+validation after the corrections the request limit allows, nothing of that conversation is kept and the window starts
+again as a normal one-pass conversation. A gateway that does not accept `continuation` rejects the second step, so
+such a window pays for one extra first step; upgrade the gateway together with the Server.
 
 ## Run with Docker
 

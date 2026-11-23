@@ -70,7 +70,7 @@ pub struct AppState {
     pub sediment: bool,
     /// 默认内置固定指令，只插入 Responses 请求；文件可覆盖，`PC_GATEWAY_STEERING=off` 可关闭。
     pub steering: Option<String>,
-    /// 非订阅上游默认保留记忆抽取前缀；`PC_GATEWAY_PREFIX_EXTRACTION=off` 可关闭（#2413）。
+    /// 支持的上游默认保留记忆抽取前缀；`PC_GATEWAY_PREFIX_EXTRACTION=off` 可关闭（#2413）。
     pub prefix_extraction: bool,
     /// 默认 Scope（启动时读一次，避免热路径读环境变量）。
     pub default_scope: String,
@@ -167,10 +167,11 @@ async fn main() {
         eprintln!("{reason}");
         std::process::exit(2);
     });
-    let prefix_extraction = default_on("PC_GATEWAY_PREFIX_EXTRACTION").unwrap_or_else(|reason| {
-        eprintln!("{reason}");
-        std::process::exit(2);
-    });
+    let prefix_extraction_requested =
+        default_on("PC_GATEWAY_PREFIX_EXTRACTION").unwrap_or_else(|reason| {
+            eprintln!("{reason}");
+            std::process::exit(2);
+        });
     // 显式关闭时不读取指令文件；开启时文件优先于内置文本，配置无效则拒绝启动。
     let steering = match if steering_enabled {
         steering::load(std::env::var("PC_GATEWAY_STEERING_FILE").ok().as_deref())
@@ -246,6 +247,19 @@ async fn main() {
         eprintln!("Claude CLI requires confirmed non-enforcing Core; its internal HTTP sends are not observable");
         std::process::exit(2);
     }
+    // 订阅通道里只有 Codex 支持前缀抽取。它的请求重放加密推理，enforcing 的 Core 会暂缓每个抽取请求，
+    // 所以只在 Core 确认为非 enforcing 时启用。
+    let prefix_extraction = prefix_extraction_requested
+        && match subscription_kind {
+            None => true,
+            Some(pc_gateway_auth::Subscription::Codex) => degradation_allowed,
+            Some(_) => false,
+        };
+    if prefix_extraction_requested && !prefix_extraction {
+        tracing::warn!(
+            "PC_GATEWAY_PREFIX_EXTRACTION=on is not in effect: with a subscription it needs codex and a Core confirmed as non-enforcing; turns use normal extraction"
+        );
+    }
     let transport = GatewayTransport::new(
         ReqwestTransport::new(Duration::from_secs(120))
             .with_subscription_responses_sse(matches!(
@@ -304,7 +318,7 @@ async fn main() {
         ),
         sediment,
         steering,
-        prefix_extraction: subscription_kind.is_none() && prefix_extraction,
+        prefix_extraction,
         default_scope: std::env::var("PC_GATEWAY_DEFAULT_SCOPE")
             .unwrap_or_else(|_| "gateway:default".into()),
         max_body_bytes: model_body_bytes,
