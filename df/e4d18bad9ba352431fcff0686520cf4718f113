@@ -1,0 +1,23 @@
+src/powercontext/server/app.py
+  s_624ad8983708a5::t_4134dc5d4af7bf 5167-5168,5178-5180
+tests/test_dashboard_artifact_processing.py
+  s_624ad8983708a5::t_3f8ff586afd388 287-291,296,320-324,329
+  s_624ad8983708a5::t_a825d94ad94889 313
+  s_624ad8983708a5::t_d1ce8f791c33e7 22,256-286,292-295,297-312,314-319,325-328,330-335
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "dfe4d18bad9ba352431fcff0686520cf4718f113",
+  "prompts": {},
+  "sessions": {
+    "s_624ad8983708a5": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1ab57-e572-7090-b0f7-d55ee829f4b0",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Frey <370805886@qq.com>"
+    }
+  }
+}
