@@ -137,10 +137,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
-      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e
+      - uses: ./.github/actions/setup-python-env
         with:
-          version: '0.10.12'
+          python-version: '3.14.10'
       - name: Check operational metrics on Python 3.14
-        run: |
-          uv sync --locked --python 3.14.10 --managed-python
-          uv run --no-sync python -m pytest tests/test_operational_metrics.py -q -o addopts=""
+        run: .venv/bin/python -m pytest tests/test_operational_metrics.py -q -o addopts=""
