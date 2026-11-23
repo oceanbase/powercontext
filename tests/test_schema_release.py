@@ -541,38 +541,3 @@ def test_cli_reports_verified_baseline_and_rejects_history_edits(draft, monkeypa
     monkeypatch.setattr(sys, "argv", ["schema_release.py", "check", "--base-ref", "refs/heads/missing-baseline"])
     assert schema.main() == 1
     assert "matches base" not in capsys.readouterr().out
-
-
-@pytest.mark.parametrize("changed", [None, "sqlite", "mysql", "published"])
-def test_unpublished_source_collection_rename_preserves_resource_checks(tmp_path, changed):
-    baseline = tmp_path / "baseline"
-    current_root = tmp_path / "current"
-    for root in (baseline, current_root):
-        for directory in (schema.SERVER, schema.SOURCES):
-            shutil.copytree(schema.ROOT / directory, root / directory)
-    # Reconstruct the pre-release name from the same resource bytes. The name
-    # was absent from the published 1.5.2 tag; it is not a runtime alias.
-    for directory in (schema.SERVER, schema.SOURCES):
-        for path in sorted((baseline / directory).rglob("*")):
-            if path.is_file():
-                path.write_bytes(path.read_bytes().replace(b"v1_5_0_006", b"v1_5_2_pr2639"))
-                if "v1_5_0_006" in path.name:
-                    path.rename(path.with_name(path.name.replace("v1_5_0_006", "v1_5_2_pr2639")))
-    if changed:
-        relative = {
-            "sqlite": "versions/v1_5_0_006_source_collection.py",
-            "mysql": "mysql/versions/v1_5_0_006.py",
-            "published": "versions/v1_5_0_005_plugin_interfaces.py",
-        }[changed]
-        path = current_root / schema.SERVER / relative
-        path.write_text(path.read_text() + "\n# modified migration\n")
-    current = schema.bundles(current_root)
-    schema.normalize_unpublished_source_collection(baseline, current)
-    previous = schema.bundles(baseline)
-    if changed:
-        with pytest.raises(ValueError, match="Frozen migration resources changed"):
-            schema.preserve_history(previous, current)
-    else:
-        schema.preserve_history(previous, current)
-        assert set(previous) == {"server", "server:vector", "1.4.0", "1.4.0:vector"}
-        assert all("v1_5_0_006" in bundle.revisions for bundle in previous.values())

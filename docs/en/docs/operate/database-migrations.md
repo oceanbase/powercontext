@@ -247,8 +247,8 @@ The cumulative workflow applies when a schema PR updates against master. Legacy 
 revisions already in the master baseline remain immutable. The baseline comparison protects their IDs,
 resources and dependencies. The 1.6.0 release has one explicit exception: the unpublished Source collection
 revision from [PR #2639](https://github.com/oceanbase/powercontext/pull/2639) is named `v1_5_0_006`.
-The validator normalizes this identity only in its temporary baseline copy, then compares the full frozen
-resources as usual; this does not authorize SQL or published-history changes.
+The baseline validator is unchanged and rejects this rename when compared with a base containing the
+former identity. This known CI failure does not authorize SQL or published-history changes.
 
 An unmerged PR that introduces an unpublished revision such as `v1_5_2_pr2674` must:
 

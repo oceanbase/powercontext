@@ -191,28 +191,6 @@ def checkout_resources(root: Path, ref: str, target: Path) -> str:
     return commit
 
 
-def normalize_unpublished_source_collection(base: Path, current) -> None:
-    """Compare the pre-1.6 source-collection identity using its final release name.
-
-    PR #2639 merged after the 1.5.2 release (ad0d02061eee0e9fee38c202b60f421216b06dd9).
-    Only the archived comparison tree is rewritten. SQL, fingerprints and all
-    other frozen resources still pass the ordinary byte/checksum comparison.
-    This is not a runtime alias for development databases or recovery journals.
-    """
-    old, new = "v1_5_2_pr2639", "v1_5_0_006"
-    if new not in current["server"].revisions or old in current["server"].revisions:
-        return
-    for directory in (SERVER, SOURCES):
-        for path in sorted((base / directory).rglob("*")):
-            if not path.is_file():
-                continue
-            data = path.read_bytes()
-            if old.encode() in data:
-                path.write_bytes(data.replace(old.encode(), new.encode()))
-            if old in path.name:
-                path.rename(path.with_name(path.name.replace(old, new)))
-
-
 def check(root: Path, *, base_ref: str | None = None, release: bool = False):
     if base_ref is not None and not base_ref.strip():
         message = "--base-ref must not be empty; omit it to run without a baseline comparison"
@@ -225,7 +203,6 @@ def check(root: Path, *, base_ref: str | None = None, release: bool = False):
         with tempfile.TemporaryDirectory(prefix="pc-schema-base-") as temporary:
             base = Path(temporary)
             commit = checkout_resources(root, base_ref, base)
-            normalize_unpublished_source_collection(base, current)
             previous = bundles(base)
             preserve_history(previous, current)
             head = current["server"].head
