@@ -1,0 +1,150 @@
+docs/assets/scenarios/card-shared-ja-dark.svg
+  s_08eaaedfaa31d0::t_ae93c5a107fdd3 1
+docs/assets/readme-architecture-ja-dark.svg
+  s_08eaaedfaa31d0::t_ae93c5a107fdd3 1
+docs/assets/scenarios/card-shared-zh-light.svg
+  s_08eaaedfaa31d0::t_ae93c5a107fdd3 1
+docs/assets/scenarios/card-plugins-zh-dark.svg
+  s_08eaaedfaa31d0::t_ae93c5a107fdd3 1
+docs/assets/scenarios/card-handoff-zh-light.svg
+  s_08eaaedfaa31d0::t_ae93c5a107fdd3 1
+docs/assets/scenarios/card-plugins-zh-light.svg
+  s_08eaaedfaa31d0::t_ae93c5a107fdd3 1
+docs/assets/readme-prompt-rules-zh-dark.svg
+  s_08eaaedfaa31d0::t_ae93c5a107fdd3 1
+docs/assets/scenarios/card-office-ja-dark.svg
+  s_08eaaedfaa31d0::t_ae93c5a107fdd3 1
+docs/assets/scenarios/card-shared-zh-dark.svg
+  s_08eaaedfaa31d0::t_ae93c5a107fdd3 1
+docs/assets/readme-prompt-rules-zh-light.svg
+  s_08eaaedfaa31d0::t_ae93c5a107fdd3 1
+docs/assets/scenarios/card-domain-en-light.svg
+  s_08eaaedfaa31d0::t_ae93c5a107fdd3 1
+docs/assets/scenarios/card-handoff-zh-dark.svg
+  s_08eaaedfaa31d0::t_ae93c5a107fdd3 1
+docs/assets/scenarios/card-knowledge-en-light.svg
+  s_08eaaedfaa31d0::t_ae93c5a107fdd3 1
+docs/assets/scenarios/card-plugins-ja-dark.svg
+  s_08eaaedfaa31d0::t_ae93c5a107fdd3 1
+docs/assets/scenarios/card-shared-en-light.svg
+  s_08eaaedfaa31d0::t_ae93c5a107fdd3 1
+docs/assets/scenarios/card-handoff-en-light.svg
+  s_08eaaedfaa31d0::t_ae93c5a107fdd3 1
+docs/assets/scenarios/card-assistant-zh-dark.svg
+  s_08eaaedfaa31d0::t_ae93c5a107fdd3 1
+docs/assets/scenarios/card-domain-ja-dark.svg
+  s_08eaaedfaa31d0::t_ae93c5a107fdd3 1
+README_CN.md
+  s_08eaaedfaa31d0::t_ae93c5a107fdd3 8,10-22,31,33,35-40,42,44,46,48,50,52-54,56,58,60,62,64-67,69,71,73,75-77,79-120,124-141,187-198,231-245,254,256
+  s_08eaaedfaa31d0::t_4d4e3ff84403f3 23,246-252
+docs/assets/scenarios/card-assistant-ja-light.svg
+  s_08eaaedfaa31d0::t_ae93c5a107fdd3 1
+docs/assets/scenarios/card-assistant-en-dark.svg
+  s_08eaaedfaa31d0::t_ae93c5a107fdd3 1
+docs/assets/scenarios/card-users-en-dark.svg
+  s_08eaaedfaa31d0::t_ae93c5a107fdd3 1
+docs/assets/scenarios/card-knowledge-zh-dark.svg
+  s_08eaaedfaa31d0::t_ae93c5a107fdd3 1
+docs/assets/readme-prompt-rules-en-dark.svg
+  s_08eaaedfaa31d0::t_ae93c5a107fdd3 1
+docs/assets/scenarios/card-domain-ja-light.svg
+  s_08eaaedfaa31d0::t_ae93c5a107fdd3 1
+docs/assets/readme-prompt-rules-ja-dark.svg
+  s_08eaaedfaa31d0::t_ae93c5a107fdd3 1
+docs/assets/scenarios/card-domain-zh-dark.svg
+  s_08eaaedfaa31d0::t_ae93c5a107fdd3 1
+README_JP.md
+  s_08eaaedfaa31d0::t_4d4e3ff84403f3 23,246-252
+  s_08eaaedfaa31d0::t_ae93c5a107fdd3 8,10-22,28,31,33,35-40,42,44,46,48,50,52-54,56,58,60,62,64-67,69,71,73,75-77,79,81-120,124-141,187-198,231-245,254
+docs/assets/scenarios/card-knowledge-zh-light.svg
+  s_08eaaedfaa31d0::t_ae93c5a107fdd3 1
+docs/assets/scenarios/card-assistant-zh-light.svg
+  s_08eaaedfaa31d0::t_ae93c5a107fdd3 1
+docs/assets/scenarios/card-users-zh-light.svg
+  s_08eaaedfaa31d0::t_ae93c5a107fdd3 1
+docs/assets/scenarios/card-office-en-light.svg
+  s_08eaaedfaa31d0::t_ae93c5a107fdd3 1
+docs/assets/scenarios/card-plugins-ja-light.svg
+  s_08eaaedfaa31d0::t_ae93c5a107fdd3 1
+docs/assets/render_scenarios.py
+  s_08eaaedfaa31d0::t_ae93c5a107fdd3 1-455
+docs/assets/scenarios/card-plugins-en-dark.svg
+  s_08eaaedfaa31d0::t_ae93c5a107fdd3 1
+docs/assets/readme-architecture-ja-light.svg
+  s_08eaaedfaa31d0::t_ae93c5a107fdd3 1
+docs/assets/scenarios/card-handoff-ja-dark.svg
+  s_08eaaedfaa31d0::t_ae93c5a107fdd3 1
+docs/assets/scenarios/card-knowledge-ja-dark.svg
+  s_08eaaedfaa31d0::t_ae93c5a107fdd3 1
+docs/assets/readme-architecture-en-light.svg
+  s_08eaaedfaa31d0::t_ae93c5a107fdd3 1
+docs/assets/render_architecture.py
+  s_08eaaedfaa31d0::t_ae93c5a107fdd3 1-205
+docs/assets/readme-architecture-zh-light.svg
+  s_08eaaedfaa31d0::t_ae93c5a107fdd3 1
+docs/assets/scenarios/card-office-en-dark.svg
+  s_08eaaedfaa31d0::t_ae93c5a107fdd3 1
+docs/assets/scenarios/card-users-ja-dark.svg
+  s_08eaaedfaa31d0::t_ae93c5a107fdd3 1
+docs/assets/scenarios/card-handoff-en-dark.svg
+  s_08eaaedfaa31d0::t_ae93c5a107fdd3 1
+docs/assets/scenarios/card-knowledge-ja-light.svg
+  s_08eaaedfaa31d0::t_ae93c5a107fdd3 1
+docs/assets/scenarios/card-office-ja-light.svg
+  s_08eaaedfaa31d0::t_ae93c5a107fdd3 1
+docs/assets/scenarios/card-users-zh-dark.svg
+  s_08eaaedfaa31d0::t_ae93c5a107fdd3 1
+docs/assets/scenarios/card-domain-zh-light.svg
+  s_08eaaedfaa31d0::t_ae93c5a107fdd3 1
+docs/assets/scenarios/card-assistant-en-light.svg
+  s_08eaaedfaa31d0::t_ae93c5a107fdd3 1
+docs/assets/scenarios/card-knowledge-en-dark.svg
+  s_08eaaedfaa31d0::t_ae93c5a107fdd3 1
+docs/assets/scenarios/card-domain-en-dark.svg
+  s_08eaaedfaa31d0::t_ae93c5a107fdd3 1
+docs/assets/readme-prompt-rules-ja-light.svg
+  s_08eaaedfaa31d0::t_ae93c5a107fdd3 1
+docs/assets/scenarios/card-handoff-ja-light.svg
+  s_08eaaedfaa31d0::t_ae93c5a107fdd3 1
+docs/assets/scenarios/card-assistant-ja-dark.svg
+  s_08eaaedfaa31d0::t_ae93c5a107fdd3 1
+docs/assets/scenarios/card-office-zh-light.svg
+  s_08eaaedfaa31d0::t_ae93c5a107fdd3 1
+docs/assets/scenarios/card-shared-en-dark.svg
+  s_08eaaedfaa31d0::t_ae93c5a107fdd3 1
+docs/assets/readme-architecture-en-dark.svg
+  s_08eaaedfaa31d0::t_ae93c5a107fdd3 1
+docs/assets/readme-prompt-rules-en-light.svg
+  s_08eaaedfaa31d0::t_ae93c5a107fdd3 1
+docs/assets/scenarios/card-users-en-light.svg
+  s_08eaaedfaa31d0::t_ae93c5a107fdd3 1
+docs/assets/scenarios/card-shared-ja-light.svg
+  s_08eaaedfaa31d0::t_ae93c5a107fdd3 1
+docs/assets/readme-architecture-zh-dark.svg
+  s_08eaaedfaa31d0::t_ae93c5a107fdd3 1
+docs/assets/scenarios/card-users-ja-light.svg
+  s_08eaaedfaa31d0::t_ae93c5a107fdd3 1
+README.md
+  s_08eaaedfaa31d0::t_4d4e3ff84403f3 23,246-252
+  s_08eaaedfaa31d0::t_ae93c5a107fdd3 8,10-22,31,33,35-40,42,44,46,48,50,52-54,56,58,60,62,64-67,69,71,73,75-77,79-120,124-141,187-198,231-245,254
+docs/assets/scenarios/card-plugins-en-light.svg
+  s_08eaaedfaa31d0::t_ae93c5a107fdd3 1
+docs/assets/scenarios/card-office-zh-dark.svg
+  s_08eaaedfaa31d0::t_ae93c5a107fdd3 1
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "23ed8bfedef061732e4f5b9927fd60474a9f7ea7",
+  "prompts": {},
+  "sessions": {
+    "s_08eaaedfaa31d0": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1c18c-f3bd-72a0-964f-7ee6c62e7e29",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "frf12 <rongfeng.frf@antgroup.com>"
+    }
+  }
+}
