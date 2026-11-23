@@ -151,6 +151,8 @@ When the Server uses UDS, `powercontext source-agent` on a device connects to it
 
 This listener provides the Core transport for the [Rust Gateway design (RFC #2199)](https://github.com/oceanbase/powercontext/pull/2199). The Rust executable, joint launcher, gateway settings, private channel authentication, private routes, and gateway state tables remain separate work. The design assigns the original public TCP port to the gateway, which calls the Core over UDS with channel and user authentication.
 
+Install a [prebuilt Gateway](install-gateway.md) to use the Rust executable without a local Rust toolchain. Core remains a separately installed and configured service.
+
 ### Gateway authentication boundaries
 
 `PC_GATEWAY_API_KEY` applies only to `/gateway/v1/chat/completions` and `/gateway/v1/responses`. A non-loopback Gateway listener requires a valid, nonempty key; that startup check does not authenticate other routes. In a combined deployment (`PC_GATEWAY_CORE_UDS`), requests forwarded to Core retain the client's credentials. Core API, MCP and Dashboard requests follow Core's existing authentication and access-control rules. The Gateway key does not grant Core API access, and UDS does not replace Core authentication.
@@ -200,7 +202,9 @@ Set `PC_GATEWAY_INJECTION_CODE=on` to include code evidence from the Scope's cod
 
 ### Gateway instruction
 
-`PC_GATEWAY_STEERING_FILE` names a file with a short, fixed instruction that the gateway adds to every request on the Responses route (`/gateway/v1/responses`); the Chat route is never changed. The gateway reads the file once at startup. It must be UTF-8, non-empty after trimming, at most 4,096 bytes, and free of PowerContext's reserved `BEGIN_POWERCONTEXT_` markers; otherwise the gateway exits at startup instead of running without it. Nothing is added when the variable is unset.
+The gateway adds a built-in cost-guidance instruction (S) to every request on the Responses route (`/gateway/v1/responses`) by default; the Chat route is never changed. The text encourages targeted searches, batched reads, concise edits, and focused validation. `PC_GATEWAY_STEERING=off` disables it; unset or `on` enables it. Other values prevent startup.
+
+`PC_GATEWAY_STEERING_FILE` replaces the built-in text with a custom instruction. When steering is enabled, the gateway reads the file once at startup. It must be UTF-8, non-empty after trimming, at most 4,096 bytes, and free of PowerContext's reserved `BEGIN_POWERCONTEXT_` markers; otherwise the gateway exits at startup instead of running with a different instruction. `PC_GATEWAY_STEERING=off` takes precedence and does not read the file.
 
 The text becomes the first content block of the developer message that follows the client's first developer message, which is where Codex places its own `developer_instructions`. Without such a message, the gateway inserts a new developer message after the client's first developer message, or before the first user message when the request has no developer message. The text is identical on every request, so it stays part of the cached prefix. Core checks it as part of the final request like any other request text. It is independent of context injection, capture, and replay.
 
@@ -221,9 +225,9 @@ These are per-body and per-class concurrency limits. They do not measure retaine
 ### Memory extraction over the cached prefix
 
 When the gateway runs on the same host as the Server, Atomic Memory extraction for a captured turn can reuse the
-provider's prompt cache for the agent's conversation instead of sending the transcript again. OAuth subscription traffic uses normal extraction. Prefix extraction is off by default and needs both sides:
+provider's prompt cache for the agent's conversation instead of sending the transcript again. The gateway enables prefix extraction by default for supported upstreams; `PC_GATEWAY_PREFIX_EXTRACTION=off` disables it, and `on` explicitly enables it. Other values prevent startup. With an OAuth subscription, only `codex` supports it, and only when the Server is confirmed as non-enforcing: the extraction request goes out with the subscription's credentials like the agent's own requests, counts against that account's usage limits, and cannot carry an output limit, which that endpoint rejects. Traffic of the other subscriptions uses normal extraction. Capture and the Server callback must also be configured:
 
-- **Gateway:** `PC_GATEWAY_PREFIX_EXTRACTION=on` together with capture (`PC_GATEWAY_SEDIMENT=on`). For a Responses
+- **Gateway:** Enable capture with `PC_GATEWAY_SEDIMENT=on`; capture remains off by default. For a Responses
   conversation, the gateway keeps the exact request it sent and the response output of each turn's final response in
   memory, for at most 30 minutes, at most 64 turns and at most 64 MiB in total; the oldest are dropped first, and a
   turn dropped before extraction goes through normal extraction. It records an opaque handle in the captured Source's metadata,
@@ -250,6 +254,8 @@ provider's prompt cache for the agent's conversation instead of sending the tran
 - **Server:** `POWERCONTEXT_SERVER_INFERENCE_PREFIX_EXTRACTION_GATEWAY_URL` set to the gateway's listen address, and
   `POWERCONTEXT_SERVER_INFERENCE_PREFIX_EXTRACTION_GATEWAY_HEADERS` set to `{"Authorization": "Bearer <PC_GATEWAY_API_KEY>"}`
   when the gateway requires a key. A generation model is still required, because normal extraction is the fallback.
+
+With `POWERCONTEXT_SERVER_INFERENCE_PREFIX_EXTRACTION_GATEWAY_URL` configured, the Server defaults Atomic Memory processing to `one_pass` unless a mode was explicitly supplied. Set `POWERCONTEXT_SERVER_RUNTIME_ATOMIC_MEMORY_PROCESSING_MODE=per_candidate` to retain per-candidate extraction, or `one_pass` to select one-pass explicitly. A Server without the callback URL and direct SDK configurations keep their existing `per_candidate` default. The gateway cannot discover or configure this URL for a separately started Server.
 
 Cached input is not free: the provider still bills it at a reduced rate. When a processing window holds exactly one
 such turn, the Server first estimates both requests. The prefixed request costs Core's instruction plus the final

@@ -350,7 +350,7 @@ request-local text policy.
 | Codex, Claude Code, WorkBuddy | Strictly validate the four-field response and deliver its body through the Hook. | Forward the explicit assembly configuration and deliver the same validated body unchanged. |
 | OpenCode, DSH, Pi | Validate four fields, then place content in a Host message or prompt wrapper. | Forward configuration and preserve the body; Host notices stay outside it. |
 | OpenClaw | Apply local UTF-8 truncation and XML boundary escaping before wrapping the legacy body. | Fully validate and reject oversized responses; add a notice outside the unchanged body. |
-| Hermes | Use `status`/`content`, apply `strip()`, add a notice, and maintain a prefetch cache. | Validate the full response and byte count, deliver unchanged text, and distinguish configuration and budget in the cache. |
+| Hermes | Use `status`/`content`, apply `strip()`, and add a notice; each turn prepares its own prompt. | Validate the full response and byte count, and deliver unchanged text. |
 | LangChain, Pydantic AI, Bub | Request through the Python Client and use returned `content`. | Forward the explicit configuration through the Client and deliver the returned body. |
 | LangGraph | Use the Python Client and cache preparation for the current human turn. | Forward options and include assembly configuration and byte budget in cache identity. |
 
@@ -364,10 +364,9 @@ invalid request; meaningful explicit `null` values in other operations retain th
 JSON regression tests cover omission, explicit defaults, and empty sections.
 
 Cache identity retains the existing Scope/turn/query identity and additionally distinguishes the normalized
-effective assembly configuration and `max_bytes`; legacy mode uses a separate identity. Hermes prefetch producers
-and consumers must use the same key. If new configuration takes effect during a turn, do not reuse text prepared
-under other families, ordering, or budgets. If configuration is fixed at turn start, freeze it explicitly until
-that turn ends.
+effective assembly configuration and `max_bytes`; legacy mode uses a separate identity. If new configuration takes
+effect during a turn, do not reuse text prepared under other families, ordering, or budgets. If configuration is
+fixed at turn start, freeze it explicitly until that turn ends.
 
 | Caller and Server combination | Expected behavior |
 | --- | --- |

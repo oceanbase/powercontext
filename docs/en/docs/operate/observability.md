@@ -153,7 +153,7 @@ With prefixed extraction configured (`POWERCONTEXT_SERVER_INFERENCE_PREFIX_EXTRA
 `atomic_memory.prefixed_extraction` event with `operation` `atomic_memory.extract` and `unit` `inference` reports each
 attempt for a window that holds one gateway turn with a prefix handle. `outcome` is `success` when the reply over the
 cached prefix was used, or `fallback` when normal extraction ran instead; `fallback_reason` is then one of
-`not_cheaper`, `prefix_size_unknown`, `prefix_unavailable`, `target_mismatch`, `disabled`, `invalid_instruction`, `check_rejected`, `gateway_unavailable`,
+`not_cheaper`, `prefix_size_unknown`, `prefix_unavailable`, `target_mismatch`, `disabled`, `invalid_instruction`, `output_limit_unsupported`, `credentials_unavailable`, `check_rejected`, `gateway_unavailable`,
 `provider_error`, `gateway_error`, or `invalid_output`. Windows without such a turn emit no event. The event carries no handle, prompt,
 or response content. In the `one_pass` processing mode the event has `operation` `atomic_memory.one_pass` and reports
 the window's whole conversation: `success` when the conversation after the agent's prefix prepared the window, or
