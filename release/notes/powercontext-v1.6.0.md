@@ -18,7 +18,7 @@ PowerContext v1.6.0 introduces knowledge bases and the stable Gateway. Import ex
 
 - Improve long-candidate recall of short related memories, wait for Source configuration locks, allow Source capture during Experience incubation, drain pending usage writes more reliably, and preserve distinct terminal Gateway turns. ([#2628](https://github.com/oceanbase/powercontext/pull/2628), [#2691](https://github.com/oceanbase/powercontext/pull/2691), [#2693](https://github.com/oceanbase/powercontext/pull/2693), [#2706](https://github.com/oceanbase/powercontext/pull/2706), [#2717](https://github.com/oceanbase/powercontext/pull/2717))
 
-- Upgrade Server, Gateway, SDK, CLI and integrations together. Freeze the cumulative migration as v1_6_0 after the preserved v1_5_2_pr2639 revision; the 1.6.0 schema head is v1_6_0. This adds the private prepare-diagnostics store without backfilling historical queries. Existing managed databases require explicit maintenance. Databases with retained legacy plugin registrations/data still have no supported in-place upgrade path; uninstalling a plugin does not remove those records. Database upgrade support is limited to source-version, target-artifact, backend and configuration combinations that pass full Server acceptance. ([#2713](https://github.com/oceanbase/powercontext/pull/2713), [#2639](https://github.com/oceanbase/powercontext/pull/2639), [#2664](https://github.com/oceanbase/powercontext/pull/2664))
+- Upgrade Server, Gateway, SDK, CLI and integrations together. Freeze the cumulative migration as v1_6_0 after the v1_5_0_006 Source collection revision; the 1.6.0 schema head is v1_6_0. This adds the private prepare-diagnostics store without backfilling historical queries. Existing managed databases require explicit maintenance. Databases with retained legacy plugin registrations/data still have no supported in-place upgrade path; uninstalling a plugin does not remove those records. Database upgrade support is limited to source-version, target-artifact, backend and configuration combinations that pass full Server acceptance. ([#2713](https://github.com/oceanbase/powercontext/pull/2713), [#2639](https://github.com/oceanbase/powercontext/pull/2639), [#2664](https://github.com/oceanbase/powercontext/pull/2664))
 
 ### Installation and compatibility
 
@@ -26,7 +26,7 @@ PowerContext v1.6.0 introduces knowledge bases and the stable Gateway. Import ex
 uv tool install --force "powercontext[cli,server]==1.6.0"
 ```
 
-Use `powercontext-v1.6.0` for integration refs and reopen Agent sessions. The Gateway remains optional; its stable release does not enable prefix extraction automatically. Follow the knowledge-base guide to install the plugin and optional dependencies. The upgrade gate retains all twelve registered 1.3.0 source/backend/configuration profiles; the separately registered 1.4.0 path is not certified by that gate. Unpublished `000` databases and recovery plans are disposable: rebuild them instead of stamping them as released.
+Use `powercontext-v1.6.0` for integration refs and reopen Agent sessions. The Gateway remains optional; its stable release does not enable prefix extraction automatically. Follow the knowledge-base guide to install the plugin and optional dependencies. The upgrade gate retains all twelve registered 1.3.0 source/backend/configuration profiles; the separately registered 1.4.0 path is not certified by that gate. Development databases and recovery plans using the former PR-based Source collection revision or unpublished `000` must be rebuilt; do not stamp them as released.
 
 Guides: [Knowledge bases](https://github.com/oceanbase/powercontext/blob/powercontext-v1.6.0/docs/en/docs/workflows/knowledge-base.md) · [Gateway deployment](https://github.com/oceanbase/powercontext/blob/powercontext-v1.6.0/docs/en/docs/operate/deploy-server.md) · [Database migrations](https://github.com/oceanbase/powercontext/blob/powercontext-v1.6.0/docs/en/docs/operate/database-migrations.md)
 
@@ -48,7 +48,7 @@ PowerContext v1.6.0 首次发布知识库，并推出 Gateway 正式版。将已
 
 - 改进长候选对短相关记忆的召回，等待 Source 配置锁，允许在 Experience 孵化期间采集 Source，更可靠地完成待写入的用量记录，并保留 Gateway 中不同的终结回合。 ([#2628](https://github.com/oceanbase/powercontext/pull/2628), [#2691](https://github.com/oceanbase/powercontext/pull/2691), [#2693](https://github.com/oceanbase/powercontext/pull/2693), [#2706](https://github.com/oceanbase/powercontext/pull/2706), [#2717](https://github.com/oceanbase/powercontext/pull/2717))
 
-- Server、Gateway、SDK、CLI 与集成需协调升级。累计迁移冻结为 v1_6_0，接在保留的 v1_5_2_pr2639 之后；1.6.0 的 schema head 为 v1_6_0。该迁移新增私有上下文准备诊断存储，不回填历史查询。已有托管数据库需要显式维护。仍保留旧插件登记或数据的数据库没有受支持的原地升级路径，卸载插件不会删除这些记录。数据库升级支持仅限于通过完整 Server 验收的源版本、目标产物、后端与配置组合。 ([#2713](https://github.com/oceanbase/powercontext/pull/2713), [#2639](https://github.com/oceanbase/powercontext/pull/2639), [#2664](https://github.com/oceanbase/powercontext/pull/2664))
+- Server、Gateway、SDK、CLI 与集成需协调升级。累计迁移冻结为 v1_6_0，接在 Source 采集迁移 v1_5_0_006 之后；1.6.0 的 schema head 为 v1_6_0。该迁移新增私有上下文准备诊断存储，不回填历史查询。已有托管数据库需要显式维护。仍保留旧插件登记或数据的数据库没有受支持的原地升级路径，卸载插件不会删除这些记录。数据库升级支持仅限于通过完整 Server 验收的源版本、目标产物、后端与配置组合。 ([#2713](https://github.com/oceanbase/powercontext/pull/2713), [#2639](https://github.com/oceanbase/powercontext/pull/2639), [#2664](https://github.com/oceanbase/powercontext/pull/2664))
 
 ### 安装与兼容性
 
@@ -56,7 +56,7 @@ PowerContext v1.6.0 首次发布知识库，并推出 Gateway 正式版。将已
 uv tool install --force "powercontext[cli,server]==1.6.0"
 ```
 
-集成安装引用使用 `powercontext-v1.6.0`，升级后重新打开 Agent 会话。Gateway 仍为可选组件，正式发布不会自动开启前缀提取。按知识库指南安装插件和可选依赖。升级门禁保留全部十二种已登记的 1.3.0 来源、后端与配置组合；独立登记的 1.4.0 路径不由该门禁认证。未发布 `000` 创建的数据库和恢复计划可丢弃，应重新构建，不能直接标记为已发布版本。
+集成安装引用使用 `powercontext-v1.6.0`，升级后重新打开 Agent 会话。Gateway 仍为可选组件，正式发布不会自动开启前缀提取。按知识库指南安装插件和可选依赖。升级门禁保留全部十二种已登记的 1.3.0 来源、后端与配置组合；独立登记的 1.4.0 路径不由该门禁认证。使用原 PR 编号命名的 Source 采集迁移或未发布 `000` 的开发数据库及恢复计划需要重建，不能直接标记为已发布版本。
 
 使用指南：[知识库](https://github.com/oceanbase/powercontext/blob/powercontext-v1.6.0/docs/zh/docs/workflows/knowledge-base.md) · [Gateway 部署](https://github.com/oceanbase/powercontext/blob/powercontext-v1.6.0/docs/zh/docs/operate/deploy-server.md) · [数据库迁移](https://github.com/oceanbase/powercontext/blob/powercontext-v1.6.0/docs/zh/docs/operate/database-migrations.md)
 

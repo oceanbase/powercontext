@@ -12,13 +12,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Add Source collection runners and targets through the shared DDL executor."""
+"""Add Source collection runners and targets, and drop the empty write plugin registry they replace."""
 
-from alembic import context
+import json
+from pathlib import Path
 
-revision = "v1_5_2_pr2639"
+from alembic import op
+
+revision = "v1_5_0_006"
 down_revision = "v1_5_0_005"
 
 
-def upgrade() -> None:
-    context.config.attributes["execute_revision"](revision)
+def upgrade():
+    resource = Path(__file__).parents[1] / "schemas/sqlite-v1_5_0_006.json"
+    for statement in json.loads(resource.read_text(encoding="utf-8"))["statements"]:
+        op.get_bind().exec_driver_sql(statement)

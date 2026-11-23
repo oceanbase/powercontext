@@ -69,7 +69,7 @@ def test_release_names_preserve_source_upgrade_plan_and_evidence(tmp_path, monke
         "v1_5_0_003",
         "v1_5_0_004",
         "v1_5_0_005",
-        "v1_5_2_pr2639",
+        "v1_5_0_006",
         "v1_6_0",
     ]
     assert [item["revision"] for item in plan["pending_migrations"]] == list(reviewed.revisions)
@@ -105,7 +105,7 @@ def test_release_names_preserve_source_upgrade_plan_and_evidence(tmp_path, monke
         "v1_5_0_003",
         "v1_5_0_004",
         "v1_5_0_005",
-        "v1_5_2_pr2639",
+        "v1_5_0_006",
         "v1_6_0",
     }
     assert runner.verify().state == "ready"

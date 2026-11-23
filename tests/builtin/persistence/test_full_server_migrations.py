@@ -86,7 +86,7 @@ def test_complete_upgrade_preserves_history_backup_and_repeated_apply(source):
         "v1_5_0_003",
         "v1_5_0_004",
         "v1_5_0_005",
-        "v1_5_2_pr2639",
+        "v1_5_0_006",
         "v1_6_0",
     )
     assert dump(source.database) == before
