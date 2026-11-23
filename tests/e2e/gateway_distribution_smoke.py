@@ -43,6 +43,12 @@ def process(command: list[str], env: dict[str, str], directory: Path, name: str)
         child = subprocess.Popen(command, cwd=directory, env=env, stdin=subprocess.DEVNULL, stdout=log, stderr=log)
         try:
             yield child
+        except BaseException:
+            log.flush()
+            # Only isolated test processes without provider credentials write these logs.
+            print(f"--- {name} process diagnostics ---", file=sys.stderr)
+            print((directory / f"{name}.log").read_text(errors="replace")[-24000:], file=sys.stderr)
+            raise
         finally:
             if child.poll() is None:
                 child.terminate()

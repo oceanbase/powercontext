@@ -1,26 +1,19 @@
 name: Gateway distribution
 
 on:
-  pull_request:
-    paths:
-      - gateway/**
-      - src/**
-      - pyproject.toml
-      - uv.lock
-      - scripts/gateway_distribution.py
-      - tests/test_gateway_distribution.py
-      - tests/e2e/gateway_distribution_smoke.py
-      - .github/workflows/gateway-distribution.yml
-      - .github/workflows/release.yml
   workflow_dispatch:
   workflow_call:
     inputs:
+      suites:
+        description: Scope already selected by the Main orchestrator
+        type: string
+        default: ''
       source_ref:
         type: string
-        required: true
+        required: false
       release_tag:
         type: string
-        required: true
+        required: false
       published:
         description: Download published assets instead of building
         type: boolean
@@ -28,9 +21,20 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 jobs:
+  changes:
+    if: ${{ inputs.suites == '' }}
+    uses: ./.github/workflows/ci-changes.yml
+    with:
+      baseline-workflow: gateway-distribution.yml
+
   native:
+    needs: changes
+    if: >-
+      ${{ !cancelled() &&
+          ((inputs.suites == '' && needs.changes.result != 'success') || fromJSON(inputs.suites || needs.changes.outputs.suites || '{}').gateway_distribution) }}
     name: Gateway ${{ matrix.target }} (${{ inputs.published && 'download' || 'build' }})
     strategy:
       fail-fast: false
@@ -85,6 +89,11 @@ jobs:
         uses: ./.github/actions/setup-python-env
         with:
           python-version: '3.12'
+          # Ubuntu 22.04's system SQLite is older than Core's minimum 3.38.
+          sync-args: '--python 3.12 --python-preference only-managed'
+      - name: Verify Core SQLite runtime
+        run: |
+          uv run --frozen python -c "import sqlite3; print('Core SQLite:', sqlite3.sqlite_version); assert sqlite3.sqlite_version_info >= (3, 38, 0)"
       - name: Install pinned Rust
         if: ${{ !inputs.published }}
         run: rustup toolchain install 1.95.0 --profile minimal

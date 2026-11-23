@@ -114,6 +114,7 @@ jobs:
     needs: resolve-release
     uses: ./.github/workflows/gateway-distribution.yml
     with:
+      suites: '{"gateway_distribution":true}'
       source_ref: ${{ needs.resolve-release.outputs.source_sha }}
       release_tag: ${{ needs.resolve-release.outputs.tag }}
 
@@ -316,6 +317,7 @@ jobs:
     needs: [resolve-release, release-assets]
     uses: ./.github/workflows/gateway-distribution.yml
     with:
+      suites: '{"gateway_distribution":true}'
       source_ref: ${{ needs.resolve-release.outputs.source_sha }}
       release_tag: ${{ needs.resolve-release.outputs.tag }}
       published: true

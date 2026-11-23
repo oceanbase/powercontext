@@ -318,10 +318,12 @@ Release 工作流从解析后的发布提交构建 Linux x86_64/arm64 和 macOS 
 随后 `gateway-release-verify` 在四个平台的原生 runner 上下载已发布附件，重复检查身份、启动、Core 代理与认证。
 Python 发布任务通过不能替代这些验证。
 
-修改 Gateway、Core、打包脚本或发布工作流的 PR 会运行 **Gateway distribution**，候选版本为 `0.0.0-dev.<commit>`。
+Main 工作流为 Gateway、Core、打包脚本或发布工作流的变更选择 **Gateway distribution**，
+在统一预检和 Python 测试通过（或测试不在本次范围内）后运行，候选版本为 `0.0.0-dev.<commit>`。
 候选压缩包仅保存为 Actions 构建产物；PR 检查和手动构建 dispatch 不发布 Release 附件。
 发布标签的源码必须包含分发工作流；已经发布且不包含此工作流的旧标签不能通过重跑旧工作流获得这些二进制。
 
+Core 冒烟检查使用携带 SQLite 3.38+ 的 uv 管理 Python，并在失败时输出子进程诊断日志。
 Linux 构建使用 Ubuntu 22.04（glibc 2.35+），macOS 构建以 macOS 15+ 为基线。macOS 二进制未签名、未公证。
 压缩包不包含 Core 和供应商 CLI，这些检查也不代表真实供应商验收。详见[Gateway 安装](../docs/operate/install-gateway.md)。
 Docker 分发留待后续实现。
