@@ -25,6 +25,7 @@ from typing import cast
 
 import httpx2
 import pytest
+from openai import AsyncOpenAI
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
@@ -55,11 +56,15 @@ from pydantic_ai.models import Model, ModelRequestParameters, ModelResponseState
 from pydantic_ai.models.anthropic import AnthropicModel, AnthropicModelSettings
 from pydantic_ai.models.function import AgentInfo, FunctionModel
 from pydantic_ai.models.instrumented import InstrumentationSettings, InstrumentedModel
-from pydantic_ai.models.openai import OpenAIChatModel, OpenAIChatModelSettings
+from pydantic_ai.models.openai import OpenAIChatModel, OpenAIChatModelSettings, OpenAIResponsesModelSettings
+from pydantic_ai.models.openai_codex import OpenAICodexModel
 from pydantic_ai.models.test import TestModel
+from pydantic_ai.profiles import ModelProfile
 from pydantic_ai.profiles.openai import OpenAIModelProfile
+from pydantic_ai.profiles.openai_codex import openai_codex_model_profile
 from pydantic_ai.providers.anthropic import AnthropicProvider
 from pydantic_ai.providers.openai import OpenAIProvider
+from pydantic_ai.providers.openai_codex import OpenAICodexProvider
 from pydantic_ai.settings import ModelSettings
 from pydantic_ai.usage import RequestUsage
 
@@ -253,11 +258,13 @@ def test_structured_generator_passes_explicit_model_settings() -> None:
         ("gpt-5.5", {"thinking": False}, None),
         # Pinned accepted efforts decide whether reasoning can be turned off.
         ("gpt-5.1", {}, OpenAIModelProfile(openai_reasoning_efforts=frozenset({"low", "medium", "high"}))),
+        # The profile's unsupported settings are dropped from the request.
+        ("gpt-4o", {"max_tokens": 512}, openai_codex_model_profile("gpt-4o")),
     ],
 )
 @pytest.mark.filterwarnings("ignore:Sampling parameters.*:UserWarning")
 def test_structured_generator_receipt_uses_reasoning_provider_settings(
-    model_name: str, overrides: OpenAIChatModelSettings, profile: OpenAIModelProfile | None
+    model_name: str, overrides: OpenAIChatModelSettings, profile: ModelProfile | None
 ) -> None:
     requests: list[dict[str, object]] = []
 
@@ -303,6 +310,62 @@ def test_structured_generator_receipt_uses_reasoning_provider_settings(
                 assert effective.get(key) == sent.get(key)
             assert ("max_tokens" in effective) == ("max_completion_tokens" in sent)
             assert effective.get("max_tokens") == sent.get("max_completion_tokens")
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("model_name", ["gpt-4o", "gpt-5.1"])
+# Reasoning that keeps sampling must not keep settings the backend rejects.
+@pytest.mark.parametrize("overrides", [{}, {"openai_reasoning_effort": "none"}])
+@pytest.mark.filterwarnings("ignore:Sampling parameters.*:UserWarning")
+def test_structured_generator_receipt_omits_settings_the_codex_backend_rejects(
+    model_name: str, overrides: OpenAIResponsesModelSettings
+) -> None:
+    requests: list[dict[str, object]] = []
+    defaults = {"item_id": "msg", "output_index": 0, "content_index": 0, "sequence_number": 0}
+    events = [
+        {**defaults, "type": "response.output_text.delta", "delta": '{"value":"stable"}'},
+        {
+            **defaults,
+            "type": "response.completed",
+            "response": {
+                "id": "resp",
+                "model": model_name,
+                "status": "completed",
+                "output": [],
+                "usage": {"input_tokens": 1, "output_tokens": 1},
+            },
+        },
+    ]
+    stream = "".join(f"data: {json.dumps(event)}\n\n" for event in events) + "data: [DONE]\n\n"
+
+    def respond(request: httpx2.Request) -> httpx2.Response:
+        requests.append(json.loads(request.content))
+        return httpx2.Response(200, content=stream, headers={"content-type": "text/event-stream"})
+
+    async def scenario() -> None:
+        async with httpx2.AsyncClient(transport=httpx2.MockTransport(respond)) as client:
+            settings: OpenAIResponsesModelSettings = {"temperature": 0.0, "top_p": 0.2, "max_tokens": 512}
+            settings.update(overrides)
+            provider = OpenAICodexProvider(openai_client=AsyncOpenAI(api_key="test", http_client=client))
+            generator = PydanticAIStructuredGenerator(
+                model=OpenAICodexModel(model_name, provider=provider),
+                instructions="Return a value.",
+                input_type=Question,
+                output_type=Answer,
+                model_settings=settings,
+            )
+            result = await generator.generate(Question("settings evidence"))
+            assert result.output == Answer("stable")
+            effective = cast(dict[str, object], generator.receipt_configuration()["effective_settings"])
+            sent = requests[0]
+            for key, wire_key in (
+                ("temperature", "temperature"),
+                ("top_p", "top_p"),
+                ("max_tokens", "max_output_tokens"),
+            ):
+                assert key not in effective
+                assert wire_key not in sent
 
     asyncio.run(scenario())
 

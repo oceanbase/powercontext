@@ -173,8 +173,9 @@ def _receipt_model_settings(model: Model, settings: ModelSettings | None) -> dic
     profile = getattr(model, "profile", None)
     if not hasattr(profile, "get"):
         return effective
-    # Imported here so that building other providers' models does not load the Anthropic SDK.
+    # Imported here so that building other providers' models does not load the provider SDKs.
     from pydantic_ai.models.anthropic import AnthropicModel
+    from pydantic_ai.models.openai import OpenAIChatModel, OpenAIResponsesModel
 
     adapter = model
     while isinstance(adapter, WrapperModel):
@@ -186,6 +187,10 @@ def _receipt_model_settings(model: Model, settings: ModelSettings | None) -> dic
             effective.pop(setting, None)
     elif _openai_reasoning_drops_sampling(profile, effective):
         for setting in SAMPLING_PARAMS:
+            effective.pop(setting, None)
+    if isinstance(adapter, OpenAIChatModel | OpenAIResponsesModel):
+        # The OpenAI adapters drop these last, after deciding whether reasoning drops sampling.
+        for setting in profile.get("openai_unsupported_model_settings", ()):
             effective.pop(setting, None)
     return effective
 
