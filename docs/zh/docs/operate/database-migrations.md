@@ -80,6 +80,12 @@ payload 身份及待处理 intent。兼容的当前任务原样保留，不套�
 
 修订 `v1_5_0_006` 新增 Source 采集用的 `pc_source_runners` 和 `pc_source_collect_targets`，并删除空的 `pc_source_write_plugins`，不改写任何记录。`pc_source_write_plugins` 中仍有记录时（执行过 `source load --kind write`），升级以 `unsupported_plugin_data` 拒绝，数据库保持不变；旧版本没有删除这些登记的操作，所以这样的数据库目前没有受支持的原地升级路径，请继续使用旧版本或改用新的数据库，不要手工删除记录来绕过检查。旧 Source 管理服务自己的 SQLite 不迁移。详见 [Source 插件](../workflows/source-plugins.md)。
 
+支持带键 Memory 创建的开发版本中，两条路径均从 `v1_6_0` 继续迁移到草稿 `000`。
+
+累计迁移草稿 `000` 登记 `pc_atomic_memory_idempotency`，即带键 `remember_memory` 创建的重试回执，并为过期时间建立索引。已有受管数据库必须在 Server 启动前显式迁移；迁移只创建空表，不重写任何既有数据。回执保存键命名空间与所创建内容的 SHA-256 摘要、所绑定的 Artifact revision 及创建时的 state version，不保存原始键、principal ID 或记忆正文。回执在创建 24 小时后过期，并按有界批次清理。重试行为参见 [Atomic Memory](../workflows/atomic-memory.md)。
+
+使用早期草稿 `000` 或未发布修订 `v1_5_2_001` 的开发数据库和迁移计划需要重建。
+
 `v1_5_0_001` 增加 Artifact 插件注册字段、family schema、检索状态和投影、索引覆盖与变更跟踪，以及向量空间和索引登记。
 SQLite 还登记可移植向量和 FTS 辅助结构。两条来源链均通过显式维护加入这些增量变更；历史修订资源与校验和保持不变。
 根据已登记空间创建的原生向量表，必须通过精确布局检查才能纳入后续维护。上述登记不扩展受支持的来源版本，
@@ -666,10 +672,6 @@ Scope 的原始标题、摘要、外部引用和 binding 标识保持不变。�
 受管理的 Server 存储使用登记的迁移链和只读启动准入，不会在启动时调用此修复来升级结构。
 
 ### 上下文准备诊断存储
-
-支持带键 Memory 创建的开发版本中，两条路径均从 `v1_6_0` 继续迁移到草稿 `000`。
-
-累计迁移草稿 `000` 登记 `pc_atomic_memory_idempotency`，即带键 `remember_memory` 创建的重试回执，并为过期时间建立索引。已有受管数据库必须在 Server 启动前显式迁移；迁移只创建空表，不重写任何既有数据。回执保存键命名空间与所创建内容的 SHA-256 摘要、所绑定的 Artifact revision 及创建时的 state version，不保存原始键、principal ID 或记忆正文。回执在创建 24 小时后过期，并按有界批次清理。重试行为参见 [Atomic Memory](../workflows/atomic-memory.md)。
 
 迁移 `v1_6_0` 只新增 `pc_context_prepare_diagnostics` 及其 Scope/时间/状态索引，不修改既有记录，也不为历史准备调用回填。
 该表没有 Scope 删除外键或级联。既有受管安装必须在启动前完成迁移。Server 的捕获始终开启；恢复沿用既有已验证备份工作流，

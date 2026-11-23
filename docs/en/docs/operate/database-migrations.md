@@ -97,6 +97,12 @@ Revision `v1_5_0_005` removes the previous Artifact plugin-framework storage and
 
 Revision `v1_5_0_006` adds `pc_source_runners` and `pc_source_collect_targets` for Source collection and drops the empty `pc_source_write_plugins`; it rewrites no records. While `pc_source_write_plugins` still holds records (after `source load --kind write`), the upgrade is refused with `unsupported_plugin_data` and the database stays unchanged. The previous version has no operation that removes these registrations, so such a database currently has no supported in-place upgrade path: keep using the previous version or move to a new database, and do not delete the records by hand to bypass the check. The previous Source management service's own SQLite is not migrated. See [Source plugins](../workflows/source-plugins.md).
 
+On development builds with keyed Memory creation, both paths continue from `v1_6_0` to draft `000`.
+
+The cumulative draft `000` registers `pc_atomic_memory_idempotency`, the retry receipts for keyed `remember_memory` creations, with an index on their expiry time. Existing managed databases require explicit migration before Server startup; the migration creates an empty table and rewrites no existing data. A receipt stores SHA-256 digests of the key namespace and the created content, the bound Artifact revision and the creation state version; it stores neither the raw key, the principal ID nor the memory body. Receipts expire 24 hours after creation and are removed in bounded batches. See [Atomic Memory](../workflows/atomic-memory.md) for retry behavior.
+
+Rebuild development databases and migration plans that use an earlier `000` draft or the unpublished `v1_5_2_001` revision.
+
 Revision `v1_4_1_006` registers `pc_source_write_plugins` for persisted Source write plugin declarations.
 Revision `v1_5_0_001` adds Artifact plugin registration fields, family schemas, search state and projections,
 index coverage and change tracking, and vector-space/index registrations. SQLite also registers portable vector
@@ -903,10 +909,6 @@ identifiers are preserved. This compatibility repair remains for unmanaged profi
 registered migration chain and read-only startup admission; its startup never invokes this repair to upgrade the schema.
 
 ### Prepare diagnostic storage
-
-On development builds with keyed Memory creation, both paths continue from `v1_6_0` to draft `000`.
-
-The cumulative draft `000` registers `pc_atomic_memory_idempotency`, the retry receipts for keyed `remember_memory` creations, with an index on their expiry time. Existing managed databases require explicit migration before Server startup; the migration creates an empty table and rewrites no existing data. A receipt stores SHA-256 digests of the key namespace and the created content, the bound Artifact revision and the creation state version; it stores neither the raw key, the principal ID nor the memory body. Receipts expire 24 hours after creation and are removed in bounded batches. See [Atomic Memory](../workflows/atomic-memory.md) for retry behavior.
 
 Revision `v1_6_0` adds only `pc_context_prepare_diagnostics` and its Scope/time/status indexes. It does not change existing
 records or backfill past prepare calls. The table has no Scope deletion foreign key or cascade. Existing managed
