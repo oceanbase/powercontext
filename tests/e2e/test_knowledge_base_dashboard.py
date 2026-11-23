@@ -485,10 +485,10 @@ def test_dashboard_retries_only_uncertain_upload_with_original_key_and_bytes(tmp
             retry_name = "重试待确认文件"
             retry = dialog.get_by_role("button", name=retry_name, exact=True)
             await retry.click()
+            retry_button = dialog.get_by_role("button").filter(has_text=retry_name)
+            icon = retry_button.locator('span[class*="-btn-icon"]')
             if cancel_loading_exit:
                 # Hold the file read until the loading icon mounts, then cancel any exit transition.
-                retry_button = dialog.get_by_role("button").filter(has_text=retry_name)
-                icon = retry_button.locator('span[class*="-btn-icon"]')
                 await expect(icon).to_be_visible()
                 await retry_button.evaluate("""button => {
                     button.addEventListener("transitionrun", event => {
