@@ -1,0 +1,1092 @@
+tests/builtin/persistence/test_full_server_migrations.py
+  s_624ad8983708a5::t_810b27ee653ad8 76,90
+tests/codex_plugin/test_scope_binding.py
+  s_624ad8983708a5::t_810b27ee653ad8 59,217,293,360,400,406,452,464,575,613-615,619-621,625,631,635-636,638-641,652,656,659-660,662-665,670,676,680-686,688-689,700,713,725,729
+src/powercontext/server/dashboard/templates/components/automatic-status.html
+  s_624ad8983708a5::t_810b27ee653ad8 1-129
+tests/test_service.py
+  s_624ad8983708a5::t_810b27ee653ad8 1898,1925,1947,1973,1992,2031
+frontend/knowledge-base/src/actions/BatchDocuments.tsx
+  s_624ad8983708a5::t_810b27ee653ad8 1-130
+docs/en/docs/operate/inference-protection.md
+  s_624ad8983708a5::t_810b27ee653ad8 103
+gateway/SUBSCRIPTIONS.md
+  s_624ad8983708a5::t_810b27ee653ad8 1-79
+integrations/codex/plugins/powercontext/powercontext_lifecycle/host_profile.py
+  s_624ad8983708a5::t_810b27ee653ad8 33-34,41
+docs/en/docs/operate/database-migrations.md
+  s_624ad8983708a5::t_810b27ee653ad8 152-155,157-159,177,179,182-183,194,197,200-202,213-296,901-907
+frontend/knowledge-base/src/components/ProcessingWatcher.tsx
+  s_624ad8983708a5::t_810b27ee653ad8 1-64
+docs/en/docs/operate/context-protection.md
+  s_624ad8983708a5::t_810b27ee653ad8 118-119,137-140
+gateway/crates/pc-gateway-app/src/connection.rs
+  s_624ad8983708a5::t_810b27ee653ad8 495-556,576-580,629
+Makefile
+  s_624ad8983708a5::t_810b27ee653ad8 1-3,25,57,70,74-83,87,93,105,125,127,130,206,223,228,240,251,259,265,277,295,320,354-363
+tests/fixtures/oauth/upstream/provider-vectors.json
+  s_624ad8983708a5::t_810b27ee653ad8 1-368
+.github/workflows/managed-resource-candidates.yml
+  s_624ad8983708a5::t_810b27ee653ad8 195
+docs/en/docs/operate/observability.md
+  s_624ad8983708a5::t_810b27ee653ad8 159-169
+tests/e2e/test_knowledge_base_dashboard_batch.py
+  s_624ad8983708a5::t_810b27ee653ad8 1-156
+frontend/knowledge-base/.npmrc
+  s_624ad8983708a5::t_810b27ee653ad8 1-3
+frontend/knowledge-base/src/services.ts
+  s_624ad8983708a5::t_810b27ee653ad8 1-137
+plugins/knowledge-base/ui/app.js
+  s_624ad8983708a5::t_810b27ee653ad8 1-733
+tests/e2e/test_database_bootstrap.py
+  s_624ad8983708a5::t_810b27ee653ad8 426-428
+tests/test_langgraph_example_lifecycle.py
+  s_624ad8983708a5::t_810b27ee653ad8 1-109
+gateway/crates/pc-gateway-protocol/src/codex.rs
+  s_624ad8983708a5::t_810b27ee653ad8 1-34
+.github/actions/setup-python-env/README.md
+  s_624ad8983708a5::t_810b27ee653ad8 1-31
+docs/zh/rfcs/2570-knowledge-base.md
+  s_624ad8983708a5::t_810b27ee653ad8 1-423
+gateway/crates/pc-gateway-protocol/src/claude.rs
+  s_624ad8983708a5::t_810b27ee653ad8 1-46
+src/powercontext/builtin/artifacts/atomic_memory/extraction.py
+  s_624ad8983708a5::t_810b27ee653ad8 37,172-173
+.github/workflows/installation.yml
+  s_624ad8983708a5::t_810b27ee653ad8 35,44-56,63,68-70,78-79,81-82,86-88,95
+src/powercontext/server/dashboard/templates/context-diagnostics.html
+  s_624ad8983708a5::t_810b27ee653ad8 1-18
+plugins/knowledge-base/pc_knowledge_base/embedding.py
+  s_624ad8983708a5::t_810b27ee653ad8 1-98
+tests/builtin/persistence/test_mysql_initialization_preflight.py
+  s_624ad8983708a5::t_810b27ee653ad8 256-265
+tests/builtin/runtime/test_prepared_context.py
+  s_624ad8983708a5::t_810b27ee653ad8 1554-1577
+docs/zh/development/pydantic-ai-inference.md
+  s_624ad8983708a5::t_810b27ee653ad8 86,88-99,103,109,115,119,126-166,168,170-188,192-220,222
+tests/test_dashboard_context_capture.py
+  s_624ad8983708a5::t_810b27ee653ad8 1-588
+tests/test_dashboard_processing_status.py
+  s_624ad8983708a5::t_810b27ee653ad8 1-212
+.github/actions/upload-ci-diagnostics/action.yml
+  s_624ad8983708a5::t_810b27ee653ad8 1-136
+scripts/ci_node_mirror.mjs
+  s_624ad8983708a5::t_810b27ee653ad8 1-144
+tests/e2e/real_experience_skill/harness.py
+  s_624ad8983708a5::t_810b27ee653ad8 99,2055-2059
+gateway/crates/pc-gateway-transport/tests/subscription_response.rs
+  s_624ad8983708a5::t_810b27ee653ad8 1-138
+integrations/opencode/plugins/powercontext/lib/tui.js
+  s_624ad8983708a5::t_810b27ee653ad8 2207-2210
+gateway/crates/pc-gateway-app/src/main.rs
+  s_624ad8983708a5::t_810b27ee653ad8 43,50,59,85-110,125-146,233-249,255,270-272,295-299,332-345
+  s_624ad8983708a5::t_3b5b7b8f83f61c 346-347
+README_CN.md
+  s_624ad8983708a5::t_810b27ee653ad8 268-276
+docs/zh/docs/operate/observability.md
+  s_624ad8983708a5::t_810b27ee653ad8 150-156
+integrations/opencode/plugins/powercontext/src/prompt-privacy.ts
+  s_624ad8983708a5::t_810b27ee653ad8 24-38
+.github/actions/setup-openapi-generator/action.yml
+  s_624ad8983708a5::t_810b27ee653ad8 15,28
+gateway/crates/pc-gateway-app/tests/fixtures/subscriptions/magpie-gateway.json
+  s_624ad8983708a5::t_810b27ee653ad8 1-429
+tests/e2e/test_topic_memory_product_chain.py
+  s_624ad8983708a5::t_810b27ee653ad8 540-542
+scripts/ci_installation_roles.py
+  s_624ad8983708a5::t_810b27ee653ad8 72-73,76,83
+tests/builtin/runtime/test_codeassist_text_privacy.py
+  s_624ad8983708a5::t_810b27ee653ad8 1-153
+integrations/codex/plugins/powercontext/powercontext_lifecycle/scope_binding.py
+  s_624ad8983708a5::t_810b27ee653ad8 1-292
+tests/builtin/persistence/test_release140_server_migrations.py
+  s_624ad8983708a5::t_810b27ee653ad8 162,376
+integrations/deepagents/src/powercontext_deepagents/adapter.py
+  s_624ad8983708a5::t_810b27ee653ad8 1-212
+tests/builtin/runtime/test_family_processing.py
+  s_624ad8983708a5::t_810b27ee653ad8 67-69,129-130,135-136,307-311,313,447
+tests/e2e/test_rfc2086_worker_acceptance.py
+  s_624ad8983708a5::t_810b27ee653ad8 49,113,116,157,175-182,184-188,205,226,229-236
+tests/builtin/inference/test_upstream_subscription_vectors.py
+  s_624ad8983708a5::t_810b27ee653ad8 1-316
+tests/builtin/persistence/test_diagnostic_query_migration.py
+  s_624ad8983708a5::t_810b27ee653ad8 1-60
+tests/e2e/test_knowledge_base_changes.py
+  s_624ad8983708a5::t_810b27ee653ad8 1-236
+.github/workflows/gateway.yml
+  s_624ad8983708a5::t_810b27ee653ad8 33-34,42-43,63-64,68-98,103-108,111
+e2e/bub/compose.yaml
+  s_624ad8983708a5::t_810b27ee653ad8 24,62-63,75,78-80,82
+desktop/src-tauri/src/connections/compatibility.json
+  s_624ad8983708a5::t_810b27ee653ad8 1732-1753,1798-1819,1842-1863,2018-2037,2039
+  s_624ad8983708a5::t_9a97221c6fa57e 2038
+src/powercontext/builtin/inference/codeassist_payload.py
+  s_624ad8983708a5::t_810b27ee653ad8 1-157
+docs/en/development/dashboard.md
+  s_624ad8983708a5::t_810b27ee653ad8 82-144
+integrations/dsh/plugins/powercontext/tests/pack-release.test.mjs
+  s_624ad8983708a5::t_810b27ee653ad8 36-40
+src/powercontext/builtin/runtime/prepare_diagnostics.py
+  s_624ad8983708a5::t_810b27ee653ad8 1-160
+gateway/crates/pc-gateway-transport/tests/codeassist.rs
+  s_624ad8983708a5::t_810b27ee653ad8 1-132
+gateway/crates/pc-gateway-auth/src/oauth.rs
+  s_624ad8983708a5::t_810b27ee653ad8 1-74
+frontend/knowledge-base/src/App.tsx
+  s_624ad8983708a5::t_810b27ee653ad8 1-230
+tests/claude_code_plugin/test_hook.py
+  s_624ad8983708a5::t_810b27ee653ad8 190,198,200,202,204,206,225,235,237,240,242,246,248,271,278,283,290,299,305,314,321-322,324,326,344,350,352,355,357,360,362,385,389,394,396,400,402,420,424,429,431,435,437,456,460,465,467,470,497,501,503,505-506,538,821,826,831,836,838,857,861,866,871,873,898,907,914-920,925,929-930,956,962,964,969-970,973,992,998,1001,1008-1009,1012,1032,1037-1038,1040,1043,1071,1074-1076,1078,1081,1112,1117,1122-1123,1126,1137,1168,1171-1172,1179,1194-1195,1198-1199,1211,1237-1238,1241-1242,1250,1271-1275,1278-1279
+tests/codex_plugin/test_token_savings.py
+  s_624ad8983708a5::t_810b27ee653ad8 676,698,700-702,778
+tests/fixtures/seekdb_legacy_choice.py
+  s_624ad8983708a5::t_810b27ee653ad8 38-41,149
+src/powercontext/builtin/dream/service.py
+  s_624ad8983708a5::t_810b27ee653ad8 22,89-93,335-343,350,353,359-360
+src/powercontext/builtin/inference/responses_stream.py
+  s_624ad8983708a5::t_810b27ee653ad8 1-410
+.github/workflows/kimi-code-acceptance.yml
+  s_624ad8983708a5::t_810b27ee653ad8 60-67,71-75,87-93,169
+frontend/knowledge-base/src/hooks.ts
+  s_624ad8983708a5::t_810b27ee653ad8 1-289
+frontend/knowledge-base/src/pages/Reader.tsx
+  s_624ad8983708a5::t_810b27ee653ad8 1-314
+.github/workflows/native-service.yml
+  s_624ad8983708a5::t_810b27ee653ad8 84,140,222
+frontend/knowledge-base/src/styles.scss
+  s_624ad8983708a5::t_810b27ee653ad8 1-169
+src/powercontext/builtin/persistence/oceanbase/fulltext_index.py
+  s_624ad8983708a5::t_810b27ee653ad8 1-58
+tests/test_plugin_server.py
+  s_624ad8983708a5::t_810b27ee653ad8 1-81
+integrations/deepagents/examples/full_flow.py
+  s_624ad8983708a5::t_810b27ee653ad8 1-113
+src/powercontext/service/launcher.py
+  s_624ad8983708a5::t_810b27ee653ad8 25,33-35,72-73
+  s_624ad8983708a5::t_a84fca4155207b 74
+docs/zh/rfcs/1435_explainable_prepared_context_receipts.md
+  s_624ad8983708a5::t_810b27ee653ad8 307-321,403-404,406-407,442
+website/scripts/generate-python-api.ts
+  s_624ad8983708a5::t_810b27ee653ad8 1-48
+gateway/crates/pc-gateway-types/src/check.rs
+  s_624ad8983708a5::t_810b27ee653ad8 57-63,111-112
+plugins/knowledge-base/pc_knowledge_base/content.py
+  s_624ad8983708a5::t_810b27ee653ad8 1-303
+tests/builtin/persistence/test_sqlite_profile.py
+  s_624ad8983708a5::t_810b27ee653ad8 362-415,703-794,796
+  s_624ad8983708a5::t_17e7f3e78a920c 795
+src/powercontext/server/dashboard/templates/components/context-diagnostic-history.html
+  s_624ad8983708a5::t_810b27ee653ad8 1-36
+docs/en/docs/workflows/knowledge-base.md
+  s_624ad8983708a5::t_810b27ee653ad8 1-244
+src/powercontext/builtin/persistence/migrations/revision_names.py
+  s_624ad8983708a5::t_810b27ee653ad8 39,42-43,48-50,56
+docs/zh/docs/integrations/index.md
+  s_624ad8983708a5::t_810b27ee653ad8 66-94,116
+gateway/crates/pc-gateway-transport/src/lib.rs
+  s_624ad8983708a5::t_810b27ee653ad8 23,26,30
+integrations/opencode/plugins/powercontext/tests/prompt-privacy.spec.ts
+  s_624ad8983708a5::t_810b27ee653ad8 32
+src/powercontext/builtin/inference/oauth.py
+  s_624ad8983708a5::t_810b27ee653ad8 1-220
+gateway/crates/pc-gateway-app/tests/capacity_process.rs
+  s_624ad8983708a5::t_810b27ee653ad8 358-387,472,479-485,560-566,586-590,653-657
+tests/e2e/test_memory_search_concurrency.py
+  s_624ad8983708a5::t_810b27ee653ad8 291-292
+frontend/knowledge-base/src/pages/Retrieval.tsx
+  s_624ad8983708a5::t_810b27ee653ad8 1-129
+gateway/crates/pc-gateway-auth/src/grok.rs
+  s_624ad8983708a5::t_810b27ee653ad8 1-138
+docs/zh/development/observability.md
+  s_624ad8983708a5::t_810b27ee653ad8 18-20,179-183
+.github/ci-paths.toml
+  s_624ad8983708a5::t_810b27ee653ad8 25-26,137,256,293-297
+frontend/knowledge-base/src/actions/Import.tsx
+  s_624ad8983708a5::t_810b27ee653ad8 1-184
+docs/zh/development/released-schema-capture.md
+  s_624ad8983708a5::t_810b27ee653ad8 13-17
+integrations/langgraph/examples/_local_server.py
+  s_624ad8983708a5::t_810b27ee653ad8 26,31,62-68,70-75,77-105
+frontend/knowledge-base/src/actions/index.ts
+  s_624ad8983708a5::t_810b27ee653ad8 1-24
+src/powercontext/builtin/inference/qwen.py
+  s_624ad8983708a5::t_810b27ee653ad8 1-132
+gateway/crates/pc-gateway-auth/Cargo.toml
+  s_624ad8983708a5::t_810b27ee653ad8 1-35
+integrations/claude-code/plugins/powercontext/powercontext_lifecycle/scope_binding.py
+  s_624ad8983708a5::t_810b27ee653ad8 1-292
+src/powercontext/builtin/processing_status.py
+  s_624ad8983708a5::t_810b27ee653ad8 28,88,137,172-176,266,344-356,364-370,377
+tests/e2e/test_background_metrics.py
+  s_624ad8983708a5::t_810b27ee653ad8 27,107
+tests/e2e/test_recall_sufficiency_gate.py
+  s_624ad8983708a5::t_810b27ee653ad8 1531-1532,1699-1701
+tests/test_oceanbase_ci.py
+  s_624ad8983708a5::t_810b27ee653ad8 188,199-200,204-205,209,228,230,240-241,243,256-259,261,269-272,275,374-391
+  s_624ad8983708a5::t_58fbceaa580fec 392-393
+src/powercontext/builtin/persistence/oceanbase/experience_index.py
+  s_624ad8983708a5::t_810b27ee653ad8 22,44,59
+tests/test_workflow_actions.py
+  s_624ad8983708a5::t_810b27ee653ad8 73-93
+frontend/knowledge-base/src/pages/Documents.tsx
+  s_624ad8983708a5::t_810b27ee653ad8 1-249
+tests/claude_code_plugin/test_contract.py
+  s_624ad8983708a5::t_810b27ee653ad8 156,162,166-167,169-170,176-177
+docs/zh/development/managed-resource-production.md
+  s_624ad8983708a5::t_810b27ee653ad8 41-46
+docs/en/development/observability.md
+  s_624ad8983708a5::t_810b27ee653ad8 17-20,186-191
+tests/e2e/test_knowledge_base_retries.py
+  s_624ad8983708a5::t_810b27ee653ad8 1-510
+tests/fixtures/recorded_host_payloads/claude-code.json
+  s_624ad8983708a5::t_810b27ee653ad8 2-3,42-50
+.github/actions/upload-ci-diagnostics/artifact-state.test.cjs
+  s_624ad8983708a5::t_810b27ee653ad8 1-90
+.github/actions/cache-restore/action.yml
+  s_624ad8983708a5::t_810b27ee653ad8 1-58
+docs/en/docs/integrations/meta.json
+  s_624ad8983708a5::t_810b27ee653ad8 26
+e2e/bub/README.md
+  s_624ad8983708a5::t_810b27ee653ad8 514-515,570-591,603-607,612-615
+  s_624ad8983708a5::t_abea683b359e86 616
+integrations/deepagents/LICENSE
+  s_624ad8983708a5::t_810b27ee653ad8 1-202
+tests/e2e/test_real_experience_skill_harness.py
+  s_624ad8983708a5::t_810b27ee653ad8 200
+tests/e2e/test_server_uds.py
+  s_624ad8983708a5::t_810b27ee653ad8 30,43-52,84,99,106,113-119
+tests/release_upgrades/test_full_server.py
+  s_624ad8983708a5::t_810b27ee653ad8 629-636
+desktop/VALIDATION.md
+  s_624ad8983708a5::t_810b27ee653ad8 3528-3541,3604-3615,3647-3659,3972-3983
+  s_624ad8983708a5::t_6002bdb61b4c89 3971
+docs/en/docs/integrations/index.md
+  s_624ad8983708a5::t_810b27ee653ad8 72-107,137
+tests/e2e/test_langgraph_chain.py
+  s_624ad8983708a5::t_810b27ee653ad8 51,121
+deploy/observability/Dockerfile
+  s_624ad8983708a5::t_810b27ee653ad8 25,27-29
+.github/workflows/desktop.yml
+  s_624ad8983708a5::t_810b27ee653ad8 109,231,330,394
+pyproject.toml
+  s_624ad8983708a5::t_810b27ee653ad8 54-55,64,72-74,125-130,160,175,194,196,204,208,218,225,245,260-261
+docs/zh/design/atomic_memory_one_pass_design.md
+  s_624ad8983708a5::t_810b27ee653ad8 1-281
+gateway/crates/pc-gateway-app/src/grok_tests.rs
+  s_624ad8983708a5::t_810b27ee653ad8 1-305
+src/powercontext/builtin/persistence/migrations/server_resources/schemas/sqlite-000.json
+  s_624ad8983708a5::t_810b27ee653ad8 1-7
+src/powercontext/server/dashboard/templates/components/context-stage-texts.html
+  s_624ad8983708a5::t_810b27ee653ad8 1-36
+integrations/claude-code/plugins/powercontext/powercontext_lifecycle/host_profile.py
+  s_624ad8983708a5::t_810b27ee653ad8 33-34,41
+integrations/dsh/plugins/powercontext/src/recall.ts
+  s_624ad8983708a5::t_810b27ee653ad8 169-172,174-181,183-222,251
+integrations/openclaw/plugins/memory-powercontext/src/prompt-privacy.test.ts
+  s_624ad8983708a5::t_810b27ee653ad8 36
+integrations/claude-code/plugins/powercontext/claude_code_settings.py
+  s_624ad8983708a5::t_810b27ee653ad8 28-29,181-202
+  s_624ad8983708a5::t_3a6a459bb540bd 203
+tests/native/test_personal_service_lifecycle.py
+  s_624ad8983708a5::t_810b27ee653ad8 405
+tests/builtin/runtime/test_topic_memory_processing.py
+  s_624ad8983708a5::t_810b27ee653ad8 157-162,882,2736,2797,2969
+docs/zh/development/processing-failures.md
+  s_624ad8983708a5::t_810b27ee653ad8 62-63,76,124-136
+  s_624ad8983708a5::t_542f8e39311bd1 137
+.github/actions/cache-pnpm/action.yml
+  s_624ad8983708a5::t_810b27ee653ad8 25,30-38,53-58,64-80,84
+docs/zh/docs/workflows/knowledge-base.md
+  s_624ad8983708a5::t_810b27ee653ad8 1-214
+integrations/zcode/plugins/powercontext/shared/prompt-privacy.mjs
+  s_624ad8983708a5::t_810b27ee653ad8 19-33
+README.md
+  s_624ad8983708a5::t_810b27ee653ad8 271-279
+integrations/dsh/plugins/powercontext/tests/explicit-write-privacy.spec.ts
+  s_624ad8983708a5::t_810b27ee653ad8 58
+.licenserc.yaml
+  s_624ad8983708a5::t_810b27ee653ad8 43
+scripts/prepare_managed_resources.py
+  s_624ad8983708a5::t_810b27ee653ad8 45,267-275,281,304-306,308-311,313-318,529
+tests/codex_plugin/test_recall.py
+  s_624ad8983708a5::t_810b27ee653ad8 177,185,187,189,191,193,215,225,227,230,232,236,238,265,272,277,284,293,299,308,315-316,318,320,341,347,349,352,354,357,359,382,386,388,391,393,395,424-461,464,467-468,470,472,507,511,513,515-516,850,854,856,862-863,866,882,890,895,897,899,938,944,949,951,953,973,980,984-985,1007,1012,1018,1020,1023,1025,1047,1051,1058-1059,1062,1080,1085,1089-1090,1093,1103,1107,1112-1114,1119,1123,1125,1131-1132,1135,1149,1155,1158,1165-1166,1169,1189,1194-1195,1197,1200,1235,1238-1240,1242,1245,1281,1290,1297-1303,1305-1307,1311,1314-1316,1320,1343,1353,1360,1362-1363,1366,1378,1388,1391-1392,1395,1404,1434,1437-1438,1445,1461-1462,1465-1466,1478,1505-1506,1509-1510,1521,1545,1548-1549,1558,1561,1563-1564,1567-1568,1601,1626-1627,1630,1641-1673
+frontend/knowledge-base/src/components/SearchHit.tsx
+  s_624ad8983708a5::t_810b27ee653ad8 1-57
+tests/e2e/test_atomic_memory_flush_concurrency.py
+  s_624ad8983708a5::t_810b27ee653ad8 51-53,144-145,282
+src/powercontext/server/dashboard/templates/components/processing-sources-table.html
+  s_624ad8983708a5::t_810b27ee653ad8 17,19
+integrations/kimi-code/plugins/powercontext/shared/prompt-privacy.mjs
+  s_624ad8983708a5::t_810b27ee653ad8 19-33
+desktop/ui/src/generated/api.d.ts
+  s_624ad8983708a5::t_810b27ee653ad8 4682-4686,4719-4720,4755
+tests/e2e/test_context_protection_transports.py
+  s_624ad8983708a5::t_810b27ee653ad8 58,236
+tests/builtin/runtime/test_model_usage_recorder.py
+  s_624ad8983708a5::t_810b27ee653ad8 36,104-107,165-167,319-320,322-325,473-511,1094-1095,1097-1103,1186,1190-1217,1220-1225,1234-1236,1251-1253,1291,1441,1443-1447
+tests/test_ci_shard_collection.py
+  s_624ad8983708a5::t_810b27ee653ad8 1-76
+src/powercontext/builtin/runtime/composition.py
+  s_624ad8983708a5::t_810b27ee653ad8 263,1605,1636,1665-1667,1818-1825,1879-1880,1962,2002-2003,2048-2064,2120-2126,2128-2153,2211-2218,2299,2310,2312-2327
+tests/builtin/persistence/test_atomic_description_vector_layout.py
+  s_624ad8983708a5::t_810b27ee653ad8 46,159,169,179
+gateway/crates/pc-gateway-transport/src/sender.rs
+  s_624ad8983708a5::t_810b27ee653ad8 38-39
+gateway/README.md
+  s_624ad8983708a5::t_810b27ee653ad8 3,5,7,9,11,13,15,17,19,21,23,25-30,32-42,45-55,61-68,70-72,75,78,80,82-85,87,89,91,95-103,107-111,113,117-123
+tests/e2e/plugin_server_process.py
+  s_624ad8983708a5::t_810b27ee653ad8 1-60
+gateway/crates/pc-gateway-protocol/src/render.rs
+  s_624ad8983708a5::t_810b27ee653ad8 46-55
+integrations/dsh/plugins/powercontext/package.json
+  s_624ad8983708a5::t_810b27ee653ad8 73
+src/powercontext/builtin/runtime/context_check.py
+  s_624ad8983708a5::t_810b27ee653ad8 51,101-105,121,174-198,201-204,256-258,382-394,408-409,421-428
+.github/actions/upload-ci-diagnostics/README.md
+  s_624ad8983708a5::t_810b27ee653ad8 1-11
+tests/knowledge_base/test_identity_storage.py
+  s_624ad8983708a5::t_810b27ee653ad8 1-113
+.github/workflows/build-artifacts.yml
+  s_624ad8983708a5::t_810b27ee653ad8 58-59,80,103-104,117,127,129-161,182-186
+docs/en/rfcs/2570-knowledge-base.md
+  s_624ad8983708a5::t_810b27ee653ad8 1-499
+integrations/codex/plugins/powercontext/hooks/recall.py
+  s_624ad8983708a5::t_810b27ee653ad8 27,33-36,52,56-60,62-65,68-71,73,84,101,110-114
+docs/zh/development/dashboard.md
+  s_624ad8983708a5::t_810b27ee653ad8 82-135
+docs/en/development/released-schema-capture.md
+  s_624ad8983708a5::t_810b27ee653ad8 15-21
+gateway/crates/pc-gateway-core/tests/executor_semantics.rs
+  s_624ad8983708a5::t_810b27ee653ad8 82,108-113,235,388,1710,2910,3231-3318,3321-3322,3369-3370,3411,4378-4421,4560,4596,4598,4664-4712
+  s_624ad8983708a5::t_9dc8989b896404 4713
+.github/workflows/skill-guidance.yml
+  s_624ad8983708a5::t_810b27ee653ad8 39,45,51-56
+e2e/bub/src/powercontext_e2e/harbor_agent.py
+  s_624ad8983708a5::t_810b27ee653ad8 26,57-58,110-112,116-119,121-122,127,130-133,157-191,205-222
+  s_624ad8983708a5::t_eacc3849f09d90 223-224
+gateway/crates/pc-gateway-protocol/src/responses.rs
+  s_624ad8983708a5::t_810b27ee653ad8 1-114
+src/powercontext/builtin/inference/model_payload.py
+  s_624ad8983708a5::t_810b27ee653ad8 31-39,212-217,338-341
+tests/knowledge_base/test_content_store.py
+  s_624ad8983708a5::t_810b27ee653ad8 1-215
+plugins/knowledge-base/pc_knowledge_base/service.py
+  s_624ad8983708a5::t_810b27ee653ad8 1-759
+.github/workflows/deploy-docs.yml
+  s_624ad8983708a5::t_810b27ee653ad8 36-46
+tests/fixtures/oauth/upstream/republic-grok.json
+  s_624ad8983708a5::t_810b27ee653ad8 1-431
+scripts/prepare_bundle_dependencies.py
+  s_624ad8983708a5::t_810b27ee653ad8 1-228
+.github/scripts/pytest_ci_diagnostics.py
+  s_624ad8983708a5::t_810b27ee653ad8 1-132
+src/powercontext/builtin/persistence/sqlite/profile.py
+  s_624ad8983708a5::t_810b27ee653ad8 22,281-296
+gateway/crates/pc-gateway-transport/src/reqwest_transport.rs
+  s_624ad8983708a5::t_810b27ee653ad8 34-36,54-56,64-78,90-96,131,135-138,173-260,264-265
+website/python/pyproject.toml
+  s_624ad8983708a5::t_810b27ee653ad8 1-29
+docs/zh/docs/operate/context-protection.md
+  s_624ad8983708a5::t_810b27ee653ad8 108-109,126-129
+gateway/crates/pc-gateway-auth/src/codex.rs
+  s_624ad8983708a5::t_810b27ee653ad8 1-45
+scripts/ci_legacy_upgrade_rejection.py
+  s_624ad8983708a5::t_810b27ee653ad8 27,177-179,181
+gateway/crates/pc-gateway-auth/src/gemini.rs
+  s_624ad8983708a5::t_810b27ee653ad8 1-108
+e2e/bub/src/powercontext_e2e/harbor_codex.py
+  s_624ad8983708a5::t_810b27ee653ad8 20,29,36-37,79-89,107,111-122,128,130
+integrations/codex/plugins/powercontext/scripts/scope_binding.py
+  s_624ad8983708a5::t_810b27ee653ad8 16,23,30-31,42-44,46,49-50
+src/powercontext/server/dashboard/templates/context-diagnostic-detail.html
+  s_624ad8983708a5::t_810b27ee653ad8 1-121
+tests/builtin/inference/conftest.py
+  s_624ad8983708a5::t_810b27ee653ad8 1-48
+.github/actions/cache-backend/action.yml
+  s_624ad8983708a5::t_810b27ee653ad8 1-13
+tests/native/test_oceanbase_engine_recovery.py
+  s_624ad8983708a5::t_810b27ee653ad8 178
+scripts/ci_python_mirror.py
+  s_624ad8983708a5::t_810b27ee653ad8 1-314
+src/powercontext/builtin/inference/protected_transport.py
+  s_624ad8983708a5::t_810b27ee653ad8 35,173-180
+tests/test_ops.py
+  s_624ad8983708a5::t_810b27ee653ad8 44-78
+website/scripts/generate-content.ts
+  s_624ad8983708a5::t_810b27ee653ad8 23,215
+.github/actions/prepare-bundle-wheels/action.yml
+  s_624ad8983708a5::t_810b27ee653ad8 1-21
+tests/e2e/test_worker_logging.py
+  s_624ad8983708a5::t_810b27ee653ad8 20-21,26,33-34,44,87-88,102-114,116-125,130,160,176-217,223,225,235-239,244-245,251-256,259,266,268-280,282-290,298-299,302-303,309-310,312-320,322-323,328,355,374-377,402,414,429,567-568,573-574,651,692-723,756-759,762,807,875-878,923-926,952-955,966,969-970,973-988,998,1017-1019,1024-1028,1036,1066-1068
+website/tests/python-api.test.ts
+  s_624ad8983708a5::t_810b27ee653ad8 1-54
+.github/actions/cache-save/action.yml
+  s_624ad8983708a5::t_810b27ee653ad8 1-48
+tests/builtin/runtime/test_processing_scheduler.py
+  s_624ad8983708a5::t_810b27ee653ad8 80-148,276,281-284,296-297,299,311-312,322,327-331,333,335,337-339,342-348,692-693,700,711-713,715,717,721-724,726-727,732-736,794-796,800-801,816-817,819,821,823-826,833-837
+  s_624ad8983708a5::t_cbe8ae84eedb56 838
+e2e/bub/scripts/configure_debian_mirror.py
+  s_624ad8983708a5::t_810b27ee653ad8 1-60
+tests/e2e/test_dashboard_business_diagnostics.py
+  s_624ad8983708a5::t_810b27ee653ad8 1-148
+docs/en/docs/operate/deploy-server.md
+  s_624ad8983708a5::t_810b27ee653ad8 8,12,25,27,37,45,47,57,77,79,86,88,92,101,103,107-109,146,148,150,152,156,158-182,186,197,199,203,205,209-219,224,307,331,333,335,337,341,344-345,352-357,373,388
+gateway/crates/pc-gateway-transport/Cargo.toml
+  s_624ad8983708a5::t_810b27ee653ad8 24,31-33
+frontend/knowledge-base/src/components/Markdown.tsx
+  s_624ad8983708a5::t_810b27ee653ad8 1-72
+docs/en/development/processing-failures.md
+  s_624ad8983708a5::t_810b27ee653ad8 68-69,82,135-153
+  s_624ad8983708a5::t_f409a48d8ee690 154
+integrations/claude-code/plugins/powercontext/powercontext_lifecycle/user_prompt_submit.py
+  s_624ad8983708a5::t_810b27ee653ad8 1-653
+scripts/capture_release_schema.py
+  s_624ad8983708a5::t_810b27ee653ad8 154-165,168,173
+tests/e2e/test_gateway_target_binding.py
+  s_624ad8983708a5::t_810b27ee653ad8 17-18,223-293
+tests/test_integration_lifecycle.py
+  s_624ad8983708a5::t_810b27ee653ad8 36-37,86-97
+.github/actions/setup-rust-cache/action.yml
+  s_624ad8983708a5::t_810b27ee653ad8 1-73
+.github/actions/setup-go/action.yml
+  s_624ad8983708a5::t_810b27ee653ad8 1-63
+tests/test_user_prompt_submit_shells.py
+  s_624ad8983708a5::t_810b27ee653ad8 1-66
+frontend/knowledge-base/build.mjs
+  s_624ad8983708a5::t_810b27ee653ad8 1-61
+scripts/ci_cache.py
+  s_624ad8983708a5::t_810b27ee653ad8 1-333
+tests/e2e/test_kimi_code_host.py
+  s_624ad8983708a5::t_810b27ee653ad8 250-252,254,286-287
+src/powercontext/server/dashboard/labels.json
+  s_624ad8983708a5::t_810b27ee653ad8 693-882
+  s_624ad8983708a5::t_928ad6419dc449 883
+scripts/upgrade_release_gate.py
+  s_624ad8983708a5::t_810b27ee653ad8 42-44,423-425,427,470,519-521
+tests/e2e/provider_worker_fixture.py
+  s_624ad8983708a5::t_810b27ee653ad8 1-34
+.github/workflows/seekdb-lock-observation.yml
+  s_624ad8983708a5::t_810b27ee653ad8 26
+tests/e2e/test_minimax_host.py
+  s_624ad8983708a5::t_810b27ee653ad8 159-161,163,175
+src/powercontext/builtin/persistence/oceanbase/atomic_memory_index.py
+  s_624ad8983708a5::t_810b27ee653ad8 63,175
+plugins/knowledge-base/pc_knowledge_base/store.py
+  s_624ad8983708a5::t_810b27ee653ad8 1-326
+scripts/ci_changes.py
+  s_624ad8983708a5::t_810b27ee653ad8 62-64,66-70,94-151,226-230,240-241
+tests/e2e/test_topic_memory_generic_api.py
+  s_624ad8983708a5::t_810b27ee653ad8 501-502,507-520,542,544-552,555-558,561-563,577-579,609-611,683,695-702,730-737
+tests/builtin/persistence/test_plugin_storage_migration.py
+  s_624ad8983708a5::t_810b27ee653ad8 162,164,190
+integrations/claude-code/plugins/powercontext/scripts/workspace_scope.py
+  s_624ad8983708a5::t_810b27ee653ad8 16,23,30,32,42-44,46,49-50
+tests/test_ci_pipeline.py
+  s_624ad8983708a5::t_810b27ee653ad8 37-51,182,213-270,291,316,322,327-331
+gateway/crates/pc-gateway-protocol/src/copilot.rs
+  s_624ad8983708a5::t_810b27ee653ad8 1-38
+tests/test_migration_revision_names.py
+  s_624ad8983708a5::t_810b27ee653ad8 73,76,91,109
+tests/e2e/test_observability.py
+  s_624ad8983708a5::t_810b27ee653ad8 85-87,1185-1189,1229-1231,1257,1273-1275
+frontend/knowledge-base/src/actions/Document.tsx
+  s_624ad8983708a5::t_810b27ee653ad8 1-189
+tests/test_automatic_prompt_privacy.py
+  s_624ad8983708a5::t_810b27ee653ad8 139-141
+integrations/deepagents/README.md
+  s_624ad8983708a5::t_810b27ee653ad8 1-42
+docker/Dockerfile
+  s_624ad8983708a5::t_810b27ee653ad8 22,25,27-28
+tests/test_schema_release.py
+  s_624ad8983708a5::t_810b27ee653ad8 1-543
+integrations/cindy/plugins/powercontext-hooks/node/worker.cjs
+  s_624ad8983708a5::t_810b27ee653ad8 2194-2197
+scripts/run_upgrade_release_gate.py
+  s_624ad8983708a5::t_810b27ee653ad8 20,23,61-63,66,100-103
+frontend/knowledge-base/src/main.tsx
+  s_624ad8983708a5::t_810b27ee653ad8 1-43
+src/powercontext/builtin/persistence/oceanbase/topic_memory_index.py
+  s_624ad8983708a5::t_810b27ee653ad8 60,153-154
+tests/native/test_installation.py
+  s_624ad8983708a5::t_810b27ee653ad8 34,42-43,48-55,66,263,338-339,341-342,347-349,353-359,386-392,394,414-420,424,426-432,434-440
+tests/e2e/test_worker_model_usage.py
+  s_624ad8983708a5::t_810b27ee653ad8 26,37,46,52,77,95,98-100,147,149-151,183-191,230-290
+desktop/src-tauri/src/diagnostic_process_macos.rs
+  s_624ad8983708a5::t_810b27ee653ad8 408,410,415-416,420-439,442,444-446
+integrations/deepagents/src/powercontext_deepagents/__init__.py
+  s_624ad8983708a5::t_810b27ee653ad8 1-23
+tests/test_ci_node_mirror.py
+  s_624ad8983708a5::t_810b27ee653ad8 1-256
+docs/en/rfcs/1435_explainable_prepared_context_receipts.md
+  s_624ad8983708a5::t_810b27ee653ad8 340-356,446-448,451,490
+integrations/dsh/plugins/powercontext/tests/prompt-privacy.spec.ts
+  s_624ad8983708a5::t_810b27ee653ad8 44
+frontend/knowledge-base/src/types.ts
+  s_624ad8983708a5::t_810b27ee653ad8 1-75
+gateway/crates/pc-gateway-auth/src/kimi.rs
+  s_624ad8983708a5::t_810b27ee653ad8 1-115
+src/powercontext/builtin/artifacts/atomic_memory/reconciliation.py
+  s_624ad8983708a5::t_810b27ee653ad8 216-225
+tests/builtin/runtime/test_artifact_processing.py
+  s_624ad8983708a5::t_810b27ee653ad8 46-48,198,238,241-242,296,301,417,467,493,551,575,626
+plugins/knowledge-base/pc_knowledge_base/__init__.py
+  s_624ad8983708a5::t_810b27ee653ad8 1-15
+scripts/check_workflow_actions.py
+  s_624ad8983708a5::t_810b27ee653ad8 131-134
+gateway/crates/pc-gateway-transport/tests/claude_cli.rs
+  s_624ad8983708a5::t_810b27ee653ad8 1-186
+tests/builtin/runtime/test_experience_input_encoding.py
+  s_624ad8983708a5::t_810b27ee653ad8 220-221
+frontend/knowledge-base/README.md
+  s_624ad8983708a5::t_810b27ee653ad8 1-25
+frontend/knowledge-base/src/pages/Settings.tsx
+  s_624ad8983708a5::t_810b27ee653ad8 1-90
+src/powercontext/builtin/persistence/context_prepare_diagnostics.py
+  s_624ad8983708a5::t_810b27ee653ad8 1-139
+src/powercontext/builtin/runtime/diagnostic_text.py
+  s_624ad8983708a5::t_810b27ee653ad8 1-54
+docs/zh/docs/operate/configuration.md
+  s_624ad8983708a5::t_810b27ee653ad8 38,495
+integrations/claude-code/plugins/powercontext/hooks/user_prompt_submit.py
+  s_624ad8983708a5::t_810b27ee653ad8 25,32-35,39,52-65
+src/powercontext/builtin/runtime/atomic_memory.py
+  s_624ad8983708a5::t_810b27ee653ad8 109,1144,1160,1162-1165,1181-1184,1193-1196,1208-1209,1217,1223-1224,1229-1239,1352,1362-1364
+tests/e2e/test_knowledge_base_spaces.py
+  s_624ad8983708a5::t_810b27ee653ad8 1-132
+tests/fixtures/oauth/contract.json
+  s_624ad8983708a5::t_810b27ee653ad8 1-1326
+integrations/codex/plugins/powercontext/powercontext_lifecycle/prompt_privacy.py
+  s_624ad8983708a5::t_810b27ee653ad8 24-59,70-73
+src/powercontext/builtin/persistence/migrations/server_resources/versions/000.py
+  s_624ad8983708a5::t_810b27ee653ad8 1-29
+.github/actions/cache/action.yml
+  s_624ad8983708a5::t_810b27ee653ad8 1-63
+tests/builtin/persistence/test_atomic_evidence_upgrade_history.py
+  s_624ad8983708a5::t_810b27ee653ad8 172,204,258
+src/powercontext/builtin/artifacts/atomic_memory/one_pass.py
+  s_624ad8983708a5::t_810b27ee653ad8 1-415
+tests/fixtures/automatic_prompt_privacy.json
+  s_624ad8983708a5::t_810b27ee653ad8 24-63,159-333
+e2e/bub/tests/test_debian_build_mirror.py
+  s_624ad8983708a5::t_810b27ee653ad8 1-71
+src/powercontext/builtin/runtime/application.py
+  s_624ad8983708a5::t_810b27ee653ad8 218-224,258,274,1156,1170-1179,1181-1183,1189-1196,1198-1208,1277-1283,1345-1346,1366-1383,1387-1392,1402,1418-1420,1422,1442-1443,1535-1584,1698,1700-1729,1733-1734,1783-1785,1795-1812,1825-1834,2242-2243,2274-2281,2309-2311,2345-2346,2367-2374,2384-2391,2407-2408,2435-2442,2457-2470
+gateway/Cargo.toml
+  s_624ad8983708a5::t_810b27ee653ad8 19,36,58-62
+tests/knowledge_base/test_sql_backends.py
+  s_624ad8983708a5::t_810b27ee653ad8 1-104
+.github/workflows/zcode-acceptance.yml
+  s_624ad8983708a5::t_810b27ee653ad8 171
+tests/e2e/test_claude_code_service_chain.py
+  s_624ad8983708a5::t_810b27ee653ad8 40,92,169
+src/powercontext/builtin/inference/gemini_cli.py
+  s_624ad8983708a5::t_810b27ee653ad8 1-145
+docs/zh/docs/operate/troubleshoot.md
+  s_624ad8983708a5::t_810b27ee653ad8 263
+src/powercontext/builtin/inference/coding_oauth.py
+  s_624ad8983708a5::t_810b27ee653ad8 1-39
+tests/e2e/test_knowledge_base_context.py
+  s_624ad8983708a5::t_810b27ee653ad8 1-160
+frontend/knowledge-base/src/actions/RetryProcessing.tsx
+  s_624ad8983708a5::t_810b27ee653ad8 1-83
+tests/e2e/test_cindy_mcp_chain.py
+  s_624ad8983708a5::t_810b27ee653ad8 42,97
+tests/knowledge_base/test_request_status.py
+  s_624ad8983708a5::t_810b27ee653ad8 1-50
+.github/actions/cache-npm/action.yml
+  s_624ad8983708a5::t_810b27ee653ad8 1-43
+tests/test_ci_cache.py
+  s_624ad8983708a5::t_810b27ee653ad8 1-762
+docs/zh/docs/integrations/deepagents.md
+  s_624ad8983708a5::t_810b27ee653ad8 1-135
+tests/codex_plugin/test_contract.py
+  s_624ad8983708a5::t_810b27ee653ad8 35,41,45-46,48-49,52,74,94,98
+gateway/crates/pc-gateway-auth/src/store.rs
+  s_624ad8983708a5::t_810b27ee653ad8 1-132
+tests/e2e/test_topic_memory_head_conflict.py
+  s_624ad8983708a5::t_810b27ee653ad8 25,43-48,116,119-125,167-177
+gateway/crates/pc-gateway-protocol/tests/fixtures/subscriptions/magpie-grok.json
+  s_624ad8983708a5::t_810b27ee653ad8 1-492
+gateway/crates/pc-gateway-core/tests/real_core_rpc_recovery.rs
+  s_624ad8983708a5::t_810b27ee653ad8 43,48-53,106-108,150,226,332-520
+  s_624ad8983708a5::t_82adec088a740c 521
+tests/test_registered_source_maintenance_cli.py
+  s_624ad8983708a5::t_810b27ee653ad8 69
+scripts/integration_manifest.py
+  s_624ad8983708a5::t_810b27ee653ad8 109,679-693,978-988
+tests/e2e/test_extraction_diagnostics.py
+  s_624ad8983708a5::t_810b27ee653ad8 47-49,131
+integrations/codex/plugins/powercontext/hooks/bind_tools.py
+  s_624ad8983708a5::t_810b27ee653ad8 45-46,162,169,185,188
+src/powercontext/ops/__init__.py
+  s_624ad8983708a5::t_810b27ee653ad8 17-20,23-37
+integrations/claude-code/plugins/powercontext/hooks/session_start.py
+  s_624ad8983708a5::t_810b27ee653ad8 31,75,78
+plugins/knowledge-base/ui/app.css
+  s_624ad8983708a5::t_810b27ee653ad8 1-16
+src/powercontext/builtin/runtime/config.py
+  s_624ad8983708a5::t_810b27ee653ad8 267
+src/powercontext/server/dashboard/api.py
+  s_624ad8983708a5::t_810b27ee653ad8 175-193
+tests/test_server.py
+  s_624ad8983708a5::t_810b27ee653ad8 1030-1034,1066-1071
+gateway/crates/pc-gateway-auth/src/lib.rs
+  s_624ad8983708a5::t_810b27ee653ad8 1-199
+integrations/codex/plugins/powercontext/settings.py
+  s_624ad8983708a5::t_810b27ee653ad8 28-29,222-243
+  s_624ad8983708a5::t_98d0487a6e17ef 244
+integrations/dsh/plugins/dsh-pet/lib/index.js
+  s_624ad8983708a5::t_810b27ee653ad8 2196-2199
+frontend/knowledge-base/src/components/Feedback.tsx
+  s_624ad8983708a5::t_810b27ee653ad8 1-21
+docs/en/docs/operate/troubleshoot.md
+  s_624ad8983708a5::t_810b27ee653ad8 272
+gateway/crates/pc-gateway-transport/src/subscription.rs
+  s_624ad8983708a5::t_810b27ee653ad8 1-49
+docs/en/development/managed-resource-production.md
+  s_624ad8983708a5::t_810b27ee653ad8 50-58
+frontend/knowledge-base/index.html
+  s_624ad8983708a5::t_810b27ee653ad8 1-30
+src/powercontext/builtin/runtime/scope_reads.py
+  s_624ad8983708a5::t_810b27ee653ad8 73-129,390-432
+gateway/crates/pc-gateway-app/Cargo.toml
+  s_624ad8983708a5::t_810b27ee653ad8 28
+integrations/pi/plugins/powercontext/src/prompt-privacy.ts
+  s_624ad8983708a5::t_810b27ee653ad8 24-38
+tests/builtin/runtime/test_context_diagnostic_text.py
+  s_624ad8983708a5::t_810b27ee653ad8 1-162
+tests/e2e/test_zcode_service_chain.py
+  s_624ad8983708a5::t_810b27ee653ad8 44,240,301-302,305-320,362-364,367,370,376-381,390-393,401-408,410-416,427,441,448-450,452,455,481,484-486,656
+tests/fixtures/oauth/upstream/README.md
+  s_624ad8983708a5::t_810b27ee653ad8 1-25
+e2e/bub/tests/test_harbor_job_config.py
+  s_624ad8983708a5::t_810b27ee653ad8 26,30,49,210-253,382-415,508-517,558-834
+integrations/capabilities.toml
+  s_624ad8983708a5::t_810b27ee653ad8 903-914,1090-1099
+  s_624ad8983708a5::t_bffa04164913c9 902,1100
+integrations/dsh/plugins/powercontext/src/prompt-privacy.ts
+  s_624ad8983708a5::t_810b27ee653ad8 24-38
+openapi/powercontext.yaml
+  s_624ad8983708a5::t_810b27ee653ad8 10688-10698,10742-10745,10796
+src/powercontext/builtin/runtime/receipt_builder.py
+  s_624ad8983708a5::t_810b27ee653ad8 15,23,145-152,162-189,192-202,215-229,245-247,249-257
+src/powercontext/server/dashboard/labels.en.json
+  s_624ad8983708a5::t_810b27ee653ad8 693-882
+  s_624ad8983708a5::t_8719a0e3f0bbdc 883
+tests/e2e/oauth_subscription_acceptance.py
+  s_624ad8983708a5::t_810b27ee653ad8 1-587
+src/powercontext/builtin/persistence/migrations/server_resources/manifest.json
+  s_624ad8983708a5::t_810b27ee653ad8 59-62,107-109,175,416-420,444
+tests/e2e/test_knowledge_base_dashboard_navigation.py
+  s_624ad8983708a5::t_810b27ee653ad8 1-235
+.github/actions/upload-ci-diagnostics/artifact-state.cjs
+  s_624ad8983708a5::t_810b27ee653ad8 1-64
+integrations/codex/plugins/powercontext/hooks/session_binding.py
+  s_624ad8983708a5::t_810b27ee653ad8 31,54,57,80,83
+tests/test_ci_changes.py
+  s_624ad8983708a5::t_810b27ee653ad8 268-269,528-530,559-630
+plugins/knowledge-base/ui/index.html
+  s_624ad8983708a5::t_810b27ee653ad8 1-30
+e2e/bub/Dockerfile
+  s_624ad8983708a5::t_810b27ee653ad8 27-31,48,53-54
+tests/fixtures/recorded_host_payloads/codex.json
+  s_624ad8983708a5::t_810b27ee653ad8 2-3,31-40
+.github/scripts/ci_resource_sampler.py
+  s_624ad8983708a5::t_810b27ee653ad8 1-143
+gateway/crates/pc-gateway-protocol/src/grok.rs
+  s_624ad8983708a5::t_810b27ee653ad8 1-356
+gateway/crates/pc-gateway-protocol/src/subscription.rs
+  s_624ad8983708a5::t_810b27ee653ad8 1-103
+src/powercontext/builtin/inference/grok.py
+  s_624ad8983708a5::t_810b27ee653ad8 1-183
+tests/e2e/test_knowledge_base_dashboard.py
+  s_624ad8983708a5::t_810b27ee653ad8 1-494
+src/powercontext/builtin/inference/privacy.py
+  s_624ad8983708a5::t_810b27ee653ad8 69-70,83-88,140-141,223-224,361-362,389-392,401-407,411,419-421,440-449,455,469-476
+tests/test_observability_cli.py
+  s_624ad8983708a5::t_810b27ee653ad8 25,320-322,324-334,336,338,340,342,344,348-351,353-359,362,365-373
+gateway/crates/pc-gateway-protocol/Cargo.toml
+  s_624ad8983708a5::t_810b27ee653ad8 28
+.github/actions/setup-upgrade-oceanbase/action.yml
+  s_624ad8983708a5::t_810b27ee653ad8 11,20
+tests/e2e/test_knowledge_base.py
+  s_624ad8983708a5::t_810b27ee653ad8 1-322
+tests/test_upgrade_release_gate.py
+  s_624ad8983708a5::t_810b27ee653ad8 17,578-625
+  s_624ad8983708a5::t_42b073896f637f 626-627
+gateway/crates/pc-gateway-auth/src/managed.rs
+  s_624ad8983708a5::t_810b27ee653ad8 1-95
+src/powercontext/server/dashboard/templates/processing.html
+  s_624ad8983708a5::t_810b27ee653ad8 92
+docs/en/docs/integrations/deepagents.md
+  s_624ad8983708a5::t_810b27ee653ad8 1-144
+plugins/knowledge-base/plugin.py
+  s_624ad8983708a5::t_810b27ee653ad8 1-84
+src/powercontext/server/dashboard/templates/components/navigation.html
+  s_624ad8983708a5::t_810b27ee653ad8 39
+tests/builtin/runtime/test_worker_prompt_usage.py
+  s_624ad8983708a5::t_810b27ee653ad8 59-60,63-65,163,174,189-191,242-243,245,248,274-283,319-322
+integrations/opencode/plugins/powercontext/lib/index.js
+  s_624ad8983708a5::t_810b27ee653ad8 2264-2267
+tests/claude_code_plugin/test_statusline.py
+  s_624ad8983708a5::t_810b27ee653ad8 474-479,483-484,524-525
+.github/workflows/capture-release-schema.yml
+  s_624ad8983708a5::t_810b27ee653ad8 65
+tests/builtin/artifacts/prompt/test_prompt_service.py
+  s_624ad8983708a5::t_810b27ee653ad8 32,134-135,183
+tests/e2e/test_server_metrics_process.py
+  s_624ad8983708a5::t_810b27ee653ad8 30-31,76
+tests/test_managed_processing_maintenance.py
+  s_624ad8983708a5::t_810b27ee653ad8 78
+gateway/crates/pc-gateway-protocol/src/json.rs
+  s_624ad8983708a5::t_810b27ee653ad8 1-75
+tests/e2e/worker_timeout_diagnostics.py
+  s_624ad8983708a5::t_810b27ee653ad8 1-156
+tests/test_bub_docker_mirror.py
+  s_624ad8983708a5::t_810b27ee653ad8 1-138
+deploy/observability/compose.container.yaml
+  s_624ad8983708a5::t_810b27ee653ad8 20-21
+.github/actions/setup-uv/action.yml
+  s_624ad8983708a5::t_810b27ee653ad8 1-107
+src/powercontext/server/dashboard/routes.py
+  s_624ad8983708a5::t_810b27ee653ad8 51-57,72-73,207-211,361-362,861-867
+tests/builtin/persistence/test_mysql_migration_runner.py
+  s_624ad8983708a5::t_810b27ee653ad8 479,772,903,913,980,1048,1212,1234,1314
+.github/workflows/candidate-schema-replay.yml
+  s_624ad8983708a5::t_810b27ee653ad8 47-48,85
+scripts/build_intel_managed_wheel.py
+  s_624ad8983708a5::t_810b27ee653ad8 354
+tests/e2e/plugin_server.py
+  s_624ad8983708a5::t_810b27ee653ad8 25,35-42,57-58,91,93,105,107-114
+gateway/crates/pc-gateway-transport/src/claude.rs
+  s_624ad8983708a5::t_810b27ee653ad8 1-240
+src/powercontext_integration_lifecycle/scope_binding.py
+  s_624ad8983708a5::t_810b27ee653ad8 1-289
+tests/builtin/artifacts/profile/test_scheduler.py
+  s_624ad8983708a5::t_810b27ee653ad8 37-39,99
+plugins/knowledge-base/pc_knowledge_base/sources.py
+  s_624ad8983708a5::t_810b27ee653ad8 1-67
+src/powercontext_integration_lifecycle/host_profile.py
+  s_624ad8983708a5::t_810b27ee653ad8 30-31,38
+docs/en/docs/operate/configuration.md
+  s_624ad8983708a5::t_810b27ee653ad8 43,545
+desktop/scripts/prepare-openapi-generator.mjs
+  s_624ad8983708a5::t_810b27ee653ad8 50-52,68,75-106
+src/powercontext/builtin/runtime/artifact_processing.py
+  s_624ad8983708a5::t_810b27ee653ad8 68,1834-1841
+.github/workflows/seekdb-lock-probe.yml
+  s_624ad8983708a5::t_810b27ee653ad8 43,57
+integrations/openclaw/plugins/memory-powercontext/src/prompt-privacy.ts
+  s_624ad8983708a5::t_810b27ee653ad8 24-38
+tests/e2e/test_knowledge_base_dashboard_lifecycle.py
+  s_624ad8983708a5::t_810b27ee653ad8 1-463
+src/powercontext/builtin/persistence/migrations/server_resources/schemas/mysql-000.json
+  s_624ad8983708a5::t_810b27ee653ad8 1-1203
+tests/builtin/inference/test_grok_subscription.py
+  s_624ad8983708a5::t_810b27ee653ad8 1-307
+.github/workflows/release.yml
+  s_624ad8983708a5::t_810b27ee653ad8 101-103
+gateway/crates/pc-gateway-protocol/src/gemini.rs
+  s_624ad8983708a5::t_810b27ee653ad8 1-347
+docs/zh/docs/operate/database-migrations.md
+  s_624ad8983708a5::t_810b27ee653ad8 124-126,128-129,147,149,152-153,164,167,170-171,180-245,665-670
+tests/e2e/server_startup.py
+  s_624ad8983708a5::t_810b27ee653ad8 1-32
+tests/e2e/test_bootstrap_host_service_chain.py
+  s_624ad8983708a5::t_810b27ee653ad8 40,90
+tests/e2e/test_codex_service_chain.py
+  s_624ad8983708a5::t_810b27ee653ad8 51,102,179,275,421,595
+frontend/knowledge-base/src/actions/RemoveChunks.tsx
+  s_624ad8983708a5::t_810b27ee653ad8 1-80
+integrations/lifecycle/prompt-privacy.ts
+  s_624ad8983708a5::t_810b27ee653ad8 21-35
+plugins/knowledge-base/pc_knowledge_base/models.py
+  s_624ad8983708a5::t_810b27ee653ad8 1-123
+tests/test_hook_characterization.py
+  s_624ad8983708a5::t_810b27ee653ad8 196-198,200
+integrations/codex/plugins/powercontext/powercontext_lifecycle/user_prompt_submit.py
+  s_624ad8983708a5::t_810b27ee653ad8 1-653
+gateway/crates/pc-gateway-protocol/tests/subscription_protocol.rs
+  s_624ad8983708a5::t_810b27ee653ad8 1-234
+gateway/crates/pc-gateway-auth/src/claude.rs
+  s_624ad8983708a5::t_810b27ee653ad8 1-23
+tests/test_session_start_shells.py
+  s_624ad8983708a5::t_810b27ee653ad8 17-18,43,71
+integrations/pi/plugins/powercontext/tests/prompt-privacy.spec.ts
+  s_624ad8983708a5::t_810b27ee653ad8 32
+README_JP.md
+  s_624ad8983708a5::t_810b27ee653ad8 268-276
+docs/zh/docs/operate/inference-protection.md
+  s_624ad8983708a5::t_810b27ee653ad8 92
+e2e/bub/container-entrypoint.sh
+  s_624ad8983708a5::t_810b27ee653ad8 37-63
+gateway/crates/pc-gateway-auth/src/tests.rs
+  s_624ad8983708a5::t_810b27ee653ad8 1-713
+docs/zh/docs/integrations/capabilities.md
+  s_624ad8983708a5::t_810b27ee653ad8 45
+integrations/zcode/plugins/powercontext/tests/plugin.test.mjs
+  s_624ad8983708a5::t_810b27ee653ad8 61-62
+AGENTS.md
+  s_624ad8983708a5::t_810b27ee653ad8 79,84-111
+src/powercontext/builtin/inference/pydantic_ai.py
+  s_624ad8983708a5::t_810b27ee653ad8 21-24,26,46-47,64,118,177-238,247-249,251-255,257,319-326,337-340,399-406,408,466,509-510,517-643,832-848,975-997
+tests/builtin/test_processing_status.py
+  s_624ad8983708a5::t_810b27ee653ad8 165-180
+tests/e2e/test_http_resource_admission.py
+  s_624ad8983708a5::t_810b27ee653ad8 32,51
+desktop/scripts/prepare-openapi-generator.test.mjs
+  s_624ad8983708a5::t_810b27ee653ad8 108-141
+src/powercontext/builtin/runtime/prepared_code.py
+  s_624ad8983708a5::t_810b27ee653ad8 162-163,187,194
+tests/test_schema_draft.py
+  s_624ad8983708a5::t_810b27ee653ad8 1-36
+tests/builtin/inference/test_protected_responses_stream.py
+  s_624ad8983708a5::t_810b27ee653ad8 1-955
+tests/builtin/inference/test_pydantic_ai.py
+  s_624ad8983708a5::t_810b27ee653ad8 839-840,866,878-884,1060-1130,1134,1137,1146,1162-1305,1412-1415,1417,1497-1543,1545
+  s_624ad8983708a5::t_23d737c7281131 1544
+src/powercontext/server/dashboard/context_diagnostics.py
+  s_624ad8983708a5::t_810b27ee653ad8 1-350
+tests/e2e/test_source_citation_locators.py
+  s_624ad8983708a5::t_810b27ee653ad8 80,89
+docs/zh/development/ci-scope.md
+  s_624ad8983708a5::t_810b27ee653ad8 36-41,46-47,122-152
+  s_624ad8983708a5::t_59eaf5295bf76c 153
+src/powercontext/builtin/persistence/migrations/server_sources/1.4.0/manifest.json
+  s_624ad8983708a5::t_810b27ee653ad8 58-61,106-108,174,420-424,448
+tests/e2e/test_atomic_memory_one_pass.py
+  s_624ad8983708a5::t_810b27ee653ad8 1-502
+gateway/crates/pc-gateway-auth/src/http.rs
+  s_624ad8983708a5::t_810b27ee653ad8 1-121
+src/powercontext/http/_generated/schema.py
+  s_624ad8983708a5::t_810b27ee653ad8 11875-11888,11932-11955,12048-12050
+src/powercontext/http/_generated/models.py
+  s_624ad8983708a5::t_810b27ee653ad8 2075-2089,2144-2149,2195-2197
+.github/actions/cache-pip/action.yml
+  s_624ad8983708a5::t_810b27ee653ad8 1-56
+gateway/crates/pc-gateway-core/tests/live_context_check.rs
+  s_624ad8983708a5::t_810b27ee653ad8 91
+tests/e2e/gateway_tck.py
+  s_624ad8983708a5::t_810b27ee653ad8 214-216,221-224
+release/upgrade-support.json
+  s_624ad8983708a5::t_810b27ee653ad8 6-7
+tests/e2e/test_atomic_memory_description_upgrade.py
+  s_624ad8983708a5::t_810b27ee653ad8 88,90
+tests/test_dashboard_context_diagnostics.py
+  s_624ad8983708a5::t_810b27ee653ad8 1-330
+gateway/crates/pc-gateway-app/tests/claude_enforcement.rs
+  s_624ad8983708a5::t_810b27ee653ad8 1-71
+src/powercontext/builtin/persistence/tables.py
+  s_624ad8983708a5::t_810b27ee653ad8 1395-1425,1536
+.github/actions/setup-bundle-builder/action.yml
+  s_624ad8983708a5::t_810b27ee653ad8 1-101
+tests/builtin/runtime/test_context_check.py
+  s_624ad8983708a5::t_810b27ee653ad8 25-26,34,444-861
+deploy/observability/compose.split.yaml
+  s_624ad8983708a5::t_810b27ee653ad8 20-21,65-66,142-143
+tests/builtin/persistence/test_oceanbase_fulltext_index.py
+  s_624ad8983708a5::t_810b27ee653ad8 1-169
+tests/test_managed_atomic_maintenance.py
+  s_624ad8983708a5::t_810b27ee653ad8 79,106
+tests/builtin/inference/test_subscription_models.py
+  s_624ad8983708a5::t_810b27ee653ad8 1-347
+integrations/kimi-code/plugins/powercontext/tests/plugin.test.mjs
+  s_624ad8983708a5::t_810b27ee653ad8 29-31,57-58,280,304,325
+tests/builtin/runtime/test_topic_memory_terminal_frontier.py
+  s_624ad8983708a5::t_810b27ee653ad8 48-50,292
+tests/test_ci_action_resolution.py
+  s_624ad8983708a5::t_810b27ee653ad8 1-184
+gateway/crates/pc-gateway-app/src/ingress.rs
+  s_624ad8983708a5::t_810b27ee653ad8 463-473,475,479-557,564-565,567-569,574-580,1178-1181,1328-1332,1341
+integrations/workbuddy/plugins/powercontext/hooks/prompt_privacy.py
+  s_624ad8983708a5::t_810b27ee653ad8 24-59,70-73
+src/powercontext/builtin/inference/claude_cli.py
+  s_624ad8983708a5::t_810b27ee653ad8 1-229
+src/powercontext/server/context_diagnostics.py
+  s_624ad8983708a5::t_810b27ee653ad8 1-42
+integrations/claude-code/plugins/powercontext/powercontext_lifecycle/prompt_privacy.py
+  s_624ad8983708a5::t_810b27ee653ad8 24-59,70-73
+tests/e2e/test_statistics_flow.py
+  s_624ad8983708a5::t_810b27ee653ad8 31,77-79
+tests/test_ci_python_mirror.py
+  s_624ad8983708a5::t_810b27ee653ad8 1-359
+.github/actions/setup-mise/action.yml
+  s_624ad8983708a5::t_810b27ee653ad8 1-78
+.github/actions/setup-python-env/action.yml
+  s_624ad8983708a5::t_810b27ee653ad8 13-16,34,39,45,54-59,66-67,70-108,112-113,115-120,122-124,128-129,131
+src/powercontext/builtin/runtime/atomic_memory_processing.py
+  s_624ad8983708a5::t_810b27ee653ad8 24,26,38,43-52,78,131,136,158,510-515,638-641,648-802,866-873,875,880-884,888,892-914,1299-1333,1407-1434
+tests/builtin/runtime/test_extraction_diagnostics.py
+  s_624ad8983708a5::t_810b27ee653ad8 37-39,60-61,89
+tests/builtin/persistence/test_portable_storage_migration.py
+  s_624ad8983708a5::t_810b27ee653ad8 73,136,138,206,219,222
+.github/workflows/master.yml
+  s_624ad8983708a5::t_810b27ee653ad8 37,41-43,55,59-61,67,85,175,185,210-212,216-218,225,227-235,237,239-241,243-245,247-258,263-271,276,281-283,285-286,296-300,309,321,334-336,341,345,347,355,357-359,364-387,410,416,430,449,462-463,499,527,553,599-600,602,608,619,628,630,662-666,669,672-674,715,720,729,737,745,753-754,760,764-767,770-772,784,788-789,795,798-799,804,823,825,836-838,855-857,860-862,869,880,887,895,917,926,939,956-969,974-975,995,1000,1004,1037,1042-1046,1100,1111-1118,1122-1128,1133,1167,1212,1247,1256-1257,1264-1277,1279-1292,1304,1328-1335,1338,1341-1350,1363,1419,1457,1470-1471,1484,1496,1500,1517,1524,1532,1545,1608-1609,1619-1629,1632,1789-1831,1846,1907-1908,1918-1921
+tests/builtin/inference/test_oauth_contract.py
+  s_624ad8983708a5::t_810b27ee653ad8 1-175
+docs/en/development/pydantic-ai-inference.md
+  s_624ad8983708a5::t_810b27ee653ad8 86,88-99,103,109,115,119,126-166,168,170-188,192-220,222
+tests/deepagents_adapter/test_adapter.py
+  s_624ad8983708a5::t_810b27ee653ad8 1-705
+tests/e2e/test_workbuddy_service_chain.py
+  s_624ad8983708a5::t_810b27ee653ad8 41,80
+integrations/claude-code/plugins/powercontext/scripts/statusline.py
+  s_624ad8983708a5::t_810b27ee653ad8 35,37,279,282
+docs/zh/docs/integrations/meta.json
+  s_624ad8983708a5::t_810b27ee653ad8 26
+src/powercontext/server/dashboard/processing.py
+  s_624ad8983708a5::t_810b27ee653ad8 123-132,145,155-156
+tests/test_integration_manifest.py
+  s_624ad8983708a5::t_810b27ee653ad8 303-308,319-324
+integrations/claude-code/plugins/powercontext/claude_code_host.py
+  s_624ad8983708a5::t_810b27ee653ad8 25
+src/powercontext/builtin/persistence/atomic_memory_index.py
+  s_624ad8983708a5::t_810b27ee653ad8 1159-1166,1182
+tests/builtin/inference/test_coding_oauth.py
+  s_624ad8983708a5::t_810b27ee653ad8 1-320
+src/powercontext/server/dashboard/templates/macros.html
+  s_624ad8983708a5::t_810b27ee653ad8 19
+frontend/knowledge-base/src/actions/Create.tsx
+  s_624ad8983708a5::t_810b27ee653ad8 1-90
+.github/scripts/collect_pytest_diagnostics.py
+  s_624ad8983708a5::t_810b27ee653ad8 1-50
+tests/knowledge_base/test_ocr.py
+  s_624ad8983708a5::t_810b27ee653ad8 1-39
+LICENSES/oauth.md
+  s_624ad8983708a5::t_810b27ee653ad8 1-40
+src/powercontext/server/dashboard/content.py
+  s_624ad8983708a5::t_810b27ee653ad8 281-284
+gateway/crates/pc-gateway-auth/src/copilot.rs
+  s_624ad8983708a5::t_810b27ee653ad8 1-104
+integrations/workbuddy/plugins/powercontext/hooks/workbuddy_powercontext_hook.py
+  s_624ad8983708a5::t_810b27ee653ad8 16-17
+tests/test_operational_metrics.py
+  s_624ad8983708a5::t_810b27ee653ad8 192,289-290
+scripts/schema_release.py
+  s_624ad8983708a5::t_810b27ee653ad8 1-409
+frontend/knowledge-base/package.json
+  s_624ad8983708a5::t_810b27ee653ad8 1-27
+e2e/bub/src/powercontext_e2e/runner.py
+  s_624ad8983708a5::t_810b27ee653ad8 23,49,452-465
+gateway/crates/pc-gateway-core/src/executor.rs
+  s_624ad8983708a5::t_810b27ee653ad8 44-46,605-609,619-627,629-672,674-676,678-711,713-739,741-746,748-782,784-789,794-799,802-814,816-818,1074-1077,1106-1126,1144-1150,1242
+tests/test_ci_pytest_diagnostics.py
+  s_624ad8983708a5::t_810b27ee653ad8 1-225
+src/powercontext/builtin/inference/models.py
+  s_624ad8983708a5::t_810b27ee653ad8 19,107-136
+integrations/codex/plugins/powercontext/codex_host.py
+  s_624ad8983708a5::t_810b27ee653ad8 26
+src/powercontext/server/app.py
+  s_624ad8983708a5::t_810b27ee653ad8 1123,4624-4628
+tests/codex_plugin/conftest.py
+  s_624ad8983708a5::t_810b27ee653ad8 42-46,52-54
+  s_624ad8983708a5::t_3fbf0e2ffca0a6 55-56
+integrations/deepagents/pyproject.toml
+  s_624ad8983708a5::t_810b27ee653ad8 1-33
+tests/test_release_schema_capture.py
+  s_624ad8983708a5::t_810b27ee653ad8 1-175
+gateway/crates/pc-gateway-protocol/src/lib.rs
+  s_624ad8983708a5::t_810b27ee653ad8 22-23,25-28,30,32,36-37,39,41
+src/powercontext/builtin/persistence/database.py
+  s_624ad8983708a5::t_810b27ee653ad8 384-386
+tests/e2e/zcode_acceptance/runner.py
+  s_624ad8983708a5::t_810b27ee653ad8 47,90,104,500-501
+.github/workflows/e2e-harness.yml
+  s_624ad8983708a5::t_810b27ee653ad8 58-59,61-66,70,102,115,126,131,136,177,185,359,372,378,383,400,406,414,429,438,442,446,454,458-459,463,470-471,475,510,553,561,610,644-647,664,679-680,682-687,691,695,699-702,711,798-799,804-806,811,833,843,854
+tests/codex_plugin/test_bootstrap.py
+  s_624ad8983708a5::t_810b27ee653ad8 93,121,183,187-188,589
+gateway/crates/pc-gateway-auth/src/qwen.rs
+  s_624ad8983708a5::t_810b27ee653ad8 1-102
+src/powercontext/builtin/persistence/migrations/server_resources/mysql/versions/000.py
+  s_624ad8983708a5::t_810b27ee653ad8 1-24
+tests/e2e/test_minimax_diagnostics_http.py
+  s_624ad8983708a5::t_810b27ee653ad8 33-34,163
+.github/workflows/upgrade-release.yml
+  s_624ad8983708a5::t_810b27ee653ad8 32,101-110,142-148,220-224,276-277,310-313
+tests/conftest.py
+  s_624ad8983708a5::t_810b27ee653ad8 17,82-84,158-173,209-215
+  s_624ad8983708a5::t_dd2d14de4ea0d1 216-218
+integrations/codex/plugins/powercontext/hooks/token_savings.py
+  s_624ad8983708a5::t_810b27ee653ad8 35,42-48,51,290,293
+docs/en/development/ci-scope.md
+  s_624ad8983708a5::t_810b27ee653ad8 36-41,46-47,122-152
+  s_624ad8983708a5::t_b961a4c3da2f8f 153
+tests/e2e/test_provider_observability.py
+  s_624ad8983708a5::t_810b27ee653ad8 38-40,174-175,182-185,211,213,219-239,251-252,255-259
+integrations/dsh/plugins/powercontext/lib/index.js
+  s_624ad8983708a5::t_810b27ee653ad8 3008-3011,4281-4282,4284-4287,4289-4332
+integrations/deepagents/examples/quickstart.py
+  s_624ad8983708a5::t_810b27ee653ad8 1-81
+tests/claude_code_plugin/conftest.py
+  s_624ad8983708a5::t_810b27ee653ad8 39,43,87-91,121-123
+  s_624ad8983708a5::t_4248b89811d3f2 124-125
+docs/zh/docs/operate/deploy-server.md
+  s_624ad8983708a5::t_810b27ee653ad8 8,27,29,39,49,59,79,81,88,90,94,103,105,109-111,148,150,152,154,158,160-184,188,199,201,205,207,211-221,226,291,315,317,319,321,325,328,336-341,357
+tests/e2e/test_worker_otlp.py
+  s_624ad8983708a5::t_810b27ee653ad8 39-42,219,303,426,454,503
+tests/fixtures/oauth/README.md
+  s_624ad8983708a5::t_810b27ee653ad8 1-36
+frontend/knowledge-base/tsconfig.json
+  s_624ad8983708a5::t_810b27ee653ad8 1-19
+src/powercontext_integration_lifecycle/prompt_privacy.py
+  s_624ad8983708a5::t_810b27ee653ad8 21-56,67-70
+tests/test_ci_release_verification.py
+  s_624ad8983708a5::t_810b27ee653ad8 46,52-75,78,89,93-107,110-111,156-158,163-206
+  s_624ad8983708a5::t_90a3e2478e146f 207-208
+docs/en/docs/integrations/capabilities.md
+  s_624ad8983708a5::t_810b27ee653ad8 45
+tests/test_managed_resource_producer.py
+  s_624ad8983708a5::t_810b27ee653ad8 34,39,331-332,336-337,339,346,350-351,356-397
+.github/actions/check-license/action.yml
+  s_624ad8983708a5::t_810b27ee653ad8 1-48
+plugins/knowledge-base/README.md
+  s_624ad8983708a5::t_810b27ee653ad8 1-19
+tests/claude_code_plugin/test_bootstrap.py
+  s_624ad8983708a5::t_810b27ee653ad8 89,153,157-158,569
+src/powercontext_integration_lifecycle/user_prompt_submit.py
+  s_624ad8983708a5::t_810b27ee653ad8 1-650
+tests/test_bundle_dependencies.py
+  s_624ad8983708a5::t_810b27ee653ad8 1-240
+tests/e2e/test_knowledge_base_ocr.py
+  s_624ad8983708a5::t_810b27ee653ad8 1-95
+.github/workflows/desktop-candidate.yml
+  s_624ad8983708a5::t_810b27ee653ad8 36,39,165,183
+src/powercontext/builtin/inference/kimi.py
+  s_624ad8983708a5::t_810b27ee653ad8 1-142
+src/powercontext/builtin/inference/carrier_checks.py
+  s_624ad8983708a5::t_810b27ee653ad8 25,31,72-73,78,92-97,172-248
+  s_624ad8983708a5::t_472cfd3424dbb8 249
+src/powercontext/builtin/runtime/prepared_context.py
+  s_624ad8983708a5::t_810b27ee653ad8 291-293,300,354,366,482,545,547,599,604
+desktop/src-tauri/src/transport/operations.json
+  s_624ad8983708a5::t_171f7c6f3eab44 2
+desktop/ui/src/generated/operations.ts
+  s_624ad8983708a5::t_1c630efc982797 18
+e2e/bub/uv.lock
+  s_624ad8983708a5::t_6adb4792a1841c 909-910,1669-1673,1679-1683,1692,1728-1729,1763-1767,1791,1795-1799,1825,1832,1837,1846,1851,1858,1868,1886
+evaluation/uv.lock
+  s_624ad8983708a5::t_1ecbd1b8991071 585-593,738-776,890-891,962,1778,1780,1800,1825-1829,1835-1839,1848,1884-1885,1919-1923,1947,1951-1955,1981,1988,1993,2002,2007,2014,2024,2042,2159-2179,2245-2247,2927-2928,3096-3104
+frontend/knowledge-base/package-lock.json
+  s_624ad8983708a5::t_c7a62e533b645b 1-12594
+gateway/Cargo.lock
+  s_624ad8983708a5::t_3b58803f0bbd7b 14-22,40-45,119-127,172-202,214-233,255-260,276-285,346-355,379,488-511,651-656,731-759,800,817-833,849,879-880,889,891,895-896,898,908,932-940,964,979,986,1021-1031,1040-1059,1074,1164-1176,1296-1306,1408-1429,1436-1447,1651-1656,1679,1697-1707,1714-1719,1832-1888,1895-1912,2024-2043
+uv.lock
+  s_624ad8983708a5::t_18b5fd029ef742 2,7-8,599-610,824-841,946-967,1049-1065,1092-1093,1106-1107,1111-1112,1128-1166,1274-1297,1379-1398,1413,1990,1997,1999-2013,2018,2021,2033,2035-2050,2070,2075,2077,2102,2112,2114,2119,2125,2127,2145,2154,2156,2161,2166,2179,2181,2202-2214,2368-2516,2700-2701,2750-2799,2829-2848,2880-2881,3282,3289-3296,3322,3324,3335,3348,3350,3365,3391-3396,3400,3402,3422,3437,3439,3450,3464,3466,3486,3510,3513,3527-3529,3546,3587-3591,3597-3601,3610,3646-3647,3681-3685,3709,3713-3717,3743,3750,3755,3764,3769,3776,3786,3804,3820-3821,3830-3844,4014-4086,4100-4136,4190-4192,4728-4749,5142-5216,5273,5279-5316,5538-5571,5698-5709,6346-6354
+website/python/uv.lock
+  s_624ad8983708a5::t_2d16dd31f87b79 1-76
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "41ecb04c77741fff57e12e091f90013b4ce36ceb",
+  "prompts": {},
+  "sessions": {
+    "s_624ad8983708a5": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1ab57-e572-7090-b0f7-d55ee829f4b0",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Frey <370805886@qq.com>"
+    }
+  }
+}
