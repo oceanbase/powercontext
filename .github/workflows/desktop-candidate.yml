@@ -37,9 +37,9 @@ jobs:
         with:
           version: '0.13.5'
       - name: Prepare the native analyzer toolchain
-        run: rustup toolchain install 1.95.0 --profile minimal
+        run: rustup run 1.95.0 rustc --version || rustup toolchain install 1.95.0 --profile minimal
 
-      - run: uv sync --locked --no-dev --group resource-build --python 3.12
+      - run: python3 scripts/ci_python_mirror.py sync --locked --no-dev --group resource-build --python 3.12
       - name: Verify candidate handoff
         run: |
           uv run --no-sync ruff check scripts/desktop_candidate.py tests/test_desktop_candidate.py
@@ -186,7 +186,7 @@ jobs:
       - name: Validate required targets and freeze manifest
         run: |
           set -o pipefail
-          uv sync --locked --no-dev --group resource-build --python 3.12
+          python3 scripts/ci_python_mirror.py sync --locked --no-dev --group resource-build --python 3.12
           uv run --no-sync python scripts/desktop_candidate.py assemble \
             --version "$DESKTOP_VERSION" --server-version "$SERVER_VERSION" --source-sha "$SOURCE_SHA" --server-source-sha "$SERVER_SOURCE_SHA" \
             --root build/desktop-candidate | tee -a "$GITHUB_STEP_SUMMARY"

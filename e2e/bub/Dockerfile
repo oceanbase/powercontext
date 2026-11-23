@@ -52,11 +52,13 @@ WORKDIR /workspace/powercontext
 COPY . .
 
 ARG POWERCONTEXT_VERSION
+ARG PC_CI_PYTHON_MIRROR
 
 RUN --mount=type=cache,id=powercontext-bub-e2e-uv,target=/root/.cache/uv \
     test -n "${POWERCONTEXT_VERSION}" \
     && SETUPTOOLS_SCM_PRETEND_VERSION="${POWERCONTEXT_VERSION}" \
-    uv sync --project e2e/bub --frozen --no-dev --no-editable --refresh-package powercontext \
+    PC_CI_PYTHON_MIRROR="${PC_CI_PYTHON_MIRROR}" python scripts/ci_python_mirror.py \
+    sync --project e2e/bub --frozen --no-dev --no-editable --refresh-package powercontext \
     && test "$(e2e/bub/.venv/bin/python -c 'from importlib.metadata import version; print(version("powercontext"))')" \
     = "${POWERCONTEXT_VERSION}" \
     && SETUPTOOLS_SCM_PRETEND_VERSION="${POWERCONTEXT_VERSION}" \

@@ -18,6 +18,7 @@ import importlib.util
 import io
 import json
 import os
+import shutil
 import subprocess
 import sys
 import urllib.request
@@ -44,10 +45,39 @@ selector = _load_script("ci_select_release_assets")
 
 @pytest.fixture
 def run_release_step(tmp_path: Path):
-    """Run the workflow's version checks without building or publishing packages."""
+    """Run release steps with recorded package-tool commands, without downloads."""
+    bash = shutil.which("bash")
+    if bash is None:
+        pytest.skip("bash is required to execute release workflow steps")
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    package_tool = f"""#!{sys.executable}
+import json
+import os
+import sys
+from pathlib import Path
+
+with open(os.environ["TEST_COMMAND_LOG"], "a") as output:
+    output.write(json.dumps([Path(sys.argv[0]).name, *sys.argv[1:]]) + "\\n")
+if sys.argv[-2:] == ["hatchling", "version"] or sys.argv[1:2] == ["-c"]:
+    print(os.environ["TEST_PACKAGE_VERSION"])
+elif sys.argv[1:2] == ["build"]:
+    dist = Path("dist")
+    dist.mkdir(exist_ok=True)
+    (dist / "powercontext-1.5.2-py3-none-any.whl").touch()
+    (dist / "powercontext-1.5.2.tar.gz").touch()
+elif sys.argv[1:2] == ["venv"]:
+    python = Path(sys.argv[2]) / "bin" / "python"
+    python.parent.mkdir(parents=True)
+    python.symlink_to(Path(sys.argv[0]))
+"""
+    for name in ("uv", "uvx"):
+        executable = bin_dir / name
+        executable.write_text(package_tool)
+        executable.chmod(0o755)
     output = tmp_path / "output"
 
-    def run(workflow_name: str, tag: str, package_version: str):
+    def run(workflow_name: str, tag: str, package_version: str, *, with_installer=True, step_name=None):
         output.write_text("")
         workflow = yaml.safe_load(
             (Path(__file__).parents[1] / ".github" / "workflows" / workflow_name).read_text(encoding="utf-8")
@@ -58,16 +88,39 @@ def run_release_step(tmp_path: Path):
             build = workflow["jobs"]["release-build"]
             assert build["with"]["release"] is True
             workflow = yaml.safe_load((Path(__file__).parents[1] / build["uses"]).read_text(encoding="utf-8"))
-            job, step_name = "prepare", "Verify package version from Release tag"
+            job, step_name = "prepare", step_name or "Verify package version from Release tag"
         else:
             job, step_name = "verify", "Resolve release metadata"
         command = next(step["run"] for step in workflow["jobs"][job]["steps"] if step.get("name") == step_name)
+        environment = {
+            **os.environ,
+            "PATH": os.pathsep.join((str(bin_dir), str(Path(sys.executable).parent), os.environ.get("PATH", ""))),
+            "PC_CI_PYTHON_INSTALLER": str(Path(__file__).parents[1] / "scripts/ci_python_mirror.py"),
+            "PC_CI_PYTHON_MIRROR": "",
+            "PORTABLE_WHEEL": "false",
+            "RELEASE_TAG": tag,
+            "RELEASE_PACKAGE": "powercontext",
+            "TEST_PACKAGE_VERSION": package_version,
+            "TEST_COMMAND_LOG": str(tmp_path / "commands.jsonl"),
+            "RUNNER_TEMP": str(tmp_path),
+            "RUNNER_ENVIRONMENT": "github-hosted",
+            "GITHUB_OUTPUT": str(output),
+        }
+        if not with_installer:
+            environment.pop("PC_CI_PYTHON_INSTALLER")
         if workflow_name == "release-verify.yml":
             metadata = tmp_path / "release.json"
             metadata.write_text(json.dumps({"assets": [{"name": f"powercontext-{package_version}-py3-none-any.whl"}]}))
-            args = [sys.executable, "scripts/ci_select_release_assets.py", "--metadata", str(metadata)]
+            args = [
+                sys.executable,
+                str(Path(__file__).parents[1] / "scripts/ci_select_release_assets.py"),
+                "--metadata",
+                str(metadata),
+            ]
             assert command == "python scripts/ci_select_release_assets.py"
-        else:
+        elif os.name == "nt":
+            if step_name != "Verify package version from Release tag":
+                pytest.skip("release build shell fixtures require POSIX executable scripts")
             source = command.removeprefix("python - <<'PY'\n").removesuffix("PY\n")
             wrapper = (
                 "import os; from unittest.mock import patch\n"
@@ -75,16 +128,12 @@ def run_release_step(tmp_path: Path):
                 f"    exec(compile({source!r}, 'upgrade-release.yml:version', 'exec'))\n"
             )
             args = [sys.executable, "-c", wrapper]
+        else:
+            args = [bash, "-eu", "-c", command]
         result = subprocess.run(
             args,
-            env={
-                **os.environ,
-                "PATH": os.environ.get("PATH", ""),
-                "RELEASE_TAG": tag,
-                "RELEASE_PACKAGE": "powercontext",
-                "TEST_PACKAGE_VERSION": package_version,
-                "GITHUB_OUTPUT": str(output),
-            },
+            env=environment,
+            cwd=tmp_path,
             capture_output=True,
             text=True,
             timeout=30,
@@ -130,10 +179,57 @@ def test_release_workflows_reject_unsupported_versions(run_release_step, workflo
     assert output == ""
 
 
-def test_release_workflow_rejects_vcs_version_mismatch(run_release_step) -> None:
-    result, _ = run_release_step("release.yml", "powercontext-v1.0.0rc1", "1.0.0rc2")
+@pytest.mark.parametrize("with_installer", [False, True])
+def test_release_workflow_rejects_vcs_version_mismatch(run_release_step, with_installer) -> None:
+    result, _ = run_release_step("release.yml", "powercontext-v1.0.0rc1", "1.0.0rc2", with_installer=with_installer)
     assert result.returncode != 0
     assert "does not match VCS version" in result.stderr
+
+
+def test_release_workflow_accepts_existing_tag_without_python_installer(run_release_step) -> None:
+    result, _ = run_release_step("release.yml", "powercontext-v1.5.2", "1.5.2", with_installer=False)
+    assert result.returncode == 0, result.stderr
+
+
+@pytest.mark.parametrize("with_installer", [False, True])
+def test_release_build_and_fresh_install_support_tagged_setup(run_release_step, tmp_path, with_installer) -> None:
+    result, _ = run_release_step(
+        "release.yml",
+        "powercontext-v1.5.2",
+        "1.5.2",
+        with_installer=with_installer,
+        step_name="Build release distributions",
+    )
+    assert result.returncode == 0, result.stderr
+    validated = tmp_path / "release-without-upgrades" / "validated-dist"
+    shutil.copytree(tmp_path / "dist", validated)
+    result, _ = run_release_step(
+        "release.yml",
+        "powercontext-v1.5.2",
+        "1.5.2",
+        with_installer=with_installer,
+        step_name="Verify a clean installation and new-database Server, MCP and Memory behavior",
+    )
+    assert result.returncode == 0, result.stderr
+    commands = [json.loads(line) for line in (tmp_path / "commands.jsonl").read_text().splitlines()]
+    assert ["uv", "build", "--out-dir", "dist"] in commands
+    twine = (
+        ["uv", "run", "--no-project", "--with", "twine>=7.0.0", "--"]
+        if with_installer
+        else ["uvx", "--from", "twine>=7.0.0"]
+    )
+    assert [
+        *twine,
+        "twine",
+        "check",
+        "dist/powercontext-1.5.2-py3-none-any.whl",
+        "dist/powercontext-1.5.2.tar.gz",
+    ] in commands
+    python = str(tmp_path / "release-fresh-install" / "bin" / "python")
+    wheel = str(validated / "powercontext-1.5.2-py3-none-any.whl")
+    assert ["uv", "pip", "install", "--python", python, f"{wheel}[cli,server]"] in commands
+    assert ["uv", "pip", "check", "--python", python] in commands
+    assert ["python", "scripts/ci_release_smoke.py", "--version", "1.5.2"] in commands
 
 
 @pytest.fixture
@@ -387,7 +483,13 @@ def test_source_installation_has_a_native_compiler_before_building(workflow_name
     path = Path(__file__).parents[1] / ".github/workflows" / workflow_name
     steps = yaml.safe_load(path.read_text(encoding="utf-8"))["jobs"][job_name]["steps"]
     source_install = next(
-        i for i, step in enumerate(steps) if "uv sync" in step.get("run", "") or "uv build" in step.get("run", "")
+        i
+        for i, step in enumerate(steps)
+        if any(
+            f"{installer} {operation}" in step.get("run", "")
+            for installer in ("uv", "scripts/ci_python_mirror.py", '"$PC_CI_PYTHON_INSTALLER"')
+            for operation in ("sync", "build")
+        )
     )
     assert any("rustup toolchain install" in step.get("run", "") for step in steps[:source_install])
 

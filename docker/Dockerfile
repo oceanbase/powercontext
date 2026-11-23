@@ -36,10 +36,13 @@ COPY src/ ./src/
 COPY scripts/build_lexical.py ./scripts/build_lexical.py
 
 ARG POWERCONTEXT_VERSION
+ARG PC_CI_PYTHON_MIRROR
 
 RUN --mount=type=cache,id=powercontext-uv,target=/root/.cache/uv \
+    --mount=type=bind,source=scripts/ci_python_mirror.py,target=/tmp/ci_python_mirror.py \
     test -n "${POWERCONTEXT_VERSION}" \
-    && SETUPTOOLS_SCM_PRETEND_VERSION="${POWERCONTEXT_VERSION}" uv sync \
+    && SETUPTOOLS_SCM_PRETEND_VERSION="${POWERCONTEXT_VERSION}" \
+    PC_CI_PYTHON_MIRROR="${PC_CI_PYTHON_MIRROR}" python /tmp/ci_python_mirror.py sync \
     --frozen \
     --no-dev \
     --no-editable \

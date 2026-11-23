@@ -24,6 +24,7 @@ docker run --rm -i \
   --env GITHUB_OUTPUT --env GITHUB_SHA --env PC_UPGRADE_SOURCE_SHA --env GITHUB_RUN_ID \
   --env GITHUB_ACTOR --env GITHUB_STEP_SUMMARY \
   --env RELEASE --env SELECTION --env RELEASE_TAG \
+  --env PC_CI_PYTHON_INSTALLER --env PC_CI_PYTHON_MIRROR \
   --env PYTHONPATH="$UPGRADE_GATE_ROOT/scripts" \
   --env CARGO_HOME="$RUNNER_TEMP/portable-cargo" \
   --env RUSTUP_HOME="$RUNNER_TEMP/portable-rustup" \

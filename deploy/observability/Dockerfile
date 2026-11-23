@@ -31,8 +31,11 @@ COPY scripts/build_lexical.py ./scripts/build_lexical.py
 ENV SETUPTOOLS_SCM_PRETEND_VERSION=0.0.0 \
     UV_LINK_MODE=copy \
     UV_PYTHON_DOWNLOADS=never
+ARG PC_CI_PYTHON_MIRROR
 RUN --mount=type=cache,id=pc-observability-uv,target=/root/.cache/uv \
-    uv sync --frozen --no-dev --no-editable --extra cli --extra server --extra tracing-otlp
+    --mount=type=bind,source=scripts/ci_python_mirror.py,target=/tmp/ci_python_mirror.py \
+    PC_CI_PYTHON_MIRROR="${PC_CI_PYTHON_MIRROR}" python /tmp/ci_python_mirror.py \
+    sync --frozen --no-dev --no-editable --extra cli --extra server --extra tracing-otlp
 FROM python:3.11-slim-bookworm@sha256:eb769d88622468aea09986df8172151981bf6622b5eec58dc38301e20673ff84
 WORKDIR /app
 COPY --from=builder /app/.venv /app/.venv

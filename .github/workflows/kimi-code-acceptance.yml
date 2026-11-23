@@ -68,7 +68,11 @@ jobs:
 
       - name: Install the pinned Kimi CLI
         run: |
-          npm install --prefix "${{ runner.temp }}/kimi-host" \
+          installer=(npm)
+          if [ -n "${PC_CI_NODE_INSTALLER:-}" ]; then
+            installer=(node "$PC_CI_NODE_INSTALLER" npm)
+          fi
+          "${installer[@]}" install --prefix "${{ runner.temp }}/kimi-host" \
             --registry https://registry.npmjs.org --ignore-scripts --no-audit --no-fund \
             "@moonshot-ai/kimi-code@$KIMI_VERSION"
           python - <<'PY'

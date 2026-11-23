@@ -130,7 +130,7 @@ jobs:
       # class of failure visible.
       - name: Verify dependencies resolve from scratch
         if: steps.plan.outputs.replay == 'true'
-        run: uv lock --upgrade --dry-run
+        run: python3 scripts/ci_python_mirror.py lock --upgrade --dry-run
 
       - name: Prepare the native analyzer toolchain
         if: steps.plan.outputs.replay == 'true'
@@ -139,7 +139,7 @@ jobs:
       - name: Install harness validation dependencies
         if: steps.plan.outputs.replay == 'true'
         run: |
-          uv sync --frozen
+          python3 scripts/ci_python_mirror.py sync --frozen
           make harness-sync
 
       - name: Save harness validation dependencies
@@ -408,6 +408,7 @@ jobs:
       - name: Set up the environment
         uses: ./.github/actions/setup-python-env
         with:
+          sync-args: "--extra server"
           python-version: "3.12"
 
       - name: Pull the OceanBase image
@@ -705,6 +706,10 @@ jobs:
         uses: ./.github/actions/setup-uv
         with:
           version: ${{ env.UV_VERSION }}
+
+      - name: Install native acceptance dependencies
+        if: matrix.native
+        run: python3 scripts/ci_python_mirror.py sync --locked --extra server
 
       - name: Start and configure the shared OceanBase instance
         id: oceanbase_setup

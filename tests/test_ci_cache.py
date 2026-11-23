@@ -146,7 +146,11 @@ def test_cache_helpers_route_restore_outputs_and_builder_downloads(helper: str, 
             "restored-key" if hit else ""
         )
     if helper == "setup-bundle-builder":
-        downloads = [step for step in action["runs"]["steps"] if "pip download" in step.get("run", "")]
+        downloads = [
+            step
+            for step in action["runs"]["steps"]
+            if step.get("name") == "Download and verify pinned build-tool wheels"
+        ]
         assert len(downloads) == 1
         assert cache_expression(downloads[0]["if"], context) == (hit != "true")
         saves = [
@@ -482,6 +486,85 @@ def test_npm_download_cache_tracks_install_inputs_and_excludes_installed_package
     changed, updated, _ = run_cache(tmp_path, "npm", **values)
     assert changed.returncode == 0, changed.stderr
     assert output_value(initial, "cache-key") != output_value(updated, "cache-key")
+
+
+def test_npm_default_scope_preserves_existing_download_cache_and_keys(tmp_path: Path) -> None:
+    if shutil.which("npm") is None:
+        pytest.skip("requires npm")
+    values = {"npm_config_cache": str(tmp_path / "npm-cache"), "CI_CACHE_PACKAGES": "fixture@1.0.0"}
+    initial, original, original_environment = run_cache(tmp_path, "npm", **values)
+    explicit, empty_scope, scoped_environment = run_cache(tmp_path, "npm", **values, CI_CACHE_SCOPE="")
+    assert initial.returncode == explicit.returncode == 0
+    assert original == empty_scope
+    assert original_environment == scoped_environment == ""
+    assert output_value(original, "cache-path") == str(tmp_path / "npm-cache/_cacache")
+    assert output_value(original, "restore-key").startswith("npm-v1-")
+
+
+def test_npm_scopes_isolate_snapshot_restore_and_subsequent_install_downloads(tmp_path: Path) -> None:
+    npm = shutil.which("npm")
+    if npm is None:
+        pytest.skip("requires npm")
+    global_cache = tmp_path / "global-cache"
+    values = {
+        "npm_config_cache": str(global_cache),
+        "CI_CACHE_PACKAGES": "fixture@1.0.0",
+        "RUNNER_TEMP": str(tmp_path / "runner"),
+    }
+    default, global_output, _ = run_cache(tmp_path, "npm", **values)
+    first, first_output, first_environment = run_cache(tmp_path, "npm", **values, CI_CACHE_SCOPE="archive")
+    second, second_output, second_environment = run_cache(tmp_path, "npm", **values, CI_CACHE_SCOPE="other-cli")
+    assert default.returncode == first.returncode == second.returncode == 0
+    outputs = [global_output, first_output, second_output]
+    paths = [output_value(output, "cache-path") for output in outputs]
+    assert len(set(paths)) == 3
+    for index, output in enumerate(outputs):
+        key = output_value(output, "cache-key")
+        assert key.startswith(output_value(output, "restore-key"))
+        assert all(
+            not key.startswith(output_value(other, "restore-key"))
+            for other_index, other in enumerate(outputs)
+            if other_index != index
+        )
+    for output, environment in [(first_output, first_environment), (second_output, second_environment)]:
+        configured = dict(line.split("=", 1) for line in environment.splitlines())
+        assert configured["npm_config_cache"] == configured["NPM_CONFIG_CACHE"]
+        install_cache = Path(configured["npm_config_cache"])
+        assert install_cache.is_relative_to(tmp_path / "runner")
+        assert output_value(output, "cache-path") == str(install_cache / "_cacache")
+        actual = subprocess.run(
+            [npm, "config", "get", "cache"],
+            env={**os.environ, **configured},
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        assert Path(actual.stdout.strip()) == install_cache
+
+
+@pytest.mark.parametrize("changed_input", ["package", "lock"])
+def test_npm_scope_retains_incremental_restore_when_dependencies_change(tmp_path: Path, changed_input: str) -> None:
+    if shutil.which("npm") is None:
+        pytest.skip("requires npm")
+    lock = tmp_path / "package-lock.json"
+    lock.write_text('{"lockfileVersion": 3, "packages": {}}')
+    values = {
+        "CI_CACHE_SCOPE": "archive",
+        "CI_CACHE_PACKAGES": "fixture@1.0.0",
+        "CI_CACHE_DEPENDENCY_PATH": "package-lock.json",
+        "RUNNER_TEMP": str(tmp_path / "runner"),
+    }
+    first, original, original_environment = run_cache(tmp_path, "npm", **values)
+    if changed_input == "package":
+        values["CI_CACHE_PACKAGES"] = "fixture@2.0.0"
+    else:
+        lock.write_text('{"lockfileVersion": 3, "packages": {"node_modules/fixture": {"version": "2.0.0"}}}')
+    second, updated, updated_environment = run_cache(tmp_path, "npm", **values)
+    assert first.returncode == second.returncode == 0
+    assert output_value(original, "cache-key") != output_value(updated, "cache-key")
+    assert output_value(original, "restore-key") == output_value(updated, "restore-key")
+    assert output_value(original, "cache-path") == output_value(updated, "cache-path")
+    assert original_environment == updated_environment
 
 
 def test_pip_download_cache_tracks_exported_dependencies_and_excludes_built_wheels(tmp_path: Path) -> None:

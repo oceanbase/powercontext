@@ -158,6 +158,22 @@ class PowerContextBubAcpAgent(harbor_acp.AcpAgent):
     async def _install_phase(
         self, environment: BaseEnvironment, *, phase: str, command: str, env: dict[str, str]
     ) -> None:
+        if any(
+            env.get(name, PYPI_INDEX_URL).rstrip("/") != PYPI_INDEX_URL for name in ("PIP_INDEX_URL", "UV_INDEX_URL")
+        ):
+            # Retry only the package installers: apt setup, credentials, and agent invocations run once.
+            runner_bin = f"{self._RUNNER_VENV_PATH}/bin"
+            for installer in (
+                f"{runner_bin}/pip install",
+                f"{runner_bin}/uv tool install",
+                f"{REMOTE_BIN_DIR}/bub install",
+            ):
+                command = command.replace(installer, f"python_install {installer}")
+            command = (
+                'python_install() { "$@" || env -u UV_INDEX -u UV_EXTRA_INDEX_URL -u PIP_EXTRA_INDEX_URL '
+                f"PIP_INDEX_URL={PYPI_INDEX_URL} UV_INDEX_URL={PYPI_INDEX_URL} UV_DEFAULT_INDEX={PYPI_INDEX_URL} "
+                '"$@"; }; ' + command
+            )
         setup = self.logs_dir / "setup"
         setup.mkdir(parents=True, exist_ok=True)
         with (
