@@ -48,9 +48,8 @@ from powercontext.http import (
 )
 
 ADAPTERS = ("hermes", "langchain", "langgraph", "pydantic-ai")
-# Entry points beyond each adapter's default asynchronous turn: LangChain's synchronous ``invoke``, and Hermes's
-# ``queue_prefetch`` ahead of the ``prefetch`` that consumes it.
-ENTRIES = {"langchain": ("ainvoke", "invoke"), "hermes": ("prefetch", "queue_prefetch")}
+# Entry points beyond each adapter's default asynchronous turn: LangChain's synchronous ``invoke``.
+ENTRIES = {"langchain": ("ainvoke", "invoke")}
 RECALLED = "safe historical context"
 ANSWER = "Acknowledged."
 _SCOPE_ID = "scp_00000000000000000000000000"
@@ -157,6 +156,7 @@ def _recording_server(turn: Turn) -> Iterator[str]:
 def _hermes(
     url: str, prompt: str, *, token: str | None, capture: bool, home: Path, entry: str | None, answer: str
 ) -> bool:
+    del entry  # Hermes has one recall entry: the turn-start prefetch.
     names = [name for name in sys.modules if name == "plugins" or name.startswith("plugins.")]
     previous = {name: sys.modules.pop(name) for name in names}
     sys.path.insert(0, str(_HERMES_ROOT))
@@ -168,10 +168,6 @@ def _hermes(
         provider = plugin.PowerContextMemoryProvider(config)
         provider.initialize("session-1", hermes_home=str(home), agent_identity="coder", user_id="user-1")
         try:
-            if entry == "queue_prefetch":
-                # Hermes queues the next turn's recall in the background; the next prefetch consumes its result.
-                provider.queue_prefetch(prompt, session_id="session-1")
-                assert provider._wait_for_memory_writes(timeout=10)
             recalled = RECALLED in provider.prefetch(prompt, session_id="session-1")
             provider.sync_turn(prompt, answer, session_id="session-1")
         finally:

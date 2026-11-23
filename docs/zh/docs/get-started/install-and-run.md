@@ -82,15 +82,15 @@ powercontext setup codex --ref "powercontext-v$(powercontext --version)"
 
 ## 选择脚本安装版本
 
-不传 `--version` 时，默认安装或升级到所选索引中兼容的最新稳定版，等同于 `--version latest`。只有需要固定版本时才指定版本号，例如安装 PowerContext 1.5.2：
+不传 `--version` 时，默认安装或升级到所选索引中兼容的最新稳定版，等同于 `--version latest`。只有需要固定版本时才指定版本号，例如安装 PowerContext 1.6.0：
 
 ```bash tab="macOS / Linux"
-curl -fsSL https://powercontext.oceanbase.io/install.sh | bash -s -- --version 1.5.2
+curl -fsSL https://powercontext.oceanbase.io/install.sh | bash -s -- --version 1.6.0
 ```
 
 ```powershell tab="Windows"
 irm https://powercontext.oceanbase.io/install.ps1 -OutFile install.ps1
-powershell -ExecutionPolicy Bypass -File .\install.ps1 --version 1.5.2
+powershell -ExecutionPolicy Bypass -File .\install.ps1 --version 1.6.0
 ```
 
 也可以指定预发布版，例如 `1.3.0rc1`。所选索引缺少该版本时，安装失败并保留原工具；`latest` 则排除预发布版。镜像同步可能滞后，其最新版本可能与 PyPI 不同。
@@ -123,6 +123,8 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1 --region cn
 
 自动镜像不可用时，可以回退官方源；可达包镜像缺少请求版本时，会返回安装错误。使用 `--region global` 或显式索引切换来源后重试。显式来源失败时仍保持选中。
 
+在 macOS 和 Linux 上，通过 `curl` 下载文件时，超时、连接被拒绝和暂时性 HTTP 错误会在选定来源最多重试三次。每次连接尝试为 DNS、TCP 和 TLS 建连保留最多 15 秒。这些重试仅重新获取文件，不会重新执行已经启动的安装器。
+
 ## 安装失败后恢复
 
 根据安装器报告的错误选择下一步：
@@ -149,11 +151,11 @@ powercontext setup codex --ref "powercontext-v$(powercontext --version)"
 
 ### 选择版本
 
-如需固定版本，以 PowerContext 1.5.2 为例，包与 Agent 集成保持版本一致：Python 包版本为 `1.5.2`，对应 Git tag 为 `powercontext-v1.5.2`。
+如需固定版本，以 PowerContext 1.6.0 为例，包与 Agent 集成保持版本一致：Python 包版本为 `1.6.0`，对应 Git tag 为 `powercontext-v1.6.0`。
 
 ```bash
-uv tool install --force "powercontext[cli,server]==1.5.2"
-powercontext setup codex --ref powercontext-v1.5.2
+uv tool install --force "powercontext[cli,server]==1.6.0"
+powercontext setup codex --ref powercontext-v1.6.0
 ```
 
 宿主支持范围和维护状态见[能力矩阵](../integrations/capabilities.md)。标为 `experimental` 的能力在此版本中仍属于试验性能力。
@@ -166,10 +168,10 @@ powercontext setup codex --ref powercontext-v1.5.2
 uv tool install --upgrade --force "powercontext[cli,server]"
 ```
 
-如需从源码安装固定版本，以 PowerContext 1.5.2 为例：
+如需从源码安装固定版本，以 PowerContext 1.6.0 为例：
 
 ```bash
-uv tool install --force "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@powercontext-v1.5.2"
+uv tool install --force "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@powercontext-v1.6.0"
 ```
 
 只连接远程 Server 的机器安装 `cli` extra 即可使用 `setup`、`doctor` 和远程内容命令。运行本地 Server 或使用 `service` 命令时，还需安装 `server`。如果命令 provider 缺少依赖，CLI 会报告 provider 和缺失模块，便于修复安装。
@@ -227,7 +229,7 @@ powercontext server run --env-file /path/to/powercontext.env
 在有兼容 `pylibseekdb` wheel 的 Linux 和 macOS 系统上可以使用嵌入式 seekDB；Windows 不支持该嵌入式后端。安装或替换工具时加入可选的 seekDB extra：
 
 ```bash
-uv tool install --force "powercontext[cli,server,seekdb]==1.5.2"
+uv tool install --force "powercontext[cli,server,seekdb]==1.6.0"
 ```
 
 从 SQLite 切换时，需要从 Server 进程环境中删除 `POWERCONTEXT_SERVER_DATABASE_URL`；seekDB 不接受显式的 SQLAlchemy 数据库 URL。然后选择 seekDB 后端并启动 Server：
@@ -330,11 +332,11 @@ powercontext capabilities
 Python SDK 环境和 CLI 安装，使用匹配的发布版本或 Git ref，再恢复能力查询。此端点不会协商旧版响应格式；
 关闭保护不能恢复兼容性。客户端升级要求不能替代上述数据库升级门禁。
 
-安装 1.5.2 到独立环境以试用新建部署：
+安装 1.6.0 到独立环境以试用新建部署：
 
 ```bash
 uv venv /path/to/powercontext-preview
-uv pip install --python /path/to/powercontext-preview/bin/python "powercontext[cli,server]==1.5.2"
+uv pip install --python /path/to/powercontext-preview/bin/python "powercontext[cli,server]==1.6.0"
 ```
 
 在独立环境安装其他 Git ref：
@@ -350,7 +352,7 @@ uv pip install --python /path/to/powercontext-preview/bin/python "powercontext[c
 如果应用需要导入异步 Client SDK，应把它加入该应用自己的环境：
 
 ```bash
-uv add "powercontext[client]==1.5.2"
+uv add "powercontext[client]==1.6.0"
 ```
 
 进程内 Python 组合使用 `builtin`，服务使用 `server`，Python SDK 使用 `client`，基于 Server 的命令行使用 `cli`。只安装在 `uv tool` 隔离环境中的 extra 不能被另一个 Python 项目直接导入。

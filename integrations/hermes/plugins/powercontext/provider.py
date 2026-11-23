@@ -292,8 +292,6 @@ class PowerContextMemoryProvider(MemoryProvider):
         self._pending_memory_writes = 0
         self._accept_memory_writes = False
         self._dropped_memory_writes = 0
-        self._prefetch_cache: dict[tuple[str, str, str, str], str] = {}
-        self._prefetch_lock = threading.Lock()
         self._last_recall: Any = None
         self._last_recall_scope_id = ""
         self._memory_extraction_supported: bool | None = None
@@ -650,8 +648,6 @@ class PowerContextMemoryProvider(MemoryProvider):
                 scope_id,
             )
 
-        with self._prefetch_lock:
-            self._prefetch_cache.clear()
         self._last_recall = None
         self._last_recall_scope_id = ""
         self._precompress_stream_id = f"{self._session_id}:{scope_id}"
@@ -870,24 +866,18 @@ class PowerContextMemoryProvider(MemoryProvider):
         except PowerContextError as error:
             self._emit_failure_diagnostic("context_prepare", error)
             return ""
-        cache_key = (scope_id, session_key, query, json.dumps(options, sort_keys=True))
-        with self._prefetch_lock:
-            cached = self._prefetch_cache.pop(cache_key, None)
-        content = cached
-        trace_status = "cache" if cached is not None else "empty"
-        if content is None:
-            try:
-                response = client.prepare_context(
-                    scope_id,
-                    recall_query,
-                    **options,
-                )
-                content = self._prepared_content(response, options)
-                trace_status = str(response.get("status", "empty"))
-            except PowerContextError as error:
-                self._emit_failure_diagnostic("context_prepare", error)
-                content = ""
-                trace_status = "error"
+        try:
+            response = client.prepare_context(
+                scope_id,
+                recall_query,
+                **options,
+            )
+            content = self._prepared_content(response, options)
+            trace_status = str(response.get("status", "empty"))
+        except PowerContextError as error:
+            self._emit_failure_diagnostic("context_prepare", error)
+            content = ""
+            trace_status = "error"
         if scope_id != self._scope_id:
             if self._last_recall_scope_id == scope_id:
                 self._last_recall = None
@@ -915,34 +905,11 @@ class PowerContextMemoryProvider(MemoryProvider):
         return "## PowerContext recalled context\n\n" + delivered
 
     def queue_prefetch(self, query: str, *, session_id: str = "") -> None:
-        scope_id = self._scope_id
-        client = self._client
-        recall_query = _automatic_recall_query(query, getattr(client, "authorization", None))
-        if not client or not scope_id or not recall_query:
-            return
-        session_key = session_id or self._session_id
-        try:
-            options = self._prepare_options()
-        except PowerContextError as error:
-            self._emit_failure_diagnostic("context_prepare", error)
-            return
-        cache_key = (scope_id, session_key, query, json.dumps(options, sort_keys=True))
+        """No-op: ``prefetch`` prepares the current prompt synchronously at turn start.
 
-        def prepare() -> None:
-            try:
-                response = client.prepare_context(
-                    scope_id,
-                    recall_query,
-                    **options,
-                )
-                content = self._prepared_content(response, options)
-                if content.strip():
-                    with self._prefetch_lock:
-                        self._prefetch_cache[cache_key] = content
-            except PowerContextError as error:
-                self._emit_failure_diagnostic("context_prepare", error)
-
-        self._enqueue_memory_write(prepare)
+        Hermes queues this after turn N with that turn's text and prefetches turn N+1 with the
+        next prompt, so a result keyed on the earlier query is almost never the one recall needs.
+        """
 
     def recall_status(self):
         if self._last_recall_scope_id and self._last_recall_scope_id != self._scope_id:
@@ -1071,8 +1038,6 @@ class PowerContextMemoryProvider(MemoryProvider):
         self._session_id = new_session_id
         self._parent_session_id = parent_session_id
         self._trace_turn = 0
-        with self._prefetch_lock:
-            self._prefetch_cache.clear()
         self._last_recall = None
         self._last_recall_scope_id = ""
         self._record_trace_event(

@@ -73,7 +73,7 @@ their capture defaults:
 
 | Adapter | Automatic input boundary | Checked automatic capture | Capture default |
 | --- | --- | --- | --- |
-| Hermes | `prefetch` and `queue_prefetch` query | Completed-turn Source | On; `POWERCONTEXT_HERMES_CAPTURE_TURNS=false` |
+| Hermes | `prefetch` query | Completed-turn Source | On; `POWERCONTEXT_HERMES_CAPTURE_TURNS=false` |
 | LangChain | Latest human message | Completed-turn Source | Off; `PowerContextMiddleware(auto_capture=True)` |
 | LangGraph | Latest human message | None; LangGraph captures only through explicit tools | Not applicable |
 | Pydantic AI | Latest textual user prompt | `user_prompt` event | Off; `POWERCONTEXT_PYDANTIC_AI_CAPTURE_EVENTS=true` |

@@ -67,7 +67,7 @@ powercontext setup
 
 | 适配器 | 自动输入边界 | 受检查的自动捕获 | 捕获默认值 |
 | --- | --- | --- | --- |
-| Hermes | `prefetch` 和 `queue_prefetch` 的 query | 完成轮次的 Source | 开启；`POWERCONTEXT_HERMES_CAPTURE_TURNS=false` 关闭 |
+| Hermes | `prefetch` 的 query | 完成轮次的 Source | 开启；`POWERCONTEXT_HERMES_CAPTURE_TURNS=false` 关闭 |
 | LangChain | 最新的人类消息 | 完成轮次的 Source | 关闭；`PowerContextMiddleware(auto_capture=True)` 开启 |
 | LangGraph | 最新的人类消息 | 无；LangGraph 只通过显式工具写入 | 不适用 |
 | Pydantic AI | 最新的文本 User Prompt | `user_prompt` 事件 | 关闭；`POWERCONTEXT_PYDANTIC_AI_CAPTURE_EVENTS=true` 开启 |
