@@ -25,9 +25,12 @@ INDEX_URL=""
 HOSTS=()
 NO_HOSTS=false
 ENV_FILE=""
+GATEWAY=false
+GATEWAY_TARGET=""
 TEMP_DIR=""
 UV_BIN=""
 GUIDE=https://powercontext.oceanbase.io/en/docs/get-started/quickstart/
+GATEWAY_GUIDE=https://powercontext.oceanbase.io/en/docs/operate/install-gateway/
 
 fail() {
     printf 'error: %s\n' "$*" >&2
@@ -44,7 +47,7 @@ usage() {
     cat <<'EOF'
 Install PowerContext on macOS or Linux. Python and uv need not be installed.
 
-Usage: bash install.sh [--version VERSION] [--index-url URL] [--host HOST]... [--no-hosts]
+Usage: bash install.sh [--version VERSION] [--index-url URL] [--host HOST]... [--no-hosts] [--gateway]
 
   --version VERSION  Exact package version, or latest (default: latest stable).
                      Integrations use the matching powercontext-vVERSION tag.
@@ -55,6 +58,9 @@ Usage: bash install.sh [--version VERSION] [--index-url URL] [--host HOST]... [-
   --host HOST        Install this Agent integration; repeat for multiple hosts.
   --no-hosts         Compatibility option; integration setup is skipped by default.
   --env-file PATH   Existing configuration file for selected Agent integrations.
+  --gateway          Also install the matching standalone Gateway (pc-gateway)
+                     beside the CLI. Requires --profile local, Linux glibc 2.28+
+                     or macOS 15+.
   -h, --help         Show this help.
 
 Agent integration setup runs only for explicitly selected --host values.
@@ -73,6 +79,8 @@ Download configuration (independent of the package index):
   UV_PYTHON_INSTALL_MIRROR      Mirror of python-build-standalone downloads.
   UV_ASTRAL_MIRROR_URL          Astral mirror for uv versions supporting it.
 These settings are passed to the official installer and uv without modification.
+  POWERCONTEXT_GATEWAY_DOWNLOAD_URL  HTTPS directory with the Gateway release
+                               archives (default: the matching GitHub Release).
 Existing uv and compatible Python installations are reused.
 EOF
 }
@@ -93,6 +101,7 @@ parse_args() {
                 shift 2
                 ;;
             --no-hosts) NO_HOSTS=true; shift ;;
+            --gateway) GATEWAY=true; shift ;;
             -h|--help) usage; exit 0 ;;
             *) fail "Unknown option. Run bash install.sh --help." ;;
         esac
@@ -109,6 +118,12 @@ parse_args() {
         [[ "$POWERCONTEXT_UV_INSTALLER_URL" == https://?* && "$POWERCONTEXT_UV_INSTALLER_URL" != *[@\?#[:space:]]* ]] ||
             fail "POWERCONTEXT_UV_INSTALLER_URL must be an HTTPS URL without credentials, query parameters, or fragments."
     fi
+    if [[ -n "${POWERCONTEXT_GATEWAY_DOWNLOAD_URL:-}" ]]; then
+        [[ "$POWERCONTEXT_GATEWAY_DOWNLOAD_URL" == https://?* && "$POWERCONTEXT_GATEWAY_DOWNLOAD_URL" != *[@\?#[:space:]]* ]] ||
+            fail "POWERCONTEXT_GATEWAY_DOWNLOAD_URL must be an HTTPS URL without credentials, query parameters, or fragments."
+    fi
+    # Prefix extraction and the private Core socket require the Gateway on the Server host.
+    [[ "$GATEWAY" != true || "$PROFILE" == local ]] || fail "--gateway requires --profile local; run the Gateway on the Server host."
     if [[ "$NO_HOSTS" == true && ${#HOSTS[@]} -gt 0 ]]; then
         fail "--host and --no-hosts cannot be combined."
     fi
@@ -317,6 +332,82 @@ ensure_python3() {
     fi
 }
 
+select_gateway_target() {
+    local arch release major minor
+    case "$(uname -m)" in
+        x86_64|amd64) arch=x86_64 ;;
+        aarch64|arm64) arch=aarch64 ;;
+        *) fail "The Gateway has no build for this processor architecture." ;;
+    esac
+    if [[ "$(uname -s)" == Darwin ]]; then
+        release=$(sw_vers -productVersion 2>/dev/null) || release=""
+        major=${release%%.*}
+        [[ "$major" =~ ^[0-9]+$ ]] || fail "Could not read the macOS version required by the Gateway."
+        ((major >= 15)) || fail "The Gateway requires macOS 15 or later (found $release)."
+        GATEWAY_TARGET=$arch-apple-darwin
+    else
+        # Only glibc builds are published; musl systems such as Alpine report no GNU libc version.
+        release=$(getconf GNU_LIBC_VERSION 2>/dev/null) || release=""
+        [[ "$release" =~ ^glibc\ ([0-9]+)\.([0-9]+) ]] ||
+            fail "The Gateway requires glibc 2.28 or later; musl systems such as Alpine are not supported."
+        major=${BASH_REMATCH[1]}
+        minor=${BASH_REMATCH[2]}
+        ((major > 2 || (major == 2 && minor >= 28))) || fail "The Gateway requires glibc 2.28 or later (found ${release#glibc })."
+        GATEWAY_TARGET=$arch-unknown-linux-gnu
+    fi
+    command -v tar >/dev/null 2>&1 || fail "Gateway installation requires tar."
+    command -v sha256sum >/dev/null 2>&1 || command -v shasum >/dev/null 2>&1 ||
+        fail "Gateway installation requires sha256sum or shasum."
+}
+
+install_gateway() {
+    local tool_bin=$1
+    local archive="powercontext-gateway-$VERSION-$GATEWAY_TARGET.tar.gz"
+    local base=${POWERCONTEXT_GATEWAY_DOWNLOAD_URL:-https://github.com/oceanbase/powercontext/releases/download/powercontext-v$VERSION}
+    local directory="$TEMP_DIR/gateway"
+    local expected name actual reported
+    base=${base%/}
+    mkdir "$directory"
+    printf 'Installing Gateway %s for %s from %s.\n' "$VERSION" "$GATEWAY_TARGET" "$base"
+    if ! download "$base/$archive" "$directory/$archive" 600 || ! download "$base/$archive.sha256" "$directory/$archive.sha256"; then
+        printf '%s\n' 'Could not download the Gateway archive. A release without Gateway archives must be built from source.' >&2
+        return 1
+    fi
+    read -r expected name <"$directory/$archive.sha256" || true
+    if command -v sha256sum >/dev/null 2>&1; then
+        actual=$(sha256sum "$directory/$archive")
+    else
+        actual=$(shasum -a 256 "$directory/$archive")
+    fi
+    if [[ "$name" != "$archive" || ! "$expected" =~ ^[0-9a-f]{64}$ || "${actual%% *}" != "$expected" ]]; then
+        printf '%s\n' 'Gateway archive checksum verification failed.' >&2
+        return 1
+    fi
+    # Release archives hold regular files at their root; take only the executable.
+    if ! tar -xzf "$directory/$archive" -C "$directory" pc-gateway || [[ ! -f "$directory/pc-gateway" || -L "$directory/pc-gateway" ]]; then
+        printf '%s\n' 'Gateway archive does not contain the pc-gateway executable.' >&2
+        return 1
+    fi
+    chmod 755 "$directory/pc-gateway"
+    if ! reported=$("$directory/pc-gateway" --version); then
+        printf '%s\n' 'Downloaded Gateway does not run on this system.' >&2
+        return 1
+    fi
+    if [[ "$reported" != "pc-gateway $VERSION ("*"; $GATEWAY_TARGET)" ]]; then
+        printf 'Downloaded Gateway reports a different release: %s\n' "$reported" >&2
+        return 1
+    fi
+    # Copy beside the target, then rename, so PATH never exposes a partial executable.
+    mkdir -p "$tool_bin"
+    if ! cp "$directory/pc-gateway" "$tool_bin/.pc-gateway.$$" || ! chmod 755 "$tool_bin/.pc-gateway.$$" ||
+        ! mv -f "$tool_bin/.pc-gateway.$$" "$tool_bin/pc-gateway"; then
+        rm -f -- "$tool_bin/.pc-gateway.$$"
+        printf 'Could not install pc-gateway in %s.\n' "$tool_bin" >&2
+        return 1
+    fi
+    printf 'Gateway installed: %s\n' "$reported"
+}
+
 resolve_latest_version() {
     # Restrict only PowerContext to stable releases; its dependencies may require betas.
     printf 'powercontext\n' >"$TEMP_DIR/release.in"
@@ -347,6 +438,8 @@ main() {
     if [[ ${#HOSTS[@]} -gt 0 ]]; then
         command -v git >/dev/null 2>&1 || fail "Agent integration setup requires Git. Install Git or use --no-hosts."
     fi
+    # Reject an unsupported Gateway platform before changing the installed runtime.
+    [[ "$GATEWAY" != true ]] || select_gateway_target
     TEMP_DIR=$(mktemp -d "${TMPDIR:-/tmp}/powercontext-install.XXXXXX")
     trap cleanup EXIT
     detect_region
@@ -405,6 +498,11 @@ main() {
         printf '  export PATH=%q:%q:"%s"\n' "$(dirname "$UV_BIN")" "$tool_bin" "\$PATH"
     fi
 
+    local gateway_status=0
+    if [[ "$GATEWAY" == true ]]; then
+        install_gateway "$tool_bin" || gateway_status=1
+    fi
+
     local setup_status=0
     if [[ ${#HOSTS[@]} -gt 0 ]]; then
         local setup_args=(setup)
@@ -423,9 +521,15 @@ main() {
         printf '%s\n' 'Load the generated Client settings, then run powercontext ready and powercontext capabilities.'
         printf '%s\n' 'A native user-service manager and loopback Server bind are required. For development or temporary use, run powercontext server run.'
         printf '  %s\n' "$GUIDE"
+        if [[ "$GATEWAY" == true && $gateway_status == 0 ]]; then
+            printf '\nConfigure and start pc-gateway after the Server:\n  %s\n' "$GATEWAY_GUIDE"
+        fi
     else
         printf '\nConnect to your existing Server:\n  %s\n' \
             'https://powercontext.oceanbase.io/en/docs/operate/connect-remote-server/'
+    fi
+    if ((gateway_status != 0)); then
+        fail "Runtime installed, but Gateway installation did not complete. Retry with --gateway or follow $GATEWAY_GUIDE"
     fi
     if ((setup_status != 0)); then
         fail "Runtime installed, but integration setup did not complete. Review its results and retry setup with powercontext-v$VERSION."
