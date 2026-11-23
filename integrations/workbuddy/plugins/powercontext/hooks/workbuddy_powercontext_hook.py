@@ -13,8 +13,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Adapted for WorkBuddy from the PowerContext Claude Code plugin hook
-# (integrations/claude-code/plugins/powercontext/hooks/user_prompt_submit.py).
+# Adapted for WorkBuddy from the prompt flow that the PowerContext Claude Code and Codex hooks run
+# (src/powercontext_integration_lifecycle/user_prompt_submit.py).
 
 """Recall memory and capture the current WorkBuddy prompt without blocking."""
 

@@ -16,18 +16,25 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, TypeAdapter, ValidationError
 
+from powercontext._logging import log_safely
 from powercontext.artifacts import ArtifactRef
 from powercontext.builtin.artifacts.atomic_memory.models import AtomicMemoryContent
+from powercontext.builtin.artifacts.atomic_memory.prefixed_extraction import (
+    PrefixedExtractionUnavailable,
+    prefix_handle,
+)
 from powercontext.builtin.artifacts.atomic_memory.summary import DESCRIPTION_RULES
 from powercontext.builtin.artifacts.atomic_memory.temporal import preserves_time_literals, source_time_literals
 from powercontext.builtin.artifacts.memory.prompts import MemoryExtractionProfile
 from powercontext.builtin.inference import InvalidInferenceOutputError, StructuredGenerator, TokenEstimator
+from powercontext.builtin.inference.models import ConversationReply, ConversationTurn
 from powercontext.builtin.persistence.records import _canonical_source_text
 from powercontext.builtin.persistence.sources import SourceRepository, StoredSource
 from powercontext.builtin.processing_diagnostics import (
@@ -44,6 +51,8 @@ from powercontext.sources import (
     SourceRef,
     SourceSequenceLocator,
 )
+
+logger = logging.getLogger(__name__)
 
 _JSON = TypeAdapter(JsonValue)
 _TEXT_EVIDENCE_KEY = TEXT_EVIDENCE_PROJECTION_KEY.model_dump(mode="json")
@@ -158,22 +167,77 @@ class AtomicMemoryGenerationPipeline:
     estimator: TokenEstimator
     extraction_instructions: str = atomic_memory_extraction_instructions(MemoryExtractionProfile.CODING)
     input_renderer: Callable[[AtomicMemoryExtractionInput | AtomicMemoryReconciliationInput], str] | None = None
+    # Opt-in extraction over the agent's cached conversation prefix; any failure falls back to ``extractor``.
+    prefixed: StructuredGenerator[AtomicMemoryExtractionInput, AtomicMemoryExtractionOutput] | None = None
+    # One-pass processing continues one conversation instead of calling the extractor and reconciler.
+    conversation: StructuredGenerator[ConversationTurn[Any], ConversationReply[Any]] | None = None
+    # Opt-in one-pass conversation after the agent's cached prefix; any failure falls back to ``conversation``.
+    prefixed_conversation: StructuredGenerator[ConversationTurn[Any], ConversationReply[Any]] | None = None
 
     async def extract(self, value: AtomicMemoryExtractionInput) -> tuple[AtomicMemoryCandidate, ...]:
+        if self.prefixed is not None and prefix_handle(value) is not None:
+            candidates = await self._extract_prefixed(self.prefixed, value)
+            if candidates is not None:
+                return candidates
         result = await self.extractor.generate(value)
+        return validated_candidates(value, result.output)
+
+    async def _extract_prefixed(
+        self,
+        prefixed: StructuredGenerator[AtomicMemoryExtractionInput, AtomicMemoryExtractionOutput],
+        value: AtomicMemoryExtractionInput,
+    ) -> tuple[AtomicMemoryCandidate, ...] | None:
         try:
-            output = AtomicMemoryExtractionOutput.model_validate(result.output)
-        except ValidationError as error:
-            raise attach_diagnostics(
-                InvalidInferenceOutputError("atomic-memory-extract", "output does not match the extraction schema"),
-                ProcessingDiagnostics(
-                    stage=ProcessingStage.OUTPUT_PARSING,
-                    reason=ProcessingFailureReason.SCHEMA_INVALID,
-                    failure_location="atomic-memory-extract",
-                ),
-            ) from error
-        validate_extraction_output(value, output)
-        return output.candidates
+            result = await prefixed.generate(value)
+            candidates = validated_candidates(value, result.output)
+        except PrefixedExtractionUnavailable as error:
+            reason = error.reason
+        except InvalidInferenceOutputError:
+            reason = "invalid_output"
+        else:
+            log_prefixed_extraction("success")
+            return candidates
+        log_prefixed_extraction("fallback", reason)
+        return None
+
+
+def log_prefixed_extraction(
+    outcome: str, reason: str | None = None, *, operation: str = "atomic_memory.extract"
+) -> None:
+    """Report whether a window's model input was read from the agent's prefix or sent the normal way."""
+
+    log_safely(
+        logger,
+        logging.INFO,
+        "Prefixed Atomic Memory extraction completed"
+        if reason is None
+        else "Prefixed Atomic Memory extraction fell back",
+        extra={
+            "event": "atomic_memory.prefixed_extraction",
+            "operation": operation,
+            "unit": "inference",
+            "outcome": outcome,
+            **({} if reason is None else {"fallback_reason": reason}),
+        },
+    )
+
+
+def validated_candidates(value: AtomicMemoryExtractionInput, raw: object) -> tuple[AtomicMemoryCandidate, ...]:
+    """Candidates that satisfy the extraction schema, the content rules and cite only supplied evidence."""
+
+    try:
+        output = AtomicMemoryExtractionOutput.model_validate(raw)
+    except ValidationError as error:
+        raise attach_diagnostics(
+            InvalidInferenceOutputError("atomic-memory-extract", "output does not match the extraction schema"),
+            ProcessingDiagnostics(
+                stage=ProcessingStage.OUTPUT_PARSING,
+                reason=ProcessingFailureReason.SCHEMA_INVALID,
+                failure_location="atomic-memory-extract",
+            ),
+        ) from error
+    validate_extraction_output(value, output)
+    return output.candidates
 
 
 def validate_extraction_output(value: AtomicMemoryExtractionInput, output: AtomicMemoryExtractionOutput) -> None:

@@ -162,6 +162,22 @@ def test_unhandled_request_is_pending_without_source_work(tmp_path):
     asyncio.run(scenario())
 
 
+def test_source_inspection_does_not_include_queued_dream_work(tmp_path):
+    async def scenario():
+        async with _runtime(tmp_path) as (runtime, scopes):
+            async with runtime.primary_database.transaction() as connection:
+                await _run_record(connection, scopes[0], 1, operation="revise_memory", status="queued")
+            application = ProcessingStatusApplication(runtime).for_scope(scopes[0])
+            combined = await application.status("memory")
+            sources = await application.status("memory", include_dream=False)
+            assert combined.state is ProcessingStatusState.PENDING
+            assert sources.state is ProcessingStatusState.IDLE
+            assert sources.dream_operations == () and sources.dream_pending is None
+            assert sources.progress is not None and not sources.progress.pending_inputs
+
+    asyncio.run(scenario())
+
+
 @pytest.mark.parametrize("family", ["memory", "experience", "profile", "skill", "handoff", "prompt", "topic-memory"])
 def test_empty_scope_has_no_proven_publication_or_executor(tmp_path, family):
     async def scenario():

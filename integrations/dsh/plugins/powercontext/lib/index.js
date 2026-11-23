@@ -490,6 +490,17 @@ const OPERATIONS = {
 		successStatuses: [202],
 		emptyStatuses: []
 	},
+	capture_content_sources: {
+		method: "POST",
+		path: "/v1/sources/content/batch",
+		location: "body",
+		scopeMode: "current",
+		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [202],
+		emptyStatuses: []
+	},
 	capture_working_note: {
 		method: "POST",
 		path: "/v1/sources/working-notes",
@@ -2998,10 +3009,10 @@ async function requestMemoryOperation(client, operationId, payload, scopeId, sig
 //#region src/prompt-privacy.ts
 const SECRET_PATTERNS = [
 	/-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----[\s\S]*?(?:-----END [A-Z0-9 ]*PRIVATE KEY-----|$)/giu,
-	/(?<![\w-])["']?\b(?:authorization|proxy-authorization|cookie|set-cookie)\b["']?[ \t]*[:=][ \t]*[^\r\n]*(?:\r?\n[ \t]+[^\r\n]*)*/giu,
-	/(?<![\w-])["']?\b(?:api[_ -]?key|access[_ -]?(?:key|token)|client[_ -]?secret|secret(?:[_ -]?key)?|private[_ -]?key|password|passwd|passphrase|token|authorization|cookie)\b["']?\s*[:=]\s*(?:"[^"\r\n]*"|'[^'\r\n]*'|`[^`\r\n]*`|[^\s,;}\]]+)/giu,
-	/(?<![\w-])bearer\s+[A-Za-z0-9._~+/=-]{8,}(?![\w-])/giu,
-	/(?<![\w-])(?:sk-[A-Za-z0-9][A-Za-z0-9_-]{7,}|github_pat_[A-Za-z0-9_]{8,}|gh[pousr]_[A-Za-z0-9_]{8,}|xox[baprs]-[A-Za-z0-9-]{8,})(?![\w-])/giu
+	/(?<![\w-])["']?(?:HTTP(?:_[A-Za-z0-9]+)*_|(?:[A-Za-z0-9]+-)*)(?:authorization|cookie)\b["'`*]*[ \t]*[:=]\**(?![ \t]*(?:true|false|yes|no|on|off|null|none|(?:\$\{\{[^{}\r\n]*\}\}|\$\{[A-Za-z_][A-Za-z0-9_]*\})|"(?:\$\{\{[^{}\r\n]*\}\}|\$\{[A-Za-z_][A-Za-z0-9_]*\})"|'(?:\$\{\{[^{}\r\n]*\}\}|\$\{[A-Za-z_][A-Za-z0-9_]*\})')[`")'\]}]*[,.;]?[ \t\f\v\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]*(?:$|\r?\n(?![ \t])))[ \t]*[^\r\n]*(?:\r?\n[ \t]+[^\r\n]*)*/giu,
+	/(?<![\w-])["']?(?!(?:bos|eos|pad|unk|sep|cls|mask)_token\b)[\w-]*?(?:api[_ -]?key|access[_ -]?(?:key(?:[_-]id)?|token)|client[_ -]?secret|secret(?:[_ -]?key)?|private[_ -]?key|password|passwd|passphrase|token|authorization|cookie)\b["'`*]*[\s \t\f\v\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]*[:=]\**(?![ \t\f\v\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]*(?:\r?\n[ \t\f\v\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]+)?(?:true|false|yes|no|on|off|null|none|(?:\$\{\{[^{}\r\n]*\}\}|\$\{[A-Za-z_][A-Za-z0-9_]*\})|"(?:\$\{\{[^{}\r\n]*\}\}|\$\{[A-Za-z_][A-Za-z0-9_]*\})"|'(?:\$\{\{[^{}\r\n]*\}\}|\$\{[A-Za-z_][A-Za-z0-9_]*\})')(?:[\s,;)\]}`'" \t\f\v\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]|\.(?![^\s \t\f\v\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff])|$))[ \t\f\v\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]*(?:\r?\n[ \t\f\v\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]+)?(?:(?:bearer|basic)[ \t\f\v\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]+)?(?:"[^"\r\n]*"|'[^'\r\n]*'|`[^`\r\n]*`|[^\s,;}\] \t\f\v\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]+)/giu,
+	/(?<![\w-])bearer[\s \t\f\v\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]+[A-Za-z0-9._~+/=-]{8,}(?![\w-])/giu,
+	/(?<![\w-])(?:sk-[A-Za-z0-9][A-Za-z0-9_-]{7,}|[sr]k_(?:live|test)_[A-Za-z0-9]{16,}|github_pat_[A-Za-z0-9_]{8,}|gh[pousr]_[A-Za-z0-9_]{8,}|xox[baprs]-[A-Za-z0-9-]{8,})(?![\w-])/giu
 ];
 /** Return text with recognized credential-shaped values replaced. */
 function scrubSecrets(text$1, authorization) {
@@ -4272,52 +4283,58 @@ async function runRecallPreStep(input) {
 		skipAll("downstream_rejected");
 		return downstream;
 	}
-	const signal = combineSignals([...input.signal ? [input.signal] : [], AbortSignal.timeout(input.config.timeoutMs)]);
-	const automaticInput = {
-		...input,
-		signal
-	};
-	if (signal.aborted) {
-		skipAll(cancellationReason(signal));
-		return downstream;
-	}
-	const messages = downstream.messages ?? [];
-	if (messages.length === 0) {
-		skipAll("no_messages");
-		return downstream;
-	}
-	const query = messagesToQuery(messages);
-	if (!query) {
-		skipAll("empty_input");
-		return downstream;
-	}
-	const recalled = await recallThenCapture(automaticInput, query, messagesToUserPrompt(messages), observation);
-	if (recalled.content) observation?.record("injection", { state: "running" });
-	const cancelled = input.signal?.aborted === true;
-	if (!recalled.scopeId && !recalled.content || cancelled) {
-		observation?.skip("injection", cancelled ? cancellationReason(input.signal) : signal.aborted ? cancellationReason(signal) : "no_prepared_content");
-		return downstream;
-	}
+	const deadline = new AbortController();
+	const timer = setTimeout(() => deadline.abort(new DOMException("Automatic operation timed out", "TimeoutError")), input.config.timeoutMs);
 	try {
-		if (input.signal?.aborted) throw new TransportError("", input.signal.reason);
-		const additions = [];
-		if (recalled.scopeId && input.wrapScope) additions.push(input.wrapScope(formatScopeRouting(recalled.scopeId, input.cwd)));
-		if (recalled.content) additions.push(input.wrapContent(formatUntrustedContext(recalled.content)));
-		const decision = {
-			...downstream,
-			messages: [...downstream.messages ?? [], ...additions]
+		const signal = combineSignals([...input.signal ? [input.signal] : [], deadline.signal]);
+		const automaticInput = {
+			...input,
+			signal
 		};
-		if (recalled.content) observation?.record("injection", { state: "appended" });
-		else observation?.skip("injection", "no_prepared_content");
-		return decision;
-	} catch (error) {
-		observation?.record("injection", {
-			state: "unavailable",
-			code: "message_wrap_failed",
-			message: "The host message wrapper failed; no PowerContext message was appended."
-		});
-		reportFailure(input.log, "context_inject", error);
-		return downstream;
+		if (signal.aborted) {
+			skipAll(cancellationReason(signal));
+			return downstream;
+		}
+		const messages = downstream.messages ?? [];
+		if (messages.length === 0) {
+			skipAll("no_messages");
+			return downstream;
+		}
+		const query = messagesToQuery(messages);
+		if (!query) {
+			skipAll("empty_input");
+			return downstream;
+		}
+		const recalled = await recallThenCapture(automaticInput, query, messagesToUserPrompt(messages), observation);
+		if (recalled.content) observation?.record("injection", { state: "running" });
+		const cancelled = input.signal?.aborted === true;
+		if (!recalled.scopeId && !recalled.content || cancelled) {
+			observation?.skip("injection", cancelled ? cancellationReason(input.signal) : signal.aborted ? cancellationReason(signal) : "no_prepared_content");
+			return downstream;
+		}
+		try {
+			if (input.signal?.aborted) throw new TransportError("", input.signal.reason);
+			const additions = [];
+			if (recalled.scopeId && input.wrapScope) additions.push(input.wrapScope(formatScopeRouting(recalled.scopeId, input.cwd)));
+			if (recalled.content) additions.push(input.wrapContent(formatUntrustedContext(recalled.content)));
+			const decision = {
+				...downstream,
+				messages: [...downstream.messages ?? [], ...additions]
+			};
+			if (recalled.content) observation?.record("injection", { state: "appended" });
+			else observation?.skip("injection", "no_prepared_content");
+			return decision;
+		} catch (error) {
+			observation?.record("injection", {
+				state: "unavailable",
+				code: "message_wrap_failed",
+				message: "The host message wrapper failed; no PowerContext message was appended."
+			});
+			reportFailure(input.log, "context_inject", error);
+			return downstream;
+		}
+	} finally {
+		clearTimeout(timer);
 	}
 }
 async function recallThenCapture(input, query, userPrompt, observation) {
@@ -5817,8 +5834,10 @@ import hashlib,hmac,json,os,shlex,sys,time
 from pathlib import Path
 from urllib.request import Request
 sys.path.insert(0,sys.argv[1])
+from codex_host import CODEX
+from powercontext_lifecycle.scope_binding import resolve_scope_id,_read_bounded
+from powercontext_lifecycle.transport import open_bounded
 from settings import CodexPluginSettings,_stored_authorization
-from scripts.scope_binding import resolve_scope_id,open_bounded,_read_bounded
 s=CodexPluginSettings()
 configuration=json.loads((Path(sys.argv[1])/'.mcp.json').read_text())['mcpServers']['powercontext']
 helper=configuration.get('http_headers_helper')
@@ -5831,7 +5850,7 @@ if helper:
  if stored and (s.authorization is None or s.authorization.get_secret_value()!=stored):
   raise ValueError('MCP and hook credentials differ')
 deadline=time.monotonic()+s.http_budget_seconds
-scope=resolve_scope_id(sys.argv[2],session_id=None,settings=s,deadline=deadline)
+scope=resolve_scope_id(CODEX,sys.argv[2],session_id=None,settings=s.scope_binding_settings(),deadline=deadline)
 h={"Accept":"application/json"}
 if s.authorization is not None: h["Authorization"]=s.authorization.get_secret_value()
 req=Request(s.server_url+"/v1/connection/identity",headers=h,method="GET")
@@ -5984,7 +6003,7 @@ function createRuntime$1(options, deliveryStorage) {
 				const mcpServer = observed$1.mcp.data.map(object$4).find((item) => item.name === "powercontext" && item.pluginId === plugin.pluginId);
 				if (!mcpServer || mcpServer.httpOrigin !== new URL(scope.endpoint).origin) throw new Error("MCP origin differs");
 				const hooks = await hookEvidence(observed$1.hooks, cwd, plugin, rootPath);
-				const receiveHandler = join(rootPath, "hooks/dsh_handoff.py");
+				const receiveHandler = join(rootPath, "powercontext_lifecycle/dsh_handoff.py");
 				const receiverInfo = await lstat(receiveHandler);
 				if (!receiverInfo.isFile() || receiverInfo.size < 1 || receiverInfo.size > 64 * 1024) throw new Error("Handoff receiver unavailable");
 				const receiverHash = createHash("sha256").update(await readFile(receiveHandler, { signal })).digest("hex");

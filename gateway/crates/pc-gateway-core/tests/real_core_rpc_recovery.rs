@@ -17,7 +17,7 @@
 
 //! Required real Python Core acceptance: startup failures fail, never skip.
 use pc_gateway_core::{GateClient, GateError, UdsGateClient};
-use pc_gateway_types::{CaptureContentSourceRequest, PrepareContextRequest};
+use pc_gateway_types::{CaptureContentSource, CaptureContentSourcesRequest, PrepareContextRequest};
 use serde_json::{json, Value};
 use std::{
     path::{Path, PathBuf},
@@ -40,12 +40,17 @@ impl Drop for CoreProcess {
     }
 }
 
-async fn start_core() -> (CoreProcess, reqwest::Client, PathBuf) {
+async fn start_core(inference: Option<Value>) -> (CoreProcess, reqwest::Client, PathBuf) {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"))
         .ancestors()
         .nth(3)
         .unwrap();
-    let directory = std::env::temp_dir().join(format!("pc-real-rpc-{}", std::process::id()));
+    static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    let directory = std::env::temp_dir().join(format!(
+        "pc-real-rpc-{}-{}",
+        std::process::id(),
+        NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+    ));
     std::fs::create_dir_all(&directory).unwrap();
     use std::os::unix::fs::PermissionsExt;
     std::fs::set_permissions(&directory, std::fs::Permissions::from_mode(0o700)).unwrap();
@@ -98,6 +103,9 @@ async fn start_core() -> (CoreProcess, reqwest::Client, PathBuf) {
             "POWERCONTEXT_SERVER_CURSOR_SIGNING_SECRET",
             "disposable-signing-secret-32-bytes",
         );
+    if let Some(inference) = inference {
+        command.env("POWERCONTEXT_SERVER_INFERENCE", inference.to_string());
+    }
     let child = command
         .spawn()
         .expect("real Core requires installed project Python; set PC_TEST_PYTHON");
@@ -139,7 +147,7 @@ async fn post(admin: &reqwest::Client, path: &str, body: Value) -> Value {
         .unwrap();
     assert!(
         response.status().is_success(),
-        "{}",
+        "{path}: {}",
         response.text().await.unwrap()
     );
     response.json().await.unwrap()
@@ -215,17 +223,19 @@ async fn loss_proxy(
 
 #[tokio::test]
 async fn real_core_capture_commit_loss_recovers_same_record_and_prepare_is_not_replayed() {
-    let (_process, admin, socket) = start_core().await;
+    let (_process, admin, socket) = start_core(None).await;
     let scope = post(&admin, "/v1/scopes", json!({"title":"RPC recovery", "summary":"real UDS evidence", "idempotency_key":"rpc-scope"})).await["scope_id"].as_str().unwrap().to_string();
     post(&admin, "/v1/access/bindings/create", json!({"subject":{"type":"service","id":"server-token"},
         "resource":{"type":"scope", "scope_id":scope}, "role":"scope.contributor", "idempotency_key":"rpc-grant"})).await;
-    let capture = CaptureContentSourceRequest {
+    let capture = CaptureContentSourcesRequest {
         scope_id: scope.clone(),
-        source_id: "stable-source".into(),
-        content: "原始证据".into(),
-        metadata: Some(json!({"nested":{"items":[1,"值"]},"flag":true})),
+        sources: vec![CaptureContentSource {
+            source_id: "stable-source".into(),
+            content: "原始证据".into(),
+            metadata: Some(json!({"nested":{"items":[1,"值"]},"flag":true})),
+        }],
     };
-    let (proxy, worker) = loss_proxy(&socket, "/v1/sources/content", 2).await;
+    let (proxy, worker) = loss_proxy(&socket, "/v1/sources/content/batch", 2).await;
     let recovered = UdsGateClient::with_token(proxy, Some(TOKEN.into()))
         .capture(capture.clone())
         .await
@@ -237,8 +247,11 @@ async fn real_core_capture_commit_loss_recovers_same_record_and_prepare_is_not_r
     assert_eq!(committed.len(), 2);
     assert_eq!(committed[0], committed[1]);
     assert_eq!(recovered, committed[0]);
-    assert_eq!(recovered["position"], 1);
-    assert_eq!(recovered["source"]["source_id"], "stable-source");
+    assert_eq!(recovered["sources"][0]["position"], 1);
+    assert_eq!(
+        recovered["sources"][0]["source"]["source_id"],
+        "stable-source"
+    );
     let read_path = format!("http://localhost/v1/scopes/{scope}/sources/content/stable-source");
     let stored: Value = admin
         .get(&read_path)
@@ -258,21 +271,28 @@ async fn real_core_capture_commit_loss_recovers_same_record_and_prepare_is_not_r
     for metadata_only in [false, true] {
         let mut different = capture.clone();
         if metadata_only {
-            different.metadata = Some(json!({"changed":true}));
+            different.sources[0].metadata = Some(json!({"changed":true}));
         } else {
-            different.content = "异值".into();
+            different.sources[0].content = "异值".into();
         }
+        // 冲突的一段使整批都不入库：排在它前面的新段也不留下。
+        different.sources.insert(
+            0,
+            CaptureContentSource {
+                source_id: "never-stored".into(),
+                content: "同批的另一段".into(),
+                metadata: None,
+            },
+        );
         assert!(matches!(
             client.capture(different).await,
             Err(GateError::GateRejected(409))
         ));
     }
-    let second = CaptureContentSourceRequest {
-        source_id: "next-source".into(),
-        ..capture.clone()
-    };
+    let mut second = capture.clone();
+    second.sources[0].source_id = "next-source".into();
     assert_eq!(
-        client.capture(second).await.unwrap()["position"],
+        client.capture(second).await.unwrap()["sources"][0]["position"],
         2,
         "lost reply recovery and conflicts must not append journal entries"
     );
@@ -308,4 +328,194 @@ async fn real_core_capture_commit_loss_recovers_same_record_and_prepare_is_not_r
     assert_eq!(prepared[0]["status"], "empty");
     assert!(client.capabilities().await.unwrap().is_object());
     assert_eq!(client.capture(capture).await.unwrap(), recovered);
+}
+
+#[tokio::test]
+async fn subscription_wire_evidence_blocks_release_through_real_core_and_http() {
+    use axum::{http::Uri, routing::post as route_post, Router};
+    use pc_gateway_core::{DegradePolicy, Executor, ManagedCall, ManagedOutcome, RequestControl};
+    use pc_gateway_evidence::NoopEvidenceSink;
+    use pc_gateway_protocol::{
+        CanonicalRequest, GatewayRenderer, SubscriptionProtocol, SubscriptionRenderer,
+    };
+    use pc_gateway_transport::ReqwestTransport;
+    use std::{collections::BTreeMap, num::NonZeroU32, sync::Arc};
+
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .ancestors()
+        .nth(3)
+        .unwrap();
+    let vectors: Value = serde_json::from_slice(
+        &std::fs::read(root.join("tests/fixtures/oauth/upstream/provider-vectors.json")).unwrap(),
+    )
+    .unwrap();
+    let mut copilot = vectors["copilot"]["response"].clone();
+    for (key, value) in vectors["copilot"]["adapter_response_defaults"]
+        .as_object()
+        .unwrap()
+    {
+        copilot[key] = value.clone();
+    }
+    copilot["choices"][0]["message"]["role"] = json!("assistant");
+    copilot["choices"][0]["finish_reason"] = json!("stop");
+    let mut gemini = vectors["gemini"]["response"].clone();
+    gemini["response"]["candidates"][0]["finishReason"] = json!("STOP");
+    // Keep the shared upstream vectors intact; add only a synthetic lexical policy probe.
+    let with_probe = |mut value: Value| {
+        value["provider_value"] = json!(0);
+        value
+            .to_string()
+            .replace("\"provider_value\":0", "\"provider_value\":1.2300e+20")
+    };
+    let stream = vectors["codex"]["events"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|event| {
+            let data = if event == "[DONE]" {
+                "[DONE]".into()
+            } else {
+                with_probe(event.clone())
+            };
+            format!("data: {data}\n\n")
+        })
+        .collect::<String>();
+    let cases = Arc::new(BTreeMap::from([
+        (
+            "/copilot/chat/completions",
+            ("application/json", with_probe(copilot)),
+        ),
+        (
+            "/gemini/v1internal:generateContent",
+            ("application/json", with_probe(gemini)),
+        ),
+        ("/responses", ("text/event-stream", stream)),
+    ]));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let base = format!("http://{}", listener.local_addr().unwrap());
+    let replies = cases.clone();
+    let safe_reply = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let selected = safe_reply.clone();
+    let omit_content_type = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let omit_header = omit_content_type.clone();
+    let router = Router::new().route(
+        "/*path",
+        route_post(move |uri: Uri| {
+            let (media, body) = replies[uri.path()].clone();
+            let safe = selected.load(std::sync::atomic::Ordering::SeqCst);
+            let omit = omit_header.load(std::sync::atomic::Ordering::SeqCst);
+            async move {
+                let body = if safe {
+                    body.replace("1.2300e+20", "1.23e20")
+                } else {
+                    body
+                };
+                use axum::response::IntoResponse;
+                let mut response = ([("content-type", media)], body).into_response();
+                if omit {
+                    response.headers_mut().remove("content-type");
+                }
+                response
+            }
+        }),
+    );
+    let peer = tokio::spawn(async move {
+        axum::serve(listener, router).await.unwrap();
+    });
+    let mut targets = serde_json::Map::new();
+    for (provider, path, protocol) in [
+        ("copilot", "/copilot/chat/completions", "openai-chat"),
+        (
+            "gemini",
+            "/gemini/v1internal:generateContent",
+            "google-codeassist-chat",
+        ),
+        ("responses", "/responses", "openai-responses"),
+    ] {
+        targets.insert(provider.into(), json!({"endpoint":format!("{base}{path}"),"model":"test","protocol":protocol,
+            "context_window_tokens":65536,"max_output_tokens":64,"validated_utf8_token_bound":true}));
+    }
+    let (_process, admin, socket) = start_core(Some(json!({"protection":{"mode":"enforcing","forbidden_values":["1.2300e+20"],"targets":targets}}))).await;
+    let scope = post(
+        &admin,
+        "/v1/scopes",
+        json!({"title":"Subscription evidence","summary":"Controlled subscription wire evidence","idempotency_key":"evidence-scope"}),
+    )
+    .await["scope_id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    for role in ["scope.viewer", "gateway.user"] {
+        post(&admin, "/v1/access/bindings/create", json!({"subject":{"type":"service","id":"server-token"},"resource":{"type":"scope","scope_id":scope},"role":role,"idempotency_key":role})).await;
+    }
+    for (provider, path) in [
+        ("copilot", "/copilot/chat/completions"),
+        ("gemini", "/gemini/v1internal:generateContent"),
+        ("responses", "/responses"),
+    ] {
+        let renderer = SubscriptionRenderer {
+            inner: if provider == "responses" {
+                GatewayRenderer::Responses(Default::default())
+            } else {
+                GatewayRenderer::default()
+            },
+            subscription: (provider == "gemini").then(|| SubscriptionProtocol::Gemini {
+                project: "project-123".into(),
+            }),
+        };
+        let executor = Executor::new(
+            UdsGateClient::with_token(&socket, Some(TOKEN.into())),
+            ReqwestTransport::default()
+                .with_copilot_chat(provider == "copilot")
+                .with_codeassist_chat(provider == "gemini")
+                .with_subscription_responses_sse(provider == "responses"),
+            NonZeroU32::new(1).unwrap(),
+        );
+        for (safe, omit) in [(false, false), (true, false), (true, true)] {
+            if omit && provider != "responses" {
+                continue;
+            }
+            safe_reply.store(safe, std::sync::atomic::Ordering::SeqCst);
+            omit_content_type.store(omit, std::sync::atomic::Ordering::SeqCst);
+            let request: CanonicalRequest = serde_json::from_value(json!({"model":"test","messages":[{"role":"user","content":["safe"],"content_null":false}],"output_limits":{"max_output_tokens":64},"store":if provider == "responses" { json!(false) } else { Value::Null }})).unwrap();
+            let call = ManagedCall {
+                scope_id: scope.clone(),
+                target_profile: provider.into(),
+                request,
+                target_url: format!("{base}{path}"),
+                headers: vec![],
+                degrade_policy: DegradePolicy::Pause,
+                inject_context: false,
+                include_code: false,
+                capture_prefix: false,
+                conversation_id: None,
+                sediment: false,
+                prepared_contexts: vec![],
+            };
+            let outcome = executor
+                .run(
+                    RequestControl::new(
+                        tokio::time::Instant::now() + Duration::from_secs(60),
+                        None,
+                    ),
+                    call,
+                    &renderer,
+                    &NoopEvidenceSink,
+                )
+                .await;
+            if safe {
+                assert!(
+                    matches!(outcome, ManagedOutcome::Released { .. }),
+                    "{provider}: {outcome:?}"
+                );
+            } else {
+                assert!(
+                    matches!(outcome, ManagedOutcome::Blocked { ref reason_codes } if reason_codes == &["forbidden_content"]),
+                    "{provider}: {outcome:?}"
+                );
+            }
+        }
+    }
+    peer.abort();
+    let _ = peer.await;
 }

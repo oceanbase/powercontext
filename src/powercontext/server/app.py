@@ -517,6 +517,8 @@ from powercontext.http import (
     Capabilities,
     CaptureContentSourceRequest,
     CaptureContentSourceResponse,
+    CaptureContentSourcesRequest,
+    CaptureContentSourcesResponse,
     CaptureWorkingNoteRequest,
     CheckContextRequest,
     ClearScopeBindingRequest,
@@ -808,6 +810,7 @@ from powercontext.http._generated.operations import (
     APPROVE_CANDIDATE,
     BIND_ARTIFACT_HANDLE,
     CAPTURE_CONTENT_SOURCE,
+    CAPTURE_CONTENT_SOURCES,
     CAPTURE_WORKING_NOTE,
     CHECK_ACCESS,
     CHECK_CONTEXT,
@@ -1001,6 +1004,8 @@ _ScopePathId = Annotated[str, PathParameter(min_length=1, max_length=256, patter
 class _ScopedSourceApplication(Protocol):
     async def capture(self, value: CaptureSource, /) -> SourceReceipt: ...
 
+    async def capture_many(self, values: Sequence[CaptureSource], /) -> tuple[SourceReceipt, ...]: ...
+
     async def capture_working_note(self, value: RuntimeCaptureWorkingNote, /) -> SourceReceipt: ...
 
 
@@ -1111,6 +1116,7 @@ class _ScopedContextApplication(Protocol):
         authorize_scopes: Callable[[tuple[str, ...]], Awaitable[None]] | None = None,
         atomic_context=None,
         binding_identity: str = "local",
+        diagnostic_sink: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
     ) -> RuntimePrepareContextResult: ...
 
     async def check(
@@ -1672,6 +1678,7 @@ def create_app(
     _add_route(app, GET_PROMPT_CONFIGURATION, get_prompt_configuration)
     _add_route(app, REPLACE_ARTIFACT, replace_artifact)
     _add_route(app, CAPTURE_CONTENT_SOURCE, capture_content_source)
+    _add_route(app, CAPTURE_CONTENT_SOURCES, capture_content_sources)
     _add_route(app, CAPTURE_WORKING_NOTE, capture_working_note)
     add_atomic_memory_routes(
         app,
@@ -4032,6 +4039,16 @@ async def capture_content_source(
     return mapping.capture_response(result)
 
 
+async def capture_content_sources(
+    request: CaptureContentSourcesRequest,
+    application: Annotated[ServerApplication, Depends(_require_application)],
+) -> CaptureContentSourcesResponse:
+    for item in request.sources:
+        _reject_reserved_handoff_receipt_content(item.content)
+    results = await application.sources.for_scope(request.scope_id).capture_many(mapping.capture_requests(request))
+    return mapping.captures_response(results)
+
+
 async def capture_working_note(
     request: CaptureWorkingNoteRequest,
     application: Annotated[ServerApplication, Depends(_require_application)],
@@ -4600,6 +4617,11 @@ async def prepare_context(
     )
     scoped = application.context.for_scope(request.scope_id)
     reuse_arguments = {"binding_identity": _context_binding_identity()} if request.include_reuse else {}
+    from powercontext.server.context_diagnostics import diagnostic_sink
+
+    sink = diagnostic_sink(application)
+    if sink is not None:
+        reuse_arguments["diagnostic_sink"] = sink
     access = access_control_for_mode(
         http_request.app.state.access_control,
         mode=http_request.app.state.access_mode,

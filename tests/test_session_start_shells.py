@@ -14,8 +14,8 @@
 
 """Claude Code and Codex SessionStart hooks handle what their hosts actually send, and a host that stops reading.
 
-``tests/fixtures/recorded_host_payloads`` holds SessionStart payloads recorded from each real host, one per
-lifecycle. Each replaces the payload of the characterized bootstrap case and must lead to the same requests,
+``tests/fixtures/recorded_host_payloads`` holds payloads recorded from each real host, among them a SessionStart
+payload for each lifecycle. Each of those replaces the payload of the characterized bootstrap case and must lead to the same requests,
 output, and state, apart from the lifecycle that the bootstrap request names. Recorded payloads carry fields that
 the characterized one lacks, such as the model after a Claude Code compaction. The hooks run as in the
 characterization harness, against the Server responses of its fixtures.
@@ -40,7 +40,7 @@ RECORDED = {
     host: json.loads((ROOT / f"tests/fixtures/recorded_host_payloads/{host}.json").read_text(encoding="utf-8"))
     for host in FIXTURE_DATA
 }
-RECORDED_CASES = [(host, lifecycle) for host, recorded in RECORDED.items() for lifecycle in recorded["payloads"]]
+RECORDED_CASES = [(host, lifecycle) for host, recorded in RECORDED.items() for lifecycle in recorded["SessionStart"]]
 # In this characterized case, SessionStart injects the package and the first prompt reports its receipt.
 BOOTSTRAP_CASE = "session-start-injects-bootstrap-and-prompt-reports-its-receipt"
 # Runs the hook with a stdout pipe that has no reader, as when the host stops reading before the hook writes.
@@ -68,7 +68,7 @@ def test_recorded_session_start_payload_behaves_as_characterized(
     host: str,
     lifecycle: str,
 ) -> None:
-    payload = RECORDED[host]["payloads"][lifecycle]
+    payload = RECORDED[host]["SessionStart"][lifecycle]
     characterized = _case(host, BOOTSTRAP_CASE)
     session_start, *later = characterized["steps"]
     expected = copy.deepcopy([step["expected"] for step in characterized["steps"]])

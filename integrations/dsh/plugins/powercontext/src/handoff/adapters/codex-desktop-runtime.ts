@@ -265,8 +265,10 @@ import hashlib,hmac,json,os,shlex,sys,time
 from pathlib import Path
 from urllib.request import Request
 sys.path.insert(0,sys.argv[1])
+from codex_host import CODEX
+from powercontext_lifecycle.scope_binding import resolve_scope_id,_read_bounded
+from powercontext_lifecycle.transport import open_bounded
 from settings import CodexPluginSettings,_stored_authorization
-from scripts.scope_binding import resolve_scope_id,open_bounded,_read_bounded
 s=CodexPluginSettings()
 configuration=json.loads((Path(sys.argv[1])/'.mcp.json').read_text())['mcpServers']['powercontext']
 helper=configuration.get('http_headers_helper')
@@ -279,7 +281,7 @@ if helper:
  if stored and (s.authorization is None or s.authorization.get_secret_value()!=stored):
   raise ValueError('MCP and hook credentials differ')
 deadline=time.monotonic()+s.http_budget_seconds
-scope=resolve_scope_id(sys.argv[2],session_id=None,settings=s,deadline=deadline)
+scope=resolve_scope_id(CODEX,sys.argv[2],session_id=None,settings=s.scope_binding_settings(),deadline=deadline)
 h={"Accept":"application/json"}
 if s.authorization is not None: h["Authorization"]=s.authorization.get_secret_value()
 req=Request(s.server_url+"/v1/connection/identity",headers=h,method="GET")
@@ -392,7 +394,7 @@ function createRuntime(options: RuntimeConfig, deliveryStorage: () => DeliverySt
           .find(item => item.name === 'powercontext' && item.pluginId === plugin.pluginId)
         if (!mcpServer || mcpServer.httpOrigin !== new URL(scope.endpoint).origin) throw new Error('MCP origin differs')
         const hooks = await hookEvidence(observed.hooks, cwd, plugin, rootPath)
-        const receiveHandler = join(rootPath, 'hooks/dsh_handoff.py')
+        const receiveHandler = join(rootPath, 'powercontext_lifecycle/dsh_handoff.py')
         const receiverInfo = await lstat(receiveHandler)
         if (!receiverInfo.isFile() || receiverInfo.size < 1 || receiverInfo.size > 64 * 1024) {
           throw new Error('Handoff receiver unavailable')
