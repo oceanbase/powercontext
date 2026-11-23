@@ -77,7 +77,7 @@ def processing_status_response(value: ArtifactProcessingStatus) -> ArtifactProce
         ("dream", "dream_records", None),
         ("executor", "local_supervisor", None if executor is None else executor.observed_at),
     ):
-        if availability[dimension] != "available":
+        if availability[dimension] != "available" or (dimension == "block" and block is None):
             continue
         evidence[dimension] = {
             "origin": origin,

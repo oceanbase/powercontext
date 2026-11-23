@@ -64,6 +64,45 @@ def test_empty_artifact_pages_offer_independent_status(dashboard, page, params, 
     assert "data-processing-drawer" in status.text
 
 
+def test_empty_topic_scope_has_no_block_provenance(dashboard):
+    scope = create_scope(dashboard, "No topic work")["scope_id"]
+    response = dashboard.get(f"/v1/scopes/{scope}/processing-status", params={"family": "topic-memory"})
+    assert response.status_code == 200
+    value = response.json()
+    assert value["block"] is None and value["availability"]["block"] == "available"
+    assert "block" not in value["evidence"]
+    html = dashboard.get(
+        "/dashboard/artifact-processing-status", params={"scope": scope, "family": "topic-memory", "lang": "en"}
+    )
+    assert html.status_code == 200
+    assert "Read-only budget projection" not in html.text
+
+
+def test_dream_failure_diagnostics_reach_the_api_and_drawer(tmp_path):
+    async def scenario():
+        async with _runtime(tmp_path) as (runtime, (scope, _)):
+            async with runtime.primary_database.transaction() as connection:
+                await _run_record(connection, scope, 1, status="failed", error="budget_exceeded")
+                await _run_record(connection, scope, 2, status="failed")
+            app = create_app(application=runtime)
+            app.include_router(router, prefix="/dashboard")
+            async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+                response = await client.get(f"/v1/scopes/{scope}/processing-status", params={"family": "skill"})
+                assert response.status_code == 200
+                unknown, budget = response.json()["dream_operations"]
+                assert (budget["reason"], budget["stage"]) == ("usage_limit", "generation")
+                assert (unknown["reason"], unknown["stage"]) == (None, None)
+                html = await client.get(
+                    "/dashboard/artifact-processing-status", params={"scope": scope, "family": "skill", "lang": "en"}
+                )
+                assert html.status_code == 200
+                assert "Processing usage limit reached" in html.text
+                assert "Failure stage" in html.text and "Generation</p>" in html.text
+                assert "private-error-text" not in response.text + html.text
+
+    asyncio.run(scenario())
+
+
 def test_generator_form_does_not_load_collection_status(dashboard):
     scope = create_scope(dashboard, "Generation scope")["scope_id"]
     response = dashboard.get("/dashboard/methods", params={"scope": scope, "generate": "1", "kind": "skill"})

@@ -38,13 +38,13 @@ limitations under the License.
     return closed;
   }
 
-  function expire(root, state) {
+  function expire(root, state, expiresAt = 0) {
     clearTimeout(state.timer);
     const snapshot = root.querySelector('[data-processing-snapshot]');
     if (!snapshot?.dataset.expires) return;
-    const remaining = Date.parse(snapshot.dataset.expires) - Date.now();
+    const remaining = expiresAt - performance.now();
     if (remaining > 0) {
-      state.timer = setTimeout(() => expire(root, state), Math.min(remaining, 2147483647));
+      state.timer = setTimeout(() => expire(root, state, expiresAt), remaining);
       return;
     }
     root.querySelectorAll('[data-processing-executor]').forEach(node => {
@@ -61,6 +61,7 @@ limitations under the License.
     const refresh = root.querySelector('[data-processing-refresh]');
     refresh.disabled = true;
     root.setAttribute('aria-busy', 'true');
+    const requestedAt = performance.now();
     const deadline = setTimeout(() => controller.abort(), 3500);
     try {
       const response = await fetch(root.dataset.url, {
@@ -95,7 +96,9 @@ limitations under the License.
         button.setAttribute('aria-expanded', 'false');
         if (button.isConnected && !state.suspended) button.focus();
       });
-      expire(root, state);
+      // Using request start conservatively includes time spent fetching and rendering the snapshot.
+      const lifetime = Date.parse(snapshot.dataset.expires) - Date.parse(snapshot.dataset.queried);
+      expire(root, state, requestedAt + lifetime);
     } catch {
       if (!root.isConnected || state.controller !== controller || state.suspended) return;
       feedback.textContent = root.dataset.error + (result.childElementCount ? ' ' + root.dataset.previous : '');

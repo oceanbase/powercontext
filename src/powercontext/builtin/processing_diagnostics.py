@@ -235,9 +235,11 @@ def _topic_memory_diagnostics(code: str) -> ProcessingDiagnostics | None:
     return None
 
 
-def _dream_error_diagnostics(code: str) -> ProcessingDiagnostics | None:
+def classify_dream_code(code: str | None) -> ProcessingDiagnostics | None:
     """Classify the bounded Dream and Evidence rejection vocabulary."""
 
+    if not code:
+        return None
     value = code.lower()
     if value == "capability_unavailable":
         return ProcessingDiagnostics(
@@ -590,7 +592,7 @@ def classify_processing_error(error: BaseException) -> ProcessingDiagnostics | N
             failure_location=capability or None,
         )
     if "DreamError" in names:
-        return _dream_error_diagnostics(str(getattr(error, "code", "") or ""))
+        return classify_dream_code(str(getattr(error, "code", "") or ""))
     if "InvalidHandoffGenerationError" in names:
         return _handoff_error_diagnostics(str(getattr(error, "code", "") or ""))
     if "HandoffGenerationUnavailableError" in names:
@@ -613,7 +615,7 @@ def classify_processing_error(error: BaseException) -> ProcessingDiagnostics | N
         return _prompt_error_diagnostics(getattr(error, "code", None))
     if "EvidenceResolutionError" in names:
         code = str(getattr(error, "code", "") or "").lower()
-        return _dream_error_diagnostics(code)
+        return classify_dream_code(code)
     return None
 
 

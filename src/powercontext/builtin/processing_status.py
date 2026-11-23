@@ -41,7 +41,7 @@ from powercontext.builtin.persistence.tables import (
     TOPIC_MEMORY_WORK_BLOCKS_TABLE,
 )
 from powercontext.builtin.persistence.topic_memory_budget import exhausted_reason, load_topic_memory_work_budget
-from powercontext.builtin.processing_diagnostics import ProcessingDiagnostics, classify_block_code
+from powercontext.builtin.processing_diagnostics import ProcessingDiagnostics, classify_block_code, classify_dream_code
 from powercontext.builtin.runtime.family_processing import FAMILY_BINDINGS
 from powercontext.builtin.runtime.processing_observation import project_processing_observation
 from powercontext.builtin.scope.errors import ScopeNotFoundError
@@ -327,7 +327,7 @@ class ProcessingStatusInspector:
                     accepted_at=run.accepted_at,
                     completed_at=run.completed_at,
                     candidate=run.candidate,
-                    diagnostics=classify_block_code("dream", run.error),
+                    diagnostics=classify_dream_code(run.error),
                 )
             )
         pending = await connection.scalar(

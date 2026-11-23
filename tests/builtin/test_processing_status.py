@@ -70,7 +70,16 @@ async def _runtime(tmp_path):
         yield runtime, scopes
 
 
-async def _run_record(connection, scope, index, operation="derive_skill", status="succeeded", *, tag_family=None):
+async def _run_record(
+    connection,
+    scope,
+    index,
+    operation="derive_skill",
+    status="succeeded",
+    *,
+    tag_family=None,
+    error="private-error-text",
+):
     family = {
         "derive_skill": "experience",
         "refine_experience": "experience",
@@ -101,7 +110,7 @@ async def _run_record(connection, scope, index, operation="derive_skill", status
             operation=operation,
             status=status,
             outcome="no_change" if status == "succeeded" else None,
-            error="private-error-text" if status == "failed" else None,
+            error=error if status == "failed" else None,
             accepted_at=accepted,
             completed_at=accepted if status in {"failed", "succeeded"} else None,
         ),
