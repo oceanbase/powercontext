@@ -22,16 +22,16 @@ import sys
 from collections.abc import Generator
 from contextlib import ExitStack, contextmanager, redirect_stderr, redirect_stdout
 from pathlib import Path
-from typing import TextIO
+from typing import TYPE_CHECKING, TextIO
 from urllib.parse import urlsplit
 
 from powercontext.env_file import environment_context
-from powercontext.server.configuration import ServerConfigurationError, server_settings_context
-from powercontext.server.settings import ServerLoggingConfig
 from powercontext.service.environment import ProtectedEnvironmentFileError, load_protected_environment_file
 from powercontext.service.model import EnvironmentFileIdentity, ProbeState
-from powercontext.service.probe import probe_server
 from powercontext.transport import is_loopback_host
+
+if TYPE_CHECKING:
+    from powercontext.server.settings import ServerLoggingConfig
 
 logger = logging.getLogger(__name__)
 
@@ -68,6 +68,9 @@ def main(arguments: list[str] | None = None) -> int:
     parser.add_argument("--stdout", type=Path)
     parser.add_argument("--stderr", type=Path)
     options = parser.parse_args(arguments)
+
+    from powercontext.server.configuration import ServerConfigurationError, server_settings_context
+    from powercontext.service.probe import probe_server
 
     try:
         with _redirect_output(options.stdout, options.stderr):

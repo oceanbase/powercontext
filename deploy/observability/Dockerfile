@@ -22,8 +22,11 @@ COPY src/ ./src/
 ENV SETUPTOOLS_SCM_PRETEND_VERSION=0.0.0 \
     UV_LINK_MODE=copy \
     UV_PYTHON_DOWNLOADS=never
+ARG PC_CI_PYTHON_MIRROR
 RUN --mount=type=cache,id=pc-observability-uv,target=/root/.cache/uv \
-    uv sync --frozen --no-dev --no-editable --extra cli --extra server --extra tracing-otlp
+    --mount=type=bind,source=scripts/ci_python_mirror.py,target=/tmp/ci_python_mirror.py \
+    PC_CI_PYTHON_MIRROR="${PC_CI_PYTHON_MIRROR}" python /tmp/ci_python_mirror.py \
+    sync --frozen --no-dev --no-editable --extra cli --extra server --extra tracing-otlp
 COPY deploy/observability/run-host.py deploy/observability/init-db.py deploy/observability/model-fixture.py /app/
 ENV PATH="/app/.venv/bin:$PATH" PYTHONUNBUFFERED=1
 RUN mkdir /data && chmod 700 /data

@@ -4278,52 +4278,58 @@ async function runRecallPreStep(input) {
 		skipAll("downstream_rejected");
 		return downstream;
 	}
-	const signal = combineSignals([...input.signal ? [input.signal] : [], AbortSignal.timeout(input.config.timeoutMs)]);
-	const automaticInput = {
-		...input,
-		signal
-	};
-	if (signal.aborted) {
-		skipAll(cancellationReason(signal));
-		return downstream;
-	}
-	const messages = downstream.messages ?? [];
-	if (messages.length === 0) {
-		skipAll("no_messages");
-		return downstream;
-	}
-	const query = messagesToQuery(messages);
-	if (!query) {
-		skipAll("empty_input");
-		return downstream;
-	}
-	const recalled = await recallThenCapture(automaticInput, query, messagesToUserPrompt(messages), observation);
-	if (recalled.content) observation?.record("injection", { state: "running" });
-	const cancelled = input.signal?.aborted === true;
-	if (!recalled.scopeId && !recalled.content || cancelled) {
-		observation?.skip("injection", cancelled ? cancellationReason(input.signal) : signal.aborted ? cancellationReason(signal) : "no_prepared_content");
-		return downstream;
-	}
+	const deadline = new AbortController();
+	const timer = setTimeout(() => deadline.abort(new DOMException("Automatic operation timed out", "TimeoutError")), input.config.timeoutMs);
 	try {
-		if (input.signal?.aborted) throw new TransportError("", input.signal.reason);
-		const additions = [];
-		if (recalled.scopeId && input.wrapScope) additions.push(input.wrapScope(formatScopeRouting(recalled.scopeId, input.cwd)));
-		if (recalled.content) additions.push(input.wrapContent(formatUntrustedContext(recalled.content)));
-		const decision = {
-			...downstream,
-			messages: [...downstream.messages ?? [], ...additions]
+		const signal = combineSignals([...input.signal ? [input.signal] : [], deadline.signal]);
+		const automaticInput = {
+			...input,
+			signal
 		};
-		if (recalled.content) observation?.record("injection", { state: "appended" });
-		else observation?.skip("injection", "no_prepared_content");
-		return decision;
-	} catch (error) {
-		observation?.record("injection", {
-			state: "unavailable",
-			code: "message_wrap_failed",
-			message: "The host message wrapper failed; no PowerContext message was appended."
-		});
-		reportFailure(input.log, "context_inject", error);
-		return downstream;
+		if (signal.aborted) {
+			skipAll(cancellationReason(signal));
+			return downstream;
+		}
+		const messages = downstream.messages ?? [];
+		if (messages.length === 0) {
+			skipAll("no_messages");
+			return downstream;
+		}
+		const query = messagesToQuery(messages);
+		if (!query) {
+			skipAll("empty_input");
+			return downstream;
+		}
+		const recalled = await recallThenCapture(automaticInput, query, messagesToUserPrompt(messages), observation);
+		if (recalled.content) observation?.record("injection", { state: "running" });
+		const cancelled = input.signal?.aborted === true;
+		if (!recalled.scopeId && !recalled.content || cancelled) {
+			observation?.skip("injection", cancelled ? cancellationReason(input.signal) : signal.aborted ? cancellationReason(signal) : "no_prepared_content");
+			return downstream;
+		}
+		try {
+			if (input.signal?.aborted) throw new TransportError("", input.signal.reason);
+			const additions = [];
+			if (recalled.scopeId && input.wrapScope) additions.push(input.wrapScope(formatScopeRouting(recalled.scopeId, input.cwd)));
+			if (recalled.content) additions.push(input.wrapContent(formatUntrustedContext(recalled.content)));
+			const decision = {
+				...downstream,
+				messages: [...downstream.messages ?? [], ...additions]
+			};
+			if (recalled.content) observation?.record("injection", { state: "appended" });
+			else observation?.skip("injection", "no_prepared_content");
+			return decision;
+		} catch (error) {
+			observation?.record("injection", {
+				state: "unavailable",
+				code: "message_wrap_failed",
+				message: "The host message wrapper failed; no PowerContext message was appended."
+			});
+			reportFailure(input.log, "context_inject", error);
+			return downstream;
+		}
+	} finally {
+		clearTimeout(timer);
 	}
 }
 async function recallThenCapture(input, query, userPrompt, observation) {

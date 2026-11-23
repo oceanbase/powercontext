@@ -31,7 +31,6 @@ import importlib
 import socket
 import sys
 import threading
-import time
 from pathlib import Path
 from typing import Annotated
 
@@ -49,6 +48,7 @@ from powercontext.client import PowerContextClient
 from powercontext.http import ResolveScopeBindingRequest
 from powercontext.server.factory import create_server_app
 from powercontext.server.settings import AccessControlConfig, BearerAuthConfig, McpConfig, ServerSettings
+from tests.e2e.server_startup import wait_for_server_startup
 
 pytest.importorskip("powercontext_langgraph")
 
@@ -118,7 +118,7 @@ def test_langgraph_write_then_recall_over_real_http(tmp_path: Path, authenticati
     thread = threading.Thread(target=server.run, kwargs={"sockets": [listener]}, daemon=True)
     thread.start()
     try:
-        _wait_until_started(server, thread)
+        wait_for_server_startup(server, thread)
         model_inputs: list[list[BaseMessage]] = []
         graph = _build_graph(model_inputs)
         result = asyncio.run(
@@ -159,13 +159,6 @@ async def _invoke_with_explicit_server_scope(graph, *, base_url: str, token: str
         {"messages": [HumanMessage(content="What architecture should the payment gateway use?")]},
         context=PowerContextScope(scope_id=scope_id, base_url=base_url, token=token),
     )
-
-
-def _wait_until_started(server: uvicorn.Server, thread: threading.Thread) -> None:
-    deadline = time.monotonic() + 10
-    while thread.is_alive() and not server.started and time.monotonic() < deadline:
-        time.sleep(0.01)
-    assert server.started
 
 
 def test_inspect_recall_example_runs(capsys: pytest.CaptureFixture[str]) -> None:
