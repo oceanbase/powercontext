@@ -2,6 +2,8 @@
 
 The optional Rust Gateway adds PowerContext recall and conversation capture to OpenAI-compatible model traffic. PowerContext Core decides whether a request may be sent and whether its response may be released. See [RFC 2199](../docs/en/rfcs/2199-powercontext-gateway.md) for the design.
 
+The Gateway is a stable optional component in PowerContext 1.6.0. Its opt-in prefix extraction can reduce uncached input cost for memory generation by reusing the Agent conversation cache. Actual savings depend on provider cache hits and the size of the retained prefix; see the [release notes](../release/notes/powercontext-v1.6.0.md) for configuration and compatibility.
+
 ## Model traffic
 
 The Gateway serves `/gateway/v1/chat/completions` and `/gateway/v1/responses`. It checks the final request with Core before sending it, then buffers the response and checks it before releasing content. Clients requesting a stream receive buffered replay after approval, rather than live token delivery. Upstream error statuses are preserved.
