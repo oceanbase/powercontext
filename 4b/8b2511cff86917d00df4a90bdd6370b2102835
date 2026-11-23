@@ -1,0 +1,43 @@
+docs/en/development/dashboard.md
+  s_624ad8983708a5::t_74c7aa15bf3709 207-208
+docs/zh/development/dashboard.md
+  s_624ad8983708a5::t_74c7aa15bf3709 198-199
+openapi/powercontext.yaml
+  s_624ad8983708a5::t_8546344fa38362 8925-8964,8972-8973,8991-9000,9138
+src/powercontext/http/__init__.py
+  s_624ad8983708a5::t_945f08107d591a 71,618
+src/powercontext/server/dashboard/labels.en.json
+  s_624ad8983708a5::t_6d65d5737093a8 917-920
+src/powercontext/server/dashboard/labels.json
+  s_624ad8983708a5::t_300ff8c035f7bd 917-920
+src/powercontext/server/dashboard/presenters.py
+  s_624ad8983708a5::t_2e142f186ccd98 53-59
+src/powercontext/server/dashboard/review_reading.py
+  s_624ad8983708a5::t_3af24d17fd0391 14,63
+src/powercontext/server/dashboard/routes.py
+  s_624ad8983708a5::t_a3511c38023735 45,81
+src/powercontext/server/dashboard/templates/components/artifact-processing-result.html
+  s_624ad8983708a5::t_e5909d97dade51 36,48-50
+src/powercontext/server/dashboard/templates/components/artifact-processing.html
+  s_624ad8983708a5::t_1c2c54da57e4dd 22
+src/powercontext/server/processing_status.py
+  s_624ad8983708a5::t_8ddd4153c8e204 20-24,89-92,100-101
+tests/test_dashboard_artifact_processing.py
+  s_624ad8983708a5::t_ef299d4e37cd9d 20,22-24,70-136,284-288,317-319,321-326
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "4b8b2511cff86917d00df4a90bdd6370b2102835",
+  "prompts": {},
+  "sessions": {
+    "s_624ad8983708a5": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1ab57-e572-7090-b0f7-d55ee829f4b0",
+        "model": "gpt-6.2-astra"
+      },
+      "human_author": "Frey <370805886@qq.com>"
+    }
+  }
+}
