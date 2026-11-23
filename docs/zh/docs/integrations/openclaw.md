@@ -28,8 +28,8 @@ powercontext setup openclaw --source .
 `setup openclaw` 会用 pnpm 构建插件，用 `pnpm pack` 打包，再通过
 `openclaw plugins install --force --no-enable <archive>` 安装该归档。随后它只补充缺失的激活设置：启用插件，把它选为
 `memory` 插件槽，开启 `autoRecall`、`autoCapture` 和会话访问，在首次激活时把 PowerContext 工具加入
-`tools.alsoAllow`，并重启 OpenClaw gateway。如果你已禁用或拒绝该插件、在非空的 `plugins.allow` 中没有列出它，或选择了
-其他 memory 插件，setup 不会激活它。它不会启动 Server。启动 Server 后，开启新的 OpenClaw 会话：
+`tools.alsoAllow`，并重启 OpenClaw gateway。如果你已禁用或拒绝该插件、在非空的 `plugins.allow` 中没有列出它，
+或选择了其他 memory 插件，setup 不会激活它。它不会启动 Server。启动 Server 后，开启新的 OpenClaw 会话：
 
 ```bash
 powercontext server run
@@ -39,9 +39,9 @@ openclaw
 setup 和插件都要求 OpenClaw 2026.8.1-beta.2 或更新版本。`plugins install` 不支持 `--no-enable` 的版本（如
 2026.8.1）会在安装时启用插件。在这些版本上，setup 运行
 `openclaw plugins install --force --accept-capabilities <archive>`（仅当该版本列出 `--accept-capabilities` 时才传入），
-并先检查安装不会覆盖你的选择。如果 `plugins.deny` 列出了该插件、`plugins.allow` 非空且不含该插件，或在该插件和全部插件
-都未被禁用时 `plugins.slots.memory` 选择了其他插件，setup 会直接停止，不做任何改动。在这些版本上，插件在安装完成时即已
-激活，早于 setup 写入其 endpoint；如果之后的 setup 步骤失败，请排除原因后重新运行 setup。
+并先检查安装不会覆盖你的选择。如果 `plugins.deny` 列出了该插件、`plugins.allow` 非空且不含该插件，
+或在该插件和全部插件都未被禁用时 `plugins.slots.memory` 选择了其他插件，setup 会直接停止，不做任何改动。在这些版本上，
+插件在安装完成时即已激活，早于 setup 写入其 endpoint；如果之后的 setup 步骤失败，请排除原因后重新运行 setup。
 
 ## 数据流与捕获控制
 
