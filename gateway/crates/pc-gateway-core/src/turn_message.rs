@@ -59,13 +59,14 @@ const HOST_BLOCK_TAGS: [&str; 4] = [
 
 fn strip_host_block(text: &str) -> Option<&str> {
     for tag in HOST_BLOCK_TAGS {
-        let Some(after_tag) = text.strip_prefix('<').and_then(|value| value.strip_prefix(tag))
+        let Some(after_tag) = text
+            .strip_prefix('<')
+            .and_then(|value| value.strip_prefix(tag))
         else {
             continue;
         };
         // The boundary matters: <task-notification-extra> is user text, not a host block.
-        if !after_tag.starts_with('>')
-            && !after_tag.chars().next().is_some_and(char::is_whitespace)
+        if !after_tag.starts_with('>') && !after_tag.chars().next().is_some_and(char::is_whitespace)
         {
             continue;
         }
