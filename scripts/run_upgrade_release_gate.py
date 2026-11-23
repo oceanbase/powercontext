@@ -17,8 +17,10 @@
 import argparse
 import hashlib
 import json
+import os
 import shutil
 import subprocess
+import sys
 import tarfile
 import tempfile
 import zipfile
@@ -56,9 +58,12 @@ def validate_sdist(sdist: Path, wheel: Path, work: Path) -> None:
         )
     rebuilt = work / "rebuilt"
     rebuilt.mkdir()
+    command = ["uv", "build", "--wheel", str(sdist), "--out-dir", str(rebuilt)]
+    if installer := os.environ.get("PC_CI_PYTHON_INSTALLER"):
+        command = [sys.executable, installer, "build", *command[2:]]
     with (work / "sdist-build.log").open("w", encoding="utf-8") as log:
         subprocess.run(  # noqa: S603 -- reviewed local distribution and fixed build tool; no shell
-            ["uv", "build", "--wheel", str(sdist), "--out-dir", str(rebuilt)],  # noqa: S607 -- project tool on PATH
+            command,
             stdout=log,
             stderr=subprocess.STDOUT,
             timeout=600,
