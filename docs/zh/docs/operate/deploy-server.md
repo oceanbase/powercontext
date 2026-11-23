@@ -153,6 +153,8 @@ Server 使用 UDS 时，设备上的 `powercontext source-agent` 通过 `--serve
 
 这一监听入口提供 [Rust 网关设计（RFC #2199）](https://github.com/oceanbase/powercontext/pull/2199)所需的 Core 传输能力。 Rust 可执行程序、联合 launcher、网关配置、私有通道认证、私有路由和网关状态表仍需单独实现。设计中的网关负责原有公开 TCP 端口，并携带通道认证与用户认证通过 UDS 调用 Core。
 
+可以[安装预编译 Gateway](install-gateway.md)，无需本地 Rust 工具链。Core 仍需单独安装和配置。
+
 ### 网关认证边界
 
 `PC_GATEWAY_API_KEY` 仅适用于 `/gateway/v1/chat/completions` 和 `/gateway/v1/responses`。非 loopback 网关监听要求配置有效的非空 key，但该启动校验不负责其他路由的认证。组合部署（`PC_GATEWAY_CORE_UDS`）转发到 Core 的请求会保留客户端凭据，Core API、MCP 和 Dashboard 请求继续遵循 Core 自身的认证与访问控制规则。Gateway key 不授予 Core API 权限，UDS 也不能替代 Core 认证。
