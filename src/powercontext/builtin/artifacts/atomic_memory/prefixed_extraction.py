@@ -70,6 +70,8 @@ _GATEWAY_REASONS = {
     "prefix_unavailable": "prefix_unavailable",
     "target_mismatch": "target_mismatch",
     "invalid_instruction": "invalid_instruction",
+    "output_limit_unsupported": "output_limit_unsupported",
+    "subscription_auth_failed": "credentials_unavailable",
     "invalid_continuation": "invalid_instruction",
 }
 

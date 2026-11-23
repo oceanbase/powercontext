@@ -20,7 +20,7 @@ Use `X-PowerContext-Conversation-ID` to identify a conversation. The Gateway als
 
 Set `PC_GATEWAY_SEDIMENT=on` to capture completed user turns as Sources for later extraction. Capture excludes injected context and provider reasoning ciphertext. Tool continuations remain open until the final response. Long turns are split into Sources, and Core stores all parts in one batch. With a trusted conversation ID, captures share a turn digest and include a digest of the ordered normalized Source parts in their Source IDs. Distinct terminal records are stored independently; identical normalized parts are idempotent even when provider response IDs or usage change. Existing Sources remain unchanged, and a repeated capture under the former turn-only ID creates a new Source. Capture requires a Core that supports batch capture. Capture failure does not prevent response delivery. Blocked and degraded turns are not captured.
 
-For a Responses upstream configured without a subscription, `PC_GATEWAY_PREFIX_EXTRACTION=on` lets Core reuse the provider's cached prefix for memory extraction. Subscription traffic uses normal extraction. See [prefix extraction settings](../docs/en/docs/operate/deploy-server.md#memory-extraction-over-the-cached-prefix).
+For a Responses upstream, `PC_GATEWAY_PREFIX_EXTRACTION=on` lets Core reuse the provider's cached prefix for memory extraction. With a subscription this applies to `codex` only, on a Core confirmed as non-enforcing; the extraction requests use the subscription account. Traffic of the other subscriptions uses normal extraction. See [prefix extraction settings](../docs/en/docs/operate/deploy-server.md#memory-extraction-over-the-cached-prefix).
 
 ## Run
 

@@ -188,6 +188,8 @@ def test_a_gateway_turn_is_extracted_over_its_prefix_without_resending_the_trans
     [
         (404, {"error": "prefix_unavailable"}, "prefix_unavailable"),
         (409, {"error": "target_mismatch"}, "target_mismatch"),
+        (400, {"error": "output_limit_unsupported"}, "output_limit_unsupported"),
+        (502, {"error": "subscription_auth_failed"}, "credentials_unavailable"),
         (409, {"decision": "withhold", "reason_codes": ["encrypted-origin-unverified"]}, "check_rejected"),
         (502, {"decision": "not_sent", "attempts": 2}, "gateway_error"),
         (
