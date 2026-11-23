@@ -108,6 +108,28 @@ Retries keep one `call_id` and increment attempt numbers only after fresh admiss
 retried. The legacy demo-only `record_not_sent(0, ...)` diagnostics for preparation/capture/degradation are not
 exported and are not model-send facts.
 
+## Turn classification
+
+Each `call` record carries `turn_kind`, the classification of the inbound request's tail: `user_turn` (a user
+message), `tool_continuation` (a tool result or a tool-call item), `assistant_only` (an assistant message or another
+assistant-side item without a tool call), or `empty` (no messages, a system/developer message, or only items of that
+kind). It is `null` when the embedding host did not classify the call.
+
+Chat requests classify by normalized role and tool-call presence. Responses requests keep non-user items verbatim in
+a `tool` carrier, so their kind comes from the item's own `role` and `type`: `function_call*` and `*_output` items are
+tool continuations, assistant messages and reasoning-like items are assistant-only, and system/developer messages are
+empty. Classification reads no message content, adds no provider or Core request, and does not change request handling.
+
+The executor also emits one debug-level structured event per decision with a `turn_kind` field; raise `RUST_LOG` for
+the core crate to record it. Per-kind totals and the skipped-preparation count are process-local cumulative counters
+(`Executor::turn_counters()`), never metric labels or per-record fields; they reset on process restart and cover every
+classified call, including requests that are not eligible for context injection. When the skip switch suppresses
+preparation, the `call` record sets `prepare_skipped` to `true`; otherwise it is `false`.
+When serving stops, the production host logs one `gateway turn classification totals` event at INFO with the same five
+counts (`user_turn`, `tool_continuation`, `assistant_only`, `empty`, `skipped_prepare`). It carries no request identity,
+and `RUST_LOG` filtering applies.
+The [context injection settings](deploy-server.md#gateway-context-injection) describe that switch.
+
 ## Terminal and send facts
 
 The `call` record contains `terminal`, `sending`, `attempts`, `upstream_status`, normalized `usage`, optional
