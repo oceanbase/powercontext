@@ -12,18 +12,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Add an independent, append-only context prepare diagnostic store."""
+"""Add Source collection runners and targets, and drop the empty write plugin registry they replace."""
 
 import json
 from pathlib import Path
 
 from alembic import op
 
-revision = "000"
-down_revision = "v1_5_2_pr2639"
+revision = "v1_5_0_006"
+down_revision = "v1_5_0_005"
 
 
 def upgrade():
-    resource = Path(__file__).parents[1] / "schemas/sqlite-000.json"
+    resource = Path(__file__).parents[1] / "schemas/sqlite-v1_5_0_006.json"
     for statement in json.loads(resource.read_text(encoding="utf-8"))["statements"]:
         op.get_bind().exec_driver_sql(statement)

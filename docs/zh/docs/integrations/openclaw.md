@@ -116,6 +116,10 @@ prompt、query、凭据或 provider exception。
 2. OpenClaw session、按 host 顺序排列的 active project，以及 agent identity 的持久 binding；
 3. Server 默认 Scope。
 
+OpenClaw 在构建 prompt 时报告本次 run 的 active project，但 `agent_end` 和 `before_compaction` 不携带它们。
+`agent_end` 的捕获使用所捕获 run 的 project，pre-compaction checkpoint 使用该 session 最近一次 prompt 的 project，
+因此两者都会命中本轮召回所读的 project binding。若 host 在这两个事件中自行报告 project，则以其为准。
+
 agent、project、path 和 session identity 只作为 binding 查询输入。插件不会用它们推导 Scope ID，也不会创建 Scope。
 若要让所有 OpenClaw 操作显式使用一个已有 Scope：
 
