@@ -16,7 +16,7 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import { DeliveryError } from './contracts.ts'
-import type { BoundaryReader, WorkEvent } from './materials.ts'
+import { containsCommandCredential, type BoundaryReader, type WorkEvent } from './materials.ts'
 
 interface Message {
   id?: string
@@ -36,6 +36,13 @@ interface Session {
   header: { id: string; origin?: string }
   seq: number
   snapshotEvents(from: number, toExclusive: number): readonly Event[]
+}
+
+function isContinuation(request: string): boolean {
+  const text = request.trim()
+  if (/^(?:(?:please )?continue|(?:请)?继续)[.!。！]?$/iu.test(text)) return true
+  // Only accept a single explicit continuation with a restriction on changing something.
+  return /^(?:please )?continue, +but +(?:do not|don't) +(?:change|edit|modify|touch) +(?!.*\b(?:and|or|then|instead)\b)[^.!?;:,\r\n]+[.!]?$/iu.test(text)
 }
 
 /** Reads only the selected local session's fixed event window. The caller must run Host preflight first. */
@@ -63,7 +70,7 @@ export function createBoundaryReader(host: Pick<Context, 'get'>): BoundaryReader
     const events: WorkEvent[] = []
     const pendingResults = new Map<string, Event>()
     let selected: { messageId: string; seq: number; text: string } | undefined
-    let objective: string | null = null
+    const userRequests: Array<string | undefined> = []
     let selectedUnavailable = false
     let remaining = limits.maxBytes
     const text = (message: Message | undefined, max: number): string | undefined => {
@@ -107,8 +114,7 @@ export function createBoundaryReader(host: Pick<Context, 'get'>): BoundaryReader
       }
       if (event.type === 'user/message' && event.data?.source?.kind === 'user') {
         const human = text(event.data, 8000)
-        // Scanning backwards, even an omitted earlier request supersedes a later instruction.
-        objective = human ?? null
+        userRequests.push(human)
         if (human) {
           observe(event, label(`Human request or instruction: ${human}`, `用户请求或指令：${human}`))
         }
@@ -132,6 +138,11 @@ export function createBoundaryReader(host: Pick<Context, 'get'>): BoundaryReader
           omissions.add(label('A shell command could not be recovered within the evidence limits.', '在取证范围内无法找回一条 Shell 命令。'))
           continue
         }
+        if (containsCommandCredential(command)) {
+          omissions.add(label('A shell observation was omitted because the command contained a credential argument.',
+            '有一条 Shell 命令含有凭据参数，已省略该记录。'))
+          continue
+        }
         const commandBytes = Buffer.byteLength(command)
         if (commandBytes > remaining) { omissions.add(label('Some shell commands exceeded the bounded evidence limits.', '部分 Shell 命令超出取证上限。')); continue }
         remaining -= commandBytes
@@ -145,8 +156,13 @@ export function createBoundaryReader(host: Pick<Context, 'get'>): BoundaryReader
       }
     }
     if (!selected) throw new DeliveryError('binding_mismatch')
-    if (from > 0 || selectedUnavailable) objective = null
-    if (objective === null) omissions.add(label('The original human objective was not available within the bounded session window.', '在取证范围内找不到用户的原始目标。'))
+    // An older objective is safe to reuse only when later messages clearly preserve it.
+    const original = userRequests.pop()
+    const objective = from === 0 && !selectedUnavailable && original && !isContinuation(original)
+      && userRequests.every(request => request !== undefined && (request.trim() === original.trim() || isContinuation(request)))
+      ? original : null
+    if (objective === null) omissions.add(label('The active objective could not be established from the selected session evidence.',
+      '无法根据所选会话证据确定当前任务目标。'))
     if (pendingResults.size) omissions.add(label('Some tool results had no matching call in the bounded session window.', '在取证范围内，部分工具结果没有对应的调用。'))
     events.sort((a, b) => b.seq - a.seq)
     return { source, objective, selectedReply: selected, events, workspace: null, omissions: [...omissions] }

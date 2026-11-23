@@ -16,7 +16,7 @@
 
 import { describe, expect, it, vi } from 'vitest'
 import { createBoundaryReader } from '../src/handoff/boundary-reader.ts'
-import { collectMaterials } from '../src/handoff/materials.ts'
+import { collectMaterials, deterministicWork } from '../src/handoff/materials.ts'
 
 const source = { sessionId: 'session', messageId: 'answer', throughSeq: 5, cwd: '/work',
   workspaceObservedAt: new Date(6).toISOString() }
@@ -104,6 +104,43 @@ it('keeps original human request, later instructions, assistant reports, and bou
   ]))
   expect(JSON.stringify(material)).not.toContain('A different later task')
   expect(material.omissions.join(' ')).toContain('exit status')
+})
+
+it.each([
+  'Task A is complete. Switch to task B: fix the login timeout.',
+  '任务 A 已完成。接下来修复登录超时。',
+  'Continue, but do not change the profile. Switch to fixing the login timeout.',
+])('requires an explicit objective when later instructions may change the task (%s)', async nextRequest => {
+  const firstRequest = rows[1]
+  const events = rows.map(row => row.seq === 2 ? { ...firstRequest, seq: row.seq, time: row.time,
+    data: { ...firstRequest.data, content: [{ type: 'text', text: nextRequest }] } } : row)
+  const { read } = fixture(events)
+  const evidence = await read(context, source, { maxEvents: 511, maxBytes: 32768, maxWorkspaceBytes: 8192 })
+  expect(evidence.selectedReply.messageId).toBe('answer')
+  expect(evidence.events).toContainEqual(expect.objectContaining({ kind: 'observation', text: expect.stringContaining(nextRequest) }))
+  expect(evidence.objective).toBeNull()
+  expect(await collectMaterials(context, source, read, 32768)).toBeUndefined()
+})
+
+it.each(['python3 publish.py', 'pytest'])('omits Shell evidence carrying credential arguments in %s', async command => {
+  const value = 'fixture-option-value'
+  const events = [
+    ...rows.slice(0, 3),
+    { seq: 3, time: 4, type: 'tool/call', data: { turn: 1, step: 1, name: 'bash', callId: 'shell',
+      arguments: JSON.stringify({ command: `${command} --api_key ${value}` }) } },
+    { seq: 4, time: 5, type: 'tool/result', data: { turn: 1, step: 1,
+      message: { toolCallId: 'shell', content: [{ type: 'text', text: 'The command ran.' }] } } },
+    ...rows.slice(3).map(row => ({ ...row, seq: row.seq + 2, time: row.time + 2 })),
+  ]
+  const boundary = { ...source, throughSeq: 7, workspaceObservedAt: new Date(8).toISOString() }
+  const { read } = fixture(events)
+  const materials = await collectMaterials(context, boundary, read, 32768)
+  expect(materials?.content.objective).toBe('Fix the defect')
+  expect(materials?.serialized).not.toContain(value)
+  expect(materials?.content.omissions).toContain('A shell observation was omitted because the command contained a credential argument.')
+  const work = materials && deterministicWork(materials)
+  expect(work?.objective).toBe('Fix the defect')
+  expect(JSON.stringify(work)).not.toContain(value)
 })
 
 it('requires manual input when the original objective is outside the bounded event window', async () => {

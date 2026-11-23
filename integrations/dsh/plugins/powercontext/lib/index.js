@@ -5805,6 +5805,9 @@ const MAX_MATERIAL_BYTES = 256 * 1024;
 const MAX_WORKSPACE_BYTES = 32 * 1024;
 const MAX_WORK_INPUT_BYTES = 32 * 1024;
 const CREDENTIAL_OPTION = /(?:^|[\s;&|])--(?:api[-_]key|access[-_](?:key|token)|client[-_]secret|secret(?:[-_]key)?|private[-_]key|password|passwd|passphrase|token|authorization)(?:[ \t]+|=)[^\s;&|]/iu;
+function containsCommandCredential(command$2) {
+	return CREDENTIAL_OPTION.test(command$2) || secret(command$2);
+}
 function boundary(value) {
 	if (!value || !trimmed(value.sessionId, 256) || !trimmed(value.messageId, 256) || !Number.isSafeInteger(value.throughSeq) || value.throughSeq < 0 || !trimmed(value.cwd, 4096) || value.cwd.includes("\0") || !trimmed(value.workspaceObservedAt, 64) || !Number.isFinite(Date.parse(value.workspaceObservedAt))) invalid();
 	const { sessionId, messageId, throughSeq, cwd, workspaceObservedAt } = value;
@@ -5906,7 +5909,7 @@ async function collectMaterials(context, source$1, read, limit, locale) {
 				"not_run",
 				"unknown"
 			].includes(status)) invalid();
-			if (!available(command$2, 8192) || CREDENTIAL_OPTION.test(command$2)) {
+			if (!available(command$2, 8192) || containsCommandCredential(command$2)) {
 				note(status === "failed" ? "At least one observed check failed but its command could not be included." : "A check was observed but its command could not be included.", status === "failed" ? "至少有一项检查失败，其命令无法纳入。" : "已观测到检查，但其命令无法纳入。");
 				continue;
 			}
@@ -10217,6 +10220,11 @@ function createDefaultTargetAdapters(options) {
 
 //#endregion
 //#region src/handoff/boundary-reader.ts
+function isContinuation(request$2) {
+	const text$1 = request$2.trim();
+	if (/^(?:(?:please )?continue|(?:请)?继续)[.!。！]?$/iu.test(text$1)) return true;
+	return /^(?:please )?continue, +but +(?:do not|don't) +(?:change|edit|modify|touch) +(?!.*\b(?:and|or|then|instead)\b)[^.!?;:,\r\n]+[.!]?$/iu.test(text$1);
+}
 /** Reads only the selected local session's fixed event window. The caller must run Host preflight first. */
 function createBoundaryReader(host) {
 	return async (context, source$1, limits) => {
@@ -10235,7 +10243,7 @@ function createBoundaryReader(host) {
 		const events = [];
 		const pendingResults = /* @__PURE__ */ new Map();
 		let selected;
-		let objective = null;
+		const userRequests = [];
 		let selectedUnavailable = false;
 		let remaining = limits.maxBytes;
 		const text$1 = (message, max) => {
@@ -10285,7 +10293,7 @@ function createBoundaryReader(host) {
 			}
 			if (event.type === "user/message" && event.data?.source?.kind === "user") {
 				const human = text$1(event.data, 8e3);
-				objective = human ?? null;
+				userRequests.push(human);
 				if (human) observe(event, label(`Human request or instruction: ${human}`, `用户请求或指令：${human}`));
 			}
 			if (event.type === "tool/result") {
@@ -10306,6 +10314,10 @@ function createBoundaryReader(host) {
 				} catch {}
 				if (typeof command$2 !== "string" || !command$2.trim() || Buffer.byteLength(command$2) > 8192) {
 					omissions.add(label("A shell command could not be recovered within the evidence limits.", "在取证范围内无法找回一条 Shell 命令。"));
+					continue;
+				}
+				if (containsCommandCredential(command$2)) {
+					omissions.add(label("A shell observation was omitted because the command contained a credential argument.", "有一条 Shell 命令含有凭据参数，已省略该记录。"));
 					continue;
 				}
 				const commandBytes = Buffer.byteLength(command$2);
@@ -10329,8 +10341,9 @@ function createBoundaryReader(host) {
 			}
 		}
 		if (!selected) throw new DeliveryError("binding_mismatch");
-		if (from > 0 || selectedUnavailable) objective = null;
-		if (objective === null) omissions.add(label("The original human objective was not available within the bounded session window.", "在取证范围内找不到用户的原始目标。"));
+		const original = userRequests.pop();
+		const objective = from === 0 && !selectedUnavailable && original && !isContinuation(original) && userRequests.every((request$2) => request$2 !== void 0 && (request$2.trim() === original.trim() || isContinuation(request$2))) ? original : null;
+		if (objective === null) omissions.add(label("The active objective could not be established from the selected session evidence.", "无法根据所选会话证据确定当前任务目标。"));
 		if (pendingResults.size) omissions.add(label("Some tool results had no matching call in the bounded session window.", "在取证范围内，部分工具结果没有对应的调用。"));
 		events.sort((a, b) => b.seq - a.seq);
 		return {

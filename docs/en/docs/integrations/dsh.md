@@ -372,8 +372,8 @@ capabilities available in your agent.
    already completed. If a new reply appeared in the meantime, reselect the reply or explicitly continue with the
    original.
 3. Once preflight passes, PowerContext prepares the handoff from the selected reply and its bounded context.
-   When generation is disabled, it can transfer the original objective, reply and available observations for review.
-   If the required context is missing or cannot be used safely, the menu offers a way to supply it.
+   When generation is disabled, it can transfer the active objective, reply and available observations for review.
+   If later messages leave the objective unclear or required context is missing or unsafe, the menu asks you to supply it.
 4. The prefilled draft contains a short request and the package path. Check the working directory, edit the request or
    add instructions, keep the package path on its own line, and send the draft yourself. For example, add “Run the tests
    first and leave the code unchanged.” The receiving PowerContext plugin must support this workflow: it checks the
