@@ -50,16 +50,91 @@ fn is_reminder_only(content: &[Value]) -> bool {
     }
 }
 
+const HOST_BLOCK_TAGS: [&str; 4] = [
+    "system-reminder",
+    "conversation_history_summary",
+    "cb_summary",
+    "task-notification",
+];
+
+fn strip_host_block(text: &str) -> Option<&str> {
+    for tag in HOST_BLOCK_TAGS {
+        let Some(after_tag) = text.strip_prefix('<').and_then(|value| value.strip_prefix(tag))
+        else {
+            continue;
+        };
+        // The boundary matters: <task-notification-extra> is user text, not a host block.
+        if !after_tag.starts_with('>')
+            && !after_tag.chars().next().is_some_and(char::is_whitespace)
+        {
+            continue;
+        }
+        let open_end = after_tag.find('>')?;
+        if after_tag[..open_end].contains('<') {
+            return None;
+        }
+        let closing = format!("</{tag}>");
+        return after_tag[open_end + 1..]
+            .split_once(closing.as_str())
+            .map(|(_, remaining)| remaining);
+    }
+    None
+}
+
 fn is_reminder_text(text: &str) -> bool {
     let mut remaining = text.trim();
-    while let Some(block) = remaining.strip_prefix("<system-reminder>") {
-        let Some((_, rest)) = block.split_once("</system-reminder>") else {
-            return false;
-        };
+    if remaining.is_empty() {
+        return false;
+    }
+    while let Some(rest) = strip_host_block(remaining) {
         remaining = rest.trim_start();
         if remaining.is_empty() {
             return true;
         }
     }
     false
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{is_reminder_only, is_reminder_text, HOST_BLOCK_TAGS};
+    use serde_json::json;
+
+    #[test]
+    fn standalone_host_blocks_do_not_select_a_new_turn() {
+        for tag in HOST_BLOCK_TAGS {
+            let block = format!("<{tag}>host content</{tag}>");
+            assert!(is_reminder_text(&block), "{tag}");
+        }
+        assert!(is_reminder_text(
+            " <system-reminder>status</system-reminder>\n<cb_summary>old turn</cb_summary>\n<task-notification id=\"1\">done</task-notification> "
+        ));
+        assert!(is_reminder_only(&[
+            json!({"type": "input_text", "text": "<conversation_history_summary>old turn</conversation_history_summary>"}),
+            json!({"type": "input_text", "text": "<cb_summary>compact</cb_summary>"}),
+        ]));
+    }
+
+    #[test]
+    fn user_prompts_and_malformed_blocks_are_not_discarded() {
+        for text in [
+            "Please explain <cb_summary>summary</cb_summary>",
+            "<cb_summary>summary</cb_summary> and respond",
+            "<task-notification-extra>not a host wrapper</task-notification-extra>",
+            "<conversation_history_summary>missing close",
+            "<system-reminder>unfinished",
+            "<cb_summary>old</cb_summary><task-notification>unfinished",
+            "",
+        ] {
+            assert!(!is_reminder_text(text), "{text}");
+        }
+        assert!(!is_reminder_only(&[
+            json!({"type": "input_text", "text": "<cb_summary>old</cb_summary>"}),
+            json!({"type": "input_text", "text": "What changed?"}),
+        ]));
+        assert!(!is_reminder_only(&[
+            json!({"type": "input_text", "text": "<task-notification>update</task-notification>"}),
+            json!({"type": "input_image", "image_url": "https://example.com/image.png"}),
+        ]));
+    }
 }
