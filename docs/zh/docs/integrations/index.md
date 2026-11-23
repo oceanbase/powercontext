@@ -74,7 +74,8 @@ powercontext setup
 
 用户文本或助手回复中识别到凭据时，整轮跳过完成轮次捕获（Hermes、LangChain），因为轮次 Source 同时保存两者；
 User Prompt 中识别到凭据时跳过 `user_prompt` 事件（Pydantic AI）。Pydantic AI 的模型响应和工具事件继续按键名和
-已知凭据值脱敏，Hermes 的压缩前捕获继续使用自身的脱敏规则。当前 Server 凭据指适配器配置的 token，或 Hermes 的
+已知凭据值脱敏。Hermes 的压缩前捕获替换每条消息中识别到的凭据并保留该消息，
+所以凭据不会导致必需 checkpoint 失败。当前 Server 凭据指适配器配置的 token，或 Hermes 的
 Authorization 值。跳过时在 debug 日志中记录原因 `sensitive_content`，不包含被拒绝的文本；完成轮次的跳过还注明
 凭据所在的一侧（用户或助手）。
 

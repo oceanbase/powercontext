@@ -80,8 +80,9 @@ their capture defaults:
 
 A recognized credential in the user text or the assistant reply skips the whole completed turn (Hermes, LangChain),
 because the turn Source stores both; a recognized credential in the user prompt skips the `user_prompt` event
-(Pydantic AI). Pydantic AI model-response and tool events keep their key-based and known-credential redaction, and
-Hermes pre-compression capture keeps its own redaction. The configured Server credential is the adapter's token, or
+(Pydantic AI). Pydantic AI model-response and tool events keep their key-based and known-credential redaction.
+Hermes pre-compression capture replaces recognized credentials in each message and keeps the message, so a credential
+does not make a required checkpoint fail. The configured Server credential is the adapter's token, or
 Hermes's Authorization value. A skip is logged at debug level with the reason `sensitive_content` and without the
 rejected text; a completed-turn skip also names the side, user or assistant, that contained the credential.
 
