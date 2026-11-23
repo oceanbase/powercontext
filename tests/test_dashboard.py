@@ -106,6 +106,32 @@ def test_prompt_and_profile_dashboards_open_without_content(dashboard: TestClien
     assert "Prompts" in prompts.text
 
 
+@pytest.mark.parametrize("language", ["en", "zh"])
+def test_dashboard_displays_topic_and_profile_prompts(dashboard: TestClient, language: str) -> None:
+    scope = create_scope(dashboard, "Prompt visibility")["scope_id"]
+    response = dashboard.get("/dashboard/prompts", params={"scope": scope, "lang": language})
+    assert response.status_code == 200
+    assert response.text.count('class="supporting-details prompt-group mb-3"') == 6
+    assert CATALOGS[language]["prompt_topic_conditional"] in response.text
+    for key in (
+        "topic_memory.probe",
+        "topic_memory.global",
+        "topic_memory.planner",
+        "topic_memory.evolve",
+        "topic_memory.temporary",
+        "topic_memory.reduce",
+        "topic_memory.reconcile",
+        "profile.generate",
+    ):
+        configuration = dashboard.get(f"/v1/scopes/{scope}/prompts/{key}")
+        assert configuration.status_code == 200
+        instructions = configuration.json()["builtin"]["instructions"]
+        assert instructions
+        assert unescape(instructions) in unescape(response.text)
+        assert f"<code>{key}</code>" in response.text
+        assert CATALOGS[language][key] in response.text
+
+
 def test_dashboard_favicons_use_square_viewports(dashboard: TestClient) -> None:
     home = dashboard.get("/")
     icons = re.findall(r'<link rel="icon"[^>]*href="([^"]+)"', home.text)

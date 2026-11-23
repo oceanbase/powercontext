@@ -27,6 +27,8 @@ import httpx
 import pytest
 from prometheus_client.parser import text_string_to_metric_families
 
+from tests.e2e.server_startup import SERVER_STARTUP_TIMEOUT_SECONDS
+
 
 @pytest.mark.skipif(sys.platform == "win32", reason="Requires POSIX SIGTERM shutdown")
 def test_combined_cli_metrics_authentication_passive_scrapes_and_shutdown(tmp_path):
@@ -71,7 +73,7 @@ def test_combined_cli_metrics_authentication_passive_scrapes_and_shutdown(tmp_pa
         )
         try:
             with httpx.Client(base_url=f"http://127.0.0.1:{port}", trust_env=False, timeout=2) as client:
-                deadline = time.monotonic() + 30
+                deadline = time.monotonic() + SERVER_STARTUP_TIMEOUT_SECONDS
                 while True:
                     if process.poll() is not None:
                         pytest.fail(f"CLI exited before serving metrics: {log_path.read_text()}")

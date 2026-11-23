@@ -215,6 +215,13 @@ from powercontext.builtin.runtime.context_reuse import (
     validate_reuse,
 )
 from powercontext.builtin.runtime.decision_model import DecisionModel
+from powercontext.builtin.runtime.diagnostic_text import (
+    code_text,
+    experience_text,
+    memory_text,
+    profile_text,
+    topic_text,
+)
 from powercontext.builtin.runtime.errors import InvalidRuntimeRequestError, TopicMemoryProcessingUnavailableError
 from powercontext.builtin.runtime.extraction_diagnostics import ExtractionDiagnostics
 from powercontext.builtin.runtime.models import (
@@ -248,6 +255,7 @@ from powercontext.builtin.runtime.models import (
     PrepareContextRequest,
     PrepareContextResult,
     PreparedContext,
+    PreparedContextWithReuse,
     ProposeExperienceRequest,
     ProposeSkillRequest,
     RecordBootstrapDeliveryRequest,
@@ -263,6 +271,7 @@ from powercontext.builtin.runtime.models import (
     SubmitSourceObservation,
     TopicMemoryFlushResult,
 )
+from powercontext.builtin.runtime.prepare_diagnostics import PrepareDiagnosticCapture
 from powercontext.builtin.runtime.prepared_code import PreparedCodeCandidate, code_candidates
 from powercontext.builtin.runtime.prepared_context import (
     PreparedContextBuild,
@@ -617,14 +626,17 @@ class ScopedSourceApplication:
             return ()
         if any(value.metadata.get("kind") == WORKING_NOTE_SOURCE_KIND for value in values):
             raise InvalidRuntimeRequestError("working-note-dedicated-api")
-        captures = tuple(
-            ContentCapture(
-                source_id=value.source_id,
-                content=value.content,
-                metadata=value.model_dump(mode="json")["metadata"],
+        try:
+            captures = tuple(
+                ContentCapture(
+                    source_id=value.source_id,
+                    content=value.content,
+                    metadata=value.model_dump(mode="json")["metadata"],
+                )
+                for value in values
             )
-            for value in values
-        )
+        except ValidationError as error:
+            raise InvalidBaseAccessRequestError("content", "does not match the Source adapter") from error
         if self._runtime._record_service is None:
             raise InvalidRuntimeRequestError("batch-capture-unavailable")
         try:
@@ -1141,6 +1153,7 @@ class ScopedContextApplication:
         authorize_scopes: Callable[[tuple[str, ...]], Awaitable[None]] | None = None,
         atomic_context: ArtifactSearchExecutionContext | None = None,
         binding_identity: str = "local",
+        diagnostic_sink: Callable[[dict[str, object]], Awaitable[None]] | None = None,
     ) -> PrepareContextResult:
         if (
             request.assembly is not None
@@ -1154,19 +1167,45 @@ class ScopedContextApplication:
                 and not request.include_code
                 and not request.include_reuse
             ):
-                empty = PreparedContextBuilder().empty()
-                return (
-                    self._attach_receipt(request, PreparedContextBuild(context=empty, origins=()), ReceiptEvidence())
-                    if request.include_receipt
-                    else empty
+                # Empty assembly deliberately reads no referenced Scope. Preserve
+                # that short circuit with and without diagnostic capture.
+                capture = PrepareDiagnosticCapture(request, self.scope_id, diagnostic_sink, (self.scope_id,))
+                evidence = (
+                    ReceiptEvidence(diagnostics=diagnostic_sink is not None)
+                    if (request.include_receipt or diagnostic_sink is not None)
+                    else None
                 )
+                empty = self._attach_receipt(
+                    request, PreparedContextBuild(context=PreparedContextBuilder().empty(), origins=()), evidence
+                )
+                await capture.finish(empty, evidence, status="empty")
+                return empty
+
             if authorize_scopes is not None:
                 await authorize_scopes((self.scope_id, *scope.context_references))
             if request.include_reuse:
                 self._require_reuse_scope(scope)
             token = _PREPARE_ATOMIC_CONTEXT.set(atomic_context)
+            capture = PrepareDiagnosticCapture(
+                request, self.scope_id, diagnostic_sink, (self.scope_id, *scope.context_references)
+            )
+            evidence = (
+                ReceiptEvidence(diagnostics=diagnostic_sink is not None)
+                if (request.include_receipt or diagnostic_sink is not None)
+                else None
+            )
             try:
-                return await self._prepare(request, scope, binding_identity=binding_identity)
+                result = await self._prepare(request, scope, binding_identity=binding_identity, evidence=evidence)
+            except asyncio.CancelledError:
+                await capture.finish(None, evidence, status="cancelled")
+                raise
+            except Exception as error:
+                await capture.finish(None, evidence, status="failed", error=error)
+                raise
+            else:
+                prepared = result.context if isinstance(result, PreparedContextWithReuse) else result
+                await capture.finish(prepared, evidence, status=prepared.status)
+                return result
             finally:
                 _PREPARE_ATOMIC_CONTEXT.reset(token)
 
@@ -1235,9 +1274,14 @@ class ScopedContextApplication:
             )
 
     async def _prepare(
-        self, request: PrepareContextRequest, scope: ScopeDescriptor, /, *, binding_identity: str = "local"
+        self,
+        request: PrepareContextRequest,
+        scope: ScopeDescriptor,
+        /,
+        *,
+        binding_identity: str = "local",
+        evidence: ReceiptEvidence | None,
     ) -> PrepareContextResult:
-        evidence = ReceiptEvidence() if request.include_receipt else None
         token = bind_receipt_evidence(evidence)
         try:
             build, effort = await self._prepare_build(request, scope)
@@ -1298,6 +1342,8 @@ class ScopedContextApplication:
         """Expose only explicitly requested diagnostics and current reuse proof."""
         context = self._attach_receipt(request, build, evidence)
         if request.include_reuse:
+            if evidence is not None:
+                evidence.active_stage = "context.reuse"
             atomic = self._runtime.atomic_memory
             return await prepare_reuse(
                 None if atomic is None else atomic.for_scope(self.scope_id),
@@ -1317,9 +1363,33 @@ class ScopedContextApplication:
     ) -> PreparedContext:
         if evidence is None:
             return build.context
+        if evidence.diagnostics:
+            evidence.selected_count = len(build.origins) + len(build.code_origins)
+            sections = request.assembly.sections if request.assembly is not None else ()
+            counts = dict.fromkeys(
+                (
+                    "atomic-memory",
+                    "topic-memory",
+                    "experience",
+                    "profile",
+                    "code",
+                    *(section.family for section in sections if section.family not in BUILTIN_CONTEXT_FAMILIES),
+                ),
+                0,
+            )
+            for fragment in build.fragments:
+                if fragment.kind in counts:
+                    counts[fragment.kind] += 1
+            evidence.selected_by_family = counts
         try:
             receipt = evidence.build(request, build.context, build, self.scope_id)
         except Exception as error:
+            evidence.receipt_error = (
+                "receipt-byte-limit"
+                if isinstance(error, ValueError) and str(error) == "receipt-byte-limit"
+                else "receipt-assembly-failed"
+            )
+
             log_safely(
                 logger,
                 logging.WARNING,
@@ -1329,9 +1399,7 @@ class ScopedContextApplication:
                     "operation": "prepare_context",
                     "outcome": "failure",
                     "unit": "context",
-                    "error_code": "receipt-byte-limit"
-                    if isinstance(error, ValueError) and str(error) == "receipt-byte-limit"
-                    else "receipt-assembly-failed",
+                    "error_code": evidence.receipt_error,
                 },
             )
             return build.context
@@ -1347,9 +1415,11 @@ class ScopedContextApplication:
                 "receipt_id": receipt.receipt_id,
             },
         )
-        return build.context.model_copy(update={"receipt": receipt})
+        if evidence.diagnostics:
+            evidence.prepared_receipt = receipt
+        return build.context.model_copy(update={"receipt": receipt}) if request.include_receipt else build.context
 
-    async def _prepare_build(
+    async def _prepare_build(  # noqa: C901 -- Keep same-execution recall, budget and evidence at the owning boundary.
         self,
         request: PrepareContextRequest,
         scope: ScopeDescriptor,
@@ -1369,7 +1439,8 @@ class ScopedContextApplication:
         policy is not configured, so the default-off path allocates nothing.
         """
 
-        builder = PreparedContextBuilder()
+        evidence = current_receipt_evidence()
+        builder = PreparedContextBuilder(diagnostics=evidence is not None and evidence.diagnostics)
         if request.include_code:
             builder.entry_limit = self._runtime.context_assembly_max_entries
         scope_ids = [self.scope_id, *scope.context_references]
@@ -1406,7 +1477,6 @@ class ScopedContextApplication:
             embedding_budget=embedding_budget,
             excluded_memory=injected_memory_keys,
         )
-        evidence = current_receipt_evidence()
         if evidence is not None:
             evidence.rounds.append(RecallRound(round=0, outcome="completed", retained=True))
         memory_candidates = list(round_zero.memory)
@@ -1462,6 +1532,56 @@ class ScopedContextApplication:
                 if section.search_failed
             ],
         )
+        if evidence is not None:
+            evidence.active_stage = "context.build"
+            if evidence.diagnostics:
+                evidence.final_candidates = {
+                    "atomic-memory": sum(len(group.hits) for group in memory_candidates),
+                    "topic-memory": len(topic_memory_hits),
+                    "experience": sum(len(group.hits) for group in experience_candidates),
+                    "profile": len(profile_candidates),
+                    "code": len(code),
+                    **{
+                        section.family: len(section.hits)
+                        for section in (request.assembly.sections if request.assembly is not None else ())
+                        if section.family not in BUILTIN_CONTEXT_FAMILIES
+                    },
+                }
+            for group in memory_candidates:
+                evidence.text_snapshot(
+                    "assembly",
+                    "atomic-memory",
+                    group.scope_id,
+                    lambda group=group: (memory_text(hit) for hit in group.hits),
+                )
+            for group in experience_candidates:
+                evidence.text_snapshot(
+                    "assembly",
+                    "experience",
+                    group.scope_id,
+                    lambda group=group: (experience_text(hit) for hit in group.hits),
+                )
+            for profile in profile_candidates:
+                evidence.text_snapshot(
+                    "assembly", "profile", profile.scope_id, lambda profile=profile: (profile_text(profile.profile),)
+                )
+            if TOPIC_MEMORY_FAMILY in families:
+                evidence.text_snapshot(
+                    "assembly", "topic-memory", self.scope_id, lambda: (topic_text(hit) for hit in topic_memory_hits)
+                )
+            if request.include_code:
+                evidence.text_snapshot("assembly", "code", self.scope_id, lambda: (code_text(item) for item in code))
+            for section in request.assembly.sections if request.assembly is not None else ():
+                if section.family in BUILTIN_CONTEXT_FAMILIES or not section.hits:
+                    continue
+                evidence.text_snapshot(
+                    "assembly",
+                    section.family,
+                    self.scope_id,
+                    lambda section=section: (
+                        {"artifact": hit.artifact.model_dump(mode="json"), "text": hit.text} for hit in section.hits
+                    ),
+                )
         started_build = perf_counter() if evidence is not None else None
         with self._runtime._stage(
             "context.build",
@@ -1575,14 +1695,43 @@ class ScopedContextApplication:
         if "profile" in families and profiles is not None:
             async with profiles.database.transaction() as connection:
                 for scope_id in scope_ids:
-                    profile = await profiles.latest(connection, scope_id)
+                    started = perf_counter()
                     if evidence is not None:
-                        evidence.search("profile", "snapshot", "completed")
+                        evidence.active_stage = "profile.read"
+                    try:
+                        profile = await profiles.latest(connection, scope_id)
+                    except Exception:
+                        if evidence is not None:
+                            evidence.search(
+                                "profile",
+                                "snapshot",
+                                "failed",
+                                scope_id=scope_id,
+                                configured=True,
+                                duration_ms=(perf_counter() - started) * 1000,
+                            )
+                        raise
+                    if evidence is not None:
+                        evidence.search(
+                            "profile",
+                            "snapshot",
+                            "completed",
+                            scope_id=scope_id,
+                            result_count=int(profile is not None),
+                            configured=True,
+                            duration_ms=(perf_counter() - started) * 1000,
+                        )
+                        evidence.text_snapshot(
+                            "search",
+                            "profile",
+                            scope_id,
+                            lambda profile=profile: () if profile is None else (profile_text(profile),),
+                        )
                     if profile is not None:
                         candidates.append(PreparedProfileCandidate(scope_id=scope_id, profile=profile))
         elif "profile" in families and evidence is not None:
-            for _scope_id in scope_ids:
-                evidence.search("profile", None, "not_run")
+            for scope_id in scope_ids:
+                evidence.search("profile", None, "not_run", scope_id=scope_id, configured=False)
         return candidates
 
     @staticmethod
@@ -1631,6 +1780,9 @@ class ScopedContextApplication:
 
     async def _code_candidates(self, request: PrepareContextRequest) -> tuple[PreparedCodeCandidate, ...]:
         evidence = current_receipt_evidence()
+        started = perf_counter()
+        if evidence is not None:
+            evidence.active_stage = "code.search"
         try:
             result = await self._runtime.code.for_scope(self.scope_id).query(
                 CodeQueryRequest.model_validate({
@@ -1640,7 +1792,24 @@ class ScopedContextApplication:
             )
         except CodeError as error:
             if evidence is not None:
-                evidence.search("code", "code", "failed")
+                evidence.search(
+                    "code",
+                    "code",
+                    "failed",
+                    scope_id=self.scope_id,
+                    configured=error.code not in {"code_disabled", "code_repository_unconfigured"},
+                    error_code=error.code
+                    if error.code
+                    in {
+                        "code_disabled",
+                        "code_repository_unconfigured",
+                        "code_storage_unavailable",
+                        "index_integrity_failed",
+                        "code_cache_busy",
+                    }
+                    else "code-retrieval-failed",
+                    duration_ms=(perf_counter() - started) * 1000,
+                )
             log_safely(
                 logger,
                 logging.INFO,
@@ -1653,7 +1822,16 @@ class ScopedContextApplication:
             return ()
         candidates = code_candidates(result) if isinstance(result, CodeQueryResult) else ()
         if evidence is not None:
-            evidence.search("code", "code", "completed")
+            evidence.search(
+                "code",
+                "code",
+                "completed",
+                scope_id=self.scope_id,
+                result_count=len(candidates),
+                configured=True,
+                duration_ms=(perf_counter() - started) * 1000,
+            )
+            evidence.text_snapshot("search", "code", self.scope_id, lambda: (code_text(item) for item in candidates))
         log_safely(
             logger,
             logging.INFO,
@@ -2033,15 +2211,6 @@ class ScopedContextApplication:
         )
         if TOPIC_MEMORY_FAMILY in families:
             topic_reuse[self.scope_id] = topic_outcome.query_embedding
-            evidence = current_receipt_evidence()
-            if evidence is not None:
-                evidence.search(
-                    "topic-memory",
-                    topic_outcome.mode,
-                    "completed" if self._runtime._topic_memory_search is not None else "not_run",
-                    topic_outcome.embedding_fallback or "none",
-                    scope_id=self.scope_id,
-                )
         return _RecallRoundOutcome(
             memory=tuple(memory_candidates),
             experience=tuple(experience_candidates),
@@ -2070,6 +2239,8 @@ class ScopedContextApplication:
         evidence = current_receipt_evidence()
         async with self._runtime._scoped_operation(scope_id, embedding_purpose=ModelUsagePurpose.MEMORY_RECALL):
             started_memory = perf_counter() if evidence is not None else None
+            if evidence is not None and memory_requested:
+                evidence.active_stage = "atomic-memory.search"
             with self._runtime._stage(
                 _MEMORY_SEARCH_STAGE,
                 attributes={_MEMORY_SEARCH_REQUESTED_MODE: "auto", _MEMORY_SEARCH_LIMIT: memory_limit},
@@ -2100,7 +2271,14 @@ class ScopedContextApplication:
                     except Exception:
                         if evidence is not None and started_memory is not None and memory_requested:
                             evidence.stage(_MEMORY_SEARCH_STAGE, (perf_counter() - started_memory) * 1000)
-                            evidence.search("atomic-memory", None, "failed")
+                            evidence.search(
+                                "atomic-memory",
+                                None,
+                                "failed",
+                                scope_id=scope_id,
+                                configured=True,
+                                duration_ms=(perf_counter() - started_memory) * 1000,
+                            )
                         raise
                     embedding_budget.spend(result.embedding_wait_seconds)
                     memory_hits = result.hits
@@ -2128,6 +2306,9 @@ class ScopedContextApplication:
                     "completed" if memory_limit > 0 and atomic is not None else "not_run",
                     memory_embedding_fallback or "none",
                     scope_id=scope_id,
+                    result_count=len(memory_hits),
+                    configured=atomic is not None,
+                    duration_ms=(perf_counter() - started_memory) * 1000,
                 )
 
             experience_outcome = await self._recall_experience(
@@ -2161,6 +2342,8 @@ class ScopedContextApplication:
         evidence: ReceiptEvidence | None,
         requested: bool,
     ) -> ExperienceSearchOutcome:
+        if evidence is not None and requested:
+            evidence.active_stage = "experience.search"
         reader = self._runtime._experience_recall
         started = perf_counter() if evidence is not None else None
         with self._runtime._stage(
@@ -2181,7 +2364,14 @@ class ScopedContextApplication:
                 except Exception:
                     if evidence is not None and started is not None and requested:
                         evidence.stage("experience.search", (perf_counter() - started) * 1000)
-                        evidence.search("experience", None, "failed")
+                        evidence.search(
+                            "experience",
+                            None,
+                            "failed",
+                            scope_id=scope_id,
+                            configured=True,
+                            duration_ms=(perf_counter() - started) * 1000,
+                        )
                     raise
             if span is not None:
                 span.set_attributes({"powercontext.experience.search.result_count": len(outcome.hits)})
@@ -2191,6 +2381,14 @@ class ScopedContextApplication:
                 "experience",
                 outcome.mode if reader is not None and limit > 0 else None,
                 "completed" if reader is not None and limit > 0 else "not_run",
+                scope_id=scope_id,
+                result_count=len(outcome.hits),
+                configured=reader is not None,
+                duration_ms=(perf_counter() - started) * 1000,
+            )
+        if evidence is not None and reader is not None and limit > 0 and requested:
+            evidence.text_snapshot(
+                "search", "experience", scope_id, lambda: (experience_text(hit) for hit in outcome.hits)
             )
         return outcome
 
@@ -2206,6 +2404,8 @@ class ScopedContextApplication:
     ) -> TopicMemoryRecallOutcome:
         evidence = current_receipt_evidence()
         started = perf_counter() if evidence is not None else None
+        if evidence is not None:
+            evidence.active_stage = "topic-memory.search"
         configured = self._runtime._topic_memory_search is not None
         bounded_query = bounded_topic_memory_query(query)
         with self._runtime._stage(
@@ -2232,7 +2432,14 @@ class ScopedContextApplication:
             except Exception:
                 if evidence is not None and started is not None:
                     evidence.stage("topic_memory.search", (perf_counter() - started) * 1000)
-                    evidence.search("topic-memory", None, "failed")
+                    evidence.search(
+                        "topic-memory",
+                        None,
+                        "failed",
+                        scope_id=self.scope_id,
+                        configured=configured,
+                        duration_ms=(perf_counter() - started) * 1000,
+                    )
                 raise
             embedding_budget.spend(result.embedding_wait_seconds)
             if span is not None:
@@ -2247,6 +2454,20 @@ class ScopedContextApplication:
             )
         if evidence is not None and started is not None:
             evidence.stage("topic_memory.search", (perf_counter() - started) * 1000)
+            evidence.search(
+                "topic-memory",
+                outcome.mode,
+                "completed" if configured else "not_run",
+                outcome.embedding_fallback or "none",
+                scope_id=self.scope_id,
+                result_count=len(outcome.hits),
+                configured=configured,
+                duration_ms=(perf_counter() - started) * 1000,
+            )
+        if evidence is not None and configured:
+            evidence.text_snapshot(
+                "search", "topic-memory", self.scope_id, lambda: (topic_text(hit) for hit in outcome.hits)
+            )
         return outcome
 
 

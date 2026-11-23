@@ -15,7 +15,7 @@
  */
 
 import { createHash } from 'node:crypto'
-import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises'
+import { copyFile, mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, expect, it } from 'vitest'
@@ -30,17 +30,20 @@ async function fixture() {
   temp = await mkdtemp(join(tmpdir(), 'pc-codex-runtime-'))
   const home = join(temp, 'home'), cwd = join(temp, 'project'), deliveryRoot = join(temp, 'delivery')
   const root = join(home, 'plugins/cache/example/powercontext/1.0.0')
-  await Promise.all(['hooks', 'scripts', '.venv/bin'].map(path => mkdir(join(root, path), { recursive: true })))
+  await Promise.all(['hooks', 'powercontext_lifecycle', '.venv/bin'].map(path => mkdir(join(root, path), { recursive: true })))
   await mkdir(cwd); await mkdir(deliveryRoot)
   await writeFile(join(home, '.codex-global-state.json'), JSON.stringify({
     'electron-owner-atoms:fixture': { 'permission-selection-by-host-id:local': { kind: 'agent-mode', agentMode: 'auto' } },
   }))
   await writeFile(join(root, 'hooks/hooks.json'), '{}')
-  await writeFile(join(root, 'hooks/dsh_handoff.py'), '# PowerContext handoff receiver')
+  await copyFile(new URL('../../../../codex/plugins/powercontext/powercontext_lifecycle/dsh_handoff.py', import.meta.url),
+    join(root, 'powercontext_lifecycle/dsh_handoff.py'))
   await writeFile(join(root, '.mcp.json'), JSON.stringify({ mcpServers: { powercontext: {} } }))
   await symlink('/usr/bin/python3', join(root, '.venv/bin/python'))
-  await writeFile(join(root, 'settings.py'), `import json,os\ndef _state(): return json.load(open(os.path.join(os.path.dirname(__file__),'scope.json')))\ndef _stored_authorization(url): return _state().get('stored')\nclass Secret:\n def __init__(self,value): self.value=value\n def get_secret_value(self): return self.value\nclass CodexPluginSettings:\n def __init__(self):\n  self.server_url='http://127.0.0.1:19123'\n  self.authorization=Secret(_state()['auth']) if _state().get('auth') else None\n  self.scope_id=None\n  self.allow_insecure_http=False\n  self.http_budget_seconds=5\n  self.request_timeout_seconds=3\n`)
-  await writeFile(join(root, 'scripts/scope_binding.py'), `import json,os\ndef resolve_scope_id(cwd,session_id,settings,deadline):\n return json.load(open(os.path.join(os.path.dirname(__file__),'../scope.json')))['scope']\nclass Response:\n def __enter__(self): return self\n def __exit__(self,*args): pass\ndef open_bounded(request,timeout): return Response()\ndef _read_bounded(response,deadline): return b'{"server_id":"server-a","authentication":"disabled","access_mode":"disabled","principal":null}'\n`)
+  await writeFile(join(root, 'settings.py'), `import json,os\ndef _state(): return json.load(open(os.path.join(os.path.dirname(__file__),'scope.json')))\ndef _stored_authorization(url): return _state().get('stored')\nclass Secret:\n def __init__(self,value): self.value=value\n def get_secret_value(self): return self.value\nclass CodexPluginSettings:\n def __init__(self):\n  self.server_url='http://127.0.0.1:19123'\n  self.authorization=Secret(_state()['auth']) if _state().get('auth') else None\n  self.scope_id=None\n  self.allow_insecure_http=False\n  self.http_budget_seconds=5\n  self.request_timeout_seconds=3\n def scope_binding_settings(self): return {'fixture': True}\n`)
+  await writeFile(join(root, 'codex_host.py'), 'CODEX = "fixture-codex"\n')
+  await writeFile(join(root, 'powercontext_lifecycle/scope_binding.py'), `import json,os\ndef resolve_scope_id(host,cwd,*,session_id,settings,deadline):\n assert host == 'fixture-codex' and settings == {'fixture': True}\n return json.load(open(os.path.join(os.path.dirname(__file__),'../scope.json')))['scope']\ndef _read_bounded(response,deadline): return b'{"server_id":"server-a","authentication":"disabled","access_mode":"disabled","principal":null}'\n`)
+  await writeFile(join(root, 'powercontext_lifecycle/transport.py'), `class Response:\n def __enter__(self): return self\n def __exit__(self,*args): pass\ndef open_bounded(request,timeout): return Response()\n`)
   await writeFile(join(root, 'scope.json'), '{"scope":"scope-a"}')
   const state = join(temp, 'state.json')
   await writeFile(state, JSON.stringify({ enabled: true, installed: true, trusted: true, tools: true, sandbox: true }))

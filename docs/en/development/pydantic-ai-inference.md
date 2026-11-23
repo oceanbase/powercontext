@@ -83,46 +83,143 @@ Set `embedding_model`, `embedding_profile_id`, and `embedding_dimension` togethe
 
 ## Reuse existing subscription credentials
 
-Make existing Codex or GitHub Copilot credentials available to the Server and its workers. Credential file paths refer to the Server host and the user running the service. A login on the client machine is not transferred to the Server automatically.
+Configure the subscription on the Server host and make its credentials or signed-in CLI available to workers. Leave `POWERCONTEXT_SERVER_INFERENCE_GENERATION_BASE_URL` and `POWERCONTEXT_SERVER_INFERENCE_GENERATION_HEADERS` unset. Replace model placeholders below with a model available to your account.
 
-The Codex and Copilot examples below use the default service URL and authentication. Leave `POWERCONTEXT_SERVER_INFERENCE_GENERATION_BASE_URL` and `POWERCONTEXT_SERVER_INFERENCE_GENERATION_HEADERS` unset. Replace `<model-name>` with a model ID available to that subscription.
+| Subscription | Model setting | Credential renewal |
+| --- | --- | --- |
+| Codex CLI | `openai-codex:<model>` | The CLI renews its login; PowerContext reads the file on each request. |
+| GitHub Copilot | `github-copilot:<model>` | Export the GitHub OAuth token before startup; update the environment and restart after renewal. |
+| Grok CLI OAuth | `grok:<model>` | PowerContext refreshes the shared CLI file under its OS lock. |
+| Gemini CLI / Code Assist | `gemini-cli:<model>` | The CLI owns login, onboarding and renewal. |
+| Claude Code subscription | `claude-cli:<model>` | The installed CLI owns login and renewal. |
+| Qwen Code Plus/Pro | `qwen:<model>` | PowerContext owns a separate device grant and refreshes it automatically. |
+| Kimi Code | `kimi:<model>` | PowerContext owns a separate device grant and refreshes it automatically. |
+| ChatGPT Plan Usage | SDK only; see below. | The application stores credentials; Pydantic AI refreshes them. |
+
+Server subscription adapters support Memory, Experience and Profile generation. Disable built-in inference protection and remove explicit Topic Memory processing or scheduling before switching to these adapters; Topic Memory and Dream are unsupported.
 
 ### Codex CLI credentials
 
-If Codex CLI is signed in with a subscription account and stores its credentials in `auth.json`, use the `openai-codex:` model prefix:
+Sign in with Codex CLI on the Server host, then select the model:
 
 ```bash
 export POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL="openai-codex:<model-name>"
 ```
 
-By default, the Server reads `~/.codex/auth.json` in the home directory of the user running the service. If the credentials are in another Codex home directory, specify that directory in the environment:
+PowerContext reads `~/.codex/auth.json` by default. To use another login directory:
 
 ```bash
 export CODEX_HOME="/path/to/existing/codex-home"
 ```
 
-`CODEX_HOME` names the directory containing `auth.json`. The CLI owns credential renewal. The Server and workers read the complete login file on every request; they never exchange its refresh token or update the file. This avoids competing with the CLI or each other for a single-use refresh token. If the access token expires or is rejected, inference fails until the original CLI renews the login. The next request picks up that update without a service restart. Unattended renewal is not provided by this integration. See [Pydantic AI's Codex credential configuration](https://github.com/pydantic/pydantic-ai/blob/v2.64.0/docs/models/openai-codex.md).
+The Server and workers never modify this file or exchange its refresh token. If inference fails because the login expired, renew it with the original CLI. The next request reads the updated file without a Server restart. See [Pydantic AI's Codex configuration](https://github.com/pydantic/pydantic-ai/blob/v2.64.0/docs/models/openai-codex.md).
 
 ### GitHub Copilot credentials
 
-If GitHub CLI has an OAuth login for an account with Copilot access, export its token before starting the Server:
+Sign in with GitHub CLI using an account with Copilot access, then export its token before starting the Server:
 
 ```bash
 export GITHUB_COPILOT_API_KEY="$(gh auth token)"
 export POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL="github-copilot:<model-name>"
 ```
 
-Choose a Copilot model that supports Chat Completions. Models available only through the Responses API cannot use the `github-copilot:` prefix.
+Choose a model that supports Chat Completions. The Server also accepts `GITHUB_COPILOT_API_TOKEN`, then `COPILOT_GITHUB_TOKEN`, as fallbacks. It does not use `GITHUB_TOKEN` or `GH_TOKEN`, load the CLI login automatically, or renew the exported token. Update the environment and restart after token renewal. See [Pydantic AI's Copilot configuration](https://github.com/pydantic/pydantic-ai/blob/v2.64.0/docs/models/github-copilot.md).
 
-You can also reuse an existing `GITHUB_COPILOT_API_TOKEN` or `COPILOT_GITHUB_TOKEN` environment variable; the Server reads them in that order as fallbacks. The general-purpose `GITHUB_TOKEN` and `GH_TOKEN` variables are not used for Copilot authentication. Run the example's `gh auth token` command before starting the service. The Server does not load CLI configuration or renew tokens automatically. When the token changes, update the service's environment and restart the Server. See [Pydantic AI's Copilot configuration](https://github.com/pydantic/pydantic-ai/blob/v2.64.0/docs/models/github-copilot.md).
+### Grok CLI OAuth credentials
 
-These configurations support generation for Memory, Experience, and Profile. Topic Memory and Dream are unavailable with Codex and Copilot. If you have explicitly enabled Topic Memory processing or its automatic schedule, remove that configuration before switching providers. Enabling built-in inference protection prevents startup with these providers.
+After signing in with Grok CLI on the Server host:
+
+```bash
+export POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL="grok:<model-name>"
+export GROK_HOME="/path/to/existing/grok-home"
+```
+
+The default file is `~/.grok/auth.json`. `GROK_AUTH_PATH` selects a file and takes precedence over `GROK_HOME`. PowerContext requires the CLI's xAI OAuth entry and sends Responses requests to `https://api.x.ai/v1/responses`. The separate `xai:<model>` prefix uses API-key authentication.
+
+The service user needs write access to the credential directory. PowerContext refreshes tokens within 60 seconds of expiry under `auth.json.lock` and atomically saves the rotated credentials while preserving unrelated fields. Failed renewal leaves the file unchanged. A resource 401 does not trigger refresh or request replay. This API path does not provide Magpie's separate SuperGrok proxy integration.
+
+### Gemini CLI / Code Assist
+
+Complete login and onboarding with Gemini CLI on the Server host, then configure:
+
+```bash
+export POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL="gemini-cli:<model-name>"
+# Optional: override the default CLI credential file.
+export GEMINI_CLI_AUTH_PATH="/private/gemini/oauth_creds.json"
+```
+
+PowerContext reads `~/.gemini/oauth_creds.json` by default. The original CLI must renew expired credentials; the adapter does not read keychains, encrypted caches, ADC or Gemini API keys. Organization accounts can set `GOOGLE_CLOUD_PROJECT` or `GOOGLE_CLOUD_PROJECT_ID` to an already configured project.
+
+The adapter supports non-streaming Code Assist generation and verifies the account's project and tier before calling the model. It does not perform onboarding or enable credit overage. Account eligibility and quota depend on the subscription. See [Gemini CLI authentication](https://github.com/google-gemini/gemini-cli/blob/main/docs/get-started/authentication.mdx).
+
+### Claude Code subscription through the real CLI
+
+Sign Claude Code CLI into the intended account before starting the service:
+
+```bash
+claude auth login
+export POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL="claude-cli:sonnet"
+# Optional: override the executable found on PATH.
+export CLAUDE_CLI_EXECUTABLE="/path/to/claude"
+```
+
+Each request starts a fresh print-mode process with tools, MCP and session persistence disabled. Text and prompted JSON are supported; images, streaming and model settings other than `max_tokens` are rejected. The installed CLI must support the adapter's flags. On POSIX, cancellation terminates its process group.
+
+Use the CLI's `claude.ai` login and unset API-key, custom Anthropic endpoint, cloud-backend and explicit OAuth-token overrides. The CLI controls its internal HTTP calls and retries, so this adapter requires built-in inference protection to be disabled. See [Claude CLI flags](https://code.claude.com/docs/en/cli-reference).
+
+### Qwen Code and Kimi Code device authorization
+
+Create a separate PowerContext-owned device grant, then select the model:
+
+```bash
+uv run python -m powercontext.builtin.inference.coding_oauth qwen
+export POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL="qwen:<subscription-model>"
+
+uv run python -m powercontext.builtin.inference.coding_oauth kimi
+export POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL="kimi:<coding-model>"
+```
+
+Follow the verification URL and user code printed by the command. Credentials are saved under `~/.config/powercontext/oauth/` as `qwen.json` or `kimi.json`, with mode `0600` on POSIX. To select another path, set `POWERCONTEXT_QWEN_CREDENTIALS_PATH` or `POWERCONTEXT_KIMI_CREDENTIALS_PATH` before both login and service startup. Existing files are not overwritten; reauthorization needs a new path.
+
+Qwen targets the current Code Plus/Pro subscription, separately from legacy free OAuth and API-key plans. Kimi targets `https://api.kimi.com/coding/v1`; the account and region must match. Do not copy a CLI refresh token into either store as an independent login.
+
+Both adapters refresh under an OS file lock within 60 seconds of expiry and save rotated credentials atomically. Failed or cancelled renewal leaves the store unchanged and sends no inference request. Grok, Qwen and Kimi disable automatic SDK retries and authentication-layer model replay.
+
+For SDK integration, `QwenProvider` and `KimiProvider` use Pydantic AI's public `OpenAICompatibleProvider(openai_client=...)` interface. Authlib handles OAuth grants; PowerContext owns the credential-file transaction. The runtime closes clients it creates; SDK callers close clients they supply.
 
 ### Existing ChatGPT Plan Usage credentials
 
-You can reuse an existing ChatGPT Plan Usage authorization through the SDK. The Server does not support loading these credentials through environment variables, so configuring a model name alone does not enable the service.
+ChatGPT Plan Usage is available through the SDK, with an application-owned credential source. The Server has no credential loader for it, and Codex CLI credentials cannot substitute for this authorization.
 
-Use your application's configured Pydantic AI model in the SDK example below. The model needs a ChatGPT Plan Usage authorization; Codex CLI credentials cannot replace it. See [Pydantic AI's existing credential configuration](https://github.com/pydantic/pydantic-ai/blob/v2.64.0/docs/models/openai-chatgpt.md#persisting-credentials).
+```python
+from pydantic_ai.models.openai import OpenAIResponsesModel
+from pydantic_ai.providers.openai_chatgpt import OpenAIChatGPTProvider
+
+provider = OpenAIChatGPTProvider(credential_source=credential_source)
+generation_model = OpenAIResponsesModel("<model-name>", provider=provider)
+```
+
+The source implements async `load()` and `save(credentials)` and stores every `OpenAIChatGPTCredentials` field together. Authorization must include `chatgpt.tokens.use.direct`. Native Pydantic AI refresh can replay once after a 401; applications sharing a store across processes must coordinate refresh ownership. See [persisting ChatGPT credentials](https://github.com/pydantic/pydantic-ai/blob/v2.64.0/docs/models/openai-chatgpt.md#persisting-credentials).
+
+### Verification boundary
+
+[OAuth test fixtures](https://github.com/oceanbase/powercontext/tree/master/tests/fixtures/oauth) cover protocol behavior, credential rotation and cancellation with synthetic data and controlled peers. Live account eligibility, quota and installed CLI compatibility require separate verification. Fixture provenance and license notices are linked from that directory.
+
+### Gateway admission profiles
+
+Use the protocol that matches the executor's final request and released response:
+
+| Protocol | Request and response |
+| --- | --- |
+| `google-codeassist` | Final Code Assist request and response envelopes, with candidates under `response.candidates`. |
+| `google-codeassist-chat` | Final Code Assist request and converted Chat Completion JSON. |
+| `claude-cli-prompt` | Chat JSON sent to CLI stdin and its normalized result, with the exact logical target `claude-cli://execute`. |
+
+Code Assist profiles require an approved target/model, a project and an explicit `request.generationConfig.maxOutputTokens`. Opaque image/file parts and thought signatures are withheld. Prepared context must point to user text at `/request/contents/<index>/parts/<index>/text`.
+
+Responses profiles require `allow_streaming=true` for streamed requests. The executor must buffer a complete terminal response before release checking. Codex does not accept `max_output_tokens`, so Core policies requiring that explicit output cap withhold it. Python's protected transport does not parse Responses SSE.
+
+Core always withholds `claude-cli-prompt` in enforcing mode with `cli_http_unobservable`, including after a runtime policy change. Prompt inspection cannot cover the CLI's internal HTTP calls or retries.
 
 ## Use a generation model through the SDK
 

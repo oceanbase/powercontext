@@ -27,6 +27,7 @@ from fastapi import Request
 from powercontext.builtin.artifacts.skill.models import SkillContent
 from powercontext.builtin.artifacts.skill.package import SkillPackageError, comparable_skill_content
 from powercontext.server.dashboard.api import DashboardAPI, ReadError, segment
+from powercontext.server.dashboard.navigation import positive_revision
 from powercontext.server.dashboard.pagination import PAGE_SIZE
 
 ROLLBACK_FAMILIES = frozenset({"profile", "prompt", "experience", "skill", "handoff", "topic-memory"})
@@ -177,7 +178,13 @@ async def load_history(
 
     scope = ctx["scope"]
     query = request.query_params
-    compare = _revision_param(query.get("compare"))
+    invalid_compare = False
+    try:
+        compare = _revision_param(query.get("compare"))
+    except ReadError:
+        # A malformed comparison must not discard the selected revision or its history.
+        compare = None
+        invalid_compare = True
     try:
         if api.builtin is not None:
             result = await api.revision_history(
@@ -210,7 +217,7 @@ async def load_history(
     head_revision = result["head"]
     left, right = values.get(selected), values.get(compare)
     rows = None
-    compare_error = compare is not None and (left is None or right is None)
+    compare_error = invalid_compare or (compare is not None and (left is None or right is None))
     if compare is not None and compare != selected and not compare_error:
         rows = comparison(family, left["content"], right["content"])
     head = values.get(head_revision)
@@ -264,10 +271,7 @@ async def _public_history(api, request, scope, family, artifact_id, selected, cu
 
 
 def _revision_param(value: str | None) -> int | None:
-    if value is None or not value.isdigit() or value.startswith("0"):
-        return None
-    number = int(value)
-    return number if number >= 1 else None
+    return None if value is None else positive_revision(value)
 
 
 async def _can_replace(request: Request, api: DashboardAPI, scope: str, family: str, artifact_id: str) -> bool:

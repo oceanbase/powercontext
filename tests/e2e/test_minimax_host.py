@@ -156,11 +156,11 @@ def host(tmp_path, monkeypatch, request, mcp_trace):
         ),
     )
     app.add_middleware(MCPTrace, events=mcp_trace)
-    with socket.socket() as listener:
-        listener.bind(("127.0.0.1", 0))
-        port = listener.getsockname()[1]
+    listener = socket.socket()
+    listener.bind(("127.0.0.1", 0))
+    port = listener.getsockname()[1]
     server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port, log_level="error"))
-    thread = threading.Thread(target=server.run, daemon=True)
+    thread = threading.Thread(target=server.run, kwargs={"sockets": [listener]}, daemon=True)
     thread.start()
     try:
         deadline = time.monotonic() + 15
@@ -172,6 +172,7 @@ def host(tmp_path, monkeypatch, request, mcp_trace):
         server.should_exit = True
         thread.join(timeout=15)
         assert not thread.is_alive()
+        listener.close()
 
 
 def invoke(*arguments):

@@ -122,7 +122,10 @@ it.each([
   expect(await collectMaterials(context, source, read, 32768)).toBeUndefined()
 })
 
-it.each(['python3 publish.py', 'pytest'])('omits Shell evidence carrying credential arguments in %s', async command => {
+it.each([
+  ['python3 publish.py', 'A shell observation was omitted because the command contained a credential argument.'],
+  ['pytest', 'A check was observed but its command could not be included.'],
+])('omits Shell evidence carrying credential arguments in %s', async (command, omission) => {
   const value = 'fixture-option-value'
   const events = [
     ...rows.slice(0, 3),
@@ -137,7 +140,7 @@ it.each(['python3 publish.py', 'pytest'])('omits Shell evidence carrying credent
   const materials = await collectMaterials(context, boundary, read, 32768)
   expect(materials?.content.objective).toBe('Fix the defect')
   expect(materials?.serialized).not.toContain(value)
-  expect(materials?.content.omissions).toContain('A shell observation was omitted because the command contained a credential argument.')
+  expect(materials?.content.omissions).toContain(omission)
   const work = materials && deterministicWork(materials)
   expect(work?.objective).toBe('Fix the defect')
   expect(JSON.stringify(work)).not.toContain(value)

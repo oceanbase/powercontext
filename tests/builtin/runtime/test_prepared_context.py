@@ -1551,3 +1551,27 @@ def test_code_opt_in_preserves_topic_assembly_selection(assembly, expect_topic) 
     assert result.context.content is not None
     assert ("Title topic-1" in result.context.content) is expect_topic
     assert "BEGIN_POWERCONTEXT_CODE_V1" in result.context.content
+
+
+def test_internal_diagnostic_build_preserves_mixed_code_bytes_without_requesting_receipt() -> None:
+    request = PrepareContextRequest(query="budget", include_code=True, max_bytes=8000)
+    memory = (PreparedMemoryCandidates("scope", (_hit("decision", "Keep the budget decision."),)),)
+    code = _code_candidates(1)
+    ordinary = PreparedContextBuilder().build_scopes_result(
+        request=request,
+        current_scope_id="scope",
+        memory_candidates=memory,
+        code_candidates=code,
+    )
+    observed = PreparedContextBuilder(diagnostics=True).build_scopes_result(
+        request=request,
+        current_scope_id="scope",
+        memory_candidates=memory,
+        code_candidates=code,
+    )
+    assert observed.context == ordinary.context
+    assert observed.context.receipt is None
+    assert observed.origins == ordinary.origins and observed.code_origins == ordinary.code_origins
+    receipt = ReceiptEvidence().build(request, observed.context, observed, "scope")
+    assert [item.kind for item in receipt.selected] == ["atomic-memory", "code"]
+    assert receipt.used_bytes == ordinary.context.content_bytes

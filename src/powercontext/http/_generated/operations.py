@@ -51,6 +51,8 @@ from powercontext.http._generated.models import (
     Capabilities,
     CaptureContentSourceRequest,
     CaptureContentSourceResponse,
+    CaptureContentSourcesRequest,
+    CaptureContentSourcesResponse,
     CaptureWorkingNoteRequest,
     CheckContextRequest,
     ClearScopeBindingRequest,
@@ -243,7 +245,7 @@ from powercontext.http._generated.models import (
 OPENAPI_VERSION = "3.0.3"
 API_TITLE = "PowerContext API"
 API_DESCRIPTION = "Remote PowerContext transport. Runtime behavior is reported by /v1/capabilities."
-API_VERSION = "1.5.2"
+API_VERSION = "1.6.0"
 FEATURE_CONTRACTS: dict[str, dict[str, JsonValue]] = {
     "connection.identity": {"version": {"major": 1, "minor": 0}, "operations": ["get_connection_identity"]},
     "access.principal": {"version": {"major": 1, "minor": 0}, "operations": ["get_access_principal"]},
@@ -978,6 +980,35 @@ CAPTURE_CONTENT_SOURCE = Operation[CaptureContentSourceRequest, CaptureContentSo
     responses={
         202: {
             "description": "The Source is durably stored for later processing.",
+            "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+        },
+        409: {"$ref": "#/components/responses/Conflict"},
+        401: {"$ref": "#/components/responses/Unauthorized"},
+        403: {"$ref": "#/components/responses/Forbidden"},
+        422: {"$ref": "#/components/responses/InvalidRequest"},
+        503: {"$ref": "#/components/responses/Unavailable"},
+        500: {"$ref": "#/components/responses/InternalError"},
+    },
+    access=AccessRequirement(
+        action="scope.contribute", resource="scope", scope_id_field="scope_id", resolver="request"
+    ),
+)
+
+CAPTURE_CONTENT_SOURCES = Operation[CaptureContentSourcesRequest, CaptureContentSourcesResponse](
+    method="POST",
+    path="/v1/sources/content/batch",
+    operation_id="capture_content_sources",
+    request_type=CaptureContentSourcesRequest,
+    request_location="body",
+    path_parameters=(),
+    response_type=CaptureContentSourcesResponse,
+    success_status=202,
+    summary="Capture several ContentSources in one transaction",
+    tags=("sources",),
+    scope_mode="current",
+    responses={
+        202: {
+            "description": "Every Source is durably stored for later processing.",
             "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
         },
         409: {"$ref": "#/components/responses/Conflict"},

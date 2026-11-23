@@ -116,9 +116,12 @@ AtomicMemoryReconciliationEvidence = AtomicMemoryEvidence | AtomicMemoryArtifact
 
 class AtomicMemoryReconciliationInput(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
+    # Serialized in this order. The evidence starts with the proposal's Sources, which every comparison of a
+    # candidate from the same Sources repeats, so a provider's prompt cache can reuse them; the proposal and the
+    # related items change with each request and follow.
+    evidence: tuple[AtomicMemoryReconciliationEvidence, ...]
     proposal: AtomicMemoryComparisonItem
     related: tuple[AtomicMemoryComparisonItem, ...]
-    evidence: tuple[AtomicMemoryReconciliationEvidence, ...]
 
 
 class AtomicMemoryReconciliationContent(BaseModel):
@@ -209,6 +212,16 @@ class AtomicMemoryWindowWorkset:
         self.aliases: dict[str, str] = {}
         self.origins: dict[str, str] = {}
         self.reads: dict[str, AtomicMemoryRead] = {}
+
+    def copy(self) -> AtomicMemoryWindowWorkset:
+        """Return an independent workset over the same immutable items."""
+
+        duplicate = AtomicMemoryWindowWorkset()
+        duplicate.items = dict(self.items)
+        duplicate.aliases = dict(self.aliases)
+        duplicate.origins = dict(self.origins)
+        duplicate.reads = dict(self.reads)
+        return duplicate
 
     def resolve(self, key: str) -> str:
         while key in self.aliases:

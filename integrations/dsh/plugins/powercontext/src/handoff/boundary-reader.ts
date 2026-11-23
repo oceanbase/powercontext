@@ -138,7 +138,8 @@ export function createBoundaryReader(host: Pick<Context, 'get'>): BoundaryReader
           omissions.add(label('A shell command could not be recovered within the evidence limits.', '在取证范围内无法找回一条 Shell 命令。'))
           continue
         }
-        if (containsCommandCredential(command)) {
+        const isCheck = /\b(?:pytest|vitest|tox|test|check|lint|typecheck|tsc|cargo\s+test)\b/i.test(command)
+        if (!isCheck && containsCommandCredential(command)) {
           omissions.add(label('A shell observation was omitted because the command contained a credential argument.',
             '有一条 Shell 命令含有凭据参数，已省略该记录。'))
           continue
@@ -147,7 +148,7 @@ export function createBoundaryReader(host: Pick<Context, 'get'>): BoundaryReader
         if (commandBytes > remaining) { omissions.add(label('Some shell commands exceeded the bounded evidence limits.', '部分 Shell 命令超出取证上限。')); continue }
         remaining -= commandBytes
         const output = text(result.data?.message, 8000)
-        if (/\b(?:pytest|vitest|tox|test|check|lint|typecheck|tsc|cargo\s+test)\b/i.test(command)) {
+        if (isCheck) {
           // The model-visible text can contain program output and is not an authoritative exit code.
           events.push({ sessionId: source.sessionId, seq: result.seq, kind: 'check', command, status: 'unknown',
             ...(output ? { details: output } : {}) })

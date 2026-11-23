@@ -23,9 +23,7 @@ from pathlib import Path
 from time import monotonic
 
 _PLUGIN_ROOT = Path(__file__).resolve().parents[1]
-_SCRIPTS_ROOT = _PLUGIN_ROOT / "scripts"
 sys.path.insert(0, str(_PLUGIN_ROOT))
-sys.path.insert(0, str(_SCRIPTS_ROOT))
 
 _PREFIX = "mcp__powercontext__"
 _BINDING_FAILURE_REASON = "PowerContext could not resolve the current Scope binding."
@@ -44,8 +42,9 @@ def _decide(decision: dict[str, object]) -> None:
 # Codex runs a PowerContext tool call with the Agent's own arguments when this hook exits without a decision, so
 # every failure the hook can observe, including failing to load, must end in a denial.
 try:
+    from codex_host import CODEX
+    from powercontext_lifecycle.scope_binding import binding_keys, resolve_scope_id, session_binding_key
     from powercontext_lifecycle.scope_binding_errors import ScopeBindingRejectedError, ScopeBindingStatusError
-    from scope_binding import binding_keys, resolve_scope_id, session_binding_key
     from settings import CodexPluginSettings, host_bounded_http_budget
 except Exception:
     if __name__ != "__main__":
@@ -70,6 +69,7 @@ _CURRENT_OPERATIONS = frozenset({
     "activate_handoff",
     "approve_candidate",
     "capture_content_source",
+    "capture_content_sources",
     "change_atomic_memory_lifecycle",
     "check_context",
     "capture_working_note",
@@ -159,14 +159,14 @@ def main(settings: CodexPluginSettings | None = None) -> int:
         operation = tool_name.removeprefix(_PREFIX)
         if operation in _CONTROL_OPERATIONS:
             updated = dict(tool_input)
-            updated["key"] = session_binding_key(session_id)
+            updated["key"] = session_binding_key(CODEX, session_id)
             _allow(updated)
             return 0
         if operation in _RESOLVE_OPERATIONS:
             settings = CodexPluginSettings() if settings is None else settings
             _allow({
                 "explicit_scope_id": settings.scope_id,
-                "binding_keys": binding_keys(cwd, session_id=session_id),
+                "binding_keys": binding_keys(CODEX, cwd, session_id=session_id),
             })
             return 0
         if operation in _HOST_OPERATIONS:
@@ -182,9 +182,10 @@ def main(settings: CodexPluginSettings | None = None) -> int:
             return 0
         settings = CodexPluginSettings() if settings is None else settings
         scope_id = resolve_scope_id(
+            CODEX,
             cwd,
             session_id=session_id,
-            settings=settings,
+            settings=settings.scope_binding_settings(),
             deadline=monotonic() + host_bounded_http_budget(settings.http_budget_seconds),
         )
         _bind_current_scope(operation, tool_input, scope_id, selection=selection)

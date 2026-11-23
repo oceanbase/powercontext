@@ -149,6 +149,28 @@ When `auto` is set and the model provider prefix is outside `anthropic`, `openai
 `openai-responses`, an `inference.generation.streaming_not_applied` WARNING with `unit` `inference` reports that
 the model stayed on a non-streaming request. The event carries no prompt or response content and does not change
 the request result.
+With prefixed extraction configured (`POWERCONTEXT_SERVER_INFERENCE_PREFIX_EXTRACTION_GATEWAY_URL`), an INFO
+`atomic_memory.prefixed_extraction` event with `operation` `atomic_memory.extract` and `unit` `inference` reports each
+attempt for a window that holds one gateway turn with a prefix handle. `outcome` is `success` when the reply over the
+cached prefix was used, or `fallback` when normal extraction ran instead; `fallback_reason` is then one of
+`not_cheaper`, `prefix_size_unknown`, `prefix_unavailable`, `target_mismatch`, `disabled`, `invalid_instruction`, `output_limit_unsupported`, `credentials_unavailable`, `check_rejected`, `gateway_unavailable`,
+`provider_error`, `gateway_error`, or `invalid_output`. Windows without such a turn emit no event. The event carries no handle, prompt,
+or response content. In the `one_pass` processing mode the event has `operation` `atomic_memory.one_pass` and reports
+the window's whole conversation: `success` when the conversation after the agent's prefix prepared the window, or
+`fallback` when the window started again as a normal one-pass conversation. A window whose second step exceeds the
+input budget emits neither: its `atomic_memory.one_pass` fallback event reports it, and the per-candidate extraction
+that follows reports its own attempt with `operation` `atomic_memory.extract`.
+With the `one_pass` processing mode (`POWERCONTEXT_SERVER_RUNTIME_ATOMIC_MEMORY_PROCESSING_MODE`), an INFO
+`atomic_memory.one_pass` event with `operation` `atomic_memory.one_pass` and `unit` `inference` reports each Source
+window. `outcome` is `success` when the window's operations came from the one conversation, or `fallback` when a step's
+input exceeded `atomic_memory_input_tokens_limit` and the window was processed per candidate instead;
+`fallback_reason` is then `entries_input_over_budget` (step 1) or `operations_input_over_budget` (step 2),
+`estimated_input_tokens` is the estimated input of that request, `effective_budget` the limit in effect, and
+`token_estimator_id` the estimator used. The event reports how the window was prepared, not that it was published:
+`fallback` is logged before per-candidate processing runs and `success` before publication, so a window that fails
+afterwards has still emitted it, and a window that fails during the conversation emits none. Processing failure
+diagnostics report failures. The default mode emits no such event. The event carries no Source, memory, prompt, or
+response content.
 For child cancellation, the supervisor emits `artifact_processing.failed` at `INFO` with outcome/category `cancelled`
 and diagnostic code `worker_cancelled`. Application spans classify mapped diagnostic codes even when sensitive
 exception values are excluded from logs and traces.

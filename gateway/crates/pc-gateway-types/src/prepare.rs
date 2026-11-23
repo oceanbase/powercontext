@@ -145,11 +145,18 @@ pub fn wrap_prepared_block(content: &str) -> String {
     format!("{PREPARED_CONTEXT_MARKER_BEGIN}\n{content}\n{PREPARED_CONTEXT_MARKER_END}")
 }
 
-/// `POST /v1/sources/content`（capture_content_source）：
-/// 同步持久入库（Source journal），提取由 PC 后台异步完成。
+/// `POST /v1/sources/content/batch`（capture_content_sources）：
+/// 一个回合的各段 Source 在一个事务内同步持久入库（Source journal），要么全部入库，要么都不入库；
+/// 提取由 PC 后台异步完成。
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CaptureContentSourceRequest {
+pub struct CaptureContentSourcesRequest {
     pub scope_id: String,
+    /// 按 journal 顺序排列的各段。
+    pub sources: Vec<CaptureContentSource>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CaptureContentSource {
     /// 调用方指定的稳定 ID（幂等键）：用 release binding 摘要生成。
     pub source_id: String,
     /// 原始整合内容（≤200000 字符）。仅沉淀过检放行的内容。
