@@ -37,8 +37,9 @@ _DSH = "integrations/dsh/plugins/powercontext"
 _OPENCLAW = "integrations/openclaw/plugins/memory-powercontext"
 _OPENCODE = "integrations/opencode/plugins/powercontext"
 _PI = "integrations/pi/plugins/powercontext"
-# The SDK adapters install with the PowerContext package, but they also support released cores that predate
+# The SDK adapters and Bub install with the PowerContext package, but they also support released cores that predate
 # powercontext_integration_lifecycle, so each keeps a private copy beside its own modules.
+_BUB = "integrations/bub/src/powercontext_bub"
 _LANGCHAIN = "integrations/langchain/src/powercontext_langchain"
 _LANGGRAPH = "integrations/langgraph/src/powercontext_langgraph"
 _PYDANTIC_AI = "integrations/pydantic-ai/src/powercontext_pydantic_ai"
@@ -46,7 +47,7 @@ _PYDANTIC_AI = "integrations/pydantic-ai/src/powercontext_pydantic_ai"
 # The copies use another name than the source, so a process that has already imported the source, such as the test
 # suite, still loads the plugin's own copy.
 PACKAGE_COPIES = (f"{_CLAUDE_CODE}/powercontext_lifecycle", f"{_CODEX}/powercontext_lifecycle")
-# WorkBuddy, Hermes, and the SDK adapters ship single modules where their hooks, installers, and imports already
+# WorkBuddy, Hermes, Bub, and the SDK adapters ship single modules where their hooks, installers, and imports already
 # expect them.
 COPIES = {
     "client_config.py": (
@@ -61,6 +62,7 @@ COPIES = {
         f"{_PYDANTIC_AI}/_prepared_context.py",
     ),
     "prompt_privacy.py": (
+        f"{_BUB}/_prompt_privacy.py",
         f"{_HERMES}/prompt_privacy.py",
         f"{_WORKBUDDY}/hooks/prompt_privacy.py",
         f"{_LANGCHAIN}/_prompt_privacy.py",
