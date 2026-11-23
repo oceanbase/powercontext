@@ -16,8 +16,8 @@ jobs:
       CARGO_BUILD_JOBS: '2'
       CARGO_PROFILE_DEV_DEBUG: '0'
       CARGO_PROFILE_TEST_DEBUG: '0'
-      SERVER_COMMIT: c30bacd02883ac137640109b6ce1790db6c99cd0
-      QUALIFICATION_ID: sqlite-processing-status-c30bacd0-v1
+      SERVER_COMMIT: 88bddd5eec028c11f608a5b67a279863df63ca9f
+      QUALIFICATION_ID: sqlite-processing-status-88bddd5e-v1
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -80,7 +80,7 @@ jobs:
               'contractSha256': contract['contractSha256'],
               'artifactSha256': hashlib.sha256(wheel.read_bytes()).hexdigest(),
               'operations': sorted(contract['operations']),
-              'evidence': 'desktop/VALIDATION.md#processing-status-on-the-160-contract',
+              'evidence': 'desktop/VALIDATION.md#nullable-processing-status-contract',
           }
           catalog_path = root / 'src-tauri/src/connections/compatibility.json'
           catalog = json.loads(catalog_path.read_text())
@@ -130,3 +130,27 @@ jobs:
             desktop/.artifacts/qualification/
             desktop/.artifacts/real-server.json
             desktop/.artifacts/real-server-*/
+
+  integration-bundles:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: jdx/mise-action@d5574b52816a478f9d4e6529a3f6ff17a8a36785 # v5.2.8
+        with:
+          working_directory: desktop
+      - name: Build integrations from their locked dependencies
+        run: |
+          pnpm --dir integrations/dsh/plugins/powercontext install --frozen-lockfile --config.auto-install-peers=false
+          pnpm --dir integrations/dsh/plugins/powercontext build
+          pnpm --dir integrations/dsh/plugins/powercontext exec tsdown --config ../../../cindy/tsdown.config.ts
+          pnpm --dir integrations/opencode/plugins/powercontext install --frozen-lockfile
+          pnpm --dir integrations/opencode/plugins/powercontext run build
+          git diff --binary -- integrations/ > integration-bundles.patch
+          git diff --stat -- integrations/
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: integration-bundles-2725
+          path: integration-bundles.patch
