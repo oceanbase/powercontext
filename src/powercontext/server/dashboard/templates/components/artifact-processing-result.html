@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 -->
 <div data-processing-snapshot data-scope="{{ status.scope_id }}" data-family="{{ status.family }}"
-     {% if status.executor_expires_at %}data-expires="{{ status.executor_expires_at }}"{% endif %}>
+     {% if status.executor and status.evidence.executor.freshness == 'fresh' %}data-queried="{{ status.queried_at }}" data-expires="{{ status.executor_expires_at }}"{% endif %}>
 {% macro execution() %}{% if not status.executor %}{{ t.ps_unknown }}{% elif status.evidence.executor.freshness != 'fresh' %}{{ t.ps_stale }}{% else %}{{ t.get('ps_exec_' ~ status.executor.state, t.ps_unknown) }}{% endif %}{% endmacro %}
 {% if status.unavailable_reason == 'family_not_supported' %}<p>{{ t.ps_unsupported }}</p>{% else %}
   {% if status.progress %}
@@ -50,6 +50,7 @@ limitations under the License.
     </section>{% endif %}
     <section class="supporting-details"><h3 class="h4">{{ t.ps_dream }}</h3><p class="small text-secondary">{{ t.ps_history }}</p>
       {% for run in status.dream_operations %}<article class="mb-3"><a href="{{ destination('processing',record_type='dreams',run_id=run.run_id) }}">{{ t.get('processing_operation_' ~ run.operation,run.operation) }} →</a><p class="mb-1">{{ t['processing_status_' ~ run.status] }}{% if run.outcome %} · {{ t['ps_outcome_' ~ run.outcome] }}{% endif %}</p>
+        {% if run.stage %}<p class="small">{{ t.auto_failure_stage }}：{{ t.get('auto_stage_' ~ run.stage, run.stage) }}</p>{% endif %}
         {% if run.reason %}<p class="small">{{ t.ps_reason }}：{{ t.get('ps_reason_' ~ run.reason,run.reason) }}</p>{% endif %}
         <p class="small text-secondary mb-1">{{ t.home_activity_time }}：{{ run.accepted_at|display_time }}</p>
         {% if run.candidate %}<a class="small" href="{{ destination('review',candidate_id=run.candidate.candidate_id,candidate_kind=run.candidate.kind,resource_type='all') }}">{{ t.processing_open_candidate }} →</a>{% endif %}

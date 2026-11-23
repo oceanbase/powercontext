@@ -3974,12 +3974,12 @@ export interface components {
             run_id: string;
             operation: string;
             status: components["schemas"]["ArtifactProcessingDreamState"];
-            outcome: components["schemas"]["ArtifactProcessingDreamOutcome"];
+            outcome: components["schemas"]["ArtifactProcessingDreamOutcome"] | (null);
             /** Format: date-time */
             accepted_at: string;
             /** Format: date-time */
             completed_at: string | null;
-            candidate: components["schemas"]["DreamCandidateRef"];
+            candidate: components["schemas"]["DreamCandidateRef"] | (null);
             reason: string | null;
             stage: string | null;
         };
@@ -4004,12 +4004,12 @@ export interface components {
             /** Format: date-time */
             queried_at: string;
             source_consumption_applicable: boolean;
-            progress: components["schemas"]["ArtifactProcessingProgress"];
-            invocation: components["schemas"]["ArtifactProcessingObservation"];
-            executor: components["schemas"]["ArtifactProcessingObservation"];
+            progress: components["schemas"]["ArtifactProcessingProgress"] | (null);
+            invocation: components["schemas"]["ArtifactProcessingObservation"] | (null);
+            executor: components["schemas"]["ArtifactProcessingObservation"] | (null);
             /** Format: date-time */
             executor_expires_at: string | null;
-            block: components["schemas"]["ArtifactProcessingBlock"];
+            block: components["schemas"]["ArtifactProcessingBlock"] | (null);
             dream_operations: components["schemas"]["ArtifactProcessingDream"][];
             dream_pending: boolean | null;
             unavailable_reason: string | null;

@@ -4066,3 +4066,31 @@ Reproduce with the recorded artifact (allow sufficient local startup time):
   --product-qualification sqlite-release-1-6-0-98a9b1f7-v1 \
   --wheel /data/codex-tmp/release-1.6.0/wheel/powercontext-1.5.3.dev327+g98a9b1f7f-py3-none-any.whl
 ```
+
+## Processing status on the 1.6.0 contract
+
+The ordinary Desktop client selected `sqlite-processing-status-c30bacd0-v1` for all thirteen operations in the merged
+1.6.0 specification. SQLite passed anonymous loopback, static Bearer, HTTPS with an explicit CA and
+base path, and enforced Provider mode on macOS-15.8.2-arm64-arm-64bit with Python 3.12.13 and Rust 1.95.0.
+[The native qualification run](https://github.com/oceanbase/powercontext/actions/runs/45148086942)
+retains the wheel, profile and four-mode report in `desktop-protocol-qualification-2725`.
+
+| Qualification input | Identity |
+| --- | --- |
+| Server source | `c30bacd02883ac137640109b6ce1790db6c99cd0` |
+| OpenAPI SHA-256 | `d2457cf012beed5b1c47846ab1eb82dace86d9e137f68768239be36686d8ebb1` |
+| Wheel SHA-256 | `d111bb9c88be64fda6889ecd71ad1a37aa6286231f4df45e9f8252d911cbeb38` |
+| Native probe SHA-256 | `f61e509825140a4e7af19bf0f609a0513607ca2ea056d8bc91160705ab260e65` |
+
+The verification checkout `edeaaad2967526daf48779d9e7c78706616ce144` adds the CI workflow to the Server source commit.
+The harness installed the candidate compatibility entry before compiling the product probe, which
+accounts for the dirty Desktop checkout in the report. To repeat the protocol checks from this
+source tree with the recorded wheel, run:
+
+```sh
+gh run download 45148086942 --repo oceanbase/powercontext --name desktop-protocol-qualification-2725 --dir desktop/.artifacts/processing-160
+uv sync --locked --python 3.12.13 --managed-python
+RUSTUP_TOOLCHAIN=1.95.0 CARGO_PROFILE_DEV_DEBUG=0 cargo build --locked --manifest-path desktop/src-tauri/Cargo.toml --example server_probe
+uv run --no-sync python desktop/tests/real_server.py --product-qualification sqlite-processing-status-c30bacd0-v1 \
+  --wheel desktop/.artifacts/processing-160/qualification/server-wheel/powercontext-1.5.3.dev338+gc30bacd02-py3-none-any.whl
+```

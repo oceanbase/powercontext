@@ -81,9 +81,11 @@ def test_pre_tool_hook_overwrites_agent_scope_with_session_binding(
     assert result["updatedInput"]["text"] == "Use Scope binding."
 
 
+@pytest.mark.parametrize("tool_input", [{}, {"scope_id": "agent-selected"}], ids=["omitted", "supplied"])
 @pytest.mark.parametrize("operation", sorted(CURRENT_OPERATIONS))
 def test_pre_tool_hook_binds_every_current_scope_operation(
     operation: str,
+    tool_input: dict[str, str],
     bind_tools_module: ModuleType,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -96,7 +98,7 @@ def test_pre_tool_hook_binds_every_current_scope_operation(
                 "session_id": "session-a",
                 "cwd": "/workspace",
                 "tool_name": f"mcp__powercontext__{operation}",
-                "tool_input": {"scope_id": "agent-selected"},
+                "tool_input": tool_input,
             })
         ),
     )

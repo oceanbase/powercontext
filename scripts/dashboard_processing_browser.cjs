@@ -101,22 +101,30 @@ async function main() {
     await refresh();
     await settled();
 
-    // Expiration is a local display change, never an automatic server poll.
+    // Compare clocks in both directions and expire both copies without polling.
     let requests = 0;
-    await page.route(fragment, async route => {
-      requests++;
-      const response = await route.fetch();
-      const body = (await response.text()).replace('data-processing-snapshot',
-        `data-processing-snapshot data-expires="${new Date(Date.now() + 500).toISOString()}"`);
-      await route.fulfill({response, body});
-    });
-    await refresh();
-    await page.waitForFunction(() => {
-      const root = document.querySelector('[data-artifact-processing]');
-      return root.querySelector('[data-processing-executor]').textContent === root.dataset.stale;
-    });
-    assert.equal(requests, 1);
-    await page.unroute(fragment);
+    for (const skew of [-120000, 120000]) {
+      await page.route(fragment, async route => {
+        requests++;
+        const response = await route.fetch();
+        const queried = Date.now() + skew;
+        const timing = `data-queried="${new Date(queried).toISOString()}" data-expires="${new Date(queried + 2000).toISOString()}"`;
+        const body = (await response.text())
+          .replace(/ data-(?:queried|expires)="[^"]*"/g, '')
+          .replace('data-processing-snapshot', `data-processing-snapshot ${timing}`)
+          .replace(/(data-processing-executor>)[^<]*/g, '$1Running when observed');
+        await route.fulfill({response, body});
+      });
+      await refresh();
+      const labels = root.locator('[data-processing-executor]');
+      assert.deepEqual(await labels.allTextContents(), ['Running when observed', 'Running when observed']);
+      await page.waitForFunction(() => {
+        const root = document.querySelector('[data-artifact-processing]');
+        return [...root.querySelectorAll('[data-processing-executor]')].every(node => node.textContent === root.dataset.stale);
+      }, null, {timeout: 5000});
+      await page.unroute(fragment);
+    }
+    assert.equal(requests, 2);
 
     // Changing the Scope while a refresh is delayed must discard that response.
     await page.route(fragment, async route => {
