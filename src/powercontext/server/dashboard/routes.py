@@ -909,9 +909,27 @@ async def _profile_prompt_rejected(
 
 def _render_profile_prompt_rejection(request: Request, ctx: dict[str, Any]) -> HTMLResponse:
     """Render a rejected Prompt save without pushing the POST-only action path into browser history."""
+    ctx["preference_url"] = _profile_prompt_preference_url(ctx)
     response = render(request, ctx)
     response.headers["HX-Push-Url"] = _profile_prompt_url(request, ctx) if ctx["scope"] else "false"
     return response
+
+
+def _profile_prompt_preference_url(ctx: dict[str, Any]):
+    base_params: dict[str, Any] = {
+        key: value
+        for key, value in (
+            ("scope", ctx["scope"]),
+            ("period", ctx["period"]),
+            ("prompt_key", PROMPT_KEY if ctx["scope"] else ""),
+        )
+        if value
+    }
+
+    def preference_url(**values: str) -> str:
+        return "/dashboard/prompts?" + urlencode({**base_params, **values})
+
+    return preference_url
 
 
 def _profile_prompt_url(

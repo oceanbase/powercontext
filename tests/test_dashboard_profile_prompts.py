@@ -1644,6 +1644,14 @@ def test_rejected_save_sets_hx_push_url_header(dashboard: TestClient) -> None:
     assert push_query["scope"] == [scope]
     assert push_query["prompt_key"] == ["profile.generate"]
     assert push_query["lang"] == ["en"]
+    assert 'href="/dashboard/prompts/profile-generate' not in rejected.text
+    pref_links = re.findall(r'class="dropdown-item[^"]*"\s+href="(/dashboard/prompts\?[^"]*)"', rejected.text)
+    assert len(pref_links) == 4
+    for link in pref_links:
+        link_query = parse_qs(urlsplit(unescape(link)).query)
+        assert link_query["scope"] == [scope]
+        assert link_query["prompt_key"] == ["profile.generate"]
+    assert dashboard.get(unescape(pref_links[0])).status_code == 200
 
     cross_origin = _post_profile_prompt(
         dashboard,
@@ -1655,6 +1663,7 @@ def test_rejected_save_sets_hx_push_url_header(dashboard: TestClient) -> None:
     )
     assert cross_origin.status_code == 403
     assert cross_origin.headers.get("hx-push-url") == "false"
+    assert 'href="/dashboard/prompts/profile-generate' not in cross_origin.text
 
 
 def test_browser_saved_revisit_and_rejected_save_preserve_draft_and_url(dashboard: TestClient) -> None:
@@ -1683,8 +1692,28 @@ def test_browser_saved_revisit_and_rejected_save_preserve_draft_and_url(dashboar
             form = profile_details.locator("form[data-profile-prompt-editor]")
             form.locator('label.form-selectgroup-item:has(input[value="custom"])').click()
             form.locator('textarea[name="instructions"]').fill("Revision one saved text.")
+            # Verify submit + htmx:beforeSend locks editing controls while a save is in flight.
+            page.evaluate(
+                """() => {
+                    window.__pendingSaveLock = null;
+                    document.body.addEventListener('htmx:beforeSend', event => {
+                        const editor = event.target.closest('form[data-profile-prompt-editor]');
+                        if (!editor) return;
+                        window.__pendingSaveLock = {
+                            readOnly: editor.querySelector('textarea[name="instructions"]').readOnly,
+                            saveDisabled: editor.querySelector('[data-prompt-save]').disabled,
+                            radiosDisabled: Array.from(editor.querySelectorAll('input[name="mode"]')).every(r => r.disabled),
+                        };
+                    }, { once: true });
+                }"""
+            )
             form.locator("[data-prompt-save]").click()
             page.locator("#prompt-record-profile-generate .alert-success").wait_for(state="visible")
+            assert page.evaluate("window.__pendingSaveLock") == {
+                "readOnly": True,
+                "saveDisabled": True,
+                "radiosDisabled": True,
+            }
             assert "prompt_saved=" not in page.url
 
             # 2. Edit a newer draft after save, press Back then Forward, and revisit raw saved query directly.

@@ -179,10 +179,33 @@ limitations under the License.
           persistDraft();
         }
       });
+      const submitButtons = Array.from(form.querySelectorAll('button[type="submit"]'));
       let submitting = false;
-      const markSubmitting = () => { submitting = true; };
-      const resetSubmitting = () => { submitting = false; };
+      const setPendingControls = pending => {
+        if (pending) {
+          textarea.readOnly = true;
+          return;
+        }
+        radios.forEach(radio => { radio.disabled = false; });
+        submitButtons.forEach(button => { button.disabled = false; });
+        sync();
+      };
+      const markSubmitting = () => {
+        submitting = true;
+        setPendingControls(true);
+      };
+      const lockOnSend = () => {
+        if (!submitting) return;
+        radios.forEach(radio => { radio.disabled = true; });
+        submitButtons.forEach(button => { button.disabled = true; });
+      };
+      const resetSubmitting = () => {
+        if (!submitting) return;
+        submitting = false;
+        setPendingControls(false);
+      };
       form.addEventListener('submit', markSubmitting);
+      form.addEventListener('htmx:beforeSend', lockOnSend);
       const workspace = form.closest('#workspace');
       const beforeUnload = event => {
         if (!form.isConnected) { cleanup(); return; }
@@ -210,6 +233,7 @@ limitations under the License.
           workspace.removeEventListener('htmx:sendError', resetSubmitting);
           workspace.removeEventListener('htmx:responseError', resetSubmitting);
         }
+        form.removeEventListener('htmx:beforeSend', lockOnSend);
         form.removeEventListener('htmx:beforeCleanupElement', cleanup);
       }
       window.addEventListener('beforeunload', beforeUnload);
