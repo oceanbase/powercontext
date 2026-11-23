@@ -402,6 +402,31 @@ def test_setup_openclaw_keeps_a_plugin_the_user_disabled_during_setup_inactive(
     assert ["gateway", "restart"] not in commands()
 
 
+def test_setup_openclaw_without_no_enable_restarts_after_first_activation_with_preset_settings(
+    tmp_path: Path, openclaw_host
+) -> None:
+    config, commands = openclaw_host
+    preset = {
+        "slots": {"memory": "memory-powercontext"},
+        "entries": {
+            "memory-powercontext": {
+                "config": {"autoRecall": True, "autoCapture": True},
+                "hooks": {"allowConversationAccess": True},
+            }
+        },
+    }
+    config.write_text(json.dumps({"plugins": preset}), encoding="utf-8")
+
+    install_plugin(
+        "openclaw", source=str(_write_openclaw_plugin(tmp_path / "checkout")), server_url="http://127.0.0.1:8765"
+    )
+
+    # Installation enabled the plugin and setup has no absent setting to add, but the gateway must still load it.
+    assert json.loads(config.read_text(encoding="utf-8"))["plugins"]["entries"]["memory-powercontext"]["enabled"]
+    assert ["plugins", "enable", "memory-powercontext"] in commands()
+    assert ["gateway", "restart"] in commands()
+
+
 def test_setup_openclaw_without_no_enable_rechecks_native_policy_after_building(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, openclaw_host
 ) -> None:
