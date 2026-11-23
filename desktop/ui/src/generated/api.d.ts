@@ -3957,10 +3957,26 @@ export interface components {
             next_check_seconds: number | null;
             retry_failures: number | null;
         };
+        ArtifactProcessingExecutor: {
+            binding: string;
+            family: string | null;
+            state: components["schemas"]["ProcessingState"];
+            reason: components["schemas"]["ProcessingReason"];
+            /** Format: date-time */
+            observed_at: string;
+            scheduler_observed: boolean;
+            running_seconds: number | null;
+            next_check_seconds: number | null;
+            retry_failures: number | null;
+        };
         ArtifactProcessingBlock: {
             reason: string | null;
             stage: string | null;
             source_after: number;
+            /** @description Inclusive end of the attempted Source window, when recorded. */
+            source_through: number | null;
+            /** @description Inclusive end of the Source window used for budget accounting, when recorded. */
+            budget_source_through: number | null;
             target_source_through: number;
             attempts: number;
             requests: number;
@@ -4006,7 +4022,7 @@ export interface components {
             source_consumption_applicable: boolean;
             progress: components["schemas"]["ArtifactProcessingProgress"] | (null);
             invocation: components["schemas"]["ArtifactProcessingObservation"] | (null);
-            executor: components["schemas"]["ArtifactProcessingObservation"] | (null);
+            executor: components["schemas"]["ArtifactProcessingExecutor"] | (null);
             /** Format: date-time */
             executor_expires_at: string | null;
             block: components["schemas"]["ArtifactProcessingBlock"] | (null);

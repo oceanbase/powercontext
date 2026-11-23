@@ -1351,6 +1351,13 @@ class ArtifactProcessingBlock(BaseModel):
     reason: Annotated[StrictStr | None, Field(...)]
     stage: Annotated[StrictStr | None, Field(...)]
     source_after: Annotated[StrictInt, Field(ge=0)]
+    source_through: Annotated[
+        StrictInt | None, Field(description="Inclusive end of the attempted Source window, when recorded.", ge=0)
+    ]
+    budget_source_through: Annotated[
+        StrictInt | None,
+        Field(description="Inclusive end of the Source window used for budget accounting, when recorded.", ge=0),
+    ]
     target_source_through: Annotated[StrictInt, Field(ge=0)]
     attempts: Annotated[StrictInt, Field(ge=0)]
     requests: Annotated[StrictInt, Field(ge=0)]
@@ -5377,6 +5384,21 @@ class ArtifactProcessingObservation(BaseModel):
     retry_failures: Annotated[StrictInt | None, Field(ge=0)]
 
 
+class ArtifactProcessingExecutor(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    binding: StrictStr
+    family: Annotated[StrictStr | None, Field(...)]
+    state: ProcessingState
+    reason: ProcessingReason
+    observed_at: AwareDatetime
+    scheduler_observed: StrictBool
+    running_seconds: Annotated[StrictFloat | None, Field(ge=0.0)]
+    next_check_seconds: Annotated[StrictFloat | None, Field(ge=0.0)]
+    retry_failures: Annotated[StrictInt | None, Field(ge=0)]
+
+
 class ArtifactProcessingDream(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -5417,7 +5439,7 @@ class ArtifactProcessingStatusResponse(BaseModel):
     source_consumption_applicable: StrictBool
     progress: Annotated[ArtifactProcessingProgress | None, Field(...)]
     invocation: Annotated[ArtifactProcessingObservation | None, Field(...)]
-    executor: Annotated[ArtifactProcessingObservation | None, Field(...)]
+    executor: Annotated[ArtifactProcessingExecutor | None, Field(...)]
     executor_expires_at: Annotated[AwareDatetime | None, Field(...)]
     block: Annotated[ArtifactProcessingBlock | None, Field(...)]
     dream_operations: Annotated[list[ArtifactProcessingDream], Field(max_length=10)]
