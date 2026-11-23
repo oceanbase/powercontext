@@ -140,6 +140,44 @@ def test_a_declared_timezone_keeps_the_load_independent_of_the_local_zone(tmp_pa
     assert report == [{"name": "ticket-chat", "version": "1.0.0", "error": None}]
 
 
+def test_a_timezone_less_cron_collects_on_a_machine_without_a_local_zone(tmp_path, monkeypatch) -> None:
+    plugins = tmp_path / "plugins"
+    write_plugin_with_collect_schedule(plugins, "ticket-chat", 'Cron(expression="*/5 * * * *")')
+    chats = tmp_path / "chats.json"
+    shutil.copy(EXAMPLE / "chats.json", chats)
+    monkeypatch.setattr("tzlocal.get_localzone_name", lambda: None)
+    committed: list[str] = []
+
+    def central(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/sync"):
+            targets = [
+                {
+                    "scope_id": "scope",
+                    "target_id": "t",
+                    "capability": "ticket-chat",
+                    "parameters": {"file": str(chats)},
+                    "config_version": 1,
+                    "checkpoint": None,
+                }
+            ]
+            return httpx.Response(200, json={"targets": targets, "rejected": []})
+        if request.url.path == "/v1/source-observations":
+            return httpx.Response(200, json={"source": {"source_id": "stored"}})
+        committed.append(json.loads(request.content)["binding"]["binding_id"])
+        return httpx.Response(200, json={})
+
+    async def scenario() -> None:
+        agent = SourceAgent("http://central", "token", plugins, name="robot-7")
+        agent.name = "robot-7"
+        async with httpx.AsyncClient(base_url="http://central", transport=httpx.MockTransport(central)) as client:
+            agent.http = client
+            async with agent.resources:
+                await agent.cycle(collect_all=True)
+
+    asyncio.run(scenario())
+    assert committed == ["t"]
+
+
 def test_a_plugin_whose_next_time_cannot_be_computed_does_not_block_the_others(tmp_path, monkeypatch) -> None:
     plugins = tmp_path / "plugins"
     write_plugin_with_collect_schedule(plugins, "slow", "Interval(seconds=60)")

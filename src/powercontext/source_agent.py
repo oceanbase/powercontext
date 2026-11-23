@@ -152,7 +152,9 @@ def _next_delay(collect: Collect, now: datetime) -> float:
     import tzlocal
     from apscheduler.triggers.cron import CronTrigger
 
-    zone = ZoneInfo(schedule.timezone or tzlocal.get_localzone_name())
+    # A machine without any time zone configuration has no local zone name; UTC is tzlocal's
+    # documented default for that state, and the same fallback the Server runner applies.
+    zone = ZoneInfo(schedule.timezone or tzlocal.get_localzone_name() or "UTC")
     upcoming = CronTrigger.from_crontab(schedule.expression, timezone=zone).get_next_fire_time(None, now)
     return 60.0 if upcoming is None else max(0.0, (upcoming - now).total_seconds())
 
