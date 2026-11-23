@@ -9905,10 +9905,20 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "run_id": {"type": "string"},
                     "operation": {"type": "string"},
                     "status": {"$ref": "#/components/schemas/ArtifactProcessingDreamState"},
-                    "outcome": {"$ref": "#/components/schemas/ArtifactProcessingDreamOutcome", "nullable": True},
+                    "outcome": {
+                        "anyOf": [
+                            {"$ref": "#/components/schemas/ArtifactProcessingDreamOutcome"},
+                            {"type": "string", "enum": [None], "nullable": True},
+                        ]
+                    },
                     "accepted_at": {"type": "string", "format": "date-time"},
                     "completed_at": {"type": "string", "format": "date-time", "nullable": True},
-                    "candidate": {"$ref": "#/components/schemas/DreamCandidateRef", "nullable": True},
+                    "candidate": {
+                        "anyOf": [
+                            {"$ref": "#/components/schemas/DreamCandidateRef"},
+                            {"type": "string", "enum": [None], "nullable": True},
+                        ]
+                    },
                     "reason": {"type": "string", "nullable": True},
                     "stage": {"type": "string", "nullable": True},
                 },
@@ -9948,11 +9958,31 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "observed_at": {"type": "string", "format": "date-time"},
                     "queried_at": {"type": "string", "format": "date-time"},
                     "source_consumption_applicable": {"type": "boolean"},
-                    "progress": {"$ref": "#/components/schemas/ArtifactProcessingProgress", "nullable": True},
-                    "invocation": {"$ref": "#/components/schemas/ArtifactProcessingObservation", "nullable": True},
-                    "executor": {"$ref": "#/components/schemas/ArtifactProcessingObservation", "nullable": True},
+                    "progress": {
+                        "anyOf": [
+                            {"$ref": "#/components/schemas/ArtifactProcessingProgress"},
+                            {"type": "string", "enum": [None], "nullable": True},
+                        ]
+                    },
+                    "invocation": {
+                        "anyOf": [
+                            {"$ref": "#/components/schemas/ArtifactProcessingObservation"},
+                            {"type": "string", "enum": [None], "nullable": True},
+                        ]
+                    },
+                    "executor": {
+                        "anyOf": [
+                            {"$ref": "#/components/schemas/ArtifactProcessingObservation"},
+                            {"type": "string", "enum": [None], "nullable": True},
+                        ]
+                    },
                     "executor_expires_at": {"type": "string", "format": "date-time", "nullable": True},
-                    "block": {"$ref": "#/components/schemas/ArtifactProcessingBlock", "nullable": True},
+                    "block": {
+                        "anyOf": [
+                            {"$ref": "#/components/schemas/ArtifactProcessingBlock"},
+                            {"type": "string", "enum": [None], "nullable": True},
+                        ]
+                    },
                     "dream_operations": {
                         "items": {"$ref": "#/components/schemas/ArtifactProcessingDream"},
                         "type": "array",

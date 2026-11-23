@@ -8988,8 +8988,9 @@ components:
         status:
           $ref: '#/components/schemas/ArtifactProcessingDreamState'
         outcome:
-          $ref: '#/components/schemas/ArtifactProcessingDreamOutcome'
-          nullable: true
+          anyOf:
+          - $ref: '#/components/schemas/ArtifactProcessingDreamOutcome'
+          - {type: string, nullable: true, enum: [null]}
         accepted_at:
           type: string
           format: date-time
@@ -8998,8 +8999,9 @@ components:
           format: date-time
           nullable: true
         candidate:
-          $ref: '#/components/schemas/DreamCandidateRef'
-          nullable: true
+          anyOf:
+          - $ref: '#/components/schemas/DreamCandidateRef'
+          - {type: string, nullable: true, enum: [null]}
         reason:
           type: string
           nullable: true
@@ -9072,21 +9074,25 @@ components:
         source_consumption_applicable:
           type: boolean
         progress:
-          $ref: '#/components/schemas/ArtifactProcessingProgress'
-          nullable: true
+          anyOf:
+          - $ref: '#/components/schemas/ArtifactProcessingProgress'
+          - {type: string, nullable: true, enum: [null]}
         invocation:
-          $ref: '#/components/schemas/ArtifactProcessingObservation'
-          nullable: true
+          anyOf:
+          - $ref: '#/components/schemas/ArtifactProcessingObservation'
+          - {type: string, nullable: true, enum: [null]}
         executor:
-          $ref: '#/components/schemas/ArtifactProcessingObservation'
-          nullable: true
+          anyOf:
+          - $ref: '#/components/schemas/ArtifactProcessingObservation'
+          - {type: string, nullable: true, enum: [null]}
         executor_expires_at:
           type: string
           format: date-time
           nullable: true
         block:
-          $ref: '#/components/schemas/ArtifactProcessingBlock'
-          nullable: true
+          anyOf:
+          - $ref: '#/components/schemas/ArtifactProcessingBlock'
+          - {type: string, nullable: true, enum: [null]}
         dream_operations:
           type: array
           maxItems: 10
