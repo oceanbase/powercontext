@@ -16,8 +16,8 @@ jobs:
       CARGO_BUILD_JOBS: '2'
       CARGO_PROFILE_DEV_DEBUG: '0'
       CARGO_PROFILE_TEST_DEBUG: '0'
-      SERVER_COMMIT: 88bddd5eec028c11f608a5b67a279863df63ca9f
-      QUALIFICATION_ID: sqlite-processing-status-88bddd5e-v1
+      SERVER_COMMIT: 4b8b2511cff86917d00df4a90bdd6370b2102835
+      QUALIFICATION_ID: sqlite-processing-status-4b8b2511-v1
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -80,7 +80,7 @@ jobs:
               'contractSha256': contract['contractSha256'],
               'artifactSha256': hashlib.sha256(wheel.read_bytes()).hexdigest(),
               'operations': sorted(contract['operations']),
-              'evidence': 'desktop/VALIDATION.md#nullable-processing-status-contract',
+              'evidence': 'desktop/VALIDATION.md#executor-and-block-evidence',
           }
           catalog_path = root / 'src-tauri/src/connections/compatibility.json'
           catalog = json.loads(catalog_path.read_text())
@@ -131,26 +131,16 @@ jobs:
             desktop/.artifacts/real-server.json
             desktop/.artifacts/real-server-*/
 
-  integration-bundles:
+  metrics:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
-      - uses: jdx/mise-action@d5574b52816a478f9d4e6529a3f6ff17a8a36785 # v5.2.8
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e
         with:
-          working_directory: desktop
-      - name: Build integrations from their locked dependencies
+          version: '0.10.12'
+      - name: Check operational metrics on Python 3.14
         run: |
-          pnpm --dir integrations/dsh/plugins/powercontext install --frozen-lockfile --config.auto-install-peers=false
-          pnpm --dir integrations/dsh/plugins/powercontext build
-          pnpm --dir integrations/dsh/plugins/powercontext exec tsdown --config ../../../cindy/tsdown.config.ts
-          pnpm --dir integrations/opencode/plugins/powercontext install --frozen-lockfile
-          pnpm --dir integrations/opencode/plugins/powercontext run build
-          git diff --binary -- integrations/ > integration-bundles.patch
-          git diff --stat -- integrations/
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
-        with:
-          name: integration-bundles-2725
-          path: integration-bundles.patch
+          uv sync --locked --python 3.14.10 --managed-python
+          uv run --no-sync python -m pytest tests/test_operational_metrics.py -q -o addopts=""
