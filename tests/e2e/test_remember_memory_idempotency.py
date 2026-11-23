@@ -47,8 +47,8 @@ ADMIN = PrincipalRef(type="service", id="admin")
 
 
 @pytest.mark.parametrize("source_release", [None, "1.4.0"])
-def test_keyed_creation_after_source_collection_upgrade(tmp_path: Path, source_release) -> None:
-    """Both registered histories upgrade the published Source checkpoint before keyed writes."""
+def test_keyed_creation_after_prepare_diagnostics_upgrade(tmp_path: Path, source_release) -> None:
+    """Both registered histories upgrade from the Prepare diagnostics checkpoint before keyed writes."""
     import shutil
 
     from powercontext.builtin.persistence.migrations import MigrationBundle, SQLiteMigrationRunner
@@ -58,7 +58,7 @@ def test_keyed_creation_after_source_collection_upgrade(tmp_path: Path, source_r
     database = tmp_path / "source-collection.db"
     bundle = server_bundle(source_release=source_release)
     configuration = {"processing_manifest": canonical_processing_manifest(BuiltinConfig()), "embedding_enabled": False}
-    previous_directory = tmp_path / "source-collection-bundle"
+    previous_directory = tmp_path / "prepare-diagnostics-bundle"
     shutil.copytree(bundle.snapshot_directory, previous_directory)
     revision = bundle.script.get_revision("000")
     (previous_directory / Path(revision.path).relative_to(bundle.snapshot_directory)).unlink()
@@ -68,7 +68,6 @@ def test_keyed_creation_after_source_collection_upgrade(tmp_path: Path, source_r
         del manifest[field]["000"]
     manifest["mysql_state_layouts"].remove("schemas/mysql-000.json")
     manifest["affected_objects"].remove("pc_atomic_memory_idempotency")
-    manifest["affected_objects"].remove("pc_context_prepare_diagnostics")
     manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
     previous = SQLiteMigrationRunner(database, MigrationBundle(previous_directory), configuration=configuration)
     previous.apply(
@@ -88,7 +87,7 @@ def test_keyed_creation_after_source_collection_upgrade(tmp_path: Path, source_r
 
     runner = SQLiteMigrationRunner(database, bundle, configuration=configuration)
     plan = runner.plan(backup_policy="skip")
-    assert plan.source_revision == "v1_5_2_pr2639"
+    assert plan.source_revision == "v1_6_0"
     assert plan.revisions == ("000",)
     runner.apply(
         plan_id=plan.plan_id,

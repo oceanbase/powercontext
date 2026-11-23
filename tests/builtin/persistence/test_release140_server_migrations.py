@@ -158,7 +158,8 @@ def test_registered_sources_choose_distinct_lineages(tmp_path, release, expected
         "v1_5_0_003",
         "v1_5_0_004",
         "v1_5_0_005",
-        "v1_5_2_pr2639",
+        "v1_5_0_006",
+        "v1_6_0",
         "000",
     )
 

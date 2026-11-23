@@ -191,9 +191,9 @@ notebooks = [
     "nbformat>=5.10,<6",
     "langchain-openai>=1,<2",
     "python-dotenv>=1,<2",
-    "playwright>=1.55,<2",
+    "playwright>=1.64,<2",
 ]
-knowledge-base-tests = ["playwright>=1.55,<2"]
+knowledge-base-tests = ["playwright>=1.64,<2"]
 dev = [
     "powercontext[source-images]",
     "powercontext[code]",

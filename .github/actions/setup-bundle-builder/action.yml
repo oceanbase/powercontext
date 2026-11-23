@@ -24,6 +24,10 @@ runs:
       shell: bash
       run: python3 "$GITHUB_ACTION_PATH/../../../scripts/ci_cache.py" backend
 
+    - name: Configure Python dependency mirror
+      shell: bash
+      run: python3 "$GITHUB_ACTION_PATH/../../../scripts/ci_python_mirror.py" configure
+
     - id: plan
       shell: bash
       env:
@@ -59,7 +63,7 @@ runs:
         TOOL_WHEELS: ${{ steps.plan.outputs.cache-path }}
         TOOL_REQUIREMENTS: ${{ steps.plan.outputs.requirements }}
       run: |
-        python -m pip download --no-deps --require-hashes --only-binary=:all: \
+        python "$GITHUB_ACTION_PATH/../../../scripts/ci_python_mirror.py" pip --python "$(command -v python)" download --no-deps --require-hashes --only-binary=:all: \
           --dest "$TOOL_WHEELS" --requirement "$TOOL_REQUIREMENTS"
 
     - name: Save build-tool downloads to GitHub before building

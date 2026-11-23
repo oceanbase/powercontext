@@ -420,8 +420,11 @@ def run_case(root: Path, wheel: Path, case: dict[str, Any], output: Path) -> dic
                 log=output / f"{role}-venv.log",
             )
             python = venv / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
+            install = ["uv", "pip", "install", "--python", str(python), package, *engine_requirement]
+            if installer := environment.get("PC_CI_PYTHON_INSTALLER"):
+                install = [sys.executable, installer, "uv-pip", *install[2:]]
             run_owned(
-                ["uv", "pip", "install", "--python", str(python), package, *engine_requirement],
+                install,
                 environment=environment,
                 cwd=directory,
                 log=output / f"{role}-install.log",

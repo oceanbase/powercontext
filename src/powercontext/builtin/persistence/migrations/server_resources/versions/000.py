@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Add Prepare diagnostics and keyed Memory creation receipts."""
+"""Add keyed Memory creation receipts."""
 
 import json
 from pathlib import Path
@@ -20,12 +20,10 @@ from pathlib import Path
 from alembic import op
 
 revision = "000"
-down_revision = "v1_5_2_pr2639"
+down_revision = "v1_6_0"
 
 
 def upgrade():
     resource = Path(__file__).parents[1] / "schemas/sqlite-000.json"
-    statements = json.loads(resource.read_text(encoding="utf-8"))["statements"]
-    connection = op.get_bind()
-    for statement in statements:
-        connection.exec_driver_sql(statement)
+    for statement in json.loads(resource.read_text(encoding="utf-8"))["statements"]:
+        op.get_bind().exec_driver_sql(statement)

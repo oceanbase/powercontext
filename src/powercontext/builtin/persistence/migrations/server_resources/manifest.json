@@ -53,9 +53,13 @@
       "schemas/sqlite-v1_5_0_005.json",
       "schemas/mysql-v1_5_0_005.json"
     ],
-    "v1_5_2_pr2639": [
-      "schemas/sqlite-v1_5_2_pr2639.json",
-      "schemas/mysql-v1_5_2_pr2639.json"
+    "v1_5_0_006": [
+      "schemas/sqlite-v1_5_0_006.json",
+      "schemas/mysql-v1_5_0_006.json"
+    ],
+    "v1_6_0": [
+      "schemas/sqlite-v1_6_0.json",
+      "schemas/mysql-v1_6_0.json"
     ],
     "000": [
       "schemas/sqlite-000.json",
@@ -102,8 +106,11 @@
     "v1_5_0_005": [
       "50bff3a823c596084264f6b8bfbe495677217aa7f419b342966d287387058741"
     ],
-    "v1_5_2_pr2639": [
+    "v1_5_0_006": [
       "893b1b3ce4893b11f5f68478f54dc8484f696e0e1dc039b8fd01ce56e2dbb478"
+    ],
+    "v1_6_0": [
+      "ecebbef5e9c33c1445a3686a1e6753b7e513c13db70ab8fe79483eceba1930c7"
     ],
     "000": [
       "acc189e30495cb354e09593213925bbd3057a3d9c6e4ed592ffd2cb8a6a030f7"
@@ -342,7 +349,7 @@
     },
     {
       "id": "source_collection",
-      "revision": "v1_5_2_pr2639",
+      "revision": "v1_5_0_006",
       "kind": "data",
       "module": "source_collection_readiness.py",
       "resources": [
@@ -410,7 +417,12 @@
       "portable_storage",
       "atomic_memory_evidence_projection"
     ],
-    "v1_5_2_pr2639": [
+    "v1_5_0_006": [
+      "source_collection",
+      "portable_storage",
+      "atomic_memory_evidence_projection"
+    ],
+    "v1_6_0": [
       "source_collection",
       "portable_storage",
       "atomic_memory_evidence_projection"
@@ -442,7 +454,8 @@
     "schemas/mysql-v1_5_0_003.json",
     "schemas/mysql-v1_5_0_004.json",
     "schemas/mysql-v1_5_0_005.json",
-    "schemas/mysql-v1_5_2_pr2639.json",
+    "schemas/mysql-v1_6_0.json",
+    "schemas/mysql-v1_5_0_006.json",
     "schemas/mysql-000.json"
   ],
   "mysql_history": "mysql",

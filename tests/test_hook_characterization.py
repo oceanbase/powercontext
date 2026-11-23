@@ -193,8 +193,11 @@ def _hook_commands(directory: Path) -> dict[str, list[str]]:
         shutil.copyfile(PLUGINS["codex"] / name, project / name)
     environment = {name: value for name, value in os.environ.items() if name != "VIRTUAL_ENV"}
     environment["UV_PROJECT_ENVIRONMENT"] = str(project / ".venv")
+    install = ["uv", "sync", "--frozen", "--quiet", "--project", str(project), "--python", sys.executable]
+    if installer := environment.get("PC_CI_PYTHON_INSTALLER"):
+        install = [sys.executable, installer, "sync", *install[2:]]
     subprocess.run(
-        ["uv", "sync", "--frozen", "--quiet", "--project", str(project), "--python", sys.executable],  # noqa: S607
+        install,
         check=True,
         capture_output=True,
         env=environment,

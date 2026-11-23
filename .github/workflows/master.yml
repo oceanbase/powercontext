@@ -52,6 +52,7 @@ jobs:
       - name: Set up the environment
         uses: ./.github/actions/setup-python-env
         with:
+          sync-args: "--extra seekdb --extra server"
           python-version: "3.12"
 
       - name: Test concurrent managed startup without skips
@@ -247,7 +248,7 @@ jobs:
           key: prek-v2-${{ runner.os }}-${{ runner.arch }}-${{ steps.python.outputs.version }}-${{ hashFiles('.pre-commit-config.yaml') }}
 
       - name: Prepare prek environments
-        run: uv run prek install-hooks
+        run: python3 scripts/ci_python_mirror.py hooks
 
       - name: Save prek environments
         if: steps.prek-cache.outputs.cache-hit != 'true' && github.event_name != 'merge_group'
@@ -317,7 +318,7 @@ jobs:
       - name: Install and resolve native DSH configuration test APIs
         if: matrix.suite == 'unit'
         run: |
-          pnpm --dir integrations/dsh/plugins/powercontext/tests/config-runtime install --frozen-lockfile
+          node "$PC_CI_NODE_INSTALLER" pnpm --dir integrations/dsh/plugins/powercontext/tests/config-runtime install --frozen-lockfile
           boot="$(node --input-type=module -e "import { createRequire } from 'node:module'; import { resolve } from 'node:path'; const require = createRequire(resolve('integrations/dsh/plugins/powercontext/tests/config-runtime/package.json')); process.stdout.write(require.resolve('@deepseek-ai/dsh-app-boot'))")"
           test -n "$boot" && test -f "$boot" || { echo "DSH configuration runtime unresolved"; exit 1; }
           echo "DSH_TEST_CONFIG_BOOT=$boot" >> "$GITHUB_ENV"
@@ -339,7 +340,7 @@ jobs:
       - name: Check Source serialization with minimum Pydantic
         if: matrix.suite == 'unit' && matrix.python-version == '3.11'
         run: >-
-          uv run --with 'pydantic==2.12.0' python -m pytest
+          python3 scripts/ci_python_mirror.py run --with 'pydantic==2.12.0' -- python -m pytest
           tests/test_source_locators.py tests/test_source_observations.py tests/test_api_contract.py -q
 
       - name: Cache Gateway dependencies and compilation
@@ -414,7 +415,7 @@ jobs:
 
       - name: Build one wheel for all installation roles
         run: |
-          uv build --wheel --python "$(command -v python)" --out-dir "$RUNNER_TEMP/role-wheel"
+          python3 scripts/ci_python_mirror.py build --wheel --python "$(command -v python)" --out-dir "$RUNNER_TEMP/role-wheel"
 
       - name: Verify all roles in independent environments
         run: |
@@ -428,7 +429,7 @@ jobs:
           adapter_python="$RUNNER_TEMP/langchain-standalone/bin/python"
           # Fixed released-core floor regression: keep 1.5.0 even after later releases.
           # It reproduces the missing-helper import bug; this is not a latest-release check.
-          uv pip install --python "$adapter_python" ./integrations/langchain "powercontext==1.5.0"
+          python3 scripts/ci_python_mirror.py uv-pip install --python "$adapter_python" ./integrations/langchain "powercontext==1.5.0"
           "$adapter_python" -I - <<'PYCODE'
           from importlib.metadata import version
           from powercontext_langchain import PowerContextMiddleware
@@ -497,6 +498,7 @@ jobs:
       - name: Set up the environment
         uses: ./.github/actions/setup-python-env
         with:
+          sync-args: "--extra tracing-otlp --group tracing-tests"
           python-version: "3.12"
 
       - name: Test worker and LangChain tracing without skips
@@ -616,6 +618,7 @@ jobs:
         id: seekdb_setup
         uses: ./.github/actions/setup-python-env
         with:
+          sync-args: "--extra seekdb --extra code"
           python-version: ${{ matrix.python-version }}
 
       - name: Test code indexing with embedded seekdb
@@ -780,6 +783,7 @@ jobs:
       - name: Set up the environment
         uses: ./.github/actions/setup-python-env
         with:
+          sync-args: "--extra seekdb"
           python-version: "3.12"
 
       - name: Run clean migration evidence, grants and vectors without skips
@@ -995,7 +999,7 @@ jobs:
             integrations/dify/uv.lock
 
       - name: Install isolated Dify dependencies
-        run: uv sync --locked --project integrations/dify --python 3.12
+        run: python3 scripts/ci_python_mirror.py sync --locked --project integrations/dify --python 3.12
 
       - name: Save complete Dify dependencies
         if: steps.python.outputs.cache-hit != 'true' && github.event_name != 'merge_group'
@@ -1106,14 +1110,29 @@ jobs:
       - name: Test DSH package
         run: make js-test
 
+      - name: Restore DSH archive installation downloads
+        id: dsh-npm-cache
+        uses: ./.github/actions/cache-npm
+        with:
+          cache-scope: dsh-archive
+          packages: '@deepseek-ai/cordis@4.0.1'
+          cache-dependency-glob: integrations/dsh/plugins/powercontext/package.json
+
       - name: Verify DSH npm archive installation
         run: node --test integrations/dsh/plugins/powercontext/tests/pack-release.test.mjs
+
+      - name: Save DSH archive installation downloads
+        if: steps.dsh-npm-cache.outputs.cache-hit != 'true'
+        uses: ./.github/actions/cache-save
+        with:
+          path: ${{ steps.dsh-npm-cache.outputs.cache-path }}
+          key: ${{ steps.dsh-npm-cache.outputs.cache-key }}
 
       - name: Test built plugin in the real DSH runtime
         run: make dsh-runtime-test
 
       - name: Install native DSH configuration test APIs
-        run: pnpm --dir integrations/dsh/plugins/powercontext/tests/config-runtime install --frozen-lockfile
+        run: node "$PC_CI_NODE_INSTALLER" pnpm --dir integrations/dsh/plugins/powercontext/tests/config-runtime install --frozen-lockfile
 
       - name: Resolve required DSH test runtimes
         run: |
@@ -1257,7 +1276,7 @@ jobs:
         env:
           OPENCODE_PACKAGE: ${{ steps.opencode-package.outputs.package }}
         run: |
-          npm install --prefix "$RUNNER_TEMP/opencode-host" \
+          node "$PC_CI_NODE_INSTALLER" npm install --prefix "$RUNNER_TEMP/opencode-host" \
             --registry https://registry.npmjs.org --ignore-scripts --no-audit --no-fund \
             "$OPENCODE_PACKAGE@$OPENCODE_VERSION"
 
@@ -1318,7 +1337,7 @@ jobs:
 
       - name: Install the pinned Codex host
         run: |
-          npm install --prefix "$RUNNER_TEMP/codex-host" \
+          node "$PC_CI_NODE_INSTALLER" npm install --prefix "$RUNNER_TEMP/codex-host" \
             --registry https://registry.npmjs.org --ignore-scripts --no-audit --no-fund \
             "@openai/codex@$CODEX_VERSION"
 
@@ -1476,7 +1495,7 @@ jobs:
           cache-dependency-glob: integrations/openclaw/plugins/memory-powercontext/pnpm-lock.yaml
 
       - name: Install OpenClaw package dependencies
-        run: mise exec node@24.15.0 -- pnpm --dir integrations/openclaw/plugins/memory-powercontext install --frozen-lockfile
+        run: mise exec node@24.15.0 -- node "$PC_CI_NODE_INSTALLER" pnpm --dir integrations/openclaw/plugins/memory-powercontext install --frozen-lockfile
 
       - name: Save OpenClaw package dependencies
         if: steps.pnpm.outputs.cache-hit != 'true' && github.event_name != 'merge_group'
@@ -1504,7 +1523,7 @@ jobs:
 
       - name: Install the pinned OpenClaw host
         run: |
-          mise exec node@24.15.0 -- npm install --prefix "$RUNNER_TEMP/openclaw-host" \
+          mise exec node@24.15.0 -- node "$PC_CI_NODE_INSTALLER" npm install --prefix "$RUNNER_TEMP/openclaw-host" \
             --registry https://registry.npmjs.org --ignore-scripts --no-audit --no-fund "openclaw@$OPENCLAW_VERSION"
           cli="$RUNNER_TEMP/openclaw-host/node_modules/.bin/openclaw"
           mise exec node@24.15.0 -- "$cli" --version | grep -qx "OpenClaw $OPENCLAW_VERSION (.*)"
@@ -1798,7 +1817,19 @@ jobs:
       - name: Install browser for plugin navigation regressions
         run: uv run --no-sync playwright install --with-deps chromium
       - name: Exercise Server, Worker, revision lifecycle and real OCR
-        run: uv run --no-sync pytest tests/knowledge_base tests/e2e/test_knowledge_base*.py tests/e2e/test_plugin_pages.py
+        run: |
+          uv run --no-sync pytest --basetemp "$RUNNER_TEMP/knowledge-base-e2e" \
+            tests/knowledge_base tests/e2e/test_knowledge_base*.py tests/e2e/test_plugin_pages.py
+      - name: Upload browser failure diagnostics
+        if: failure()
+        uses: ./.github/actions/upload-ci-diagnostics
+        with:
+          name: knowledge-base-browser-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/knowledge-base-e2e/**/trace.zip
+            ${{ runner.temp }}/knowledge-base-e2e/**/dashboard.png
+          if-no-files-found: ignore
+          retention-days: 7
 
   ci-result:
     name: CI result

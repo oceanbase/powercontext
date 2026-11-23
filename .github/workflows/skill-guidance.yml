@@ -42,7 +42,7 @@ jobs:
       - name: Install validation dependencies
         run: |
           uv venv --python "$(command -v python)" "$RUNNER_TEMP/skill-guidance"
-          uv pip sync --python "$RUNNER_TEMP/skill-guidance/bin/python" evaluation/skills/skill-up/requirements-dev.txt
+          python3 scripts/ci_python_mirror.py uv-pip sync --python "$RUNNER_TEMP/skill-guidance/bin/python" evaluation/skills/skill-up/requirements-dev.txt
           echo "$RUNNER_TEMP/skill-guidance/bin" >> "$GITHUB_PATH"
       - name: Install checksum-pinned skill-up
         shell: bash
