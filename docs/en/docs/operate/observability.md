@@ -155,7 +155,11 @@ attempt for a window that holds one gateway turn with a prefix handle. `outcome`
 cached prefix was used, or `fallback` when normal extraction ran instead; `fallback_reason` is then one of
 `not_cheaper`, `prefix_size_unknown`, `prefix_unavailable`, `target_mismatch`, `disabled`, `invalid_instruction`, `check_rejected`, `gateway_unavailable`,
 `provider_error`, `gateway_error`, or `invalid_output`. Windows without such a turn emit no event. The event carries no handle, prompt,
-or response content.
+or response content. In the `one_pass` processing mode the event has `operation` `atomic_memory.one_pass` and reports
+the window's whole conversation: `success` when the conversation after the agent's prefix prepared the window, or
+`fallback` when the window started again as a normal one-pass conversation. A window whose second step exceeds the
+input budget emits neither: its `atomic_memory.one_pass` fallback event reports it, and the per-candidate extraction
+that follows reports its own attempt with `operation` `atomic_memory.extract`.
 With the `one_pass` processing mode (`POWERCONTEXT_SERVER_RUNTIME_ATOMIC_MEMORY_PROCESSING_MODE`), an INFO
 `atomic_memory.one_pass` event with `operation` `atomic_memory.one_pass` and `unit` `inference` reports each Source
 window. `outcome` is `success` when the window's operations came from the one conversation, or `fallback` when a step's
