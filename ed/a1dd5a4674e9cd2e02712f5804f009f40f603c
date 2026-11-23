@@ -1,0 +1,35 @@
+docs/zh/development/ci-scope.md
+  s_2ef0feea0a110d::t_2f667b234bc6c8 117,184
+  s_2ef0feea0a110d::t_d106f3eac364fc 48
+  s_2ef0feea0a110d::t_f5b1b19e7fe146 3,8,32-43,46-47,49-51,66
+  s_2ef0feea0a110d::t_f755ec6c00e363 170,178,186,188,194,199,218,227-228
+  s_2ef0feea0a110d::t_32f66e20ab80c8 44-45,234-240
+  s_2ef0feea0a110d::t_dd52546ba8f1c7 185,241
+AGENTS.md
+  s_2ef0feea0a110d::t_3a251ae2d50f71 19-29
+docs/en/development/ci-scope.md
+  s_2ef0feea0a110d::t_d106f3eac364fc 48
+  s_2ef0feea0a110d::t_f5b1b19e7fe146 3,8,32-43,46-47,49-51,66
+  s_2ef0feea0a110d::t_2f667b234bc6c8 117,184
+  s_2ef0feea0a110d::t_f755ec6c00e363 170,178,186,188,194,199,218,227-228
+  s_2ef0feea0a110d::t_32f66e20ab80c8 44-45,234-240
+  s_2ef0feea0a110d::t_3b4b0bb38044be 185,241
+CONTRIBUTING.md
+  s_2ef0feea0a110d::t_3a251ae2d50f71 127-137
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "eda1dd5a4674e9cd2e02712f5804f009f40f603c",
+  "prompts": {},
+  "sessions": {
+    "s_2ef0feea0a110d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1a9cf-a4e7-7f63-9c51-1284f7c332e8",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "frf12 <rongfeng.frf@antgroup.com>"
+    }
+  }
+}
