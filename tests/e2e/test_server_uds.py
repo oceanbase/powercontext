@@ -27,7 +27,7 @@ import subprocess
 import sys
 import time
 from collections.abc import Iterator
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from threading import Thread
@@ -40,7 +40,16 @@ pytestmark = pytest.mark.skipif(sys.platform not in {"linux", "darwin"}, reason=
 
 _TOKEN = "disposable-uds-test-token"  # noqa: S105
 _HEADERS = {"Authorization": f"Bearer {_TOKEN}"}
-_CLI = [sys.executable, "-c", "from powercontext.cli.app import main; main()", "server", "run", "--no-env-file"]
+_CLI = [
+    sys.executable,
+    "-c",
+    "import faulthandler, signal; "
+    "faulthandler.register(signal.SIGUSR1, all_threads=True); "
+    "from powercontext.cli.app import main; main()",
+    "server",
+    "run",
+    "--no-env-file",
+]
 
 
 def _environment(directory: Path) -> dict[str, str]:
@@ -72,7 +81,7 @@ def _running_server(
 ) -> Iterator[tuple[subprocess.Popen[bytes], httpx.Client]]:
     command = _CLI if from_environment else [*_CLI, "--uds", str(socket_path)]
     log_path = directory / "server.log"
-    with log_path.open("w", encoding="utf-8") as output:
+    with log_path.open("a", encoding="utf-8") as output:
         process = subprocess.Popen(
             command,
             cwd=directory,
@@ -87,20 +96,27 @@ def _running_server(
                 base_url="http://localhost",
                 headers=_HEADERS,
                 trust_env=False,
-                timeout=3,
+                timeout=httpx.Timeout(3, read=10),
             ) as client:
                 deadline = time.monotonic() + 45
                 while True:
                     if process.poll() is not None or time.monotonic() >= deadline:
                         pytest.fail(f"UDS CLI did not become ready: {log_path.read_text()}")
                     try:
-                        ready = client.get("/health/ready")
+                        ready = client.get("/health/ready", timeout=3)
                         if ready.status_code == 200:
                             break
                     except httpx.TransportError:
                         pass
                     time.sleep(0.05)
                 yield process, client
+        except httpx.ReadTimeout:
+            if process.poll() is None:
+                with suppress(OSError, subprocess.TimeoutExpired):
+                    process.send_signal(signal.SIGUSR1)
+                    # Let the signal handler write its traceback before cleanup kills the CLI.
+                    process.wait(timeout=1)
+            raise
         finally:
             if process.poll() is None:
                 process.kill()

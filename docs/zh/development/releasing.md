@@ -184,7 +184,7 @@ pnpm --dir integrations/dsh/plugins/powercontext pack:release 1.6.0-rc.1
 1.4.0 桥接实现和登记仍保留，但不纳入 CI 升级验收；门禁通过不能证明该路径已通过验收。来源 wheel 的公开 PyPI 地址和 SHA-256 与目标产物一起记录。
 
 1.3.0 和 1.4.0 的来源链分别从 `s1300` 和 `r1400` 开始，汇入共同的 `s1400 → s1401 → s1402` 路径，
-再经过 `v1_4_1_004 → v1_4_1_005 → v1_4_1_006 → v1_5_0_001 → v1_5_0_002 → v1_5_0_003 → v1_5_0_004 → v1_5_0_005 → v1_5_2_pr2639`。两者共享目标契约，分别保留冻结的执行历史及日志来源链，
+再经过 `v1_4_1_004 → v1_4_1_005 → v1_4_1_006 → v1_5_0_001 → v1_5_0_002 → v1_5_0_003 → v1_5_0_004 → v1_5_0_005 → v1_5_0_006`。两者共享目标契约，分别保留冻结的执行历史及日志来源链，
 以便后续已登记版本继续升级。应用版本不等于 schema 检查点；1.4.0
 的 Candidate 已是当前格式，桥接原样保留记录，并创建空保留表以统一目标结构，不虚构旧 Candidate 历史。
 登记其他来源需要精确采集、明确桥接和真实验收；这两条已登记路径不能证明其间及目标之前所有发行版均兼容。
@@ -232,7 +232,7 @@ CI 中的 **Upgrade release gate** 要求真实 1.3.0 数据库在十二个必�
 ### 在 GitHub 页面触发发布
 
 对于已有的已发布 Release，打开 **Actions → Release → Run workflow**，分支选择 `master`，
-在 `release_tag` 中填写 `powercontext-v1.5.2`，保持 `skip_upgrade_acceptance` 不勾选，点击 **Run workflow**。
+在 `release_tag` 中填写 `powercontext-v1.6.0`，保持 `skip_upgrade_acceptance` 不勾选，点击 **Run workflow**。
 工作流修改须先合并到 `master`。本次运行使用工作流提交中的验收脚本，从所选标签构建安装包并执行验收套件。
 十二个组合全部通过后才发布软件包，无需支持范围表格、固定 Release 文案或修改策略模式。
 
@@ -308,3 +308,29 @@ Server、MCP 和 SQLite 行为。
 继续保持试验性。在本地和 CI 检出中获取所引用的 tag 后再运行集成 manifest 检查，使用
 `make integration-manifest-docs` 重新生成双语能力矩阵，并同步相关集成概览和评测说明。不要仅为通过可用性检查
 而创建或移动发布 tag。
+
+## Gateway 二进制分发
+
+Release 工作流从解析后的发布提交构建 Linux x86_64/arm64 和 macOS Intel/Apple Silicon 四个平台的
+`pc-gateway`。每个平台嵌入发布版本、提交和目标平台，验证压缩包校验和，并使用解包后的二进制连接真实 SQLite Core，
+通过后才能上传构建产物；该过程不调用供应商。`release-assets` 依赖全部四个平台构建成功，并在确认完整清单后，
+将压缩包、逐包 SHA256 文件、`powercontext-gateway-SHA256SUMS` 和 `powercontext-gateway-manifest.json` 上传到同一 Release。
+随后 `gateway-release-verify` 在四个平台的原生 runner 上下载已发布附件，重复检查身份、启动、Core 代理与认证。
+Python 发布任务通过不能替代这些验证。
+
+普通 PR 和分支推送不构建 Gateway 分发压缩包。通过 **Gateway distribution → Run workflow**
+手动选择 ref，即可构建并验证四个平台，候选版本为 `0.0.0-dev.<commit>`。
+候选压缩包仅保存为 Actions 构建产物；手动 dispatch 不发布 Release 附件。
+发布工作流针对解析后的发布提交调用相同的构建和已发布附件下载验证任务。
+发布标签的源码必须包含分发工作流；已经发布且不包含此工作流的旧标签不能通过重跑旧工作流获得这些二进制。
+
+Core 冒烟检查使用携带 SQLite 3.38+ 的 uv 管理 Python，并在失败时输出子进程诊断日志。
+Linux 构建在各架构的原生 Ubuntu 22.04 runner 上运行，固定使用 cargo-zigbuild 0.24.1 和 Zig 0.15.2，
+显式指定 `x86_64-unknown-linux-gnu.2.28` 或 `aarch64-unknown-linux-gnu.2.28` 目标。
+生成的二进制不得引用高于 2.28 的 glibc 符号。两个架构均须通过原生环境中的真实 Core 冒烟检查，
+以及 Rocky Linux 8 容器冒烟检查；Core 运行在 runner 上，通过 UDS 与容器中的 Gateway 连接。
+这些容器共享 runner 的内核，验证范围限于用户空间兼容性，不覆盖历史内核或整个旧发行版。
+Core 对 Python、SQLite 的要求，以及供应商 CLI 的运行要求，独立于 Gateway 的 glibc 基线。
+macOS 构建以 macOS 15+ 为基线；macOS 二进制未签名、未公证。
+压缩包不包含 Core 和供应商 CLI，这些检查也不代表真实供应商验收。详见[Gateway 安装](../docs/operate/install-gateway.md)。
+Docker 分发留待后续实现。

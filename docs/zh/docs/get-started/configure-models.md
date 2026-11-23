@@ -19,7 +19,7 @@ description: 理解 Generation、Embedding、后台调度及各制品的触发�
 | Embedding | 语义检索与向量索引 | Embedding API 地址、凭据、模型名、模型实际支持的维度 |
 | Rerank（可选） | 对检索候选进一步排序 | 按向导选择复用生成连接或单独配置重排连接 |
 
-后台能力默认共用配置的 Generation Provider，不会自动复用 Codex/Claude 的订阅会话或登录凭据。
+后台能力共用配置的 Generation Provider。想用已有的 Codex、Claude Code 等订阅代替 API key，见[使用已有订阅](#使用已有订阅)。
 基础记忆不要求独立 Generation API：Agent 可以通过 MCP 显式保存自己整理的内容，但 Server 不会因此自动处理普通 Source。
 
 “OpenAI-compatible Chat Completions”“OpenAI Responses”“Anthropic-compatible Messages”是不同协议；
@@ -39,6 +39,28 @@ POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL=openai:gpt-4.1-mini
 Embedding 连接可以与 Generation 共用地址和凭据，但通常使用不同模型。
 向量维度必须是所选 Embedding 模型实际支持的输出维度。Embedding Profile ID 是标识这套模型、维度和向量约定的名称，
 不是额外 API key。首次使用可接受向导建议；复用已有向量数据时，必须保持其对应关系，不能随意改 ID 或维度来消除报错。
+
+## 使用已有订阅
+
+Server 可以用你已有的订阅代替 Generation API key，生成 Memory、Experience 和 Profile。支持 Codex CLI、Claude Code、
+GitHub Copilot、Grok CLI、Gemini CLI、Qwen Code 和 Kimi Code。先在 Server 所在主机上准备好订阅的登录凭据，
+再把生成模型设为该订阅的 provider 前缀。以 Codex CLI 为例：
+
+```dotenv
+POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL=openai-codex:<model-name>
+```
+
+不要设置 `POWERCONTEXT_SERVER_INFERENCE_GENERATION_BASE_URL` 和 `POWERCONTEXT_SERVER_INFERENCE_GENERATION_HEADERS`。
+向导暂不提供订阅选项，请在保存好的 `.env` 中修改这些值。
+
+切换前请确认适用范围：
+
+- 不支持 Topic Memory 和 Dream。请先移除显式的 Topic Memory 处理或调度配置。
+- 内置[推理保护](../operate/inference-protection.md)保持默认的 `disabled` 模式。
+- Embedding 仍需单独配置连接。
+- 生成请求计入订阅的用量限额，账号需要有所选模型的使用权限。
+
+各订阅的模型前缀、登录方式和凭据续期见[复用已有订阅凭据](../../development/pydantic-ai-inference.md#复用已有订阅凭据)。
 
 ## 完整能力不等于每条对话都会生成所有制品
 

@@ -7,7 +7,7 @@ description: 通过配置向导安装完整记忆能力，接入 Codex，并验�
 
 本页从安装开始，带你完成一次真实的记忆体验：在 Codex 中讨论项目，看到原始输入进入 Source、主题记忆生成并演进，再在新会话中找回决策。安装脚本默认选择最新稳定版，后续插件命令会使用与已安装版本匹配的 tag。
 
-需要 macOS、Linux 或 Windows、Git 和已安装的 Codex CLI；安装脚本会在需要时安装 Python 和 uv。完整记忆还需要可用的 Generation 和 Embedding 模型 API；准备好各自的地址、模型名和 API key。Codex 或 Claude 的订阅登录不会自动为 PowerContext Server 提供这些 API。只有 Agent 登录、没有模型 API 时，仍可选择基础记忆，验收显式保存与召回，但不能据此期待自动 Topic Memory。
+需要 macOS、Linux 或 Windows、Git 和已安装的 Codex CLI；安装脚本会在需要时安装 Python 和 uv。完整记忆还需要可用的 Generation 和 Embedding 模型 API；准备好各自的地址、模型名和 API key。已有的 Codex、Claude Code 等订阅可以代替 Generation API 生成 Memory、Experience 和 Profile，但不支持本指南用到的 Topic Memory；见[使用已有订阅](configure-models.md#使用已有订阅)。只有 Agent 登录、没有模型 API 时，仍可选择基础记忆，验收显式保存与召回，但不能据此期待自动 Topic Memory。
 
 ## 1. 安装并进入配置向导
 

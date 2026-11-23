@@ -157,6 +157,12 @@ from powercontext.errors import RevisionConflictError
 from powercontext.sources import SourceMaterialization
 from tests.builtin.persistence.contract import SOURCE_ADAPTERS, NoteSource
 
+# Observe cold child imports, execution, and natural exit separately from fault deadlines.
+_WORKER_LIFECYCLE_TIMEOUT_SECONDS = 60
+
+# The model stage must be held before injecting a cursor or fence conflict.
+_PROCESSING_SETUP_TIMEOUT_SECONDS = 15
+
 OutputT = TypeVar("OutputT")
 
 
@@ -876,7 +882,7 @@ def test_model_work_outside_transaction_cannot_cross_cursor_or_fence_conflict(
                 id_factory=lambda: "topic-blocked",
             )
             task = asyncio.create_task(processor.process(_assignment(term.fence("single-process"))))
-            await asyncio.wait_for(global_stage.started.wait(), timeout=2)
+            await asyncio.wait_for(global_stage.started.wait(), timeout=_PROCESSING_SETUP_TIMEOUT_SECONDS)
             async with profile.database.transaction() as connection:
                 if conflict == "cursor":
                     await SourceCursorRepository().save(
@@ -2848,7 +2854,7 @@ def test_topic_worker_entrypoint_runs_and_sanitizes_failure_in_real_spawn_child(
             try:
                 with pytest.raises(RuntimeError) as error:
                     # Includes interpreter startup, database initialization, and inference validation.
-                    await asyncio.wait_for(handle.wait(), timeout=30)
+                    await asyncio.wait_for(handle.wait(), timeout=_WORKER_LIFECYCLE_TIMEOUT_SECONDS)
             finally:
                 await handle.terminate()
 
@@ -2909,7 +2915,7 @@ def test_stale_spawn_worker_cannot_reconfigure_the_current_runtime(tmp_path) -> 
                 )
                 try:
                     with pytest.raises(RuntimeError) as error:
-                        await asyncio.wait_for(handle.wait(), timeout=30)
+                        await asyncio.wait_for(handle.wait(), timeout=_WORKER_LIFECYCLE_TIMEOUT_SECONDS)
                 finally:
                     await handle.terminate()
 
@@ -3081,7 +3087,7 @@ def test_topic_worker_without_server_dependencies_acknowledges_and_replays_in_sp
             async def invoke() -> None:
                 handle = await launcher.start(assignment)
                 try:
-                    completion = await asyncio.wait_for(handle.wait(), timeout=30)
+                    completion = await asyncio.wait_for(handle.wait(), timeout=_WORKER_LIFECYCLE_TIMEOUT_SECONDS)
                 finally:
                     await handle.terminate()
                 assert completion.outcome is ArtifactProcessingWorkerOutcome.SUCCEEDED

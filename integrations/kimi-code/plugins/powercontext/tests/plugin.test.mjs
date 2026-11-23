@@ -26,6 +26,9 @@ import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
 
 const plugin = fileURLToPath(new URL('..', import.meta.url))
+const manifest = JSON.parse(await readFile(new URL('../kimi.plugin.json', import.meta.url), 'utf8'))
+// The parent stopwatch includes Node startup as well as the Hook's internal budget.
+const hookTimeoutMs = manifest.hooks.find(hook => hook.event === 'UserPromptSubmit').timeout * 1000
 const prompt = 'The deployment color is teal-731.'
 const { cases: privacyCases } = JSON.parse(await readFile(
   new URL('../../../../../tests/fixtures/automatic_prompt_privacy.json', import.meta.url), 'utf8',
@@ -118,7 +121,8 @@ async function fixture(t, overrides = {}, settings = {}, listenHost = '127.0.0.1
     child.stdin.end(JSON.stringify(input))
     const code = await new Promise(resolve => child.on('exit', resolve))
     assert.equal(code, 0, stderr)
-    return { output: JSON.parse(stdout), stderr }
+    // No stdout is no hook result; Kimi would add even `{}` to the conversation.
+    return { output: stdout ? JSON.parse(stdout) : {}, stdout, stderr }
   }
   async function status(session = 'session-test', cwd = workspace) {
     const args = [join(installed, 'scripts/status.mjs'), '--cwd', cwd]
@@ -271,10 +275,10 @@ test('an accepted write with a lost reply stays unknown without automatic retry'
 test('timeouts fail open within the automatic budget', async t => {
   const f = await fixture(t, { '/v1/scope-bindings/resolve': () => {} })
   const started = Date.now()
-  const { output, stderr } = await f.invoke()
-  assert.deepEqual(output, {})
+  const { stdout, stderr } = await f.invoke()
+  assert.equal(stdout, '')
   assert.match(stderr, /server_unavailable/)
-  assert.ok(Date.now() - started < 5000)
+  assert.ok(Date.now() - started < hookTimeoutMs)
 })
 
 test('context preparation taking longer than one second is still injected', { timeout: 10000 }, async t => {
@@ -298,7 +302,7 @@ test('a prepare request stops at its own limit and leaves budget for capture', {
   assert.doesNotMatch(output.message ?? '', /Historical context/)
   assert.match(stderr, /server_unavailable/)
   assert.equal(f.captures.length, 1)
-  assert.ok(elapsed >= 2900 && elapsed < 5000, `elapsed ${elapsed} ms`)
+  assert.ok(elapsed >= 2900 && elapsed < hookTimeoutMs, `elapsed ${elapsed} ms`)
 })
 
 test('a capture that never answers cannot withdraw context that was already prepared', { timeout: 10000 }, async t => {
@@ -319,7 +323,7 @@ test('a capture that never answers cannot withdraw context that was already prep
   const elapsed = Date.now() - started
   assert.ok(output.message?.endsWith(content), JSON.stringify(output))
   assert.match(stderr, /capture_source/)
-  assert.ok(elapsed < 4500, `elapsed ${elapsed} ms`)
+  assert.ok(elapsed < hookTimeoutMs, `elapsed ${elapsed} ms`)
   const status = await f.status()
   assert.equal(status.stages.prepare.state, 'ready')
   assert.equal(status.stages.capture.state, 'unknown')
@@ -587,7 +591,7 @@ test('a confirmed binding survives later resolution failure and failed resolutio
   assert.equal(result.binding.scope_id, 'scope-saved')
   assert.equal(result.status, 'failed')
   const hook = await f.invoke()
-  assert.deepEqual(hook.output, {})
+  assert.equal(hook.stdout, '')
   assert.deepEqual(f.captures, [])
   assert.ok(f.requests.every(item => !['/v1/context/prepare', '/v1/sources/content'].includes(item.path)))
   const history = await f.status()

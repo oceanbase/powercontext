@@ -10,6 +10,11 @@ description: "从已安装的正式版 Server 采集数据库结构和示例记�
 启动该版本 Server，写入临时 Memory 及可选 Topic／Code 样本，停服后使用
 该版本的数据库驱动读取结构。工具不会运行当前迁移框架或修改注册资源。
 
+在自托管 Linux CI 中，`PC_CI_PYTHON_INSTALLER` 和 `PC_CI_PYTHON_MIRROR`
+均非空时，工具通过共享 CI 安装器安装已校验的本地 wheel。依赖优先从配置的
+镜像下载，失败后回退官方 PyPI。其他环境仍从官方 PyPI 获取依赖。
+发布 JSON、wheel URL 及 SHA256 校验仍按官方 PyPI 来源约束执行。
+
 ```sh
 uv run python scripts/capture_release_schema.py sqlite \
   --configuration full-server-no-vector --output /tmp/release-140-capture

@@ -1,0 +1,368 @@
+{
+  "gemini": {
+    "source": {
+      "repository": "https://github.com/block/goose",
+      "commit": "0edf2bdc8161d06f79daf639c148bf3559e26cf0",
+      "license": "Apache-2.0",
+      "path": "crates/goose/src/providers/gemini_oauth.rs",
+      "tests": [
+        "test_wrap_code_assist_request",
+        "test_unwrap_code_assist_sse_line"
+      ]
+    },
+    "request": {
+      "contents": [
+        {
+          "role": "user",
+          "parts": [
+            {
+              "text": "hello"
+            }
+          ]
+        }
+      ],
+      "systemInstruction": {
+        "parts": [
+          {
+            "text": "be helpful"
+          }
+        ]
+      }
+    },
+    "expected_request": {
+      "model": "gemini-2.5-pro",
+      "project": "project-123",
+      "request": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "hello"
+              }
+            ]
+          }
+        ],
+        "systemInstruction": {
+          "parts": [
+            {
+              "text": "be helpful"
+            }
+          ]
+        }
+      }
+    },
+    "response": {
+      "response": {
+        "candidates": [
+          {
+            "content": {
+              "parts": [
+                {
+                  "text": "hi"
+                }
+              ],
+              "role": "model"
+            }
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 10
+        }
+      },
+      "traceId": "abc"
+    },
+    "expected_response": {
+      "candidates": [
+        {
+          "content": {
+            "parts": [
+              {
+                "text": "hi"
+              }
+            ],
+            "role": "model"
+          }
+        }
+      ],
+      "usageMetadata": {
+        "promptTokenCount": 10
+      }
+    }
+  },
+  "claude": {
+    "source": {
+      "repository": "https://github.com/block/goose",
+      "commit": "0edf2bdc8161d06f79daf639c148bf3559e26cf0",
+      "license": "Apache-2.0",
+      "path": "crates/goose/src/providers/claude_code.rs",
+      "tests": [
+        "test_extract_usage_tokens[both_tokens]",
+        "test_error_from_event[context_exceeded]",
+        "test_error_from_event[generic_error_from_event]"
+      ]
+    },
+    "expected": {
+      "input_tokens": 100,
+      "output_tokens": 50
+    },
+    "errors": [
+      {
+        "type": "error",
+        "error": "context window exceeded"
+      },
+      {
+        "type": "error",
+        "error": "Model not supported"
+      }
+    ],
+    "usage_input": {
+      "input_tokens": 100,
+      "output_tokens": 50
+    },
+    "adapter_wrapper": {
+      "type": "result",
+      "result": "Done"
+    }
+  },
+  "qwen": {
+    "source": {
+      "repository": "https://github.com/QwenLM/qwen-code",
+      "commit": "37e29fd65681595d6dc66fe629bdb4b3f0bb5073",
+      "path": "packages/core/src/qwen/subscription-oauth-client.test.ts",
+      "license": "Apache-2.0",
+      "tests": [
+        "returns rotated refresh tokens for subsequent refresh and revoke",
+        "rejects incomplete token responses instead of retaining an old refresh token",
+        "rejects a malformed device response before polling"
+      ]
+    },
+    "initial_refresh_token": "refresh-one",
+    "responses": [
+      {
+        "access_token": "access-one",
+        "refresh_token": "refresh-two",
+        "token_type": "Bearer",
+        "expires_in": 900,
+        "scope": "model:invoke profile:read"
+      },
+      {
+        "access_token": "access-one",
+        "refresh_token": "refresh-three",
+        "token_type": "Bearer",
+        "expires_in": 900,
+        "scope": "model:invoke profile:read"
+      }
+    ],
+    "expected_forms": [
+      {
+        "grant_type": "refresh_token",
+        "client_id": "qwen-code-cli",
+        "refresh_token": "refresh-one"
+      },
+      {
+        "grant_type": "refresh_token",
+        "client_id": "qwen-code-cli",
+        "refresh_token": "refresh-two"
+      }
+    ],
+    "expected_refresh_token": "refresh-three",
+    "malformed_token": {
+      "access_token": "access-two",
+      "expires_in": 900
+    },
+    "malformed_device": {
+      "device_code": "device-secret",
+      "user_code": "BCDF-GHJK",
+      "verification_uri": "https://oauth.example.test/device",
+      "verification_uri_complete": "https://oauth.example.test/device?user_code=BCDF-GHJK",
+      "expires_in": 600,
+      "interval": 0
+    }
+  },
+  "kimi": {
+    "source": {
+      "repository": "https://github.com/MoonshotAI/kimi-code",
+      "commit": "322d0363f4c5cf332034ff81759653bf341f165c",
+      "path": "packages/oauth/test/oauth.test.ts",
+      "license": "MIT",
+      "tests": [
+        "requestDeviceAuthorization/parses a successful response",
+        "refreshAccessToken/returns new TokenInfo on success",
+        "pollDeviceToken/throws when success response is missing refresh_token (required-field validation)"
+      ]
+    },
+    "device": {
+      "user_code": "WDJB-MJHT",
+      "device_code": "devcode123",
+      "verification_uri": "https://auth.kimi.com/verify",
+      "verification_uri_complete": "https://auth.kimi.com/verify?user_code=WDJB-MJHT",
+      "expires_in": 600,
+      "interval": 5
+    },
+    "initial_refresh_token": "old-rt",
+    "responses": [
+      {
+        "access_token": "new-at",
+        "refresh_token": "new-rt",
+        "expires_in": 3600,
+        "scope": "",
+        "token_type": "Bearer"
+      }
+    ],
+    "expected_forms": [
+      {
+        "grant_type": "refresh_token",
+        "client_id": "17e5f671-d194-4dfb-9706-5516cb48c098",
+        "refresh_token": "old-rt"
+      }
+    ],
+    "expected_refresh_token": "new-rt",
+    "malformed_token": {
+      "access_token": "at-1",
+      "expires_in": 60,
+      "scope": "",
+      "token_type": "Bearer"
+    }
+  },
+  "codex": {
+    "source": {
+      "repository": "https://github.com/bubbuild/republic",
+      "commit": "2fa76b5407ba1cf035293121bfab9e782ea199f3",
+      "path": "tests/test_codex.py",
+      "test": "test_codex_uses_native_stream_and_preserves_options",
+      "license": "Apache-2.0"
+    },
+    "events": [
+      {
+        "type": "response.output_text.delta",
+        "delta": "{\"ok\":true}"
+      },
+      {
+        "type": "response.completed",
+        "response": {
+          "id": "resp_1",
+          "model": "test",
+          "status": "completed",
+          "output": [],
+          "usage": {
+            "input_tokens": 3,
+            "output_tokens": 2
+          }
+        }
+      },
+      "[DONE]"
+    ],
+    "expected_text": "{\"ok\":true}",
+    "expected_usage": {
+      "input_tokens": 3,
+      "output_tokens": 2
+    },
+    "credentials": {
+      "auth_mode": "chatgpt",
+      "unrelated": {
+        "keep": true
+      },
+      "tokens": {
+        "access_token": "dummy-access",
+        "account_id": "account-1",
+        "id_token": "dummy-id"
+      }
+    },
+    "adapter_credentials": {
+      "refresh_token": "unused-synthetic-refresh"
+    },
+    "adapter_event_defaults": {
+      "item_id": "fixture-message",
+      "output_index": 0,
+      "content_index": 0,
+      "sequence_number": 0
+    }
+  },
+  "copilot": {
+    "source": {
+      "repository": "https://github.com/bubbuild/republic",
+      "commit": "2fa76b5407ba1cf035293121bfab9e782ea199f3",
+      "path": "tests/test_github_copilot.py",
+      "test": "test_github_uses_selected_cli_login_directly",
+      "license": "Apache-2.0"
+    },
+    "token": "cli-token",
+    "response": {
+      "choices": [
+        {
+          "message": {
+            "content": "hi"
+          }
+        }
+      ]
+    },
+    "expected_text": "hi",
+    "expected_messages": [
+      {
+        "role": "user",
+        "content": "hello"
+      }
+    ],
+    "expected_endpoint": "https://api.githubcopilot.com/chat/completions",
+    "adapter_response_defaults": {
+      "id": "fixture-chat",
+      "model": "test",
+      "object": "chat.completion",
+      "created": 0
+    },
+    "adapter_message_defaults": {
+      "role": "assistant"
+    }
+  },
+  "codex_tool_roundtrip": {
+    "source": {
+      "repository": "https://github.com/bubbuild/republic",
+      "commit": "2fa76b5407ba1cf035293121bfab9e782ea199f3",
+      "path": "tests/test_codex.py",
+      "test": "test_codex_keeps_reasoning_and_tool_round_trip",
+      "license": "Apache-2.0"
+    },
+    "events": [
+      {
+        "type": "response.output_item.done",
+        "item": {
+          "type": "reasoning",
+          "id": "r_1",
+          "encrypted_content": "opaque",
+          "summary": []
+        }
+      },
+      {
+        "type": "response.output_item.done",
+        "item": {
+          "type": "function_call",
+          "call_id": "c_1",
+          "name": "weather",
+          "arguments": "{\"city\":\"Paris\"}"
+        }
+      },
+      {
+        "type": "response.completed",
+        "response": {
+          "status": "completed",
+          "output": []
+        }
+      }
+    ],
+    "expected_output": [
+      {
+        "type": "reasoning",
+        "id": "r_1",
+        "encrypted_content": "opaque",
+        "summary": []
+      },
+      {
+        "type": "function_call",
+        "call_id": "c_1",
+        "name": "weather",
+        "arguments": "{\"city\":\"Paris\"}"
+      }
+    ]
+  }
+}
