@@ -16,8 +16,8 @@ jobs:
       CARGO_BUILD_JOBS: '2'
       CARGO_PROFILE_DEV_DEBUG: '0'
       CARGO_PROFILE_TEST_DEBUG: '0'
-      SERVER_COMMIT: 2cfd63f392d74815a849cea996921eb41466355c
-      QUALIFICATION_ID: sqlite-dashboard-processing-merged-2cfd63f3-v1
+      SERVER_COMMIT: dfe4d18bad9ba352431fcff0686520cf4718f113
+      QUALIFICATION_ID: sqlite-processing-snapshot-dfe4d18b-v1
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -80,7 +80,7 @@ jobs:
               'contractSha256': contract['contractSha256'],
               'artifactSha256': hashlib.sha256(wheel.read_bytes()).hexdigest(),
               'operations': sorted(contract['operations']),
-              'evidence': 'desktop/VALIDATION.md#merged-dashboard-processing-status-protocol-qualification',
+              'evidence': 'desktop/VALIDATION.md#snapshot-authorized-processing-status-protocol-qualification',
           }
           catalog_path = root / 'src-tauri/src/connections/compatibility.json'
           catalog = json.loads(catalog_path.read_text())
@@ -118,6 +118,8 @@ jobs:
           make contract-test
           uv run --no-sync python -m pytest tests/test_dashboard*.py \
             tests/builtin/test_processing_status.py tests/test_client.py -q -o addopts='' -n 2
+      - name: Verify repository quality with locked dependencies
+        run: make check
       - name: Retain exact qualification evidence
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
