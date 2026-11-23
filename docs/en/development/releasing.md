@@ -260,7 +260,7 @@ the GitHub Release page: run the command above before that action. `make publish
 ### Publish from the GitHub Actions page
 
 For an existing published Release, open **Actions → Release → Run workflow**, select `master`, and enter
-`powercontext-v1.5.2` in `release_tag`. Leave `skip_upgrade_acceptance` unchecked and click **Run workflow**.
+`powercontext-v1.6.0` in `release_tag`. Leave `skip_upgrade_acceptance` unchecked and click **Run workflow**.
 Workflow changes must be merged into `master` first. The run uses its workflow commit for gate tooling and the
 selected tag for package builds and acceptance suites. All twelve cases must pass before package publication;
 no support table, fixed Release wording, or policy-mode change is required.

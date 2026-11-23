@@ -12,18 +12,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Add an independent, append-only context prepare diagnostic store."""
+"""Add context diagnostics through the shared resumable DDL executor."""
 
-import json
-from pathlib import Path
+from alembic import context
 
-from alembic import op
-
-revision = "000"
+revision = 'v1_6_0'
 down_revision = "v1_5_2_pr2639"
 
 
-def upgrade():
-    resource = Path(__file__).parents[1] / "schemas/sqlite-000.json"
-    for statement in json.loads(resource.read_text(encoding="utf-8"))["statements"]:
-        op.get_bind().exec_driver_sql(statement)
+def upgrade() -> None:
+    context.config.attributes["execute_revision"](revision)

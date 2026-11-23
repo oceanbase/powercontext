@@ -232,7 +232,7 @@ CI 中的 **Upgrade release gate** 要求真实 1.3.0 数据库在十二个必�
 ### 在 GitHub 页面触发发布
 
 对于已有的已发布 Release，打开 **Actions → Release → Run workflow**，分支选择 `master`，
-在 `release_tag` 中填写 `powercontext-v1.5.2`，保持 `skip_upgrade_acceptance` 不勾选，点击 **Run workflow**。
+在 `release_tag` 中填写 `powercontext-v1.6.0`，保持 `skip_upgrade_acceptance` 不勾选，点击 **Run workflow**。
 工作流修改须先合并到 `master`。本次运行使用工作流提交中的验收脚本，从所选标签构建安装包并执行验收套件。
 十二个组合全部通过后才发布软件包，无需支持范围表格、固定 Release 文案或修改策略模式。
 

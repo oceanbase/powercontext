@@ -39,8 +39,8 @@ def test_diagnostic_upgrade_creates_query_column_and_preserves_published_data(tm
     current = server_bundle()
     assert all(current.checksums[key] == value for key, value in previous.checksums.items())
     upgraded = SQLiteMigrationRunner(database, current, configuration=config)
-    assert upgraded.plan().revisions == ("v1_5_2_pr2639", "000")
-    assert apply(upgraded).revision == "000"
+    assert upgraded.plan().revisions == ("v1_5_2_pr2639", "v1_6_0")
+    assert apply(upgraded).revision == "v1_6_0"
     assert upgraded.verify().state == "ready" and not apply(upgraded).changed
     query = "查询原文保留 😀\n"
     with closing(sqlite3.connect(database)) as connection, connection:

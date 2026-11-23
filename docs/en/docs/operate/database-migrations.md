@@ -15,10 +15,10 @@ The design follows [RFC #1771](https://github.com/oceanbase/powercontext/pull/17
 `powercontext server db-migrate status/plan/apply/verify` default to `--bundle server` and use the configured persistent SQLite, embedded seekDB, or OceanBase MySQL database. Explicit environment files are authoritative; arbitrary bundle paths are not accepted.
 
 The full Server framework uses two normalization checkpoints before its shared migration chain for the PowerContext
-1.5.2 target (stored compatibility IDs shown below):
+1.6.0 target (stored compatibility IDs shown below):
 
-- **1.3.0:** `s1300 → s1400 → s1401 → s1402 → v1_4_1_004 → v1_4_1_005 → v1_4_1_006 → v1_5_0_001 → v1_5_0_002 → v1_5_0_003 → v1_5_0_004 → v1_5_0_005 → v1_5_2_pr2639`.
-- **1.4.0:** `r1400 → s1400 → s1401 → s1402 → v1_4_1_004 → v1_4_1_005 → v1_4_1_006 → v1_5_0_001 → v1_5_0_002 → v1_5_0_003 → v1_5_0_004 → v1_5_0_005 → v1_5_2_pr2639` through a separate frozen source bridge.
+- **1.3.0:** `s1300 → s1400 → s1401 → s1402 → v1_4_1_004 → v1_4_1_005 → v1_4_1_006 → v1_5_0_001 → v1_5_0_002 → v1_5_0_003 → v1_5_0_004 → v1_5_0_005 → v1_5_2_pr2639 → v1_6_0`.
+- **1.4.0:** `r1400 → s1400 → s1401 → s1402 → v1_4_1_004 → v1_4_1_005 → v1_4_1_006 → v1_5_0_001 → v1_5_0_002 → v1_5_0_003 → v1_5_0_004 → v1_5_0_005 → v1_5_2_pr2639 → v1_6_0` through a separate frozen source bridge.
 
 Application release numbers and schema revisions are distinct. The 1.4.0 release is not the `s1400` checkpoint:
 its existing Candidate schema is current, but its Topic attempt storage still needs the registered bridge.
@@ -149,7 +149,7 @@ read-only no-op. See [Migrate to Atomic Memory](atomic-memory-migration.md).
 
 ## Migration names and software versions
 
-The target release is **PowerContext 1.5.2**. Schema changes for the next release accumulate
+The target release is **PowerContext 1.6.0**. Schema changes for the next release accumulate
 in the shared unpublished revision `000`. A release PR freezes that draft as `v<major>_<minor>_<patch>`;
 there is no PR number or step suffix. Execution follows `down_revision`, not name sorting.
 Without a schema change, a release keeps the previous database head and adds no revision.
@@ -174,13 +174,13 @@ literal mutable draft ID `000`. The following registered names remain unchanged:
 | `v1_5_0_004` | 1.5.0 | 4 | `v1_5_0_004` | Source citation position locators |
 | `v1_5_0_005` | 1.5.0 | 5 | `v1_5_0_005` | Remove previous plugin-framework storage and add nullable Artifact metadata |
 | `v1_5_2_pr2639` | 1.5.2 | PR #2639 | `v1_5_2_pr2639` | Source collection runner and target tables; remove the write plugin registry |
-| `000` | — | Draft | `v1_5_2_pr2639` | Independent prepare diagnostics |
+| `v1_6_0` | 1.6.0 | — | `v1_6_0` | Independent prepare diagnostics |
 
-Both registered source paths reach the `000` draft after `v1_5_2_pr2639`; only 1.3.0 is selected for CI upgrade acceptance:
+Both registered source paths reach `v1_6_0` after `v1_5_2_pr2639`; only 1.3.0 is selected for CI upgrade acceptance:
 
 ```text
-1.3.0: v1_3_0_000 -> v1_4_1_001 -> v1_4_1_002 -> v1_4_1_003 -> v1_4_1_004 -> v1_4_1_005 -> v1_4_1_006 -> v1_5_0_001 -> v1_5_0_002 -> v1_5_0_003 -> v1_5_0_004 -> v1_5_0_005 -> v1_5_2_pr2639 -> 000
-1.4.0: v1_4_0_000 -> v1_4_1_001 -> v1_4_1_002 -> v1_4_1_003 -> v1_4_1_004 -> v1_4_1_005 -> v1_4_1_006 -> v1_5_0_001 -> v1_5_0_002 -> v1_5_0_003 -> v1_5_0_004 -> v1_5_0_005 -> v1_5_2_pr2639 -> 000
+1.3.0: v1_3_0_000 -> v1_4_1_001 -> v1_4_1_002 -> v1_4_1_003 -> v1_4_1_004 -> v1_4_1_005 -> v1_4_1_006 -> v1_5_0_001 -> v1_5_0_002 -> v1_5_0_003 -> v1_5_0_004 -> v1_5_0_005 -> v1_5_2_pr2639 -> v1_6_0
+1.4.0: v1_4_0_000 -> v1_4_1_001 -> v1_4_1_002 -> v1_4_1_003 -> v1_4_1_004 -> v1_4_1_005 -> v1_4_1_006 -> v1_5_0_001 -> v1_5_0_002 -> v1_5_0_003 -> v1_5_0_004 -> v1_5_0_005 -> v1_5_2_pr2639 -> v1_6_0
 ```
 
 `status` and `plan` show `source_migration`, `target_migration` and `pending_migrations`
@@ -292,7 +292,7 @@ then remain immutable; failures are fixed in the next cumulative migration.
 
 Existing `pc_schema_revision` values, resources, plans and checksums remain unchanged by this workflow
 change. The released 1.5.2 database head is `v1_5_0_005`; the existing `v1_5_2_pr2639` revision
-follows it and remains unchanged. New cumulative drafts depend on that current head. No production
+follows it and remains unchanged. The 1.6.0 release freezes the following cumulative migration as `v1_6_0`; new drafts depend on that head. No production
 draft is introduced without a real storage change.
 
 ## Initialization and maintenance ownership
@@ -901,7 +901,7 @@ registered migration chain and read-only startup admission; its startup never in
 
 ### Prepare diagnostic storage
 
-The `000` draft adds only `pc_context_prepare_diagnostics` and its Scope/time/status indexes. It does not change existing
+Revision `v1_6_0` adds only `pc_context_prepare_diagnostics` and its Scope/time/status indexes. It does not change existing
 records or backfill past prepare calls. The table has no Scope deletion foreign key or cascade. Existing managed
 installations must migrate before startup. Capture is always on for the Server; recovery uses the existing
 verified-backup workflow and never automatically drops diagnostic records.

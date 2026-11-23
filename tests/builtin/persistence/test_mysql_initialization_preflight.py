@@ -260,7 +260,7 @@ def test_evidence_recovery_resumes_before_final_schema_marker(tmp_path, monkeypa
                 "v1_5_0_004",
                 "v1_5_0_005",
                 "v1_5_2_pr2639",
-                "000",
+                "v1_6_0",
             )
 
             assert (database.read_bytes(), journal.path.read_bytes()) == before

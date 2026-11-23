@@ -133,9 +133,9 @@ def test_registered_s1401_upgrade_preserves_completed_evidence_and_matches_fresh
         "v1_5_0_004",
         "v1_5_0_005",
         "v1_5_2_pr2639",
-        "000",
+        "v1_6_0",
     )
-    assert apply(upgraded).revision == "000"
+    assert apply(upgraded).revision == "v1_6_0"
     assert upgraded.verify().state == "ready"
     assert not apply(upgraded).changed
     fresh = SQLiteMigrationRunner(tmp_path / "fresh.db", bundle, configuration=config)
@@ -203,7 +203,7 @@ def test_release_upgrade_preserves_data_and_adds_collection_runners(tmp_path, ve
             "v1_5_0_004",
             "v1_5_0_005",
             "v1_5_2_pr2639",
-            "000",
+            "v1_6_0",
         )
         if include_owner
         else (
@@ -216,10 +216,10 @@ def test_release_upgrade_preserves_data_and_adds_collection_runners(tmp_path, ve
             "v1_5_0_004",
             "v1_5_0_005",
             "v1_5_2_pr2639",
-            "000",
+            "v1_6_0",
         )
     )
-    assert apply(upgraded).revision == "000"
+    assert apply(upgraded).revision == "v1_6_0"
     capabilities = b'[{"error":null,"name":"tickets","version":"1.0.0"}]'
     with closing(sqlite3.connect(database)) as connection, connection:
         assert connection.execute("SELECT title FROM pc_scopes").fetchall() == [("preserved",)]
