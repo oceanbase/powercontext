@@ -340,3 +340,22 @@ from the plugin's own version. Keep experimental support experimental unless its
 Fetch the referenced tags in local and CI checkouts before running integration manifest checks, regenerate the
 bilingual capability matrix with `make integration-manifest-docs`, and update related integration overview and
 evaluation guidance. Do not create or move a release tag just to make an availability check pass.
+
+## Gateway binary distribution
+
+The Release workflow builds `pc-gateway` from the resolved release commit for Linux x86_64/arm64 and
+macOS Intel/Apple Silicon. Every platform embeds the release version, commit and target, verifies the archive checksum,
+and runs the unpacked binary against a real SQLite Core before its artifact can be uploaded. No provider calls are made.
+`release-assets` requires all four build jobs and validates a complete catalog before attaching archives, per-archive
+SHA256 files, `powercontext-gateway-SHA256SUMS`, and `powercontext-gateway-manifest.json` to the same Release.
+`gateway-release-verify` then downloads the published archives on all four native runners and repeats identity,
+startup, Core proxy and authentication checks. A green Python publication job does not waive this verification.
+
+Pull requests changing Gateway, Core, the packaging scripts or release workflows run **Gateway distribution** with
+candidate version `0.0.0-dev.<commit>`. Those archives are Actions artifacts only; PR checks and manual build dispatch
+never publish Release assets. Keep the distribution workflow in the release tag's source. Existing published tags
+without it cannot gain these binaries by rerunning the old workflow.
+
+Linux builds use Ubuntu 24.04 (glibc 2.39+); macOS builds target macOS 15+. macOS binaries are unsigned and not notarized.
+These packages do not include Core or provider CLIs, and do not establish real-provider acceptance. See
+[Gateway installation](../docs/operate/install-gateway.md). Docker distribution is separate future work.

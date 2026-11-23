@@ -308,3 +308,20 @@ Server、MCP 和 SQLite 行为。
 继续保持试验性。在本地和 CI 检出中获取所引用的 tag 后再运行集成 manifest 检查，使用
 `make integration-manifest-docs` 重新生成双语能力矩阵，并同步相关集成概览和评测说明。不要仅为通过可用性检查
 而创建或移动发布 tag。
+
+## Gateway 二进制分发
+
+Release 工作流从解析后的发布提交构建 Linux x86_64/arm64 和 macOS Intel/Apple Silicon 四个平台的
+`pc-gateway`。每个平台嵌入发布版本、提交和目标平台，验证压缩包校验和，并使用解包后的二进制连接真实 SQLite Core，
+通过后才能上传构建产物；该过程不调用供应商。`release-assets` 依赖全部四个平台构建成功，并在确认完整清单后，
+将压缩包、逐包 SHA256 文件、`powercontext-gateway-SHA256SUMS` 和 `powercontext-gateway-manifest.json` 上传到同一 Release。
+随后 `gateway-release-verify` 在四个平台的原生 runner 上下载已发布附件，重复检查身份、启动、Core 代理与认证。
+Python 发布任务通过不能替代这些验证。
+
+修改 Gateway、Core、打包脚本或发布工作流的 PR 会运行 **Gateway distribution**，候选版本为 `0.0.0-dev.<commit>`。
+候选压缩包仅保存为 Actions 构建产物；PR 检查和手动构建 dispatch 不发布 Release 附件。
+发布标签的源码必须包含分发工作流；已经发布且不包含此工作流的旧标签不能通过重跑旧工作流获得这些二进制。
+
+Linux 构建使用 Ubuntu 24.04（glibc 2.39+），macOS 构建以 macOS 15+ 为基线。macOS 二进制未签名、未公证。
+压缩包不包含 Core 和供应商 CLI，这些检查也不代表真实供应商验收。详见[Gateway 安装](../docs/operate/install-gateway.md)。
+Docker 分发留待后续实现。

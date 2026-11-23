@@ -83,6 +83,23 @@ pub struct AppState {
 #[tokio::main]
 async fn main() {
     let arguments: Vec<_> = std::env::args_os().skip(1).collect();
+    if arguments.len() == 1 && (arguments[0] == "--version" || arguments[0] == "-V") {
+        println!(
+            "pc-gateway {} ({}; {})",
+            option_env!("PC_GATEWAY_BUILD_VERSION").unwrap_or(env!("CARGO_PKG_VERSION")),
+            option_env!("PC_GATEWAY_BUILD_COMMIT").unwrap_or("unknown"),
+            option_env!("PC_GATEWAY_BUILD_TARGET").unwrap_or(std::env::consts::ARCH),
+        );
+        return;
+    }
+    if arguments.len() == 1 && (arguments[0] == "--help" || arguments[0] == "-h") {
+        println!(
+            "Usage: pc-gateway [--version | --help | login <copilot|qwen|kimi> <new-credential-file>]\n\
+             With no arguments, run the Gateway using PC_GATEWAY_* environment variables.\n\
+             Configuration: https://powercontext.oceanbase.io/en/docs/operate/deploy-server/"
+        );
+        return;
+    }
     if !arguments.is_empty() {
         let result = match arguments.as_slice() {
             [command, provider, path] if command == "login" => {

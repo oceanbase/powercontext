@@ -1,0 +1,131 @@
+name: Gateway distribution
+
+on:
+  pull_request:
+    paths:
+      - gateway/**
+      - src/**
+      - pyproject.toml
+      - uv.lock
+      - scripts/gateway_distribution.py
+      - tests/test_gateway_distribution.py
+      - tests/e2e/gateway_distribution_smoke.py
+      - .github/workflows/gateway-distribution.yml
+      - .github/workflows/release.yml
+  workflow_dispatch:
+  workflow_call:
+    inputs:
+      source_ref:
+        type: string
+        required: true
+      release_tag:
+        type: string
+        required: true
+      published:
+        description: Download published assets instead of building
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  native:
+    name: Gateway ${{ matrix.target }} (${{ inputs.published && 'download' || 'build' }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            target: x86_64-unknown-linux-gnu
+          - runner: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+          - runner: macos-15-intel
+            target: x86_64-apple-darwin
+          - runner: macos-15
+            target: aarch64-apple-darwin
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    env:
+      MACOSX_DEPLOYMENT_TARGET: '15.0'
+      PC_GATEWAY_BUILD_TARGET: ${{ matrix.target }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ inputs.source_ref || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Resolve artifact identity
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          EXPECTED_COMMIT: ${{ inputs.source_ref }}
+        run: |
+          python3 - <<'PY'
+          import os, re, subprocess
+          commit = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
+          expected = os.environ['EXPECTED_COMMIT']
+          if expected and commit != expected:
+              raise SystemExit('Release source does not match the resolved commit')
+          tag = os.environ['RELEASE_TAG']
+          if tag:
+              match = re.fullmatch(r'(?:powercontext-v|v)?(\d+\.\d+\.\d+(?:(?:a|b|rc)\d+)?)', tag)
+              if not match:
+                  raise SystemExit('Invalid release tag')
+              tagged = subprocess.check_output(['git', 'rev-parse', tag + '^{commit}'], text=True).strip()
+              if tagged != commit:
+                  raise SystemExit('Release tag moved')
+              version = match[1]
+          else:
+              version = '0.0.0-dev.' + commit[:12]
+          with open(os.environ['GITHUB_ENV'], 'a') as output:
+              output.write(f'PC_GATEWAY_BUILD_VERSION={version}\nPC_GATEWAY_BUILD_COMMIT={commit}\n')
+              output.write(f"TMPDIR={os.environ['RUNNER_TEMP']}\n")
+          PY
+      - name: Set up Core
+        uses: ./.github/actions/setup-python-env
+        with:
+          python-version: '3.12'
+      - name: Install pinned Rust
+        if: ${{ !inputs.published }}
+        run: rustup toolchain install 1.95.0 --profile minimal
+      - name: Cache native build
+        if: ${{ !inputs.published }}
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          workspaces: gateway -> target
+          key: distribution-${{ matrix.target }}
+      - name: Build release executable
+        if: ${{ !inputs.published }}
+        run: cargo +1.95.0 build --locked --manifest-path gateway/Cargo.toml --release -p pc-gateway-app --target "$PC_GATEWAY_BUILD_TARGET"
+      - name: Package executable
+        if: ${{ !inputs.published }}
+        run: >-
+          python3 scripts/gateway_distribution.py package
+          --binary "gateway/target/$PC_GATEWAY_BUILD_TARGET/release/pc-gateway"
+          --directory dist/gateway --version "$PC_GATEWAY_BUILD_VERSION"
+          --commit "$PC_GATEWAY_BUILD_COMMIT" --target "$PC_GATEWAY_BUILD_TARGET"
+      - name: Download published archive and checksum
+        if: ${{ inputs.published }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          archive="powercontext-gateway-$PC_GATEWAY_BUILD_VERSION-$PC_GATEWAY_BUILD_TARGET.tar.gz"
+          gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --dir dist/gateway --pattern "$archive" --pattern "$archive.sha256"
+      - name: Verify and unpack the distribution
+        run: >-
+          python3 scripts/gateway_distribution.py verify
+          --directory dist/gateway --extract-to "$RUNNER_TEMP/gateway-unpacked"
+          --version "$PC_GATEWAY_BUILD_VERSION" --commit "$PC_GATEWAY_BUILD_COMMIT"
+          --target "$PC_GATEWAY_BUILD_TARGET"
+      - name: Run unpacked binary against real Core
+        run: uv run --frozen python tests/e2e/gateway_distribution_smoke.py --binary "$RUNNER_TEMP/gateway-unpacked/pc-gateway"
+      - name: Upload qualified distribution
+        if: ${{ !inputs.published }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: gateway-dist-${{ matrix.target }}
+          path: dist/gateway/*
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 14
