@@ -89,6 +89,7 @@ limitations under the License.
   </style>
   {% if not processing_source and not processing_run %}
     {% include 'components/observation-header.html' %}
+    {% if processing_kind == 'sources' and automatic_status is defined and automatic_status %}{% include 'components/automatic-status.html' %}{% endif %}
     {% if processing_kind == 'sources' %}{% if processing_show_topic_status %}{% include 'components/processing-topic-status.html' %}{% endif %}
     {% else %}{% include 'components/processing-filters.html' %}{% endif %}
   {% endif %}

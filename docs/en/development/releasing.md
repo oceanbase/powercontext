@@ -200,7 +200,7 @@ CI upgrade acceptance, so a passing gate does not certify its upgrade path. Sour
 from public PyPI and recorded with the target artifact.
 
 The source-specific chains start at `s1300` for 1.3.0 and `r1400` for 1.4.0, join the shared
-`s1400 → s1401 → s1402` path, and continue through `v1_4_1_004 → v1_4_1_005 → v1_4_1_006 → v1_5_0_001 → v1_5_0_002 → v1_5_0_003 → v1_5_0_004 → v1_5_0_005 → v1_5_2_pr2639`.
+`s1400 → s1401 → s1402` path, and continue through `v1_4_1_004 → v1_4_1_005 → v1_4_1_006 → v1_5_0_001 → v1_5_0_002 → v1_5_0_003 → v1_5_0_004 → v1_5_0_005 → v1_5_0_006`.
 They share the target contract while preserving their frozen execution
 history and journal lineage for subsequent registered upgrades. Application versions do not identify schema
 checkpoints. In particular, 1.4.0 already has current Candidate envelopes: its bridge preserves those records and
@@ -260,7 +260,7 @@ the GitHub Release page: run the command above before that action. `make publish
 ### Publish from the GitHub Actions page
 
 For an existing published Release, open **Actions → Release → Run workflow**, select `master`, and enter
-`powercontext-v1.5.2` in `release_tag`. Leave `skip_upgrade_acceptance` unchecked and click **Run workflow**.
+`powercontext-v1.6.0` in `release_tag`. Leave `skip_upgrade_acceptance` unchecked and click **Run workflow**.
 Workflow changes must be merged into `master` first. The run uses its workflow commit for gate tooling and the
 selected tag for package builds and acceptance suites. All twelve cases must pass before package publication;
 no support table, fixed Release wording, or policy-mode change is required.
@@ -340,3 +340,31 @@ from the plugin's own version. Keep experimental support experimental unless its
 Fetch the referenced tags in local and CI checkouts before running integration manifest checks, regenerate the
 bilingual capability matrix with `make integration-manifest-docs`, and update related integration overview and
 evaluation guidance. Do not create or move a release tag just to make an availability check pass.
+
+## Gateway binary distribution
+
+The Release workflow builds `pc-gateway` from the resolved release commit for Linux x86_64/arm64 and
+macOS Intel/Apple Silicon. Every platform embeds the release version, commit and target, verifies the archive checksum,
+and runs the unpacked binary against a real SQLite Core before its artifact can be uploaded. No provider calls are made.
+`release-assets` requires all four build jobs and validates a complete catalog before attaching archives, per-archive
+SHA256 files, `powercontext-gateway-SHA256SUMS`, and `powercontext-gateway-manifest.json` to the same Release.
+`gateway-release-verify` then downloads the published archives on all four native runners and repeats identity,
+startup, Core proxy and authentication checks. A green Python publication job does not waive this verification.
+
+Ordinary pull requests and branch pushes do not build Gateway distribution archives. Use **Gateway distribution →
+Run workflow** to build and verify all four platforms manually from a selected ref, with candidate version
+`0.0.0-dev.<commit>`. Candidate archives are Actions artifacts only; manual dispatch never publishes Release assets.
+The release workflow calls the same build and published-download verification jobs for the resolved release commit.
+Keep the distribution workflow in the release tag's source. Existing published tags without it cannot gain these
+binaries by rerunning the old workflow.
+
+Core smoke checks use uv-managed Python with SQLite 3.38+ and print subprocess diagnostics on failure.
+Linux builds run on native Ubuntu 22.04 runners with pinned cargo-zigbuild 0.24.1 and Zig 0.15.2, explicitly targeting
+`x86_64-unknown-linux-gnu.2.28` or `aarch64-unknown-linux-gnu.2.28`. The resulting binaries must not reference glibc symbols
+newer than 2.28. Both architectures must pass the native real-Core smoke checks and a Rocky Linux 8 container
+smoke check with Core running on the runner and connected over UDS. These containers verify userspace compatibility
+while sharing the runner's kernel; they do not validate historical kernels or entire older distributions.
+Core's Python and SQLite requirements and provider CLI requirements are separate from the Gateway's glibc baseline.
+macOS builds target macOS 15+; macOS binaries are unsigned and not notarized.
+These packages do not include Core or provider CLIs, and do not establish real-provider acceptance. See
+[Gateway installation](../docs/operate/install-gateway.md). Docker distribution is separate future work.

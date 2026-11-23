@@ -21,8 +21,9 @@ import math
 from base64 import urlsafe_b64encode
 from contextlib import asynccontextmanager, nullcontext
 from dataclasses import dataclass, replace
+from functools import partial
 from hashlib import sha256
-from typing import TYPE_CHECKING, Literal, NoReturn, cast
+from typing import TYPE_CHECKING, Any, Literal, NoReturn, cast
 
 from sqlalchemy import func, literal, select, true, tuple_, update
 from sqlalchemy.exc import OperationalError
@@ -34,10 +35,28 @@ from powercontext.builtin.artifacts.atomic_memory.errors import AtomicMemoryConf
 from powercontext.builtin.artifacts.atomic_memory.extraction import (
     AtomicMemoryEvidence,
     AtomicMemoryExtractionInput,
+    AtomicMemoryGenerationPipeline,
+    log_prefixed_extraction,
     project_atomic_memory_evidence,
     require_atomic_memory_pipeline,
 )
 from powercontext.builtin.artifacts.atomic_memory.models import AtomicMemoryContent
+from powercontext.builtin.artifacts.atomic_memory.one_pass import (
+    ONE_PASS_MAX_MEMORIES,
+    ONE_PASS_MEMORIES_PER_QUERY,
+    apply_one_pass_operations,
+    apply_one_pass_recheck,
+    one_pass_instructions,
+    parse_one_pass_entries,
+    render_existing_memories,
+    render_recheck,
+)
+from powercontext.builtin.artifacts.atomic_memory.prefixed_extraction import (
+    PrefixedExtractionUnavailable,
+    prefix_handle,
+    prefix_start,
+    source_records,
+)
 from powercontext.builtin.artifacts.atomic_memory.reconciliation import (
     ATOMIC_MEMORY_RECONCILIATION_INSTRUCTIONS,
     AtomicMemoryArtifactEvidence,
@@ -64,6 +83,8 @@ from powercontext.builtin.inference import (
     InvalidInferenceOutputError,
     embed_query,
 )
+from powercontext.builtin.inference.models import ConversationReply, ConversationTurn
+from powercontext.builtin.inference.protocols import StructuredGenerator
 from powercontext.builtin.persistence.atomic_memory_index import (
     DEFAULT_ATOMIC_MEMORY_RELATED_PAGE_SIZE,
     AtomicMemoryIndexError,
@@ -116,10 +137,12 @@ class AtomicMemoryProcessingConfig:
     related_fts_fallback: bool = False
     comparison_batch_size: int = 20
     input_tokens_limit: int = 64_000
+    processing_mode: Literal["per_candidate", "one_pass"] = "per_candidate"
 
     def __post_init__(self) -> None:
         if (
             self.related_mode not in {"auto", "fts", "vector", "hybrid"}
+            or self.processing_mode not in {"per_candidate", "one_pass"}
             or not math.isfinite(self.related_max_distance)
             or self.related_max_distance < 0
             or (
@@ -141,6 +164,7 @@ class AtomicMemoryProcessingConfig:
             related_fts_fallback=runtime.atomic_memory_related_fts_fallback,
             comparison_batch_size=runtime.atomic_memory_comparison_batch_size,
             input_tokens_limit=runtime.atomic_memory_input_tokens_limit,
+            processing_mode=runtime.atomic_memory_processing_mode,
         )
 
 
@@ -492,6 +516,12 @@ class AtomicMemorySourceWindowProcessor:
             and context.access is not None
             and context.access.supports_read_snapshot(self.application.database.engine)
         )
+        if self.config.processing_mode == "one_pass":
+            prepared = await self._prepare_one_pass(
+                scope_id, eligible, pipeline, context, extraction_input, local_policy=local_policy
+            )
+            if prepared is not None:
+                return prepared
         await self._authorize_model_input(
             scope_id,
             context,
@@ -618,11 +648,210 @@ class AtomicMemorySourceWindowProcessor:
             )
             if not compared:
                 await compare_pending([], required=True)
+        return self._with_prompt_refs(workset, artifacts, prompt_refs)
+
+    @staticmethod
+    def _with_prompt_refs(workset, artifacts, prompt_refs):
         for item in workset.changes():
             refs = {(ref.family, ref.artifact_id, ref.revision): ref for ref in (*item.artifacts, *prompt_refs)}
             workset.items[item.key] = replace(item, artifacts=tuple(refs.values()))
             artifacts.update(refs)
         return workset, tuple(artifacts.values())
+
+    async def _prepare_one_pass(self, scope_id, eligible, pipeline, context, extraction_input, *, local_policy):
+        """Prepare the window in one conversation, or return ``None`` when its input exceeds the budget.
+
+        The caller then prepares the window per candidate, which compares within the same budget in smaller batches.
+        """
+        if pipeline.conversation is None:
+            raise InferenceUnavailableError(
+                "atomic-memory-generation", "One-pass processing requires a conversation generator"
+            )
+        extraction_prompt = current_prompt("atomic_memory.extract")
+        reconciliation_prompt = current_prompt("atomic_memory.reconcile")
+        prompt_refs = tuple(
+            prompt.artifact
+            for prompt in (extraction_prompt, reconciliation_prompt)
+            if prompt is not None and prompt.artifact is not None
+        )
+        extraction_rules = (
+            pipeline.extraction_instructions if extraction_prompt is None else extraction_prompt.compiled_instructions
+        )
+        # The compiled reconciliation Prompt describes the per-candidate reply; only its Scope-owned text applies here.
+        guidance = (
+            reconciliation_prompt.instructions
+            if reconciliation_prompt is not None and reconciliation_prompt.selection == "artifact"
+            else None
+        )
+        metadata = None if extraction_prompt is None else extraction_prompt.trace_attributes()
+        conversation = _OnePassConversation(
+            pipeline,
+            pipeline.conversation,
+            one_pass_instructions(extraction_rules, guidance),
+            metadata,
+            self.config.input_tokens_limit,
+        )
+        evidence = (
+            extraction_input.model_dump_json()
+            if pipeline.input_renderer is None
+            else pipeline.input_renderer(extraction_input)
+        )
+        if not conversation.fits(evidence):
+            _log_one_pass("fallback", conversation, "entries_input_over_budget", conversation.estimate(evidence))
+            return None
+
+        async def converse(conversation: _OnePassConversation, first: str):
+            return await self._converse_one_pass(
+                scope_id, eligible, context, conversation, first, extraction_input, prompt_refs, local_policy
+            )
+
+        if pipeline.prefixed_conversation is not None and prefix_handle(extraction_input) is not None:
+            # The agent's conversation already holds the evidence, so the first message only lists the Sources.
+            try:
+                prefixed = _OnePassConversation(
+                    pipeline,
+                    pipeline.prefixed_conversation,
+                    one_pass_instructions(extraction_rules, guidance, evidence_in_prefix=True),
+                    metadata,
+                    self.config.input_tokens_limit,
+                    (prefix_start(extraction_input, conversation.estimate(evidence)),),
+                )
+                prepared = await converse(prefixed, source_records(extraction_input.evidence))
+            except PrefixedExtractionUnavailable as error:
+                reason = error.reason
+            except InvalidInferenceOutputError as error:
+                # Sending the evidence the normal way only adds to an input that is already over its budget.
+                if error.operation == "atomic-memory-input-budget":
+                    raise
+                reason = "invalid_output"
+            else:
+                # An over-budget second step is reported as the one-pass fallback and leaves nothing prepared here.
+                if prepared is not None:
+                    log_prefixed_extraction("success", operation="atomic_memory.one_pass")
+                return prepared
+            # Nothing from the prefixed conversation was kept; the window starts again with its evidence sent by Core.
+            log_prefixed_extraction("fallback", reason, operation="atomic_memory.one_pass")
+        return await converse(conversation, evidence)
+
+    async def _converse_one_pass(
+        self, scope_id, eligible, context, conversation, first, extraction_input, prompt_refs, local_policy
+    ):
+        """Run the steps of one conversation whose first message is ``first``; ``None`` when step 2 is over budget."""
+        workset = AtomicMemoryWindowWorkset()
+        await self._authorize_model_input(scope_id, context, eligible, prompt_refs)
+        entries = await conversation.turn(first, parse_one_pass_entries)
+        await self._authorize_model_input(scope_id, context, eligible, prompt_refs)
+
+        async def recall(query: str) -> tuple[str, ...]:
+            recalled: list[str] = []
+
+            async def keep_page(keys: tuple[str, ...]) -> None:
+                recalled.extend(keys)
+
+            await self._recall_related_items(
+                scope_id,
+                context,
+                workset,
+                keep_page,
+                request=await self._related_request_for(scope_id, query, context, local_policy=local_policy),
+                local_policy=local_policy,
+                limit=ONE_PASS_MEMORIES_PER_QUERY,
+            )
+            return tuple(recalled)
+
+        shown: dict[str, str] = {}
+        for entry in entries.output:
+            if len(shown) >= ONE_PASS_MAX_MEMORIES:
+                break
+            for key in await recall(entry.query):
+                if len(shown) < ONE_PASS_MAX_MEMORIES and key not in shown.values():
+                    shown[f"M{len(shown) + 1}"] = key
+        message = render_existing_memories({label: workset.items[key] for label, key in shown.items()})
+        if not conversation.fits(message, entries):
+            _log_one_pass(
+                "fallback", conversation, "operations_input_over_budget", conversation.estimate(message, entries)
+            )
+            return None
+        basis = tuple(workset.items[key] for key in shown.values())
+        await self._authorize_comparison_basis(scope_id, context, basis)
+        operations = await conversation.turn(
+            message, lambda reply: apply_one_pass_operations(workset, reply, shown, extraction_input), entries
+        )
+        workset, created = operations.output
+
+        workset = await self._recheck_one_pass(
+            scope_id, context, conversation, workset, created, basis, recall, operations, extraction_input
+        )
+        _log_one_pass("success", conversation)
+        return self._with_prompt_refs(workset, {}, prompt_refs)
+
+    async def _recheck_one_pass(
+        self, scope_id, context, conversation, workset, created, basis, recall, operations, extraction_input
+    ):
+        """Decide created memories again beside the memories that only their own text recalls.
+
+        Step 2 compared a created memory with what its entry's query recalled; ``basis`` holds those memories. Every
+        recheck resends them in the conversation, so their read and write authority is checked again with the new ones.
+        """
+        pending: dict[str, str] = {}
+        unseen: dict[str, dict[str, str]] = {}
+        compared = {read.ref.artifact_id for item in basis for read in item.origins}
+        # A memory that several created memories recall keeps one label, so the model sees it is the same memory.
+        labels: dict[str, str] = {}
+        for key in created:
+            found = tuple(
+                item
+                for item in dict.fromkeys(await recall(workset.items[key].content.text))
+                if not any(read.ref.artifact_id in compared for read in workset.items[item].origins)
+            )
+            if found:
+                label = f"C{len(pending) + 1}"
+                pending[label] = key
+                for item in found:
+                    labels.setdefault(item, f"M{len(basis) + len(labels) + 1}")
+                unseen[label] = {labels[item]: item for item in found}
+        while pending:
+            # Each created memory is decided on its own, so the budget only spreads them over several turns.
+            batch = dict(pending)
+            while True:
+                message = render_recheck(
+                    {label: workset.items[workset.resolve(key)] for label, key in batch.items()},
+                    {
+                        label: {memory: workset.items[workset.resolve(item)] for memory, item in unseen[label].items()}
+                        for label in batch
+                    },
+                )
+                if conversation.fits(message, operations) or len(batch) == 1:
+                    break
+                batch = dict(list(batch.items())[: len(batch) // 2])
+            self._require_budget(
+                conversation.pipeline,
+                extraction_input,
+                "atomic_memory.reconcile",
+                estimated=conversation.estimate(message, operations),
+            )
+            await self._authorize_comparison_basis(
+                scope_id,
+                context,
+                (
+                    *basis,
+                    *(workset.items[workset.resolve(item)] for label in batch for item in unseen[label].values()),
+                ),
+            )
+            rechecked = await conversation.turn(
+                message,
+                partial(
+                    apply_one_pass_recheck,
+                    workset,
+                    created=batch,
+                    unseen={label: unseen[label] for label in batch},
+                ),
+                operations,
+            )
+            workset = rechecked.output
+            for label in batch:
+                del pending[label]
+        return workset
 
     async def _load_related_items(self, connection, scope_id, hits, context, workset, *, joined_heads):
         from powercontext.builtin.authz import AccessDeniedError
@@ -687,40 +916,54 @@ class AtomicMemorySourceWindowProcessor:
                 filters = await application.security.filters(connection, scope_id, context)
         return await self._related_request(query, filters)
 
-    async def _recall_related_items(self, scope_id, context, workset, compare_page, *, request, local_policy=False):
-        application = self.application
+    async def _recall_related_items(
+        self, scope_id, context, workset, compare_page, *, request, local_policy=False, limit=None
+    ):
+        """Page through the related memories in rank order.
+
+        Compared pages are released from the workset. With ``limit``, only the closest memories are read and they
+        stay in the workset for the caller.
+        """
         request, ranks = await self._related_rank_snapshot(scope_id, request)
+        ranks = ranks[:limit]
         if not ranks:
             return
         cursor = AtomicMemoryRelatedCursor(ranks)
         while True:
-            async with (
-                deferred_decision_audit(context),
-                application.database.transaction(consistent_snapshot=True) as connection,
-            ):
-                try:
-                    page = await application.index.related_page(connection, scope_id, request, cursor)
-                except AtomicMemoryIndexError as error:
-                    if error.code == "stale-recall":
-                        _conflict("Related memory changed before page admission")
-                    raise
-                if page is None:
-                    break
-                refs = tuple(hit.artifact_ref for hit in page.hits)
-                async with self._prefetch_artifact_policy(
-                    connection, scope_id, context, refs, include_scope=local_policy
-                ):
-                    if local_policy:
-                        await application.security.authorize(connection, scope_id, context, "read")
-                    loaded = await self._load_related_items(
-                        connection, scope_id, page.hits, context, workset, joined_heads=page.heads
-                    )
+            page, loaded = await self._read_related_page(
+                scope_id, context, workset, request, cursor, local_policy=local_policy
+            )
+            if page is None:
+                break
             cursor = page.cursor
             if loaded:
                 key = await compare_page(tuple(loaded))
-                workset.release(loaded, keep=key)
+                workset.release(() if limit is not None else loaded, keep=key)
             if cursor is None:
                 break
+
+    async def _read_related_page(self, scope_id, context, workset, request, cursor, *, local_policy):
+        application = self.application
+        async with (
+            deferred_decision_audit(context),
+            application.database.transaction(consistent_snapshot=True) as connection,
+        ):
+            try:
+                page = await application.index.related_page(connection, scope_id, request, cursor)
+            except AtomicMemoryIndexError as error:
+                if error.code == "stale-recall":
+                    _conflict("Related memory changed before page admission")
+                raise
+            if page is None:
+                return None, []
+            refs = tuple(hit.artifact_ref for hit in page.hits)
+            async with self._prefetch_artifact_policy(connection, scope_id, context, refs, include_scope=local_policy):
+                if local_policy:
+                    await application.security.authorize(connection, scope_id, context, "read")
+                loaded = await self._load_related_items(
+                    connection, scope_id, page.hits, context, workset, joined_heads=page.heads
+                )
+        return page, loaded
 
     async def _related_rank_snapshot(self, scope_id, request):
         application = self.application
@@ -1106,6 +1349,42 @@ class AtomicMemorySourceWindowProcessor:
         )
 
 
+@dataclass
+class _OnePassConversation:
+    """One window's conversation: its fixed instructions and the input budget of each turn.
+
+    A turn's input is the instructions, the transcript of the reply it continues and its new message. Turns that
+    continue the same reply are separate requests, so each is estimated on its own.
+    """
+
+    pipeline: AtomicMemoryGenerationPipeline
+    generator: StructuredGenerator[ConversationTurn[Any], ConversationReply[Any]]
+    instructions: str
+    metadata: dict[str, str | int] | None
+    input_tokens_limit: int
+    # The history the first turn continues; a prefixed conversation starts from the agent's prefix.
+    start: tuple[object, ...] = ()
+
+    def estimate(self, message: str, previous: ConversationReply[Any] | None = None) -> int:
+        transcript = () if previous is None else previous.transcript
+        return self.pipeline.estimator.estimate("\n".join((self.instructions, *transcript, message)))
+
+    def fits(self, message: str, previous: ConversationReply[Any] | None = None) -> bool:
+        return self.estimate(message, previous) <= self.input_tokens_limit
+
+    async def turn(self, message, check, previous: ConversationReply[Any] | None = None):
+        result = await self.generator.generate(
+            ConversationTurn(
+                instructions=self.instructions,
+                message=message,
+                check=check,
+                history=self.start if previous is None else previous.history,
+                metadata=self.metadata,
+            )
+        )
+        return result.output
+
+
 @dataclass(slots=True)
 class _PendingObservationSink:
     observation: DecisionObservation | None = None
@@ -1179,3 +1458,31 @@ def _input_item_count(value: object) -> int | None:
     if isinstance(evidence, (tuple, list)):
         return len(evidence)
     return None
+
+
+def _log_one_pass(
+    outcome: str, conversation: _OnePassConversation, reason: str | None = None, estimated: int | None = None
+) -> None:
+    log_safely(
+        logger,
+        logging.INFO,
+        "One-pass Atomic Memory window prepared"
+        if reason is None
+        else "One-pass Atomic Memory window fell back to per-candidate processing",
+        extra={
+            "event": "atomic_memory.one_pass",
+            "operation": "atomic_memory.one_pass",
+            "unit": "inference",
+            "outcome": outcome,
+            **(
+                {}
+                if reason is None
+                else {
+                    "fallback_reason": reason,
+                    "estimated_input_tokens": estimated,
+                    "token_estimator_id": conversation.pipeline.estimator.profile.estimator_id,
+                    "effective_budget": conversation.input_tokens_limit,
+                }
+            ),
+        },
+    )

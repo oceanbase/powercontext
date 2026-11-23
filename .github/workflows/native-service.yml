@@ -81,7 +81,7 @@ jobs:
 
       - name: Upload Linux native-service logs after failure
         if: failure()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        uses: ./.github/actions/upload-ci-diagnostics
         with:
           name: linux-native-service-logs
           path: ${{ runner.temp }}/powercontext-native-tests/**/logs/*
@@ -137,7 +137,7 @@ jobs:
 
       - name: Upload macOS native-service logs after failure
         if: failure()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        uses: ./.github/actions/upload-ci-diagnostics
         with:
           name: macos-native-service-logs
           path: ${{ runner.temp }}/powercontext-native-tests/**/logs/*
@@ -219,7 +219,7 @@ jobs:
 
       - name: Upload Windows native-service logs after failure
         if: failure()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        uses: ./.github/actions/upload-ci-diagnostics
         with:
           name: windows-native-service-logs
           path: ${{ runner.temp }}/powercontext-native-tests/**/logs/*

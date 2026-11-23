@@ -43,6 +43,9 @@ from powercontext.builtin.runtime.artifact_processing import (
 )
 
 BINDING = "topic-memory-source-window"
+SPAWN_STARTUP_TIMEOUT_SECONDS = 60.0
+# Completion includes cold imports and natural exit, before any ready-state fault boundary.
+SPAWN_COMPLETION_TIMEOUT_SECONDS = 60.0
 SPAWN_TEST_TIMEOUT_SECONDS = 10.0
 
 
@@ -192,7 +195,7 @@ def test_spawn_launcher_runs_a_real_child_process() -> None:
         handle = await SpawnArtifactProcessingWorkerLauncher(_spawn_success).start(assignment)
         try:
             assert (
-                await asyncio.wait_for(handle.wait(), timeout=SPAWN_TEST_TIMEOUT_SECONDS)
+                await asyncio.wait_for(handle.wait(), timeout=SPAWN_COMPLETION_TIMEOUT_SECONDS)
                 == ArtifactProcessingWorkerCompletion()
             )
         finally:
@@ -232,9 +235,11 @@ def test_cancelled_wait_keeps_reaping_owned_until_exit_status_is_published(
         try:
 
             async def child_is_ready():
+                assert process.exitcode is None, f"Worker exited before readiness: {process.exitcode}"
                 return ready.exists()
 
-            await _wait_until(child_is_ready, timeout_seconds=SPAWN_TEST_TIMEOUT_SECONDS)
+            # Importing the spawned child is setup, before the cancellation boundary.
+            await _wait_until(child_is_ready, timeout_seconds=SPAWN_STARTUP_TIMEOUT_SECONDS)
             monkeypatch.setattr(os, "waitpid", gate.waitpid)
             monkeypatch.setattr(process, "join", gate.join)
             waiter = asyncio.create_task(handle.wait())
@@ -288,12 +293,12 @@ def test_supervisor_close_kills_spawned_worker_and_stales_its_fence(tmp_path) ->
                 holder_id="holder-a",
             )
             await supervisor.start()
-            await asyncio.wait_for(launcher.started.wait(), timeout=SPAWN_TEST_TIMEOUT_SECONDS)
+            await asyncio.wait_for(launcher.started.wait(), timeout=SPAWN_STARTUP_TIMEOUT_SECONDS)
 
             async def child_is_ready() -> bool:
                 return ready.exists()
 
-            await _wait_until(child_is_ready, timeout_seconds=SPAWN_TEST_TIMEOUT_SECONDS)
+            await _wait_until(child_is_ready, timeout_seconds=SPAWN_STARTUP_TIMEOUT_SECONDS)
             old_fence = launcher.assignment.fence if launcher.assignment is not None else None
             child_pid = launcher.process_pid
             assert old_fence is not None
@@ -409,7 +414,7 @@ def test_supervisor_close_owns_cancelled_post_spawn_cleanup(tmp_path, monkeypatc
                 holder_id="holder-a",
             )
             await supervisor.start()
-            assert await asyncio.to_thread(spawned.wait, SPAWN_TEST_TIMEOUT_SECONDS)
+            assert await asyncio.to_thread(spawned.wait, SPAWN_STARTUP_TIMEOUT_SECONDS)
             old_fence = supervisor.fence
             assert old_fence is not None
             assert child_pid is not None
@@ -459,7 +464,7 @@ def test_supervisor_close_waits_for_cleanup_after_worker_start_timeout(tmp_path,
             nonlocal child_pid
             real_launch(popen, process)
             child_pid = popen.pid
-            deadline = time.monotonic() + SPAWN_TEST_TIMEOUT_SECONDS
+            deadline = time.monotonic() + SPAWN_STARTUP_TIMEOUT_SECONDS
             while not ready.exists() and time.monotonic() < deadline:
                 time.sleep(0.01)
             assert ready.exists()
@@ -485,7 +490,7 @@ def test_supervisor_close_waits_for_cleanup_after_worker_start_timeout(tmp_path,
                 holder_id="holder-a",
             )
             await supervisor.start()
-            assert await asyncio.to_thread(spawned.wait, SPAWN_TEST_TIMEOUT_SECONDS)
+            assert await asyncio.to_thread(spawned.wait, SPAWN_STARTUP_TIMEOUT_SECONDS)
             old_fence = supervisor.fence
             assert old_fence is not None
             assert child_pid is not None
@@ -543,7 +548,7 @@ def test_spawn_launcher_reaps_child_when_popen_raises_before_publication(tmp_pat
             nonlocal child_pid
             real_launch(popen, process)
             child_pid = popen.pid
-            deadline = time.monotonic() + SPAWN_TEST_TIMEOUT_SECONDS
+            deadline = time.monotonic() + SPAWN_STARTUP_TIMEOUT_SECONDS
             while not ready.exists() and time.monotonic() < deadline:
                 time.sleep(0.01)
             assert ready.exists()
@@ -567,7 +572,7 @@ def test_spawn_launcher_reaps_child_when_popen_raises_before_publication(tmp_pat
             worker_id="00000000-0000-4000-8000-000000000001",
         )
         start_task = asyncio.create_task(SpawnArtifactProcessingWorkerLauncher(_ignore_sigterm).start(assignment))
-        assert await asyncio.to_thread(launched.wait, SPAWN_TEST_TIMEOUT_SECONDS)
+        assert await asyncio.to_thread(launched.wait, SPAWN_STARTUP_TIMEOUT_SECONDS)
         if cancel_start:
             start_task.cancel()
             await asyncio.sleep(0.05)
@@ -618,7 +623,7 @@ def test_cancelled_spawn_start_reaps_the_published_child_before_returning(tmp_pa
         )
         start_task = asyncio.create_task(SpawnArtifactProcessingWorkerLauncher(_ignore_sigterm).start(assignment))
         try:
-            assert await asyncio.to_thread(started.wait, SPAWN_TEST_TIMEOUT_SECONDS)
+            assert await asyncio.to_thread(started.wait, SPAWN_STARTUP_TIMEOUT_SECONDS)
             start_task.cancel()
             await asyncio.sleep(0.05)
             assert not start_task.done()

@@ -130,6 +130,16 @@ enum Startup {
 
 impl Gateway {
     async fn start(replies: Vec<Reply>, deny: Option<(&'static str, &'static str)>) -> Self {
+        // Golden protocol fixtures exercise requests without operator steering.
+        Self::start_with_env(replies, deny, &[("PC_GATEWAY_STEERING", "off")], true).await
+    }
+
+    async fn start_with_env(
+        replies: Vec<Reply>,
+        deny: Option<(&'static str, &'static str)>,
+        settings: &[(&str, &str)],
+        enforcing: bool,
+    ) -> Self {
         let peers = Arc::new(Peers {
             replies: Mutex::new(replies.into()),
             deny,
@@ -144,11 +154,11 @@ impl Gateway {
             // streaming semantics, so advertise the same ceiling as Core's v1 parser.
             .route(
                 "/v1/capabilities",
-                axum::routing::get(|| async {
+                axum::routing::get(move || async move {
                     Json(json!({"context_protection": {
                         "check_versions": ["powercontext.context-check.v1"],
                         "payload_versions": ["powercontext.model-json-payload.v1"],
-                        "reuse_versions": [], "reuse_families": [], "enforcing": true,
+                        "reuse_versions": [], "reuse_families": [], "enforcing": enforcing,
                         "limits": {"payload_bytes": 1_048_576, "binding_bytes": 8192,
                             "prepared_contexts": 16, "dependencies": 256,
                             "send_seconds": 60, "correlate_seconds": 300}
@@ -200,6 +210,7 @@ impl Gateway {
                 .env("PC_GATEWAY_API_KEY", "gateway-test-key")
                 .env("PC_GATEWAY_INJECTION", "off")
                 .env("PC_GATEWAY_SEDIMENT", "off")
+                .envs(settings.iter().copied())
                 // Gateway diagnostics go to stdout/stderr; capture them per attempt and report
                 // them together with the exit status on failure.
                 .stdout(Stdio::from(log_file.try_clone().unwrap()))
@@ -772,4 +783,172 @@ async fn responses_stream_delivers_reasoning_summaries_and_citations() {
     assert_eq!(events.last().unwrap()["type"], "response.completed");
     body["stream"] = json!(false);
     gateway.assert_forwarded(&[body], &[bytes]);
+}
+
+#[tokio::test]
+async fn default_steering_and_overrides_reach_only_responses() {
+    let custom =
+        std::env::temp_dir().join(format!("pc-default-steering-{}.txt", std::process::id()));
+    std::fs::write(&custom, "Custom deployment guidance.").unwrap();
+    let custom_path = custom.to_str().unwrap();
+    let missing = custom.with_extension("missing");
+    for (settings, expected) in [
+        (
+            vec![],
+            Some("Cost guidance: every tool call re-sends the whole conversation"),
+        ),
+        (
+            vec![("PC_GATEWAY_STEERING_FILE", custom_path)],
+            Some("Custom deployment guidance."),
+        ),
+        (vec![("PC_GATEWAY_STEERING", "off")], None),
+        (
+            vec![
+                ("PC_GATEWAY_STEERING", "off"),
+                ("PC_GATEWAY_STEERING_FILE", missing.to_str().unwrap()),
+            ],
+            None,
+        ),
+    ] {
+        let gateway = Gateway::start_with_env(
+            vec![
+                Reply::fixture("fantasy_responses_simple", 0),
+                Reply::fixture("fantasy_chat_simple", 0),
+            ],
+            None,
+            &settings,
+            true,
+        )
+        .await;
+        assert!(gateway
+            .post("responses", &request("responses", "simple", false))
+            .await
+            .status()
+            .is_success());
+        assert!(gateway
+            .post("chat/completions", &request("chat", "simple", false))
+            .await
+            .status()
+            .is_success());
+        let sent = gateway.peers.sent.lock().unwrap();
+        let responses: Value = serde_json::from_slice(&sent[0].1).unwrap();
+        let developer: Vec<_> = responses["input"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|message| message["role"] == "developer")
+            .collect();
+        match expected {
+            Some(text) => {
+                assert_eq!(developer.len(), 1, "settings: {settings:?}");
+                assert!(developer[0]["content"][0]["text"]
+                    .as_str()
+                    .unwrap()
+                    .starts_with(text));
+            }
+            None => assert!(developer.is_empty(), "settings: {settings:?}"),
+        }
+        let chat: Value = serde_json::from_slice(&sent[1].1).unwrap();
+        assert_eq!(chat["messages"].as_array().unwrap().len(), 2);
+        assert!(chat["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|message| message["role"] != "developer"));
+    }
+    std::fs::remove_file(custom).unwrap();
+}
+
+#[tokio::test]
+async fn prefix_extraction_defaults_on_but_respects_off_and_subscription_boundary() {
+    for (subscription, setting, enforcing, expected) in [
+        (None, None, true, "prefix_unavailable"),
+        (None, Some("off"), true, "prefix_extraction_disabled"),
+        (Some("codex"), None, false, "prefix_unavailable"),
+        (Some("codex"), Some("on"), false, "prefix_unavailable"),
+        (
+            Some("codex"),
+            Some("off"),
+            false,
+            "prefix_extraction_disabled",
+        ),
+        (Some("codex"), None, true, "prefix_extraction_disabled"),
+        (
+            Some("codex"),
+            Some("on"),
+            true,
+            "prefix_extraction_disabled",
+        ),
+        (Some("kimi"), None, false, "prefix_extraction_disabled"),
+        (
+            Some("kimi"),
+            Some("on"),
+            false,
+            "prefix_extraction_disabled",
+        ),
+    ] {
+        let mut settings = Vec::new();
+        if let Some(setting) = setting {
+            settings.push(("PC_GATEWAY_PREFIX_EXTRACTION", setting));
+        }
+        if let Some(subscription) = subscription {
+            let (_, responses) = pc_gateway_auth::Subscription::parse(subscription)
+                .unwrap()
+                .default_targets();
+            settings.extend([
+                ("PC_GATEWAY_SUBSCRIPTION", subscription),
+                (
+                    "PC_GATEWAY_SUBSCRIPTION_CREDENTIALS",
+                    "/synthetic/not-read-by-extract.json",
+                ),
+                ("PC_GATEWAY_UPSTREAM_URL_CHAT", ""),
+                ("PC_GATEWAY_UPSTREAM_URL_RESPONSES", responses),
+            ]);
+        }
+        let gateway = Gateway::start_with_env(vec![], None, &settings, enforcing).await;
+        let response = gateway
+            .post(
+                "extract",
+                &json!({"handle": "unknown", "instruction": "Extract memory."}),
+            )
+            .await;
+        assert_eq!(response.status(), 404);
+        assert_eq!(
+            response.json::<Value>().await.unwrap()["error"],
+            expected,
+            "subscription: {subscription:?}, setting: {setting:?}, enforcing: {enforcing}"
+        );
+        assert!(gateway.peers.sent.lock().unwrap().is_empty());
+    }
+}
+
+#[test]
+fn invalid_default_feature_switches_reject_startup() {
+    for setting in ["PC_GATEWAY_STEERING", "PC_GATEWAY_PREFIX_EXTRACTION"] {
+        let mut child = Command::new(env!("CARGO_BIN_EXE_pc-gateway"))
+            .env_clear()
+            .env("PC_GATEWAY_LISTEN", "127.0.0.1:0")
+            .env("PC_GATEWAY_CORE_BASE", "http://127.0.0.1:9")
+            .env(setting, "of")
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let deadline = std::time::Instant::now() + Duration::from_secs(2);
+        let mut exited = false;
+        while std::time::Instant::now() < deadline {
+            if child.try_wait().unwrap().is_some() {
+                exited = true;
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        if !exited {
+            child.kill().unwrap();
+        }
+        let result = child.wait_with_output().unwrap();
+        assert!(exited, "{setting} accepted an invalid switch");
+        assert_eq!(result.status.code(), Some(2));
+        assert!(String::from_utf8(result.stderr).unwrap().contains(setting));
+    }
 }

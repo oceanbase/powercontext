@@ -1,0 +1,73 @@
+name: Restore Rust build caches
+description: Snapshot per-job Cargo directories through the selected cache backend
+inputs:
+  workspaces:
+    description: Cargo workspaces and target directories, one workspace -> target per line
+    default: '. -> target'
+  shared-key:
+    description: Shared dependency cache identity
+    default: ''
+  key:
+    description: Additional cache identity
+    default: ''
+  cache-bin:
+    description: Include installed Cargo binaries
+    default: 'false'
+  cache-on-failure:
+    description: Preserve hosted action behavior; internal callers explicitly save after success or failure
+    default: 'false'
+outputs:
+  cache-backend:
+    description: Selected backend; internal callers save the snapshot explicitly
+    value: ${{ steps.backend.outputs.backend }}
+  cache-path:
+    description: Per-job Cargo cache and target directories
+    value: ${{ steps.snapshot.outputs.cache-path }}
+  cache-key:
+    description: Runtime, dependency and source fingerprint
+    value: ${{ steps.snapshot.outputs.cache-key }}
+  cache-hit:
+    description: Whether the exact build snapshot was restored
+    value: ${{ steps.internal.outputs.cache-hit || steps.github.outputs.cache-hit }}
+runs:
+  using: composite
+  steps:
+    - id: backend
+      uses: ./.github/actions/cache-backend
+
+    - id: github
+      if: steps.backend.outputs.backend == 'github'
+      uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      with:
+        workspaces: ${{ inputs.workspaces }}
+        shared-key: ${{ inputs.shared-key }}
+        key: ${{ inputs.key }}
+        cache-bin: ${{ inputs.cache-bin }}
+        cache-on-failure: ${{ inputs.cache-on-failure }}
+
+    - id: snapshot
+      if: steps.backend.outputs.backend == 's3'
+      shell: bash
+      env:
+        CI_CACHE_WORKSPACES: ${{ inputs.workspaces }}
+        CI_CACHE_SHARED_KEY: ${{ inputs.shared-key }}
+        CI_CACHE_KEY: ${{ inputs.key }}
+        CI_CACHE_BIN: ${{ inputs.cache-bin }}
+      run: python3 "$GITHUB_ACTION_PATH/../../../scripts/ci_cache.py" cargo
+
+    - id: internal
+      if: steps.backend.outputs.backend == 's3'
+      uses: ./.github/actions/cache-restore
+      with:
+        path: ${{ steps.snapshot.outputs.cache-path }}
+        key: ${{ steps.snapshot.outputs.cache-key }}
+        restore-keys: ${{ steps.snapshot.outputs.restore-key }}
+
+    # Workspace crates can embed files outside their Cargo workspace. Rebuild them
+    # after every restore; retain the cached compilation of third-party crates.
+    - name: Rebuild workspace crates after restoring compiled dependencies
+      if: steps.backend.outputs.backend == 's3' && steps.internal.outputs.cache-matched-key != ''
+      shell: bash
+      env:
+        CI_CACHE_WORKSPACES: ${{ inputs.workspaces }}
+      run: python3 "$GITHUB_ACTION_PATH/../../../scripts/ci_cache.py" cargo-clean

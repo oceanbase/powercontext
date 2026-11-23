@@ -223,6 +223,16 @@ class AtomicMemoryWindowWorkset:
         self.origins: dict[str, str] = {}
         self.reads: dict[str, AtomicMemoryRead] = {}
 
+    def copy(self) -> AtomicMemoryWindowWorkset:
+        """Return an independent workset over the same immutable items."""
+
+        duplicate = AtomicMemoryWindowWorkset()
+        duplicate.items = dict(self.items)
+        duplicate.aliases = dict(self.aliases)
+        duplicate.origins = dict(self.origins)
+        duplicate.reads = dict(self.reads)
+        return duplicate
+
     def resolve(self, key: str) -> str:
         while key in self.aliases:
             parent = self.aliases[key]

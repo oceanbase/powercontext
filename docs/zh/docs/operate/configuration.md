@@ -35,6 +35,7 @@ PowerContext 进程启动时从环境变量读取配置。当前工作目录存�
 | `POWERCONTEXT_SERVER_RUNTIME_ATOMIC_MEMORY_RELATED_FTS_FALLBACK` | `false` | 显式允许相关召回在查询向量不可用、profile 不匹配或向量投影不完整时改用全文枚举；不改变普通搜索的错误处理 |
 | `POWERCONTEXT_SERVER_RUNTIME_ATOMIC_MEMORY_COMPARISON_BATCH_SIZE` | `20` | 每次相关记忆判断最多比较的对象数，正整数；不是总候选上限 |
 | `POWERCONTEXT_SERVER_RUNTIME_ATOMIC_MEMORY_INPUT_TOKENS_LIMIT` | `64000` | 每次抽取或判断输入的估算 token 上限，包含指令和完整输入，正整数 |
+| `POWERCONTEXT_SERVER_RUNTIME_ATOMIC_MEMORY_PROCESSING_MODE` | `per_candidate` | 原子记忆处理 Source 窗口的方式。`per_candidate` 先抽取候选，再逐条与相关记忆比较；`one_pass` 在同一段模型对话里先列出要写的记忆、再一次给出全部操作，模型调用成本更低。对话输入超出 token 上限的窗口仍按 `per_candidate` 处理 |
 
 未配置 secret 不会生成随机进程密钥。更换 secret 或 key ID 后，旧 token 无法验证，应重新预览。
 带 token 的恢复遇到变化会返回 `preview_stale`，不会自动重新解释意图；重试预算也不处理提交结果未知的连接失败。
@@ -491,10 +492,7 @@ export POWERCONTEXT_SERVER_RUNTIME_MEMORY_RERANK_ENABLED=true
 export POWERCONTEXT_SERVER_RUNTIME_MEMORY_RERANK_CANDIDATE_LIMIT=30
 ```
 
-Rerank 默认关闭。启用后，Runtime 会召回并融合配置的候选池，再使用 temperature 为 0 的 generation model，选择不超过
-search request 最终 `limit` 的结果。它不会修改已存储 Memory 或索引。Provider 与结构化输出失败仍作为 inference error
-显式返回；如果搜索必须独立于模型可用性，请关闭 rerank。算法、并发与 API 边界见
-[RFC 0080](/zh/rfcs/0080_memory_search_reranking/)。
+Rerank 默认关闭。启用后，Runtime 会召回并融合配置的候选池，再使用 temperature 为 0 的 generation model，选择不超过 search request 最终 `limit` 的结果。Claude CLI 使用自身的采样设置。Rerank 不会修改已存储的 Memory 或索引。Provider 与结构化输出失败会作为 inference error 返回。如果搜索必须独立于模型可用性，请关闭 rerank。算法、并发与 API 边界见 [RFC 0080](/zh/rfcs/0080_memory_search_reranking/)。
 
 内置 reranker 是 LLM listwise reranker，不是独立的 cross-encoder protocol。默认复用 generation model 及其 provider
 settings。设置 `POWERCONTEXT_SERVER_INFERENCE_RERANK_MODEL` 后，该 LLM operation 可以使用独立的 model、base URL、

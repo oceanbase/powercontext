@@ -537,7 +537,9 @@ def test_e2_configured_provider_runs_hybrid_and_controlled_fallback(
             tmp_path / "r8-e2",
             config=config,
             e1_status="PASS",
-            generation_timeout=30,
+            # This covers cold worker startup and publication; the provider
+            # request retains its separate 10-second deadline in run_e2.
+            generation_timeout=60,
         )
     finally:
         provider.stop()

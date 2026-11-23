@@ -686,6 +686,67 @@ describe("PowerContext lifecycle", () => {
     expect(harness.warnings).toEqual([]);
   });
 
+  it("checkpoints compaction into the project Scope its session's latest prompt was built with", async () => {
+    const harness = createLifecycleHarness();
+    const beforePromptBuild = harness.hooks.get("before_prompt_build")!;
+    const beforeCompaction = harness.hooks.get("before_compaction")!;
+    const sessionKey = "agent:main:telegram:direct:user-1";
+    const session = { agentId: "main", sessionId: "session-1", sessionKey };
+    // `undefined` omits `activeProjectKeys` from the prompt context instead of reporting an empty list.
+    const prompt = async (runId: string, activeProjectKeys: string[] | undefined) => {
+      await beforePromptBuild(
+        { messages: [{ role: "user", content: `prompt ${runId}` }], prompt: `prompt ${runId}` },
+        activeProjectKeys === undefined ? { ...session, runId } : { ...session, runId, activeProjectKeys },
+      );
+    };
+    const compact = async (content: string, ctx: Record<string, unknown> = { sessionKey }) => {
+      await beforeCompaction({ messageCount: 1, messages: [{ role: "user", content }] }, ctx);
+    };
+
+    await prompt("run-1", ["/workspace/project-a"]);
+    // In-session auto-compaction reports only the session key, and no compaction path reports active projects.
+    await compact("checkpoint this");
+    await compact("checkpoint this");
+    await compact("checkpoint this elsewhere", { sessionKey: "agent:main:telegram:direct:user-2" });
+    // Projects the host supplies to `before_compaction` itself take precedence.
+    await compact("checkpoint this under the reported project", { sessionKey, activeProjectKeys: ["/workspace/project-b"] });
+    await prompt("run-2", ["/workspace/project-b"]);
+    await compact("checkpoint the later run", { ...session, workspaceDir: "/workspace/project-b" });
+    await prompt("run-3", []);
+    await compact("checkpoint outside a project");
+    await prompt("run-4", ["/workspace/project-a"]);
+    await prompt("run-5", undefined);
+    await compact("checkpoint a run whose prompt reported no projects");
+
+    expect(harness.prepareRequests.map((request) => request.scope_id)).toEqual([
+      "scp_project_a",
+      "scp_project_b",
+      "scp_default",
+      "scp_project_a",
+      "scp_default",
+    ]);
+    expect(harness.capturedScopes).toEqual([
+      "scp_project_a",
+      "scp_project_a",
+      "scp_default",
+      "scp_project_b",
+      "scp_project_b",
+      "scp_default",
+      "scp_default",
+    ]);
+    // A replayed checkpoint keeps its Source identity because it resolves the same Scope.
+    expect(harness.capturedSourceIds[1]).toBe(harness.capturedSourceIds[0]);
+    expect(harness.flushScopes).toEqual([
+      "scp_project_a",
+      "scp_default",
+      "scp_project_b",
+      "scp_project_b",
+      "scp_default",
+      "scp_default",
+    ]);
+    expect(harness.warnings).toEqual([]);
+  });
+
   it("retries until the flush cursor acknowledges the exact captured position", async () => {
     const vector = conformanceCase("cursor_catches_up");
     const harness = createLifecycleHarness();

@@ -435,20 +435,24 @@ function createTools(runtime: Runtime) {
       operationId: 'retire_memory_entry',
       payload: (args) => ({ artifact: args.artifact, state_version: args.state_version }),
     }),
-    pc_prepare_context: operationTool(runtime, {
-      description:
-        'Retrieve bounded, query-specific PowerContext when additional assembled context is needed. ' +
-        'Automatic recall already attempts this on supported lifecycle events; do not repeat it ' +
-        'routinely or to satisfy an explicit save. A returned context value is not proof of host ' +
-        'injection. Empty context is normal; use only the evidence actually returned.',
-      args: { query: z.string() },
-      operationId: 'prepare_context',
-      payload: (args) => ({
-        query: args.query,
-        max_bytes: runtime.config.maxBytes,
-        ...(runtime.config.contextAssembly === undefined ? {} : { assembly: runtime.config.contextAssembly }),
+    // The tool result stays in the session and carries the Server's prepared-context block. Behind the gateway, where
+    // prompt recall is off, Core rejects every later request of a session that holds a block the gateway did not bind.
+    ...(runtime.config.promptRecall ? {
+      pc_prepare_context: operationTool(runtime, {
+        description:
+          'Retrieve bounded, query-specific PowerContext when additional assembled context is needed. ' +
+          'Automatic recall already attempts this on supported lifecycle events; do not repeat it ' +
+          'routinely or to satisfy an explicit save. A returned context value is not proof of host ' +
+          'injection. Empty context is normal; use only the evidence actually returned.',
+        args: { query: z.string() },
+        operationId: 'prepare_context',
+        payload: (args) => ({
+          query: args.query,
+          max_bytes: runtime.config.maxBytes,
+          ...(runtime.config.contextAssembly === undefined ? {} : { assembly: runtime.config.contextAssembly }),
+        }),
       }),
-    }),
+    } : {}),
     pc_capture_source: operationTool(runtime, {
       description:
         'Record a deliberate evidence Source, such as the inspected boundary of a requested handoff. ' +
