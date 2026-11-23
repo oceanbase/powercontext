@@ -42,6 +42,12 @@ pub(crate) fn is_model_route(path: &str) -> bool {
     )
 }
 
+/// Routes that send a model request upstream: their 180-second deadline starts at request intake. Prefixed
+/// extraction is one of them, but it keeps the fallback body limit and concurrency of a non-model route.
+fn has_model_deadline(path: &str) -> bool {
+    is_model_route(path) || path == "/gateway/v1/extract"
+}
+
 #[derive(Default)]
 struct ModelState {
     control: Option<RequestControl>,
@@ -200,7 +206,7 @@ where
     let service =
         hyper::service::service_fn(move |request: hyper::Request<hyper::body::Incoming>| {
             let mut request = request.map(Body::new);
-            let model = is_model_route(request.uri().path()).then(|| service_owner.clone());
+            let model = has_model_deadline(request.uri().path()).then(|| service_owner.clone());
             if let Some(model) = &model {
                 let id = crate::middleware::request_id::resolve(request.headers());
                 request.extensions_mut().insert(id.clone());
@@ -486,6 +492,68 @@ mod tests {
 
     #[tokio::test]
     async fn handed_off_calls_drain_normally_or_stop_at_the_earlier_absolute_deadline() {
+        if std::env::var_os("PC_TEST_ISOLATED_DRAIN").is_none() {
+            use std::process::{Command, Stdio};
+            const TEST: &str = "connection::tests::handed_off_calls_drain_normally_or_stop_at_the_earlier_absolute_deadline";
+            struct Child {
+                process: std::process::Child,
+                output: std::path::PathBuf,
+            }
+            impl Drop for Child {
+                fn drop(&mut self) {
+                    let _ = self.process.kill();
+                    let _ = self.process.wait();
+                    let _ = std::fs::remove_dir_all(&self.output);
+                }
+            }
+            // Parallel process-spawning tests can inherit a live listener until
+            // exec closes it. Keep this socket-closure observation in its own
+            // process, while the rest of the test binary remains parallel.
+            let output = std::env::temp_dir().join(format!(
+                "pc-drain-test-{}-{}",
+                std::process::id(),
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos()
+            ));
+            std::fs::create_dir(&output).unwrap();
+            // Files avoid waiting for EOF on a pipe temporarily inherited by
+            // another parallel test's child. Only failures include child output.
+            let stdout = std::fs::File::create(output.join("stdout")).unwrap();
+            let stderr = std::fs::File::create(output.join("stderr")).unwrap();
+            let mut child = Child {
+                process: Command::new(std::env::current_exe().unwrap())
+                    .args(["--exact", TEST, "--nocapture"])
+                    .env("PC_TEST_ISOLATED_DRAIN", "1")
+                    .stdout(Stdio::from(stdout))
+                    .stderr(Stdio::from(stderr))
+                    .spawn()
+                    .unwrap(),
+                output,
+            };
+            let started = std::time::Instant::now();
+            let status = loop {
+                if let Some(status) = child.process.try_wait().unwrap() {
+                    break Some(status);
+                }
+                if started.elapsed() >= Duration::from_secs(30) {
+                    child.process.kill().unwrap();
+                    child.process.wait().unwrap();
+                    break None;
+                }
+                std::thread::sleep(Duration::from_millis(5));
+            };
+            let output = std::fs::read_to_string(child.output.join("stdout")).unwrap();
+            let errors = std::fs::read_to_string(child.output.join("stderr")).unwrap();
+            assert!(
+                status.is_some_and(|status| status.success())
+                    && output.lines().any(|line| line == format!("test {TEST} ... ok"))
+                    && output.contains("test result: ok. 1 passed; 0 failed; 0 ignored;"),
+                "isolated drain test did not complete its sole case: {status:?}\n{output}\n{errors}"
+            );
+            return;
+        }
         for mode in [
             "normal",
             "drain",
@@ -505,7 +573,11 @@ mod tests {
                     async move { next.run(req).await }
                 },
             ));
-            let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+            // Avoid address reuse interfering with the listener-closure probe.
+            let socket = tokio::net::TcpSocket::new_v4().unwrap();
+            socket.set_reuseaddr(false).unwrap();
+            socket.bind("127.0.0.1:0".parse().unwrap()).unwrap();
+            let listener = socket.listen(128).unwrap();
             let addr = listener.local_addr().unwrap();
             let (shutdown, signal) = tokio::sync::oneshot::channel();
             let coordinated = Arc::new(Notify::new());
@@ -554,7 +626,7 @@ mod tests {
             tokio::task::yield_now().await;
             assert!(
                 std::net::TcpStream::connect_timeout(&addr, Duration::from_millis(100)).is_err(),
-                "listener must be closed"
+                "listener must be closed ({mode}, {addr})"
             );
             assert_eq!(observation.snapshot().stop_reason, None);
             assert!(!server.is_finished(), "{mode}");
@@ -1187,6 +1259,67 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(response.status(), reqwest::StatusCode::CREATED);
+        server.abort();
+        server.await.unwrap_err();
+        upstream.abort();
+        upstream.await.unwrap_err();
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn real_listener_slow_extract_body_stops_at_the_model_deadline() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let (router, upstream, received) = crate::ingress::tests::lifecycle_router().await;
+        let observations = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let retained = observations.clone();
+        let entered = Arc::new(tokio::sync::Notify::new());
+        let ingress_entered = entered.clone();
+        let router = router.layer(axum::middleware::from_fn(
+            move |req: Request, next: axum::middleware::Next| {
+                let retained = retained.clone();
+                let ingress_entered = ingress_entered.clone();
+                async move {
+                    if let Some(model) = req.extensions().get::<ModelConnection>() {
+                        retained
+                            .lock()
+                            .unwrap()
+                            .push(model.lifecycle().unwrap().observation());
+                    }
+                    ingress_entered.notify_one();
+                    next.run(req).await
+                }
+            },
+        ));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            crate::connection::serve(listener, router, std::future::pending())
+                .await
+                .unwrap()
+        });
+        tokio::time::resume();
+        let mut client = tokio::net::TcpStream::connect(addr).await.unwrap();
+        client.write_all(b"POST /gateway/v1/extract HTTP/1.1\r\nHost: local\r\nAuthorization: Bearer gateway-key\r\nContent-Type: application/json\r\nContent-Length: 100\r\nConnection: close\r\n\r\n{").await.unwrap();
+        tokio::time::timeout(std::time::Duration::from_secs(2), entered.notified())
+            .await
+            .unwrap();
+        tokio::time::pause();
+        tokio::time::advance(std::time::Duration::from_secs(181)).await;
+        tokio::time::resume();
+        let mut response = Vec::new();
+        tokio::time::timeout(
+            std::time::Duration::from_secs(2),
+            client.read_to_end(&mut response),
+        )
+        .await
+        .expect("the connection ends at the deadline while the body is still incomplete")
+        .unwrap();
+        assert!(response.is_empty());
+        let observation = observations.lock().unwrap()[0].clone();
+        assert_eq!(
+            observation.snapshot().stop_reason,
+            Some(LifecycleStopReason::DeadlineExceeded)
+        );
+        assert_eq!(received.sends.load(Ordering::SeqCst), 0);
         server.abort();
         server.await.unwrap_err();
         upstream.abort();

@@ -1895,7 +1895,7 @@ def test_service_launcher_hands_control_to_the_foreground_server_runner(
 ) -> None:
     run_server = Mock()
     monkeypatch.setattr(
-        service_launcher,
+        service_probe,
         "probe_server",
         lambda _endpoint: ProbeResult(ProbeState.UNREACHABLE, "not listening"),
     )
@@ -1922,7 +1922,7 @@ def test_service_launcher_rejects_uds_before_probing_or_starting(
     definition = _definition(tmp_path, env_file=load_protected_environment_file(environment).identity)
     probe = Mock()
     run_server = Mock()
-    monkeypatch.setattr(service_launcher, "probe_server", probe)
+    monkeypatch.setattr(service_probe, "probe_server", probe)
     monkeypatch.setattr("powercontext.server.cli._run_configured_server", run_server)
 
     exit_code = service_launcher.main(definition.launcher_arguments()[3:])
@@ -1944,7 +1944,7 @@ def test_service_launcher_pins_the_recorded_data_directory(
     recorded_data = tmp_path / "recorded-data"
     observed_data: list[Path] = []
     monkeypatch.setattr(
-        service_launcher,
+        service_probe,
         "probe_server",
         lambda _endpoint: ProbeResult(ProbeState.UNREACHABLE, "not listening"),
     )
@@ -1970,7 +1970,7 @@ def test_service_launcher_does_not_start_over_an_existing_powercontext_server(
 ) -> None:
     run_server = Mock()
     monkeypatch.setattr(
-        service_launcher,
+        service_probe,
         "probe_server",
         lambda endpoint: ProbeResult(ProbeState.LIVE, f"{endpoint} status=ok"),
     )
@@ -1989,7 +1989,7 @@ def test_service_launcher_can_redirect_server_output_to_owned_log_files(
     stdout_path = tmp_path / "logs" / "server.stdout.log"
     stderr_path = tmp_path / "logs" / "server.stderr.log"
     monkeypatch.setattr(
-        service_launcher,
+        service_probe,
         "probe_server",
         lambda _endpoint: ProbeResult(ProbeState.UNREACHABLE, "not listening"),
     )
@@ -2028,7 +2028,7 @@ def test_service_launcher_uses_bounded_file_logging_for_redirected_output(tmp_pa
         tmp_path, data_dir=str(tmp_path), env_file=load_protected_environment_file(environment).identity
     )
     monkeypatch.setattr(
-        service_launcher, "probe_server", lambda _endpoint: ProbeResult(ProbeState.UNREACHABLE, "not listening")
+        service_probe, "probe_server", lambda _endpoint: ProbeResult(ProbeState.UNREACHABLE, "not listening")
     )
     monkeypatch.setattr(
         "powercontext.server.cli._run_configured_server", lambda settings: observed.append(settings.logging)

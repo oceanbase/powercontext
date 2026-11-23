@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import shlex
+from os import environ
 from typing import Any, ClassVar, override
 
 from harbor.agents.installed.base import CliFlag
@@ -25,12 +26,15 @@ from harbor.environments.base import BaseEnvironment
 from harbor.models.agent.context import AgentContext
 
 from .harbor_agent import REMOTE_SOURCE, clear_step_tests
+from .settings import HarnessSettings
 
 CODEX_VERSION = "0.153.4"
 PLUGIN_UV_VERSION = "0.10.12"
 REMOTE_MARKETPLACE = f"{REMOTE_SOURCE}/integrations/codex"
 REMOTE_PLUGIN_PROJECT = f"{REMOTE_MARKETPLACE}/plugins/powercontext"
 REMOTE_PLUGIN_ENV = "/installed-agent/codex-plugin-env"
+REMOTE_PLUGIN_RUNTIME_PROJECT = "/installed-agent/codex-plugin-project"
+REMOTE_PYTHON_INSTALLER = "/installed-agent/ci_python_mirror.py"
 REMOTE_UV_PYTHON = "/installed-agent/uv-python"
 MARKETPLACE_NAME = "powercontext-local"
 PLUGIN_ID = f"powercontext@{MARKETPLACE_NAME}"
@@ -72,7 +76,17 @@ class PowerContextCodexAgent(Codex):
         await super().install(environment)
         if not self._powercontext:
             return
-        await self.exec_as_root(environment, command=_install_plugin_runtime_command())
+        mirror = environ.get("PC_CI_PYTHON_MIRROR")
+        if mirror:
+            await environment.upload_file(
+                source_path=HarnessSettings().repository / "scripts" / "ci_python_mirror.py",
+                target_path=REMOTE_PYTHON_INSTALLER,
+            )
+        await self.exec_as_root(
+            environment,
+            command=_install_plugin_runtime_command(python_mirror=bool(mirror)),
+            env={"PC_CI_PYTHON_MIRROR": mirror} if mirror else {},
+        )
         agent_user = shlex.quote(str(environment.default_user or "root"))
         await self.exec_as_root(environment, command=f"chown -R {agent_user} {REMOTE_PLUGIN_ENV} {REMOTE_UV_PYTHON}")
 
@@ -90,17 +104,30 @@ class PowerContextCodexAgent(Codex):
         return "\n".join(commands) or None
 
 
-def _install_plugin_runtime_command() -> str:
+def _install_plugin_runtime_command(*, python_mirror: bool = False) -> str:
     """Install uv and the plugin's Python dependencies outside CODEX_HOME, where they survive between steps."""
 
     uv_installer = f"https://astral.sh/uv/{PLUGIN_UV_VERSION}/install.sh"
+    prepare_project = ""
+    project = REMOTE_PLUGIN_PROJECT
+    installer = "uv"
+    if python_mirror:
+        # The plugin source is read-only. Its package=false runtime needs only these two files for a frozen sync.
+        project = REMOTE_PLUGIN_RUNTIME_PROJECT
+        prepare_project = (
+            f"mkdir -p {project}; "
+            f"cp {REMOTE_PLUGIN_PROJECT}/pyproject.toml {REMOTE_PLUGIN_PROJECT}/uv.lock {project}/; "
+        )
+        # Reuse uv's interpreter selection for the plugin's supported Python range, including older task images.
+        installer = f"uv run --no-project --python '>=3.11' -- python {REMOTE_PYTHON_INSTALLER}"
     return (
         "set -eu; "
         f"if ! uv --version 2>/dev/null | grep -q '^uv {PLUGIN_UV_VERSION} '; then "
         f"curl -LsSf {uv_installer} | env UV_INSTALL_DIR=/usr/local/bin UV_NO_MODIFY_PATH=1 sh; "
         "fi; "
+        f"{prepare_project}"
         f"UV_PROJECT_ENVIRONMENT={REMOTE_PLUGIN_ENV} UV_PYTHON_INSTALL_DIR={REMOTE_UV_PYTHON} "
-        f"uv sync --quiet --frozen --no-install-project --project {REMOTE_PLUGIN_PROJECT}; "
+        f"{installer} sync --quiet --frozen --no-install-project --project {project}; "
         f"mkdir -p {REMOTE_UV_PYTHON}"
     )
 

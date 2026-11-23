@@ -141,6 +141,22 @@ Supervisor 的 worker 和 wait spans 在跨进程后保留 child 的有限错误
 `auto` 已设置且模型名前缀不属于 `anthropic`、`openai`、`openai-chat`、`openai-responses` 时，`unit` 为
 `inference` 的 `inference.generation.streaming_not_applied` WARNING 表示该模型仍走非流式请求。该事件不携带
 prompt 或响应内容，也不改变本次请求的结果。
+配置了前缀抽取（`POWERCONTEXT_SERVER_INFERENCE_PREFIX_EXTRACTION_GATEWAY_URL`）时，对含一个带前缀句柄的网关回合的
+窗口，每次尝试输出一条 INFO 级别的 `atomic_memory.prefixed_extraction` 事件，`operation` 为 `atomic_memory.extract`，
+`unit` 为 `inference`。使用了基于缓存前缀的回复时 `outcome` 为 `success`；改用普通抽取时为 `fallback`，此时
+`fallback_reason` 取 `not_cheaper`、`prefix_size_unknown`、`prefix_unavailable`、`target_mismatch`、`disabled`、`invalid_instruction`、`check_rejected`、
+`gateway_unavailable`、`provider_error`、`gateway_error` 或 `invalid_output` 之一。不含这种回合的窗口不输出该事件。该事件不携带句柄、
+prompt 或响应内容。处理模式为 `one_pass` 时，该事件的 `operation` 为 `atomic_memory.one_pass`，报告的是窗口的整段对话：
+接在智能体前缀之后的对话完成了窗口的整理时为 `success`，窗口按普通的单次整理对话重新开始时为 `fallback`。第二步超出
+输入预算的窗口两者都不输出：这种情况由该窗口的 `atomic_memory.one_pass` 回退事件报告，随后的逐候选抽取以
+`operation` 为 `atomic_memory.extract` 报告它自己的尝试。
+处理模式为 `one_pass`（`POWERCONTEXT_SERVER_RUNTIME_ATOMIC_MEMORY_PROCESSING_MODE`）时，每个 Source 窗口输出一条 INFO 级别的
+`atomic_memory.one_pass` 事件，`operation` 为 `atomic_memory.one_pass`，`unit` 为 `inference`。窗口的操作由这一次对话得出时
+`outcome` 为 `success`；某一步的输入超出 `atomic_memory_input_tokens_limit`、窗口改用逐候选流程时为 `fallback`，此时
+`fallback_reason` 为 `entries_input_over_budget`（第 1 步）或 `operations_input_over_budget`（第 2 步），
+`estimated_input_tokens` 是该请求的估算输入，`effective_budget` 是生效的上限，`token_estimator_id` 是所用的估算器。
+该事件报告窗口的准备方式，不表示窗口已发布：`fallback` 在逐候选流程开始前输出，`success` 在发布前输出，此后才失败的窗口
+仍然已经输出过该事件；在对话过程中失败的窗口不输出。失败由处理失败诊断报告。默认模式不输出该事件。该事件不携带 Source、记忆、prompt 或响应内容。
 Child 取消时，supervisor 以 `INFO` 级别输出 `artifact_processing.failed`，outcome/category 为 `cancelled`，
 诊断代码为 `worker_cancelled`。Application spans 根据已映射的诊断代码分类，
 即使敏感 exception values 已从 logs 和 traces 中排除，也保留正确分类。

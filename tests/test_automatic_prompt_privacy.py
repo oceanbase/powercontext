@@ -136,10 +136,9 @@ def test_automatic_hook_skips_credentials_without_disabling_preparation(tmp_path
     assert "safe historical context" in output["hookSpecificOutput"]["additionalContext"]
     if case["sensitive"]:
         assert captures == []
-        assert "synthetic-value-2084" not in json.dumps(requests)
-        assert "synthetic_value_2084" not in json.dumps(requests)
-        assert "synthetic-value-2084" not in completed.stdout + completed.stderr
-        assert "synthetic_value_2084" not in completed.stdout + completed.stderr
+        for marker in ("synthetic-value-2084", "synthetic_value_2084", "SyntheticValue2084"):
+            assert marker not in json.dumps(requests)
+            assert marker not in completed.stdout + completed.stderr
         assert "sensitive_content" in completed.stderr
     else:
         assert len(captures) == 1

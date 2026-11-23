@@ -54,6 +54,13 @@ pub struct ModelJsonPayload {
     pub body: String,
 }
 
+/// Provider response before conversion to the final client protocol.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpstreamResponsePayload {
+    pub content_type: String,
+    pub body: String,
+}
+
 impl ModelJsonPayload {
     pub fn new(headers: BTreeMap<String, String>, body: String) -> Self {
         Self {
@@ -101,6 +108,8 @@ pub enum ContextCheckRequest {
         /// 对应 before_send allow 返回的 binding。
         request_binding: String,
         payload: ModelJsonPayload,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        upstream_payload: Option<UpstreamResponsePayload>,
         completion: String,
     },
 }
@@ -151,6 +160,12 @@ pub struct ContextProtectionLimits {
     pub dependencies: u64,
     pub send_seconds: u64,
     pub correlate_seconds: u64,
+    /// Core 生效的 Atomic Memory 输入上限（估算 token）；Core 没有报告时为 `None`。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub atomic_memory_input_tokens: Option<u64>,
+    /// 一次批量沉淀最多接受的 Source 数；Core 不提供批量沉淀时为 `None`。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub capture_batch_sources: Option<u64>,
 }
 
 impl ContextProtectionCapabilities {

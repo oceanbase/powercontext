@@ -77,6 +77,7 @@ def test_locators_survive_upgrade_reopen_http_and_mcp(tmp_path):
         connection.execute("DROP TABLE pc_source_collect_targets")
         connection.execute("DROP TABLE pc_source_runners")
         connection.execute(write_plugins["create"])
+        connection.execute("DROP TABLE pc_context_prepare_diagnostics")
         connection.execute("ALTER TABLE pc_artifacts DROP COLUMN metadata")
         for statement in retired["statements"]:
             connection.execute(statement)
@@ -85,7 +86,7 @@ def test_locators_survive_upgrade_reopen_http_and_mcp(tmp_path):
 
     runner = deployment_runner(_settings(database))
     plan = runner.plan()
-    assert plan.revisions == ("v1_5_0_004", "v1_5_0_005", "v1_5_2_pr2639")
+    assert plan.revisions == ("v1_5_0_004", "v1_5_0_005", "v1_5_2_pr2639", "000")
     runner.apply(plan_id=plan.plan_id, accepted=True, maintenance_confirmed=True)
 
     locators = [

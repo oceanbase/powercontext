@@ -461,6 +461,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/sources/content/batch": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Capture several ContentSources in one transaction
+         * @description Accept an ordered group of raw content Sources that belong together, such as the parts of one conversation turn. Each item follows the rules of the single ContentSource capture operation. All items are stored in one transaction, or none is stored. Newly stored items receive consecutive journal positions in request order. An exact replay is idempotent, and an item whose identity already exists with the same content and metadata counts as stored and keeps its existing position. An item whose identity exists with different content or different metadata rejects the whole request. Accepted Source evidence does not mean Memory was extracted.
+         */
+        post: operations["capture_content_sources"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/sources/working-notes": {
         parameters: {
             query?: never;
@@ -4136,6 +4156,29 @@ export interface components {
                 [key: string]: unknown;
             } | null;
         };
+        CaptureContentSourceItem: {
+            source_id: string;
+            /** @description Raw integration content, under the rules of the single ContentSource capture operation. */
+            content: string;
+            /** @description Caller metadata, under the rules of the single ContentSource capture operation. */
+            metadata?: {
+                [key: string]: unknown;
+            } | null;
+        };
+        CaptureContentSourcesRequest: {
+            scope_id: string;
+            /** @description Sources in journal order. Each source_id appears once. */
+            sources: components["schemas"]["CaptureContentSourceItem"][];
+        };
+        CaptureContentSourcesResponse: {
+            status: components["schemas"]["CaptureStatus"];
+            /** @description One receipt per requested Source, in request order. */
+            sources: components["schemas"]["CapturedContentSource"][];
+        };
+        CapturedContentSource: {
+            source: components["schemas"]["SourceReference"];
+            position: number;
+        };
         /** @enum {string} */
         WorkingNoteKind: "inspection" | "abandoned_approach" | "validation" | "unresolved" | "host_context";
         CaptureWorkingNoteRequest: {
@@ -4516,6 +4559,11 @@ export interface components {
             /** @description Complete raw UTF-8 JSON text. Duplicate keys and non-finite numbers are unsupported. */
             body: string;
         };
+        UpstreamResponsePayload: {
+            content_type: string;
+            /** @description Complete raw UTF-8 provider JSON or Responses SSE before conversion. */
+            body: string;
+        };
         ModelJsonTextLocation: {
             /** @enum {string} */
             schema: "powercontext.model-json-text-location.v1";
@@ -4548,6 +4596,8 @@ export interface components {
             target_profile: string;
             request_binding: string;
             payload: components["schemas"]["ModelJsonPayload"];
+            /** @description Optional pre-conversion response evidence. Core inspects it in addition to the final payload; both bodies share the response byte limit. */
+            upstream_payload?: components["schemas"]["UpstreamResponsePayload"];
             /** @enum {string} */
             completion: "complete";
         };
@@ -4582,7 +4632,7 @@ export interface components {
              * @description Protocol of the Core-configured endpoint; present under the same condition as target_endpoint.
              * @enum {string}
              */
-            target_protocol?: "openai-chat" | "openai-responses" | "anthropic-messages" | "openai-embeddings" | "minimax-embeddings" | "jev-rerank";
+            target_protocol?: "openai-chat" | "openai-responses" | "anthropic-messages" | "openai-embeddings" | "minimax-embeddings" | "jev-rerank" | "google-codeassist" | "google-codeassist-chat" | "claude-cli-prompt";
         };
         ContextProtectionCapabilities: {
             check_versions: string[];
@@ -4599,6 +4649,10 @@ export interface components {
             dependencies: number;
             send_seconds: number;
             correlate_seconds: number;
+            /** @description The effective estimated-token limit of one Atomic Memory model input, including a deployment override. A gateway sizes each captured Source against it. Absent when the runtime does not report the limit. */
+            atomic_memory_input_tokens?: number;
+            /** @description The most Sources one batch ContentSource capture request accepts. Absent when the Server does not offer the batch capture operation. */
+            capture_batch_sources?: number;
         };
         BootstrapContextItem: {
             kind: components["schemas"]["BootstrapContextItemKind"];
@@ -7398,6 +7452,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CaptureContentSourceResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["InvalidRequest"];
+            500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    capture_content_sources: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CaptureContentSourcesRequest"];
+            };
+        };
+        responses: {
+            /** @description Every Source is durably stored for later processing. */
+            202: {
+                headers: {
+                    "X-PowerContext-Request-ID": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CaptureContentSourcesResponse"];
                 };
             };
             401: components["responses"]["Unauthorized"];
