@@ -31,9 +31,10 @@ PYO3_PYTHON=/tmp/topic-build/bin/python cargo test --locked --manifest-path rust
 /tmp/topic-build/bin/maturin build --locked --release --manifest-path rust/topic-chunk-rs/Cargo.toml --interpreter /tmp/topic-build/bin/python --out /tmp/topic-wheels
 ```
 
-Install dependencies from this checkout's locked root resolution in a separate target venv, then install the
-explicit locally built core wheel followed by the experiment wheel with `--no-deps`. Do not resolve the core
-from PyPI. Run acceptance from outside the checkout with an absolute interpreter path and no `PYTHONPATH`.
+Build the experiment wheel from this PR checkout. Build the core wheel from the fixed reference commit using
+[Build the frozen reference core](FROZEN-CORE.md), including its distribution-version and source-byte checks.
+Install that same core wheel in both target venvs; install the experiment wheel only in the candidate venv.
+Run acceptance from outside the checkout with an absolute interpreter path and no `PYTHONPATH`.
 A `.pyi` describes the extension to type tools; it is not an executable Python fallback.
 
 ## First-slice evidence and decision
@@ -108,20 +109,12 @@ The GIL is retained. Parallel throughput was not measured because no concurrent 
 ### Reproduce the frozen result
 
 `TASK` is this directory, `REPO` the repository root. Use separate `REFERENCE` and `NATIVE` venvs built from
-exactly CPython3.14.5. The reference venv must contain the local core wheel and no experimental distribution.
-The candidate venv must contain the same local core wheel plus the local native wheel. Do not install editable
-copies of the main package; `pip check` and recorded installed module hashes are part of installation evidence.
-
-A clean dependency installation can use:
-
-```bash
-uv export --locked --format requirements-txt --no-emit-project --no-emit-local --output-file /tmp/topic-requirements.txt
-uv pip sync --python "$NATIVE/bin/python" /tmp/topic-requirements.txt
-# Build the core with uv build --wheel --out-dir /tmp/topic-core-wheels.
-# Supply exact local filenames, with dependencies already installed:
-uv pip install --python "$NATIVE/bin/python" --no-deps /tmp/topic-core-wheels/EXACT_CORE.whl /tmp/topic-wheels/EXACT_NATIVE.whl
-uv pip check --python "$NATIVE/bin/python"
-```
+exactly CPython3.14.5. Follow [Build the frozen reference core](FROZEN-CORE.md) to export commit
+`1840db817ac6e3f39ce7645c89733648e8892419`, build its recorded distribution identity and install that same wheel
+in both environments. A core wheel built directly from the PR checkout has a different VCS version and is rejected,
+even when its chunking/model sources are unchanged. The reference venv must have no experimental distribution;
+the candidate venv additionally installs the local native wheel. `pip check` and installed module hashes are part
+of installation evidence. Do not install editable copies of the main package.
 
 The committed golden is authoritative. Recording is an explicit operation only when intentionally freezing a
 new reference; a failed verification never rerecords it. Runtime, Unicode/Pydantic, source and golden hash drift

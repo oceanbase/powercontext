@@ -40,8 +40,10 @@ and is not used to claim complete coverage of those guards.
 ## Reproduce
 
 Use absolute `TASK`, `TOOL`, `REFERENCE` and `NATIVE` paths. Both Python environments must be the fixed
-CPython3.14.5; dependencies/core come from this checkout's locked resolution and explicit local wheel.
-The reference environment must not contain the candidate. Set the writable cache/build variables from README.
+CPython3.14.5. First follow [Build the frozen reference core](FROZEN-CORE.md): core source and dependencies come
+from the fixed reference commit, while the experimental wheel comes from the PR checkout. Both environments
+install the same verified frozen core wheel. The reference environment must not contain the candidate.
+Set the writable cache/build variables from README.
 `RUN` must be a fresh directory outside the checkout. The following commands do not rerecord the frozen golden.
 
 ```bash
