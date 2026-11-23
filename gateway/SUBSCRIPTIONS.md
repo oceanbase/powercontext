@@ -62,7 +62,7 @@ Core must approve the final target, model and protocol through `PC_GATEWAY_UPSTR
 
 Codex's endpoint rejects `max_output_tokens`. A Core policy requiring that explicit output cap withholds the request with `output_limit_required`; a configured profile limit cannot make the upstream enforce an unsupported parameter.
 
-The Codex endpoint routes its prompt cache by the `session-id` request header; `prompt_cache_key` in the body does not do this there. The Gateway forwards the client's `session-id` to this endpoint and sends the same value on a prefix extraction request, so requests of one session reach the same cache. A client that sends no `session-id` gets few cache hits. The header is not forwarded to other upstreams.
+The Codex endpoint routes its prompt cache by the `session-id` request header; `prompt_cache_key` in the body does not do this there. The Gateway forwards the request's `session-id` to this endpoint, or the body's `prompt_cache_key` as `session-id` when the request has no such header, and sends the same value on a prefix extraction request, so requests of one session reach the same cache. A request with neither gets few cache hits. The header is not forwarded to other upstreams.
 
 With `PC_GATEWAY_PREFIX_EXTRACTION=on`, memory extraction over the cached prefix is available on `codex` when Core is confirmed as non-enforcing at startup. Each extraction request is sent with the credentials in the Codex login at that moment, counts against that account's usage limits, and has no output limit; a request that asks for one is refused with `output_limit_unsupported`, and Core uses normal extraction. See [prefix extraction settings](../docs/en/docs/operate/deploy-server.md#memory-extraction-over-the-cached-prefix).
 

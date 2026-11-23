@@ -568,7 +568,11 @@ async fn ingress_model(
     }) = upstream_channel(
         &state,
         &format,
-        header_id(&headers, pc_gateway_core::UPSTREAM_SESSION_HEADER),
+        // 只有 Codex 订阅端点用到它；其他上游不为它解析请求体。
+        (subscription_kind == Some(pc_gateway_auth::Subscription::Codex))
+            .then(|| upstream_session(&headers, &body))
+            .flatten()
+            .as_deref(),
     )
     .await
     else {
@@ -925,9 +929,27 @@ fn conversation_id(headers: &HeaderMap, format: &Format) -> Option<String> {
 
 fn header_id<'a>(headers: &'a HeaderMap, name: &str) -> Option<&'a str> {
     let value = headers.get(name)?.to_str().ok()?;
-    let valid =
-        !value.is_empty() && value.len() <= 256 && value.bytes().all(|b| b.is_ascii_graphic());
-    valid.then_some(value)
+    valid_id(value).then_some(value)
+}
+
+fn valid_id(value: &str) -> bool {
+    !value.is_empty() && value.len() <= 256 && value.bytes().all(|b| b.is_ascii_graphic())
+}
+
+/// 请求带给上游的会话标识：请求的 `session-id` 头；没有时取请求体的 `prompt_cache_key`。Codex 给两者填同一个值，
+/// 不发这个头的 agent 往往仍带后者。值的规则与会话头相同，不合规则时按没有处理。
+fn upstream_session(headers: &HeaderMap, body: &[u8]) -> Option<String> {
+    if let Some(session) = header_id(headers, pc_gateway_core::UPSTREAM_SESSION_HEADER) {
+        return Some(session.to_string());
+    }
+    #[derive(Deserialize)]
+    struct CacheKey {
+        prompt_cache_key: Option<String>,
+    }
+    serde_json::from_slice::<CacheKey>(body)
+        .ok()?
+        .prompt_cache_key
+        .filter(|key| valid_id(key))
 }
 
 const CONVERSATION_ID_HEADER: &str = "x-powercontext-conversation-id";
@@ -1999,6 +2021,30 @@ pub(crate) mod tests {
         assert_eq!(
             extract["input"].as_array().unwrap()[..before.len()],
             before[..]
+        );
+    }
+
+    #[test]
+    fn the_upstream_session_is_the_session_header_or_else_the_cache_key() {
+        let body = br#"{"model":"m","prompt_cache_key":"key-1","input":[]}"#;
+        let mut headers = HeaderMap::new();
+        assert_eq!(upstream_session(&headers, body).as_deref(), Some("key-1"));
+        headers.insert("session-id", "session-a".parse().unwrap());
+        assert_eq!(
+            upstream_session(&headers, body).as_deref(),
+            Some("session-a")
+        );
+
+        // 两者都没有，或值不合规则时，不带会话标识。
+        let headers = HeaderMap::new();
+        assert_eq!(upstream_session(&headers, br#"{"model":"m"}"#), None);
+        assert_eq!(
+            upstream_session(&headers, br#"{"prompt_cache_key":"has space"}"#),
+            None
+        );
+        assert_eq!(
+            upstream_session(&headers, br#"{"prompt_cache_key":42}"#),
+            None
         );
     }
 
