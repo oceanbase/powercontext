@@ -17,6 +17,7 @@
 use pc_gateway_core::{
     DegradePolicy, ExecutionState, ExecutionTerminal, Executor, GateClient, GateError,
     LifecycleStopReason, ManagedCall, ManagedOutcome, ModelSendState, RequestControl,
+    TurnCounterSnapshot,
 };
 use pc_gateway_evidence::{BufferedEvidenceSink, NoopEvidenceSink};
 use pc_gateway_protocol::{
@@ -26,7 +27,7 @@ use pc_gateway_transport::{AdmittedSend, SendIndeterminateReason, SendOutcome, T
 use pc_gateway_types::{
     CaptureContentSourcesRequest, CheckDecision, CheckPhase, ContextCheckRequest,
     ContextCheckResult, PrepareContextRequest, PrepareContextResult, PreparedContext,
-    PreparedContextLocation,
+    PreparedContextLocation, TurnKind,
 };
 use std::collections::VecDeque;
 use std::future::Future;
@@ -2770,6 +2771,224 @@ async fn requests_without_a_conversation_id_never_inherit_an_injection() {
     let sent = sends(&gate);
     assert_eq!(sent[0].1.len(), 1);
     assert!(sent[1].1.is_empty());
+}
+
+#[tokio::test]
+async fn evidence_records_the_turn_kind_for_chat_and_responses_requests() {
+    let (executor, renderer, _transport, _gate) =
+        harness(allow_runs(5), (0..5).map(|_| raw_response()).collect(), 2);
+    let evidence = BufferedEvidenceSink::new();
+    let r = RendererRef(renderer.clone());
+
+    let mut assistant_only = call(DegradePolicy::Pause);
+    assistant_only.request.messages = vec![CanonicalMessage {
+        role: Role::Assistant,
+        content: vec![serde_json::json!("done")],
+        content_null: false,
+        tool_calls: None,
+        tool_call_id: None,
+        extra_fields: Default::default(),
+    }];
+    let mut empty = call(DegradePolicy::Pause);
+    empty.request.messages.clear();
+
+    executor
+        .run(request_control(), call(DegradePolicy::Pause), &r, &evidence)
+        .await;
+    executor
+        .run(
+            request_control(),
+            tool_loop_call("hello", 1, false),
+            &r,
+            &evidence,
+        )
+        .await;
+    executor
+        .run(
+            request_control(),
+            tool_loop_call("hello", 1, true),
+            &pc_gateway_protocol::OpenAiResponsesRenderer,
+            &evidence,
+        )
+        .await;
+    executor
+        .run(request_control(), assistant_only, &r, &evidence)
+        .await;
+    executor.run(request_control(), empty, &r, &evidence).await;
+
+    let kinds: Vec<Option<TurnKind>> = evidence.calls().iter().map(|call| call.turn_kind).collect();
+    assert_eq!(
+        kinds,
+        vec![
+            Some(TurnKind::UserTurn),
+            Some(TurnKind::ToolContinuation),
+            Some(TurnKind::ToolContinuation),
+            Some(TurnKind::AssistantOnly),
+            Some(TurnKind::Empty),
+        ]
+    );
+}
+
+#[tokio::test]
+async fn the_skip_switch_stops_prepare_for_tool_continuations_without_a_replay_entry() {
+    let block = "BEGIN_POWERCONTEXT_PREPARED_CONTEXT_V1\n{\"items\":[]}\nEND_POWERCONTEXT_PREPARED_CONTEXT_V1";
+    let (executor, renderer, transport, gate) =
+        harness(allow_runs(2), (0..2).map(|_| raw_response()).collect(), 2);
+    let executor = executor.with_turn_skip_prepare(true);
+    let evidence = BufferedEvidenceSink::new();
+    let r = RendererRef(renderer.clone());
+
+    let mut continuation = tool_loop_call("hello", 1, false);
+    continuation.conversation_id = None;
+    executor
+        .run(request_control(), continuation, &r, &evidence)
+        .await;
+
+    *gate.prepare_result.lock().unwrap() = Some(Ok(reuse_result(block)));
+    let mut next_turn = tool_loop_call("next question", 0, false);
+    next_turn.conversation_id = None;
+    executor
+        .run(request_control(), next_turn, &r, &evidence)
+        .await;
+
+    // 工具续写不再检索；新的用户回合照常准备并注入。
+    assert_eq!(gate.prepare_queries.lock().unwrap().len(), 1);
+    assert_eq!(gate.prepare_queries.lock().unwrap()[0], "next question");
+    let sent = sends(&gate);
+    assert!(sent[0].1.is_empty());
+    assert_eq!(sent[1].1.len(), 1);
+    assert_eq!(transport.sends.lock().unwrap().len(), 2);
+    assert_eq!(
+        executor.turn_counters(),
+        TurnCounterSnapshot {
+            user_turn: 1,
+            tool_continuation: 1,
+            assistant_only: 0,
+            empty: 0,
+            skipped_prepare: 1,
+        }
+    );
+    let kinds: Vec<Option<TurnKind>> = evidence.calls().iter().map(|call| call.turn_kind).collect();
+    assert_eq!(
+        kinds,
+        vec![Some(TurnKind::ToolContinuation), Some(TurnKind::UserTurn)]
+    );
+    let calls = evidence.calls();
+    assert!(calls[0].prepare_skipped, "工具续写跳过了准备");
+    assert!(!calls[1].prepare_skipped, "用户回合照常准备");
+}
+
+#[tokio::test]
+async fn a_responses_developer_tail_keeps_preparing_with_the_skip_switch() {
+    let (executor, _renderer, _transport, gate) = harness(allow_runs(1), vec![raw_response()], 2);
+    let executor = executor.with_turn_skip_prepare(true);
+    let evidence = BufferedEvidenceSink::new();
+    let mut c = call(DegradePolicy::Pause);
+    c.inject_context = true;
+    c.request.messages = vec![
+        CanonicalMessage {
+            role: Role::User,
+            content: vec![serde_json::json!({"type": "input_text", "text": "继续"})],
+            content_null: false,
+            tool_calls: None,
+            tool_call_id: None,
+            extra_fields: Default::default(),
+        },
+        // 入口把非用户 Responses item 封装为 Role::Tool 承载；尾部 developer 仍不是工具续写。
+        CanonicalMessage {
+            role: Role::Tool,
+            content: vec![serde_json::json!({
+                "type": "message",
+                "role": "developer",
+                "content": [{"type": "input_text", "text": "harness reminder"}],
+            })],
+            content_null: false,
+            tool_calls: None,
+            tool_call_id: None,
+            extra_fields: Default::default(),
+        },
+    ];
+    executor
+        .run(
+            request_control(),
+            c,
+            &pc_gateway_protocol::OpenAiResponsesRenderer,
+            &evidence,
+        )
+        .await;
+
+    assert_eq!(gate.prepare_queries.lock().unwrap().len(), 1);
+    assert_eq!(gate.prepare_queries.lock().unwrap()[0], "继续");
+    let call = evidence.calls().pop().unwrap();
+    assert_eq!(call.turn_kind, Some(TurnKind::Empty));
+    assert!(!call.prepare_skipped);
+}
+
+#[tokio::test]
+async fn an_assistant_only_tail_still_prepares_with_the_skip_switch() {
+    let (executor, renderer, _transport, gate) = harness(allow_runs(1), vec![raw_response()], 2);
+    let executor = executor.with_turn_skip_prepare(true);
+    let evidence = BufferedEvidenceSink::new();
+    let mut c = call(DegradePolicy::Pause);
+    c.inject_context = true;
+    c.request.messages.push(CanonicalMessage {
+        role: Role::Assistant,
+        content: vec![serde_json::json!("done")],
+        content_null: false,
+        tool_calls: None,
+        tool_call_id: None,
+        extra_fields: Default::default(),
+    });
+    executor
+        .run(
+            request_control(),
+            c,
+            &RendererRef(renderer.clone()),
+            &evidence,
+        )
+        .await;
+
+    assert_eq!(gate.prepare_queries.lock().unwrap().len(), 1);
+    assert_eq!(gate.prepare_queries.lock().unwrap()[0], "hello");
+    let call = evidence.calls().pop().unwrap();
+    assert_eq!(call.turn_kind, Some(TurnKind::AssistantOnly));
+    assert!(!call.prepare_skipped);
+    assert_eq!(executor.turn_counters().skipped_prepare, 0);
+}
+
+#[tokio::test]
+async fn a_replayed_tool_continuation_is_not_skipped() {
+    let block = "BEGIN_POWERCONTEXT_PREPARED_CONTEXT_V1\n{\"items\":[]}\nEND_POWERCONTEXT_PREPARED_CONTEXT_V1";
+    let (executor, renderer, _transport, gate) =
+        harness(allow_runs(2), (0..2).map(|_| raw_response()).collect(), 2);
+    let executor = executor.with_turn_skip_prepare(true);
+    *gate.prepare_result.lock().unwrap() = Some(Ok(reuse_result(block)));
+    for step in 0..2 {
+        executor
+            .run(
+                request_control(),
+                tool_loop_call("hello", step, false),
+                &RendererRef(renderer.clone()),
+                &NoopEvidenceSink,
+            )
+            .await;
+    }
+
+    // 有会话 ID 且同一锚点命中重放：不跳过，两步都注入同一个块。
+    assert_eq!(gate.prepare_queries.lock().unwrap().len(), 1);
+    let sent = sends(&gate);
+    assert_eq!(sent.len(), 2);
+    assert!(sent.iter().all(|(_, declared)| declared.len() == 1));
+    assert_eq!(
+        executor.turn_counters(),
+        TurnCounterSnapshot {
+            user_turn: 1,
+            tool_continuation: 1,
+            assistant_only: 0,
+            empty: 0,
+            skipped_prepare: 0,
+        }
+    );
 }
 
 #[tokio::test]
