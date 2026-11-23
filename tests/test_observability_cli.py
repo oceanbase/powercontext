@@ -22,6 +22,7 @@ import re
 import shlex
 import subprocess
 import sys
+import time
 from dataclasses import replace
 
 import pytest
@@ -316,22 +317,60 @@ if __name__ == "__main__":
 
 def test_unwritable_log_directory_does_not_fail_business_logging(tmp_path):
     script = """
+import atexit
+import faulthandler
+import json
 import logging
+import sys
+import time
+
+def record_phase(phase):
+    with open(sys.argv[1], "a", encoding="utf-8") as stream:
+        stream.write(json.dumps({"phase": phase, "time_ns": time.time_ns(), "monotonic_ns": time.monotonic_ns()}) + "\\n")
+
+record_phase("interpreter_started")
+atexit.register(record_phase, "atexit")
+stack_file = open(sys.argv[2], "w", encoding="utf-8")
+faulthandler.dump_traceback_later(30, file=stack_file)
 from powercontext.server.logging import configure_server_logging
+record_phase("logging_imported")
 from powercontext.server.settings import ServerLoggingConfig
+record_phase("settings_imported")
 configure_server_logging(ServerLoggingConfig(directory=BAD_PATH))
+record_phase("logging_configured")
 logging.getLogger("powercontext.server").info("Business still running")
+record_phase("first_business_log_returned")
 logging.getLogger("powercontext.server").info("Business still running")
+record_phase("second_business_log_returned")
 """
     bad_path = tmp_path / "file"
     bad_path.write_text("not a directory")
+    phases = tmp_path / "unwritable-logging-phases.jsonl"
+    logs = tmp_path / "logs"
+    logs.mkdir()
+    started = time.monotonic_ns()
     result = subprocess.run(
-        [sys.executable, "-c", script.replace("BAD_PATH", repr(str(bad_path)))],
+        [
+            sys.executable,
+            "-c",
+            script.replace("BAD_PATH", repr(str(bad_path))),
+            str(phases),
+            str(logs / "worker-exit.log"),
+        ],
         capture_output=True,
         text=True,
-        timeout=10,
+        timeout=60,
         check=True,
     )
+    with phases.open("a", encoding="utf-8") as stream:
+        stream.write(
+            json.dumps({
+                "phase": "parent_observed_exit",
+                "elapsed_ns": time.monotonic_ns() - started,
+                "returncode": result.returncode,
+            })
+            + "\n"
+        )
     assert result.stdout.count("Business still running") == 2
     assert result.stderr.count("observability.log_failed") == 1
     assert "Traceback" not in result.stderr

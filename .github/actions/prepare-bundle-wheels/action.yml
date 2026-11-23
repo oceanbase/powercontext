@@ -1,0 +1,21 @@
+name: Prepare locked bundle dependency wheels
+description: Download verified originals or build the approved source dependency offline
+inputs:
+  stage:
+    description: download or build
+    required: true
+  python-executable:
+    description: Python interpreter prepared by setup-bundle-builder
+    required: true
+  working-directory:
+    description: Directory containing the exported bundle requirements
+    default: build/artifact-input
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        BUNDLE_STAGE: ${{ inputs.stage }}
+        BUILDER_PYTHON: ${{ inputs.python-executable }}
+        BUNDLE_WORK: ${{ inputs.working-directory }}
+      run: '"$BUILDER_PYTHON" "$GITHUB_ACTION_PATH/../../../scripts/prepare_bundle_dependencies.py" "$BUNDLE_STAGE" --work "$BUNDLE_WORK"'

@@ -120,6 +120,16 @@ async def load_memory_previews(api, ctx):
         await _load_memory_preview(api, ctx, ref)
 
 
+async def load_automatic_status(api, ctx):
+    """Keep each Family's evidence independent of the Source directory."""
+    for family in ("memory", "topic-memory", "profile", "experience"):
+        try:
+            status = await api.processing_status(ctx["scope"], family)
+            ctx["automatic_status"].append({"family": family, "value": status, "error": None})
+        except ReadError as error:
+            ctx["automatic_status"].append({"family": family, "value": None, "error": error})
+
+
 def _validate_selection(kind, source_id, run_id, status):
     if (
         kind not in {"sources", "dreams"}
@@ -132,8 +142,7 @@ def _validate_selection(kind, source_id, run_id, status):
 
 async def load_processing(api, request, ctx):
     kind = request.query_params.get("record_type") or ("dreams" if request.query_params.get("run_id") else "sources")
-    if kind in {"overview", "attempts"}:
-        kind = "sources"
+    kind = {"overview": "sources", "attempts": "sources"}.get(kind, kind)
     source_id = request.query_params.get("source_id")
     run_id = request.query_params.get("run_id")
     status = (request.query_params.get("run_status") or None) if kind == "dreams" else None
@@ -143,6 +152,8 @@ async def load_processing(api, request, ctx):
     ctx["artifact_destination"] = lambda ref: artifact_destination(ctx, ref)
     scope = segment(ctx["scope"])
     if kind == "sources":
+        if source_id is None:
+            await load_automatic_status(api, ctx)
         if ctx["processing_show_topic_status"]:
             await load_topic_status(api, ctx)
         if source_id is not None:

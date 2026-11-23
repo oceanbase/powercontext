@@ -67,6 +67,7 @@ Server 默认 Scope 的顺序解析。解析结果会固定到 Session，resume 
 HTTPS 证书校验仍然启用。安装与持久化同意见[连接远程 Server](../operate/connect-remote-server.md)。
 不应采集当前提示词时，设置 `POWERCONTEXT_OPENCODE_CAPTURE_PROMPTS=false`。
 `POWERCONTEXT_OPENCODE_PROMPT_RECALL` 默认为 `true`；设为 `false` 后，插件不再为每个提示词准备和注入上下文。
+关闭召回后，插件也不提供 `pc_prepare_context` 工具；显式检索仍可使用 `pc_search`。
 
 ## 把提示词时上下文交给 gateway
 
@@ -80,16 +81,28 @@ export POWERCONTEXT_OPENCODE_CAPTURE_PROMPTS=false
 opencode
 ```
 
-关闭召回后，插件不发送准备请求，也不向用户消息添加上下文。`POWERCONTEXT_OPENCODE_CAPTURE_PROMPTS` 为 `true`
-时它仍会采集提示词；两项都关闭时，插件不再为提示词发送任何请求。Session Scope、`pc_*` 工具和 TUI 照常工作。
-OpenCode 直接调用模型时，gateway 不承载这些流量，请保留默认值。
+关闭召回后，插件不发送准备请求，不向用户消息添加上下文，也不提供 `pc_prepare_context` 工具。该工具的结果会留在
+会话中并带有 prepared-context 块。Core 会以 HTTP 422 拒绝把该结果返回给模型的请求以及该会话之后的每个请求，
+在每种隐私模式下都是如此；gateway 返回 HTTP 503 `gate_paused`。`POWERCONTEXT_OPENCODE_CAPTURE_PROMPTS` 为
+`true` 时插件仍会采集提示词；两项都关闭时，插件不再为提示词发送任何请求。Session Scope、其他 `pc_*` 工具和 TUI
+照常工作。OpenCode 直接调用模型时，gateway 不承载这些流量，请保留默认值。
+
+OpenCode 不保存召回添加到用户消息中的上下文，因此开启召回时开始的会话可以继续经过 gateway。但
+`pc_prepare_context` 的结果会被保存：如果模型在某个会话中调用过该工具，请新建 OpenCode 会话，不要继续那个会话。
 
 关闭召回后，提示词时上下文只来自 gateway。gateway 在 `PC_GATEWAY_DEFAULT_SCOPE` 指定的 Scope 中准备和采集，
 而不是插件为 Session 或 workspace 解析的 Scope。请把它设为同一个 Scope。
 
-OpenCode 总是发送流式请求，而 gateway 只在 Responses 路由上完成流式的一轮。指向 gateway `/gateway/v1` 的 OpenCode
-provider 请使用 `@ai-sdk/openai`。在 Chat Completions 路由（`@ai-sdk/openai-compatible`）上，Core 会扣留流式响应，
-这一轮会失败。
+OpenCode 在每个模型请求的 `x-opencode-session-id` 头中发送会话 ID。因此，通过 UDS 连接 Core 的 gateway 默认为
+OpenCode 的每一轮准备并注入上下文；独立运行的 gateway 需要设置 `PC_GATEWAY_INJECTION=on`。见
+[网关上下文注入](../operate/deploy-server.md#网关上下文注入)。
+
+OpenCode 总是发送流式请求。指向 gateway `/gateway/v1` 的 OpenCode provider 请使用 `@ai-sdk/openai`，它使用
+Responses 路由。gateway 以非流式方式向上游模型请求 Responses 结果，再把放行的结果以流式重放，因此在 Core 的任何
+[隐私模式](../operate/inference-protection.md#配置受支持的目标)下，流式都不会阻止这一轮完成或被采集。enforcing 模式的
+Core 仍会执行它的其他请求和响应规则。`@ai-sdk/openai-compatible` 使用 Chat Completions 路由，gateway 会转发流式响应。
+enforcing 模式的 Core 会扣留这一轮，gateway 返回 HTTP 400。非 enforcing 模式的 Core（包括默认的 `disabled`
+模式）下，gateway 会放行流式响应，但不会采集这一轮，因为它只采集 JSON 响应。
 
 ## 验证安装
 

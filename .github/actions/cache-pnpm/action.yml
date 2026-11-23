@@ -22,11 +22,20 @@ outputs:
     value: ${{ steps.pnpm.outputs.key }}
   cache-hit:
     description: "Whether the complete pnpm dependency cache was restored"
-    value: ${{ steps.restore.outputs.cache-hit || steps.cache.outputs.cache-hit }}
+    value: ${{ steps.restore.outputs.cache-hit || steps.github.outputs.cache-hit || steps.s3.outputs.cache-hit }}
 
 runs:
   using: "composite"
   steps:
+    - name: Configure dependency downloads
+      shell: bash
+      run: node "$GITHUB_ACTION_PATH/../../../scripts/ci_node_mirror.mjs" configure
+
+    - id: backend
+      if: inputs.save-cache != 'false'
+      shell: bash
+      run: python3 "$GITHUB_ACTION_PATH/../../../scripts/ci_cache.py" backend
+
     - name: Resolve pnpm store
       id: pnpm
       shell: bash
@@ -41,19 +50,38 @@ runs:
         echo "key=$CACHE_KEY_PREFIX-$pnpm_version-$CACHE_DEPENDENCY_HASH" >> "$GITHUB_OUTPUT"
         echo "restore-key=$CACHE_KEY_PREFIX-$pnpm_version-" >> "$GITHUB_OUTPUT"
 
-    - name: Cache pnpm store
-      id: cache
-      if: inputs.save-cache != 'false'
-      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+    # Keep post-saving actions in this scope: an extra composite layer loses
+    # these step outputs during post cleanup (actions/runner#2009).
+    - name: Cache pnpm store in GitHub
+      id: github
+      if: inputs.save-cache != 'false' && steps.backend.outputs.backend == 'github'
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
       with:
         path: ${{ steps.pnpm.outputs.path }}
         key: ${{ steps.pnpm.outputs.key }}
         restore-keys: ${{ steps.pnpm.outputs.restore-key }}
 
+    - name: Cache pnpm store in S3
+      id: s3
+      if: inputs.save-cache != 'false' && steps.backend.outputs.backend == 's3'
+      uses: runs-on/cache@3c223729b4fda74ee12f4976048dd69b420fdd26
+      with:
+        path: ${{ steps.pnpm.outputs.path }}
+        key: ${{ steps.pnpm.outputs.key }}
+        restore-keys: ${{ steps.pnpm.outputs.restore-key }}
+      env:
+        AWS_ACCESS_KEY_ID: ${{ env.PC_CI_CACHE_ACCESS_KEY }}
+        AWS_SECRET_ACCESS_KEY: ${{ env.PC_CI_CACHE_SECRET_KEY }}
+        AWS_REGION: ${{ env.PC_CI_CACHE_REGION }}
+        RUNS_ON_S3_BUCKET_CACHE: ${{ env.PC_CI_CACHE_BUCKET }}
+        RUNS_ON_S3_BUCKET_ENDPOINT: ${{ env.PC_CI_CACHE_ENDPOINT }}
+        RUNS_ON_S3_FORCE_PATH_STYLE: 'true'
+        RUNS_ON_RUNNER_NAME: ''
+
     - name: Restore pnpm store for early saving
       id: restore
       if: inputs.save-cache == 'false'
-      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+      uses: ./.github/actions/cache-restore
       with:
         path: ${{ steps.pnpm.outputs.path }}
         key: ${{ steps.pnpm.outputs.key }}
