@@ -204,6 +204,18 @@ Memory, Topic Memory, Experience, Skill, current Profile, Handoff and Prompt col
 
 Source consumption, invocation intent, execution observation, blocks and Dream records are independent evidence. A Source block can coexist with pending Dream work. Skills, Handoffs and Prompts have no Source consumption path. A caught-up cursor or acknowledged invocation does not establish publication. Dream history is bounded to ten records, while pending work is checked independently. Proposed candidates remain subject to review; successful `no_change` and `needs_evidence` retain their separate meanings.
 
+| Artifact page | Source evidence | Dream operations |
+| --- | --- | --- |
+| Memory | Consumption cursor and journal head | `revise_memory` |
+| Topic Memory | Cursor, journal head, target window and blocking budget or block record | `revise_topic_memory` |
+| Experience | Consumption cursor and journal head | `refine_experience` |
+| Skill | Not applicable | `derive_skill`, `revise_skill` |
+| Current Profile | Consumption cursor and journal head | `revise_profile` |
+| Handoff | Not applicable | `refresh_handoff` |
+| Prompt | Not applicable | `revise_prompt` |
+
+Each page also includes `revise_tags` runs targeting that family. Invocation counters come from the Scope’s processing intent. The executor observation comes from the local supervisor for that binding.
+
 The details drawer shows safe diagnostic reasons and each dimension's source and time, without raw errors, private input or worker identifiers. Budget-derived blocks are distinguished from retained block records. Execution observations apply only to this process, Scope and shared binding; they do not identify a specific Dream run or establish other workers' activity. After 30 seconds, a local execution snapshot is marked stale without polling.
 
 Status reads have a separate three-second deadline and do not replace the saved-content workspace on failure. Manual refresh preserves search and selection. Scope or family changes cancel outstanding reads and close the drawer; late responses cannot replace another Scope's evidence. Links open the existing Scope-wide processing records, exact Dream run, candidate review or whole-service runtime page with their normal authorization.

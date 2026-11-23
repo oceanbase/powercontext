@@ -195,6 +195,18 @@ Home 的记忆、交接、经验和技能可以独立阅读。一类内容缺失
 
 Source 消费、调用意图、执行观察、阻塞和 Dream 记录是独立证据。Source 阻塞可与待处理 Dream 并存。技能、交接和提示词不适用 Source 消费路径。消费追平或调用已确认不能证明产物发布。Dream 历史最多展示十条，是否存在待处理操作则独立查询。候选提出后仍需审核；成功无变化和需要更多证据保留各自含义。
 
+| 产物页面 | Source 证据 | Dream 操作 |
+| --- | --- | --- |
+| Memory | 消费游标和日志头位置 | `revise_memory` |
+| Topic Memory | 游标、日志头位置、目标窗口，以及导致阻塞的预算或已保存的阻塞记录 | `revise_topic_memory` |
+| Experience | 消费游标和日志头位置 | `refine_experience` |
+| Skill | 不适用 | `derive_skill`、`revise_skill` |
+| 当前 Profile | 消费游标和日志头位置 | `revise_profile` |
+| Handoff | 不适用 | `refresh_handoff` |
+| Prompt | 不适用 | `revise_prompt` |
+
+各页也会展示以该产物类型为目标的 `revise_tags` 记录。调用计数来自当前 Scope 的处理意图，执行状态来自本进程对相应 binding 的调度观察。
+
 详情抽屉展示安全诊断原因，以及各维度的来源和时间，不披露原始异常、私有输入或 worker 标识。预算推导的阻塞与已保存阻塞记录分别说明。执行观察仅适用于本进程、当前 Scope 和共享 binding，不能归因到具体 Dream run，也不代表其他进程的活动。执行快照经过 30 秒后在本地标记过期，不自动轮询。
 
 状态查询采用独立的三秒超时，失败不替换已有内容工作区。手动刷新保留搜索与选中记录。切换 Scope 或 family 会取消旧请求、关闭抽屉；晚到响应不能覆盖其他 Scope 的证据。链接使用既有 Scope 处理记录、精确 Dream run、候选审核和全服务运行状态页面，沿用目标页面授权。

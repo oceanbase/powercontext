@@ -4094,3 +4094,31 @@ RUSTUP_TOOLCHAIN=1.95.0 CARGO_PROFILE_DEV_DEBUG=0 cargo build --locked --manifes
 uv run --no-sync python desktop/tests/real_server.py --product-qualification sqlite-processing-status-c30bacd0-v1 \
   --wheel desktop/.artifacts/processing-160/qualification/server-wheel/powercontext-1.5.3.dev338+gc30bacd02-py3-none-any.whl
 ```
+
+## Nullable processing status contract
+
+The ordinary Desktop client selected `sqlite-processing-status-88bddd5e-v1` for all thirteen native operations in the
+1.6.0 specification with nullable processing status references. SQLite passed anonymous loopback, static Bearer, HTTPS with an explicit CA and
+base path, and enforced Provider mode on macOS-15.8.2-arm64-arm-64bit with Python 3.12.13 and Rust 1.95.0.
+[The native qualification run](https://github.com/oceanbase/powercontext/actions/runs/45168401061)
+retains the wheel, profile and four-mode report in `desktop-protocol-qualification-2725`.
+
+| Qualification input | Identity |
+| --- | --- |
+| Server source | `88bddd5eec028c11f608a5b67a279863df63ca9f` |
+| OpenAPI SHA-256 | `4e93174e2990524280f426ff1e0eb58f14ce3427e95243220bc0d98362540683` |
+| Wheel SHA-256 | `b71900e95d7d5030f43083c730a531ee55c710c13fee3ec95c9918d521f29150` |
+| Native probe SHA-256 | `26f3ea1f4d13d8749b1e831b2b474dc7fa0b56fead2d022199a85b2aa6e9a079` |
+
+The verification checkout `486acd970a93427a01211dde2c373cbb522583e8` adds the CI workflow to the Server source commit.
+The harness installed the candidate compatibility entry before compiling the product probe, which
+accounts for the dirty Desktop checkout in the report. To repeat the protocol checks from this
+source tree with the recorded wheel, run:
+
+```sh
+gh run download 45168401061 --repo oceanbase/powercontext --name desktop-protocol-qualification-2725 --dir desktop/.artifacts/processing-nullable
+uv sync --locked --python 3.12.13 --managed-python
+RUSTUP_TOOLCHAIN=1.95.0 CARGO_PROFILE_DEV_DEBUG=0 cargo build --locked --manifest-path desktop/src-tauri/Cargo.toml --example server_probe
+uv run --no-sync python desktop/tests/real_server.py --product-qualification sqlite-processing-status-88bddd5e-v1 \
+  --wheel desktop/.artifacts/processing-nullable/qualification/server-wheel/powercontext-1.5.3.dev341+g88bddd5ee-py3-none-any.whl
+```
