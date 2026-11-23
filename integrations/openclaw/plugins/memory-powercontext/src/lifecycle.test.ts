@@ -22,7 +22,7 @@ import { runAgentHarnessBeforeCompactionHook } from "openclaw/plugin-sdk/agent-h
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { resolvePowerContextConfig } from "./config.js";
 import { PowerContextRequestError, type PowerContextClient } from "./http.js";
-import { registerPowerContextLifecycle } from "./lifecycle.js";
+import { createLifecycleState, registerPowerContextLifecycle } from "./lifecycle.js";
 import { scopeBindingKeys, type ScopeBindingKey } from "./scope.js";
 
 type Hook = (event: unknown, context: unknown) => unknown;
@@ -172,27 +172,33 @@ function createLifecycleHarness() {
       } as T;
     },
   } as unknown as PowerContextClient;
-  const api = {
-    on(name: string, handler: unknown) {
-      hooks.set(name, handler as Hook);
-    },
-    logger: {
-      warn(message: string) {
-        if (loggerFailure) throw new Error("logger unavailable");
-        warnings.push(message);
+  const state = createLifecycleState();
+  const register = (registrationHooks: Map<string, Hook>) => {
+    const api = {
+      on(name: string, handler: unknown) {
+        registrationHooks.set(name, handler as Hook);
       },
-      debug(message: string) {
-        if (loggerFailure) throw new Error("logger unavailable");
-        debugMessages.push(message);
+      logger: {
+        warn(message: string) {
+          if (loggerFailure) throw new Error("logger unavailable");
+          warnings.push(message);
+        },
+        debug(message: string) {
+          if (loggerFailure) throw new Error("logger unavailable");
+          debugMessages.push(message);
+        },
       },
-    },
-  } as unknown as OpenClawPluginApi;
-  registerPowerContextLifecycle(api, {
-    client,
-    getConfig: () => config,
-    isPrivateSession: () => true,
-    createClosingSignal: () => closingSignalFactory(),
-  });
+    } as unknown as OpenClawPluginApi;
+    registerPowerContextLifecycle(api, {
+      client,
+      getConfig: () => config,
+      isPrivateSession: () => true,
+      createClosingSignal: () => closingSignalFactory(),
+      state,
+    });
+    return registrationHooks;
+  };
+  register(hooks);
   return {
     capturedScopes,
     capturedSourceIds,
@@ -203,6 +209,8 @@ function createLifecycleHarness() {
     debugMessages,
     flushScopes,
     hooks,
+    /** Another registration of the plugin in the same process, as OpenClaw makes for an agent run's registry. */
+    registerAgain: () => register(new Map<string, Hook>()),
     setMemoryExtraction(value: boolean) {
       memoryExtraction = value;
     },
@@ -265,6 +273,74 @@ describe("PowerContext lifecycle", () => {
     );
 
     expect(harness.flushScopes).toEqual(["scp_project_a", "scp_project_b"]);
+    expect(harness.warnings).toEqual([]);
+  });
+
+  it.each(["session_end", "gateway_stop"] as const)(
+    "flushes at %s what an agent run's registration captured",
+    async (boundary) => {
+      // OpenClaw fires a run's hooks on a registration made for the run, and closing hooks on the Gateway's own.
+      const harness = createLifecycleHarness();
+      const run = harness.registerAgain();
+      const context = {
+        agentId: "main",
+        sessionId: "session-across-registrations",
+        sessionKey: "agent:main:telegram:direct:user-1",
+      };
+      await run.get("agent_end")!(
+        { success: true, messages: [{ role: "user", content: "remember this" }] },
+        context,
+      );
+
+      await harness.hooks.get(boundary)!(
+        boundary === "session_end" ? { sessionId: context.sessionId, messageCount: 1 } : {},
+        context,
+      );
+
+      expect(harness.flushScopes).toEqual(["scp_default"]);
+      expect(harness.warnings).toEqual([]);
+    },
+  );
+
+  it("queues every registration's flushes on one queue that puts closing work first", async () => {
+    const harness = createLifecycleHarness();
+    const run = harness.registerAgain();
+    const context = { agentId: "main", sessionKey: "agent:main:telegram:direct:user-1" };
+    await run.get("agent_end")!(
+      { success: true, messages: [{ role: "user", content: "remember project a" }] },
+      { ...context, sessionId: "session-a", activeProjectKeys: ["/workspace/project-a"] },
+    );
+    let capabilityCalls = 0;
+    let checkpointStarted: (() => void) | undefined;
+    let releaseCheckpoint: (() => void) | undefined;
+    const started = new Promise<void>((resolve) => { checkpointStarted = resolve; });
+    const blocked = new Promise<void>((resolve) => { releaseCheckpoint = resolve; });
+    harness.setCapabilitiesHandler(async () => {
+      capabilityCalls += 1;
+      if (capabilityCalls === 1) {
+        checkpointStarted?.();
+        await blocked;
+      }
+      return { memory_extraction: true };
+    });
+
+    const runningCheckpoint = run.get("before_compaction")!(
+      { messages: [{ role: "user", content: "remember project b" }] },
+      { ...context, sessionId: "session-b", activeProjectKeys: ["/workspace/project-b"] },
+    ) as Promise<void>;
+    await started;
+    const queuedCheckpoint = run.get("before_compaction")!(
+      { messages: [{ role: "user", content: "remember the default" }] },
+      { ...context, sessionId: "session-default" },
+    ) as Promise<void>;
+    const gatewayStop = harness.hooks.get("gateway_stop")!({}, {}) as Promise<void>;
+    await Promise.resolve();
+    expect(capabilityCalls).toBe(1);
+    releaseCheckpoint?.();
+    await Promise.all([runningCheckpoint, queuedCheckpoint, gatewayStop]);
+
+    // The Gateway's closing flush runs before the run's queued checkpoint and leaves that checkpoint nothing to do.
+    expect(harness.flushScopes).toEqual(["scp_project_b", "scp_project_a", "scp_default"]);
     expect(harness.warnings).toEqual([]);
   });
 
