@@ -116,6 +116,10 @@ def test_dashboard_retry_can_explicitly_replace_edits_and_names_failed_files(tmp
             for replace in (False, True):
                 row = frame.get_by_role("row").filter(has_text="Reprocessing would replace manual edits").first
                 await row.get_by_role("button", name="重新提交解析", exact=True).click()
+                # During modal zoom-in the checkbox can be only a few pixels wide; wait for its final position.
+                await frame.get_by_role("dialog").evaluate(
+                    "dialog => Promise.all(dialog.getAnimations({subtree: true}).map(animation => animation.finished))"
+                )
                 choice = frame.get_by_role("checkbox", name="允许替换人工修改", exact=True)
                 await expect(choice).not_to_be_checked()
                 if replace:

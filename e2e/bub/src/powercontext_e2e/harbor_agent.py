@@ -114,7 +114,11 @@ class PowerContextBubAcpAgent(harbor_acp.AcpAgent):
         constraint = self.logs_dir / "harbor-acp-constraints.txt"
         constraint.write_text(f"{HARBOR_ACP_SDK_REQUIREMENT}\n", encoding="utf-8")
         await environment.upload_file(source_path=constraint, target_path=HARBOR_ACP_CONSTRAINT)
-        dependencies = self._build_dependencies_command("uvx")
+        # Debian's recommended packages pull a compiler toolchain into each short-lived task container.
+        # Keep the required ACP tools while avoiding those unrelated downloads within Harbor's setup budget.
+        dependencies = self._build_dependencies_command("uvx").replace(
+            "apt-get install -y ", "apt-get install -y --no-install-recommends "
+        )
         if mirror := environ.get(DEBIAN_MIRROR_SETTING):
             dependencies = f"{_debian_mirror_command(mirror)} || exit $?; {dependencies}"
         await self._install_phase(
