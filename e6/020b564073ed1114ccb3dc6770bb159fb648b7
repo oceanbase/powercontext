@@ -1,0 +1,19 @@
+.github/workflows/master.yml
+  s_6a8444cedb8f98::t_c6e4ad6c2f0757 1,11-12,15,18-23
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "e6020b564073ed1114ccb3dc6770bb159fb648b7",
+  "prompts": {},
+  "sessions": {
+    "s_6a8444cedb8f98": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a20894-fcd6-7122-b920-7431199c49c5",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "frf12 <rongfeng.frf@antgroup.com>"
+    }
+  }
+}
