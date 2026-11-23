@@ -64,7 +64,7 @@ def test_downloaded_archive_preserves_executable_and_identity(archive, tmp_path)
     assert binary.is_file() and os.access(binary, os.X_OK)
     metadata = json.loads((binary.parent / "manifest.json").read_text())
     assert metadata["source_commit"] == COMMIT
-    assert metadata["minimum_platform"] == "Linux glibc 2.39+"
+    assert metadata["minimum_platform"] == "Linux glibc 2.35+"
 
 
 def test_corrupt_download_is_rejected_before_extraction(archive, tmp_path):

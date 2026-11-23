@@ -356,6 +356,6 @@ candidate version `0.0.0-dev.<commit>`. Those archives are Actions artifacts onl
 never publish Release assets. Keep the distribution workflow in the release tag's source. Existing published tags
 without it cannot gain these binaries by rerunning the old workflow.
 
-Linux builds use Ubuntu 24.04 (glibc 2.39+); macOS builds target macOS 15+. macOS binaries are unsigned and not notarized.
+Linux builds use Ubuntu 22.04 (glibc 2.35+); macOS builds target macOS 15+. macOS binaries are unsigned and not notarized.
 These packages do not include Core or provider CLIs, and do not establish real-provider acceptance. See
 [Gateway installation](../docs/operate/install-gateway.md). Docker distribution is separate future work.

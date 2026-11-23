@@ -15,13 +15,21 @@ Gateway 是名为 `pc-gateway` 的独立可执行文件，需要连接正在运�
 
 | 系统 | 架构 | 压缩包目标 | 运行环境基线 |
 | --- | --- | --- | --- |
-| Linux | x86_64 | `x86_64-unknown-linux-gnu` | glibc 2.39+，在 Ubuntu 24.04 验证 |
-| Linux | arm64 | `aarch64-unknown-linux-gnu` | glibc 2.39+，在 Ubuntu 24.04 验证 |
+| Linux | x86_64 | `x86_64-unknown-linux-gnu` | glibc 2.35+，在 Ubuntu 22.04 验证 |
+| Linux | arm64 | `aarch64-unknown-linux-gnu` | glibc 2.35+，在 Ubuntu 22.04 验证 |
 | macOS | Intel | `x86_64-apple-darwin` | macOS 15+ |
 | macOS | Apple Silicon | `aarch64-apple-darwin` | macOS 15+ |
 
 Linux 压缩包不是 Alpine/musl 构建。macOS 压缩包未签名、未公证，系统可能要求按正常安全机制批准运行。
 目前不提供 Windows 压缩包和 Gateway 容器镜像。通过 CLI 运行的订阅通道仍需要在 Gateway 所在主机安装对应 CLI 并登录。
+
+### Windows
+
+本次发布不提供原生 Windows 可执行文件。Gateway 目前依赖 Unix socket 传输和 Unix 信号处理，
+仅增加 Windows 构建任务不能实现 Windows 支持。
+Windows 用户可在 WSL2 中使用 Ubuntu 22.04 或更新版本，并**在 WSL2 内**按下文的 Linux 步骤操作。
+Core 和所需的提供方 CLI 也应运行在同一 Linux 环境中。这使用的是 Linux 包，并非原生 Windows 构建；
+分发 CI 验证的是 Ubuntu runner，尚未验证 WSL2 宿主集成。
 
 ## 下载与校验
 

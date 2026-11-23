@@ -322,6 +322,6 @@ Python 发布任务通过不能替代这些验证。
 候选压缩包仅保存为 Actions 构建产物；PR 检查和手动构建 dispatch 不发布 Release 附件。
 发布标签的源码必须包含分发工作流；已经发布且不包含此工作流的旧标签不能通过重跑旧工作流获得这些二进制。
 
-Linux 构建使用 Ubuntu 24.04（glibc 2.39+），macOS 构建以 macOS 15+ 为基线。macOS 二进制未签名、未公证。
+Linux 构建使用 Ubuntu 22.04（glibc 2.35+），macOS 构建以 macOS 15+ 为基线。macOS 二进制未签名、未公证。
 压缩包不包含 Core 和供应商 CLI，这些检查也不代表真实供应商验收。详见[Gateway 安装](../docs/operate/install-gateway.md)。
 Docker 分发留待后续实现。

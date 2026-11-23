@@ -28,7 +28,7 @@ Responses requests include the [built-in cost guidance](crates/pc-gateway-app/sr
 
 ## Run
 
-Download the matching native archive from the [PowerContext Release](https://github.com/oceanbase/powercontext/releases) and verify its SHA256 before installation. Linux (glibc 2.39+) and macOS 15+ archives cover x86_64 and arm64; macOS archives are unsigned and not notarized. See [Install the Gateway](../docs/en/docs/operate/install-gateway.md) / [安装 Gateway](../docs/zh/docs/operate/install-gateway.md) for commands, Core configuration and upgrade steps. `pc-gateway --version` reports release version, source commit and target without connecting to Core. Python packages do not include this executable.
+Download the matching native archive from the [PowerContext Release](https://github.com/oceanbase/powercontext/releases) and verify its SHA256 before installation. Linux (glibc 2.35+) and macOS 15+ archives cover x86_64 and arm64; macOS archives are unsigned and not notarized. See [Install the Gateway](../docs/en/docs/operate/install-gateway.md) / [安装 Gateway](../docs/zh/docs/operate/install-gateway.md) for commands, Core configuration and upgrade steps. `pc-gateway --version` reports release version, source commit and target without connecting to Core. Python packages do not include this executable.
 
 If the selected Release has no Gateway archive, build from its source tag. From the repository root:
 

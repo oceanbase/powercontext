@@ -15,14 +15,22 @@ successful **Gateway distribution** verification; an existing tag alone does not
 
 | System | Architecture | Archive target | Runtime baseline |
 | --- | --- | --- | --- |
-| Linux | x86_64 | `x86_64-unknown-linux-gnu` | glibc 2.39+, tested on Ubuntu 24.04 |
-| Linux | arm64 | `aarch64-unknown-linux-gnu` | glibc 2.39+, tested on Ubuntu 24.04 |
+| Linux | x86_64 | `x86_64-unknown-linux-gnu` | glibc 2.35+, tested on Ubuntu 22.04 |
+| Linux | arm64 | `aarch64-unknown-linux-gnu` | glibc 2.35+, tested on Ubuntu 22.04 |
 | macOS | Intel | `x86_64-apple-darwin` | macOS 15+ |
 | macOS | Apple Silicon | `aarch64-apple-darwin` | macOS 15+ |
 
 Linux archives are not Alpine/musl builds. macOS archives are unsigned and not notarized; macOS may require
 approval under its normal security controls. Windows archives and a Gateway container image are not provided.
 CLI-backed subscription routes still require their provider CLI and sign-in on the Gateway host.
+
+### Windows
+
+There is no native Windows executable in this release. The Gateway currently depends on Unix socket transport and
+Unix signal handling; adding a Windows build runner alone does not provide Windows support.
+On Windows, use a WSL2 Ubuntu 22.04 or newer distribution and follow the Linux instructions **inside WSL2**.
+Run Core and any provider CLI in the same Linux environment. This uses the Linux package, not a native Windows build;
+the distribution CI validates Ubuntu runners, not WSL2 host integration.
 
 ## Download and verify
 

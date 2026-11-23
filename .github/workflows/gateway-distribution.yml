@@ -36,9 +36,9 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - runner: ubuntu-24.04
+          - runner: ubuntu-22.04
             target: x86_64-unknown-linux-gnu
-          - runner: ubuntu-24.04-arm
+          - runner: ubuntu-22.04-arm
             target: aarch64-unknown-linux-gnu
           - runner: macos-15-intel
             target: x86_64-apple-darwin
@@ -93,7 +93,7 @@ jobs:
         uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           workspaces: gateway -> target
-          key: distribution-${{ matrix.target }}
+          key: distribution-${{ matrix.runner }}-${{ matrix.target }}
       - name: Build release executable
         if: ${{ !inputs.published }}
         run: cargo +1.95.0 build --locked --manifest-path gateway/Cargo.toml --release -p pc-gateway-app --target "$PC_GATEWAY_BUILD_TARGET"
@@ -118,6 +118,18 @@ jobs:
           --directory dist/gateway --extract-to "$RUNNER_TEMP/gateway-unpacked"
           --version "$PC_GATEWAY_BUILD_VERSION" --commit "$PC_GATEWAY_BUILD_COMMIT"
           --target "$PC_GATEWAY_BUILD_TARGET"
+      - name: Check Linux glibc baseline
+        if: runner.os == 'Linux'
+        run: |
+          python3 - <<'PYTHON'
+          import os, pathlib, re, subprocess
+          binary = pathlib.Path(os.environ['RUNNER_TEMP']) / 'gateway-unpacked' / 'pc-gateway'
+          output = subprocess.check_output(['readelf', '--version-info', str(binary)], text=True)
+          versions = {tuple(map(int, version.split('.'))) for version in re.findall(r'GLIBC_([0-9.]+)', output)}
+          if not versions or max(versions) > (2, 35):
+              raise SystemExit(f'Unexpected glibc requirements: {sorted(versions)}')
+          print(f'Maximum referenced glibc version: {max(versions)}; supported baseline: 2.35')
+          PYTHON
       - name: Run unpacked binary against real Core
         run: uv run --frozen python tests/e2e/gateway_distribution_smoke.py --binary "$RUNNER_TEMP/gateway-unpacked/pc-gateway"
       - name: Upload qualified distribution
