@@ -248,7 +248,9 @@ pub async fn extract(
     let Some(canonical) = canonical else {
         return error(StatusCode::INTERNAL_SERVER_ERROR, "prefix_invalid");
     };
-    let Ok(channel) = upstream_channel(&state, &Format::Responses).await else {
+    let Ok(channel) =
+        upstream_channel(&state, &Format::Responses, prefix.session_id.as_deref()).await
+    else {
         return subscription_auth_failed();
     };
     let call = ManagedCall {
@@ -563,7 +565,12 @@ async fn ingress_model(
         target_url,
         renderer,
         headers: upstream_headers,
-    }) = upstream_channel(&state, &format).await
+    }) = upstream_channel(
+        &state,
+        &format,
+        header_id(&headers, pc_gateway_core::UPSTREAM_SESSION_HEADER),
+    )
+    .await
     else {
         return subscription_auth_failed();
     };
@@ -930,6 +937,9 @@ const OPENCODE_SESSION_HEADER: &str = "x-opencode-session-id";
 const CODEX_THREAD_ID_HEADER: &str = "thread-id";
 
 /// 路由的上游地址、订阅改写和凭据。模型入口与前缀抽取共用，抽取请求因此以原请求的形式和凭据发出。
+///
+/// `session` 是客户端请求的 `session-id`。Codex 订阅端点按这个请求头路由提示缓存，请求体里的
+/// `prompt_cache_key` 在那里不起这个作用；不带它时同一会话的请求大多落不到同一份缓存上。其他上游不转发它。
 struct UpstreamChannel {
     target_url: String,
     renderer: pc_gateway_protocol::SubscriptionRenderer,
@@ -939,6 +949,7 @@ struct UpstreamChannel {
 async fn upstream_channel(
     state: &AppState,
     format: &Format,
+    session: Option<&str>,
 ) -> Result<UpstreamChannel, pc_gateway_auth::AuthError> {
     let subscription_kind = state.subscription.as_ref().map(|auth| auth.kind());
     let mut renderer = pc_gateway_protocol::SubscriptionRenderer {
@@ -968,7 +979,7 @@ async fn upstream_channel(
         Format::Chat => state.upstream_chat.clone(),
         Format::Responses => state.upstream_responses.clone(),
     };
-    let headers = if let Some(auth) = state.subscription.as_ref() {
+    let mut headers = if let Some(auth) = state.subscription.as_ref() {
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|v| v.as_secs() as i64)
@@ -987,6 +998,14 @@ async fn upstream_channel(
             Format::Responses => &state.upstream_responses_api_key,
         })
     };
+    if let (Some(pc_gateway_auth::Subscription::Codex), Some(session)) =
+        (subscription_kind, session)
+    {
+        headers.push((
+            pc_gateway_core::UPSTREAM_SESSION_HEADER.to_string(),
+            session.to_string(),
+        ));
+    }
     Ok(UpstreamChannel {
         target_url,
         renderer,
@@ -1733,6 +1752,7 @@ pub(crate) mod tests {
             request_body: serde_json::to_vec(&sent).unwrap().into(),
             response_output: output,
             prepared_contexts: Vec::new(),
+            session_id: None,
         };
         let request = ExtractRequest {
             handle: "h".into(),
@@ -1797,6 +1817,7 @@ pub(crate) mod tests {
                 "role": "assistant", "status": "completed",
                 "content": [{"type": "output_text", "text": "done", "annotations": []}]})],
             prepared_contexts: Vec::new(),
+            session_id: None,
         };
         let step = |messages: &[(&str, &str)]| {
             let request = ExtractRequest {
@@ -1860,7 +1881,6 @@ pub(crate) mod tests {
 
     /// 使用 Codex 订阅的网关状态；凭据文件是合成的，测试不发出网络请求。
     fn codex_subscription_state(name: &str) -> (Arc<AppState>, std::path::PathBuf) {
-        use pc_gateway_core::{Executor, HttpGateClient};
         let path = std::env::temp_dir().join(format!(
             "pc-gateway-codex-auth-{}-{name}.json",
             std::process::id()
@@ -1870,7 +1890,18 @@ pub(crate) mod tests {
             r#"{"auth_mode":"chatgpt","tokens":{"access_token":"SYNTHETIC_SUBSCRIPTION_TOKEN","account_id":"acct-1"}}"#,
         )
         .unwrap();
-        let state = Arc::new(AppState {
+        let subscription = pc_gateway_auth::SubscriptionAuth::new(
+            pc_gateway_auth::Subscription::Codex,
+            path.clone(),
+        )
+        .unwrap();
+        (channel_state(Some(subscription)), path)
+    }
+
+    /// 只用于取上游通道的网关状态，不连接 Core 或上游。
+    fn channel_state(subscription: Option<pc_gateway_auth::SubscriptionAuth>) -> Arc<AppState> {
+        use pc_gateway_core::{Executor, HttpGateClient};
+        Arc::new(AppState {
             executor: Arc::new(Executor::new(
                 crate::link::CoreLink::Http(HttpGateClient::with_token("http://127.0.0.1:9", None)),
                 pc_gateway_transport::GatewayTransport::new(
@@ -1884,13 +1915,7 @@ pub(crate) mod tests {
             upstream_responses: "https://chatgpt.com/backend-api/codex/responses".into(),
             upstream_chat_api_key: String::new(),
             upstream_responses_api_key: "SYNTHETIC_STATIC_KEY".into(),
-            subscription: Some(
-                pc_gateway_auth::SubscriptionAuth::new(
-                    pc_gateway_auth::Subscription::Codex,
-                    path.clone(),
-                )
-                .unwrap(),
-            ),
+            subscription,
             api_key: None,
             degrade: pc_gateway_core::DegradePolicy::Pause,
             injection: Injection::Off,
@@ -1902,15 +1927,14 @@ pub(crate) mod tests {
             default_scope: "test".into(),
             max_body_bytes: 1024 * 1024,
             degradation_allowed: true,
-        });
-        (state, path)
+        })
     }
 
     #[tokio::test]
     async fn the_extraction_channel_of_a_codex_subscription_carries_its_credentials_and_form() {
         use pc_gateway_protocol::WireRenderer;
         let (state, path) = codex_subscription_state("channel");
-        let channel = upstream_channel(&state, &Format::Responses).await;
+        let channel = upstream_channel(&state, &Format::Responses, Some("session-a")).await;
         std::fs::remove_file(&path).unwrap();
         let channel = channel.unwrap();
 
@@ -1931,6 +1955,8 @@ pub(crate) mod tests {
             Some("Bearer SYNTHETIC_SUBSCRIPTION_TOKEN")
         );
         assert_eq!(header("chatgpt-account-id"), Some("acct-1"));
+        // 会话标识随请求带给上游，上游据此路由提示缓存。
+        assert_eq!(header("session-id"), Some("session-a"));
 
         // 抽取请求以订阅的形式发出，其余字段与保留的请求一致。
         let render = |body: serde_json::Value| -> serde_json::Value {
@@ -1949,6 +1975,7 @@ pub(crate) mod tests {
             request_body: serde_json::to_vec(&sent).unwrap().into(),
             response_output: Vec::new(),
             prepared_contexts: Vec::new(),
+            session_id: None,
         };
         let request = ExtractRequest {
             handle: "h".into(),
@@ -1976,10 +2003,39 @@ pub(crate) mod tests {
     }
 
     #[tokio::test]
+    async fn the_session_header_goes_only_to_a_codex_subscription_upstream() {
+        let has_session = |channel: &UpstreamChannel| {
+            channel
+                .headers
+                .iter()
+                .any(|(name, _)| name.eq_ignore_ascii_case("session-id"))
+        };
+        let (state, path) = codex_subscription_state("session");
+        let without = upstream_channel(&state, &Format::Responses, None).await;
+        std::fs::remove_file(&path).unwrap();
+        assert!(!has_session(&without.unwrap()));
+
+        // 使用上游 API key 的部署不转发它。
+        let channel = upstream_channel(&channel_state(None), &Format::Responses, Some("session-a"))
+            .await
+            .unwrap();
+        assert!(!has_session(&channel));
+        assert_eq!(
+            channel.headers,
+            [(
+                "authorization".to_string(),
+                "Bearer SYNTHETIC_STATIC_KEY".to_string()
+            )]
+        );
+    }
+
+    #[tokio::test]
     async fn unreadable_subscription_credentials_fail_the_extraction_channel() {
         let (state, path) = codex_subscription_state("missing");
         std::fs::remove_file(&path).unwrap();
-        assert!(upstream_channel(&state, &Format::Responses).await.is_err());
+        assert!(upstream_channel(&state, &Format::Responses, None)
+            .await
+            .is_err());
     }
 
     #[tokio::test]
