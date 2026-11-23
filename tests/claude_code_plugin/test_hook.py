@@ -535,7 +535,7 @@ def test_scope_resolution_failure_is_reported_and_nothing_else_is_sent(
             hook_module,
             monkeypatch,
             {"hook_event_name": "UserPromptSubmit", "cwd": str(tmp_path), "prompt": "Recall context"},
-            # Reading the oversized body byte by byte can take seconds on a busy runner; let it reach the size bound.
+            # Give the oversized body enough time to reach the size bound.
             settings=hook_module.ClaudeCodePluginSettings(
                 server_url=server_url, request_timeout_seconds=10.0, http_budget_seconds=10.0
             ),

@@ -197,7 +197,7 @@ HARNESS_FAILURES = {
 @pytest.mark.parametrize(
     ("deadline", "start"),
     [
-        ("_SERVER_STARTUP_SECONDS", lambda root: harness._start_server(root / "runtime.db")),
+        ("SERVER_STARTUP_TIMEOUT_SECONDS", lambda root: harness._start_server(root / "runtime.db")),
         (
             "_CONFIGURED_SERVER_STARTUP_SECONDS",
             lambda root: harness._start_configured_server(ServerSettings()),

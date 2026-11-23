@@ -22,7 +22,8 @@ runs:
   steps:
     - id: backend
       if: always()
-      uses: $/.github/actions/cache-backend
+      shell: bash
+      run: python3 "$GITHUB_ACTION_PATH/../../../scripts/ci_cache.py" backend
 
     - id: github
       if: always() && steps.backend.outputs.backend == 'github'
