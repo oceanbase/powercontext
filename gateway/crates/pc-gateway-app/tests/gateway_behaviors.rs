@@ -647,8 +647,9 @@ async fn responses_reminders_preserve_recall_and_turn_capture() {
     let prompt = baseline["input"][1]["content"][0]["text"].clone();
     let startup = json!({"role": "user", "content": "<system-reminder>Auto mode is active</system-reminder>"});
     let reminder = json!({"type": "message", "role": "user", "content": [
-        {"type": "input_text", "text": " <system-reminder>Repeated tool call</system-reminder>\n"},
-        {"type": "input_text", "text": "<system-reminder>Update the to-do list</system-reminder> "}
+        {"type": "input_text", "text": " <conversation_history_summary>Last turn</conversation_history_summary>\n"},
+        {"type": "input_text", "text": "<cb_summary>Compacted history</cb_summary> "},
+        {"type": "input_text", "text": "<task-notification id=\"test\">Tool finished</task-notification>"}
     ]});
     let mut initial = baseline.clone();
     initial["input"]
