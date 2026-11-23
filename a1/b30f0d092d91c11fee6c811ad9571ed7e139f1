@@ -1,0 +1,25 @@
+.github/workflows/managed-resource-candidates.yml
+  s_2ef0feea0a110d::t_95eff6987e3cc4 8,11-14,19-21,31-35,37-38,40-41,43-49,51,53-54,56-57,60-63,67,69-70,73-75
+scripts/diagnose_managed_ops.py
+  s_2ef0feea0a110d::t_6cf156cbb6e84a 18,137
+  s_2ef0feea0a110d::t_95eff6987e3cc4 28,61-70,76-78,82-95,100-108,116-117,119-120,129,140,143,151,170-172,177-179,199-207
+  s_2ef0feea0a110d::t_0b2e87310d8ead 1-16,19-27,29,31-32,34-60,71-75,79-81,96-99,109-112,114-115,118,121-128,130-136,138-139,141-142,144-150,152-159,161-169,173-176,180-182,184-189,191-196,198,208-220
+  s_2ef0feea0a110d::t_ca3a366fc12f16 30,113,160,183,190,197
+  s_2ef0feea0a110d::t_41bd2a533833c5 17,33
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "a1b30f0d092d91c11fee6c811ad9571ed7e139f1",
+  "prompts": {},
+  "sessions": {
+    "s_2ef0feea0a110d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1a9cf-a4e7-7f63-9c51-1284f7c332e8",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "frf12 <rongfeng.frf@antgroup.com>"
+    }
+  }
+}

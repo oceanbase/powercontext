@@ -1,0 +1,347 @@
+tests/test_ci_cache.py
+  s_6a2bddf5f4af27::t_4e0964ecc963f7 102-104,111-158,193-204,458-679
+.github/workflows/deploy-docs.yml
+  s_6a2bddf5f4af27::t_4e0964ecc963f7 36-46
+e2e/bub/README.md
+  s_6a2bddf5f4af27::t_4e0964ecc963f7 514-515,570-591,603-607,612-615
+  s_6a2bddf5f4af27::t_a80a25ff6966f8 616
+src/powercontext/builtin/persistence/oceanbase/topic_memory_index.py
+  s_6a2bddf5f4af27::t_4e0964ecc963f7 60,153-154
+tests/e2e/test_cindy_mcp_chain.py
+  s_6a2bddf5f4af27::t_4e0964ecc963f7 42,97
+src/powercontext/ops/__init__.py
+  s_6a2bddf5f4af27::t_4e0964ecc963f7 17-20,23-37
+tests/builtin/runtime/test_artifact_processing.py
+  s_6a2bddf5f4af27::t_4e0964ecc963f7 46-48,198,238,241-242,296,301,417,467,493,551,575,626
+website/python/pyproject.toml
+  s_6a2bddf5f4af27::t_4e0964ecc963f7 1-29
+scripts/ci_cache.py
+  s_6a2bddf5f4af27::t_4e0964ecc963f7 21,24,243-309,319-320
+tests/e2e/real_experience_skill/harness.py
+  s_6a2bddf5f4af27::t_4e0964ecc963f7 99,2055-2059
+tests/builtin/artifacts/profile/test_scheduler.py
+  s_6a2bddf5f4af27::t_4e0964ecc963f7 37-39,99
+tests/test_plugin_server.py
+  s_6a2bddf5f4af27::t_4e0964ecc963f7 1-81
+website/tests/python-api.test.ts
+  s_6a2bddf5f4af27::t_4e0964ecc963f7 1-54
+.github/actions/cache-pnpm/action.yml
+  s_6a2bddf5f4af27::t_e60bd71dc48155 25,30-34,49-63,68-75
+  s_6a2bddf5f4af27::t_fc32e7ce8484f0 80
+tests/builtin/runtime/test_family_processing.py
+  s_6a2bddf5f4af27::t_4e0964ecc963f7 67-69,129-130,135-136,307-311,313,447
+src/powercontext/builtin/persistence/sqlite/profile.py
+  s_6a2bddf5f4af27::t_4e0964ecc963f7 22,281-296
+tests/e2e/server_startup.py
+  s_6a2bddf5f4af27::t_4e0964ecc963f7 1-32
+.github/actions/prepare-bundle-wheels/action.yml
+  s_6a2bddf5f4af27::t_4e0964ecc963f7 1-21
+.github/workflows/kimi-code-acceptance.yml
+  s_6a2bddf5f4af27::t_4e0964ecc963f7 62-68,83-89,165
+.github/actions/check-license/action.yml
+  s_6a2bddf5f4af27::t_4e0964ecc963f7 1-48
+integrations/kimi-code/plugins/powercontext/tests/plugin.test.mjs
+  s_6a2bddf5f4af27::t_4e0964ecc963f7 29-31,280,304,325
+tests/builtin/runtime/test_processing_scheduler.py
+  s_6a2bddf5f4af27::t_4e0964ecc963f7 276,281-284,296-297,299,311-312,322,327-331,333,335,337-339,342-348,794-796,800-801,816-817,819,821,823-826,833-837
+  s_7849825a984032::t_7856b6baad5c83 838
+tests/release_upgrades/test_full_server.py
+  s_6a2bddf5f4af27::t_4e0964ecc963f7 629-636
+.github/actions/setup-mise/action.yml
+  s_6a2bddf5f4af27::t_fc32e7ce8484f0 21,35,44,68,75
+.github/actions/setup-rust-cache/action.yml
+  s_6a2bddf5f4af27::t_fc32e7ce8484f0 36,60
+.github/actions/setup-upgrade-oceanbase/action.yml
+  s_6a2bddf5f4af27::t_4e0964ecc963f7 11,20
+.github/actions/upload-ci-diagnostics/artifact-state.test.cjs
+  s_6a2bddf5f4af27::t_4e0964ecc963f7 1-90
+tests/e2e/test_minimax_host.py
+  s_6a2bddf5f4af27::t_4e0964ecc963f7 159-161,163,175
+.github/scripts/pytest_ci_diagnostics.py
+  s_6a2bddf5f4af27::t_4e0964ecc963f7 1-132
+.github/workflows/installation.yml
+  s_6a2bddf5f4af27::t_4e0964ecc963f7 45-56,68-70,78-79,81-82,86-88,95
+e2e/bub/compose.yaml
+  s_6a2bddf5f4af27::t_4e0964ecc963f7 61,75-77,79
+scripts/prepare_bundle_dependencies.py
+  s_6a2bddf5f4af27::t_4e0964ecc963f7 1-226
+.github/workflows/candidate-schema-replay.yml
+  s_6a2bddf5f4af27::t_4e0964ecc963f7 83
+e2e/bub/container-entrypoint.sh
+  s_6a2bddf5f4af27::t_4e0964ecc963f7 37-63
+integrations/claude-code/plugins/powercontext/powercontext_lifecycle/scope_binding.py
+  s_6a2bddf5f4af27::t_4e0964ecc963f7 264
+tests/e2e/test_background_metrics.py
+  s_6a2bddf5f4af27::t_4e0964ecc963f7 27,107
+.github/workflows/master.yml
+  s_6a2bddf5f4af27::t_4e0964ecc963f7 37,41-43,58-60,66,84,174,211,224,226-227,229-236,238-240,242-244,246,249-258,284,295-299,333-335,356-358,364-366,375-387,448,525,551,597-598,600,606,625,627,659-663,666,669-671,712,717,726,734,742,750-751,757,761-764,767-769,784-785,791,794-795,800,819,821,832-834,851-853,856-858,865,876,883,891,913,922,935,952-965,991,1237-1238,1245-1257,1260-1273,1285,1310-1316,1322-1331,1344,1400,1438,1526,1600-1610,1887-1890
+src/powercontext/builtin/persistence/atomic_memory_index.py
+  s_6a2bddf5f4af27::t_4e0964ecc963f7 1159-1166,1182
+tests/e2e/test_bootstrap_host_service_chain.py
+  s_6a2bddf5f4af27::t_4e0964ecc963f7 40,90
+tests/e2e/test_http_resource_admission.py
+  s_6a2bddf5f4af27::t_4e0964ecc963f7 32,51
+tests/e2e/test_minimax_diagnostics_http.py
+  s_6a2bddf5f4af27::t_4e0964ecc963f7 33-34,163
+tests/e2e/test_server_metrics_process.py
+  s_6a2bddf5f4af27::t_4e0964ecc963f7 30-31,76
+release/upgrade-support.json
+  s_6a2bddf5f4af27::t_4e0964ecc963f7 6-7
+scripts/build_intel_managed_wheel.py
+  s_6a2bddf5f4af27::t_4e0964ecc963f7 354
+tests/builtin/runtime/test_worker_prompt_usage.py
+  s_6a2bddf5f4af27::t_4e0964ecc963f7 59-60,63-65,163,174,189-191,242-243,245,248,274-283,319-322
+.github/actions/upload-ci-diagnostics/action.yml
+  s_6a2bddf5f4af27::t_4e0964ecc963f7 1-136
+tests/e2e/gateway_tck.py
+  s_6a2bddf5f4af27::t_4e0964ecc963f7 214-216,221-224
+tests/test_ops.py
+  s_6a2bddf5f4af27::t_4e0964ecc963f7 44-78
+tests/e2e/test_langgraph_chain.py
+  s_6a2bddf5f4af27::t_4e0964ecc963f7 51,121
+e2e/bub/tests/test_harbor_job_config.py
+  s_6a2bddf5f4af27::t_4e0964ecc963f7 26,30,210-253,474-483,524-664
+tests/builtin/runtime/test_extraction_diagnostics.py
+  s_6a2bddf5f4af27::t_4e0964ecc963f7 37-39,60-61,89
+.github/workflows/capture-release-schema.yml
+  s_6a2bddf5f4af27::t_4e0964ecc963f7 65
+src/powercontext_integration_lifecycle/scope_binding.py
+  s_6a2bddf5f4af27::t_4e0964ecc963f7 261
+.github/workflows/gateway.yml
+  s_6a2bddf5f4af27::t_4e0964ecc963f7 68-98,111
+tests/e2e/test_zcode_service_chain.py
+  s_6a2bddf5f4af27::t_4e0964ecc963f7 44,240,301-302,305-320,362-364,367,370,376-381,390-393,401-408,410-416,427,441,448-450,452,455,481,484-486,656
+tests/native/test_installation.py
+  s_6a2bddf5f4af27::t_4e0964ecc963f7 34,42-43,55,263,338-339,341-342,347-349,353-359,386-392,394,414-420,424,426-432,434-440
+.github/actions/setup-go/action.yml
+  s_6a2bddf5f4af27::t_fc32e7ce8484f0 30
+  s_6a2bddf5f4af27::t_e60bd71dc48155 48,51,56-63
+tests/test_observability_cli.py
+  s_6a2bddf5f4af27::t_4e0964ecc963f7 25,320-322,324-334,336,338,340,342,344,348-351,353-359,362,365-373
+docs/en/development/managed-resource-production.md
+  s_6a2bddf5f4af27::t_4e0964ecc963f7 50-58
+.github/scripts/ci_resource_sampler.py
+  s_6a2bddf5f4af27::t_4e0964ecc963f7 1-143
+.github/workflows/e2e-harness.yml
+  s_6a2bddf5f4af27::t_4e0964ecc963f7 115,177,185,359,372,378,383,405,413,428,437,441,445,453,457-458,462,469-470,474,509,552,560,609,643-646,663,678-679,681-686,690,706,793-794,799-801,806,828,838,849
+  s_6a2bddf5f4af27::t_916afddadc285a 58-59,61-66
+e2e/bub/tests/test_debian_build_mirror.py
+  s_6a2bddf5f4af27::t_4e0964ecc963f7 1-71
+scripts/prepare_managed_resources.py
+  s_6a2bddf5f4af27::t_4e0964ecc963f7 45,267-275,281,304-306,308-311,313-318,529
+tests/builtin/runtime/test_topic_memory_terminal_frontier.py
+  s_6a2bddf5f4af27::t_4e0964ecc963f7 48-50,292
+tests/e2e/provider_worker_fixture.py
+  s_6a2bddf5f4af27::t_4e0964ecc963f7 1-34
+.github/workflows/build-artifacts.yml
+  s_6a2bddf5f4af27::t_4e0964ecc963f7 117,127,129-161,182-186
+tests/builtin/runtime/test_topic_memory_processing.py
+  s_6a2bddf5f4af27::t_4e0964ecc963f7 157-162,882,2736,2797,2969
+gateway/crates/pc-gateway-app/src/connection.rs
+  s_6a2bddf5f4af27::t_4e0964ecc963f7 495-556,576-580,629
+.github/scripts/collect_pytest_diagnostics.py
+  s_6a2bddf5f4af27::t_4e0964ecc963f7 1-50
+tests/test_langgraph_example_lifecycle.py
+  s_6a2bddf5f4af27::t_4e0964ecc963f7 1-109
+tests/e2e/test_memory_search_concurrency.py
+  s_6a2bddf5f4af27::t_4e0964ecc963f7 291-292
+.github/workflows/release.yml
+  s_6a2bddf5f4af27::t_4e0964ecc963f7 101-103
+.github/workflows/seekdb-lock-probe.yml
+  s_6a2bddf5f4af27::t_4e0964ecc963f7 56
+tests/builtin/persistence/test_sqlite_profile.py
+  s_6a2bddf5f4af27::t_4e0964ecc963f7 362-415,703-794,796
+  s_6a2bddf5f4af27::t_d86adcb29cb8dc 795
+.github/actions/setup-openapi-generator/action.yml
+  s_6a2bddf5f4af27::t_fc32e7ce8484f0 15,28
+.github/actions/setup-uv/action.yml
+  s_6a2bddf5f4af27::t_fc32e7ce8484f0 55-56,76,81-88,92,96-103
+src/powercontext/service/launcher.py
+  s_6a2bddf5f4af27::t_4e0964ecc963f7 25,33-35,72-73
+  s_6a2bddf5f4af27::t_de647559c32e8c 74
+website/scripts/generate-content.ts
+  s_6a2bddf5f4af27::t_4e0964ecc963f7 23,215
+gateway/crates/pc-gateway-app/tests/capacity_process.rs
+  s_6a2bddf5f4af27::t_4e0964ecc963f7 358-387,472,479-485,560-566,586-590,653-657
+e2e/bub/scripts/configure_debian_mirror.py
+  s_6a2bddf5f4af27::t_4e0964ecc963f7 1-60
+tests/e2e/plugin_server_process.py
+  s_6a2bddf5f4af27::t_4e0964ecc963f7 1-60
+tests/e2e/test_workbuddy_service_chain.py
+  s_6a2bddf5f4af27::t_4e0964ecc963f7 41,80
+.github/actions/cache-restore/action.yml
+  s_6a2bddf5f4af27::t_fc32e7ce8484f0 33-34
+.github/actions/cache-pip/action.yml
+  s_6a2bddf5f4af27::t_4e0964ecc963f7 1-56
+.github/workflows/desktop.yml
+  s_6a2bddf5f4af27::t_4e0964ecc963f7 109,231,330,394
+tests/fixtures/seekdb_legacy_choice.py
+  s_6a2bddf5f4af27::t_4e0964ecc963f7 38-41,149
+tests/e2e/test_rfc2086_worker_acceptance.py
+  s_6a2bddf5f4af27::t_4e0964ecc963f7 49,113,116,157,175-182,184-188,205,226,229-236
+docs/zh/development/managed-resource-production.md
+  s_6a2bddf5f4af27::t_4e0964ecc963f7 41-46
+.github/actions/upload-ci-diagnostics/artifact-state.cjs
+  s_6a2bddf5f4af27::t_4e0964ecc963f7 1-64
+.github/workflows/upgrade-release.yml
+  s_6a2bddf5f4af27::t_4e0964ecc963f7 32,261-262,295-298
+website/scripts/generate-python-api.ts
+  s_6a2bddf5f4af27::t_4e0964ecc963f7 1-38
+tests/e2e/test_recall_sufficiency_gate.py
+  s_6a2bddf5f4af27::t_4e0964ecc963f7 1531-1532,1699-1701
+.github/workflows/skill-guidance.yml
+  s_6a2bddf5f4af27::t_4e0964ecc963f7 51-56
+tests/builtin/runtime/test_model_usage_recorder.py
+  s_6a2bddf5f4af27::t_4e0964ecc963f7 104-107,165-167,1186,1190-1217,1220-1225,1234-1236,1251-1253,1291,1441,1443-1447
+.github/workflows/native-service.yml
+  s_6a2bddf5f4af27::t_4e0964ecc963f7 84,140,222
+tests/test_bundle_dependencies.py
+  s_6a2bddf5f4af27::t_4e0964ecc963f7 1-240
+.github/workflows/managed-resource-candidates.yml
+  s_6a2bddf5f4af27::t_4e0964ecc963f7 195
+tests/e2e/test_worker_model_usage.py
+  s_6a2bddf5f4af27::t_4e0964ecc963f7 26,46,52,147,149-151,183-191
+src/powercontext/builtin/persistence/oceanbase/fulltext_index.py
+  s_6a2bddf5f4af27::t_4e0964ecc963f7 1-58
+e2e/bub/Dockerfile
+  s_6a2bddf5f4af27::t_4e0964ecc963f7 27-31
+.github/actions/upload-ci-diagnostics/README.md
+  s_6a2bddf5f4af27::t_4e0964ecc963f7 1-11
+tests/claude_code_plugin/test_hook.py
+  s_6a2bddf5f4af27::t_4e0964ecc963f7 538
+tests/e2e/test_provider_observability.py
+  s_6a2bddf5f4af27::t_4e0964ecc963f7 38-40,174-175,182-185,211,213,219-239,251-252,255-259
+Makefile
+  s_6a2bddf5f4af27::t_4e0964ecc963f7 54,67,76,80
+e2e/bub/src/powercontext_e2e/harbor_agent.py
+  s_6a2bddf5f4af27::t_4e0964ecc963f7 26,57-58,110-112,116-119,121-122,127,130-133,157-175,189-206
+  s_6a2bddf5f4af27::t_65ec1f2f5ca1e0 207-208
+tests/test_ci_pytest_diagnostics.py
+  s_6a2bddf5f4af27::t_4e0964ecc963f7 1-225
+tests/test_server.py
+  s_6a2bddf5f4af27::t_4e0964ecc963f7 1030-1034,1066-1071
+tests/e2e/test_topic_memory_generic_api.py
+  s_6a2bddf5f4af27::t_4e0964ecc963f7 501-502,507-520,542,544-552,555-558,561-563,577-579,609-611,683,695-702,730-737
+tests/e2e/test_observability.py
+  s_6a2bddf5f4af27::t_4e0964ecc963f7 85-87,1185-1189,1229-1231,1257,1273-1275
+tests/e2e/zcode_acceptance/runner.py
+  s_6a2bddf5f4af27::t_4e0964ecc963f7 47,90,104,500-501
+desktop/src-tauri/src/diagnostic_process_macos.rs
+  s_6a2bddf5f4af27::t_4e0964ecc963f7 408,410,415-416,420-439,442,444-446
+.github/actions/cache-npm/action.yml
+  s_6a2bddf5f4af27::t_4e0964ecc963f7 1-35
+.github/actions/setup-bundle-builder/action.yml
+  s_6a2bddf5f4af27::t_4e0964ecc963f7 1-97
+e2e/bub/src/powercontext_e2e/runner.py
+  s_6a2bddf5f4af27::t_4e0964ecc963f7 23,49,452-463
+tests/test_bub_docker_mirror.py
+  s_6a2bddf5f4af27::t_4e0964ecc963f7 1-138
+.github/workflows/zcode-acceptance.yml
+  s_6a2bddf5f4af27::t_4e0964ecc963f7 171
+tests/builtin/persistence/test_oceanbase_fulltext_index.py
+  s_6a2bddf5f4af27::t_4e0964ecc963f7 1-169
+docs/en/development/ci-scope.md
+  s_6a2bddf5f4af27::t_4e0964ecc963f7 136-144,148-150
+tests/e2e/test_database_bootstrap.py
+  s_6a2bddf5f4af27::t_4e0964ecc963f7 426-428
+tests/e2e/test_real_experience_skill_harness.py
+  s_6a2bddf5f4af27::t_4e0964ecc963f7 200
+tests/test_ci_pipeline.py
+  s_6a2bddf5f4af27::t_4e0964ecc963f7 37-51,248,254,291,327-331
+tests/test_managed_resource_producer.py
+  s_6a2bddf5f4af27::t_4e0964ecc963f7 34,39,331-332,336-337,339,346,350-351,356-397
+tests/e2e/test_extraction_diagnostics.py
+  s_6a2bddf5f4af27::t_4e0964ecc963f7 47-49,131
+scripts/upgrade_release_gate.py
+  s_6a2bddf5f4af27::t_4e0964ecc963f7 42-44,467
+tests/test_service.py
+  s_6a2bddf5f4af27::t_4e0964ecc963f7 1898,1925,1947,1973,1992,2031
+pyproject.toml
+  s_6a2bddf5f4af27::t_4e0964ecc963f7 72-74,175,218
+tests/e2e/plugin_server.py
+  s_6a2bddf5f4af27::t_4e0964ecc963f7 25,35-42,57-58,91,93,105,107-114
+integrations/codex/plugins/powercontext/powercontext_lifecycle/scope_binding.py
+  s_6a2bddf5f4af27::t_4e0964ecc963f7 264
+tests/e2e/test_codex_service_chain.py
+  s_6a2bddf5f4af27::t_4e0964ecc963f7 51,102,179,275,421,595
+.github/actions/cache-save/action.yml
+  s_6a2bddf5f4af27::t_fc32e7ce8484f0 25-26
+src/powercontext/builtin/persistence/oceanbase/experience_index.py
+  s_6a2bddf5f4af27::t_4e0964ecc963f7 22,44,59
+integrations/langgraph/examples/_local_server.py
+  s_6a2bddf5f4af27::t_4e0964ecc963f7 26,31,62-68,70-75,77-105
+tests/e2e/test_atomic_memory_flush_concurrency.py
+  s_6a2bddf5f4af27::t_4e0964ecc963f7 51-53,144-145,282
+tests/test_upgrade_release_gate.py
+  s_6a2bddf5f4af27::t_4e0964ecc963f7 17,578-625
+  s_6a2bddf5f4af27::t_3305a2729867e6 626-627
+tests/e2e/test_worker_otlp.py
+  s_6a2bddf5f4af27::t_4e0964ecc963f7 39-42,219,303,426,454,503
+tests/test_oceanbase_ci.py
+  s_6a2bddf5f4af27::t_4e0964ecc963f7 188,199-200,204-205,209,228,230,240-241,243,256-259,261,269-272,275,374-391
+  s_6a2bddf5f4af27::t_7bd04edc8abfc6 392-393
+tests/builtin/runtime/test_experience_input_encoding.py
+  s_6a2bddf5f4af27::t_4e0964ecc963f7 220-221
+tests/e2e/test_topic_memory_head_conflict.py
+  s_6a2bddf5f4af27::t_4e0964ecc963f7 25,43-48,116,119-125,167-177
+tests/e2e/test_claude_code_service_chain.py
+  s_6a2bddf5f4af27::t_4e0964ecc963f7 40,92,169
+tests/e2e/test_kimi_code_host.py
+  s_6a2bddf5f4af27::t_4e0964ecc963f7 250-252,254,286-287
+tests/e2e/test_topic_memory_product_chain.py
+  s_6a2bddf5f4af27::t_4e0964ecc963f7 540-542
+tests/test_operational_metrics.py
+  s_6a2bddf5f4af27::t_4e0964ecc963f7 192,289-290
+docs/zh/development/ci-scope.md
+  s_6a2bddf5f4af27::t_4e0964ecc963f7 136-144,148-150
+src/powercontext/builtin/persistence/oceanbase/atomic_memory_index.py
+  s_6a2bddf5f4af27::t_4e0964ecc963f7 63,175
+tests/e2e/test_server_uds.py
+  s_6a2bddf5f4af27::t_4e0964ecc963f7 30,43-52,84,99,106,113-119
+.github/actions/setup-python-env/action.yml
+  s_6a2bddf5f4af27::t_916afddadc285a 35,41,50-55,58,62-63,66-100,117,120
+  s_6a2bddf5f4af27::t_4e0964ecc963f7 30
+  s_6a2bddf5f4af27::t_fc32e7ce8484f0 118
+tests/e2e/test_context_protection_transports.py
+  s_6a2bddf5f4af27::t_4e0964ecc963f7 58,236
+tests/e2e/worker_timeout_diagnostics.py
+  s_6a2bddf5f4af27::t_4e0964ecc963f7 1-156
+tests/test_ci_action_resolution.py
+  s_6a2bddf5f4af27::t_4e0964ecc963f7 1-184
+tests/e2e/test_worker_logging.py
+  s_6a2bddf5f4af27::t_4e0964ecc963f7 20-21,26,33,87-88,102-114,116-125,130,160,176-217,223,225,235-239,244-245,251-256,259,266,268-280,282-290,298-299,302-303,309-310,312-320,322-323,328,355,374-377,402,414,429,567-568,573-574,651,756-759,762,807,875-878,923-926,952-955,966,969-970,973-988,998,1017-1019,1024-1028,1036,1066-1068
+.github/actions/cache/action.yml
+  s_6a2bddf5f4af27::t_fc32e7ce8484f0 36-37
+e2e/bub/uv.lock
+  s_6a2bddf5f4af27::t_ac5b8a7a4f265f 1795-1799,1846,1886
+evaluation/uv.lock
+  s_6a2bddf5f4af27::t_f2033a4bdf7d4a 1951-1955,2002,2042
+uv.lock
+  s_6a2bddf5f4af27::t_42b5eeefafedec 3713-3717,3764,3804,5273,5279-5316
+website/python/uv.lock
+  s_6a2bddf5f4af27::t_dc1e50f0ab8c2a 1-76
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "70cd1539eb911e25180eb46e2fd5f4be19b8257a",
+  "prompts": {},
+  "sessions": {
+    "s_6a2bddf5f4af27": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1c45c-bac8-7d52-8be4-c694d60c4b0b",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "frf12 <rongfeng.frf@antgroup.com>"
+    },
+    "s_7849825a984032": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a19cf3-11fa-7bd0-a2ae-2fc05fd0ed02",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "frf12 <rongfeng.frf@antgroup.com>"
+    }
+  }
+}

@@ -1,0 +1,19 @@
+tests/builtin/runtime/test_model_usage_recorder.py
+  s_6a2bddf5f4af27::t_ddf23f9c5b242f 314-315,317-320,1089-1090,1092-1098
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "80556602aa699d6163c049b6e1544e2687159f1f",
+  "prompts": {},
+  "sessions": {
+    "s_6a2bddf5f4af27": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1c45c-bac8-7d52-8be4-c694d60c4b0b",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "frf12 <rongfeng.frf@antgroup.com>"
+    }
+  }
+}

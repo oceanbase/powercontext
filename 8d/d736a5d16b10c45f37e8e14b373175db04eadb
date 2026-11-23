@@ -1,0 +1,61 @@
+docs/en/docs/operate/context-protection.md
+  s_6a2bddf5f4af27::t_c6cd4f0919cadd 137-140
+docs/zh/docs/operate/context-protection.md
+  s_6a2bddf5f4af27::t_c6cd4f0919cadd 126-129
+tests/builtin/runtime/test_codeassist_text_privacy.py
+  s_6a2bddf5f4af27::t_4d3ec84ed667da 102-103,118-123,136-141
+  s_6a2bddf5f4af27::t_4b6825e44dbb0c 65-69
+  s_6a2bddf5f4af27::t_31f37ab2255907 133
+  s_6a2bddf5f4af27::t_8af0c8e9a83bfd 70-84,144,149-151
+  s_6a2bddf5f4af27::t_28b5dc3056f828 1-64,85-101,104-117,124-132,134-135,142-143,145-148,152-153
+tests/builtin/inference/test_protected_responses_stream.py
+  s_6a2bddf5f4af27::t_95385324ffc418 138-148,154-155,391-481,488-489,495,497,518,520,542,545-546,549,554,559-560,586,588,604,720
+  s_6a2bddf5f4af27::t_f16e11cee23dfe 19,134
+  s_6a2bddf5f4af27::t_f5921bec7c119e 246-390,485-486,501,548
+  s_6a2bddf5f4af27::t_04c78363097497 537-539
+  s_6a2bddf5f4af27::t_cac3e51ce787ac 524-525
+  s_6a2bddf5f4af27::t_11bde332489a4c 1-18,20-133,135-137,149-153,157-245,506,508,535,541,601,603,676,679,682,691,693,703,709,714
+  s_6a2bddf5f4af27::t_e505763db850ba 490-491,513-514,528-529,532,543-544,557,566-568,570-572,574-575,577-585,591,595-597,599,605-611,614-669,675,684,687-688,695,700,705-706,722,724-726,729-730,732-734,737,739
+  s_6a2bddf5f4af27::t_1ca77eeeb6d6cf 156,482-484,487,492-494,496,498-500,502-505,507,509-512,515-517,519,521-523,526-527,530-531,533-534,536,540,547,550-553,555-556,558,561-565,569,573,576,587,589-590,592-594,598,600,602,612-613,670-674,677-678,680-681,683,685-686,689-690,692,694,696-699,701-702,704,707-708,710-713,715-719,721,723,727-728,731,735-736,738,740-741
+docs/zh/docs/operate/inference-protection.md
+  s_6a2bddf5f4af27::t_116bb249dbc64e 92
+docs/en/docs/operate/inference-protection.md
+  s_6a2bddf5f4af27::t_116bb249dbc64e 103
+gateway/crates/pc-gateway-transport/tests/claude_cli.rs
+  s_6a2bddf5f4af27::t_9eb68049b726de 20,138-139
+gateway/crates/pc-gateway-protocol/tests/subscription_protocol.rs
+  s_6a2bddf5f4af27::t_449dda9fc67b0c 183,198
+  s_6a2bddf5f4af27::t_55104c91c966da 17-18,126-182,184-197,199-234
+gateway/crates/pc-gateway-protocol/src/gemini.rs
+  s_6a2bddf5f4af27::t_7c99a32295d338 94,114,255-256,258-259
+  s_6a2bddf5f4af27::t_a20ba750fcf6a6 257
+src/powercontext/builtin/inference/codeassist_payload.py
+  s_6a2bddf5f4af27::t_4d3ec84ed667da 149-151
+  s_6a2bddf5f4af27::t_3fc84927fa57de 72-76
+  s_6a2bddf5f4af27::t_cb48c045c7c6a4 146-147,153-154,156
+src/powercontext/builtin/inference/responses_stream.py
+  s_6a2bddf5f4af27::t_ed054588eac975 21,176-288
+  s_6a2bddf5f4af27::t_29715e560564f2 86-157
+  s_6a2bddf5f4af27::t_38da7ead46fb03 69-84
+  s_6a2bddf5f4af27::t_d3b69ca4357ca2 1-20,22-68,85,158-175,289-339
+src/powercontext/builtin/inference/carrier_checks.py
+  s_6a2bddf5f4af27::t_49b114af72d886 31,72-73,78,96-97,178-181
+src/powercontext/builtin/inference/protected_transport.py
+  s_6a2bddf5f4af27::t_ae00cc05df4496 35,173-180
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "8dd736a5d16b10c45f37e8e14b373175db04eadb",
+  "prompts": {},
+  "sessions": {
+    "s_6a2bddf5f4af27": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1c45c-bac8-7d52-8be4-c694d60c4b0b",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "frf12 <rongfeng.frf@antgroup.com>"
+    }
+  }
+}

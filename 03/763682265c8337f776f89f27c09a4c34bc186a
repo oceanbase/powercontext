@@ -1,0 +1,26 @@
+.github/workflows/master.yml
+  s_2ef0feea0a110d::t_c21ede056c61c5 1115
+tests/test_ci_cache.py
+  s_2ef0feea0a110d::t_fd33896a793fd9 509-513,524-528,535-541,568
+  s_2ef0feea0a110d::t_f954de22ec5d27 491-508,514-523,529-534,542-567,569
+.github/actions/cache-npm/action.yml
+  s_2ef0feea0a110d::t_fd33896a793fd9 7-9,34
+scripts/ci_cache.py
+  s_2ef0feea0a110d::t_fd33896a793fd9 262-277
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "03763682265c8337f776f89f27c09a4c34bc186a",
+  "prompts": {},
+  "sessions": {
+    "s_2ef0feea0a110d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1a9cf-a4e7-7f63-9c51-1284f7c332e8",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "frf12 <rongfeng.frf@antgroup.com>"
+    }
+  }
+}

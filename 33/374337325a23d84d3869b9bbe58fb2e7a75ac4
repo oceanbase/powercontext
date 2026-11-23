@@ -1,0 +1,22 @@
+tests/e2e/test_recall_sufficiency_gate.py
+  s_2ef0feea0a110d::t_b7c9aaa87ff88f 1531-1532,1699-1701
+tests/builtin/runtime/test_model_usage_recorder.py
+  s_2ef0feea0a110d::t_e9cfbcf760d5a2 104-107,165-167,1217-1219,1407,1409-1413
+  s_2ef0feea0a110d::t_034f4231391cfb 1257
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "33374337325a23d84d3869b9bbe58fb2e7a75ac4",
+  "prompts": {},
+  "sessions": {
+    "s_2ef0feea0a110d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1a9cf-a4e7-7f63-9c51-1284f7c332e8",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "frf12 <rongfeng.frf@antgroup.com>"
+    }
+  }
+}

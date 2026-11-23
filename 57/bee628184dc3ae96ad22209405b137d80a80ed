@@ -1,0 +1,25 @@
+.github/workflows/managed-resource-candidates.yml
+  s_2ef0feea0a110d::t_58351c6f063027 11-12,14,28,32-34,36-37,41-42
+.github/diagnostics/ops-init-candidate.py
+  s_2ef0feea0a110d::t_59bf5ec0c4759f 1-37
+scripts/validate_managed_ops_overlay.py
+  s_2ef0feea0a110d::t_58351c6f063027 1-82,85-110,112-163,165-179
+  s_2ef0feea0a110d::t_f24751a28df5e4 83-84,111
+  s_2ef0feea0a110d::t_77e8ecd030df27 164
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "57bee628184dc3ae96ad22209405b137d80a80ed",
+  "prompts": {},
+  "sessions": {
+    "s_2ef0feea0a110d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1a9cf-a4e7-7f63-9c51-1284f7c332e8",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "frf12 <rongfeng.frf@antgroup.com>"
+    }
+  }
+}

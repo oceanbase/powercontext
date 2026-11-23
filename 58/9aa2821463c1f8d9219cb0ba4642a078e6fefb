@@ -1,0 +1,115 @@
+.github/actions/setup-bundle-builder/action.yml
+  s_2ef0feea0a110d::t_f941dd6ded86d5 27-30,66
+docker/Dockerfile
+  s_2ef0feea0a110d::t_9e9f6b7e6c0f87 22,25,27-28
+.github/workflows/skill-guidance.yml
+  s_2ef0feea0a110d::t_f941dd6ded86d5 45
+.github/workflows/seekdb-lock-observation.yml
+  s_2ef0feea0a110d::t_6d9d0c2634ecaf 26
+e2e/bub/compose.yaml
+  s_2ef0feea0a110d::t_9e9f6b7e6c0f87 24,62,75
+.github/workflows/build-artifacts.yml
+  s_2ef0feea0a110d::t_1283171e3c4d10 80,103-104
+.github/workflows/desktop-candidate.yml
+  s_2ef0feea0a110d::t_f941dd6ded86d5 39,183
+.github/actions/setup-python-env/README.md
+  s_2ef0feea0a110d::t_4ac8e66d6709e2 1-31
+.github/actions/setup-uv/action.yml
+  s_2ef0feea0a110d::t_f941dd6ded86d5 70-73
+.github/workflows/seekdb-lock-probe.yml
+  s_2ef0feea0a110d::t_6d9d0c2634ecaf 43
+deploy/observability/Dockerfile
+  s_2ef0feea0a110d::t_9e9f6b7e6c0f87 25,27-29
+scripts/ci_legacy_upgrade_rejection.py
+  s_2ef0feea0a110d::t_9350d084ec3b1d 27
+  s_2ef0feea0a110d::t_33d1c038ea463f 177-179,181
+scripts/run_upgrade_release_gate.py
+  s_2ef0feea0a110d::t_33d1c038ea463f 61-63,66
+  s_2ef0feea0a110d::t_079d5658a8c128 20
+  s_2ef0feea0a110d::t_9350d084ec3b1d 23
+.github/workflows/installation.yml
+  s_2ef0feea0a110d::t_f941dd6ded86d5 63
+scripts/ci_installation_roles.py
+  s_2ef0feea0a110d::t_079d5658a8c128 73
+  s_2ef0feea0a110d::t_9350d084ec3b1d 72,76,83
+scripts/prepare_bundle_dependencies.py
+  s_2ef0feea0a110d::t_1283171e3c4d10 141-142
+.github/workflows/upgrade-release.yml
+  s_2ef0feea0a110d::t_33d1c038ea463f 102,136-137,209
+tests/test_hook_characterization.py
+  s_2ef0feea0a110d::t_10a897b2479481 196-198,200
+scripts/ci_python_mirror.py
+  s_2ef0feea0a110d::t_4ade50ed8237e3 250,257-261
+  s_2ef0feea0a110d::t_453b6b68def0c9 218-247,252-253,281
+  s_2ef0feea0a110d::t_c666f5332518eb 91-101
+  s_2ef0feea0a110d::t_7baa5d9bbb1b56 1-29,31-57,59-90,102-136,139-165,167-199,203-208,211-217,248-249,251,254-256,262-280,282-314
+  s_2ef0feea0a110d::t_74dd2b34d66344 30,58,137-138,166,200-202,209-210
+tests/test_ci_cache.py
+  s_2ef0feea0a110d::t_e9e56e2cacf4cc 149-153
+deploy/observability/compose.split.yaml
+  s_2ef0feea0a110d::t_9e9f6b7e6c0f87 20-21,65-66,142-143
+.github/actions/setup-python-env/action.yml
+  s_2ef0feea0a110d::t_f941dd6ded86d5 13-16,72-75,112-113,115-116
+tests/test_ci_python_mirror.py
+  s_2ef0feea0a110d::t_00fc495a8628f4 1-31,33,35-53
+  s_2ef0feea0a110d::t_cc4ede7553cb8b 173,177-178,187,195-196,199,337-338,342-344,346-359
+  s_2ef0feea0a110d::t_79f8ab10afe2be 56-77,99-126,137-171,204-318
+  s_2ef0feea0a110d::t_55704771f7ad70 32,34,134-136
+  s_2ef0feea0a110d::t_c41fe620408bee 85-86,197,345
+  s_2ef0feea0a110d::t_1508da032db091 54-55,78-84,87-98,127-133,172,174-176,179-186,188-194,198,200-203,319-336,339-341
+.github/workflows/e2e-harness.yml
+  s_2ef0feea0a110d::t_6d9d0c2634ecaf 400
+  s_2ef0feea0a110d::t_f941dd6ded86d5 131
+  s_2ef0feea0a110d::t_1283171e3c4d10 126,730
+.github/workflows/candidate-schema-replay.yml
+  s_2ef0feea0a110d::t_6d9d0c2634ecaf 47-48
+tests/test_ci_pipeline.py
+  s_2ef0feea0a110d::t_079d5658a8c128 322
+website/scripts/generate-python-api.ts
+  s_2ef0feea0a110d::t_1283171e3c4d10 23-32
+deploy/observability/compose.container.yaml
+  s_2ef0feea0a110d::t_9e9f6b7e6c0f87 20-21
+tests/test_ci_release_verification.py
+  s_2ef0feea0a110d::t_079d5658a8c128 55-60,83
+e2e/bub/src/powercontext_e2e/runner.py
+  s_2ef0feea0a110d::t_5c35327c92dd9c 457-458
+e2e/bub/Dockerfile
+  s_2ef0feea0a110d::t_9e9f6b7e6c0f87 48,53-54
+Makefile
+  s_2ef0feea0a110d::t_f941dd6ded86d5 90,102,122,124,127,262,274
+.github/workflows/master.yml
+  s_2ef0feea0a110d::t_6d9d0c2634ecaf 55,499,619,784
+  s_2ef0feea0a110d::t_10a897b2479481 251
+  s_2ef0feea0a110d::t_f941dd6ded86d5 341,416,430,1000
+e2e/bub/src/powercontext_e2e/harbor_agent.py
+  s_2ef0feea0a110d::t_a94e9eda752c7b 160-162,165-169,174
+  s_2ef0feea0a110d::t_6004263141ea27 163-164,170-173,175
+scripts/upgrade_release_gate.py
+  s_2ef0feea0a110d::t_1283171e3c4d10 423-425,427
+e2e/bub/src/powercontext_e2e/harbor_codex.py
+  s_2ef0feea0a110d::t_4823c616c5769a 20,29,36-37,79-89,107,111-122,128,130
+e2e/bub/tests/test_harbor_job_config.py
+  s_2ef0feea0a110d::t_b2c94fae0c5e04 616,692
+  s_2ef0feea0a110d::t_8c1875e192f64c 633-638,700-710
+  s_2ef0feea0a110d::t_a94e9eda752c7b 641-643
+  s_2ef0feea0a110d::t_041aa76ce9897a 686
+  s_2ef0feea0a110d::t_52ee5793229e0e 49,631-632,639-640,644-685,687-691,693-699,711-714
+  s_2ef0feea0a110d::t_7afa103f4c6f8e 382-415
+  s_2ef0feea0a110d::t_53831910113759 581-615,617-630,715-716
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "589aa2821463c1f8d9219cb0ba4642a078e6fefb",
+  "prompts": {},
+  "sessions": {
+    "s_2ef0feea0a110d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1a9cf-a4e7-7f63-9c51-1284f7c332e8",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "frf12 <rongfeng.frf@antgroup.com>"
+    }
+  }
+}

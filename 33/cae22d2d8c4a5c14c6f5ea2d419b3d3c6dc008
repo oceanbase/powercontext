@@ -1,0 +1,20 @@
+desktop/src-tauri/src/diagnostic_process_macos.rs
+  s_2ef0feea0a110d::t_4156adfe9c3fb5 422-430,434-437
+  s_2ef0feea0a110d::t_09187b2bfde4c5 408,410,421,431-433
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "33cae22d2d8c4a5c14c6f5ea2d419b3d3c6dc008",
+  "prompts": {},
+  "sessions": {
+    "s_2ef0feea0a110d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1a9cf-a4e7-7f63-9c51-1284f7c332e8",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "frf12 <rongfeng.frf@antgroup.com>"
+    }
+  }
+}

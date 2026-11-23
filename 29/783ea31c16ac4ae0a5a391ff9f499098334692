@@ -1,0 +1,25 @@
+.github/workflows/upgrade-release.yml
+  s_2ef0feea0a110d::t_eb71f4a659458b 101-110,142-148
+  s_2ef0feea0a110d::t_56161190348933 220-224
+tests/test_ci_release_verification.py
+  s_2ef0feea0a110d::t_650e713e819393 97
+  s_2ef0feea0a110d::t_7e893ac15bc192 46,52-75,78,89,93,105-107,110-111,156-158,163-170,175-180,185-191,194,202-206
+  s_2ef0feea0a110d::t_9827446ad85128 94-96,98-104,171-174,181-184,192-193,195-201
+  s_2ef0feea0a110d::t_a39a68226ffd89 207-208
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "29783ea31c16ac4ae0a5a391ff9f499098334692",
+  "prompts": {},
+  "sessions": {
+    "s_2ef0feea0a110d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1a9cf-a4e7-7f63-9c51-1284f7c332e8",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "frf12 <rongfeng.frf@antgroup.com>"
+    }
+  }
+}

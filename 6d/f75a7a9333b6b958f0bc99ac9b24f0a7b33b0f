@@ -1,0 +1,21 @@
+src/powercontext/ops/__init__.py
+  s_2ef0feea0a110d::t_816eb43832b5c1 17-20,23-37
+tests/test_ops.py
+  s_2ef0feea0a110d::t_816eb43832b5c1 44-78
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "6df75a7a9333b6b958f0bc99ac9b24f0a7b33b0f",
+  "prompts": {},
+  "sessions": {
+    "s_2ef0feea0a110d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1a9cf-a4e7-7f63-9c51-1284f7c332e8",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "frf12 <rongfeng.frf@antgroup.com>"
+    }
+  }
+}

@@ -1,0 +1,25 @@
+.github/workflows/master.yml
+  s_2ef0feea0a110d::t_693f4771179ce4 579,582,607,609
+tests/fixtures/seekdb_legacy_choice.py
+  s_2ef0feea0a110d::t_693f4771179ce4 38-41,149
+tests/e2e/test_database_bootstrap.py
+  s_2ef0feea0a110d::t_693f4771179ce4 426-428
+tests/test_oceanbase_ci.py
+  s_2ef0feea0a110d::t_693f4771179ce4 374-393
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "5f447ada95be480c1558d5560b947bb40f74c9b2",
+  "prompts": {},
+  "sessions": {
+    "s_2ef0feea0a110d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1a9cf-a4e7-7f63-9c51-1284f7c332e8",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "frf12 <rongfeng.frf@antgroup.com>"
+    }
+  }
+}

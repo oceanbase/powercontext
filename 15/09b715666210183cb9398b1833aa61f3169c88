@@ -1,0 +1,22 @@
+.github/workflows/e2e-harness.yml
+  s_2ef0feea0a110d::t_26a5263ce0aa22 648
+  s_2ef0feea0a110d::t_cc307b2c8f75ae 363,374,419,428,432,436,444,448,452,459,463
+tests/test_oceanbase_ci.py
+  s_2ef0feea0a110d::t_26a5263ce0aa22 188,199-200,204-205,209,228,230
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "1509b715666210183cb9398b1833aa61f3169c88",
+  "prompts": {},
+  "sessions": {
+    "s_2ef0feea0a110d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1a9cf-a4e7-7f63-9c51-1284f7c332e8",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "frf12 <rongfeng.frf@antgroup.com>"
+    }
+  }
+}

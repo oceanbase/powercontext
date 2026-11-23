@@ -1,0 +1,21 @@
+tests/e2e/test_atomic_memory_flush_concurrency.py
+  s_2ef0feea0a110d::t_c0785084df0750 51-53,144-145,282
+tests/e2e/test_memory_search_concurrency.py
+  s_2ef0feea0a110d::t_1afe7030bbd3d7 291-292
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "2c9499fdbe62ade11bec483609d3411046dc57c7",
+  "prompts": {},
+  "sessions": {
+    "s_2ef0feea0a110d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1a9cf-a4e7-7f63-9c51-1284f7c332e8",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "frf12 <rongfeng.frf@antgroup.com>"
+    }
+  }
+}

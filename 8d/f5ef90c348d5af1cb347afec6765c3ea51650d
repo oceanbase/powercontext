@@ -1,0 +1,24 @@
+tests/test_bub_docker_mirror.py
+  s_2ef0feea0a110d::t_bdde2f2b861362 15,19-20,31-33,37-47,60-65,72-74,78-82,85,87,92,99-107,110,112-113,122-138
+tests/builtin/runtime/test_model_usage_recorder.py
+  s_2ef0feea0a110d::t_5a168c7b150d6f 1186,1190-1200,1204-1213,1220,1222-1225
+  s_2ef0feea0a110d::t_df660b3140d732 1234-1236
+  s_2ef0feea0a110d::t_72799ddb290665 1201-1203
+  s_2ef0feea0a110d::t_b74117cf3f501d 1214-1217,1221
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "8df5ef90c348d5af1cb347afec6765c3ea51650d",
+  "prompts": {},
+  "sessions": {
+    "s_2ef0feea0a110d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1a9cf-a4e7-7f63-9c51-1284f7c332e8",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "frf12 <rongfeng.frf@antgroup.com>"
+    }
+  }
+}

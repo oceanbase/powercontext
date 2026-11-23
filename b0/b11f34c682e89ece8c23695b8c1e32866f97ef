@@ -1,0 +1,20 @@
+tests/e2e/zcode_acceptance/runner.py
+  s_2ef0feea0a110d::t_5e14dc5f9081fd 501
+  s_2ef0feea0a110d::t_bf489b358270e8 500
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "b0b11f34c682e89ece8c23695b8c1e32866f97ef",
+  "prompts": {},
+  "sessions": {
+    "s_2ef0feea0a110d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1a9cf-a4e7-7f63-9c51-1284f7c332e8",
+        "model": "gpt-6-astra"
+      },
+      "human_author": null
+    }
+  }
+}
