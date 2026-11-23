@@ -263,8 +263,10 @@ class SourceAgent:
             if not (collect_all or added or now >= self._due.get(key, 0.0)):
                 continue
             try:
-                # A schedule whose next time cannot be computed fails like a failed collect:
-                # this plugin retries next cycle and the other plugins and Scopes go on.
+                # A schedule whose next time cannot be computed fails like a failed collect: this plugin
+                # is due again next cycle and the other plugins and Scopes go on. The previous deadline is
+                # dropped first, so a target that arrived in this cycle does not wait behind it.
+                self._due.pop(key, None)
                 self._due[key] = now + _next_delay(plugin.collect, datetime.now(UTC))
                 outcomes.extend(await self._collect(plugin, key[1], targets, "target_added" if added else "schedule"))
             except Exception as error:
