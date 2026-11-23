@@ -1,0 +1,35 @@
+docs/en/development/dashboard.md
+  s_624ad8983708a5::t_6cbab8d93c41a3 207-218
+docs/zh/development/dashboard.md
+  s_624ad8983708a5::t_6cbab8d93c41a3 198-209
+desktop/VALIDATION.md
+  s_624ad8983708a5::t_29fb1b120d3f49 4097-4124
+desktop/src-tauri/src/connections/compatibility.json
+  s_624ad8983708a5::t_05592a73fc264b 2149-2170
+integrations/cindy/plugins/powercontext-hooks/node/worker.cjs
+  s_624ad8983708a5::t_c1ecdc9a19afe5 1038-1048
+integrations/dsh/plugins/dsh-pet/lib/index.js
+  s_624ad8983708a5::t_aaee05956e1562 1039-1049
+integrations/dsh/plugins/powercontext/lib/index.js
+  s_624ad8983708a5::t_d95a66fd074df8 1105-1115
+integrations/opencode/plugins/powercontext/lib/index.js
+  s_624ad8983708a5::t_27c442e3c5f231 1006-1016
+integrations/opencode/plugins/powercontext/lib/tui.js
+  s_624ad8983708a5::t_c7428992005cb1 1005-1015
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "d284335fe7a5d84dea9473c2d5036b6e4c1770d9",
+  "prompts": {},
+  "sessions": {
+    "s_624ad8983708a5": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1ab57-e572-7090-b0f7-d55ee829f4b0",
+        "model": "gpt-6.2-astra"
+      },
+      "human_author": "Frey <370805886@qq.com>"
+    }
+  }
+}
