@@ -21,6 +21,7 @@ services:
       dockerfile: docker/Dockerfile
       args:
         POWERCONTEXT_VERSION: ${POWERCONTEXT_VERSION:-}
+        DEBIAN_MIRROR_URL: ${POWERCONTEXT_E2E_DEBIAN_MIRROR_URL:-}
     environment:
       - ANTHROPIC_API_KEY
       - DEEPSEEK_API_KEY

@@ -17,7 +17,7 @@ from pathlib import Path
 
 import pytest
 
-_SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "configure_debian_mirror.py"
+_SCRIPT = Path(__file__).resolve().parents[3] / "docker" / "configure_debian_mirror.py"
 
 
 def test_debian_build_mirror_preserves_repository_metadata_and_other_routes(tmp_path: Path) -> None:

@@ -113,7 +113,16 @@ runs:
         if [ "$RUNNER_OS" = "Windows" ]; then
           toolchain=1.95.0-x86_64-pc-windows-msvc
         fi
-        rustup toolchain install "$toolchain" --profile minimal
+        # Reuse the pinned compiler without rechecking the remote channel manifest.
+        if ! rustup run "$toolchain" rustc --version; then
+          for attempt in 1 2 3; do
+            if rustup toolchain install "$toolchain" --profile minimal; then
+              break
+            fi
+            if [ "$attempt" -eq 3 ]; then exit 1; fi
+            sleep "$((attempt * 5))"
+          done
+        fi
         echo "RUSTUP_TOOLCHAIN=$toolchain" >> "$GITHUB_ENV"
 
     - name: Install Python dependencies

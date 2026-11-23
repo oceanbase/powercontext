@@ -30,8 +30,8 @@ COPY --from=rust /usr/local/rustup /usr/local/rustup
 
 ARG POWERCONTEXT_E2E_DEBIAN_MIRROR_URL
 
-RUN --mount=type=bind,source=e2e/bub/scripts/configure_debian_mirror.py,target=/tmp/configure-debian-mirror.py \
-    python /tmp/configure-debian-mirror.py \
+RUN --mount=type=bind,source=docker/configure_debian_mirror.py,target=/tmp/configure-debian-mirror.py \
+    DEBIAN_MIRROR_URL="$POWERCONTEXT_E2E_DEBIAN_MIRROR_URL" python /tmp/configure-debian-mirror.py \
     && apt-get update \
     && apt-get install --yes --no-install-recommends build-essential ca-certificates git iproute2 iptables pigz pkg-config socat \
     && rm -rf /var/lib/apt/lists/* \

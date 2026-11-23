@@ -1353,6 +1353,11 @@ jobs:
           test "$("$cli" --version)" = "codex-cli $CODEX_VERSION"
           echo "CODEX_CLI_BIN=$cli" >> "$GITHUB_ENV"
 
+      - name: Prepare locked Codex plugin runtime downloads
+        env:
+          UV_PROJECT_ENVIRONMENT: ${{ runner.temp }}/codex-plugin-runtime
+        run: uv sync --frozen --project integrations/codex/plugins/powercontext
+
       - name: Run Codex with the PowerContext plugin against a real Server
         # Without the binary the cases skip, so refuse to run without it.
         run: |

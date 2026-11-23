@@ -586,7 +586,7 @@ their own diagnostics, so prefer an index without URL credentials.
 `http://deb.debian.org` or `https://deb.debian.org` repository URIs ending in `/debian` or `/debian-security` with that
 base and the same repository path. Both `.list` and `.sources` formats retain their suites, components, signing keys,
 and custom repository URIs. Other operating systems keep their sources. Compose also forwards this public URL as a
-harness image build argument, so the same source selection applies before the image installs its Debian packages.
+Server and harness image build arguments, so the same source selection applies before either image installs its Debian packages.
 During the build, APT uses a host-specific `DIRECT` rule for the mirror and retains other proxy settings; during task
 setup, the mirror hostname joins the task's proxy exclusions alongside the Python index and private Server routes.
 The mirror must be directly reachable during both build and task execution. Use a public URL without credentials:

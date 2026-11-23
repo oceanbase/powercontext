@@ -286,6 +286,7 @@ def _isolated_environment(home: Path, codex_home: Path, tmp_path: Path) -> dict[
         XDG_CACHE_HOME=str(home / "cache"),
         XDG_STATE_HOME=str(home / "state"),
         UV_CACHE_DIR=uv_cache,
+        UV_OFFLINE="1",
         # Setup and the hooks both read this, so the hooks reuse the environment setup built; uv rebuilds it for a
         # different interpreter. Without managed interpreters in the isolated home, both use the one running the tests.
         UV_PYTHON=sys.executable,
@@ -309,16 +310,19 @@ def _install_plugin(executable: str, environment: dict[str, str], base_url: str,
         "import sys; from powercontext.cli.installation import setup; "
         "setup('codex', source=sys.argv[1], server_url=sys.argv[2])"
     )
-    completed = subprocess.run(
-        [sys.executable, "-c", script, str(REPOSITORY), base_url],
-        cwd=tmp_path,
-        env=setup_environment,
-        capture_output=True,
-        text=True,
-        timeout=180,
-        check=False,
-    )
-    log.write_text(f"$ powercontext setup codex\n{completed.stdout}\n{completed.stderr}\n", encoding="utf-8")
+    with log.open("w", encoding="utf-8") as output:
+        output.write("$ powercontext setup codex\n")
+        output.flush()
+        completed = subprocess.run(
+            [sys.executable, "-c", script, str(REPOSITORY), base_url],
+            cwd=tmp_path,
+            env=setup_environment,
+            stdout=output,
+            stderr=subprocess.STDOUT,
+            text=True,
+            timeout=180,
+            check=False,
+        )
     assert completed.returncode == 0, f"powercontext_setup_codex_failed; see {log}"
 
 

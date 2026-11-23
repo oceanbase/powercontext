@@ -11,7 +11,11 @@ COPY --from=uv /uv /uvx /bin/
 COPY --from=rust /usr/local/cargo /usr/local/cargo
 COPY --from=rust /usr/local/rustup /usr/local/rustup
 
-RUN apt-get update \
+ARG DEBIAN_MIRROR_URL
+
+RUN --mount=type=bind,source=docker/configure_debian_mirror.py,target=/tmp/configure-debian-mirror.py \
+    python /tmp/configure-debian-mirror.py \
+    && apt-get update \
     && apt-get install -y --no-install-recommends build-essential pkg-config \
     && rm -rf /var/lib/apt/lists/*
 
