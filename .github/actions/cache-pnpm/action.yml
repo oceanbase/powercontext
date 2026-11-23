@@ -27,6 +27,10 @@ outputs:
 runs:
   using: "composite"
   steps:
+    - name: Configure dependency downloads
+      shell: bash
+      run: node "$GITHUB_ACTION_PATH/../../../scripts/ci_node_mirror.mjs" configure
+
     - id: backend
       if: inputs.save-cache != 'false'
       shell: bash

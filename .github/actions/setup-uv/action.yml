@@ -67,6 +67,10 @@ runs:
         cache-dependency-glob: ${{ inputs.cache-dependency-glob }}
         download-from-astral-mirror: ${{ inputs.download-from-astral-mirror }}
 
+    - name: Configure Python dependency mirror
+      shell: bash
+      run: python3 "$GITHUB_ACTION_PATH/../../../scripts/ci_python_mirror.py" configure
+
     - id: path
       shell: bash
       run: echo "cache-path=$(uv cache dir)" >> "$GITHUB_OUTPUT"

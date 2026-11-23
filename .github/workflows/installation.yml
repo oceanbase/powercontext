@@ -60,7 +60,7 @@ jobs:
         env:
           # Qualify this commit using release-shaped metadata, without publishing it.
           SETUPTOOLS_SCM_PRETEND_VERSION: "1.2.0"
-        run: uv build --wheel --out-dir dist/installation
+        run: python3 scripts/ci_python_mirror.py build --wheel --out-dir dist/installation
 
       - name: Check shared installer behavior and source resolution
         shell: bash
