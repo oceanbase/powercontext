@@ -7,7 +7,7 @@ description: Configure full memory, connect Codex, and verify Source capture, To
 
 Start with installation, discuss a project in Codex, watch its input become Source evidence and an evolving topic, then recover the decisions in a new session. The installer selects the latest stable release; the plugin commands below select the tag matching your installed version.
 
-You need macOS, Linux, or Windows, Git, and an installed Codex CLI. The installer provisions Python and uv if needed. Full memory also needs working Generation and Embedding model APIs: prepare their base URLs, model names, and API keys. Signing into a Codex or Claude subscription does not automatically provide these APIs to the PowerContext Server. Without separate model APIs, select basic memory to test explicit saves and recall; that does not enable automatic Topic Memory.
+You need macOS, Linux, or Windows, Git, and an installed Codex CLI. The installer provisions Python and uv if needed. Full memory also needs working Generation and Embedding model APIs: prepare their base URLs, model names, and API keys. An existing subscription such as Codex or Claude Code can replace the Generation API for Memory, Experience, and Profile, but not for the Topic Memory this guide uses; see [Use an existing subscription](configure-models.md#use-an-existing-subscription). Without separate model APIs, select basic memory to test explicit saves and recall; that does not enable automatic Topic Memory.
 
 ## 1. Install and open the wizard
 

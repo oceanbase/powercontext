@@ -84,15 +84,15 @@ To install an integration with the package, pass `--host codex` to the installer
 
 ## Installer version selection
 
-Without `--version`, the default installs or upgrades to the newest compatible stable release on the selected index, equivalent to `--version latest`. Specify a version only when you need a pinned release, for example PowerContext 1.5.2:
+Without `--version`, the default installs or upgrades to the newest compatible stable release on the selected index, equivalent to `--version latest`. Specify a version only when you need a pinned release, for example PowerContext 1.6.0:
 
 ```bash tab="macOS / Linux"
-curl -fsSL https://powercontext.oceanbase.io/install.sh | bash -s -- --version 1.5.2
+curl -fsSL https://powercontext.oceanbase.io/install.sh | bash -s -- --version 1.6.0
 ```
 
 ```powershell tab="Windows"
 irm https://powercontext.oceanbase.io/install.ps1 -OutFile install.ps1
-powershell -ExecutionPolicy Bypass -File .\install.ps1 --version 1.5.2
+powershell -ExecutionPolicy Bypass -File .\install.ps1 --version 1.6.0
 ```
 
 You can also request an explicit prerelease, such as `1.3.0rc1`. If the selected index lacks that version, installation fails and preserves the installed tool. `latest` excludes prereleases. A mirror may lag PyPI, so its latest available release may differ.
@@ -151,11 +151,11 @@ powercontext setup codex --ref "powercontext-v$(powercontext --version)"
 
 ### Choose a version
 
-To pin a release, for example PowerContext 1.5.2, keep the package and Agent integration on the same version: package `1.5.2` and Git tag `powercontext-v1.5.2`.
+To pin a release, for example PowerContext 1.6.0, keep the package and Agent integration on the same version: package `1.6.0` and Git tag `powercontext-v1.6.0`.
 
 ```bash
-uv tool install --force "powercontext[cli,server]==1.5.2"
-powercontext setup codex --ref powercontext-v1.5.2
+uv tool install --force "powercontext[cli,server]==1.6.0"
+powercontext setup codex --ref powercontext-v1.6.0
 ```
 
 Check the [capability matrix](../integrations/capabilities.md) for host support and maintenance status. Capabilities marked `experimental` remain experimental in this release.
@@ -168,10 +168,10 @@ You need Python 3.11 or newer, Git, and [`uv`](https://docs.astral.sh/uv/) on ma
 uv tool install --upgrade --force "powercontext[cli,server]"
 ```
 
-For a source installation of a pinned release, for example PowerContext 1.5.2:
+For a source installation of a pinned release, for example PowerContext 1.6.0:
 
 ```bash
-uv tool install --force "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@powercontext-v1.5.2"
+uv tool install --force "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@powercontext-v1.6.0"
 ```
 
 For a machine that only connects to a remote Server, the `cli` extra includes `setup`, `doctor`, and remote content commands. Add `server` to run a local Server or use the `service` commands. If a command provider has a missing dependency, the CLI reports the provider and missing module so the installation can be repaired.
@@ -229,7 +229,7 @@ This minimal launch does not enable model-backed extraction or vector search. To
 Embedded seekDB is available on Linux and macOS when a compatible `pylibseekdb` wheel is available. Windows does not support this embedded backend. Install or replace the tool with the optional seekDB extra:
 
 ```bash
-uv tool install --force "powercontext[cli,server,seekdb]==1.5.2"
+uv tool install --force "powercontext[cli,server,seekdb]==1.6.0"
 ```
 
 When switching from SQLite, remove `POWERCONTEXT_SERVER_DATABASE_URL` from the Server process environment. An explicit SQLAlchemy database URL is not valid for seekDB. Then select the backend and start the Server:
@@ -339,11 +339,11 @@ release or Git ref before resuming capability reads. This endpoint does not nego
 disabling protection does not restore compatibility. This client requirement is additional to the database upgrade
 gates above.
 
-To install 1.5.2 in a separate environment for a fresh deployment:
+To install 1.6.0 in a separate environment for a fresh deployment:
 
 ```bash
 uv venv /path/to/powercontext-preview
-uv pip install --python /path/to/powercontext-preview/bin/python "powercontext[cli,server]==1.5.2"
+uv pip install --python /path/to/powercontext-preview/bin/python "powercontext[cli,server]==1.6.0"
 ```
 
 To install another Git ref in the separate environment:
@@ -359,7 +359,7 @@ Use the matching ref for clients and Agent integrations connected to the fresh d
 An application that imports the async Client SDK should add it to that application's environment:
 
 ```bash
-uv add "powercontext[client]==1.5.2"
+uv add "powercontext[client]==1.6.0"
 ```
 
 Use `builtin` for in-process Python composition, `server` for the service, `client` for the Python SDK, or `cli` for the Server-backed command line. An extra that is only present in the isolated `uv tool` environment is not importable by an unrelated Python project.
