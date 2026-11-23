@@ -1,0 +1,76 @@
+version = 1
+revision = 3
+requires-python = ">=3.11"
+
+[[package]]
+name = "colorama"
+version = "0.4.6"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/d8/53/6f443c9a4a8358a93a6792e2acffb9d9d5cb0a5cfd8802644b7b1c9a02e4/colorama-0.4.6.tar.gz", hash = "sha256:08695f5cb7ed6e0531a20572697297273c47b8cae5a63ffc6d6ed5c201be6e44", size = 27697, upload-time = "2022-10-25T02:36:22.414Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/d1/d6/3965ed04c63042e047cb6a3e6ed1a63a35087b6a609aa3a15ed8ac56c221/colorama-0.4.6-py2.py3-none-any.whl", hash = "sha256:4f1d9991f5acc0ca119f9d443620b77f9d6b33703e51011c16baf57afb285fc6", size = 25335, upload-time = "2022-10-25T02:36:20.889Z" },
+]
+
+[[package]]
+name = "fumapy"
+version = "0.1.0"
+source = { directory = "../node_modules/fumadocs-python" }
+dependencies = [
+    { name = "griffe" },
+    { name = "griffe-typingdoc" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "griffe", specifier = ">=1.13.0,<2.0.0" },
+    { name = "griffe-typingdoc", specifier = ">=0.2.8,<1.0.0" },
+]
+
+[[package]]
+name = "griffe"
+version = "1.15.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "colorama" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/0d/0c/3a471b6e31951dce2360477420d0a8d1e00dea6cf33b70f3e8c3ab6e28e1/griffe-1.15.0.tar.gz", hash = "sha256:7726e3afd6f298fbc3696e67958803e7ac843c1cfe59734b6251a40cdbfb5eea", size = 424112, upload-time = "2025-11-10T15:03:15.52Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/9c/83/3b1d03d36f224edded98e9affd0467630fc09d766c0e56fb1498cbb04a9b/griffe-1.15.0-py3-none-any.whl", hash = "sha256:6f6762661949411031f5fcda9593f586e6ce8340f0ba88921a0f2ef7a81eb9a3", size = 150705, upload-time = "2025-11-10T15:03:13.549Z" },
+]
+
+[[package]]
+name = "griffe-typingdoc"
+version = "0.3.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "griffe" },
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/be/77/d5e5fa0a8391bc2890ae45255847197299739833108dd76ee3c9b2ff0bba/griffe_typingdoc-0.3.0.tar.gz", hash = "sha256:59d9ef98d02caa7aed88d8df1119c9e48c02ed049ea50ce4018ace9331d20f8b", size = 33169, upload-time = "2025-10-23T12:01:39.037Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/48/af/aa32c13f753e2625ec895b1f56eee3c9380a2088a88a2c028955e223856e/griffe_typingdoc-0.3.0-py3-none-any.whl", hash = "sha256:4f6483fff7733a679d1dce142fb029f314125f3caaf0d620eb82e7390c8564bb", size = 9923, upload-time = "2025-10-23T12:01:37.601Z" },
+]
+
+[[package]]
+name = "powercontext-website-api"
+version = "0.0.0"
+source = { virtual = "." }
+dependencies = [
+    { name = "fumapy" },
+    { name = "griffe-typingdoc" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "fumapy", directory = "../node_modules/fumadocs-python" },
+    { name = "griffe-typingdoc", specifier = "==0.3.0" },
+]
+
+[[package]]
+name = "typing-extensions"
+version = "4.16.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/f6/cc/6253133b5bb138fc3306cebfbda2c520f545d36b5be2c7255cc528bb45d6/typing_extensions-4.16.0.tar.gz", hash = "sha256:dc983d19a509c94dba722ee6abd33940f7c05a89e243c47e907eb4db6f1a43e5", size = 113555, upload-time = "2026-07-02T08:40:05.92Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/49/d3/b8441a820a491ddfc024b0b0cf0393375b75ea13866d9c66727e54c2fc80/typing_extensions-4.16.0-py3-none-any.whl", hash = "sha256:481caa481374e813c1b176ada14e97f1f67a4539ce9cfeb3f350d78d6370c2e8", size = 45571, upload-time = "2026-07-02T08:40:04.659Z" },
+]

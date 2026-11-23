@@ -1,3 +1,6 @@
+CI_NPM = $(if $(PC_CI_NODE_INSTALLER),node "$(PC_CI_NODE_INSTALLER)" npm,npm)
+CI_PNPM = $(if $(PC_CI_NODE_INSTALLER),node "$(PC_CI_NODE_INSTALLER)" pnpm,pnpm)
+
 .PHONY: install
 install: ## Install the virtual environment and install the prek hooks
 	@echo "🚀 Creating virtual environment using uv"
@@ -19,7 +22,7 @@ notebooks-test: ## Execute provider-free tutorials in fresh kernels; use ARGS fo
 	@uv run --locked --group notebooks python examples/jupyter/run.py $(ARGS)
 
 .PHONY: check
-check: version-check upgrade-policy-check workflow-actions-check integration-manifest-check integration-guidance-check integration-lifecycle-check ## Run code quality tools.
+check: schema-check version-check upgrade-policy-check workflow-actions-check integration-manifest-check integration-guidance-check integration-lifecycle-check ## Run code quality tools.
 
 .PHONY: integration-guidance integration-guidance-check
 integration-guidance: ## Copy shared Skills into native packages.
@@ -51,6 +54,7 @@ workflow-actions-check: ## Verify third-party GitHub Actions use immutable commi
 
 # pytest-xdist worker count; set PYTEST_WORKERS=0 to disable parallel workers.
 PYTEST_WORKERS ?= auto
+PYTEST_ARGS ?=
 
 # Fixed Hook deadlines must not compete with unrelated xdist CPU and disk work.
 SERIAL_E2E_TESTS := tests/e2e/test_zcode_service_chain.py
@@ -63,22 +67,30 @@ test: ## Test the code with pytest
 
 .PHONY: unit-test
 unit-test: ## Run tests that do not cross the Server boundary end to end.
-	@uv run python -m pytest -n $(PYTEST_WORKERS) --doctest-modules --ignore=tests/e2e
+	@uv run python -m pytest -n $(PYTEST_WORKERS) --doctest-modules --ignore=tests/e2e $(PYTEST_ARGS)
 
 .PHONY: e2e-test
 e2e-test: ## Run CLI to Client SDK to Server end-to-end tests.
-	@uv run python -m pytest -n $(PYTEST_WORKERS) tests/e2e $(addprefix --ignore=,$(SERIAL_E2E_TESTS))
-	@uv run python -m pytest -n 0 $(SERIAL_E2E_TESTS)
+	@$(MAKE) e2e-test-parallel
+	@$(MAKE) e2e-test-serial
+
+.PHONY: e2e-test-parallel
+e2e-test-parallel: ## Run end-to-end tests that can share xdist workers.
+	@uv run python -m pytest -n $(PYTEST_WORKERS) tests/e2e $(addprefix --ignore=,$(SERIAL_E2E_TESTS)) $(PYTEST_ARGS)
+
+.PHONY: e2e-test-serial
+e2e-test-serial: ## Run service-chain tests with native Hook deadlines without xdist contention.
+	@uv run python -m pytest -n 0 $(SERIAL_E2E_TESTS) $(PYTEST_ARGS)
 
 .PHONY: gateway-tck
 gateway-tck: ## Check gateway protocol behavior against pinned upstream compatibility suites.
-	@npm ci --prefix gateway/tck --no-audit --no-fund
+	@$(CI_NPM) ci --prefix gateway/tck --no-audit --no-fund
 	@cargo build --locked --manifest-path gateway/Cargo.toml -p pc-gateway-app
 	@uv run --no-project --python 3.11 python tests/e2e/gateway_tck.py $(ARGS)
 
 .PHONY: evaluation-unit-test
 evaluation-unit-test: ## Run the evaluation unit tests, the work-continuity and agent tool recovery suites included.
-	@uv sync --project evaluation --frozen --extra capture-ownership
+	@python3 scripts/ci_python_mirror.py sync --project evaluation --frozen --extra capture-ownership
 	@uv run --project evaluation --extra capture-ownership pytest -c evaluation/pyproject.toml \
 		evaluation/artifact_evolution/tests \
 		evaluation/coding/swebench_pro/tests/unit \
@@ -90,7 +102,7 @@ evaluation-unit-test: ## Run the evaluation unit tests, the work-continuity and 
 
 .PHONY: code-seekdb-test
 code-seekdb-test: ## Exercise native code indexing against a real embedded seekdb instance.
-	@uv sync --locked --extra seekdb --extra code
+	@python3 scripts/ci_python_mirror.py sync --locked --extra seekdb --extra code
 	@uv run --locked --extra seekdb --extra code python -m pytest -o faulthandler_timeout=0 tests/e2e/test_mysql_source_roundtrip.py tests/e2e/test_native_code_seekdb.py
 
 .PHONY: real-e2e-test
@@ -110,12 +122,12 @@ topic-memory-r8-acceptance: ## Run bounded R8 hermetic and available real produc
 
 .PHONY: harness-sync
 harness-sync: ## Install the Bub replay harness environment.
-	@uv sync --project e2e/bub --locked
+	@python3 scripts/ci_python_mirror.py sync --project e2e/bub --locked
 
-OPENDAL_TEST_RUN = uv run --isolated --no-project --python 3.12 \
+OPENDAL_TEST_RUN = python3 scripts/ci_python_mirror.py run --isolated --no-project --python 3.12 \
 	--with-editable ".[server]" \
 	--with-editable ./integrations/opendal \
-	--with pytest --with ruff --with ty
+	--with pytest --with ruff --with ty --
 
 .PHONY: opendal-test
 opendal-test: ## Validate the standalone OpenDAL Connector against this checkout.
@@ -191,7 +203,7 @@ js-api-generate-check: ## Verify generated JS operations are current.
 
 .PHONY: js-test
 js-test: ## Install, build, and test the DeepSeek Harness plugin.
-	@pnpm --dir integrations/dsh/plugins/powercontext install --frozen-lockfile --config.auto-install-peers=false
+	@$(CI_PNPM) --dir integrations/dsh/plugins/powercontext install --frozen-lockfile --config.auto-install-peers=false
 	@pnpm --dir integrations/dsh/plugins/powercontext test
 	@pnpm --dir integrations/dsh/plugins/powercontext build
 	@git diff --exit-code -- \
@@ -208,12 +220,12 @@ dsh-pet-runtime-test: ## Exercise the packed pet adapter in pinned DSH Web (or s
 
 .PHONY: dsh-runtime-test
 dsh-runtime-test: ## Test the built plugin in the pinned real DSH runtime with a local model fixture.
-	@pnpm --dir integrations/dsh/plugins/powercontext/tests/runtime install --frozen-lockfile
+	@$(CI_PNPM) --dir integrations/dsh/plugins/powercontext/tests/runtime install --frozen-lockfile
 	@pnpm --dir integrations/dsh/plugins/powercontext test:e2e:runtime
 
 .PHONY: cindy-test
 cindy-test: ## Build and test the standalone Cindy hook adapter; no DSH runtime is packaged.
-	@pnpm --dir integrations/dsh/plugins/powercontext install --frozen-lockfile --config.auto-install-peers=false
+	@$(CI_PNPM) --dir integrations/dsh/plugins/powercontext install --frozen-lockfile --config.auto-install-peers=false
 	@pnpm --dir integrations/dsh/plugins/powercontext exec tsdown --config ../../../cindy/tsdown.config.ts
 	@git diff --exit-code -- integrations/cindy/plugins/powercontext-hooks/node/worker.cjs
 	@node --test integrations/cindy/tests/*.test.cjs
@@ -225,7 +237,7 @@ openclaw-plugin-build: ## Build the external OpenClaw memory plugin.
 
 .PHONY: openclaw-plugin-test
 openclaw-plugin-test: ## Install, test, type-check, and build with a Node runtime supported by the OpenClaw SDK.
-	@pnpm --dir integrations/openclaw/plugins/memory-powercontext install --frozen-lockfile
+	@$(CI_PNPM) --dir integrations/openclaw/plugins/memory-powercontext install --frozen-lockfile
 	@pnpm --dir integrations/openclaw/plugins/memory-powercontext test
 	@pnpm --dir integrations/openclaw/plugins/memory-powercontext run typecheck
 	@pnpm --dir integrations/openclaw/plugins/memory-powercontext run build
@@ -236,7 +248,7 @@ openclaw-plugin-pack: ## Build and pack the external OpenClaw memory plugin.
 
 .PHONY: opencode-test
 opencode-test: ## Install, test, type-check, and build the OpenCode plugin; verify the committed bundle is current.
-	@pnpm --dir integrations/opencode/plugins/powercontext install --frozen-lockfile
+	@$(CI_PNPM) --dir integrations/opencode/plugins/powercontext install --frozen-lockfile
 	@pnpm --dir integrations/opencode/plugins/powercontext test
 	@pnpm --dir integrations/opencode/plugins/powercontext run typecheck
 	@pnpm --dir integrations/opencode/plugins/powercontext run build
@@ -244,13 +256,13 @@ opencode-test: ## Install, test, type-check, and build the OpenCode plugin; veri
 
 .PHONY: pi-test
 pi-test: ## Install and test the Pi package.
-	@pnpm --dir integrations/pi/plugins/powercontext install --frozen-lockfile
+	@$(CI_PNPM) --dir integrations/pi/plugins/powercontext install --frozen-lockfile
 	@pnpm --dir integrations/pi/plugins/powercontext test
 	@pnpm --dir integrations/pi/plugins/powercontext run typecheck
 
 .PHONY: dify-test
 dify-test: ## Check the isolated Dify SDK plugin and real PowerContext HTTP/SQLite tools.
-	@uv sync --locked --project integrations/dify --python 3.12
+	@python3 scripts/ci_python_mirror.py sync --locked --project integrations/dify --python 3.12
 	@uv run --project integrations/dify python integrations/dify/generate_requirements.py --check
 	@uv run --project integrations/dify python -X utf8 integrations/dify/generate_contract.py --check
 	@uv run --project integrations/dify ruff check integrations/dify
@@ -262,7 +274,7 @@ dify-test: ## Check the isolated Dify SDK plugin and real PowerContext HTTP/SQLi
 .PHONY: build
 build: clean-build ## Build wheel file
 	@echo "🚀 Creating wheel file"
-	@uv build
+	@python3 scripts/ci_python_mirror.py build
 
 # Export rather than interpolate VERSION into shell commands.
 export VERSION
@@ -280,7 +292,7 @@ version-check: ## Check release references and generated API code; optionally as
 	@$(MAKE) api-generate-check js-api-generate-check
 
 .PHONY: release-check
-release-check: version-check upgrade-policy-check docs-install ## Check version references and require matching bilingual notes for a stable release.
+release-check: schema-release-check version-check upgrade-policy-check docs-install ## Check version references and require matching bilingual notes for a stable release.
 	@cd website && node --import tsx --test tests/releases.test.ts
 
 .PHONY: upgrade-policy-check
@@ -305,7 +317,7 @@ build-and-publish: build publish ## Build and publish.
 
 .PHONY: docs-install
 docs-install: ## Install the website dependencies.
-	@cd website && pnpm install --frozen-lockfile
+	@cd website && $(CI_PNPM) install --frozen-lockfile
 
 .PHONY: docs-build
 docs-build: docs-install ## Build the static website, including HTTP and Python API references.
@@ -339,3 +351,13 @@ help:
 	[[print(f'\033[36m{m[0]:<20}\033[0m {m[1]}') for m in re.findall(r'^([a-zA-Z0-9_-]+):.*?## (.*)$$', open(makefile).read(), re.M)] for makefile in ('$(MAKEFILE_LIST)').strip().split()]"
 
 .DEFAULT_GOAL := help
+
+.PHONY: schema-check schema-release-check schema-freeze
+schema-check: ## Validate the shared draft and registered Server migration chains.
+	@uv run --locked python scripts/schema_release.py check
+
+schema-release-check: ## Reject an unfrozen 000 migration before publication.
+	@uv run --locked python scripts/schema_release.py check --release
+
+schema-freeze: ## Freeze shared 000 resources after version-bump: VERSION=X.Y.Z.
+	@uv run --locked python scripts/schema_release.py freeze

@@ -2191,10 +2191,10 @@ function validatePreparedContext(response, path = "/v1/context/prepare", maxByte
 //#region src/prompt-privacy.ts
 const SECRET_PATTERNS = [
 	/-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----[\s\S]*?(?:-----END [A-Z0-9 ]*PRIVATE KEY-----|$)/giu,
-	/(?<![\w-])["']?\b(?:authorization|proxy-authorization|cookie|set-cookie)\b["']?[ \t]*[:=][ \t]*[^\r\n]*(?:\r?\n[ \t]+[^\r\n]*)*/giu,
-	/(?<![\w-])["']?\b(?:api[_ -]?key|access[_ -]?(?:key|token)|client[_ -]?secret|secret(?:[_ -]?key)?|private[_ -]?key|password|passwd|passphrase|token|authorization|cookie)\b["']?\s*[:=]\s*(?:"[^"\r\n]*"|'[^'\r\n]*'|`[^`\r\n]*`|[^\s,;}\]]+)/giu,
-	/(?<![\w-])bearer\s+[A-Za-z0-9._~+/=-]{8,}(?![\w-])/giu,
-	/(?<![\w-])(?:sk-[A-Za-z0-9][A-Za-z0-9_-]{7,}|github_pat_[A-Za-z0-9_]{8,}|gh[pousr]_[A-Za-z0-9_]{8,}|xox[baprs]-[A-Za-z0-9-]{8,})(?![\w-])/giu
+	/(?<![\w-])["']?(?:HTTP(?:_[A-Za-z0-9]+)*_|(?:[A-Za-z0-9]+-)*)(?:authorization|cookie)\b["'`*]*[ \t]*[:=]\**(?![ \t]*(?:true|false|yes|no|on|off|null|none|(?:\$\{\{[^{}\r\n]*\}\}|\$\{[A-Za-z_][A-Za-z0-9_]*\})|"(?:\$\{\{[^{}\r\n]*\}\}|\$\{[A-Za-z_][A-Za-z0-9_]*\})"|'(?:\$\{\{[^{}\r\n]*\}\}|\$\{[A-Za-z_][A-Za-z0-9_]*\})')[`")'\]}]*[,.;]?[ \t\f\v\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]*(?:$|\r?\n(?![ \t])))[ \t]*[^\r\n]*(?:\r?\n[ \t]+[^\r\n]*)*/giu,
+	/(?<![\w-])["']?(?!(?:bos|eos|pad|unk|sep|cls|mask)_token\b)[\w-]*?(?:api[_ -]?key|access[_ -]?(?:key(?:[_-]id)?|token)|client[_ -]?secret|secret(?:[_ -]?key)?|private[_ -]?key|password|passwd|passphrase|token|authorization|cookie)\b["'`*]*[\s \t\f\v\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]*[:=]\**(?![ \t\f\v\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]*(?:\r?\n[ \t\f\v\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]+)?(?:true|false|yes|no|on|off|null|none|(?:\$\{\{[^{}\r\n]*\}\}|\$\{[A-Za-z_][A-Za-z0-9_]*\})|"(?:\$\{\{[^{}\r\n]*\}\}|\$\{[A-Za-z_][A-Za-z0-9_]*\})"|'(?:\$\{\{[^{}\r\n]*\}\}|\$\{[A-Za-z_][A-Za-z0-9_]*\})')(?:[\s,;)\]}`'" \t\f\v\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]|\.(?![^\s \t\f\v\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff])|$))[ \t\f\v\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]*(?:\r?\n[ \t\f\v\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]+)?(?:(?:bearer|basic)[ \t\f\v\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]+)?(?:"[^"\r\n]*"|'[^'\r\n]*'|`[^`\r\n]*`|[^\s,;}\] \t\f\v\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]+)/giu,
+	/(?<![\w-])bearer[\s \t\f\v\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]+[A-Za-z0-9._~+/=-]{8,}(?![\w-])/giu,
+	/(?<![\w-])(?:sk-[A-Za-z0-9][A-Za-z0-9_-]{7,}|[sr]k_(?:live|test)_[A-Za-z0-9]{16,}|github_pat_[A-Za-z0-9_]{8,}|gh[pousr]_[A-Za-z0-9_]{8,}|xox[baprs]-[A-Za-z0-9-]{8,})(?![\w-])/giu
 ];
 /** Return text with recognized credential-shaped values replaced. */
 function scrubSecrets(text, authorization$1) {

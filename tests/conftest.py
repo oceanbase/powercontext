@@ -14,6 +14,7 @@
 
 """Repository-wide pytest collection controls."""
 
+import hashlib
 import os
 from collections.abc import Iterator
 from pathlib import Path
@@ -78,6 +79,9 @@ def isolated_client_connection_settings(tmp_path, monkeypatch, request):
 
 
 def pytest_addoption(parser: pytest.Parser) -> None:
+    shard = parser.getgroup("powercontext-ci-shard")
+    shard.addoption("--ci-shard-count", type=int, default=None, help="Number of disjoint CI test partitions.")
+    shard.addoption("--ci-shard-index", type=int, default=None, help="Zero-based CI partition to collect.")
     continuity = parser.getgroup("powercontext-cross-host")
     continuity.addoption(
         "--cross-host-acceptance-output",
@@ -151,6 +155,22 @@ def pytest_addoption(parser: pytest.Parser) -> None:
     )
 
 
+def pytest_configure(config: pytest.Config) -> None:
+    count = config.getoption("ci_shard_count")
+    index = config.getoption("ci_shard_index")
+    if count is None and index is None:
+        return
+    if count is None or index is None:
+        message = "--ci-shard-count and --ci-shard-index must be provided together"
+        raise pytest.UsageError(message)
+    if count < 1:
+        message = "--ci-shard-count must be at least 1"
+        raise pytest.UsageError(message)
+    if not 0 <= index < count:
+        message = "--ci-shard-index must be between 0 and --ci-shard-count minus 1"
+        raise pytest.UsageError(message)
+
+
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
     """Daily tests deselect external hosts; explicit selection fails missing prerequisites."""
     expression = config.option.markexpr or ""
@@ -183,6 +203,16 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
     )
     deselected.extend(item for item in items if item.get_closest_marker("cross_host_acceptance") and not cross_selected)
     if deselected:
+        config.hook.pytest_deselected(items=deselected)
+        items[:] = [item for item in items if item not in deselected]
+
+    count = config.getoption("ci_shard_count")
+    if count is not None:
+        index = config.getoption("ci_shard_index")
+        # Node IDs keep assignment stable across independent Pods and xdist workers.
+        deselected = [
+            item for item in items if int.from_bytes(hashlib.sha256(item.nodeid.encode()).digest()) % count != index
+        ]
         config.hook.pytest_deselected(items=deselected)
         items[:] = [item for item in items if item not in deselected]
 
