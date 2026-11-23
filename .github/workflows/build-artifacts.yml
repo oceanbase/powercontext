@@ -55,7 +55,8 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
 
       - name: Set up uv
-        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        # Keep cache tooling at the workflow revision when packaging an older source ref.
+        uses: $/.github/actions/setup-uv
         with:
           version: ${{ env.UV_VERSION }}
           enable-cache: true
@@ -76,7 +77,7 @@ jobs:
           from pathlib import Path
 
           version = subprocess.check_output(
-              ["uvx", "--from", "hatchling", "--with", "hatch-vcs", "hatchling", "version"],
+              ["python", os.environ["PC_CI_PYTHON_INSTALLER"], "run", "--no-project", "--with", "hatchling", "--with", "hatch-vcs", "--", "hatchling", "version"],
               text=True,
           ).strip()
           source_sha = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
@@ -99,8 +100,8 @@ jobs:
       - name: Build Python distributions
         run: |
           mkdir -p build/artifact-input/distributions
-          uv build --out-dir build/artifact-input/distributions
-          uvx --from 'twine>=7.0.0' twine check build/artifact-input/distributions/*
+          python "$PC_CI_PYTHON_INSTALLER" build --out-dir build/artifact-input/distributions
+          python "$PC_CI_PYTHON_INSTALLER" run --no-project --with 'twine>=7.0.0' -- twine check build/artifact-input/distributions/*
 
       - name: Export locked runtime dependencies
         run: |
@@ -113,7 +114,7 @@ jobs:
             --no-header \
             --no-annotate \
             --format requirements-txt \
-            --output-file build/artifact-input/requirements.lock
+            --output-file build/artifact-input/upstream-requirements.lock
 
           uv export \
             --project integrations/codex/plugins/powercontext \
@@ -123,21 +124,41 @@ jobs:
             --no-header \
             --no-annotate \
             --format requirements-txt \
-            --output-file build/artifact-input/plugin-requirements.lock
+            --output-file build/artifact-input/upstream-plugin-requirements.lock
 
-      - name: Download Linux x86_64 dependency wheels
-        run: |
-          python -m pip download \
-            --require-hashes \
-            --only-binary=:all: \
-            --dest build/artifact-input/wheelhouse \
-            --requirement build/artifact-input/requirements.lock
+      - name: Set up the locked wheel builder
+        id: bundle-builder
+        uses: $/.github/actions/setup-bundle-builder
 
-          python -m pip download \
-            --require-hashes \
-            --only-binary=:all: \
-            --dest build/artifact-input/plugin-wheelhouse \
-            --requirement build/artifact-input/plugin-requirements.lock
+      - name: Restore dependency downloads
+        id: pip-cache
+        # Fingerprint original exports and the actual pinned downloader, never rebuilt wheels.
+        uses: $/.github/actions/cache-pip
+        with:
+          python-executable: ${{ steps.bundle-builder.outputs.python-path }}
+          cache-dependency-glob: |
+            build/artifact-input/upstream-requirements.lock
+            build/artifact-input/upstream-plugin-requirements.lock
+            build/artifact-input/build-tools.lock
+
+      - name: Download locked dependency inputs
+        uses: $/.github/actions/prepare-bundle-wheels
+        with:
+          stage: download
+          python-executable: ${{ steps.bundle-builder.outputs.python-path }}
+
+      - name: Save original dependency downloads before building
+        if: steps.pip-cache.outputs.cache-hit != 'true'
+        uses: $/.github/actions/cache-save
+        with:
+          path: ${{ steps.pip-cache.outputs.cache-path }}
+          key: ${{ steps.pip-cache.outputs.cache-key }}
+
+      - name: Build dependency wheels offline and lock their hashes
+        uses: $/.github/actions/prepare-bundle-wheels
+        with:
+          stage: build
+          python-executable: ${{ steps.bundle-builder.outputs.python-path }}
 
       - name: Assemble customer bundle
         id: bundle
@@ -158,6 +179,11 @@ jobs:
           cp -R build/artifact-input/plugin-wheelhouse "$bundle_root/plugin-wheelhouse"
           cp build/artifact-input/requirements.lock "$bundle_root/requirements.lock"
           cp build/artifact-input/plugin-requirements.lock "$bundle_root/plugin-requirements.lock"
+          cp build/artifact-input/upstream-requirements.lock \
+            build/artifact-input/upstream-plugin-requirements.lock \
+            build/artifact-input/build-tools.lock \
+            build/artifact-input/build-tools.json \
+            build/artifact-input/dependency-provenance.json "$bundle_root/"
           cp -R integrations/codex "$bundle_root/integrations"
           cp openapi/powercontext.yaml "$bundle_root/openapi/powercontext.yaml"
           cp LICENSE README.md "$bundle_root/"

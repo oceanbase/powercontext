@@ -12,6 +12,13 @@ Server, writes disposable Memory and optional Topic/Code fixtures, then stops th
 Server before reflecting its database with the installed release's drivers.
 It does not invoke the current migration runtime or modify registered resources.
 
+In self-hosted Linux CI, when both `PC_CI_PYTHON_INSTALLER` and
+`PC_CI_PYTHON_MIRROR` are nonempty, the shared CI installer installs the verified
+local wheel. Dependencies use the configured mirror, with official PyPI as the
+fallback. Other environments resolve dependencies directly from official PyPI.
+The release JSON, wheel URL validation, and SHA256 check retain the official-PyPI
+provenance contract.
+
 ```sh
 uv run python scripts/capture_release_schema.py sqlite \
   --configuration full-server-no-vector --output /tmp/release-140-capture

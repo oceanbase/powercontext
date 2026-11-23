@@ -14,6 +14,8 @@
 
 """A Gateway can only receive a Core-approved target with a privileged identity."""
 
+import json
+
 import httpx
 import pytest
 
@@ -218,3 +220,74 @@ async def test_rerank_target_resolution_is_consumable_via_http_and_sdk(tmp_path)
         sdk = PowerContextClient("http://localhost", http_client=client)
         admitted = await sdk.check_context(CheckContextRequest.model_validate(request), resolve_target=True)
         assert admitted.target_protocol == "jev-rerank"
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("protocol", ["google-codeassist", "google-codeassist-chat", "claude-cli-prompt"])
+async def test_subscription_target_resolution_returns_public_http_contract(protocol, tmp_path):
+    settings = _settings(tmp_path)
+    profile = settings.inference.protection.targets["model"].model_copy(
+        update={
+            "protocol": protocol,
+            "endpoint": "claude-cli://execute"
+            if protocol == "claude-cli-prompt"
+            else "https://cloudcode-pa.googleapis.com/v1internal:generateContent",
+        }
+    )
+    settings.inference.protection = settings.inference.protection.model_copy(update={"targets": {"model": profile}})
+    if protocol == "claude-cli-prompt":
+        settings.inference.protection = settings.inference.protection.model_copy(update={"mode": "disabled"})
+    prepare_server_database(settings)
+    async with open_builtin_access_control(
+        settings.database, bootstrap_administrators=(_ADMIN,), deployment_id="context-transports"
+    ):
+        pass
+    app = create_server_app(settings=settings, authentication_provider=_Authentication())
+    async with (
+        app.router.lifespan_context(app),
+        httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app),
+            base_url="http://localhost",
+            headers={"Authorization": "Bearer transport-admin"},
+        ) as client,
+    ):
+        scope = await _create_scope(client, "codeassist-target")
+        for role in ("scope.viewer", "gateway.user"):
+            granted = await client.post(
+                "/v1/access/bindings/create",
+                json={
+                    "subject": {"type": _ADMIN.type, "id": _ADMIN.id},
+                    "resource": {"type": "scope", "scope_id": scope},
+                    "role": role,
+                    "idempotency_key": role,
+                },
+            )
+            assert granted.status_code == 201, granted.text
+        envelope = {
+            "model": "test",
+            "project": "project",
+            "request": {
+                "contents": [{"role": "user", "parts": [{"text": "safe"}]}],
+                "generationConfig": {"maxOutputTokens": 64},
+            },
+        }
+        if protocol == "claude-cli-prompt":
+            envelope = {"model": "test", "messages": [{"role": "user", "content": "safe"}], "max_tokens": 64}
+        result = await client.post(
+            "/v1/context/check",
+            headers={"X-PowerContext-Resolve-Target": "true"},
+            json={
+                "scope_id": scope,
+                "phase": "before_send",
+                "target_profile": "model",
+                "prepared_contexts": [],
+                "payload": {
+                    "schema": "powercontext.model-json-payload.v1",
+                    "headers": {"content-type": "application/json"},
+                    "body": json.dumps(envelope),
+                },
+            },
+        )
+        assert result.status_code == 200, result.text
+        assert result.json()["decision"] == "allow"
+        assert result.json()["target_protocol"] == protocol

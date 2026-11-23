@@ -115,6 +115,8 @@ the prepared value. A gateway must not mask an approved request or restore value
 reuse that approval for the changed bytes. A changed payload needs its own admission; this API supplies no
 placeholder mapping or authorization to reverse a privacy transformation.
 
+When response conversion changes the provider bytes, include the original response in `upstream_payload` on `before_release`. Core inspects the original JSON or Responses SSE as well as the exact final payload; the two bodies share the response byte limit. Upgrade Core before a Gateway that sends this field. Older Core versions reject it and do not authorize release.
+
 Callers requiring complete privacy checks accept only `allow` with `coverage.complete=true`. `block` and `withhold` return HTTP
 200 because a decision was made, but neither permits execution. Invalid carriers/locators return 422; authorization
 failure returns 401/403; an oversized payload returns 413. If the required check is unavailable, do not send or release.
@@ -132,9 +134,10 @@ is separate from its five-minute response-correlation deadline. Pass it as `requ
 Current policy, identity, and retained context dependencies are checked again. A release permit cannot authorize a
 new request, and correlation never extends the send deadline. These permits do not provide exactly-once execution.
 
-The public carrier currently supports complete JSON. The local protected transport also supports OpenAI Chat SSE
-with a single choice and explicit `allow_streaming=true`. Other streaming profiles are withheld. It buffers the
-complete stream before release with byte, timeout, and concurrency limits. Do not wrap an SSE
+The public carrier currently supports complete JSON. With explicit `allow_streaming=true`, the local protected
+transport also supports OpenAI Chat SSE with a single choice and Responses SSE ending in a successful
+`response.completed` event. Other streaming profiles are withheld. It buffers and checks the complete stream before
+releasing its original bytes, with byte, timeout, and concurrency limits. Do not wrap an SSE
 summary in the JSON carrier and call it a complete original response. Strict buffering delays first content.
 
 HTTP over a Unix domain socket and remote HTTP(S) use the same DTOs. UDS does not replace bearer authentication.

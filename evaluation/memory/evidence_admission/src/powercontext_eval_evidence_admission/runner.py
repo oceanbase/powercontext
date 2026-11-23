@@ -312,7 +312,9 @@ async def run_sample(
                 usage_complete = (
                     (len(captured.calls) == captured.attempts if protocol_v2 else usage_complete)
                     and bool(usages)
-                    and all(u.input_tokens is not None and u.output_tokens is not None for u in usages)
+                    and all(
+                        not u.incomplete and u.input_tokens is not None and u.output_tokens is not None for u in usages
+                    )
                 )
                 outputs.extend(digest(result.output.model_dump(mode="json")) for _, result in captured.calls)
             memories, cursor = await replay.mutations()

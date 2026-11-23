@@ -17,6 +17,7 @@ from __future__ import annotations
 import asyncio
 import json
 from contextlib import asynccontextmanager
+from dataclasses import replace
 
 import pytest
 from powercontext.builtin.artifacts.atomic_memory.extraction import AtomicMemoryCandidate, AtomicMemoryExtractionOutput
@@ -131,6 +132,77 @@ def test_failed_request_without_returned_usage_is_unknown_not_zero_cost():
     assert sample.status == "failed" and sample.failure_kind == "inference_failed"
     assert sample.generation_calls == 1 and not sample.usage_complete
     assert sample.provider_input_tokens is sample.provider_output_tokens is None
+
+
+@pytest.mark.parametrize("version", ["v1", "v4"])
+@pytest.mark.parametrize(
+    "input_tokens,output_tokens,incomplete,complete",
+    [
+        pytest.param(0, 0, True, False, id="missing-provider-usage"),
+        pytest.param(17, 11, True, False, id="partial-provider-usage"),
+        pytest.param(0, 0, False, True, id="reported-zero-usage"),
+        pytest.param(17, 11, False, True, id="reported-usage"),
+        pytest.param(None, 11, False, False, id="missing-input-tokens"),
+        pytest.param(17, None, False, False, id="missing-output-tokens"),
+    ],
+)
+def test_returned_usage_completeness_reaches_sample_and_smoke_gate(
+    version, input_tokens, output_tokens, incomplete, complete
+):
+    suite = load_suite(experiment_version=version)
+    case = next(c for c in suite.cases if c.case_id == "small-complete")
+    arm = "complete-projection-v1"
+    suite = replace(
+        suite,
+        cases=(case,),
+        experiment=suite.experiment.model_copy(update={"arms": (arm,), "budgets": (4096,), "live_repetitions": 1}),
+    )
+    usage = InferenceUsage(requests=1, input_tokens=input_tokens, output_tokens=output_tokens, incomplete=incomplete)
+
+    class UsageGenerator(Generator):
+        async def generate(self, value, /):
+            result = await super().generate(value)
+            return result.model_copy(update={"usage": usage})
+
+    sample = asyncio.run(run_sample(suite, case, arm, 4096, 0, generator=UsageGenerator()))
+    assert sample.status == "generated"
+    assert sample.requests == sample.generation_calls == 1
+    assert sample.provider_input_tokens == input_tokens
+    assert sample.provider_output_tokens == output_tokens
+    assert sample.usage_complete is complete
+
+    manifest = cli.manifest_for(suite, "smoke", provider={"max_requests": 1})
+    manifest["smoke"] = {"budgets": [4096], "repetitions": 1}
+    report = aggregate(suite, (sample,), manifest)
+    assert report["smoke"]["scope_coverage_complete"]
+    assert report["smoke"]["execution_complete"] is complete
+    assert report["arms"][arm]["usage_complete"] is complete
+
+
+@pytest.mark.parametrize("incomplete_call", [0, 1])
+def test_one_incomplete_call_keeps_multi_call_sample_usage_incomplete(incomplete_call):
+    suite = load_suite(experiment_version="v4")
+    case = next(c for c in suite.cases if c.case_id == "many-source-overflow")
+
+    class UsageGenerator(Generator):
+        async def generate(self, value, /):
+            incomplete = len(self.inputs) == incomplete_call
+            result = await super().generate(value)
+            usage = InferenceUsage(
+                requests=1,
+                input_tokens=0 if incomplete else 17,
+                output_tokens=0 if incomplete else 11,
+                incomplete=incomplete,
+            )
+            return result.model_copy(update={"usage": usage})
+
+    generator = UsageGenerator()
+    sample = asyncio.run(run_sample(suite, case, "bounded-fragments-v3", 2048, 0, generator=generator))
+    assert sample.status == "generated"
+    assert sample.generation_calls == sample.requests == len(generator.inputs) > 1
+    assert sample.provider_input_tokens == 17 * (sample.generation_calls - 1)
+    assert sample.provider_output_tokens == 11 * (sample.generation_calls - 1)
+    assert not sample.usage_complete
 
 
 @pytest.fixture(params=["v4", "v5"])
