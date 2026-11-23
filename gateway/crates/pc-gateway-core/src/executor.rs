@@ -33,6 +33,7 @@ use crate::lifecycle::Execution;
 use crate::prefix_store::{PrefixEntry, PrefixStore};
 use crate::replay_cache::{message_anchor, PreparedBlock, ReplayCache, MAX_REPLAY_MS};
 use crate::transcript::turn_transcript;
+use crate::turn::{TurnCounterSnapshot, TurnCounters};
 
 /// Core 的 before_send 在复用证明的依赖已变化或证明已失效时给出的 withhold 原因。
 const CONTEXT_REFRESH_REQUIRED: &str = "context-refresh-required";
@@ -40,14 +41,14 @@ use crate::{GateClient, GateError};
 use crate::{LifecycleStopReason, ModelSendState, RequestControl};
 use pc_gateway_evidence::EvidenceSink;
 use pc_gateway_evidence::UsageMapping;
-use pc_gateway_protocol::{CanonicalRequest, WireRenderer};
+use pc_gateway_protocol::{turn_kind, CanonicalRequest, WireRenderer};
 use pc_gateway_transport::{
     AdmittedSend, RawResponse, SendIndeterminateReason, SendOutcome, Transport,
 };
 use pc_gateway_types::{
     parse_rfc3339_ms, CaptureContentSource, CaptureContentSourcesRequest, CheckDecision,
     CheckPhase, ContextCheckRequest, ContextCheckResult, ModelJsonPayload, ModelJsonTextLocation,
-    PrepareContextRequest, PreparedContextLocation,
+    PrepareContextRequest, PreparedContextLocation, TurnKind,
 };
 use std::collections::BTreeMap;
 use std::num::NonZeroU32;
@@ -163,6 +164,9 @@ pub struct Executor<G, T> {
     capture_batch: Option<usize>,
     require_privacy_coverage: bool,
     prefixes: PrefixStore,
+    /// 跳过工具续写（且没有可重放结果）的 `prepare`；由开关控制，默认关闭。
+    skip_tool_continuation_prepare: bool,
+    turn_counters: TurnCounters,
 }
 
 /// One-way admission closure, also usable by a process signal handler. Closing
@@ -212,6 +216,8 @@ where
             capture_batch: Some(128),
             require_privacy_coverage: true,
             prefixes: PrefixStore::default(),
+            skip_tool_continuation_prepare: false,
+            turn_counters: TurnCounters::default(),
         }
     }
 
@@ -302,6 +308,17 @@ where
         self
     }
 
+    /// 工具续写且没有可重放结果时跳过 `prepare`。默认关闭；开启后只影响该形态的请求。
+    pub fn with_turn_skip_prepare(mut self, skip: bool) -> Self {
+        self.skip_tool_continuation_prepare = skip;
+        self
+    }
+
+    /// 进程内累计的回合类型判定与跳过准备次数。
+    pub fn turn_counters(&self) -> TurnCounterSnapshot {
+        self.turn_counters.snapshot()
+    }
+
     pub async fn run<R: WireRenderer>(
         &self,
         control: RequestControl,
@@ -352,6 +369,11 @@ where
         // P1-3：enrich 之前快照原始请求。降级路径必须用这份（不含注入内容）
         // 重新渲染，否则 prepare 召回的私密记忆会在未经任何检查的情况下外发。
         let pristine_request = call.request.clone();
+        // 回合类型只由原始请求尾部决定；在重放与准备之前判定一次，供证据、计数与召回决策共用。
+        let kind = turn_kind(&pristine_request, renderer.message_list_key());
+        recording.turn_kind(kind);
+        self.turn_counters.record(kind);
+        tracing::debug!(turn_kind = kind.as_str(), "gateway request turn classified");
 
         let anchor = call
             .inject_context
@@ -365,9 +387,10 @@ where
             if call.inject_context {
                 self.enrich(
                     &mut call,
+                    kind,
                     anchor,
                     renderer.message_list_key(),
-                    evidence,
+                    recording,
                     execution,
                 )
                 .await;
@@ -871,12 +894,14 @@ where
     /// 有可信会话 ID 时：同一消息锚点（工具续写、重试）精确重放已准备的内容与绑定，不再检索；
     /// 新锚点（新的用户消息）准备一次。没有会话 ID 时每个请求各自准备，不继承任何旧注入。
     /// 准备失败不写入，下一次请求重试，且不阻塞本次请求；空结果同样重放。
+    /// 开关打开时，没有可重放结果的工具续写不再准备。
     async fn enrich(
         &self,
         call: &mut ManagedCall,
+        kind: TurnKind,
         anchor: Option<u64>,
         list_key: &str,
-        evidence: &dyn EvidenceSink,
+        recording: &mut CallRecorder<'_>,
         execution: &Execution,
     ) {
         let replay = call.conversation_id.clone().zip(anchor);
@@ -884,11 +909,23 @@ where
             self.replays
                 .get(&call.scope_id, conversation, *anchor, now_ms())
         });
+        if cached.is_none()
+            && kind == TurnKind::ToolContinuation
+            && self.skip_tool_continuation_prepare
+        {
+            self.turn_counters.record_skipped_prepare();
+            recording.prepare_skipped();
+            tracing::debug!(
+                turn_kind = kind.as_str(),
+                "skipping prepare for a tool continuation without a replay entry"
+            );
+            return;
+        }
         let prepared = match cached {
             Some(prepared) => prepared,
             None => {
                 let Some((prepared, expires_at)) =
-                    self.prepare_turn(call, evidence, execution).await
+                    self.prepare_turn(call, recording, execution).await
                 else {
                     return;
                 };
@@ -922,7 +959,7 @@ where
     async fn prepare_turn(
         &self,
         call: &ManagedCall,
-        evidence: &dyn EvidenceSink,
+        recording: &mut CallRecorder<'_>,
         execution: &Execution,
     ) -> Option<(Option<PreparedBlock>, Option<String>)> {
         let query = last_user_text(&call.request)?;
@@ -948,7 +985,7 @@ where
         let prepared = match prepared {
             Ok(p) => p,
             Err(_) => {
-                evidence.record_not_sent(0, "prepare_failed");
+                recording.prepare_failed();
                 tracing::warn!("prepare failed; injecting nothing");
                 return None;
             }

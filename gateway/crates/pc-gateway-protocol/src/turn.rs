@@ -1,0 +1,244 @@
+// Copyright (c) 2026 OceanBase.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+//! 入口请求尾部的回合类型判定。
+//!
+//! 判定只使用规范化消息的角色、工具调用是否存在，以及 Responses 透传 item 自身的
+//! `role`/`type`；不读取正文，也不调用模型。Responses 入口把非用户 item 原样封装为
+//! `Role::Tool` 承载（渲染器依赖这一形态逐字透出），因此该形态必须回到 item 本身取语义角色。
+
+use crate::render::RESPONSES_LIST_KEY;
+use crate::{CanonicalMessage, CanonicalRequest, Role};
+use pc_gateway_types::TurnKind;
+use serde_json::Value;
+
+/// 按请求尾部判定回合类型。
+///
+/// `list_key` 取自实际使用的 renderer。入口 format 决定 renderer，二者目前一一对应；若 renderer
+/// 将来改为按上游协议选择，需要把入口协议显式传入，不能继续由渲染形态推断。
+pub fn turn_kind(request: &CanonicalRequest, list_key: &str) -> TurnKind {
+    let Some(message) = request.messages.last() else {
+        return TurnKind::Empty;
+    };
+    match message.role {
+        Role::User => TurnKind::UserTurn,
+        Role::Assistant if has_tool_calls(message) => TurnKind::ToolContinuation,
+        Role::Assistant => TurnKind::AssistantOnly,
+        Role::System | Role::Developer => TurnKind::Empty,
+        Role::Tool if list_key == RESPONSES_LIST_KEY => responses_item_turn_kind(&message.content),
+        Role::Tool => TurnKind::ToolContinuation,
+    }
+}
+
+fn has_tool_calls(message: &CanonicalMessage) -> bool {
+    message
+        .tool_calls
+        .as_ref()
+        .is_some_and(|calls| !calls.is_empty())
+}
+
+/// Responses 入口把每个非用户 item 封装成单元素 content。没有对象时按工具结果处理；
+/// 否则按 item 自身的 `role`/`type` 还原语义，而不是沿用承载它的 `Role::Tool`。
+fn responses_item_turn_kind(content: &[Value]) -> TurnKind {
+    let [Value::Object(item)] = content else {
+        return TurnKind::ToolContinuation;
+    };
+    if let Some(role) = item.get("role").and_then(Value::as_str) {
+        return match role {
+            "assistant" => TurnKind::AssistantOnly,
+            "user" => TurnKind::UserTurn,
+            // system、developer 以及未知的非用户角色都不是用户回合。
+            _ => TurnKind::Empty,
+        };
+    }
+    let item_type = item.get("type").and_then(Value::as_str).unwrap_or("");
+    if is_tool_item(item_type) {
+        TurnKind::ToolContinuation
+    } else {
+        // reasoning、item_reference、工具清单、工具定义等助手或开发者侧条目：
+        // 既不是工具续写，也不跳过召回。
+        TurnKind::AssistantOnly
+    }
+}
+
+/// 与 `transcript::classify` 相同的工具条目词汇：客户端工具调用、工具结果与 MCP 审批往返。
+/// 使用下划线边界而不是子串匹配，避免普通条目名偶然包含 `call` 而被当作工具续写。
+fn is_tool_item(item_type: &str) -> bool {
+    item_type.ends_with("_call")
+        || item_type.ends_with("_call_output")
+        || item_type == "mcp_approval_request"
+        || item_type == "mcp_approval_response"
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::OutputLimits;
+
+    fn message(role: Role, tool_calls: Option<Vec<Value>>) -> CanonicalMessage {
+        CanonicalMessage {
+            role,
+            content: vec![Value::from("text")],
+            content_null: false,
+            tool_calls,
+            tool_call_id: None,
+            extra_fields: Default::default(),
+        }
+    }
+
+    /// Responses 入口封装的透传 item：单元素 content，承载角色为 `Role::Tool`。
+    fn item(value: Value) -> CanonicalMessage {
+        CanonicalMessage {
+            role: Role::Tool,
+            content: vec![value],
+            content_null: false,
+            tool_calls: None,
+            tool_call_id: None,
+            extra_fields: Default::default(),
+        }
+    }
+
+    fn request(messages: Vec<CanonicalMessage>) -> CanonicalRequest {
+        CanonicalRequest {
+            model: "test-model".into(),
+            messages,
+            tools: vec![],
+            instructions: None,
+            native_cache_fields: None,
+            output_limits: OutputLimits {
+                max_output_tokens: Some(128),
+            },
+            stream: false,
+            response_format: None,
+            tool_choice: None,
+            store: None,
+            previous_response_id: None,
+            conversation: None,
+            passthrough_fields: None,
+            token_limit_field: None,
+        }
+    }
+
+    fn response_message(role: &str) -> Value {
+        serde_json::json!({"type": "message", "role": role, "content": []})
+    }
+
+    #[test]
+    fn chat_roles_decide_the_turn_kind() {
+        let tool_call = serde_json::json!({"id": "call_1", "type": "function"});
+        for (messages, expected) in [
+            (vec![], TurnKind::Empty),
+            (vec![message(Role::System, None)], TurnKind::Empty),
+            (vec![message(Role::Developer, None)], TurnKind::Empty),
+            (vec![message(Role::User, None)], TurnKind::UserTurn),
+            (vec![message(Role::Tool, None)], TurnKind::ToolContinuation),
+            (
+                vec![message(Role::Assistant, Some(vec![tool_call.clone()]))],
+                TurnKind::ToolContinuation,
+            ),
+            (
+                vec![message(Role::Assistant, Some(vec![]))],
+                TurnKind::AssistantOnly,
+            ),
+            (
+                vec![message(Role::Assistant, None)],
+                TurnKind::AssistantOnly,
+            ),
+            (
+                vec![
+                    message(Role::User, None),
+                    message(Role::Assistant, Some(vec![tool_call])),
+                    message(Role::Tool, None),
+                ],
+                TurnKind::ToolContinuation,
+            ),
+        ] {
+            assert_eq!(turn_kind(&request(messages), "messages"), expected);
+        }
+    }
+
+    #[test]
+    fn responses_items_are_classified_by_their_own_role_and_type() {
+        for (messages, expected) in [
+            (vec![], TurnKind::Empty),
+            (vec![message(Role::User, None)], TurnKind::UserTurn),
+            (
+                vec![item(response_message("assistant"))],
+                TurnKind::AssistantOnly,
+            ),
+            (
+                // 类型省略的消息 item 同样是助手消息。
+                vec![item(
+                    serde_json::json!({"role": "assistant", "content": "ok"}),
+                )],
+                TurnKind::AssistantOnly,
+            ),
+            (vec![item(response_message("developer"))], TurnKind::Empty),
+            (vec![item(response_message("system"))], TurnKind::Empty),
+            (
+                vec![item(
+                    serde_json::json!({"role": "developer", "content": "reminder"}),
+                )],
+                TurnKind::Empty,
+            ),
+            (
+                // 新用户提问之后跟一条 developer 提示：尾部不是工具续写。
+                vec![
+                    message(Role::User, None),
+                    item(serde_json::json!({"role": "developer", "content": "reminder"})),
+                ],
+                TurnKind::Empty,
+            ),
+            (
+                vec![item(
+                    serde_json::json!({"type": "function_call", "name": "run"}),
+                )],
+                TurnKind::ToolContinuation,
+            ),
+            (
+                vec![item(
+                    serde_json::json!({"type": "function_call_output", "output": "ok"}),
+                )],
+                TurnKind::ToolContinuation,
+            ),
+            (
+                vec![item(serde_json::json!({"type": "mcp_approval_request"}))],
+                TurnKind::ToolContinuation,
+            ),
+            (
+                vec![item(serde_json::json!({"type": "mcp_approval_response"}))],
+                TurnKind::ToolContinuation,
+            ),
+            (
+                // 名称包含 call 但不是工具条目，不能触发跳过召回。
+                vec![item(serde_json::json!({"type": "recall"}))],
+                TurnKind::AssistantOnly,
+            ),
+            (
+                vec![item(
+                    serde_json::json!({"type": "reasoning", "summary": []}),
+                )],
+                TurnKind::AssistantOnly,
+            ),
+            (
+                vec![item(
+                    serde_json::json!({"type": "additional_tools", "tools": []}),
+                )],
+                TurnKind::AssistantOnly,
+            ),
+        ] {
+            assert_eq!(turn_kind(&request(messages), "input"), expected);
+        }
+    }
+}
