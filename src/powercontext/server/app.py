@@ -5164,6 +5164,8 @@ async def get_artifact_processing_status(
     application: Annotated[ServerApplication, Depends(_require_application)],
     http_request: Request,
 ) -> ArtifactProcessingStatusResponse | JSONResponse:
+    from powercontext.builtin.runtime.atomic_memory import deferred_decision_audit
+
     _require_strict_query(http_request, {"family"})
     response.headers["Cache-Control"] = "no-store"
     if not isinstance(application, BuiltinRuntime):
@@ -5173,7 +5175,9 @@ async def get_artifact_processing_status(
             message="This application does not provide passive processing inspection.",
             headers={"Cache-Control": "no-store"},
         )
-    result = await ProcessingStatusApplication(application).for_scope(scope_id).status(family)
+    context = _atomic_execution_context(http_request, GET_ARTIFACT_PROCESSING_STATUS.operation_id)
+    async with deferred_decision_audit(context):
+        result = await ProcessingStatusApplication(application).for_scope(scope_id).status(family, context=context)
     return processing_status_response(result)
 
 

@@ -19,6 +19,7 @@ import httpx
 import pytest
 from sqlalchemy import event
 
+from powercontext.builtin.processing_status import ScopedProcessingStatusApplication
 from powercontext.builtin.runtime import CaptureSource
 from powercontext.builtin.runtime.artifact_processing import ArtifactProcessingSupervisors
 from powercontext.builtin.runtime.family_processing import FAMILY_BINDINGS
@@ -248,6 +249,86 @@ def test_http_and_dashboard_inspection_require_scope_read(tmp_path, backend):
                     assert response.status_code == expected, response.text
                     if expected == 403:
                         assert "source_cursor" not in response.text and "data-processing-snapshot" not in response.text
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("backend", ["builtin", "casbin"])
+@pytest.mark.parametrize("surface", ["http", "dashboard"])
+def test_inspection_rechecks_revoked_access_in_the_read_snapshot(tmp_path, monkeypatch, backend, surface):
+    async def scenario():
+        async with _server(tmp_path, backend) as (app, client, _access):
+            app.include_router(router, prefix="/dashboard")
+            scope = await _scope(client)
+            grant = await _grant(client, scope, "reader", "scope.viewer")
+            original = ScopedProcessingStatusApplication.status
+
+            async def revoke_before_read(self, family, **kwargs):
+                # Pause after HTTP admission but before the evidence transaction opens.
+                revoked = await client.post(
+                    "/v1/access/bindings/revoke",
+                    json={
+                        "binding_id": grant["binding_id"],
+                        "expected_version": grant["version"],
+                        "idempotency_key": "revoke-processing-reader",
+                    },
+                    headers={"Authorization": "Bearer admin"},
+                )
+                assert revoked.status_code == 200, revoked.text
+                captured = await client.post(
+                    f"/v1/scopes/{scope}/sources",
+                    json={"content": "Input accepted after access was revoked."},
+                    headers={"Authorization": "Bearer admin"},
+                )
+                assert captured.status_code == 201, captured.text
+                return await original(self, family, **kwargs)
+
+            monkeypatch.setattr(ScopedProcessingStatusApplication, "status", revoke_before_read)
+            path = (
+                f"/v1/scopes/{scope}/processing-status"
+                if surface == "http"
+                else "/dashboard/artifact-processing-status"
+            )
+            response = await client.get(
+                path,
+                params={"family": "atomic-memory", **({"scope": scope} if surface == "dashboard" else {})},
+                headers={"Authorization": "Bearer reader"},
+            )
+            assert response.status_code == 403, response.text
+            assert "source_head" not in response.text and "data-processing-snapshot" not in response.text
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("surface", ["http", "dashboard"])
+def test_inspection_returns_no_evidence_when_snapshot_audit_fails(tmp_path, monkeypatch, surface):
+    async def scenario():
+        async with _server(tmp_path) as (app, client, access):
+            app.include_router(router, prefix="/dashboard")
+            scope = await _scope(client)
+            await _grant(client, scope, "reader", "scope.viewer")
+            original = ScopedProcessingStatusApplication.status
+
+            async def unavailable(events):
+                raise RuntimeError
+
+            async def fail_audit_after_admission(self, family, **kwargs):
+                monkeypatch.setattr(access.audit, "append_audits", unavailable)
+                return await original(self, family, **kwargs)
+
+            monkeypatch.setattr(ScopedProcessingStatusApplication, "status", fail_audit_after_admission)
+            path = (
+                f"/v1/scopes/{scope}/processing-status"
+                if surface == "http"
+                else "/dashboard/artifact-processing-status"
+            )
+            response = await client.get(
+                path,
+                params={"family": "atomic-memory", **({"scope": scope} if surface == "dashboard" else {})},
+                headers={"Authorization": "Bearer reader"},
+            )
+            assert response.status_code == 503, response.text
+            assert "source_head" not in response.text and "data-processing-snapshot" not in response.text
 
     asyncio.run(scenario())
 
