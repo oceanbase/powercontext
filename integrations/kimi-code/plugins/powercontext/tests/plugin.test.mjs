@@ -26,6 +26,9 @@ import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
 
 const plugin = fileURLToPath(new URL('..', import.meta.url))
+const manifest = JSON.parse(await readFile(new URL('../kimi.plugin.json', import.meta.url), 'utf8'))
+// The parent stopwatch includes Node startup as well as the Hook's internal budget.
+const hookTimeoutMs = manifest.hooks.find(hook => hook.event === 'UserPromptSubmit').timeout * 1000
 const prompt = 'The deployment color is teal-731.'
 const { cases: privacyCases } = JSON.parse(await readFile(
   new URL('../../../../../tests/fixtures/automatic_prompt_privacy.json', import.meta.url), 'utf8',
@@ -51,8 +54,8 @@ test('automatic prompt privacy preserves preparation and original accepted event
       assert.equal(prepares.length, 1, result.stderr)
       assert.equal(state.captures.length, sample.sensitive || !capture ? 0 : 1)
       if (sample.sensitive) {
-        assert.doesNotMatch(JSON.stringify(state.requests.map(item => item.body)), /synthetic[-_]value[-_]2084/)
-        assert.doesNotMatch(JSON.stringify(result), /synthetic[-_]value[-_]2084/)
+        assert.doesNotMatch(JSON.stringify(state.requests.map(item => item.body)), /synthetic[-_]?value[-_]?2084/i)
+        assert.doesNotMatch(JSON.stringify(result), /synthetic[-_]?value[-_]?2084/i)
       } else {
         assert.equal(state.captures[0].content, sample.prompt)
         assert.equal(prepares[0].body.query, sample.prompt)
@@ -274,7 +277,7 @@ test('timeouts fail open within the automatic budget', async t => {
   const { output, stderr } = await f.invoke()
   assert.deepEqual(output, {})
   assert.match(stderr, /server_unavailable/)
-  assert.ok(Date.now() - started < 5000)
+  assert.ok(Date.now() - started < hookTimeoutMs)
 })
 
 test('context preparation taking longer than one second is still injected', { timeout: 10000 }, async t => {
@@ -298,7 +301,7 @@ test('a prepare request stops at its own limit and leaves budget for capture', {
   assert.doesNotMatch(output.message ?? '', /Historical context/)
   assert.match(stderr, /server_unavailable/)
   assert.equal(f.captures.length, 1)
-  assert.ok(elapsed >= 2900 && elapsed < 5000, `elapsed ${elapsed} ms`)
+  assert.ok(elapsed >= 2900 && elapsed < hookTimeoutMs, `elapsed ${elapsed} ms`)
 })
 
 test('a capture that never answers cannot withdraw context that was already prepared', { timeout: 10000 }, async t => {
@@ -319,7 +322,7 @@ test('a capture that never answers cannot withdraw context that was already prep
   const elapsed = Date.now() - started
   assert.ok(output.message?.endsWith(content), JSON.stringify(output))
   assert.match(stderr, /capture_source/)
-  assert.ok(elapsed < 4500, `elapsed ${elapsed} ms`)
+  assert.ok(elapsed < hookTimeoutMs, `elapsed ${elapsed} ms`)
   const status = await f.status()
   assert.equal(status.stages.prepare.state, 'ready')
   assert.equal(status.stages.capture.state, 'unknown')

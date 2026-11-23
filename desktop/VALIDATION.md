@@ -3525,6 +3525,20 @@ These results qualify the observed local SQLite protocol, not installed WebView
 behavior, native credential persistence, other platforms, external providers,
 native database upgrades or the formal release acceptance matrix.
 
+## Server 3dd72d45 OAuth protocol qualification
+
+`sqlite-oauth-3dd72d45-v1` qualifies the thirteen bundled Desktop protocol operations against Server source `3dd72d45f3e9e54743e9826615531c0e0262d51b`. The exact tested wheel is `powercontext-1.5.2.dev0-py3-none-any.whl`; all 822 packaged runtime files match a Git archive of that commit. Historical qualifications retain their original source and artifact identities.
+
+- OpenAPI SHA-256: `c13b97964d250d91a60cbba7e1683e62a9ca7d847fafe8d5bd5a3df0a915f772`.
+- Wheel SHA-256: `ee42ec54dc7ceb6821a0069a907cca956b8da2bac1bb440cef670e7a265e6c79`.
+- Native debug probe SHA-256: `32dad6cd6413b6b0591ecdf3b4fd64d0be2888ae130159ee57b627d18d25ea29`.
+
+On 2026-11-17, the unchanged `desktop/tests/real_server.py` passed anonymous loopback, static Bearer, HTTPS with an explicit CA/base path, and injected-provider/enforced-access modes on Linux 5.10 x86_64, glibc 2.32 and Python 3.14.6. The ordinary ConnectionManager selected the bundled product record. Checks cover save, search, exact revision reads, lost write responses without replay, Server survival after client exit, Principal changes and revocation, 51 same-title Scopes, and scoped authorization without observation permission. Model usage is controlled fixture input.
+
+The host lacks WebKitGTK 4.1. Rust 1.97.1 compiled an isolated protocol-only crate from unchanged product connections, credentials, error, Ops bridge, session observations and transport modules, plus the unchanged `server_probe.rs`. Every registry dependency version and checksum matches the product Cargo lock. The crate omits Tauri/WebView and uses keyring without platform features; no `ci-fixtures` are enabled. These results qualify the local SQLite protocol, not the installed GUI, native credential persistence, other platforms or external providers.
+
+The wheel, probe crate and four-mode report are retained locally under `/tmp/pc-oauth-nov17-repro/`; the report is `desktop-real-server.json`. The report records a dirty Desktop working tree because this new qualification was not committed during the run.
+
 
 ## Server 0d56ec37 plugin reload protocol qualification
 
@@ -3587,6 +3601,18 @@ uv run --no-sync python desktop/tests/real_server.py \
   --wheel desktop/.artifacts/source-plugins/powercontext-1.5.2.dev248+g9f113a729-py3-none-any.whl
 ```
 
+## Server 6832af4e merged OAuth protocol qualification
+
+`sqlite-oauth-6832af4e-v1` qualifies all thirteen bundled Desktop operations against Server source `6832af4e2ecc253566559c8b0d30ab9c1162dbe1`, which combines the OAuth response evidence contract with the plugin and Source API changes from master. All 813 packaged runtime files match a Git archive of that commit.
+
+- OpenAPI SHA-256: `463d5307d44c5d1ab7655f9379a207a768ac453fd75e51fff92527f292cf87ad`.
+- Wheel: `powercontext-1.5.2.dev0-py3-none-any.whl`.
+- Wheel SHA-256: `49d9e2fc932fd1b0c2ab6632e17259d6833983f4fbaa2dba6519e23646352ea5`.
+- Native debug probe SHA-256: `c064a25d2d05ffe88523ef3cd1f87297e5a48260e2d6a7bba9a6c3717ec34f42`.
+
+On 2026-11-18, the unchanged `desktop/tests/real_server.py` passed anonymous loopback, static Bearer, HTTPS with an explicit CA/base path, and injected-provider/enforced-access modes on Linux 5.10 x86_64, glibc 2.32 and Python 3.14.6. The product ConnectionManager selected the bundled qualification and both contract digests matched. The harness checks save, search, exact revision reads, lost write responses without replay, Server survival, Principal changes and revocation, Scope pagination, and scoped authorization. Model usage is fixture input.
+
+The native probe used Rust 1.97.1 and the unchanged product adapter modules in an isolated Cargo crate. Registry dependency pins match the product Cargo lock. The crate omits Tauri/WebView and platform keyring features and enables no `ci-fixtures`. This evidence covers the local SQLite protocol. The wheel and report are retained locally in `/tmp/pc-oauth-nov18-sync/`.
 
 ## Server bc22089e plugin Scope listing protocol qualification
 
@@ -3617,6 +3643,19 @@ uv run --no-sync python desktop/tests/real_server.py \
   --product-qualification sqlite-plugin-scope-listing-bc22089e-v1 \
   --wheel desktop/.artifacts/plugin-scope-listing/powercontext-1.5.2.dev238+gbc22089e9-py3-none-any.whl
 ```
+
+## Server 2cf3f1f8 merged OAuth protocol qualification
+
+`sqlite-oauth-2cf3f1f8-v1` qualifies all thirteen bundled Desktop operations against Server source `2cf3f1f890790f7019ab5695fd411ae986c830f6`, which combines the OAuth response evidence contract with the plugin Scope listing contract from master. All 813 packaged runtime files match a Git archive of that commit.
+
+- OpenAPI SHA-256: `02899c1bf22b602b9b8af3206546091e4b57f6196b3e42dc72f1e8c6585caa71`.
+- Wheel: `powercontext-1.5.2.dev0-py3-none-any.whl`.
+- Wheel SHA-256: `5ef4ab60946e58bef90144ad64e98c048a52170a715f438b476578d8461d3614`.
+- Native debug probe SHA-256: `8883e55291f631ae836f8fcf0522efa0827b8033f8d29016d3abe9b6ecea6820`.
+
+On 2026-11-18, the unchanged `desktop/tests/real_server.py` passed anonymous loopback, static Bearer, HTTPS with an explicit CA/base path, and injected-provider/enforced-access modes on Linux 5.10 x86_64, glibc 2.32 and Python 3.14.6. The product ConnectionManager selected the bundled qualification and both contract digests matched. The harness checks save, search, exact revision reads, lost write responses without replay, Server survival, Principal changes and revocation, Scope pagination, and scoped authorization. Model usage is fixture input.
+
+The native probe used Rust 1.97.1 and the unchanged product adapter modules in an isolated Cargo crate. Registry dependency pins match the product Cargo lock. The crate omits Tauri/WebView and platform keyring features and enables no `ci-fixtures`. This evidence covers the local SQLite protocol. The wheel and report are retained locally in `/tmp/pc-oauth-nov18-scope-sync/`.
 
 ## Server 1dd494f4 gateway Source limit protocol qualification
 
@@ -3885,3 +3924,60 @@ uv run --no-sync python desktop/tests/real_server.py \
   --product-qualification sqlite-dashboard-processing-4d64c4f9-v1 \
   --wheel desktop/.artifacts/dashboard-processing/qualification/server-wheel/powercontext-1.5.3.dev64+g4d64c4f95-py3-none-any.whl
 ```
+
+## Merged dashboard processing status protocol qualification
+
+`sqlite-dashboard-processing-merged-2cfd63f3-v1` qualifies all thirteen Desktop protocol operations against
+Server source `2cfd63f392d74815a849cea996921eb41466355c`, which includes the passive Dashboard processing
+status endpoint and the batch Source capture API. Desktop's reachable Rust wire schemas match the
+contract on master `b64ee80b6ceca93b4dc832211ce3a615518e6688`.
+
+- Normalized OpenAPI SHA-256: `ef804e5a12d3dc4e05b227a699bf8719fcfbb15a8d3034d2343ba3d20c5674ca`.
+- Wheel: `powercontext-1.5.3.dev96+g2cfd63f39-py3-none-any.whl`.
+- Wheel SHA-256: `5e84f203615f9a033a25a514a0af764f52d689968682a882c48e5d8aa1b8ae80`.
+- Native debug probe SHA-256: `207bdab64b0967e703d1666e5e216ee0d71447af6922f40c5f67df83005633c0`.
+
+On 2026-11-19, macOS 15.8.2 arm64, Rust 1.95.0 and managed Python 3.12.13 passed anonymous loopback,
+static Bearer, HTTPS with explicit CA/base path, and enforced Provider modes of
+`desktop/tests/real_server.py`. The native probe used the ordinary product `ConnectionManager`, the
+product Cargo lock and this bundled qualification, without `ci-fixtures`. Client and Server contract
+digests match. Debug information was disabled with `CARGO_PROFILE_DEV_DEBUG=0`.
+
+[The qualification run](https://github.com/oceanbase/powercontext/actions/runs/44536083251) retains the
+wheel, profile, probe digest and four-mode report in `desktop-protocol-qualification-2725`. Its
+verification checkout is `4699522746e9e6b52ee6a6870301069d701968f7`; Server and Desktop source files match
+the implementation commit above. The report records a dirty Desktop worktree because this exact
+compatibility entry was added before compiling the product probe. The temporary verification workflow
+is not part of the feature change.
+
+The same run passes full OpenAPI generation verification, Rust formatting, clippy with denied warnings,
+Rust tests including `bundled_product_qualification_covers_every_desktop_operation`, IPC generation,
+frontend lint/type checks/tests/build, `make contract-test`, and Dashboard/Client/inspector regressions.
+These results qualify the observed local SQLite protocol, not installed WebView behavior, signed
+distributions, other platforms, native database upgrades or release acceptance.
+
+Reproduce using the retained wheel (the archive contains a `qualification/` subdirectory):
+
+```sh
+gh run download 44536083251 --repo oceanbase/powercontext \
+  --name desktop-protocol-qualification-2725 --dir desktop/.artifacts/dashboard-processing-merged
+uv sync --locked --python 3.12.13 --managed-python
+RUSTUP_TOOLCHAIN=1.95.0 CARGO_PROFILE_DEV_DEBUG=0 \
+  cargo build --locked --manifest-path desktop/src-tauri/Cargo.toml --example server_probe
+uv run --no-sync python desktop/tests/real_server.py \
+  --product-qualification sqlite-dashboard-processing-merged-2cfd63f3-v1 \
+  --wheel desktop/.artifacts/dashboard-processing-merged/qualification/server-wheel/powercontext-1.5.3.dev96+g2cfd63f39-py3-none-any.whl
+```
+
+## Server 10d47577 OAuth and batch capture protocol qualification
+
+`sqlite-oauth-10d47577-v1` qualifies all thirteen Desktop operations against Server source `10d47577800a205a52f7e4e2b1934444d11b3512`, which combines the OAuth response evidence and batch Source capture contracts. All 812 packaged runtime files match a Git archive of the Server commit.
+
+- Normalized OpenAPI SHA-256: `130bb849d1a4bd8fc4c1854d2bc3f5472da2f5dc37d399a88e87b187cb10aaf3`.
+- Wheel: `powercontext-1.5.2.dev0-py3-none-any.whl`.
+- Wheel SHA-256: `c7526b30851fd9b95128668faf3bf73299634ad5ce9b220fc4cbb05a96fef6bb`.
+- Native debug probe SHA-256: `5ac1b63acc9aa01870af0bfce9a7f7cc2e94964ccc1c9cc98c9d5255ff6fe9b9`.
+
+On 2026-11-19, `desktop/tests/real_server.py` passed anonymous loopback, static Bearer, HTTPS with an explicit CA and base path, and injected-provider authentication with enforced access. The product ConnectionManager selected the bundled qualification and reported matching client and Server contract digests. The checks used SQLite on Linux 5.10 x86_64, glibc 2.32 and Python 3.14.6.
+
+The native probe used Rust 1.97.1 and the product adapter modules in an isolated Cargo crate, with registry dependency pins matching the product Cargo lock. This qualification covers the local SQLite protocol. Installed WebView and platform keyring behavior require separate checks.

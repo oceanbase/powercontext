@@ -34,6 +34,9 @@ from powercontext.builtin.runtime.composition import open_builtin_contexts
 from powercontext.builtin.runtime.family_processing import process_family_invocation
 from powercontext.builtin.scope import ScopeDraft
 
+# Observe cold child imports, execution, and natural exit separately from fault deadlines.
+_WORKER_LIFECYCLE_TIMEOUT_SECONDS = 60
+
 
 def test_profile_cron_defaults_and_validation():
     config = RuntimeConfig()
@@ -93,7 +96,7 @@ def test_startup_scan_catches_up_profile_evidence(tmp_path):
             from powercontext.builtin.runtime.relational import RelationalContexts
 
             assert isinstance(runtime._provider, RelationalContexts)
-            async with asyncio.timeout(30):
+            async with asyncio.timeout(_WORKER_LIFECYCLE_TIMEOUT_SECONDS):
                 while True:
                     async with runtime._provider.database.transaction() as connection:
                         intent = await ArtifactProcessingIntentRepository().load(

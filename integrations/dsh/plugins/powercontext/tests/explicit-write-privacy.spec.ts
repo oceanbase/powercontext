@@ -55,6 +55,7 @@ function expectNoSyntheticSecret(value: unknown): void {
   const serialized = JSON.stringify(value)
   expect(serialized).not.toContain('synthetic-value-2084')
   expect(serialized).not.toContain('synthetic_value_2084')
+  expect(serialized).not.toContain('SyntheticValue2084')
 }
 
 const policyCases = [

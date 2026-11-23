@@ -65,8 +65,8 @@ Memory / Atomic Memory and Topic Memory are tracked at operation granularity whi
 
 | Operation | Stage | Status | Notes |
 |---|---|---|---|
-| `atomic-memory.extract` | Generation | Partial | Provider timeout, unavailability, rate limit, and configuration are classified; a provider finish reason is only visible where the adapter exposes it. |
-| `atomic-memory.extract` | Output parsing | Partial | Schema and Pydantic output failures are classified; some provider truncation paths surface as schema failures. |
+| `atomic-memory.extract` | Generation | Partial | Provider timeout, unavailability, rate limit, and configuration are classified; the final provider finish reason is retained when the adapter exposes a supported value. |
+| `atomic-memory.extract` | Output parsing | Partial | Schema rejections retain the final response metadata when available. Explicit provider length evidence identifies truncation. |
 | `atomic-memory.extract` | Business validation | Covered | Candidate content and cited-evidence rules carry `business_validation` / `invalid_output`. |
 | `atomic-memory.reconcile` | Generation | Partial | Same provider mapping as extraction. |
 | `atomic-memory.reconcile` | Output parsing | Partial | Same schema mapping as extraction. |
@@ -79,7 +79,7 @@ Topic Memory operation-level coverage:
 
 | Operation | Stage | Status | Notes |
 |---|---|---|---|
-| `topic-memory` stages (`probe`, `global`, `planner`, `evolve`, `temporary`, `reconcile`) | Generation | Partial | Provider timeout, unavailability, rate limit, and configuration are classified; a provider finish reason is only visible where the adapter exposes it. |
+| `topic-memory` stages (`probe`, `global`, `planner`, `evolve`, `temporary`, `reconcile`) | Generation | Partial | Provider timeout, unavailability, rate limit, and configuration are classified; the final provider finish reason is retained when the adapter exposes a supported value. |
 | `topic-memory` stages | Output parsing | Partial | Provider schema failures use the shared mapping; semantic rejections are business validation. |
 | `topic-memory` stages | Business validation | Covered | Every `TopicMemoryGenerationError` code maps to bounded diagnostics: domain and model rejections carry a stage and, when evidence supports it, a reason; control-flow rejections carry only `failure_location`. Input-budget failures carry input counts, token estimates, estimator identity, and the effective budget; the window token ceiling carries the charged tokens and the ceiling, while attempt and request ceilings are reported through their block details. |
 | `topic-memory.index` and query embedding | Embedding | Covered | A missing embedding adapter and a wrong vector count are classified. |
@@ -131,6 +131,26 @@ Its attempt log reports `generation` / `usage_limit` with `failure_location=budg
 and logs `timeout` without inferring a stage.
 Provider `InferenceTimeoutError` keeps its operation-specific stage and `timeout` reason and remains
 retryable within the existing Run budget.
+
+## Provider response evidence
+
+For structured generation, an error at the end of the Agent's output parsing uses metadata from
+the final provider response. A supported length finish reason yields `generation / output_truncated`;
+a response with no such evidence retains its original classification. Starting another provider
+request clears the previous response evidence. This preserves the configured retry and continuation
+policy and the precedence of business validation, usage limits, and provider errors. A stream that
+ends without a terminal signal remains a failure with an unknown reason.
+
+Only recognized finish values and bounded, identifier-shaped provider response IDs enter
+diagnostics. Context overflow requires a typed provider error, a recognized context-limit code,
+or a specific provider message about input context. An output-token setting rejection does not
+establish input context overflow.
+
+The built-in Worker and Supervisor carry the same safe evidence for one invocation. The Supervisor
+limits repeated `artifact_processing.failed` logs to 16 per rolling second per controlled error
+code and reason in its process. Dream attempt logs use the same limit per family, operation, code,
+and reason. Limiting these logs does not suppress cancellation or change processing state, attempt
+counts, or retry behavior.
 
 ## Model usage accounting
 

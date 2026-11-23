@@ -159,6 +159,8 @@ def assemble_code(
     candidates: Sequence[PreparedCodeCandidate],
     total_entries: int,
     history: Callable[[PrepareContextRequest, int], PreparedContextBuild],
+    *,
+    diagnostics: bool = False,
 ) -> PreparedContextBuild:
     """Reserve code's bounded share and return unused bytes/entries to history."""
     has_history = request.assembly is None or bool(request.assembly.sections)
@@ -182,14 +184,14 @@ def assemble_code(
                 historical,
                 omitted=historical.omitted + tuple((kind, reason, total) for (kind, reason), total in omitted.items()),
             )
-            if request.include_receipt
+            if request.include_receipt or diagnostics
             else historical
         )
     code = _render(selected)
     remainder = request.max_bytes - len(code.encode()) - 2
     historical = history(request.model_copy(update={"max_bytes": max(0, remainder)}), total_entries - len(selected))
     content = (historical.context.content + "\n\n" if historical.context.content else "") + code
-    if request.include_receipt:
+    if request.include_receipt or diagnostics:
         from powercontext.builtin.runtime.prepared_context import PreparedContextFragment
 
         fragments = historical.fragments + tuple(

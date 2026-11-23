@@ -25,6 +25,8 @@ from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
 
 from powercontext_lifecycle.client_config import load_client_settings, parse_boolean, resolve_allow_insecure_http
+from powercontext_lifecycle.scope_binding import ScopeBindingSettings
+from powercontext_lifecycle.user_prompt_submit import PromptSettings
 
 # Kept in lockstep with powercontext.transport.LOOPBACK_HOSTS; the plugin ships
 # isolated and cannot import powercontext.
@@ -174,6 +176,29 @@ class ClaudeCodePluginSettings:
                 "POWERCONTEXT_CLAUDE_FLUSH_MAX_CALLS",
                 default=4,
             ),
+        )
+
+    def scope_binding_settings(self) -> ScopeBindingSettings:
+        """Return the values that the Scope client uses."""
+
+        return ScopeBindingSettings(
+            server_url=self.server_url,
+            authorization=self.authorization,
+            scope_id=self.scope_id,
+            request_timeout_seconds=self.request_timeout_seconds,
+        )
+
+    def prompt_settings(self) -> PromptSettings:
+        """Return the values that the prompt flow uses."""
+
+        return PromptSettings(
+            scope_binding=self.scope_binding_settings(),
+            include_code=self.include_code,
+            context_assembly=self.context_assembly,
+            prompt_recall=True,
+            capture_prompts=self.capture_prompts,
+            flush_on_capture=self.flush_on_capture,
+            flush_max_calls=self.flush_max_calls,
         )
 
 

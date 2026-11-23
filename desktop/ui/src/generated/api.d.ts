@@ -4679,6 +4679,11 @@ export interface components {
             /** @description Complete raw UTF-8 JSON text. Duplicate keys and non-finite numbers are unsupported. */
             body: string;
         };
+        UpstreamResponsePayload: {
+            content_type: string;
+            /** @description Complete raw UTF-8 provider JSON or Responses SSE before conversion. */
+            body: string;
+        };
         ModelJsonTextLocation: {
             /** @enum {string} */
             schema: "powercontext.model-json-text-location.v1";
@@ -4711,6 +4716,8 @@ export interface components {
             target_profile: string;
             request_binding: string;
             payload: components["schemas"]["ModelJsonPayload"];
+            /** @description Optional pre-conversion response evidence. Core inspects it in addition to the final payload; both bodies share the response byte limit. */
+            upstream_payload?: components["schemas"]["UpstreamResponsePayload"];
             /** @enum {string} */
             completion: "complete";
         };
@@ -4745,7 +4752,7 @@ export interface components {
              * @description Protocol of the Core-configured endpoint; present under the same condition as target_endpoint.
              * @enum {string}
              */
-            target_protocol?: "openai-chat" | "openai-responses" | "anthropic-messages" | "openai-embeddings" | "minimax-embeddings" | "jev-rerank";
+            target_protocol?: "openai-chat" | "openai-responses" | "anthropic-messages" | "openai-embeddings" | "minimax-embeddings" | "jev-rerank" | "google-codeassist" | "google-codeassist-chat" | "claude-cli-prompt";
         };
         ContextProtectionCapabilities: {
             check_versions: string[];

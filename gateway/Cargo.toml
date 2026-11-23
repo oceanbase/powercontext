@@ -16,6 +16,7 @@
 resolver = "2"
 members = [
     "crates/pc-gateway-app",
+    "crates/pc-gateway-auth",
     "crates/pc-gateway-core",
     "crates/pc-gateway-types",
     "crates/pc-gateway-protocol",
@@ -32,6 +33,7 @@ repository = "https://github.com/oceanbase/powercontext"
 
 [workspace.dependencies]
 pc-gateway-core = { path = "crates/pc-gateway-core" }
+pc-gateway-auth = { path = "crates/pc-gateway-auth" }
 pc-gateway-types = { path = "crates/pc-gateway-types" }
 pc-gateway-protocol = { path = "crates/pc-gateway-protocol" }
 pc-gateway-transport = { path = "crates/pc-gateway-transport" }
@@ -53,6 +55,11 @@ hyper-util = { version = "0.1", features = ["client", "client-legacy", "tokio", 
 http-body = "1"
 http-body-util = "0.1"
 futures-core = "0.3"
+oauth2 = { version = "5", default-features = false, features = ["reqwest", "rustls-tls"] }
+chrono = { version = "0.4", default-features = false, features = ["std"] }
+fs2 = "0.4"
+tempfile = "3"
+uuid = { version = "1", features = ["v4"] }
 
 [profile.release]
 lto = "thin"

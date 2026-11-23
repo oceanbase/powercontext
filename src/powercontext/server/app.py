@@ -1120,6 +1120,7 @@ class _ScopedContextApplication(Protocol):
         authorize_scopes: Callable[[tuple[str, ...]], Awaitable[None]] | None = None,
         atomic_context=None,
         binding_identity: str = "local",
+        diagnostic_sink: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
     ) -> RuntimePrepareContextResult: ...
 
     async def check(
@@ -4620,6 +4621,11 @@ async def prepare_context(
     )
     scoped = application.context.for_scope(request.scope_id)
     reuse_arguments = {"binding_identity": _context_binding_identity()} if request.include_reuse else {}
+    from powercontext.server.context_diagnostics import diagnostic_sink
+
+    sink = diagnostic_sink(application)
+    if sink is not None:
+        reuse_arguments["diagnostic_sink"] = sink
     access = access_control_for_mode(
         http_request.app.state.access_control,
         mode=http_request.app.state.access_mode,
@@ -5158,6 +5164,8 @@ async def get_artifact_processing_status(
     application: Annotated[ServerApplication, Depends(_require_application)],
     http_request: Request,
 ) -> ArtifactProcessingStatusResponse | JSONResponse:
+    from powercontext.builtin.runtime.atomic_memory import deferred_decision_audit
+
     _require_strict_query(http_request, {"family"})
     response.headers["Cache-Control"] = "no-store"
     if not isinstance(application, BuiltinRuntime):
@@ -5167,7 +5175,9 @@ async def get_artifact_processing_status(
             message="This application does not provide passive processing inspection.",
             headers={"Cache-Control": "no-store"},
         )
-    result = await ProcessingStatusApplication(application).for_scope(scope_id).status(family)
+    context = _atomic_execution_context(http_request, GET_ARTIFACT_PROCESSING_STATUS.operation_id)
+    async with deferred_decision_audit(context):
+        result = await ProcessingStatusApplication(application).for_scope(scope_id).status(family, context=context)
     return processing_status_response(result)
 
 

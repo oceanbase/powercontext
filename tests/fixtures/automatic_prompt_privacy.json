@@ -22,6 +22,46 @@
       "sensitive": false
     },
     {
+      "id": "token-count-settings",
+      "prompt": "Run with --max-tokens=1024, then set max_tokens=1024 and num_tokens: 5.",
+      "sensitive": false
+    },
+    {
+      "id": "marker-first-settings",
+      "prompt": "Keep password_min_length=8 and token_ttl=3600 in the config.",
+      "sensitive": false
+    },
+    {
+      "id": "boolean-settings",
+      "prompt": "Call reset(reset_password=True) and set require_password: false.",
+      "sensitive": false
+    },
+    {
+      "id": "boolean-header-settings",
+      "prompt": "Call get(url, use_cookie=True) and set:\nskip-authorization: false\nforward-cookie: ${SESSION_COOKIE}",
+      "sensitive": false
+    },
+    {
+      "id": "inline-header-settings",
+      "prompt": "In values.yaml, set `skip-authorization: false`.\nOr pass {\"forward-cookie\": false}\nThen set skip-authorization: true.",
+      "sensitive": false
+    },
+    {
+      "id": "tokenizer-special-tokens",
+      "prompt": "Set tokenizer.pad_token = tokenizer.eos_token and bos_token: \"<s>\" before training.",
+      "sensitive": false
+    },
+    {
+      "id": "placeholder-settings",
+      "prompt": "env:\n  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}\n  POSTGRES_PASSWORD: \"${POSTGRES_PASSWORD}\"\n  API_KEY: ${API_KEY}",
+      "sensitive": false
+    },
+    {
+      "id": "empty-environment-template",
+      "prompt": "Copy this .env template:\nOPENAI_API_KEY=\r\nDATABASE_PASSWORD=\nGITHUB_TOKEN=　\nThen fill in your own values.",
+      "sensitive": false
+    },
+    {
       "id": "assignment",
       "prompt": "Configure api_key=synthetic-value-2084 for this test.",
       "sensitive": true
@@ -115,6 +155,181 @@
     {
       "id": "conservative-placeholder",
       "prompt": "Example password=synthetic-value-2084 is deliberately skipped.",
+      "sensitive": true
+    },
+    {
+      "id": "environment-api-key",
+      "prompt": "export OPENAI_API_KEY=synthetic-value-2084",
+      "sensitive": true
+    },
+    {
+      "id": "environment-secret-access-key",
+      "prompt": "AWS_SECRET_ACCESS_KEY=synthetic_value_2084 aws s3 ls",
+      "sensitive": true
+    },
+    {
+      "id": "environment-access-key-id",
+      "prompt": "AWS_ACCESS_KEY_ID=synthetic_value_2084 aws s3 ls",
+      "sensitive": true
+    },
+    {
+      "id": "environment-password",
+      "prompt": "Set DATABASE_PASSWORD=synthetic-value-2084 before starting.",
+      "sensitive": true
+    },
+    {
+      "id": "environment-token",
+      "prompt": "GITHUB_TOKEN=synthetic-value-2084 gh pr list",
+      "sensitive": true
+    },
+    {
+      "id": "separated-prefix",
+      "prompt": "Use db-password=synthetic-value-2084 and db_password=synthetic_value_2084.",
+      "sensitive": true
+    },
+    {
+      "id": "option-prefix",
+      "prompt": "Run psql --password=synthetic-value-2084 now.",
+      "sensitive": true
+    },
+    {
+      "id": "camel-case-prefix",
+      "prompt": "Pass { dbPassword: 'synthetic-value-2084' } to the client.",
+      "sensitive": true
+    },
+    {
+      "id": "boolean-shaped-value",
+      "prompt": "Use DB_PASSWORD=none-synthetic-value-2084 here.",
+      "sensitive": true
+    },
+    {
+      "id": "placeholder-default",
+      "prompt": "POSTGRES_PASSWORD: ${DB_PASSWORD:-synthetic-value-2084}",
+      "sensitive": true
+    },
+    {
+      "id": "dollar-value",
+      "prompt": "Use DB_PASSWORD=$synthetic_value_2084 in the shell.",
+      "sensitive": true
+    },
+    {
+      "id": "yaml-continuation-value",
+      "prompt": "database:\n  password:\n    synthetic-value-2084",
+      "sensitive": true
+    },
+    {
+      "id": "full-width-space-value",
+      "prompt": "password=　synthetic-value-2084, api_key: synthetic_value_2084, secret　=　synthetic-value-2084, and token:\n　　synthetic-value-2084",
+      "sensitive": true
+    },
+    {
+      "id": "bearer-full-width-space",
+      "prompt": "Retry with Bearer　synthetic-value-2084 if the call fails.",
+      "sensitive": true
+    },
+    {
+      "id": "bearer-nbsp",
+      "prompt": "Retry with Bearer synthetic-value-2084 if the call fails.",
+      "sensitive": true
+    },
+    {
+      "id": "scheme-full-width-space-assignment",
+      "prompt": "token: Bearer　synthetic-value-2084",
+      "sensitive": true
+    },
+    {
+      "id": "scheme-nbsp-assignment",
+      "prompt": "api_token: Basic synthetic-value-2084",
+      "sensitive": true
+    },
+    {
+      "id": "sentence-final-setting-nbsp",
+      "prompt": "Set require_password: false. Then restart the service.",
+      "sensitive": false
+    },
+    {
+      "id": "markdown-bold-key",
+      "prompt": "- **OPENAI_API_KEY**: synthetic-value-2084",
+      "sensitive": true
+    },
+    {
+      "id": "markdown-bold-separator",
+      "prompt": "**Password:** synthetic-value-2084",
+      "sensitive": true
+    },
+    {
+      "id": "markdown-code-key",
+      "prompt": "`DB_PASSWORD`: synthetic-value-2084 and *api_key*: synthetic_value_2084",
+      "sensitive": true
+    },
+    {
+      "id": "api-key-header",
+      "prompt": "X-Api-Key: synthetic-value-2084",
+      "sensitive": true
+    },
+    {
+      "id": "scheme-token-header",
+      "prompt": "X-Auth-Token: Bearer synthetic-value-2084",
+      "sensitive": true
+    },
+    {
+      "id": "basic-scheme-assignment",
+      "prompt": "api_token: Basic synthetic-value-2084",
+      "sensitive": true
+    },
+    {
+      "id": "prefixed-authorization-header",
+      "prompt": "X-Forwarded-Authorization: Digest username=\"demo\", response=\"synthetic-value-2084\"",
+      "sensitive": true
+    },
+    {
+      "id": "environment-cookie-header",
+      "prompt": "HTTP_COOKIE: theme=light; session=synthetic-value-2084",
+      "sensitive": true
+    },
+    {
+      "id": "setting-shaped-header-value",
+      "prompt": "Cookie: on; session=synthetic-value-2084\nCookie: '${THEME}'; session=synthetic_value_2084",
+      "sensitive": true
+    },
+    {
+      "id": "placeholder-header-trailing-cookie",
+      "prompt": "Cookie: ${THEME} ; session=synthetic-value-2084",
+      "sensitive": true
+    },
+    {
+      "id": "placeholder-header-folded-cookie",
+      "prompt": "Cookie: ${THEME}\n session=synthetic-value-2084",
+      "sensitive": true
+    },
+    {
+      "id": "placeholder-set-cookie-trailing-value",
+      "prompt": "Set-Cookie: ${A} sid=synthetic-value-2084",
+      "sensitive": true
+    },
+    {
+      "id": "setting-header-continued-value",
+      "prompt": "Cookie: on,\n  sid=synthetic_value_2084\nAuthorization: ${SCHEME} synthetic-value-2084",
+      "sensitive": true
+    },
+    {
+      "id": "setting-header-trailing-content",
+      "prompt": "Use `Cookie: ${SESSION}` with session=synthetic-value-2084\n{\"Cookie\": \"${A}\", \"session\": \"synthetic_value_2084\"}\nheaders:\n  forward-cookie: false\n    sid=SyntheticValue2084",
+      "sensitive": true
+    },
+    {
+      "id": "header-inside-assignment",
+      "prompt": "my_secret=Cookie: theme=light; session=synthetic-value-2084",
+      "sensitive": true
+    },
+    {
+      "id": "stripe-assignment",
+      "prompt": "STRIPE_SECRET_KEY=sk_live_synthetic_value_2084",
+      "sensitive": true
+    },
+    {
+      "id": "stripe-token",
+      "prompt": "Charge with sk_live_SyntheticValue2084 or rk_test_SyntheticValue2084 today.",
       "sensitive": true
     }
   ]
