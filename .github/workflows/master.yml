@@ -1387,7 +1387,7 @@ jobs:
         with:
           shared-cache: 'true'
 
-      - uses: jdx/mise-action@8418fedb1110381a0d3ba51a7a415d7c1b884550 # v5.2.2
+      - uses: jdx/mise-action@90f833d396d0cc3674b631d2d225e306476c303a # v5.2.10
       - name: Install the pinned Claude Code host
         # The main package's install script only links this platform binary over a stub; install the binary package
         # directly, without running scripts.
@@ -1588,7 +1588,7 @@ jobs:
           persist-credentials: false
 
       - name: Set up website tools
-        uses: jdx/mise-action@d5574b52816a478f9d4e6529a3f6ff17a8a36785 # v5.2.8
+        uses: jdx/mise-action@90f833d396d0cc3674b631d2d225e306476c303a # v5.2.10
 
       - name: Cache website dependencies
         uses: ./.github/actions/cache-pnpm
