@@ -32,7 +32,6 @@ import json, os, sys, time
 from urllib.request import Request, build_opener, HTTPRedirectHandler
 sys.path.insert(0, sys.argv[1])
 from claude_code_settings import ClaudeCodePluginSettings
-from scripts.workspace_scope import resolve_scope_id
 class NoRedirect(HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl): return None
 settings = ClaudeCodePluginSettings.from_environment()
@@ -99,7 +98,14 @@ finally:
             req = Request(endpoint + '/mcp/', headers=headers, method='DELETE')
             with build_opener(NoRedirect()).open(req, timeout=3): pass
         except Exception: pass
-scope = resolve_scope_id(sys.argv[2], session_id=None, settings=settings, deadline=time.monotonic()+settings.http_budget_seconds)
+deadline = time.monotonic() + settings.http_budget_seconds
+if hasattr(settings, 'scope_binding_settings'):
+    from claude_code_host import CLAUDE_CODE
+    from powercontext_lifecycle.scope_binding import resolve_scope_id
+    scope = resolve_scope_id(CLAUDE_CODE, sys.argv[2], session_id=None, settings=settings.scope_binding_settings(), deadline=deadline)
+else:
+    from scripts.workspace_scope import resolve_scope_id
+    scope = resolve_scope_id(sys.argv[2], session_id=None, settings=settings, deadline=deadline)
 print(json.dumps({'serverIdentity': a['server_id'], 'scopeId': scope}, separators=(',', ':')))
 `
 
