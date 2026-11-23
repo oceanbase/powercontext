@@ -1,0 +1,29 @@
+desktop/ui/tests/processing-status-contract.ts
+  s_624ad8983708a5::t_7f495df5c4bc09 1-33
+integrations/codex/plugins/powercontext/hooks/bind_tools.py
+  s_624ad8983708a5::t_d42b69ef4c9da6 89
+openapi/powercontext.yaml
+  s_624ad8983708a5::t_8a9906f17019b7 8991-8993,9002-9004,9077-9079,9081-9083,9085-9087,9093-9095
+scripts/generate_api.py
+  s_624ad8983708a5::t_7d0a53b1c0e16a 166,204-221
+src/powercontext/http/_generated/schema.py
+  s_624ad8983708a5::t_3206db58e7500d 9908-9913,9916-9921,9961-9978,9980-9985
+tests/codex_plugin/test_scope_binding.py
+  s_624ad8983708a5::t_6feae1148111b1 84,88,101
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "88bddd5eec028c11f608a5b67a279863df63ca9f",
+  "prompts": {},
+  "sessions": {
+    "s_624ad8983708a5": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1ab57-e572-7090-b0f7-d55ee829f4b0",
+        "model": "gpt-6.2-astra"
+      },
+      "human_author": "Frey <370805886@qq.com>"
+    }
+  }
+}
