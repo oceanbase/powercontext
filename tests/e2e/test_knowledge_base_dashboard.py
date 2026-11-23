@@ -418,7 +418,8 @@ def test_dashboard_html_table_hit_has_visible_cell_text_without_embedding_html(t
     asyncio.run(scenario())
 
 
-def test_dashboard_retries_only_uncertain_upload_with_original_key_and_bytes(tmp_path):
+@pytest.mark.parametrize("cancel_loading_exit", [False, True], ids=["normal", "cancel-loading-exit"])
+def test_dashboard_retries_only_uncertain_upload_with_original_key_and_bytes(tmp_path, cancel_loading_exit):
     async def scenario():
         async with dashboard(tmp_path) as (call, page, frame, origin, expect):
             space = (await call("GET", "/me/default-space"))["space_scope_id"]
@@ -450,15 +451,23 @@ def test_dashboard_retries_only_uncertain_upload_with_original_key_and_bytes(tmp
 
             await page.route(f"**/{scope}/uploads?*", intercept)
             await frame.get_by_role("button", name="导入文档", exact=True).click()
-            await frame.locator("body").evaluate("""() => {
+            await frame.locator("body").evaluate(
+                """(_, holdRetryRead) => {
                 const read = File.prototype.arrayBuffer;
+                const retryRead = holdRetryRead ? new Promise(resolve => { window.finishRetryRead = resolve; }) : null;
                 let lostFileReads = 0;
                 File.prototype.arrayBuffer = async function () {
-                    if (this.name === "unreadable.md" || (this.name === "lost.md" && ++lostFileReads === 2))
+                    if (this.name === "unreadable.md")
                         throw new DOMException("File unavailable", "NotReadableError");
+                    if (this.name === "lost.md" && ++lostFileReads === 2) {
+                        if (retryRead) await retryRead;
+                        throw new DOMException("File unavailable", "NotReadableError");
+                    }
                     return read.call(this);
                 };
-            }""")
+            }""",
+                cancel_loading_exit,
+            )
             await frame.locator('input[type="file"]').set_input_files([
                 {"name": name, "mimeType": "text/plain", "buffer": name.encode()}
                 for name in ("ok.md", "unreadable.md", "invalid.txt", "lost.md")
@@ -473,14 +482,33 @@ def test_dashboard_retries_only_uncertain_upload_with_original_key_and_bytes(tmp
             assert "unreadable.md" not in submissions
             await expect(row.filter(has_text="invalid.txt")).to_contain_text("未接受")
             await expect(row.filter(has_text="ok.md")).to_contain_text("已接受")
-            await dialog.get_by_role("button", name="重试待确认文件", exact=True).click()
+            retry_name = "重试待确认文件"
+            retry = dialog.get_by_role("button", name=retry_name, exact=True)
+            await retry.click()
+            if cancel_loading_exit:
+                # Hold the file read until the loading icon mounts, then cancel any exit transition.
+                retry_button = dialog.get_by_role("button").filter(has_text=retry_name)
+                icon = retry_button.locator('span[class*="-btn-icon"]')
+                await expect(icon).to_be_visible()
+                await retry_button.evaluate("""button => {
+                    button.addEventListener("transitionrun", event => {
+                        const icon = event.target;
+                        if (icon.matches('[class*="-loading-icon-motion-leave"]')) {
+                            icon.style.transition = "none";
+                        }
+                    });
+                    window.finishRetryRead();
+                }""")
             await expect(row.filter(has_text="lost.md")).to_contain_text("原文件读取失败")
             await expect(row.filter(has_text="lost.md")).to_contain_text("结果待确认")
             assert len(submissions["lost.md"]) == 1
-            await dialog.get_by_role("button", name="重试待确认文件", exact=True).click()
+            if cancel_loading_exit:
+                await expect(retry_button).to_have_accessible_name(retry_name)
+                await expect(icon).to_have_count(0)
+            await retry.click()
             await expect(row.filter(has_text="lost.md")).to_contain_text("Retry denied")
             await expect(row.filter(has_text="lost.md")).to_contain_text("结果待确认")
-            await dialog.get_by_role("button", name="重试待确认文件", exact=True).click()
+            await retry.click()
             await expect(dialog.get_by_role("alert")).to_contain_text("已接受 2 / 4 个文件")
             await expect(row.filter(has_text="lost.md")).to_contain_text("已接受")
             assert len(submissions["ok.md"]) == len(submissions["invalid.txt"]) == 1
