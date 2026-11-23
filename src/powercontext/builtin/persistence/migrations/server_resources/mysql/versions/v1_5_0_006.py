@@ -12,12 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Add context diagnostics through the shared resumable DDL executor."""
+"""Add Source collection runners and targets through the shared DDL executor."""
 
 from alembic import context
 
-revision = "000"
-down_revision = "v1_5_2_pr2639"
+revision = "v1_5_0_006"
+down_revision = "v1_5_0_005"
 
 
 def upgrade() -> None:

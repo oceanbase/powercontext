@@ -4029,3 +4029,40 @@ uv run --no-sync python desktop/tests/real_server.py \
   --product-qualification sqlite-processing-snapshot-dfe4d18b-v1 \
   --wheel desktop/.artifacts/processing-snapshot/qualification/server-wheel/powercontext-1.5.3.dev330+gdfe4d18ba-py3-none-any.whl
 ```
+
+## PowerContext 1.6.0 release protocol qualification
+
+`sqlite-release-1-6-0-98a9b1f7-v1` qualifies all thirteen Desktop protocol operations against Server source
+`98a9b1f7f58628ef8b7129b0d7c7cee7efe75daf`, with OpenAPI release version `1.6.0`.
+
+- OpenAPI SHA-256: `dba1e669da2c38f0c52a5720a300ea43b7020c58c62f503e18b588237f870374`.
+- Wheel: `powercontext-1.5.3.dev327+g98a9b1f7f-py3-none-any.whl`.
+- Wheel SHA-256: `d6b4f64fee1a5b6d65ab99e0f9ec99edf26cae9e7d92ad828f5b6fd806082644`.
+- Native debug probe SHA-256: `d8ae8d1845104a631c7554b84dc0768e7f2b9325f3e5ecef52f19ecda9a96803`.
+- Report SHA-256: `23dec383957805d50936c93f1b0f6455f6b4046d843fa2a91fb130a5d660a8d5`.
+
+On 2026-11-23, Linux 5.10 x86_64, glibc 2.32 and Python 3.14.6 passed anonymous loopback, static Bearer,
+HTTPS with an explicit CA/base path, and injected-provider/enforced-access modes. The ordinary product
+ConnectionManager selected the bundled qualification. The harness checks save, search, exact revision reads,
+lost write responses without replay, Server survival, Principal changes and revocation, Scope pagination,
+and scoped authorization. Model usage is controlled fixture input.
+
+The first run passed the first three modes but timed out waiting for the Provider fixture to become ready.
+A local harness wrapper raised only the startup wait to 60 seconds; all four modes then passed. The checked-in
+harness, native probe, HTTP assertions and request timeouts were unchanged. The wrapper and report are retained
+under `/data/codex-tmp/release-1.6.0/`.
+
+The native protocol probe used Rust 1.96.0, the current product adapter modules and registry pins from the
+product Cargo lock in an isolated crate, without Tauri/WebView and without `ci-fixtures`. Its library suite
+passed 39 tests with two ignored. Every packaged runtime file was compared byte-for-byte against the recorded
+Git commit before execution. The wheel has a Git-derived development version because no release tag was created.
+This evidence qualifies the observed SQLite protocol; it does not establish packaged Desktop/WebView behavior,
+other operating systems, native database upgrade acceptance or the final tagged release artifacts.
+
+Reproduce with the recorded artifact (allow sufficient local startup time):
+
+```sh
+.venv/bin/python desktop/tests/real_server.py \
+  --product-qualification sqlite-release-1-6-0-98a9b1f7-v1 \
+  --wheel /data/codex-tmp/release-1.6.0/wheel/powercontext-1.5.3.dev327+g98a9b1f7f-py3-none-any.whl
+```
