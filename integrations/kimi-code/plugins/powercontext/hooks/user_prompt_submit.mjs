@@ -31,7 +31,8 @@ let prepared = ''
 function emit(message = '') {
   if (emitted) return
   emitted = true
-  process.stdout.write(JSON.stringify(message ? { message } : {}) + '\n')
+  // Kimi adds any non-empty stdout, even `{}`, to the conversation as a hook result; write nothing without a message.
+  if (message) process.stdout.write(JSON.stringify({ message }) + '\n')
 }
 const deadline = setTimeout(() => {
   diagnostic(emitted ? 'observation' : 'hook', new Failure(emitted ? 'runtime_unavailable' : 'server_unavailable'))
