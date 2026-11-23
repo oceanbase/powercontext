@@ -60,7 +60,7 @@ Core must approve the final target, model and protocol through `PC_GATEWAY_UPSTR
 | Gemini | Use `google-codeassist-chat` with the actual Code Assist endpoint and model. Core checks the final Code Assist input and converted Chat output. |
 | Claude | Use `claude-cli-prompt` with `endpoint: "claude-cli://execute"`. Checks cover the stdin prompt and normalized result. Enforcing or unknown Core protection rejects execution. |
 
-Codex's endpoint rejects `max_output_tokens`. A Core policy requiring that explicit output cap withholds the request with `output_limit_required`; a configured profile limit cannot make the upstream enforce an unsupported parameter.
+Codex's endpoint rejects `max_output_tokens`. The Codex CLI sends none, but other agents (OpenCode, Pi, DeepSeek Harness) set one on every request, so the Gateway leaves the field out of a request to this endpoint and the reply has no output limit. A Core policy requiring that explicit output cap withholds the request with `output_limit_required`; a configured profile limit cannot make the upstream enforce an unsupported parameter.
 
 The Codex endpoint routes its prompt cache by the `session-id` request header; `prompt_cache_key` in the body does not do this there. The Gateway forwards the request's `session-id` to this endpoint, or the body's `prompt_cache_key` as `session-id` when the request has no such header, and sends the same value on a prefix extraction request, so requests of one session reach the same cache. A request with neither gets few cache hits. The header is not forwarded to other upstreams.
 
