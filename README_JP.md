@@ -18,7 +18,7 @@
 **ナレッジベースを初公開し、Gateway の安定版を提供します。** 既存の資料を検索可能にし、Agent の会話から長期記憶を抽出する際の非キャッシュ入力コストを抑えます。
 
 - **ナレッジベース：**Markdown と PNG/JPEG/WebP 画像を取り込み、キーワードとベクトルによる検索、Dashboard での文書チャンクの確認・編集・再処理ができます。任意のプラグインと依存関係は[ナレッジベースガイド](https://powercontext.oceanbase.io/en/docs/workflows/knowledge-base/)に従って導入してください。PDF/Office の取り込みと回答生成は含まれません。
-- **Gateway のトークンコスト削減：**任意のプレフィックス抽出は Agent の会話プレフィックスをそのまま使い、記憶の指示を追加してプロバイダーのキャッシュを再利用します。Core は通常の抽出より安いと推定した場合だけこの経路を選びます。既定では無効で、実際の削減幅はキャッシュのヒット率、会話の長さ、フォールバック要求に依存します。Codex サブスクリプションでは Core が保護を強制しない場合に利用できます。[Gateway 設定](https://powercontext.oceanbase.io/en/docs/operate/deploy-server/#memory-extraction-over-the-cached-prefix)を参照してください。
+- **Gateway のトークンコスト削減：**任意のプレフィックス抽出は Agent の会話プレフィックスをそのまま使い、記憶の指示を追加してプロバイダーのキャッシュを再利用します。Core は通常の抽出より安いと推定した場合だけこの経路を選びます。Gateway ではプレフィックス抽出が既定で有効ですが、キャプチャの有効化と Server のコールバック URL の設定が必要です。実際の削減幅はキャッシュのヒット率、会話の長さ、フォールバック要求に依存します。Codex サブスクリプションでは Core が保護を強制しない場合に利用できます。[Gateway 設定](https://powercontext.oceanbase.io/en/docs/operate/deploy-server/#memory-extraction-over-the-cached-prefix)を参照してください。
 - **ワークフローの拡充：**プラグインのホットリロード、Server とデバイスの Source runner、Deep Agents 連携、処理診断の改善。
 
 導入、互換性、データベース保守の要件は [1.6.0 リリースノート](https://powercontext.oceanbase.io/en/releases/)を参照してください。
@@ -138,6 +138,8 @@ Agent の入力 → Source の証拠 → Memory / Topic Memory → PreparedConte
 ```
 
 PowerContext 1.6.0 には対話式セットアップウィザードが含まれています。Python 3.11+、Git、[uv](https://docs.astral.sh/uv/getting-started/installation/) が必要です。必要に応じて uv が Python を用意できます。Agent に接続するには、その CLI もインストールしてください。ウィザードでは、モデル API なしで明示的な保存と想起を試す場合は Basic memory、自動抽出を有効にする場合は Full memory を選択してください。Full memory には Generation と Embedding API の個別の認証情報が必要です。モデル API なしでローカル Server だけを起動する場合は[インストールと実行](https://powercontext.oceanbase.io/en/docs/get-started/install-and-run/)を参照してください。macOS と Linux をサポートし、Windows のサポートは `experimental` です。Python と uv を自動で用意する場合は、[インストールスクリプト](https://powercontext.oceanbase.io/en/docs/get-started/install-and-run/#install-with-the-recommended-script)を使ってください。
+
+バックグラウンド生成には、保存した `.env` を手動で編集して既存のサブスクリプションも利用できます。ウィザードにはまだこの選択肢がありません。Embedding には別の接続が必要で、この経路では Topic Memory と Dream は使えず、推論保護は無効のままにする必要があります。[設定ガイド](https://powercontext.oceanbase.io/en/docs/get-started/configure-models/#use-an-existing-subscription)を参照してください。
 
 目的に合う経路を選択してください：
 

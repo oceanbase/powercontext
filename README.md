@@ -16,7 +16,7 @@
 **Knowledge bases debut, and the Gateway reaches its stable release.** Bring existing documents into searchable knowledge bases and spend less uncached input on turning Agent conversations into long-term memory.
 
 - **Knowledge bases:** import Markdown and PNG/JPEG/WebP images, search with keyword and vector retrieval, and inspect, edit or reprocess revisioned document chunks in the Dashboard. Install the optional plugin and dependencies using the [knowledge-base guide](https://powercontext.oceanbase.io/en/docs/workflows/knowledge-base/). PDF/Office import and answer generation are not included.
-- **Gateway token savings:** optional prefix extraction appends memory instructions to the Agent's exact conversation prefix so the provider can reuse its prompt cache. Core selects it only when estimated to cost less than normal extraction. It is off by default; cache hits, conversation length and fallback requests determine actual savings. Codex subscriptions support it with a non-enforcing Core. See [Gateway setup](https://powercontext.oceanbase.io/en/docs/operate/deploy-server/#memory-extraction-over-the-cached-prefix).
+- **Gateway token savings:** optional prefix extraction appends memory instructions to the Agent's exact conversation prefix so the provider can reuse its prompt cache. Core selects it only when estimated to cost less than normal extraction. The Gateway enables prefix extraction by default; capture remains opt-in and the Server callback URL must be configured. Cache hits, conversation length and fallback requests determine actual savings. Codex subscriptions support it with a non-enforcing Core. See [Gateway setup](https://powercontext.oceanbase.io/en/docs/operate/deploy-server/#memory-extraction-over-the-cached-prefix).
 - **A more complete workflow:** plugin hot reload, Server/device Source runners, Deep Agents integration and clearer processing diagnostics.
 
 See the [1.6.0 release notes](https://powercontext.oceanbase.io/en/releases/) for setup, compatibility and database maintenance requirements.
@@ -140,6 +140,8 @@ Agent input → Source evidence → Memory / Topic Memory → PreparedContext �
 ```
 
 PowerContext 1.6.0 includes an interactive setup wizard. You need Python 3.11+, Git, and [uv](https://docs.astral.sh/uv/getting-started/installation/); uv can provision Python when needed. To connect an Agent, also install its CLI. In the wizard, choose Basic memory for explicit saves and recall without model APIs; Full memory requires separate Generation and Embedding API credentials. For a local Server without model APIs, see [Install and run](https://powercontext.oceanbase.io/en/docs/get-started/install-and-run/). macOS and Linux are supported; Windows support is `experimental`. To provision Python and uv automatically, use the [installation script](https://powercontext.oceanbase.io/en/docs/get-started/install-and-run/#install-with-the-recommended-script).
+
+To use an existing subscription for background generation, configure it manually in the saved `.env`; the wizard does not offer subscriptions yet. Embedding still needs its own connection, Topic Memory and Dream are unsupported on this path, and inference protection must remain disabled. See [subscription setup](https://powercontext.oceanbase.io/en/docs/get-started/configure-models/#use-an-existing-subscription).
 
 Choose the path that matches your goal:
 
