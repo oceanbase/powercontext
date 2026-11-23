@@ -1,0 +1,55 @@
+README_CN.md
+  s_08eaaedfaa31d0::t_42fbe479aad57c 11,22,24-26,30,32,48,56-94
+  s_1dc7d92681d5aa::t_0b1125c884b6ed 95
+README.md
+  s_08eaaedfaa31d0::t_b179e7259d8694 22
+  s_08eaaedfaa31d0::t_ac80cd5835a818 11,24-26,30,32,48,56-57,59-94
+  s_08eaaedfaa31d0::t_19e2907ecea61d 58
+  s_08eaaedfaa31d0::t_0210478f831779 95
+README_JP.md
+  s_08eaaedfaa31d0::t_31ab864b13f7fd 11,24,26-28,32,34,50,58-59,61-96
+  s_08eaaedfaa31d0::t_24fc5a904fd62c 60
+  s_7849825a984032::t_b5a9900ceb3c1d 97
+docs/benchmarks/token-savings/request-counts.md
+  s_08eaaedfaa31d0::t_43bf137bafc215 1-38
+docs/benchmarks/token-savings/request-counts_JP.md
+  s_08eaaedfaa31d0::t_43bf137bafc215 1-38
+docs/benchmarks/token-savings/request-counts_CN.md
+  s_08eaaedfaa31d0::t_43bf137bafc215 1-38
+docs/benchmarks/token-savings/request-counts-24.json
+  s_08eaaedfaa31d0::t_b470ec397e4815 1-515
+docs/benchmarks/token-savings/verify.py
+  s_08eaaedfaa31d0::t_afd50c46b2d666 212-262
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "5b0a8d6ea7519cfaa68f4ea698b0b8d35779b586",
+  "prompts": {},
+  "sessions": {
+    "s_08eaaedfaa31d0": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1c18c-f3bd-72a0-964f-7ee6c62e7e29",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "frf12 <rongfeng.frf@antgroup.com>"
+    },
+    "s_1dc7d92681d5aa": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a19db9-d0ca-7db2-8730-6878cbc5ae02",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "frf12 <rongfeng.frf@antgroup.com>"
+    },
+    "s_7849825a984032": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a19cf3-11fa-7bd0-a2ae-2fc05fd0ed02",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "frf12 <rongfeng.frf@antgroup.com>"
+    }
+  }
+}
