@@ -880,7 +880,7 @@ Distinguish loading, empty, error, and unavailable states. Label unknown results
 | Confirmation dialog | Irreversible or high-risk action | Use L4. Explain the impact and focus the safe action by default |
 | Long-content dialog | Long form, list, or preview | Keep the title and actions visible and scroll the content independently. Use a page if needed |
 
-Render the dialog through a portal with a backdrop, dialog surface, and dialog shadow. Trap focus while it is open. Escape closes the topmost dialog and focus returns to its trigger. Center the title across the entire header. Reserve space on the left equal to the width of the close button on the right to keep the title centered. Use `layout-dialog-max-width` for form dialogs and keep them within the safe area of the viewport. See Sections 4.2 and 4.4 for title, content, and action sizing, and Section 11 for viewport behavior. On failure, keep the dialog open, retain the user's input, and show feedback in place.
+Render the dialog through a portal with a backdrop, dialog surface, and dialog shadow. Trap focus while it is open. Escape closes the topmost dialog and focus returns to its trigger. Align the dialog title to the left of the header, and keep the close button on the right. Use `layout-dialog-max-width` for form dialogs and keep them within the safe area of the viewport. See Sections 4.2 and 4.4 for title, content, and action sizing, and Section 11 for viewport behavior. On failure, keep the dialog open, retain the user's input, and show feedback in place.
 
 ### 7.5 Forms
 
@@ -928,6 +928,11 @@ The activity calendar on Home is the primary visualization. Before adding a char
 - At each step, explain what the checks found, what to do next, and how to tell when the step is complete. Use language readers can understand without knowing the protocols or internal modules.
 - Let users revisit completed steps. On failure, keep their input and provide a way to retry or open diagnostics.
 - Keep guidance within the app shell. Avoid separate, marketing-style landing pages.
+
+Screen states for Home, Memories, Services & Agents, and Settings are specified in
+[Desktop interface](../docs/en/development/desktop-interface.md)
+([中文](../docs/zh/development/desktop-interface.md)). Follow that document when the connected
+and disconnected layouts differ. This file remains the source for tokens, components, and shared interaction rules.
 
 ---
 

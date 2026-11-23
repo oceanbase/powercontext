@@ -86,12 +86,14 @@ async function prepareDevelopmentContent(locale: string) {
       .filter((entry) => entry.isFile() && entry.name.endsWith('.md'))
       .map(async (entry) => {
         const filePath = path.join(developmentDir, entry.name);
-        const content = await readFile(filePath, 'utf8');
-        if (/^---\r?\n/.test(content)) return;
-
-        const title = content.match(/^#\s+(.+)$/m)?.[1];
-        if (!title) throw new Error(`Development document ${filePath} has no title`);
-        await writeFile(filePath, `---\ntitle: ${JSON.stringify(title)}\n---\n\n${content}`);
+        const original = await readFile(filePath, 'utf8');
+        let content = original.replace(/(!\[[^\]]*\]\()\.\.\/\.\.\/assets\//g, '$1/docs-assets/');
+        if (!/^---\r?\n/.test(content)) {
+          const title = content.match(/^#\s+(.+)$/m)?.[1];
+          if (!title) throw new Error(`Development document ${filePath} has no title`);
+          content = `---\ntitle: ${JSON.stringify(title)}\n---\n\n${content}`;
+        }
+        if (content !== original) await writeFile(filePath, content);
       }),
   );
 }
