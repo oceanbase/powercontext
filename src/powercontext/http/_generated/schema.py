@@ -9872,11 +9872,49 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "retry_failures",
                 ],
             },
+            "ArtifactProcessingExecutor": {
+                "properties": {
+                    "binding": {"type": "string"},
+                    "family": {"type": "string", "nullable": True},
+                    "state": {"$ref": "#/components/schemas/ProcessingState"},
+                    "reason": {"$ref": "#/components/schemas/ProcessingReason"},
+                    "observed_at": {"type": "string", "format": "date-time"},
+                    "scheduler_observed": {"type": "boolean"},
+                    "running_seconds": {"type": "number", "minimum": 0.0, "nullable": True},
+                    "next_check_seconds": {"type": "number", "minimum": 0.0, "nullable": True},
+                    "retry_failures": {"type": "integer", "minimum": 0.0, "nullable": True},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": [
+                    "binding",
+                    "family",
+                    "state",
+                    "reason",
+                    "observed_at",
+                    "scheduler_observed",
+                    "running_seconds",
+                    "next_check_seconds",
+                    "retry_failures",
+                ],
+            },
             "ArtifactProcessingBlock": {
                 "properties": {
                     "reason": {"type": "string", "nullable": True},
                     "stage": {"type": "string", "nullable": True},
                     "source_after": {"type": "integer", "minimum": 0.0},
+                    "source_through": {
+                        "type": "integer",
+                        "minimum": 0.0,
+                        "description": "Inclusive end of the attempted Source window, when recorded.",
+                        "nullable": True,
+                    },
+                    "budget_source_through": {
+                        "type": "integer",
+                        "minimum": 0.0,
+                        "description": "Inclusive end of the Source window used for budget accounting, when recorded.",
+                        "nullable": True,
+                    },
                     "target_source_through": {"type": "integer", "minimum": 0.0},
                     "attempts": {"type": "integer", "minimum": 0.0},
                     "requests": {"type": "integer", "minimum": 0.0},
@@ -9891,6 +9929,8 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "reason",
                     "stage",
                     "source_after",
+                    "source_through",
+                    "budget_source_through",
                     "target_source_through",
                     "attempts",
                     "requests",
@@ -9972,7 +10012,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     },
                     "executor": {
                         "anyOf": [
-                            {"$ref": "#/components/schemas/ArtifactProcessingObservation"},
+                            {"$ref": "#/components/schemas/ArtifactProcessingExecutor"},
                             {"type": "string", "enum": [None], "nullable": True},
                         ]
                     },

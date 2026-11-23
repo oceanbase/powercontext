@@ -1036,6 +1036,17 @@ const OPERATIONS = {
 		successStatuses: [200],
 		emptyStatuses: []
 	},
+	get_artifact_processing_status: {
+		method: "GET",
+		path: "/v1/scopes/{scope_id}/processing-status",
+		location: "query",
+		scopeMode: "current",
+		pathParameters: ["scope_id"],
+		queryParams: ["family"],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
 	list_dream_runs: {
 		method: "GET",
 		path: "/v1/scopes/{scope_id}/dream",

@@ -33,7 +33,7 @@ limitations under the License.
 <div class="offcanvas offcanvas-end artifact-processing-drawer" tabindex="-1" id="{{ drawer_id }}" aria-labelledby="{{ drawer_id }}-title" data-processing-drawer>
   <div class="offcanvas-header"><h2 class="offcanvas-title" id="{{ drawer_id }}-title">{{ t.ps_title }}</h2><button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="{{ t.ps_close }}"></button></div>
   <div class="offcanvas-body">
-    <p class="text-secondary small">{{ status.scope_id }} · {{ t.get(status.family, status.family) }}<br>{{ t.ps_scope }}</p>
+    <p class="text-secondary small">{{ status.scope_id }} · {{ status.family|artifact_family_label(t) }}<br>{{ t.ps_scope }}</p>
     <section class="supporting-details"><h3 class="h4">{{ t.ps_source }}</h3>
       {% if status.progress %}<p>{{ t.ps_positions.format(cursor=status.progress.source_cursor,head=status.progress.source_head) }}</p>{% if status.progress.target_source_through is not none %}<p>{{ t.ps_target }}：{{ status.progress.target_source_through }}</p>{% endif %}{% else %}<p>{{ t.ps_not_applicable if status.availability.progress == 'not_applicable' else t.ps_unavailable }}</p>{% endif %}
     </section>
@@ -45,6 +45,9 @@ limitations under the License.
     </section>
     {% if status.block %}<section class="supporting-details"><h3 class="h4">{{ t.ps_persisted_block if status.block.persisted else t.ps_derived_block }}</h3>
       <p>{{ t.ps_reason }}：{{ t.get('ps_reason_' ~ status.block.reason, status.block.reason) if status.block.reason else t.ps_reason_unknown }}</p>
+      <p>{{ t.ps_block_window.format(after=status.block.source_after, through=status.block.source_through) if status.block.source_through is not none else t.ps_block_open.format(after=status.block.source_after) }}</p>
+      <p>{{ t.ps_block_target.format(target=status.block.target_source_through) }}</p>
+      {% if status.block.budget_source_through is not none %}<p>{{ t.ps_block_budget_end.format(through=status.block.budget_source_through) }}</p>{% endif %}
       <p class="small">{{ t.ps_budget.format(attempts=status.block.attempts,requests=status.block.requests,tokens=status.block.tokens) }}</p>
       {% if status.block.blocked_at %}<p class="small text-secondary">{{ t.ps_observed_at }}：{{ status.block.blocked_at|display_time }}</p>{% endif %}
     </section>{% endif %}

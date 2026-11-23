@@ -11,7 +11,7 @@
 
 """Readable projections of saved proposals; never generate a reason or evidence."""
 
-from powercontext.server.dashboard.presenters import artifact_destination
+from powercontext.server.dashboard.presenters import artifact_destination, artifact_family_label
 
 _FIELDS = {
     "experience": ("lesson", "situation", "action", "outcome", "failure"),
@@ -57,12 +57,10 @@ _LABELS = {
     "objective": "review_objective",
     "failure": "review_failure",
 }
-_FAMILY_LABELS = {"atomic-memory": "notes", "topic-memory": "topic_memory", "prompt": "prompts"}
 
 
 def family_label(candidate, t):
-    family = candidate["family"]
-    return t.get(_FAMILY_LABELS.get(family, family), family)
+    return artifact_family_label(candidate["family"], t)
 
 
 def candidate_title(candidate, t):

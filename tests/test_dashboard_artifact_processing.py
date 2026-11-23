@@ -17,8 +17,11 @@ from types import SimpleNamespace
 
 import httpx
 import pytest
-from sqlalchemy import event
+from sqlalchemy import event, insert
 
+from powercontext.builtin.artifacts.topic_memory import TOPIC_MEMORY_SOURCE_WINDOW_BINDING
+from powercontext.builtin.persistence.processing_intents import ArtifactProcessingIntentRepository
+from powercontext.builtin.persistence.tables import TOPIC_MEMORY_WORK_BLOCKS_TABLE
 from powercontext.builtin.processing_status import ScopedProcessingStatusApplication
 from powercontext.builtin.runtime import CaptureSource
 from powercontext.builtin.runtime.artifact_processing import ArtifactProcessingSupervisors
@@ -62,6 +65,73 @@ def test_empty_artifact_pages_offer_independent_status(dashboard, page, params, 
     assert "Current execution state is unavailable" in status.text
     assert "No associated operation records found" in status.text
     assert "data-processing-drawer" in status.text
+
+
+@pytest.mark.parametrize(
+    ("family", "page", "lang", "label"),
+    [
+        ("topic-memory", "topics", "zh", "主题记忆"),
+        ("topic-memory", "topics", "en", "Topic Memory"),
+        ("prompt", "prompts", "zh", "提示词"),
+        ("prompt", "prompts", "en", "Prompts"),
+    ],
+)
+def test_processing_summary_and_drawer_localize_family(dashboard, family, page, lang, label):
+    scope = create_scope(dashboard, "Localized status")["scope_id"]
+    for path, extra in [(f"/dashboard/{page}", {}), ("/dashboard/artifact-processing-status", {"family": family})]:
+        response = dashboard.get(path, params={"scope": scope, "lang": lang, **extra})
+        assert response.status_code == 200
+        assert f"{scope} · {label}<br>" in response.text
+
+
+def test_retained_block_preserves_its_window_after_source_head_advances(tmp_path):
+    async def scenario():
+        async with _runtime(tmp_path) as (runtime, (scope, _)):
+            sources = runtime.sources.for_scope(scope)
+            for number in [1, 2]:
+                await sources.capture(CaptureSource(source_id=str(number), content="Before block", metadata={}))
+            async with runtime.primary_database.transaction() as connection:
+                await _topic_budget(connection, scope)
+                await connection.execute(
+                    insert(TOPIC_MEMORY_WORK_BLOCKS_TABLE).values(
+                        block_id="retained",
+                        attempt_id="attempt-1",
+                        scope_id=scope,
+                        binding_name=TOPIC_MEMORY_SOURCE_WINDOW_BINDING,
+                        source_after=0,
+                        source_through=1,
+                        budget_source_through=1,
+                        target_source_through=2,
+                        attempts=3,
+                        requests=4,
+                        tokens=120,
+                        error_code="window_attempt_limit",
+                        blocked_at=datetime.now(UTC).replace(tzinfo=None),
+                    )
+                )
+            await sources.capture(CaptureSource(source_id="3", content="After block", metadata={}))
+            app = create_app(application=runtime)
+            app.include_router(router, prefix="/dashboard")
+            async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+                params = {"family": "topic-memory"}
+                result = await client.get(f"/v1/scopes/{scope}/processing-status", params=params)
+                result.raise_for_status()
+                status = result.json()
+                assert status["progress"]["target_source_through"] is None and status["progress"]["source_head"] == 3
+                block = status["block"]
+                assert block["persisted"] and (block["source_after"], block["source_through"]) == (0, 1)
+                assert (block["budget_source_through"], block["target_source_through"]) == (1, 2)
+                html = await client.get(
+                    "/dashboard/artifact-processing-status", params={**params, "scope": scope, "lang": "en"}
+                )
+                html.raise_for_status()
+                assert "after 0, through 1 (inclusive)" in html.text
+                assert (
+                    "Target for this block: 2" in html.text
+                    and "Budget accounted through Source position 1" in html.text
+                )
+
+    asyncio.run(scenario())
 
 
 def test_empty_topic_scope_has_no_block_provenance(dashboard):
@@ -211,6 +281,11 @@ def test_http_evidence_is_passive_bounded_and_keeps_independent_paths(tmp_path):
 def test_local_execution_observations_are_scoped_expiring_and_redacted(tmp_path, monkeypatch, age):
     async def scenario():
         async with _runtime(tmp_path) as (runtime, scopes):
+            intents = ArtifactProcessingIntentRepository()
+            binding = FAMILY_BINDINGS["memory"]
+            async with runtime.primary_database.transaction() as connection:
+                await intents.mark_dirty_many(connection, scopes[0], (binding,), increment=7)
+                await intents.request(connection, scopes[0], binding)
 
             def observations(self, scope):
                 if scope != scopes[0]:
@@ -239,7 +314,16 @@ def test_local_execution_observations_are_scoped_expiring_and_redacted(tmp_path,
                 )
                 assert response.status_code == 200, response.text
                 result = response.json()
+                assert (
+                    result["invocation"]["requested_generation"] == 1 and result["invocation"]["dirty_generation"] == 7
+                )
                 assert result["executor"]["state"] == "running"
+                assert {
+                    "requested_generation",
+                    "handled_generation",
+                    "dirty_generation",
+                    "clean_generation",
+                }.isdisjoint(result["executor"])
                 assert result["evidence"]["executor"]["scope_id"] == scopes[0]
                 assert result["evidence"]["executor"]["durability"] == "process_local"
                 assert result["evidence"]["executor"]["freshness"] == ("fresh" if age == 0 else "stale")

@@ -50,6 +50,13 @@ def memory_view(response: dict[str, Any]) -> list[dict[str, Any]]:
     ]
 
 
+_FAMILY_LABELS = {"atomic-memory": "notes", "topic-memory": "topic_memory", "prompt": "prompts"}
+
+
+def artifact_family_label(family, t):
+    return t.get(_FAMILY_LABELS.get(family, family), family)
+
+
 def artifact_destination(ctx, ref, *, scope=None, return_to=None):
     """Link an immutable Artifact reference to its existing family reader."""
     family = ref["family"]
