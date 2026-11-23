@@ -838,17 +838,23 @@ class AtomicMemorySourceWindowProcessor:
                     *(workset.items[workset.resolve(item)] for label in batch for item in unseen[label].values()),
                 ),
             )
-            rechecked = await conversation.turn(
-                message,
-                partial(
-                    apply_one_pass_recheck,
-                    workset,
-                    created=batch,
-                    unseen={label: unseen[label] for label in batch},
-                ),
-                operations,
-            )
-            workset = rechecked.output
+            try:
+                rechecked = await conversation.turn(
+                    message,
+                    partial(
+                        apply_one_pass_recheck,
+                        workset,
+                        created=batch,
+                        unseen={label: unseen[label] for label in batch},
+                    ),
+                    operations,
+                )
+            except AtomicMemoryRevisionIdentityError:
+                # A memory merged by an earlier batch holds several identities. Once correction is exhausted, keep
+                # this batch's created memories unchanged, as a create for each; the rejected reply is not applied.
+                pass
+            else:
+                workset = rechecked.output
             for label in batch:
                 del pending[label]
         return workset
