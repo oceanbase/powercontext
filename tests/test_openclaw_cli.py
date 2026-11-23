@@ -102,8 +102,8 @@ def test_config_agent_openclaw_keeps_connection_settings_consistent(
 
 
 # A fake host with the native semantics of OpenClaw 2026.8.1 (ea80657) and 2026.8.1-beta.2: unless installation is
-# given --no-enable, it removes the plugin from plugins.deny, appends it to a non-empty plugins.allow and, unless the
-# entry or all plugins are disabled, enables the entry and selects it for the memory slot.
+# given --no-enable, it always removes the plugin from plugins.deny and appends it to a non-empty plugins.allow, and,
+# only while neither the entry nor all plugins are disabled, enables the entry and selects it for the memory slot.
 _FAKE_OPENCLAW = r"""
 import json
 import os
@@ -298,6 +298,11 @@ def test_setup_openclaw_installs_the_archive_and_activates_it_on_supported_hosts
         ({"deny": ["memory-powercontext"]}, "plugins.deny"),
         ({"allow": ["memory-core"]}, "plugins.allow"),
         ({"slots": {"memory": "memory-core"}}, "plugins.slots.memory"),
+        # Disabling the plugin stops installation from activating it, not from changing deny and allow.
+        ({"entries": {"memory-powercontext": {"enabled": False}}, "deny": ["memory-powercontext"]}, "plugins.deny"),
+        ({"entries": {"memory-powercontext": {"enabled": False}}, "allow": ["memory-core"]}, "plugins.allow"),
+        ({"enabled": False, "deny": ["memory-powercontext"]}, "plugins.deny"),
+        ({"enabled": False, "allow": ["memory-core"]}, "plugins.allow"),
     ],
 )
 def test_setup_openclaw_without_no_enable_refuses_to_override_native_policy(

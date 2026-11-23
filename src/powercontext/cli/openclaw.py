@@ -129,8 +129,9 @@ def openclaw_install_flags(executable: str, version_text: str, plugins: dict[str
 def require_activating_install_preserves_policy(version_text: str, plugins: dict[str, Any]) -> None:
     """Refuse an install without --no-enable that would override the user's plugin policy."""
 
-    # Without --no-enable, installation also activates the plugin: OpenClaw removes it from plugins.deny, appends it
-    # to a non-empty plugins.allow and selects it for the memory slot unless the entry or all plugins are disabled.
+    # Without --no-enable, installation always removes the plugin from plugins.deny and appends it to a non-empty
+    # plugins.allow. Only enabling the entry and selecting it for the memory slot are skipped when the entry or all
+    # plugins are disabled, so only the slot check depends on that.
     entry = plugins.get("entries", {}).get(OPENCLAW_PLUGIN_NAME, {})
     allow = plugins.get("allow", [])
     slot = plugins.get("slots", {}).get("memory")
