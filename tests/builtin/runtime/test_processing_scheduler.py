@@ -132,9 +132,9 @@ class _SchedulerClock:
             if due <= self.now and not expired.done():
                 expired.set_result(None)
 
-    async def settle_before(self, deadline, predicate):
+    async def settle_before(self, deadline, predicate, timeout_seconds=5):
         # Allow bounded discovery pages to finish, but never cross the retry boundary.
-        async with asyncio.timeout(5):
+        async with asyncio.timeout(timeout_seconds):
             while True:
                 if self.waiting is not None:
                     due, expired = self.waiting
@@ -730,10 +730,12 @@ def test_overflow_flush_cannot_advance_retry_and_cached_failures_cannot_extend_g
                 # Cached retries keep failing, but cannot keep shifting the
                 # finite overflow cohort's gate beyond the original deadline.
                 await clock.settle_before(
-                    retry_at + retry_delay, lambda: supervisor.family_status["memory"]["completed"] == 1
+                    retry_at + retry_delay,
+                    lambda: supervisor.family_status["memory"]["completed"] == 1,
+                    timeout_seconds=1.5,
                 )
                 assert len(attempts["cached"]) >= 3
-                await _wait(lambda: len(attempts["overflow"]) >= 2)
+                await _wait(lambda: len(attempts["overflow"]) >= 2, timeout_seconds=1.5)
                 assert attempts["overflow"][1] - attempts["overflow"][0] >= 0.78
                 assert supervisor.max_resident <= 1 + 4 + 1
                 assert (await _intent(profile.database, "memory-binding", "healthy-tail")).handled_generation == 1

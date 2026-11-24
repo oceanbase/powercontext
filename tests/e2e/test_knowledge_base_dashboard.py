@@ -65,16 +65,31 @@ async def dashboard(tmp_path, extra_plugin="", *, extra_env=None):
             page = await context.new_page()
             errors = []
             page.on("pageerror", lambda error: errors.append(str(error)))
+            await context.tracing.start(screenshots=True, snapshots=True)
             try:
                 yield call, page, page.frame_locator("iframe"), origin, playwright.expect
                 assert not errors, errors
             except BaseException:
-                await page.screenshot(path=str(tmp_path / "dashboard.png"), full_page=True)
+                # A broken browser must not replace the original test failure with a diagnostic error.
                 print("Browser errors:", errors)
-                print("Dashboard screenshot:", tmp_path / "dashboard.png")
+                try:
+                    await page.screenshot(path=str(tmp_path / "dashboard.png"), full_page=True)
+                    print("Dashboard screenshot:", tmp_path / "dashboard.png")
+                except Exception as error:
+                    print("Could not save dashboard screenshot:", error)
+                try:
+                    await context.tracing.stop(path=tmp_path / "trace.zip")
+                    print("Dashboard trace:", tmp_path / "trace.zip")
+                except Exception as error:
+                    print("Could not save dashboard trace:", error)
                 for frame in page.frames:
-                    print("Frame:", frame.url, (await frame.locator("body").inner_text())[:2500])
+                    try:
+                        print("Frame:", frame.url, (await frame.locator("body").inner_text())[:2500])
+                    except Exception as error:
+                        print("Could not read dashboard frame:", error)
                 raise
+            else:
+                await context.tracing.stop()
         finally:
             await browser.close()
 

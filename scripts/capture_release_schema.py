@@ -151,16 +151,26 @@ def capture(args):
         )
         python = work / "source" / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
         extras = "server,cli,code" + (",seekdb" if args.backend == "seekdb" else "")
+        installer = environment.get("PC_CI_PYTHON_INSTALLER")
+        if (
+            environment.get("RUNNER_OS") == "Linux"
+            and environment.get("RUNNER_ENVIRONMENT") == "self-hosted"
+            and installer
+            and environment.get("PC_CI_PYTHON_MIRROR")
+        ):
+            installer_command = [sys.executable, installer, "uv-pip"]
+            index_options = []
+        else:
+            installer_command = ["uv", "pip"]
+            index_options = ["--default-index", "https://pypi.org/simple"]
         command(
             [
-                "uv",
-                "pip",
+                *installer_command,
                 "install",
                 "--python",
                 str(python),
                 "--no-config",
-                "--default-index",
-                "https://pypi.org/simple",
+                *index_options,
                 f"{wheel}[{extras}]",
             ],
             environment,

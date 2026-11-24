@@ -120,7 +120,9 @@ parse_args() {
 download() {
     local timeout=${3:-30}
     if command -v curl >/dev/null 2>&1; then
-        curl --proto '=https' --proto-redir '=https' --fail --location --silent --show-error --connect-timeout 5 --max-time "$timeout" "$1" -o "$2"
+        # Retry transient fetch failures on the selected source before executing the download.
+        curl --proto '=https' --proto-redir '=https' --fail --location --silent --show-error \
+            --connect-timeout 15 --max-time "$timeout" --retry 3 --retry-connrefused --retry-max-time 120 "$1" -o "$2"
     else
         timeout=${3:-15}
         # wget cannot restrict redirect protocols; reject redirects rather than allow a downgrade.

@@ -43,6 +43,7 @@ type LifecycleDependencies = {
 
 const MAX_SESSION_SCOPES = 32;
 const MAX_TRACKED_RUNS = 64;
+const MAX_TRACKED_SESSIONS = 64;
 const CLOSING_BUDGET_MS = 1000;
 
 type CheckpointResult = {
@@ -123,17 +124,42 @@ export function registerPowerContextLifecycle(api: OpenClawPluginApi, deps: Life
   // are still in progress. Each map keeps its most recent runs.
   const activeRunProjects = new Map<string, readonly string[]>();
   const completedRunProjects = new Map<string, readonly string[]>();
-  const trackRun = (runs: Map<string, readonly string[]>, runId: string, projectKeys: readonly string[]) => {
-    runs.delete(runId);
-    runs.set(runId, projectKeys);
-    if (runs.size > MAX_TRACKED_RUNS) {
-      runs.delete(runs.keys().next().value!);
+  // `before_compaction` carries neither a run nor its active projects, only the session key. OpenClaw queues a
+  // session's runs and compactions on one session lane, so the session's most recent prompt belongs to the run being
+  // compacted, or to the session's last run when compaction happens between runs; the checkpoint resolves with
+  // that run's projects. A prompt context without `activeProjectKeys` clears the session's entry.
+  const sessionProjects = new Map<string, readonly string[]>();
+  const trackRecent = (
+    records: Map<string, readonly string[]>,
+    key: string,
+    projectKeys: readonly string[],
+    limit: number,
+  ) => {
+    records.delete(key);
+    records.set(key, projectKeys);
+    if (records.size > limit) {
+      records.delete(records.keys().next().value!);
     }
   };
   const rememberRunProjects = (runId: string | undefined, projectKeys: readonly string[] | undefined) => {
     if (runId && projectKeys) {
-      trackRun(activeRunProjects, runId, [...projectKeys]);
+      trackRecent(activeRunProjects, runId, [...projectKeys], MAX_TRACKED_RUNS);
     }
+  };
+  const rememberSessionProjects = (sessionKey: string | undefined, projectKeys: readonly string[] | undefined) => {
+    const key = sessionKey?.trim();
+    if (!key) {
+      return;
+    }
+    if (projectKeys) {
+      trackRecent(sessionProjects, key, [...projectKeys], MAX_TRACKED_SESSIONS);
+    } else {
+      sessionProjects.delete(key);
+    }
+  };
+  const latestSessionProjects = (sessionKey: string | undefined): readonly string[] | undefined => {
+    const key = sessionKey?.trim();
+    return key ? sessionProjects.get(key) : undefined;
   };
   const completeRunProjects = (runId: string | undefined): readonly string[] | undefined => {
     if (!runId) {
@@ -144,7 +170,7 @@ export function registerPowerContextLifecycle(api: OpenClawPluginApi, deps: Life
       return completedRunProjects.get(runId);
     }
     activeRunProjects.delete(runId);
-    trackRun(completedRunProjects, runId, projectKeys);
+    trackRecent(completedRunProjects, runId, projectKeys, MAX_TRACKED_RUNS);
     return projectKeys;
   };
   const pendingPositions = new Map<string, number>();
@@ -415,6 +441,7 @@ export function registerPowerContextLifecycle(api: OpenClawPluginApi, deps: Life
 
   api.on("before_prompt_build", async (event, ctx) => {
     rememberRunProjects(ctx.runId, ctx.activeProjectKeys);
+    rememberSessionProjects(ctx.sessionKey, ctx.activeProjectKeys);
     const config = deps.getConfig();
     const agentId = readAgentId(ctx.agentId);
     if (
@@ -494,13 +521,15 @@ export function registerPowerContextLifecycle(api: OpenClawPluginApi, deps: Life
     if (!agentId || !deps.isPrivateSession(agentId, ctx.sessionKey)) {
       return;
     }
+    // No OpenClaw compaction path reports active projects; resolve with those of the session's most recent prompt.
+    const activeProjectKeys = ctx.activeProjectKeys ?? latestSessionProjects(ctx.sessionKey);
     let scopeId: string;
     try {
       scopeId = await resolveScope({
         agentId,
         sessionId: ctx.sessionId,
         sessionKey: ctx.sessionKey,
-        activeProjectKeys: ctx.activeProjectKeys,
+        activeProjectKeys,
       });
     } catch (error) {
       reportFailure("scope_binding", error);
@@ -513,7 +542,7 @@ export function registerPowerContextLifecycle(api: OpenClawPluginApi, deps: Life
           agentId,
           sessionId: ctx.sessionId,
           sessionKey: ctx.sessionKey,
-          activeProjectKeys: ctx.activeProjectKeys,
+          activeProjectKeys,
           channel: ctx.channel ?? ctx.messageProvider,
           messages: event.messages,
           eventIdentity: lifecycleEventIdentity(event.messages, {
