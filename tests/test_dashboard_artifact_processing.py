@@ -342,12 +342,23 @@ def test_http_evidence_is_passive_bounded_and_keeps_independent_paths(tmp_path):
                     scope, GetArtifactProcessingStatusRequest(family="memory")
                 )
                 assert reading.family == "memory" and reading.scope_id == scope
-                assert (
-                    await client.get(f"/v1/scopes/{scope}/processing-status", params={"family": "skill", "extra": "x"})
-                ).status_code == 422
-                assert (
-                    await client.get("/v1/scopes/missing/processing-status", params={"family": "skill"})
-                ).status_code == 404
+                path = f"/v1/scopes/{scope}/processing-status"
+                responses = app.openapi()["paths"]["/v1/scopes/{scope_id}/processing-status"]["get"]["responses"]
+                for params, expected in [
+                    ({}, 400),
+                    ({"family": ""}, 400),
+                    ({"family": "x" * 129}, 400),
+                    ([("family", "skill"), ("family", "skill")], 422),
+                    ({"family": "skill", "extra": "x"}, 422),
+                ]:
+                    invalid = await client.get(path, params=params)
+                    assert invalid.status_code == expected and str(expected) in responses
+                    assert invalid.json()["error"]["code"] == "invalid_request"
+                    assert invalid.headers.get("cache-control") == "no-store"
+                missing = await client.get("/v1/scopes/missing/processing-status", params={"family": "skill"})
+                assert missing.status_code == 404 and missing.headers.get("cache-control") == "no-store"
+                invalid_html = await client.get("/dashboard/artifact-processing-status", params={"scope": scope})
+                assert invalid_html.status_code == 422 and invalid_html.headers.get("cache-control") == "no-store"
                 app.state.application = SimpleNamespace()
                 unavailable = await client.get(f"/v1/scopes/{scope}/processing-status", params={"family": "skill"})
                 assert (
@@ -553,6 +564,7 @@ def test_http_and_dashboard_inspection_require_scope_read(tmp_path, backend):
                 ]:
                     response = await client.get(path, params=params, headers=headers)
                     assert response.status_code == expected, response.text
+                    assert response.headers.get("cache-control") == "no-store"
                     if expected == 403:
                         assert "source_cursor" not in response.text and "data-processing-snapshot" not in response.text
 

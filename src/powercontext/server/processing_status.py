@@ -16,6 +16,10 @@
 
 from datetime import UTC, datetime, timedelta
 
+from starlette.datastructures import MutableHeaders
+from starlette.routing import compile_path, get_route_path
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
+
 from powercontext.builtin.processing_diagnostics import ProcessingDiagnostics, processing_error_code
 from powercontext.builtin.processing_status import ArtifactProcessingStatus
 from powercontext.builtin.statistics.models import ProcessingObservation
@@ -24,8 +28,30 @@ from powercontext.http import (
     ArtifactProcessingObservation,
     ArtifactProcessingStatusResponse,
 )
+from powercontext.http._generated.operations import GET_ARTIFACT_PROCESSING_STATUS
 
 EXECUTOR_TTL_SECONDS = 30
+_STATUS_PATH = compile_path(GET_ARTIFACT_PROCESSING_STATUS.path)[0]
+
+
+class ProcessingStatusCacheControl:
+    """Set the cache policy at the final send, including early rejections and error responses."""
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        path = get_route_path(scope) if scope["type"] == "http" and scope["method"] == "GET" else ""
+        if path != "/dashboard/artifact-processing-status" and not _STATUS_PATH.fullmatch(path):
+            await self.app(scope, receive, send)
+            return
+
+        async def send_no_store(message: Message) -> None:
+            if message["type"] == "http.response.start":
+                MutableHeaders(scope=message)["Cache-Control"] = "no-store"
+            await send(message)
+
+        await self.app(scope, receive, send_no_store)
 
 
 def _public_executor(observation: ProcessingObservation | None) -> ArtifactProcessingExecutor | None:

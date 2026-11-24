@@ -298,7 +298,9 @@ class ProcessingStatusInspector:
     ) -> tuple[tuple[DreamOperationStatus, ...], bool]:
         dream_family = "atomic-memory" if family == "memory" else family
         binding = FAMILY_DREAM_BINDINGS[dream_family]
-        operations = tuple(spec.operation for spec in DREAM_OPERATIONS if spec.binding == binding)
+        operations = [
+            spec.operation for spec in DREAM_OPERATIONS if spec.binding == binding or spec.operation == "revise_tags"
+        ]
         table = DREAM_RUNS_TABLE
         mysql = connection.dialect.name == "mysql"
         if mysql:
@@ -314,27 +316,37 @@ class ProcessingStatusInspector:
                 target = func.json_unquote(target)
             return and_(
                 rows.c.scope_id == scope_id,
-                rows.c.operation.in_((*operations, "revise_tags")),
+                rows.c.operation.in_(operations),
                 or_(rows.c.operation != "revise_tags", target == dream_family),
             )
 
-        # Probe a bounded chronological window. A busy family usually fills the page here.
-        recent = (
-            select(table)
-            .where(table.c.scope_id == scope_id)
-            .order_by(table.c.accepted_at.desc(), table.c.run_id.desc())
-            .limit(32)
-            .subquery()
+        # Grow the chronological window only while there are more candidate operations than window rows.
+        # Each probe is bounded by the window, even for a Scope with no matching history.
+        window = 32
+        candidates = select(indexed.c.operation).where(
+            indexed.c.scope_id == scope_id, indexed.c.operation.in_(operations)
         )
-        payloads = (
-            await connection.scalars(
-                select(recent.c.payload)
-                .where(matches(recent))
-                .order_by(recent.c.accepted_at.desc(), recent.c.run_id.desc())
-                .limit(10)
+        while True:
+            recent = (
+                select(table)
+                .where(table.c.scope_id == scope_id)
+                .order_by(table.c.accepted_at.desc(), table.c.run_id.desc())
+                .limit(window)
+                .subquery()
             )
-        ).all()
-        if len(payloads) < 10:
+            payloads = (
+                await connection.scalars(
+                    select(recent.c.payload)
+                    .where(matches(recent))
+                    .order_by(recent.c.accepted_at.desc(), recent.c.run_id.desc())
+                    .limit(10)
+                )
+            ).all()
+            if len(payloads) == 10:
+                break
+            if await connection.scalar(candidates.offset(window).limit(1)) is not None:
+                window *= 2
+                continue
             # For sparse families rank keys from matching operations before fetching full records.
             latest = (
                 select(indexed.c.run_id, indexed.c.accepted_at)
@@ -352,6 +364,7 @@ class ProcessingStatusInspector:
                     .order_by(latest.c.accepted_at.desc(), latest.c.run_id.desc())
                 )
             ).all()
+            break
         runs: list[DreamOperationStatus] = []
         for payload in payloads:
             run: DreamRun = load_model(

@@ -2446,6 +2446,7 @@ GET_ARTIFACT_PROCESSING_STATUS = Operation[GetArtifactProcessingStatusRequest, A
                 "Cache-Control": {"description": "Always no-store.", "schema": {"type": "string"}},
             },
         },
+        400: {"$ref": "#/components/responses/BadRequest"},
         401: {"$ref": "#/components/responses/Unauthorized"},
         403: {"$ref": "#/components/responses/Forbidden"},
         404: {"$ref": "#/components/responses/NotFound"},

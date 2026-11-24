@@ -980,7 +980,7 @@ from powercontext.server.ownership import (
     plan_ownership_migration,
 )
 from powercontext.server.plugins import PluginManager
-from powercontext.server.processing_status import processing_status_response
+from powercontext.server.processing_status import ProcessingStatusCacheControl, processing_status_response
 from powercontext.server.request_id import REQUEST_ID_HEADER, HttpRequestIdMiddleware
 from powercontext.server.retrieval_observation import observe_retrieval
 from powercontext.server.tracing import request_id_from_span
@@ -1483,13 +1483,14 @@ class _ServerApp(FastAPI):
         for middleware in self.user_middleware:
             if middleware.cls is HttpMetricsMiddleware:
                 # ServerErrorMiddleware sends unhandled-error responses outside user middleware.
-                return HttpResponseMetricsMiddleware(
+                stack = HttpResponseMetricsMiddleware(
                     stack,
                     metrics=middleware.kwargs["metrics"],
                     operations=http_operations(self.routes),
                     skip_paths=middleware.kwargs.get("skip_paths", ()),
                 )
-        return stack
+                break
+        return ProcessingStatusCacheControl(stack)
 
 
 def create_app(
@@ -5160,20 +5161,17 @@ def _list_dreams_query(
 async def get_artifact_processing_status(
     scope_id: _ScopePathId,
     family: Annotated[str, Query(min_length=1, max_length=128)],
-    response: Response,
     application: Annotated[ServerApplication, Depends(_require_application)],
     http_request: Request,
 ) -> ArtifactProcessingStatusResponse | JSONResponse:
     from powercontext.builtin.runtime.atomic_memory import deferred_decision_audit
 
     _require_strict_query(http_request, {"family"})
-    response.headers["Cache-Control"] = "no-store"
     if not isinstance(application, BuiltinRuntime):
         return _error_response(
             503,
             code="processing_status_unavailable",
             message="This application does not provide passive processing inspection.",
-            headers={"Cache-Control": "no-store"},
         )
     context = _atomic_execution_context(http_request, GET_ARTIFACT_PROCESSING_STATUS.operation_id)
     async with deferred_decision_audit(context):

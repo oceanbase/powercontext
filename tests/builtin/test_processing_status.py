@@ -244,7 +244,8 @@ def test_family_filter_and_pending_query_precede_limits(tmp_path):
     asyncio.run(scenario())
 
 
-def test_other_operation_history_does_not_increase_scope_status_read_cost(tmp_path):
+@pytest.mark.parametrize(("handoff_every", "initial_size"), [(None, 500), (5, 500), (19, 5000)])
+def test_other_operation_history_does_not_increase_scope_status_read_cost(tmp_path, handoff_every, initial_size):
     async def scenario():
         async with (
             _runtime(tmp_path) as (runtime, (scope, _)),
@@ -252,6 +253,17 @@ def test_other_operation_history_does_not_increase_scope_status_read_cost(tmp_pa
         ):
             await _run_record(connection, scope, 0, "refresh_handoff", "queued")
             driver = (await connection.get_raw_connection()).driver_connection
+
+            expected_handoffs = ["dr_0"]
+
+            async def seed(start, end):
+                for index in range(start, end):
+                    if handoff_every and index % handoff_every == 0:
+                        await _run_record(connection, scope, index, "refresh_handoff")
+                        expected_handoffs.insert(0, f"dr_{index}")
+                        del expected_handoffs[10:]
+                    else:
+                        await _run_record(connection, scope, index)
 
             async def read(family):
                 steps = 0
@@ -268,17 +280,15 @@ def test_other_operation_history_does_not_increase_scope_status_read_cost(tmp_pa
                     await driver.set_progress_handler(None, 0)
                 assert status.unavailable_reason is None
                 if family == "handoff":
-                    assert [run.run_id for run in status.dream_operations] == ["dr_0"]
+                    assert [run.run_id for run in status.dream_operations] == expected_handoffs
                     assert status.dream_pending
                 else:
                     assert len(status.dream_operations) == 10 and not status.dream_pending
                 return steps
 
-            for index in range(1, 101):
-                await _run_record(connection, scope, index)
+            await seed(1, initial_size + 1)
             baseline = {family: await read(family) for family in ("handoff", "skill")}
-            for index in range(101, 2001):
-                await _run_record(connection, scope, index)
+            await seed(initial_size + 1, initial_size + 5001)
             for family, steps in baseline.items():
                 assert await read(family) <= 2 * steps + 300, family
             await connection.exec_driver_sql("ANALYZE")
