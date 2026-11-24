@@ -33,6 +33,7 @@ from powercontext.builtin.runtime.artifact_processing import (
     ArtifactProcessingSupervisors,
 )
 from powercontext.builtin.runtime.family_processing import FAMILY_BINDINGS
+from powercontext.builtin.scope import ScopeDraft
 from powercontext.builtin.statistics.models import ProcessingObservation
 from powercontext.client import PowerContextClient
 from powercontext.http import ArtifactProcessingStatusResponse, GetArtifactProcessingStatusRequest
@@ -74,6 +75,7 @@ def test_empty_artifact_pages_offer_independent_status(dashboard, page, params, 
     assert "Current execution state is unavailable" in status.text
     assert "No associated operation records found" in status.text
     assert "data-processing-drawer" in status.text
+    assert "Dream operations: " in status.text
 
 
 @pytest.mark.parametrize(
@@ -144,6 +146,7 @@ def test_retained_block_preserves_its_reason_and_window(tmp_path, stored_code, p
                 assert status["progress"]["target_source_through"] is None and status["progress"]["source_head"] == 3
                 block = status["block"]
                 assert block["reason"] == public_reason
+                assert status["evidence"]["block"]["binding"] == TOPIC_MEMORY_SOURCE_WINDOW_BINDING
                 assert "private-provider-detail" not in result.text
                 assert block["persisted"] and (block["source_after"], block["source_through"]) == (0, 1)
                 assert (block["budget_source_through"], block["target_source_through"]) == (1, 2)
@@ -166,6 +169,16 @@ def test_retained_block_preserves_its_reason_and_window(tmp_path, stored_code, p
     asyncio.run(scenario())
 
 
+def test_unsupported_family_explains_missing_evidence(dashboard):
+    scope = create_scope(dashboard, "Unsupported family")["scope_id"]
+    response = dashboard.get(
+        "/dashboard/artifact-processing-status", params={"scope": scope, "family": "unknown-plugin", "lang": "en"}
+    )
+    assert response.status_code == 200
+    section = response.text.split("Evidence origin</h3>", 1)[1].split("</section>")[0]
+    assert "<p>Unavailable</p>" in section
+
+
 def test_empty_topic_scope_has_no_block_provenance(dashboard):
     scope = create_scope(dashboard, "No topic work")["scope_id"]
     response = dashboard.get(f"/v1/scopes/{scope}/processing-status", params={"family": "topic-memory"})
@@ -173,6 +186,9 @@ def test_empty_topic_scope_has_no_block_provenance(dashboard):
     value = response.json()
     assert value["block"] is None and value["availability"]["block"] == "available"
     assert "block" not in value["evidence"]
+    assert value["invocation"] is None
+    for name in ("progress", "dream"):
+        assert value["evidence"][name]["binding"] == TOPIC_MEMORY_SOURCE_WINDOW_BINDING
     html = dashboard.get(
         "/dashboard/artifact-processing-status", params={"scope": scope, "family": "topic-memory", "lang": "en"}
     )
@@ -542,10 +558,11 @@ def test_local_execution_observations_are_scoped_expiring_and_redacted(tmp_path,
 
 
 @pytest.mark.parametrize("backend", ["builtin", "casbin"])
-def test_http_and_dashboard_inspection_require_scope_read(tmp_path, backend):
+def test_http_and_dashboard_inspection_require_scope_read(tmp_path, backend, monkeypatch):
     async def scenario():
         async with _server(tmp_path, backend) as (app, client, _access):
             app.include_router(router, prefix="/dashboard")
+            monkeypatch.setattr(app.state.application.scopes, "_id_factory", lambda: "team/proj")
             scope = await _scope(client)
             await _grant(client, scope, "reader", "scope.viewer")
             saved = await client.post(
@@ -559,10 +576,11 @@ def test_http_and_dashboard_inspection_require_scope_read(tmp_path, backend):
                 "artifact.viewer",
                 _resource(scope, "atomic-memory", saved.json()["records"][0]["artifact"]["artifact_id"]),
             )
+            monkeypatch.setattr(app.state.application, "atomic_memory", None)
             for principal, expected in [("reader", 200), ("stranger", 403), ("artifact-reader", 403)]:
                 headers = {"Authorization": f"Bearer {principal}"}
                 for path, params in [
-                    (f"/v1/scopes/{scope}/processing-status", {"family": "atomic-memory"}),
+                    ("/v1/scopes/team%2Fproj/processing-status", {"family": "atomic-memory"}),
                     ("/dashboard/artifact-processing-status", {"scope": scope, "family": "atomic-memory"}),
                 ]:
                     response = await client.get(path, params=params, headers=headers)
@@ -659,16 +677,24 @@ def test_mounted_status_cache_policy_covers_authentication_and_unhandled_errors(
         raise RuntimeError
 
     async def scenario():
-        async with _runtime(tmp_path) as (runtime, (scope, _)):
+        async with _runtime(tmp_path) as (runtime, _):
+            monkeypatch.setattr(runtime.scopes, "_id_factory", lambda: "team/proj")
+            await runtime.scopes.create(ScopeDraft(title="Team", summary="Project", idempotency_key="team"))
+            monkeypatch.setattr(runtime, "atomic_memory", None)
             credential = "local-fixture"
             api = create_app(application=runtime, middleware=[Middleware(StaticBearerMiddleware, token=credential)])
             host = FastAPI()
             host.mount("/base", api)
             transport = httpx.ASGITransport(app=host, raise_app_exceptions=False)
-            path = f"/base/v1/scopes/{scope}/processing-status"
+            path = "/base/v1/scopes/team%2Fproj/processing-status"
             async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
                 denied = await client.get(path, params={"family": "handoff"})
                 assert denied.status_code == 401 and denied.headers.get("cache-control") == "no-store"
+                accepted = await client.get(
+                    path, params={"family": "handoff"}, headers={"Authorization": f"Bearer {credential}"}
+                )
+                assert accepted.status_code == 200 and accepted.json()["scope_id"] == "team/proj"
+                assert accepted.headers.get("cache-control") == "no-store"
                 monkeypatch.setattr(ScopedProcessingStatusApplication, "status", fail)
                 failed = await client.get(
                     path, params={"family": "handoff"}, headers={"Authorization": f"Bearer {credential}"}

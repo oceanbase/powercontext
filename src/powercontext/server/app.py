@@ -30,21 +30,19 @@ from functools import partial, wraps
 from hashlib import sha256
 from time import perf_counter
 from typing import TYPE_CHECKING, Annotated, Any, Literal, Protocol, TypeVar, cast
-from urllib.parse import quote, unquote
+from urllib.parse import quote
 from uuid import uuid4
 
 from fastapi import Depends, FastAPI, Header, Path, Query, Request, Response, status
 from fastapi import Path as PathParameter
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
-from fastapi.routing import APIRoute
 from opentelemetry.trace import SpanKind
 from pydantic import JsonValue
 from pydantic import ValidationError as PydanticValidationError
 from scalar_fastapi import AgentScalarConfig, get_scalar_api_reference
 from starlette.middleware import Middleware
-from starlette.routing import Match
-from starlette.types import ASGIApp, Lifespan, Scope
+from starlette.types import ASGIApp, Lifespan
 from typing_extensions import override
 
 from powercontext._logging import error_category, log_context, log_safely
@@ -983,6 +981,7 @@ from powercontext.server.plugins import PluginManager
 from powercontext.server.processing_status import ProcessingStatusCacheControl, processing_status_response
 from powercontext.server.request_id import REQUEST_ID_HEADER, HttpRequestIdMiddleware
 from powercontext.server.retrieval_observation import observe_retrieval
+from powercontext.server.routing import EncodedPathAPIRoute
 from powercontext.server.tracing import request_id_from_span
 from powercontext.sources import ConnectorBinding as RuntimeConnectorBinding
 from powercontext.sources import SourceDefinitionManifest as RuntimeSourceDefinitionManifest
@@ -1918,8 +1917,7 @@ def _merge_scope(http_request: Request, scope_id: str, family: str) -> Any:
     return _merge_registry(http_request, family).for_scope(scope_id, family)
 
 
-def _merge_execution_context(http_request: Request, operation: str) -> ArtifactSearchExecutionContext | None:
-    # The shared merge service authorizes every input and result itself.
+def _artifact_execution_context(http_request: Request, operation: str) -> ArtifactSearchExecutionContext | None:
     access = access_control_for_mode(http_request.app.state.access_control, mode=http_request.app.state.access_mode)
     if access is None:
         return None
@@ -1968,7 +1966,7 @@ async def get_artifact_governance(
     http_request: Request,
 ) -> ArtifactGovernanceRecord:
     record = await _merge_scope(http_request, scope_id, family).get(
-        artifact_id, context=_merge_execution_context(http_request, "get_artifact_governance")
+        artifact_id, context=_artifact_execution_context(http_request, "get_artifact_governance")
     )
     return _governance_record(record)
 
@@ -2016,7 +2014,7 @@ async def merge_artifacts(
         artifacts=tuple({(ref.family, ref.artifact_id, ref.revision): ref for ref in references}.values()),
     )
     result = await scoped.merge(
-        inputs, content, lineage=lineage, context=_merge_execution_context(http_request, "merge_artifacts")
+        inputs, content, lineage=lineage, context=_artifact_execution_context(http_request, "merge_artifacts")
     )
     return _governance_response(result)
 
@@ -2049,7 +2047,7 @@ async def forget_artifact(
         artifact_id,
         expected_revision=request.revision,
         expected_state_version=request.state_version,
-        context=_merge_execution_context(http_request, "forget_artifact"),
+        context=_artifact_execution_context(http_request, "forget_artifact"),
     )
     return _governance_response(result)
 
@@ -2087,7 +2085,7 @@ async def restore_artifact(
         artifact_id,
         operation=(request.operation or ArtifactRestorationOperation.RESTORE).value,
         revision=request.revision,
-        context=_merge_execution_context(http_request, "restore_artifact"),
+        context=_artifact_execution_context(http_request, "restore_artifact"),
     )
     return ArtifactRestorationResult(
         changed=result.changed,
@@ -3730,7 +3728,7 @@ async def _plugin_governance(
 
     committed = {item["ref"]["artifact_id"]: item for item in result["records"]}
     scoped = _merge_scope(http_request, scope_id, family)
-    context = _merge_execution_context(http_request, "get_artifact_governance")
+    context = _artifact_execution_context(http_request, "get_artifact_governance")
     records = []
     for artifact_id in ids:
         item = committed.get(artifact_id)
@@ -5173,7 +5171,7 @@ async def get_artifact_processing_status(
             code="processing_status_unavailable",
             message="This application does not provide passive processing inspection.",
         )
-    context = _atomic_execution_context(http_request, GET_ARTIFACT_PROCESSING_STATUS.operation_id)
+    context = _artifact_execution_context(http_request, GET_ARTIFACT_PROCESSING_STATUS.operation_id)
     async with deferred_decision_audit(context):
         result = await ProcessingStatusApplication(application).for_scope(scope_id).status(family, context=context)
     return processing_status_response(result)
@@ -6412,7 +6410,7 @@ def _add_route(
         summary=operation.summary,
         tags=list(operation.tags),
         dependencies=[] if operation.access is None else [Depends(_authorization_dependency(operation))],
-        route_class_override=_EncodedPathAPIRoute if operation.path.startswith("/v1/scopes/") else None,
+        route_class_override=EncodedPathAPIRoute if operation.path.startswith("/v1/scopes/") else None,
         response_model_exclude_unset=response_model_exclude_unset,
     )
 
@@ -7000,32 +6998,6 @@ def _mapping_revision(value: Mapping[str, Any]) -> int:
     if not isinstance(revision, int) or isinstance(revision, bool) or revision < 1:
         raise AccessInvalidRequestError("artifact-reference")
     return revision
-
-
-class _EncodedPathAPIRoute(APIRoute):
-    """Match scoped resources against raw paths and decode each identity exactly once."""
-
-    @override
-    def matches(self, scope: Scope) -> tuple[Match, Scope]:
-        raw_path = scope.get("raw_path")
-        if scope["type"] != "http" or not isinstance(raw_path, bytes):
-            return super().matches(scope)
-        try:
-            encoded_path = raw_path.decode("ascii")
-        except UnicodeDecodeError:
-            return super().matches(scope)
-        encoded_scope = dict(scope)
-        encoded_scope["path"] = encoded_path
-        root_path = scope.get("root_path", "")
-        if root_path:
-            encoded_scope["root_path"] = quote(str(root_path), safe="/")
-        match, child_scope = super().matches(cast(Scope, encoded_scope))
-        if match is not Match.NONE:
-            child_scope["path_params"] = {
-                key: unquote(value) if isinstance(value, str) else value
-                for key, value in child_scope.get("path_params", {}).items()
-            }
-        return match, child_scope
 
 
 def _observe_application_operation(

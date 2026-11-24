@@ -883,6 +883,7 @@
   "context_text_stage_rerank_input": "Input text",
   "context_text_stage_rerank_output": "Output text",
   "ps_title": "Processing status",
+  "ps_label_separator": ": ",
   "ps_scope": "Processing evidence for this Scope, not an individual artifact or search result.",
   "ps_loading": "Reading processing status…",
   "ps_error": "Processing status is unavailable. Saved content remains available.",

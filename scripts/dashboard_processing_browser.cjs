@@ -179,6 +179,22 @@ async function main() {
       await page.unroute(notes);
     }
 
+    // Recover the retained page even when a drawer navigation fails during its closing transition.
+    await root.locator('[data-processing-details]').click();
+    const outgoingDrawer = page.locator('[data-processing-drawer].show');
+    const oldId = await outgoingDrawer.getAttribute('id');
+    await page.route(notes, route => route.fulfill({status: 503}));
+    await pickScope(other);
+    await page.waitForFunction(id => {
+      const root = document.querySelector('[data-artifact-processing]');
+      const drawer = root?.querySelector('[data-processing-drawer]');
+      return drawer && drawer.id !== id && !root.hasAttribute('aria-busy');
+    }, oldId);
+    assert.equal(await snapshot.getAttribute('data-scope'), scope);
+    assert.equal(await root.locator('[data-processing-feedback]').innerText(), '');
+    assert.equal(await page.locator('#scope').inputValue(), scope);
+    await page.unroute(notes);
+
     // A delayed options preload and a replaced navigation must both preserve a newer selection.
     const options = '**/dashboard/scope-options?*';
     const optionsReady = Promise.withResolvers();

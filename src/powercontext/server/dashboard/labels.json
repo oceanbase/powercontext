@@ -883,6 +883,7 @@
   "context_text_stage_rerank_input": "输入原文",
   "context_text_stage_rerank_output": "输出原文",
   "ps_title": "处理状态",
+  "ps_label_separator": "：",
   "ps_scope": "当前 Scope 的处理证据，不限定某条产物或搜索结果。",
   "ps_loading": "正在读取处理状态…",
   "ps_error": "暂时无法读取处理状态。已有内容仍可浏览。",

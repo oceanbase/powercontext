@@ -298,6 +298,32 @@ def test_other_operation_history_does_not_increase_scope_status_read_cost(tmp_pa
     asyncio.run(scenario())
 
 
+def test_sparse_dream_family_read_budget_with_unrelated_tag_revisions(tmp_path):
+    async def scenario():
+        async with _runtime(tmp_path) as (runtime, (scope, _)), runtime.primary_database.transaction() as connection:
+            await _run_record(connection, scope, 0, "revise_tags", "queued", tag_family="handoff")
+            for index in range(1, 5001):
+                await _run_record(connection, scope, index, "revise_tags", tag_family="atomic-memory")
+            steps = 0
+
+            def measure():
+                nonlocal steps
+                steps += 100
+                return 0
+
+            driver = (await connection.get_raw_connection()).driver_connection
+            await driver.set_progress_handler(measure, 100)
+            try:
+                result = await ProcessingStatusInspector().status(connection, scope, "handoff")
+            finally:
+                await driver.set_progress_handler(None, 0)
+            assert [run.run_id for run in result.dream_operations] == ["dr_0"] and result.dream_pending
+            # Allow a linear pass over unindexed tag targets, including the independent pending query.
+            assert steps < 150_000
+
+    asyncio.run(scenario())
+
+
 def test_revise_tags_is_filtered_by_actual_target_family(tmp_path):
     async def scenario():
         async with _runtime(tmp_path) as (runtime, scopes):

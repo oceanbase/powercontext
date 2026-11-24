@@ -29,6 +29,7 @@ from powercontext.http import (
     ArtifactProcessingStatusResponse,
 )
 from powercontext.http._generated.operations import GET_ARTIFACT_PROCESSING_STATUS
+from powercontext.server.routing import encoded_routing_scope
 
 EXECUTOR_TTL_SECONDS = 30
 _STATUS_PATH = compile_path(GET_ARTIFACT_PROCESSING_STATUS.path)[0]
@@ -42,7 +43,9 @@ class ProcessingStatusCacheControl:
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         path = get_route_path(scope) if scope["type"] == "http" and scope["method"] == "GET" else ""
-        if path != "/dashboard/artifact-processing-status" and not _STATUS_PATH.fullmatch(path):
+        if path != "/dashboard/artifact-processing-status" and not (
+            path.endswith("/processing-status") and _STATUS_PATH.fullmatch(get_route_path(encoded_routing_scope(scope)))
+        ):
             await self.app(scope, receive, send)
             return
 
@@ -132,9 +135,7 @@ def processing_status_response(value: ArtifactProcessingStatus) -> ArtifactProce
             "origin": origin,
             "durability": "process_local" if dimension == "executor" else "durable",
             "scope_id": value.scope_id,
-            "binding": (executor.binding if executor else None)
-            if dimension == "executor"
-            else (value.invocation.binding if value.invocation else None),
+            "binding": executor.binding if dimension == "executor" and executor is not None else value.binding,
             "observed_at": observation,
             "read_at": now if dimension == "executor" else value.observed_at,
             "freshness": ("fresh" if fresh else "stale") if dimension == "executor" else "not_applicable",

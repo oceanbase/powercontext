@@ -119,6 +119,7 @@ class ArtifactProcessingStatus:
     dream_pending: bool | None = None
     unavailable_reason: Literal["family_not_supported", "dream_query_failed"] | None = None
     evidence_origin: Literal["durable"] = "durable"
+    binding: str | None = None
 
 
 _SOURCE_FAMILIES = frozenset({"memory", "experience", "profile", "topic-memory"})
@@ -189,6 +190,7 @@ class ProcessingStatusInspector:
             state = ProcessingStatusState.BLOCKED
         return ArtifactProcessingStatus(
             family=family,
+            binding=binding,
             scope_id=scope_id,
             state=state,
             observed_at=now,
@@ -320,8 +322,8 @@ class ProcessingStatusInspector:
                 or_(rows.c.operation != "revise_tags", target == dream_family),
             )
 
-        # Grow the chronological window only while there are more candidate operations than window rows.
-        # Each probe is bounded by the window, even for a Scope with no matching history.
+        # Dense histories can be answered from a short chronological prefix. Cap the prefix
+        # so unrelated tag revisions do not trigger repeated scans of the entire Scope.
         window = 32
         candidates = select(indexed.c.operation).where(
             indexed.c.scope_id == scope_id, indexed.c.operation.in_(operations)
@@ -344,7 +346,10 @@ class ProcessingStatusInspector:
             ).all()
             if len(payloads) == 10:
                 break
-            if await connection.scalar(candidates.offset(window).limit(1)) is not None:
+            remaining = select(table.c.run_id).where(table.c.scope_id == scope_id).offset(window).limit(1)
+            if await connection.scalar(remaining) is None:
+                break
+            if window < 256 and await connection.scalar(candidates.offset(window).limit(1)) is not None:
                 window *= 2
                 continue
             # For sparse families rank keys from matching operations before fetching full records.
@@ -414,12 +419,14 @@ class ScopedProcessingStatusApplication:
                     lease_time_floor = await database_utc_now(connection)
             async with self._runtime.primary_database.transaction(consistent_snapshot=True) as connection:
                 if context is not None:
-                    from powercontext.builtin.records import BaseOperationNotSupportedError
+                    if context.access is not None:
+                        await context.access.require_scope_read(
+                            context.principal, self.scope_id, connection=connection, context=context.audit
+                        )
+                    elif not context.trusted_local:
+                        from powercontext.builtin.authz import AccessDeniedError
 
-                    atomic = self._runtime.atomic_memory
-                    if atomic is None:
-                        raise BaseOperationNotSupportedError("artifact_family", family, "processing_status")
-                    await atomic._application.security.authorize(connection, self.scope_id, context, "read")
+                        raise AccessDeniedError
                 return await ProcessingStatusInspector().status(
                     connection,
                     self.scope_id,

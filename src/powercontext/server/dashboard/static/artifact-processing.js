@@ -142,10 +142,14 @@ limitations under the License.
       if (url.pathname !== location.pathname || scopeChanged || (family && family !== root.dataset.family)) {
         state.suspended = true;
         root.querySelector('[data-processing-refresh]').disabled = true;
-        state.navigation = event.detail.xhr;
+        const navigation = event.detail.xhr;
+        state.navigation = navigation;
         state.controller?.abort();
-        clearTimeout(state.timer);
-        void closeDrawer(root).then(() => root.querySelector('[data-processing-result]')?.replaceChildren());
+        void closeDrawer(root).then(() => {
+          if (state.suspended && state.navigation === navigation) {
+            root.querySelector('[data-processing-result]')?.replaceChildren();
+          }
+        });
       }
     }
   });
@@ -157,9 +161,7 @@ limitations under the License.
       if (!root.isConnected || !state.suspended || state.navigation !== xhr) continue;
       state.navigation = null;
       state.suspended = false;
-      root.removeAttribute('aria-busy');
-      root.querySelector('[data-processing-refresh]').disabled = false;
-      root.querySelector('[data-processing-feedback]').textContent = root.dataset.error;
+      void load(root, state);
     }
   });
   document.addEventListener('htmx:beforeCleanupElement', event => {

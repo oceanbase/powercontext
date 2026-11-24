@@ -176,11 +176,11 @@ class DashboardAPI:
         """Read source-only evidence with snapshot-bound authorization and completed audit."""
         from powercontext.builtin.processing_status import ProcessingStatusApplication
         from powercontext.builtin.runtime.atomic_memory import deferred_decision_audit
-        from powercontext.server.app import _atomic_execution_context
+        from powercontext.server.app import _artifact_execution_context
 
         if self.builtin is None:
             raise ReadError(503, "operation_not_supported")
-        context = _atomic_execution_context(self.request, "dashboard_processing_status")
+        context = _artifact_execution_context(self.request, "dashboard_processing_status")
         try:
             async with asyncio.timeout(5), deferred_decision_audit(context):
                 return (
