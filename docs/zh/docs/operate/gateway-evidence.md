@@ -104,16 +104,17 @@ null 表示分类不可得，不是 `success` 或 `noop`。销毁时存在取消
 `empty`（没有消息、system/developer 消息，或只有这类条目）。嵌入式宿主未判定该调用时为 `null`。
 
 Chat 请求按规范化角色与工具调用是否存在判定。Responses 请求把非用户 item 逐字放在 `tool` 承载里，因此类型取自
-item 自身的 `role` 与 `type`：`function_call*` 与 `*_output` 条目为工具续写，助手消息与 reasoning 一类条目为
-assistant_only，system/developer 消息为 empty。判定不读取消息正文，不新增 provider 或 Core 请求，也不改变请求处理。
+item 自身的 `role` 与 `type`：客户端工具调用、其工具结果以及 MCP 审批往返为工具续写，助手消息、reasoning 一类
+条目以及服务商已在响应内执行完毕的工具为 assistant_only，system/developer 消息为 empty。判定本身不读取消息正文，
+不新增 provider 或 Core 请求；只有 `user_turn` 准备并注入上下文，其他类型都跳过准备与重放。
 
 执行器还为每次判定输出一条 debug 级结构化事件，字段为 `turn_kind`；需要记录时提高 core crate 的 `RUST_LOG`。
-各类型累计次数与跳过准备次数是进程内累计计数器（`Executor::turn_counters()`），不是指标标签或逐记录字段；
-它们在进程重启后归零，口径覆盖每次判定，包括不具备上下文注入资格的请求。跳过开关抑制准备时，`call` 记录把
-`prepare_skipped` 设为 `true`，否则为 `false`。服务停止时，生产宿主以 INFO 级输出一条
-`gateway turn classification totals` 事件，携带同样的五个计数（`user_turn`、`tool_continuation`、`assistant_only`、
-`empty`、`skipped_prepare`）；该事件不含请求身份，`RUST_LOG` 过滤仍然生效。
-[上下文注入设置](deploy-server.md#网关上下文注入)说明该开关。
+各类型累计次数与跳过准备次数是进程内累计计数器（`Executor::turn_counters()`），不是指标标签或逐记录字段；它们
+在进程重启后归零。四类分项计数覆盖每次判定，包括不具备上下文注入资格的请求；跳过准备次数只覆盖具备注入资格的
+请求。具备注入资格且尾部不是用户回合时，`call` 记录把 `prepare_skipped` 设为 `true`；用户回合以及不具备注入
+资格的请求保持 `false`。服务停止时，生产宿主以 INFO 级输出一条 `gateway turn classification totals` 事件，
+携带同样的五个计数（`user_turn`、`tool_continuation`、`assistant_only`、`empty`、`skipped_prepare`）；该事件
+不含请求身份，`RUST_LOG` 过滤仍然生效。
 
 ## 终态与发送事实
 

@@ -16,11 +16,11 @@ Blocked calls return HTTP 403. Withheld calls return HTTP 400 unless the executo
 
 ## Memory
 
-In a combined UDS deployment, recall injection is enabled by default for requests with a conversation ID. The Gateway prepares context once per new user message and reuses it for tool continuations in that turn. Core verifies the injected text and its binding. Empty or failed preparation leaves the request uninjected.
+In a combined UDS deployment, recall injection is enabled by default. The Gateway prepares and injects context only on a user turn; tool continuations, assistant continuations and empty tails are sent without recall or injection. Core verifies the injected text and its binding. Empty or failed preparation leaves the request uninjected.
 
 Use `X-PowerContext-Conversation-ID` to identify a conversation. The Gateway also recognizes client session headers from OpenCode, Codex and translated Claude Code traffic. See [context injection settings](../docs/en/docs/operate/deploy-server.md#gateway-context-injection) for header precedence and subagent handling. Standalone deployments require `PC_GATEWAY_INJECTION=on` to enable injection.
 
-The Gateway classifies each request tail as `user_turn`, `tool_continuation`, `assistant_only` or `empty`, and records it in call evidence and debug logs without changing request handling. Responses items are classified by their own role and type rather than the verbatim carrier. `PC_GATEWAY_TURN_SKIP_PREPARE=on` skips preparation for a tool continuation that has no replay entry; it is off by default and read at startup.
+The Gateway classifies each request tail as `user_turn`, `tool_continuation`, `assistant_only` or `empty`, and records it in call evidence and debug logs. Responses items are classified by their own role and type rather than the verbatim carrier. Every kind other than `user_turn` skips preparation and replay.
 
 Set `PC_GATEWAY_SEDIMENT=on` to capture completed user turns as Sources for later extraction. Capture excludes injected context and provider reasoning ciphertext. Tool continuations remain open until the final response. Long turns are split into Sources, and Core stores all parts in one batch. With a trusted conversation ID, captures share a turn digest and include a digest of the ordered normalized Source parts in their Source IDs. Distinct terminal records are stored independently; identical normalized parts are idempotent even when provider response IDs or usage change. Existing Sources remain unchanged, and a repeated capture under the former turn-only ID creates a new Source. Capture requires a Core that supports batch capture. Capture failure does not prevent response delivery. Blocked and degraded turns are not captured.
 

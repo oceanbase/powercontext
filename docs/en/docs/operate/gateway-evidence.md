@@ -116,19 +116,21 @@ assistant-side item without a tool call), or `empty` (no messages, a system/deve
 kind). It is `null` when the embedding host did not classify the call.
 
 Chat requests classify by normalized role and tool-call presence. Responses requests keep non-user items verbatim in
-a `tool` carrier, so their kind comes from the item's own `role` and `type`: `function_call*` and `*_output` items are
-tool continuations, assistant messages and reasoning-like items are assistant-only, and system/developer messages are
-empty. Classification reads no message content, adds no provider or Core request, and does not change request handling.
+a `tool` carrier, so their kind comes from the item's own `role` and `type`: client tool calls, their outputs, and MCP
+approval round trips are tool continuations; assistant messages, reasoning-like items and tools the provider already
+completed are assistant-only; system/developer messages are empty. Classification itself reads no message content and
+adds no provider or Core request. Only `user_turn` prepares and injects context; every other kind skips preparation and
+replay.
 
 The executor also emits one debug-level structured event per decision with a `turn_kind` field; raise `RUST_LOG` for
-the core crate to record it. Per-kind totals and the skipped-preparation count are process-local cumulative counters
-(`Executor::turn_counters()`), never metric labels or per-record fields; they reset on process restart and cover every
-classified call, including requests that are not eligible for context injection. When the skip switch suppresses
-preparation, the `call` record sets `prepare_skipped` to `true`; otherwise it is `false`.
+the core crate to record it. Per-kind totals are process-local cumulative counters (`Executor::turn_counters()`) that
+cover every classified call, including requests that are not eligible for context injection. The skipped-preparation
+count covers only calls eligible for injection. All counters are never metric labels or per-record fields, and they
+reset on process restart. A call eligible for injection whose tail is not a user turn sets `prepare_skipped` to
+`true`; a user turn, and any call that is not eligible for injection, keeps it `false`.
 When serving stops, the production host logs one `gateway turn classification totals` event at INFO with the same five
 counts (`user_turn`, `tool_continuation`, `assistant_only`, `empty`, `skipped_prepare`). It carries no request identity,
 and `RUST_LOG` filtering applies.
-The [context injection settings](deploy-server.md#gateway-context-injection) describe that switch.
 
 ## Terminal and send facts
 
