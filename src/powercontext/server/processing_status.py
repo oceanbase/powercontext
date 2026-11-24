@@ -16,6 +16,7 @@
 
 from datetime import UTC, datetime, timedelta
 
+from powercontext.builtin.processing_diagnostics import ProcessingDiagnostics
 from powercontext.builtin.processing_status import ArtifactProcessingStatus
 from powercontext.http import (
     ArtifactProcessingExecutor,
@@ -24,6 +25,15 @@ from powercontext.http import (
 )
 
 EXECUTOR_TTL_SECONDS = 30
+
+
+def _block_reason(diagnostics: ProcessingDiagnostics | None) -> str | None:
+    if diagnostics is None:
+        return None
+    # These structural limits have a known cause but no general failure category.
+    if diagnostics.failure_location in {"source_complexity_limit", "related_history_limit"}:
+        return diagnostics.failure_location
+    return diagnostics.reason
 
 
 def processing_status_response(value: ArtifactProcessingStatus) -> ArtifactProcessingStatusResponse:
@@ -68,7 +78,7 @@ def processing_status_response(value: ArtifactProcessingStatus) -> ArtifactProce
             if dimension == "executor"
             else (value.invocation.binding if value.invocation else None),
             "observed_at": observation,
-            "read_at": value.observed_at,
+            "read_at": now if dimension == "executor" else value.observed_at,
             "freshness": ("fresh" if fresh else "stale") if dimension == "executor" else "not_applicable",
         }
     return ArtifactProcessingStatusResponse.model_validate({
@@ -94,7 +104,7 @@ def processing_status_response(value: ArtifactProcessingStatus) -> ArtifactProce
         "block": None
         if block is None
         else {
-            "reason": None if block.diagnostics is None else block.diagnostics.reason,
+            "reason": _block_reason(block.diagnostics),
             "stage": None if block.diagnostics is None else block.diagnostics.stage,
             "source_after": block.source_after,
             "source_through": block.source_through,

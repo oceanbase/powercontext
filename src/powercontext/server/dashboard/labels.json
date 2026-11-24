@@ -953,6 +953,8 @@
   "ps_schedule_retry_backoff": "观察时处于重试退避。",
   "ps_schedule_policy_block": "观察时受调度策略阻塞。",
   "ps_schedule_idle": "观察时本进程未执行此调用。",
+  "ps_reason_source_complexity_limit": "Source 复杂度达到上限",
+  "ps_reason_related_history_limit": "关联历史记录达到上限",
   "ps_reason_context_overflow": "上下文超出限制",
   "ps_reason_output_truncated": "输出被截断",
   "ps_reason_rate_limit": "请求受到限流",

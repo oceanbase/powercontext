@@ -85,7 +85,21 @@ def test_processing_summary_and_drawer_localize_family(dashboard, family, page, 
         assert f"{scope} · {label}<br>" in response.text
 
 
-def test_retained_block_preserves_its_window_after_source_head_advances(tmp_path):
+@pytest.mark.parametrize(
+    ("stored_code", "public_reason", "en_reason", "zh_reason"),
+    [
+        ("window_attempt_limit", "usage_limit", "Processing usage limit reached", "处理用量达到限制"),
+        (
+            "source_complexity_limit",
+            "source_complexity_limit",
+            "Source complexity limit reached",
+            "Source 复杂度达到上限",
+        ),
+        ("related_history_limit", "related_history_limit", "Related history limit reached", "关联历史记录达到上限"),
+        ("private-provider-detail", None, "No safe reason available", "未提供安全原因"),
+    ],
+)
+def test_retained_block_preserves_its_reason_and_window(tmp_path, stored_code, public_reason, en_reason, zh_reason):
     async def scenario():
         async with _runtime(tmp_path) as (runtime, (scope, _)):
             sources = runtime.sources.for_scope(scope)
@@ -106,7 +120,7 @@ def test_retained_block_preserves_its_window_after_source_head_advances(tmp_path
                         attempts=3,
                         requests=4,
                         tokens=120,
-                        error_code="window_attempt_limit",
+                        error_code=stored_code,
                         blocked_at=datetime.now(UTC).replace(tzinfo=None),
                     )
                 )
@@ -120,12 +134,20 @@ def test_retained_block_preserves_its_window_after_source_head_advances(tmp_path
                 status = result.json()
                 assert status["progress"]["target_source_through"] is None and status["progress"]["source_head"] == 3
                 block = status["block"]
+                assert block["reason"] == public_reason
+                assert "private-provider-detail" not in result.text
                 assert block["persisted"] and (block["source_after"], block["source_through"]) == (0, 1)
                 assert (block["budget_source_through"], block["target_source_through"]) == (1, 2)
                 html = await client.get(
                     "/dashboard/artifact-processing-status", params={**params, "scope": scope, "lang": "en"}
                 )
                 html.raise_for_status()
+                zh = await client.get(
+                    "/dashboard/artifact-processing-status", params={**params, "scope": scope, "lang": "zh"}
+                )
+                zh.raise_for_status()
+                assert en_reason in html.text and zh_reason in zh.text
+                assert "private-provider-detail" not in html.text + zh.text
                 assert "after 0, through 1 (inclusive)" in html.text
                 assert (
                     "Target for this block: 2" in html.text
@@ -325,6 +347,10 @@ def test_local_execution_observations_are_scoped_expiring_and_redacted(tmp_path,
                     "dirty_generation",
                     "clean_generation",
                 }.isdisjoint(result["executor"])
+                sample = result["evidence"]["executor"]
+                assert datetime.fromisoformat(sample["observed_at"]) <= datetime.fromisoformat(sample["read_at"])
+                assert datetime.fromisoformat(sample["read_at"]) <= datetime.fromisoformat(result["queried_at"])
+                assert result["evidence"]["invocation"]["read_at"] == result["observed_at"]
                 assert result["evidence"]["executor"]["scope_id"] == scopes[0]
                 assert result["evidence"]["executor"]["durability"] == "process_local"
                 assert result["evidence"]["executor"]["freshness"] == ("fresh" if age == 0 else "stale")
