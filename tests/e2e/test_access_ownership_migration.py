@@ -1177,6 +1177,8 @@ def test_approval_retry_after_migration_accepts_only_the_attested_owner(
 
             retry = await client.post("/v1/candidates/approve", json=approve)
             assert retry.status_code == retry_status, retry.json()
+            if retry_status == 409:
+                assert retry.json()["error"]["code"] == "artifact-owner"
             relation = await access.artifact_owner(resource)
             assert relation is not None and relation.owner == migration_owner
 
