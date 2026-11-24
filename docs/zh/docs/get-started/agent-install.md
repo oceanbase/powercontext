@@ -28,7 +28,7 @@ Agent 会先检测环境，再问你几个问题，然后安装、配置并带�
 ```bash
 uname -s; uname -m
 getconf GNU_LIBC_VERSION 2>/dev/null || sw_vers -productVersion 2>/dev/null
-for agent in codex opencode claude pi openclaw hermes dsh; do command -v "$agent" >/dev/null && echo "agent: $agent"; done
+for agent in codex opencode claude zcode kimi pi openclaw hermes dsh; do command -v "$agent" >/dev/null && echo "agent: $agent"; done
 test -f "$HOME/.codex/auth.json" && echo "codex login: present"
 command -v powercontext >/dev/null && powercontext --version
 ```
@@ -353,7 +353,11 @@ POWERCONTEXT_SERVER_INFERENCE_PROTECTION='{"mode":"disabled","targets":{"team-up
 POWERCONTEXT_SERVER_INFERENCE_PREFIX_EXTRACTION_GATEWAY_URL=http://127.0.0.1:8787
 ```
 
-网关监听网络地址时，还要让 Server 带上网关的 Key，在写好网关配置后追加 `POWERCONTEXT_SERVER_INFERENCE_PREFIX_EXTRACTION_GATEWAY_HEADERS='{"Authorization":"Bearer <gateway-key>"}'`，用下文生成的网关 Key 替换，不要显示它。
+Server 调用网关时还要带上网关的 Key。写好网关配置后，用下面的命令追加，不要显示 Key：
+
+```bash
+printf 'POWERCONTEXT_SERVER_INFERENCE_PREFIX_EXTRACTION_GATEWAY_HEADERS='"'"'{"Authorization":"Bearer %s"}'"'"'\n' "$(sed -n 's/^PC_GATEWAY_API_KEY=//p' "$HOME/powercontext/gateway.env")" >> "$HOME/powercontext/.env"
+```
 
 关闭 one-pass 时追加 `POWERCONTEXT_SERVER_RUNTIME_ATOMIC_MEMORY_PROCESSING_MODE=per_candidate`。
 
@@ -419,7 +423,7 @@ PC_GATEWAY_UPSTREAM_URL_RESPONSES=<upstream-endpoint>
 PC_GATEWAY_UPSTREAM_API_KEY_RESPONSES=
 ```
 
-- `PC_GATEWAY_UPSTREAM_API_KEY_RESPONSES=` 留空，请管理员填写上游的 API key。
+- `PC_GATEWAY_UPSTREAM_API_KEY_RESPONSES=` 留空，请管理员填写上游的 API key，确认填好后再启动网关。
 - 关闭注入时改为 `PC_GATEWAY_INJECTION=off`，关闭采集时删除 `PC_GATEWAY_SEDIMENT=on`。关闭 Steering 时追加 `PC_GATEWAY_STEERING=off`，使用团队指令时追加 `PC_GATEWAY_STEERING_FILE=<文件路径>`。关闭前缀抽取时追加 `PC_GATEWAY_PREFIX_EXTRACTION=off`。
 - 开启认证时，网关调用 Server 需要同一个 Token。用下面的命令复制，不要显示：
 
@@ -427,11 +431,13 @@ PC_GATEWAY_UPSTREAM_API_KEY_RESPONSES=
   printf 'PC_GATEWAY_CORE_TOKEN=%s\n' "$(sed -n 's/^POWERCONTEXT_SERVER_AUTH_TOKEN=//p' "$HOME/powercontext/.env")" >> "$HOME/powercontext/gateway.env"
   ```
 
-- 直接监听网络地址时，网关也要监听网络地址，并且必须设置成员使用的 Key：
+- 成员通过反向代理或网络访问网关，所以要生成成员使用的网关 Key，不要显示它：
 
   ```bash
-  printf 'PC_GATEWAY_LISTEN=0.0.0.0:8787\nPC_GATEWAY_API_KEY=%s\n' "$(python3 -c 'import secrets; print(secrets.token_urlsafe(32))')" >> "$HOME/powercontext/gateway.env"
+  printf 'PC_GATEWAY_API_KEY=%s\n' "$(python3 -c 'import secrets; print(secrets.token_urlsafe(32))')" >> "$HOME/powercontext/gateway.env"
   ```
+
+- 直接监听网络地址时，再追加 `PC_GATEWAY_LISTEN=0.0.0.0:8787`。
 
 执行 `chmod 600 "$HOME/powercontext/gateway.env"`，然后按[第 3a 步](#让网关自动启动)创建 `run-gateway.sh` 并让网关自动启动。
 
@@ -439,12 +445,12 @@ PC_GATEWAY_UPSTREAM_API_KEY_RESPONSES=
 
 ### 验收
 
-部署网关时，用一个请求模拟成员的 Agent。请求带上会话标识，网关监听网络地址时带上网关 Key：
+部署网关时，用一个请求模拟成员的 Agent，带上会话标识和网关 Key：
 
 ```bash
 . "$HOME/powercontext/gateway.env"
 curl -s http://127.0.0.1:8787/gateway/v1/responses \
-  -H 'Content-Type: application/json' -H "Authorization: Bearer ${PC_GATEWAY_API_KEY:-local}" \
+  -H 'Content-Type: application/json' -H "Authorization: Bearer $PC_GATEWAY_API_KEY" \
   -H 'X-PowerContext-Conversation-ID: admin-check-1' \
   -d '{"model":"<upstream-model>","input":"我们团队决定：所有接口返回的时间一律使用 UTC。请复述这条约定。"}'
 ```
@@ -457,11 +463,11 @@ curl -s http://127.0.0.1:17429/v1/memory/search -H 'Content-Type: application/js
   -d '{"scope_id":"<scope_id>","query":"接口 时间 UTC","limit":5}'
 ```
 
-结果的 `hits` 中应有这条约定。不部署网关时，用 `powercontext` CLI 或 MCP 显式保存一条记忆再检索。
+结果的 `hits` 中应有这条约定。记忆由模型改写，按意思核对，不要按原句匹配。不部署网关时，用 `powercontext` CLI 或 MCP 显式保存一条记忆再检索。
 
 完成后告诉管理员：
 
-- 成员需要的连接信息：Server 地址，开启认证时还有 `.env` 中的 Token；部署了网关时还有网关地址 `http://<主机地址>:8787/gateway/v1` 和 `gateway.env` 中的 `PC_GATEWAY_API_KEY`。成员如何接入由管理员安排，本页不涉及。
+- 成员需要的连接信息：Server 地址，开启认证时还有 `.env` 中的 Token；部署了网关时还有网关地址和 `gateway.env` 中的 `PC_GATEWAY_API_KEY`。地址取决于访问方式：使用反向代理时是代理对外的 HTTPS 地址，使用 SSH 转发时是成员本机转发后的地址，直接监听网络地址时是 `http://<主机地址>:17429` 和 `http://<主机地址>:8787/gateway/v1`。成员如何接入由管理员安排，本页不涉及。
 - 对外提供 HTTPS 时，在反向代理中转发到 `127.0.0.1:17429` 和 `127.0.0.1:8787`。
 - `.env` 和 `gateway.env` 包含密钥，不要提交到 Git。
 
@@ -479,7 +485,7 @@ curl -s http://127.0.0.1:17429/v1/memory/search -H 'Content-Type: application/js
      -d '{"scope_id":"<scope_id>","query":"金额 整数分","limit":5}'
    ```
 
-   结果的 `hits` 中应有这条约定。插件路径下，把地址换成 `.env` 中的 `POWERCONTEXT_CLIENT_SERVER_URL`，使用 Agent 绑定的 Scope；启用认证时加上 `Authorization: Bearer` 请求头。
+   结果的 `hits` 中应有这条约定。记忆由模型改写，措辞和标点会变化，按意思核对，不要按原句匹配。插件路径下，把地址换成 `.env` 中的 `POWERCONTEXT_CLIENT_SERVER_URL`，使用 Agent 绑定的 Scope；启用认证时加上 `Authorization: Bearer` 请求头。
 3. 请用户开启**新的会话**，提问："这个项目里金额怎么存储？"回答应当给出整数分的约定。
 4. 网关路径下，确认生成记忆复用了 Agent 的缓存前缀：在 `powercontext service status` 给出的日志中查找 `atomic_memory.prefixed_extraction`。找到表示 Server 尝试过前缀抽取；轮次较短时，Server 会因为不划算而回退到普通生成，这是正常行为。
 

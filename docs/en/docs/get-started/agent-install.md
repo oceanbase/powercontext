@@ -28,7 +28,7 @@ Run these and record the results; do not ask the user:
 ```bash
 uname -s; uname -m
 getconf GNU_LIBC_VERSION 2>/dev/null || sw_vers -productVersion 2>/dev/null
-for agent in codex opencode claude pi openclaw hermes dsh; do command -v "$agent" >/dev/null && echo "agent: $agent"; done
+for agent in codex opencode claude zcode kimi pi openclaw hermes dsh; do command -v "$agent" >/dev/null && echo "agent: $agent"; done
 test -f "$HOME/.codex/auth.json" && echo "codex login: present"
 command -v powercontext >/dev/null && powercontext --version
 ```
@@ -353,7 +353,11 @@ With prefix extraction, also append:
 POWERCONTEXT_SERVER_INFERENCE_PREFIX_EXTRACTION_GATEWAY_URL=http://127.0.0.1:8787
 ```
 
-When the Gateway listens on a network address, the Server must also send the Gateway key. After writing the Gateway configuration, append `POWERCONTEXT_SERVER_INFERENCE_PREFIX_EXTRACTION_GATEWAY_HEADERS='{"Authorization":"Bearer <gateway-key>"}'` with the Gateway key generated below, without showing it.
+The Server must also send the Gateway key when calling the Gateway. After writing the Gateway configuration, append it with the command below, without showing the key:
+
+```bash
+printf 'POWERCONTEXT_SERVER_INFERENCE_PREFIX_EXTRACTION_GATEWAY_HEADERS='"'"'{"Authorization":"Bearer %s"}'"'"'\n' "$(sed -n 's/^PC_GATEWAY_API_KEY=//p' "$HOME/powercontext/gateway.env")" >> "$HOME/powercontext/.env"
+```
 
 Without one-pass, append `POWERCONTEXT_SERVER_RUNTIME_ATOMIC_MEMORY_PROCESSING_MODE=per_candidate`.
 
@@ -419,7 +423,7 @@ PC_GATEWAY_UPSTREAM_URL_RESPONSES=<upstream-endpoint>
 PC_GATEWAY_UPSTREAM_API_KEY_RESPONSES=
 ```
 
-- Leave `PC_GATEWAY_UPSTREAM_API_KEY_RESPONSES=` empty and ask the administrator to fill in the upstream API key.
+- Leave `PC_GATEWAY_UPSTREAM_API_KEY_RESPONSES=` empty and ask the administrator to fill in the upstream API key. Start the Gateway only after the administrator confirms.
 - To turn injection off, use `PC_GATEWAY_INJECTION=off`; to turn capture off, delete `PC_GATEWAY_SEDIMENT=on`. To turn Steering off, append `PC_GATEWAY_STEERING=off`; for team instructions, append `PC_GATEWAY_STEERING_FILE=<file path>`. To turn prefix extraction off, append `PC_GATEWAY_PREFIX_EXTRACTION=off`.
 - With authentication, the Gateway needs the same token to call the Server. Copy it with the command below, without showing it:
 
@@ -427,11 +431,13 @@ PC_GATEWAY_UPSTREAM_API_KEY_RESPONSES=
   printf 'PC_GATEWAY_CORE_TOKEN=%s\n' "$(sed -n 's/^POWERCONTEXT_SERVER_AUTH_TOKEN=//p' "$HOME/powercontext/.env")" >> "$HOME/powercontext/gateway.env"
   ```
 
-- When listening on a network address, the Gateway also listens on one and must have the key members use:
+- Members reach the Gateway through a reverse proxy or the network, so generate the Gateway key they use, without showing it:
 
   ```bash
-  printf 'PC_GATEWAY_LISTEN=0.0.0.0:8787\nPC_GATEWAY_API_KEY=%s\n' "$(python3 -c 'import secrets; print(secrets.token_urlsafe(32))')" >> "$HOME/powercontext/gateway.env"
+  printf 'PC_GATEWAY_API_KEY=%s\n' "$(python3 -c 'import secrets; print(secrets.token_urlsafe(32))')" >> "$HOME/powercontext/gateway.env"
   ```
+
+- When listening on a network address, also append `PC_GATEWAY_LISTEN=0.0.0.0:8787`.
 
 Run `chmod 600 "$HOME/powercontext/gateway.env"`, then create `run-gateway.sh` and start the Gateway automatically as in [step 3a](#start-the-gateway-automatically).
 
@@ -439,12 +445,12 @@ Run `chmod 600 "$HOME/powercontext/gateway.env"`, then create `run-gateway.sh` a
 
 ### Acceptance check
 
-With the Gateway, simulate a member's Agent with one request. Send a conversation identifier, and the Gateway key when the Gateway listens on a network address:
+With the Gateway, simulate a member's Agent with one request that sends a conversation identifier and the Gateway key:
 
 ```bash
 . "$HOME/powercontext/gateway.env"
 curl -s http://127.0.0.1:8787/gateway/v1/responses \
-  -H 'Content-Type: application/json' -H "Authorization: Bearer ${PC_GATEWAY_API_KEY:-local}" \
+  -H 'Content-Type: application/json' -H "Authorization: Bearer $PC_GATEWAY_API_KEY" \
   -H 'X-PowerContext-Conversation-ID: admin-check-1' \
   -d '{"model":"<upstream-model>","input":"Our team decided that every API response returns times in UTC. Repeat this convention."}'
 ```
@@ -457,11 +463,11 @@ curl -s http://127.0.0.1:17429/v1/memory/search -H 'Content-Type: application/js
   -d '{"scope_id":"<scope_id>","query":"API response times UTC","limit":5}'
 ```
 
-The `hits` in the result include the convention. Without the Gateway, save a memory explicitly with the `powercontext` CLI or MCP and search for it.
+The `hits` in the result include the convention. The model rewrites memories, so check the meaning, not an exact string. Without the Gateway, save a memory explicitly with the `powercontext` CLI or MCP and search for it.
 
 When done, tell the administrator:
 
-- What members need to connect: the Server address, and the token in `.env` when authentication is enabled; with the Gateway, also the Gateway address `http://<host address>:8787/gateway/v1` and `PC_GATEWAY_API_KEY` from `gateway.env`. How members connect is up to the administrator and is not covered here.
+- What members need to connect: the Server address, and the token in `.env` when authentication is enabled; with the Gateway, also the Gateway address and `PC_GATEWAY_API_KEY` from `gateway.env`. The addresses depend on the access method: the proxy's public HTTPS address with a reverse proxy, the member's forwarded local address with SSH forwarding, or `http://<host address>:17429` and `http://<host address>:8787/gateway/v1` when listening on a network address. How members connect is up to the administrator and is not covered here.
 - For HTTPS, forward the reverse proxy to `127.0.0.1:17429` and `127.0.0.1:8787`.
 - `.env` and `gateway.env` contain keys; do not commit them to Git.
 
@@ -479,7 +485,7 @@ Ask the user to start the Agent: on the Gateway path, with `codex-pc` or `openco
      -d '{"scope_id":"<scope_id>","query":"money amounts integer cents","limit":5}'
    ```
 
-   The `hits` in the result include the convention. On the plugin path, use `POWERCONTEXT_CLIENT_SERVER_URL` from `.env` as the address and the Scope the Agent binds; with authentication, add an `Authorization: Bearer` header.
+   The `hits` in the result include the convention. The model rewrites memories, so wording and punctuation change; check the meaning, not an exact string. On the plugin path, use `POWERCONTEXT_CLIENT_SERVER_URL` from `.env` as the address and the Scope the Agent binds; with authentication, add an `Authorization: Bearer` header.
 3. Ask the user to open a **new session** and ask: "How are money amounts stored in this project?" The answer gives the integer-cents convention.
 4. On the Gateway path, confirm that memory generation reused the Agent's cached prefix: look for `atomic_memory.prefixed_extraction` in the logs that `powercontext service status` names. Its presence shows the Server attempted prefix extraction. For short turns, the Server falls back to normal generation because reuse is not cheaper; that is expected.
 
