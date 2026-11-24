@@ -8922,6 +8922,46 @@ components:
           type: integer
           minimum: 0
           nullable: true
+    ArtifactProcessingExecutor:
+      type: object
+      additionalProperties: false
+      required:
+      - binding
+      - family
+      - state
+      - reason
+      - observed_at
+      - scheduler_observed
+      - running_seconds
+      - next_check_seconds
+      - retry_failures
+      properties:
+        binding:
+          type: string
+        family:
+          type: string
+          nullable: true
+        state:
+          $ref: '#/components/schemas/ProcessingState'
+        reason:
+          $ref: '#/components/schemas/ProcessingReason'
+        observed_at:
+          type: string
+          format: date-time
+        scheduler_observed:
+          type: boolean
+        running_seconds:
+          type: number
+          minimum: 0
+          nullable: true
+        next_check_seconds:
+          type: number
+          minimum: 0
+          nullable: true
+        retry_failures:
+          type: integer
+          minimum: 0
+          nullable: true
     ArtifactProcessingBlock:
       type: object
       additionalProperties: false
@@ -8929,6 +8969,8 @@ components:
       - reason
       - stage
       - source_after
+      - source_through
+      - budget_source_through
       - target_source_through
       - attempts
       - requests
@@ -8946,6 +8988,16 @@ components:
         source_after:
           type: integer
           minimum: 0
+        source_through:
+          type: integer
+          minimum: 0
+          nullable: true
+          description: Inclusive end of the attempted Source window, when recorded.
+        budget_source_through:
+          type: integer
+          minimum: 0
+          nullable: true
+          description: Inclusive end of the Source window used for budget accounting, when recorded.
         target_source_through:
           type: integer
           minimum: 0
@@ -9083,7 +9135,7 @@ components:
           - {type: string, nullable: true, enum: [null]}
         executor:
           anyOf:
-          - $ref: '#/components/schemas/ArtifactProcessingObservation'
+          - $ref: '#/components/schemas/ArtifactProcessingExecutor'
           - {type: string, nullable: true, enum: [null]}
         executor_expires_at:
           type: string

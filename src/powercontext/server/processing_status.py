@@ -17,32 +17,13 @@
 from datetime import UTC, datetime, timedelta
 
 from powercontext.builtin.processing_status import ArtifactProcessingStatus
-from powercontext.builtin.statistics.models import ProcessingObservation
-from powercontext.http import ArtifactProcessingStatusResponse
+from powercontext.http import (
+    ArtifactProcessingExecutor,
+    ArtifactProcessingObservation,
+    ArtifactProcessingStatusResponse,
+)
 
 EXECUTOR_TTL_SECONDS = 30
-
-
-def _observation(value: ProcessingObservation | None):
-    if value is None:
-        return None
-    return value.model_dump(
-        include={
-            "binding",
-            "family",
-            "state",
-            "reason",
-            "observed_at",
-            "scheduler_observed",
-            "requested_generation",
-            "handled_generation",
-            "dirty_generation",
-            "clean_generation",
-            "running_seconds",
-            "next_check_seconds",
-            "retry_failures",
-        }
-    )
 
 
 def processing_status_response(value: ArtifactProcessingStatus) -> ArtifactProcessingStatusResponse:
@@ -105,8 +86,10 @@ def processing_status_response(value: ArtifactProcessingStatus) -> ArtifactProce
             "target_source_through": progress.target_source_through,
             "pending_inputs": progress.pending_inputs,
         },
-        "invocation": _observation(value.invocation),
-        "executor": _observation(executor),
+        "invocation": ArtifactProcessingObservation.model_validate(value.invocation, from_attributes=True)
+        if value.invocation
+        else None,
+        "executor": ArtifactProcessingExecutor.model_validate(executor, from_attributes=True) if executor else None,
         "executor_expires_at": expires,
         "block": None
         if block is None
@@ -114,6 +97,8 @@ def processing_status_response(value: ArtifactProcessingStatus) -> ArtifactProce
             "reason": None if block.diagnostics is None else block.diagnostics.reason,
             "stage": None if block.diagnostics is None else block.diagnostics.stage,
             "source_after": block.source_after,
+            "source_through": block.source_through,
+            "budget_source_through": block.budget_source_through,
             "target_source_through": block.target_source_through,
             "attempts": block.attempts,
             "requests": block.requests,

@@ -204,6 +204,8 @@ Memory, Topic Memory, Experience, Skill, current Profile, Handoff and Prompt col
 
 Source consumption, invocation intent, execution observation, blocks and Dream records are independent evidence. A Source block can coexist with pending Dream work. Skills, Handoffs and Prompts have no Source consumption path. A caught-up cursor or acknowledged invocation does not establish publication. Dream history is bounded to ten records, while pending work is checked independently. Proposed candidates remain subject to review; successful `no_change` and `needs_evidence` retain their separate meanings.
 
+The four generation counters belong to the durable invocation. For Topic Memory, the drawer shows the attempted Source interval (exclusive start, inclusive end), the budget end when recorded, and the target associated with the block. The current journal head can advance beyond all three.
+
 | Artifact page | Source evidence | Dream operations |
 | --- | --- | --- |
 | Memory | Consumption cursor and journal head | `revise_memory` |
