@@ -1,12 +1,12 @@
 # PowerContext Rust Gateway
 
-An optional Rust executor for PowerContext, defined by the gateway design in #2199 and the context-protection contract in #2264. The gateway owns the model traffic boundary; every decision stays in PowerContext Core ("no policy in the gateway").
+The optional Rust Gateway adds PowerContext recall and conversation capture to OpenAI-compatible model traffic. PowerContext Core decides whether a request may be sent and whether its response may be released. See [RFC 2199](../docs/en/rfcs/2199-powercontext-gateway.md) for the design.
 
-> Status: working prototype. The target-bound path is covered through real Core, Gateway and local upstream TCP listeners with authenticated Scope permissions; it has not been verified against an external model provider. Requires a Core that supports privileged target resolution in `/v1/context/check` and `include_reuse`.
+The Core-bound egress path requires privileged target resolution in `/v1/context/check` and `include_reuse`. It has been exercised with real Core and local upstream TCP listeners, not an external provider. See the [1.6.0 release notes](../release/notes/powercontext-v1.6.0.md) for compatibility.
 
-## Features
+## Model traffic
 
-### Model traffic pipeline (per request)
+The Gateway serves `/gateway/v1/chat/completions` and `/gateway/v1/responses`. It checks the final request with Core before sending it, then buffers the response and checks it before releasing content. Clients requesting a stream receive buffered replay after approval, rather than live token delivery. Upstream error statuses are preserved.
 
 - **Two-phase gate executor**: `check(before_send)` → send admitted bytes → `check(before_release)` → release. Opaque bindings thread the two phases (`request_binding` must be the send-phase binding). HTTP success alone is never treated as approval; unknown never becomes allow.
 - **Privacy enforcement by Core, executed by the gateway**: forbidden content is blocked before any byte leaves the gateway (zero-send on block/withhold, zero-release on refuse, upstream cancel on refusal).
@@ -15,13 +15,11 @@ An optional Rust executor for PowerContext, defined by the gateway design in #21
 - **Streaming ingestion** (`stream: true`): upstream SSE is received incrementally with a byte cap; first HTTP body byte latency is measured from before the response-header wait, while model TTFT remains unknown. Strict semantics hold — the complete raw response is buffered and must pass `before_release` before anything is released to the client. (The current public carrier in #2264 withholds streaming payloads; the pipeline is ready for when the contract allows it.)
 - **Status-code fidelity**: upstream errors pass through with their original status code (a provider 402/400 is never masked as 200), and `Content-Type` is preserved.
 
-### Memory features (#2199 capabilities)
+The default upstream uses the same API format as the client. [Subscription adapters](SUBSCRIPTIONS.md) provide channel-specific conversions. The Gateway does not serve the Anthropic Messages API.
 
-- **Auto-recall injection**: for each new user message the gateway calls `prepare` with `include_reuse`, and injects the returned prepared context **verbatim** into the current user message. The exact UTF-8 byte range is declared in `prepared_contexts` (`ModelJsonTextLocation`); Core verifies the digest of the declared range against the signed reuse binding — a single byte changed by the gateway is rejected. Empty or failed prepares inject nothing and never block the main path. Injection is tail-only (current message), so the client-owned history prefix stays byte-stable (KV prefix-cache friendly, verified with DeepSeek `cached_tokens`).
-  A request that belongs to a conversation gets the RFC 2199 lifecycle. The gateway takes the conversation from `X-PowerContext-Conversation-ID` when the host sends one; otherwise from the client's native session header: Claude Code `x-claude-code-session-id` combined with `x-claude-code-agent-id` (subagents share the session ID), OpenCode `x-opencode-session-id` (a child session has its own ID; the shared affinity headers are not used), or, on `/gateway/v1/responses` only, Codex `thread-id` (a subagent has its own thread ID; the `session-id` and `prompt_cache_key` it shares with its parent are not used). Claude Code speaks the Anthropic Messages API, which the gateway does not serve, so its headers take effect only behind a proxy that translates its requests to the Chat or Responses route. Within a conversation, a request whose messages up to and including the last user message are unchanged (a tool continuation or retry) replays the exact prepared content and binding without another retrieval, and a new user message prepares once. Replay state is partitioned by Scope and conversation ID, kept in memory, bounded, and expires with the reuse binding (at most 5 minutes). Without a conversation, every request prepares on its own and never inherits an earlier injection. An empty result is replayed as well; a failed `prepare` is retried by the next request and never blocks it. Every send and release still goes through `check`.
-- **Sedimentation**: each distinct terminal record of a user turn is captured synchronously, via `capture_content_sources` when its terminal response is released: one that needs no client-executed tool. On the Responses route, built-in tools that complete inside the response (web search, file search, code interpreter, image generation, MCP calls) count as finished, while client-executed calls (`*_call` items, MCP approval requests) and unrecognized items keep the turn open (millisecond-scale durable write; extraction happens later in PC background workers). Tool-calling responses in between are not captured. The captured `gateway_turn` record (projection `gateway-turn-text.v2`) is normalized from the pre-injection request and the terminal response, and keeps the whole turn: the user text, then other messages, visible reasoning summaries, each tool call (name and every argument field), tool outputs and errors, including built-in tool calls and their returned results, and unrecognized items, then the final assistant text. Provider reasoning ciphertext, IDs, statuses, usage and other transport metadata are left out, and `data:` URLs (screenshots, images) become placeholders with their size. No field is truncated and no step is omitted; a turn over 50,000 tokens by Core's character estimate, or over Core's effective Atomic Memory input limit when that is lower, is captured as consecutive Sources, `<source_id>-<i>of<n>` whose metadata `turn` names the turn and the part. All parts of a turn go to Core in one batch request, which stores all of them or none; a Core that does not report `context_protection.limits.capture_batch_sources` does not offer it, and the gateway then logs an error at startup and captures no turn (`sediment_failed:batch_unsupported`). `source_id` combines the turn digest (Scope, trusted conversation ID, and pre-injection messages up to the last user message) with a digest of the ordered, normalized Source parts. Distinct terminal records from one turn are stored independently; identical normalized parts are idempotent even when provider response IDs or usage change. Metadata retains `turn_digest` to group these captures, and Core journal positions establish storage order. Partitioning into Source parts remains part of the normalized capture identity, so changing the capture size limit can produce a new identity for the same logical answer. Existing Sources are unchanged; a repeat captured under the former turn-only ID creates a new Source. Core still rejects a conflicting immutable Source or batch with 409 (`sediment_duplicate`). Without a trusted conversation, identical messages in different conversations are never merged, and each release keeps its own `source_id` from the release binding. Blocked and degraded turns are never captured, and a failed capture is recorded without blocking the release. The full loop — conversation → capture → background extraction into Atomic Memory → `prepare` recall in a *new* session — has been verified end-to-end.
+Blocked calls return HTTP 403. Withheld calls return HTTP 400 unless the executor marks them retryable, in which case they return HTTP 409. Currently, only a nonempty reason list containing exclusively `context-refresh-required` is retryable. Admission expiry also returns HTTP 409. A retry after upstream generation may spend provider quota again.
 
-### Deployment & ops
+## Memory
 
 - **Two deployment forms**: *combined* (Rust owns the public TCP port; Core listens only on a private Unix socket; all non-`/gateway` routes are reverse-proxied to Core over UDS) or *standalone* (TCP to a remote Core).
 - **UDS client**: hand-rolled HTTP/1.1 over the Unix socket with a pooled, keep-alive connection pool (bounded idle set, connect/read timeouts, operation-aware single retry, one complete-operation timeout, content-length truncation and chunked-trailer consumption — covered by a real-socket regression test).
@@ -33,156 +31,108 @@ An optional Rust executor for PowerContext, defined by the gateway design in #21
 - **Middleware chain**: composable `GatewayMiddleware` trait; ships with resource limits (request-body precheck + concurrency semaphore, health probe exempt) and request-id propagation (`x-powercontext-request-id`, client-supplied or generated, echoed on responses).
 - **Body-free evidence**: bounded JSONL on stdout (1024 queued records plus one in flight), correlated call/attempt terminals, per-field usage completeness and cache reads, explicit first-byte/release/framework timing and separate first model-content frame observation; model TTFT stays unknown. Operational tracing uses stderr and omits configured Core URLs/socket paths. Common operation/unit/outcome fields align with the Server vocabulary; the managed Server OTLP pipeline does not ingest Gateway JSONL by default. See the [output and deployment contract](../docs/en/docs/operate/gateway-evidence.md) / [中文](../docs/zh/docs/operate/gateway-evidence.md). `PC_GATEWAY_EVIDENCE=off` explicitly disables coverage.
 
-## PC call sequence over UDS
+Use `X-PowerContext-Conversation-ID` to identify a conversation. The Gateway also recognizes client session headers from OpenCode, Codex and translated Claude Code traffic. See [context injection settings](../docs/en/docs/operate/deploy-server.md#gateway-context-injection) for header precedence and subagent handling. Standalone deployments require `PC_GATEWAY_INJECTION=on` to enable injection.
 
-All gateway→Core calls go through one `GateClient` (UDS in combined form, TCP in standalone form). UDS shares an idle connection pool; TCP uses fresh HTTP/1 connections. For one chat request with injection and sedimentation enabled:
+Set `PC_GATEWAY_SEDIMENT=on` to capture completed user turns as Sources for later extraction. Capture excludes injected context and provider reasoning ciphertext. Tool continuations remain open until the final response. Capture requires Core batch support; capture failure does not prevent response delivery.
 
-```
-client ──POST /gateway/v1/chat/completions──▶ gateway (middleware: limits → request-id)
-                                                │
- 1. prepare     gateway ──▶ POST /v1/context/prepare (query = last user message,
-              ◀──          include_reuse=true)
-                content (trust preamble + marker block) + reuse binding (5 min)
-                — injected verbatim; byte range recorded; failure/empty ⇒ no injection
-                                                │
- 2. check       gateway ──▶ POST /v1/context/check  phase=before_send
-  (send gate)   ◀──          allow + send binding + Core endpoint/protocol (60 s) | block ⇒ 403; withhold ⇒ 400 (retryable ⇒ 409), zero send
-                                                │
- 3. send        gateway ──▶ upstream provider (admitted bytes only; the single egress)
-              ◀──          complete raw response (+ usage)
-                                                │
- 4. check       gateway ──▶ POST /v1/context/check  phase=before_release
-  (release                (payload = complete raw response, request_binding = send binding)
-   gate)        ◀──          allow + release binding          | block ⇒ 403; withhold ⇒ 400 (retryable ⇒ 409),
-                                                                     nothing released
-                                                │
- 5. capture     gateway ──▶ POST /v1/sources/content/batch (transcript JSON,
-              ◀──          source_id = turn + record digests)                 — terminal response only;
-                                                                     failure is evidence-only
-                                                │
-client ◀── 200 (upstream status/content-type preserved, request-id echoed) ── gateway
+For a supported Responses upstream, prefix extraction is enabled by default; `PC_GATEWAY_PREFIX_EXTRACTION=off` disables it. With a subscription this applies to `codex` only, on a Core confirmed as non-enforcing, and the Core-approved destination must match the subscription endpoint. Capture remains opt-in. See [prefix extraction settings](../docs/en/docs/operate/deploy-server.md#memory-extraction-over-the-cached-prefix).
+
+## Steering
+
+Responses requests include the [built-in cost guidance](crates/pc-gateway-app/src/default_steering.txt) by default. Set `PC_GATEWAY_STEERING_FILE` to replace it, or `PC_GATEWAY_STEERING=off` to disable steering even when a file is configured. Chat requests are unchanged. Both `PC_GATEWAY_STEERING` and `PC_GATEWAY_PREFIX_EXTRACTION` accept only `on` or `off` when set. See [instruction settings](../docs/en/docs/operate/deploy-server.md#gateway-instruction).
+
+## Run
+
+Download the matching native archive from the [PowerContext Release](https://github.com/oceanbase/powercontext/releases) and verify its SHA256 before installation. Linux (glibc 2.28+) and macOS 15+ archives cover x86_64 and arm64; macOS archives are unsigned and not notarized. Core and provider CLI requirements apply separately from the Gateway's platform baseline. See [Install the Gateway](../docs/en/docs/operate/install-gateway.md) / [安装 Gateway](../docs/zh/docs/operate/install-gateway.md) for commands, Core configuration, compatibility checks and upgrade steps. `pc-gateway --version` reports release version, source commit and target without connecting to Core. Python packages do not include this executable.
+
+If the selected Release has no Gateway archive, build from its source tag. From the repository root:
+
+```bash
+cargo build --locked --manifest-path gateway/Cargo.toml --release
 ```
 
-Everything else (Core's 127 domain operations, MCP, dashboard) is reverse-proxied to Core over the same UDS socket, untouched by gateway logic.
+For a combined deployment, start Core on a private Unix socket and configure an approved upstream profile and an accessible Scope:
+
+```bash
+PC_GATEWAY_CORE_UDS=/path/to/core.sock \
+PC_GATEWAY_CORE_TOKEN="$POWERCONTEXT_DEPLOYMENT_TOKEN" \
+PC_GATEWAY_UPSTREAM_PROFILE=approved-provider \
+PC_GATEWAY_DEFAULT_SCOPE=your-scope \
+PC_GATEWAY_API_KEY="$GATEWAY_CLIENT_TOKEN" \
+PC_GATEWAY_UPSTREAM_API_KEY_CHAT="$PROVIDER_API_KEY" \
+./gateway/target/release/pc-gateway
+```
+
+The Rust process owns the public listener and forwards other routes to Core over UDS. For a standalone Gateway, set `PC_GATEWAY_CORE_BASE` to the Core HTTP URL instead; standalone mode does not reverse-proxy Core routes.
+
+`PC_GATEWAY_API_KEY` authenticates the two model routes and is required for every listener. Forwarded Core API, MCP and Dashboard requests retain the client's credentials. `PC_GATEWAY_CORE_TOKEN` authenticates Gateway-initiated Core calls. See [deployment authentication](../docs/en/docs/operate/deploy-server.md#gateway-authentication-boundaries) before exposing the service.
+
+Request size, response buffering and concurrency have separate limits. The effective input limit includes Core's advertised capacity and the parser ceiling; increasing a deployment setting cannot bypass either. See [byte capacity](../docs/en/docs/operate/deploy-server.md#gateway-byte-capacity) for limits and failure statuses. Operational JSONL omits request and response bodies; its configuration is in [Gateway evidence](../docs/en/docs/operate/gateway-evidence.md).
+
+## OAuth subscriptions
+
+`PC_GATEWAY_SUBSCRIPTION` selects `codex`, `copilot`, `grok`, `qwen`, `kimi` or `gemini`; Claude CLI is not supported by Core-bound egress because its internal sends cannot be observed. HTTP channels require an explicit credential path in `PC_GATEWAY_SUBSCRIPTION_CREDENTIALS`. Copilot, Qwen and Kimi also support `pc-gateway login <provider> <new-file>`.
+
+See [OAuth subscriptions](SUBSCRIPTIONS.md) for login steps, credential renewal, supported routes and protection limits. Gemini disables context injection. Subscription credentials are sent only when Core approves their exact endpoint.
 
 ## Layout
 
 | Crate | Responsibility |
 | --- | --- |
-| `pc-gateway-app` | thin binary: ingress, port-takeover proxy, middleware chain |
-| `pc-gateway-core` | executor state machine, GateClient (check/prepare/capture/capabilities) over TCP or UDS |
-| `pc-gateway-types` | contract DTOs aligned field-by-field with #2264 |
-| `pc-gateway-protocol` | canonical request, chat/responses wire renderers, SSE framing |
-| `pc-gateway-transport` | single-attempt upstream transport, streaming buffer with caps |
-| `pc-gateway-evidence` | bounded body-free JSONL evidence (calls, attempts, usage, delivery boundaries) |
-| `pc-gateway-embedded` | placeholder for the in-process (FFI) executor path |
-
-## Run
-
-```bash
-cargo build --release
-
-# Combined deployment (Core on a Unix socket)
-PC_GATEWAY_CORE_UDS=/path/to/pc.sock \
-PC_GATEWAY_UPSTREAM_PROFILE=<approved profile name> \
-PC_GATEWAY_DEFAULT_SCOPE=<scope id> \
-PC_GATEWAY_CORE_TOKEN=<authorized-service-token> \
-PC_GATEWAY_API_KEY=<distinct-client-token> \
-PC_GATEWAY_UPSTREAM_API_KEY_CHAT=... \
-./target/release/pc-gateway
-
-# Injection (prepare + inject on the Chat and Responses routes): in the combined deployment (PC_GATEWAY_CORE_UDS)
-# requests that belong to a conversation (X-PowerContext-Conversation-ID or a recognized client session header)
-# are injected by default; standalone is off by default.
-# PC_GATEWAY_INJECTION=on injects every request, PC_GATEWAY_INJECTION=off disables injection, and
-# PC_GATEWAY_INJECTION_RESPONSES=off keeps the Responses route uninjected, and PC_GATEWAY_INJECTION_CODE=on adds code
-# evidence from the Scope's code index (off by default).
-# Optional: PC_GATEWAY_STEERING_FILE (a fixed operator instruction added to Responses requests after the client's
-# base prompt; read and validated at startup), PC_GATEWAY_SEDIMENT=on (capture after release),
-# PC_GATEWAY_MAX_CONCURRENT / PC_GATEWAY_MAX_BODY_BYTES.
-# PC_GATEWAY_UPSTREAM_PROFILE_RESPONSES=<profile> explicitly enables the Responses route.
-# PC_GATEWAY_CORE_TOKEN is required even for UDS and Core deployments without authentication.
-# PC_GATEWAY_PREFIX_EXTRACTION=on (with PC_GATEWAY_SEDIMENT=on: keep each Responses turn's prefix in memory for
-# 30 minutes and serve POST /gateway/v1/extract, so Core extracts memory over the provider's prompt cache).
-```
+| `pc-gateway-app` | Listener, ingress, reverse proxy and middleware |
+| `pc-gateway-core` | Execution and Core check, prepare, capture and capability calls |
+| `pc-gateway-auth` | Provider authentication and credential storage |
+| `pc-gateway-types` | Core contract DTOs |
+| `pc-gateway-protocol` | Request rendering, provider conversions and SSE framing |
+| `pc-gateway-transport` | HTTP and CLI execution, buffering and bounded retry |
+| `pc-gateway-evidence` | Call, attempt, usage and delivery records |
+| `pc-gateway-embedded` | Placeholder for an embedded executor |
 
 Core `InferenceConfig.protection.targets[<profile>]` owns the endpoint, model and protocol. Configure
-an authenticated service principal with both `gateway.invoke` and `scope.read` on the chosen Scope,
+an authenticated service principal with `gateway.invoke` and `scope.read` on the selected Scope,
 and pass its bearer token as `PC_GATEWAY_CORE_TOKEN` (UDS alone does not authenticate).
-Each route selects one profile per Gateway instance: Chat uses `PC_GATEWAY_UPSTREAM_PROFILE`,
-and Responses uses `PC_GATEWAY_UPSTREAM_PROFILE_RESPONSES` when enabled. A request for a different
-model is rejected before sending, including when privacy enforcement is disabled. Deploy separately
-configured Gateway instances if one route must serve multiple models.
-For a TCP Core link, privileged target resolution requires HTTPS, except for HTTP to literal
-loopback IP addresses such as `PC_GATEWAY_CORE_BASE=http://127.0.0.1:8000` or `http://[::1]:8000`.
-Plain HTTP hostnames, including `http://localhost:8000`, are rejected: DNS resolution does not
-establish loopback trust. Use a literal loopback IP, HTTPS, or `PC_GATEWAY_CORE_UDS` instead.
-All TCP Core RPCs connect directly and ignore ambient HTTP proxy settings (including `HTTP_PROXY`
-and `ALL_PROXY`); a loopback URL is trusted only when it actually reaches the loopback listener.
-`PC_GATEWAY_API_KEY` is a separate mandatory client-facing secret: missing or identical credentials
-prevent startup. This first iteration authenticates the Gateway client, but does not map individual
-client identities to distinct Core principals or enforce per-client Scope authorization. Gateway
-holds the upstream credential as `PC_GATEWAY_UPSTREAM_API_KEY_CHAT` (or `_RESPONSES`); this
-single credential identity per route is an operator-owned assumption, not a Core-verified account
-or region binding. Never reuse one profile across credential identities with different permissions.
-The upstream transport connects directly to the Core-approved endpoint; it ignores ambient
-`HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY`, and related proxy settings so that an unapproved proxy
-cannot receive the model payload or provider credential. The Core-approved endpoint must be
-directly reachable; ambient HTTP proxies are not supported for upstream sends.
-The removed `PC_GATEWAY_UPSTREAM_URL*` variables cause a startup error rather than a fallback.
-Credentials are never accepted from request fields and never enter check payloads.
+Chat uses `PC_GATEWAY_UPSTREAM_PROFILE`; Responses requires `PC_GATEWAY_UPSTREAM_PROFILE_RESPONSES`.
+Requests for other models are rejected, even when privacy enforcement is disabled. Deploy separate
+Gateway instances for multiple models. The client-facing `PC_GATEWAY_API_KEY` must be distinct
+from the Core token. Neither key authenticates a client to Core's forwarded API routes.
+The transport connects directly to the Core-approved endpoint and ignores ambient HTTP proxies;
+the removed `PC_GATEWAY_UPSTREAM_URL*` variables cause a startup error. Credentials never enter
+Core check payloads.
 
 ## Tests
 
-`cargo test` covers failure semantics (gate unavailable, withhold, fresh admission on bounded retry, indeterminate no-resend, and blocked turns never sediment), renderer fidelity, byte-range declarations, lifecycle control, and UDS framing. The suite includes mandatory spawned Python Core UDS recovery acceptance and separate optional TCP binding tests. See the retry section below for the Python prerequisite and evidence limits.
+Run controlled tests from the repository root:
 
-`cargo test --locked -p pc-gateway-app --test gateway_behaviors` verifies the public proxy contract through a real gateway subprocess and loopback HTTP peers: Chat fields and the developer role, Responses text input, tool continuations, streamed arguments and usage, error statuses, and the exact bytes submitted to both check phases. See the [fixture notes](crates/pc-gateway-app/tests/fixtures/republic/README.md) for sources and licenses. Core verdicts and provider responses are scripted; real Core and provider compatibility require separate acceptance checks.
+```bash
+cargo test --locked --manifest-path gateway/Cargo.toml --workspace -- --skip live_
+```
 
-`make gateway-tck` runs pinned upstream SDK compatibility and Open Responses compliance tests against a direct baseline and the actual Rust gateway. It requires Node/npm, Go 1.26+, Python 3.11+, and network access to fetch pinned test sources and dependencies. See [protocol test coverage](tck/README.md) for the selected suites and execution boundary.
+These tests use local HTTP peers, synthetic credentials and subprocess fixtures. They cover admission, release, protocol conversion, credential rotation and cancellation. [OAuth fixtures](../tests/fixtures/oauth/README.md) and [protocol fixture notes](crates/pc-gateway-app/tests/fixtures/republic/README.md) record their sources and scope.
 
-`cargo test --locked --workspace` exercises executor outcomes and pending-future destruction, actual HTTP transport fixtures, strict release/framework order, queue overflow, slow/failing writers and privacy markers. The `live_context_check` tests return early when no real Core is reachable; a green workspace run alone is not real-Core/provider/host acceptance. No hosted-model calls are required.
+For live subscription acceptance, run from the repository root with an existing Codex CLI login and GitHub CLI authentication:
+
+```bash
+cargo build --locked --manifest-path gateway/Cargo.toml -p pc-gateway-app
+uv run python tests/e2e/oauth_subscription_acceptance.py
+```
+
+The harness uses GPT-6 Luna for Codex and Claude Haiku 5.5 for Copilot Chat, spending subscription usage without starting a login flow. It creates disposable authenticated Core and Gateway processes, temporary SQLite storage and a private UDS. Checks cover native generation and artifact readback, recall injection, conversation capture, API authentication and generation through the Gateway with automatic recall and capture disabled. Inference protection is disabled for native subscription adapters. Select one channel with `--channel codex` or `--channel copilot`; results are written to `.powercontext/oauth-live/report.json`. Use `--routes-only` to check JSON and SSE consumption through the OpenAI SDK for supported Chat and Responses routes; results are written to `.powercontext/oauth-live/routes-report.json`.
+
+The four `live_context_check` tests require a separate Core configured with enforcing protection and a `coding` profile. Their current helper targets `127.0.0.1:8000` without a Bearer token; use an isolated test deployment rather than an authenticated personal service.
+
+`make gateway-tck`, run from the repository root, checks pinned upstream SDKs and Open Responses behavior against a direct baseline and the Gateway. Its prerequisites and coverage are in the [TCK README](tck/README.md). Controlled tests do not establish live provider, account or CLI compatibility.
 
 ## Execution deadline and cancellation
 
-Model ingress establishes one absolute monotonic deadline of 180 seconds before reading the body.
-Intake, parsing, preparation, admission, provider sending, release checks, capture, response handoff, and local delivery
-consume that budget. Admission refreshes and permitted retries keep the original deadline. HTTP and UDS
-Core RPCs run inline under this control, including connection/pool waits and response framing; repeated
-reads cannot extend the deadline. Startup capabilities discovery retains its separate 10-second bound.
-Provider attempts retain their existing 120-second limit, further bounded by remaining call time.
-Core admission validity and correlation windows remain separate authorization constraints.
+Model ingress establishes one absolute monotonic deadline of 180 seconds before reading the body. Intake, parsing, preparation, admission, provider sending, release checks, capture, response handoff, and local delivery consume that budget. Admission refreshes and permitted retries keep the original deadline. HTTP and UDS Core RPCs run inline under this control, including connection/pool waits and response framing; repeated reads cannot extend the deadline. Startup capabilities discovery retains its separate 10-second bound. Provider attempts retain their existing 120-second limit, further bounded by remaining call time. Core admission validity and correlation windows remain separate authorization constraints.
 
-Rust callers supply `RequestControl::new(deadline, request_id)`, retain its `lifecycle()`, `cancellation()`,
-and `observation()` handles, and pass the one-shot control to `Executor::run`. `cancel()` stops pending
-local execution; `cancel_with(LifecycleStopReason::GatewayShutdown)` also supports the service owner's
-shutdown cause. `ManagedOutcome::Stopped { reason, model_send }` agrees with the retained execution
-snapshot. Cancellation intent alone does not rewrite completed terminals. A known interrupted execution
-has `ExecutionTerminal::Stopped(reason)`; dropping unknown unfinished execution still records `Abandoned`.
-Before Executor startup, lifecycle interruption retains `NotStarted`.
+Rust callers supply `RequestControl::new(deadline, request_id)`, retain its `lifecycle()`, `cancellation()`, and `observation()` handles, and pass the one-shot control to `Executor::run`. `cancel()` stops pending local execution; `cancel_with(LifecycleStopReason::GatewayShutdown)` also supports the service owner's shutdown cause. `ManagedOutcome::Stopped { reason, model_send }` agrees with the retained execution snapshot. Cancellation intent alone does not rewrite completed terminals. A known interrupted execution has `ExecutionTerminal::Stopped(reason)`; dropping unknown unfinished execution still records `Abandoned`. Before Executor startup, lifecycle interruption retains `NotStarted`.
 
-Ingress attaches the same `RequestLifecycle`, `RequestCancellation`, and `ExecutionObservation` to
-response extensions for the next local owner. The Executor and ingress own their futures inline and
-create no request cleanup tasks. Embedding owners that spawn tasks must cancel and join them themselves.
-The app explicitly drives Hyper HTTP/1 connection futures. Model responses declare `Connection: close`;
-normal completion of that connection records local completion. The original deadline also bounds pending
-response writes; expiration can truncate output, and error JSON is best effort. Framework-observed client
-disconnects stop local work with `request_cancelled`. Unobserved network loss remains bounded by the deadline.
-Neither observation establishes client receipt, provider billing cancellation, or remote rollback.
+Ingress attaches the same `RequestLifecycle`, `RequestCancellation`, and `ExecutionObservation` to response extensions for the next local owner. The Executor and ingress own their futures inline and create no request cleanup tasks. Embedding owners that spawn tasks must cancel and join them themselves. The app explicitly drives Hyper HTTP/1 connection futures. Model responses declare `Connection: close`; normal completion of that connection records local completion. The original deadline also bounds pending response writes; expiration can truncate output, and error JSON is best effort. Framework-observed client disconnects stop local work with `request_cancelled`. Unobserved network loss remains bounded by the deadline. Neither observation establishes client receipt, provider billing cancellation, or remote rollback.
 
-The model concurrency permit transfers to the connection owner before ingress starts and is released after
-Hyper's connection, inline request work, body, and pending write buffers end. Body EOF/drop and response
-extensions do not establish connection completion. `ExecutionSnapshot::local_delivery` distinguishes
-`NotStarted`, `InProgress`, `Completed`, and `Interrupted(reason)`; delivery interruption preserves completed
-execution terminals and model-send facts. Retaining an observation does not retain the permit or payload.
-Fallback retains its independent quota, body lifetime, authentication, and keep-alive behavior, without the
-model deadline or forced connection closure. UDS Core connections retain their idle pool. HTTP Core/provider requests use fresh HTTP/1 connections to prevent hidden stale-connection resends. Service-level
-bounded drain and process exit follow the shutdown policy below.
+The model concurrency permit transfers to the connection owner before ingress starts and is released after Hyper's connection, inline request work, body, and pending write buffers end. Body EOF/drop and response extensions do not establish connection completion. `ExecutionSnapshot::local_delivery` distinguishes `NotStarted`, `InProgress`, `Completed`, and `Interrupted(reason)`; delivery interruption preserves completed execution terminals and model-send facts. Retaining an observation does not retain the permit or payload. Fallback retains its independent quota, body lifetime, authentication, and keep-alive behavior, without the model deadline or forced connection closure. UDS Core connections retain their idle pool. HTTP Core/provider requests use fresh HTTP/1 connections to prevent hidden stale-connection resends. Service-level bounded drain and process exit follow the shutdown policy below.
 
-When an HTTP error can still be returned, deadline expiration maps to 504 and shutdown to 503. An explicit
-in-process cancellation uses 503 if a response channel remains available; there is no cancellation endpoint
-or nonstandard cancellation status. The lifecycle JSON contains independent `decision` and `model_send`
-fields, registered in `openapi/powercontext.yaml`. Stopping preserves possible sending and complete response
-facts; it does not establish zero cost, remote rollback, safe resend, release authorization, or delivery.
+When an HTTP error can still be returned, deadline expiration maps to 504 and shutdown to 503. An explicit in-process cancellation uses 503 if a response channel remains available; there is no cancellation endpoint or nonstandard cancellation status. The lifecycle JSON contains independent `decision` and `model_send` fields, registered in `openapi/powercontext.yaml`. Stopping preserves possible sending and complete response facts; it does not establish zero cost, remote rollback, safe resend, release authorization, or delivery.
 
 ## Retry and Core RPC recovery
 
@@ -197,53 +147,18 @@ A timeout, partial response, or disconnect after request handoff retains possibl
 triggers an automatic resend or fallback. The transport no longer exports `BoundedRetry` or `RetryOutcome`;
 embedding callers that used them must route model retries through the Executor.
 
-Both Core clients allow at most one eligible transport retry. Check and capabilities are read-only.
-Capture serializes once and replays the same Scope, content Source identity, body, and full metadata;
-an existing equal capture returns its original journal position, while changed content or metadata remains
-conflicting. Prepare reconnects only on proof that zero request bytes were handed off. Missing response
-headers, EOF, and timeouts do not prove non-execution. Authentication failures, explicit rejections,
-malformed responses, and capture conflicts are not retried.
+Both Core clients allow at most one eligible transport retry. Check and capabilities are read-only. Capture serializes once and replays the same Scope, content Source identity, body, and full metadata; an existing equal capture returns its original journal position, while changed content or metadata remains conflicting. Prepare reconnects only on proof that zero request bytes were handed off. Missing response headers, EOF, and timeouts do not prove non-execution. Authentication failures, explicit rejections, malformed responses, and capture conflicts are not retried.
 
-HTTP Core operations have one 10-second local budget and UDS operations one 30-second local budget,
-including connection acquisition, writes, both attempts, response bodies and trailers. Managed calls may
-stop earlier under their shared deadline/cancellation; startup capabilities keeps its independent 10-second
-bound. The UDS pool bounds idle connections, not active concurrency, and has no capacity-wait queue.
-Reqwest automatic retries and redirects are disabled. HTTP Core/provider clients use fresh HTTP/1
-connections, also preventing hyper's implicit stale-pool replay; this increases connection and TLS setup
-cost. UDS retains operation-aware keep-alive reuse.
+HTTP Core operations have one 10-second local budget and UDS operations one 30-second local budget, including connection acquisition, writes, both attempts, response bodies and trailers. Managed calls may stop earlier under their shared deadline/cancellation; startup capabilities keeps its independent 10-second bound. The UDS pool bounds idle connections, not active concurrency, and has no capacity-wait queue. Reqwest automatic retries and redirects are disabled. HTTP Core/provider clients use fresh HTTP/1 connections, also preventing hyper's implicit stale-pool replay; this increases connection and TLS setup cost. UDS retains operation-aware keep-alive reuse.
 
-`cargo test --locked --manifest-path gateway/Cargo.toml --workspace` requires an installed project Python
-at `.venv/bin/python` (override with `PC_TEST_PYTHON`) for mandatory real-Core UDS recovery acceptance.
-Core startup failure fails that test. The older optional TCP binding tests still use their separate port-8000
-availability check.
-
+`cargo test --locked --manifest-path gateway/Cargo.toml --workspace` requires an installed project Python at `.venv/bin/python` (override with `PC_TEST_PYTHON`) for mandatory real-Core UDS recovery acceptance. Core startup failure fails that test. The older optional TCP binding tests still use their separate port-8000 availability check.
 
 ## Staged process shutdown
 
-On Unix, SIGTERM or Ctrl-C closes model-attempt admission directly in the signal handler. The first
-handler invocation records a monotonic timestamp; repeated signals never restart the budget. Before
-listening, the app installs the handlers and starts a native watchdog thread independent of Tokio.
-The listener then closes and existing HTTP/1 connections enter graceful shutdown. Established or
-buffered requests cannot bypass closed model admission. Calls still in intake, prepare, admission, or
-retry admission stop with `gateway_shutdown` when no model request is outstanding.
+On Unix, SIGTERM or Ctrl-C closes model-attempt admission directly in the signal handler. The first handler invocation records a monotonic timestamp; repeated signals never restart the budget. Before listening, the app installs the handlers and starts a native watchdog thread independent of Tokio. The listener then closes and existing HTTP/1 connections enter graceful shutdown. Established or buffered requests cannot bypass closed model admission. Calls still in intake, prepare, admission, or retry admission stop with `gateway_shutdown` when no model request is outstanding.
 
-Already handed-off calls may finish response checks, capture, and local delivery under their original
-180-second request deadline and a common drain deadline 25 seconds after the first signal. Normally
-drained calls retain their business result without a shutdown stop reason. Explicit cancellation and
-observable disconnect still stop work. A transport attempt subsequently proved unsent cannot retry.
-Fallback keeps its Core authentication, independent quota, and long connections during normal service;
-its connections share shutdown deadlines, including long MCP SSE streams.
+Already handed-off calls may finish response checks, capture, and local delivery under their original 180-second request deadline and a common drain deadline 25 seconds after the first signal. Normally drained calls retain their business result without a shutdown stop reason. Explicit cancellation and observable disconnect still stop work. A transport attempt subsequently proved unsent cannot retry. Fallback keeps its Core authentication, independent quota, and long connections during normal service; its connections share shutdown deadlines, including long MCP SSE streams.
 
-At drain expiry, the service ends remaining connections, cancels managed tasks, and joins their actual
-owners. Hyper, inline request/body work, and pending output are destroyed before connection-held
-permits and controls are released. Owner joins and Tokio runtime destruction must finish before the
-same signal's 30-second total exit deadline. The watchdog remains armed after the owner set empties.
-If cleanup cannot finish, it invokes Unix `_exit(1)` without further logging, destructors, atexit hooks,
-or joins. This covers non-yielding request work and already-running `spawn_blocking` tasks; Tokio
-cannot preempt them. As with any process deadline, OS scheduling has a finite measurement tolerance.
+At drain expiry, the service ends remaining connections, cancels managed tasks, and joins their actual owners. Hyper, inline request/body work, and pending output are destroyed before connection-held permits and controls are released. Owner joins and Tokio runtime destruction must finish before the same signal's 30-second total exit deadline. The watchdog remains armed after the owner set empties. If cleanup cannot finish, it invokes Unix `_exit(1)` without further logging, destructors, atexit hooks, or joins. This covers non-yielding request work and already-running `spawn_blocking` tasks; Tokio cannot preempt them. As with any process deadline, OS scheduling has a finite measurement tolerance.
 
-Abnormal process exit is not proof of per-request cleanup, provider rollback, or client receipt. Known
-or uncertain remote operations retain their meaning. This executable does not start a Python
-supervisor, close the Python Core database, or implement restart generations. The RFC 2199 parent
-must own those responsibilities and confirm the old Rust PID has exited before restart. The Rust
-embedding API still leaves service signals and process lifetime to its host.
+Abnormal process exit is not proof of per-request cleanup, provider rollback, or client receipt. Known or uncertain remote operations retain their meaning. This executable does not start a Python supervisor, close the Python Core database, or implement restart generations. The RFC 2199 parent must own those responsibilities and confirm the old Rust PID has exited before restart. The Rust embedding API still leaves service signals and process lifetime to its host.

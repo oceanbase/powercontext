@@ -225,12 +225,17 @@ def main():
     parser.add_argument("--output", type=Path, default=ROOT / ".artifacts/gateway-tck")
     parser.add_argument("--cache", type=Path, default=ROOT / ".cache/gateway-tck")
     parser.add_argument("--go", default="go")
+    parser.add_argument(
+        "--prepare-only", action="store_true", help="Fetch and verify pinned upstream sources, then exit"
+    )
     args = parser.parse_args()
-    args.output = args.output.resolve()
-    args.output.mkdir(parents=True, exist_ok=True)
     args.cache.mkdir(parents=True, exist_ok=True)
     sdk = checkout("openai_sdk", args.cache)
     responses = checkout("openresponses", args.cache)
+    if args.prepare_only:
+        return
+    args.output = args.output.resolve()
+    args.output.mkdir(parents=True, exist_ok=True)
     modules = responses / "node_modules"
     if not modules.exists():
         modules.symlink_to(TCK / "node_modules", target_is_directory=True)

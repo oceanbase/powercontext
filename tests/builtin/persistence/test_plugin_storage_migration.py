@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""v1_5_0_005 and v1_5_2_pr2639 remove the previous plugin frameworks' storage only when it holds no data."""
+"""v1_5_0_005 and v1_5_0_006 remove the previous plugin frameworks' storage only when it holds no data."""
 
 from __future__ import annotations
 
@@ -159,9 +159,9 @@ def test_upgrade_refuses_retained_plugin_data_and_drops_only_empty_storage(tmp_p
     with closing(sqlite3.connect(database)) as connection, connection:
         connection.execute("DELETE FROM pc_artifact_family_schemas")
     plan = upgraded.plan()
-    assert plan.revisions == ("v1_5_0_005", "v1_5_2_pr2639", "000")
+    assert plan.revisions == ("v1_5_0_005", "v1_5_0_006", "v1_6_0")
     assert plan.domain_steps == ("plugin_artifacts", "source_collection")
-    assert apply(upgraded).revision == "000"
+    assert apply(upgraded).revision == "v1_6_0"
     assert upgraded.verify().state == "ready"
     with closing(sqlite3.connect(database)) as connection:
         tables = {row[0] for row in connection.execute("SELECT name FROM sqlite_schema WHERE type='table'")}
@@ -187,7 +187,7 @@ def test_upgrade_refuses_loaded_source_write_plugins_and_adds_collection_tables(
 
     with closing(sqlite3.connect(database)) as connection, connection:
         connection.execute("DELETE FROM pc_source_write_plugins")
-    assert apply(upgraded).revision == "000"
+    assert apply(upgraded).revision == "v1_6_0"
     with closing(sqlite3.connect(database)) as connection:
         tables = {row[0] for row in connection.execute("SELECT name FROM sqlite_schema WHERE type='table'")}
     assert "pc_source_write_plugins" not in tables

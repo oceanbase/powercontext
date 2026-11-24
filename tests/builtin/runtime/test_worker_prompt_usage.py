@@ -56,7 +56,12 @@ from powercontext.builtin.runtime.family_processing import FAMILY_BINDINGS, Fami
 from powercontext.builtin.runtime.processing_contracts import ArtifactProcessingWorkAssignment
 from powercontext.builtin.scope import ScopeDraft
 from powercontext.builtin.statistics import ModelUsagePurpose
+from powercontext.server.logging import worker_logging
+from powercontext.server.settings import ServerLoggingConfig
 from tests.e2e.dream_support import atomic_memory_pipeline
+
+# Observe cold child imports, execution, and natural exit separately from fault deadlines.
+_WORKER_LIFECYCLE_TIMEOUT_SECONDS = 60
 
 
 class _InferenceServer(ThreadingHTTPServer):
@@ -155,7 +160,7 @@ class _InferenceHandler(BaseHTTPRequestHandler):
     ],
 )
 def test_spawned_worker_restores_custom_prompt_and_counts_actual_requests_once(
-    tmp_path, monkeypatch, family, prompt_key
+    tmp_path, monkeypatch, request, family, prompt_key
 ):
     # A configured loopback provider crosses the real spawn/serialization boundary:
     # no injected pipeline, model monkeypatch, or preconstructed PromptRegistry reaches the child.
@@ -166,7 +171,7 @@ def test_spawned_worker_restores_custom_prompt_and_counts_actual_requests_once(
     thread = threading.Thread(target=server.serve_forever)
     thread.start()
 
-    async def scenario():
+    async def scenario(initializer):
         endpoint = AnyHttpUrl(f"http://127.0.0.1:{server.server_port}/v1")
         config = BuiltinConfig(
             database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'worker.db'}"),
@@ -181,6 +186,9 @@ def test_spawned_worker_restores_custom_prompt_and_counts_actual_requests_once(
             runtime=RuntimeConfig(
                 artifact_processing_families=(family,),
                 memory_extraction_profile=MemoryExtractionProfile.CONVERSATION,
+                # Exact totals need write/flush time; recorder tests cover short-budget drops.
+                model_usage_write_timeout_seconds=20.0,
+                model_usage_flush_timeout_seconds=30.0,
             ),
         )
         marker = f"PERSISTED_CUSTOM_{family.upper()}_GUIDANCE"
@@ -231,12 +239,13 @@ def test_spawned_worker_restores_custom_prompt_and_counts_actual_requests_once(
                 static_preset=True,
             ).model_dump(mode="json")
             launcher = SpawnArtifactProcessingWorkerLauncher(
-                partial(run_family_worker, FamilyWorkerSpec(config=config, worker_security=security))
+                partial(run_family_worker, FamilyWorkerSpec(config=config, worker_security=security)),
+                initializer=initializer,
             )
-            for _ in range(2):
+            for worker_run in range(1, 3):
                 worker = await launcher.start(assignment)
                 try:
-                    result = await asyncio.wait_for(worker.wait(), timeout=45)
+                    result = await asyncio.wait_for(worker.wait(), timeout=_WORKER_LIFECYCLE_TIMEOUT_SECONDS)
                     assert result.outcome == "succeeded", result
                 finally:
                     await worker.terminate()
@@ -262,6 +271,16 @@ def test_spawned_worker_restores_custom_prompt_and_counts_actual_requests_once(
                     assert await connection.scalar(select(func.count()).select_from(ACCESS_OWNERS_TABLE)) == 1
                     usage = (await connection.execute(select(MODEL_USAGE_DAILY_TABLE))).mappings().all()
                 generation = [row for row in usage if row["operation"] == "generation"]
+                request.node.add_report_section(
+                    "call",
+                    "worker usage counts",
+                    json.dumps({
+                        "worker_run": worker_run,
+                        "http_generation_requests": sum(path == "/v1/chat/completions" for path, _ in server.requests),
+                        "http_embedding_requests": sum(path == "/v1/embeddings" for path, _ in server.requests),
+                        "recorded_generation_requests": [row["requests"] for row in generation],
+                    }),
+                )
                 assert len(generation) == 1
                 assert generation[0]["scope_id"] == scope
                 assert (
@@ -297,7 +316,10 @@ def test_spawned_worker_restores_custom_prompt_and_counts_actual_requests_once(
                 )
 
     try:
-        asyncio.run(scenario())
+        with worker_logging(
+            ServerLoggingConfig(file=True, directory=tmp_path / "logs", format="json"), role="background"
+        ) as initializer:
+            asyncio.run(scenario(initializer))
     finally:
         server.shutdown()
         server.server_close()

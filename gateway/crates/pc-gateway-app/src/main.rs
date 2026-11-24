@@ -40,19 +40,22 @@ use axum::routing::{get, post};
 use axum::Router;
 use pc_gateway_core::Executor;
 use pc_gateway_evidence::{EvidenceSink, JsonEvidenceSink, NoopEvidenceSink};
-use pc_gateway_transport::ReqwestTransport;
+use pc_gateway_transport::{GatewayTransport, ReqwestTransport};
 use std::num::NonZeroU32;
 use std::sync::Arc;
 use std::time::Duration;
 
 pub struct AppState {
     /// 单一执行器；线格式渲染器按请求格式传入（同格式进出）。
-    pub executor: Arc<Executor<CoreLink, ReqwestTransport>>,
+    pub executor: Arc<Executor<CoreLink, GatewayTransport>>,
     pub evidence: Arc<dyn EvidenceSink>,
     pub chat_profile_name: String,
     pub responses_profile_name: Option<String>,
+    pub upstream_chat: String,
+    pub upstream_responses: String,
     pub upstream_chat_api_key: String,
     pub upstream_responses_api_key: String,
+    pub subscription: Option<pc_gateway_auth::SubscriptionAuth>,
     pub api_key: String,
     /// 是否调 prepare 注入上下文（默认关）。
     pub injection: Injection,
@@ -63,9 +66,9 @@ pub struct AppState {
     pub inject_code: bool,
     /// 过检后同步沉淀对话（默认关）。
     pub sediment: bool,
-    /// 运维配置的固定指令（`PC_GATEWAY_STEERING_FILE`），只插入 Responses 请求；未配置时为空。
+    /// 默认内置固定指令，只插入 Responses 请求；文件可覆盖，`PC_GATEWAY_STEERING=off` 可关闭。
     pub steering: Option<String>,
-    /// 为 Core 保留会话前缀以复用缓存抽取记忆：`PC_GATEWAY_PREFIX_EXTRACTION=on`（默认关，#2413）。
+    /// 支持的上游默认保留记忆抽取前缀；`PC_GATEWAY_PREFIX_EXTRACTION=off` 可关闭（#2413）。
     pub prefix_extraction: bool,
     /// 默认 Scope（启动时读一次，避免热路径读环境变量）。
     pub default_scope: String,
@@ -75,6 +78,49 @@ pub struct AppState {
 
 #[tokio::main]
 async fn main() {
+    let arguments: Vec<_> = std::env::args_os().skip(1).collect();
+    if arguments.len() == 1 && (arguments[0] == "--version" || arguments[0] == "-V") {
+        println!(
+            "pc-gateway {} ({}; {})",
+            option_env!("PC_GATEWAY_BUILD_VERSION").unwrap_or(env!("CARGO_PKG_VERSION")),
+            option_env!("PC_GATEWAY_BUILD_COMMIT").unwrap_or("unknown"),
+            option_env!("PC_GATEWAY_BUILD_TARGET").unwrap_or(std::env::consts::ARCH),
+        );
+        return;
+    }
+    if arguments.len() == 1 && (arguments[0] == "--help" || arguments[0] == "-h") {
+        println!(
+            "Usage: pc-gateway [--version | --help | login <copilot|qwen|kimi> <new-credential-file>]\n\
+             With no arguments, run the Gateway using PC_GATEWAY_* environment variables.\n\
+             Configuration: https://powercontext.oceanbase.io/en/docs/operate/deploy-server/"
+        );
+        return;
+    }
+    if !arguments.is_empty() {
+        let result = match arguments.as_slice() {
+            [command, provider, path] if command == "login" => {
+                match provider
+                    .to_str()
+                    .and_then(|v| pc_gateway_auth::Subscription::parse(v).ok())
+                {
+                    Some(kind) => match pc_gateway_auth::SubscriptionAuth::new(kind, path.into()) {
+                        Ok(auth) => tokio::select! {
+                            result = auth.login_device(|uri, code| eprintln!("Open {uri}\nEnter code: {code}")) => result,
+                            _ = tokio::signal::ctrl_c() => return,
+                        },
+                        Err(error) => Err(error),
+                    },
+                    None => Err(pc_gateway_auth::AuthError::Configuration),
+                }
+            }
+            _ => Err(pc_gateway_auth::AuthError::Configuration),
+        };
+        if let Err(error) = result {
+            eprintln!("{error}; usage: pc-gateway login <copilot|qwen|kimi> <new-credential-file>");
+            std::process::exit(2);
+        }
+        return;
+    }
     tracing_subscriber::fmt()
         .with_writer(std::io::stderr)
         .with_env_filter(
@@ -107,6 +153,16 @@ async fn main() {
     }
     let core_link = CoreLink::from_env();
     let proxy_state = proxy::ProxyState::from_env();
+    let subscription = subscription_from_env().unwrap_or_else(|reason| {
+        eprintln!("{reason}");
+        std::process::exit(2);
+    });
+    let subscription_kind = subscription.as_ref().map(|auth| auth.kind());
+    let (default_chat, default_responses) = subscription_kind
+        .map(pc_gateway_auth::Subscription::default_targets)
+        .unwrap_or(("", ""));
+    let upstream_chat = default_chat.to_string();
+    let upstream_responses = default_responses.to_string();
 
     let max_attempts: u32 = std::env::var("PC_GATEWAY_MAX_ATTEMPTS")
         .ok()
@@ -131,8 +187,21 @@ async fn main() {
         std::process::exit(2);
     }
 
-    // 指令文件只在启动时读取；配置了但无效时拒绝启动，而不是不带指令运行。
-    let steering = match steering::load(std::env::var("PC_GATEWAY_STEERING_FILE").ok().as_deref()) {
+    let steering_enabled = default_on("PC_GATEWAY_STEERING").unwrap_or_else(|reason| {
+        eprintln!("{reason}");
+        std::process::exit(2);
+    });
+    let prefix_extraction_requested =
+        default_on("PC_GATEWAY_PREFIX_EXTRACTION").unwrap_or_else(|reason| {
+            eprintln!("{reason}");
+            std::process::exit(2);
+        });
+    // 显式关闭时不读取指令文件；开启时文件优先于内置文本，配置无效则拒绝启动。
+    let steering = match if steering_enabled {
+        steering::load(std::env::var("PC_GATEWAY_STEERING_FILE").ok().as_deref())
+    } else {
+        Ok(None)
+    } {
         Ok(steering) => steering,
         Err(reason) => {
             tracing::error!("PC_GATEWAY_STEERING_FILE: {reason}");
@@ -197,12 +266,44 @@ async fn main() {
             "PC_GATEWAY_SEDIMENT=on, but Core does not offer batch Source capture; turns are not sedimented until Core is upgraded and the gateway restarted"
         );
     }
+    if subscription_kind == Some(pc_gateway_auth::Subscription::Claude) {
+        eprintln!("Claude CLI has unobservable internal sends and cannot use Core-bound egress");
+        std::process::exit(2);
+    }
+    // 订阅通道里只有 Codex 支持前缀抽取。它的请求重放加密推理，enforcing 的 Core 会暂缓每个抽取请求，
+    // 所以只在 Core 确认为非 enforcing 时启用。
+    let prefix_extraction = prefix_extraction_requested
+        && match subscription_kind {
+            None => true,
+            Some(pc_gateway_auth::Subscription::Codex) => {
+                capabilities.as_ref().is_some_and(|caps| !caps.enforcing)
+            }
+            Some(_) => false,
+        };
+    if prefix_extraction_requested && !prefix_extraction {
+        tracing::warn!(
+            "PC_GATEWAY_PREFIX_EXTRACTION=on is not in effect: with a subscription it needs codex and a Core confirmed as non-enforcing; turns use normal extraction"
+        );
+    }
+    let transport = GatewayTransport::new(
+        ReqwestTransport::new(Duration::from_secs(120))
+            .with_subscription_responses_sse(matches!(
+                subscription_kind,
+                Some(pc_gateway_auth::Subscription::Codex | pc_gateway_auth::Subscription::Kimi)
+            ))
+            .with_codeassist_chat(subscription_kind == Some(pc_gateway_auth::Subscription::Gemini))
+            .with_copilot_chat(subscription_kind == Some(pc_gateway_auth::Subscription::Copilot)),
+    )
+    .with_claude(
+        (subscription_kind == Some(pc_gateway_auth::Subscription::Claude))
+            .then(|| std::env::var_os("CLAUDE_CLI_EXECUTABLE").unwrap_or_else(|| "claude".into())),
+    );
 
     let state = Arc::new(AppState {
         executor: Arc::new(
             Executor::new(
                 core_link.clone(),
-                ReqwestTransport::new(Duration::from_secs(120)),
+                transport,
                 NonZeroU32::new(max_attempts).expect("max_attempts > 0"),
             )
             .with_input_limit(model_body_bytes)
@@ -220,6 +321,9 @@ async fn main() {
         responses_profile_name: std::env::var("PC_GATEWAY_UPSTREAM_PROFILE_RESPONSES")
             .ok()
             .filter(|s| !s.is_empty()),
+        upstream_chat,
+        upstream_responses,
+        subscription,
         upstream_chat_api_key: std::env::var("PC_GATEWAY_UPSTREAM_API_KEY_CHAT")
             .or_else(|_| std::env::var("PC_GATEWAY_UPSTREAM_API_KEY"))
             .unwrap_or_default(),
@@ -241,10 +345,7 @@ async fn main() {
         ),
         sediment,
         steering,
-        prefix_extraction: matches!(
-            std::env::var("PC_GATEWAY_PREFIX_EXTRACTION").as_deref(),
-            Ok("on")
-        ),
+        prefix_extraction,
         default_scope: std::env::var("PC_GATEWAY_DEFAULT_SCOPE")
             .unwrap_or_else(|_| "gateway:default".into()),
         max_body_bytes: model_body_bytes,
@@ -293,6 +394,32 @@ fn gateway_credentials(
         return Err("PC_GATEWAY_API_KEY must differ from PC_GATEWAY_CORE_TOKEN");
     }
     Ok(api_key)
+}
+
+/// Default-on feature switches reject misspellings instead of silently enabling a feature.
+fn default_on(name: &str) -> Result<bool, String> {
+    match std::env::var(name) {
+        Ok(value) if value == "on" => Ok(true),
+        Ok(value) if value == "off" => Ok(false),
+        Err(std::env::VarError::NotPresent) => Ok(true),
+        _ => Err(format!("{name} must be on or off")),
+    }
+}
+
+fn subscription_from_env(
+) -> Result<Option<pc_gateway_auth::SubscriptionAuth>, pc_gateway_auth::AuthError> {
+    let value = match std::env::var("PC_GATEWAY_SUBSCRIPTION") {
+        Ok(value) => value,
+        Err(std::env::VarError::NotPresent) => return Ok(None),
+        Err(_) => return Err(pc_gateway_auth::AuthError::Configuration),
+    };
+    let kind = pc_gateway_auth::Subscription::parse(&value)?;
+    if kind == pc_gateway_auth::Subscription::Claude {
+        return pc_gateway_auth::SubscriptionAuth::new(kind, "cli-managed".into()).map(Some);
+    }
+    let path = std::env::var_os("PC_GATEWAY_SUBSCRIPTION_CREDENTIALS")
+        .ok_or(pc_gateway_auth::AuthError::Configuration)?;
+    pc_gateway_auth::SubscriptionAuth::new(kind, path.into()).map(Some)
 }
 
 fn router(state: Arc<AppState>, proxy_state: proxy::ProxyState) -> Router {

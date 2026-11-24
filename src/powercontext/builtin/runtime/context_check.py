@@ -48,6 +48,7 @@ _SEND_PURPOSE = "context-check.before_send"
 _RELEASE_PURPOSE = "context-check.before_release"
 _MARKERS = ("BEGIN_POWERCONTEXT_PREPARED_CONTEXT_V1", "BEGIN_POWERCONTEXT_PREPARED_TEXT_V1")
 _ALLOWED_HEADERS = frozenset({"content-type", "anthropic-version", "anthropic-beta"})
+_GOOGLE_LOCATION = re.compile(r"^/request/contents/(0|[1-9][0-9]*)/parts/(0|[1-9][0-9]*)/text$")
 _MESSAGE_LOCATION = re.compile(r"^/(messages|input)/(0|[1-9][0-9]*)/content(?:/(0|[1-9][0-9]*)/text)?$")
 
 
@@ -97,6 +98,11 @@ class PreparedContextLocation(_CheckModel):
     location: ModelJsonTextLocation
 
 
+class UpstreamResponsePayload(_CheckModel):
+    content_type: str = Field(min_length=1, max_length=1024, pattern=r"^[^\r\n]+$", strict=True)
+    body: str = Field(min_length=2, max_length=MAX_CHECK_BODY_BYTES, strict=True)
+
+
 class CheckContextBeforeSend(_CheckModel):
     phase: Literal["before_send"]
     target_profile: str = Field(min_length=1, max_length=128, strict=True)
@@ -112,6 +118,7 @@ class CheckContextBeforeRelease(_CheckModel):
     payload: ModelJsonPayload
     request_binding: str = Field(min_length=1, max_length=65536, strict=True)
     completion: Literal["complete"]
+    upstream_payload: UpstreamResponsePayload | None = None
 
 
 CheckContextRequest: TypeAlias = Annotated[
@@ -164,9 +171,37 @@ def _withheld(
     )
 
 
-def _message_text(
+def _codeassist_message_text(
+    body: dict[str, object], location: ModelJsonTextLocation
+) -> tuple[str, tuple[int, int, int]]:
+    match = _GOOGLE_LOCATION.fullmatch(location.pointer)
+    if match is None:
+        raise InvalidRuntimeRequestError("context-location-unsupported")
+    request = body.get("request")
+    contents = request.get("contents") if isinstance(request, dict) else None
+    index, part_index = map(int, match.groups())
+    if not isinstance(contents, list) or index >= len(contents):
+        raise InvalidRuntimeRequestError("context-location-invalid")
+    content = contents[index]
+    if not isinstance(content, dict) or content.get("role") != "user":
+        raise InvalidRuntimeRequestError("context-location-trust")
+    parts = content.get("parts")
+    if not isinstance(parts, list) or part_index >= len(parts):
+        raise InvalidRuntimeRequestError("context-location-invalid")
+    part = parts[part_index]
+    text = part.get("text") if isinstance(part, dict) and set(part) == {"text"} else None
+    if not isinstance(text, str):
+        raise InvalidRuntimeRequestError("context-location-trust")
+    return text, (index, part_index, location.start_byte)
+
+
+def _message_text(  # noqa: C901 - protocol-specific text locations retain role and part trust checks
     body: dict[str, object], location: ModelJsonTextLocation, protocol: str
 ) -> tuple[str, tuple[int, int, int]]:
+    if protocol in {"google-codeassist", "google-codeassist-chat"}:
+        return _codeassist_message_text(body, location)
+    if protocol == "claude-cli-prompt":
+        protocol = "openai-chat"
     match = _MESSAGE_LOCATION.fullmatch(location.pointer)
     if match is None:
         raise InvalidRuntimeRequestError("context-location-unsupported")
@@ -218,7 +253,9 @@ def _require_unsplit_markers(parts: Iterable[object]) -> None:
     tail = ""
     for part in parts:
         text = part if isinstance(part, str) else None
-        if isinstance(part, dict) and part.get("type") in ("text", "input_text", "output_text"):
+        if isinstance(part, dict) and (
+            part.get("type") in ("text", "input_text", "output_text") or set(part) <= {"text", "thought"}
+        ):
             text = part.get("text")
         if not isinstance(text, str):
             tail = ""
@@ -363,6 +400,19 @@ def _target_rejection(
     return None
 
 
+def _bounded_payload_bodies(request: CheckContextRequest, config: InferenceProtectionConfig) -> tuple[bytes, bytes]:
+    upstream = request.upstream_payload if isinstance(request, CheckContextBeforeRelease) else None
+    try:
+        body = request.payload.body.encode("utf-8")
+        upstream_body = upstream.body.encode("utf-8") if upstream is not None else b""
+    except UnicodeEncodeError:
+        raise InvalidRuntimeRequestError("context-payload-encoding") from None
+    limit = config.max_payload_bytes if request.phase == "before_send" else config.max_response_bytes
+    if len(body) + len(upstream_body) > min(limit, MAX_CHECK_BODY_BYTES):
+        raise ContextCheckTooLargeError
+    return body, upstream_body
+
+
 async def check_context(
     request: CheckContextRequest,
     *,
@@ -376,13 +426,8 @@ async def check_context(
 ) -> ContextCheckResult:
     """Check complete final bytes under current authorization supplied by the owner."""
     now = now.astimezone(UTC)
-    try:
-        body = request.payload.body.encode("utf-8")
-    except UnicodeEncodeError:
-        raise InvalidRuntimeRequestError("context-payload-encoding") from None
-    limit = config.max_payload_bytes if request.phase == "before_send" else config.max_response_bytes
-    if len(body) > min(limit, MAX_CHECK_BODY_BYTES):
-        raise ContextCheckTooLargeError
+    body, upstream_body = _bounded_payload_bodies(request, config)
+    upstream = request.upstream_payload if isinstance(request, CheckContextBeforeRelease) else None
     if target_rejection := _target_rejection(request, config, body, resolve_target=resolve_target):
         return _withheld(request, config, now, target_rejection)
     policy = PrivacyPolicy(config)
@@ -394,6 +439,14 @@ async def check_context(
         if policy.enforcing or request.phase == "before_send"
         else policy.decision(request.phase, "allow")
     )
+    if policy.enforcing and upstream is not None:
+        from powercontext.builtin.inference.carrier_checks import inspect_upstream_response
+
+        original = inspect_upstream_response(
+            policy, upstream_body, {"content-type": upstream.content_type}, request.target_profile
+        )
+        if original.decision != "allow" or not original.coverage.complete:
+            assessed = original
     if policy.enforcing and (assessed.decision != "allow" or not assessed.coverage.complete):
         return ContextCheckResult(
             phase=request.phase,

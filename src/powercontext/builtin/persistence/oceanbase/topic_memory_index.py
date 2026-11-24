@@ -57,6 +57,7 @@ from powercontext.builtin.artifacts.topic_memory import (
     TopicMemorySearchRequest,
     TopicMemoryStorageInvariantError,
 )
+from powercontext.builtin.persistence.oceanbase.fulltext_index import ensure_fulltext_index
 from powercontext.builtin.persistence.oceanbase.vector import OceanBaseVector
 from powercontext.builtin.persistence.tables import (
     TOPIC_MEMORY_ACTIVE_CHUNKS_TABLE,
@@ -76,12 +77,6 @@ _TOPIC_VECTOR_TABLE = "pc_topic_memory_vector_topics"
 _CHUNK_VECTOR_TABLE = "pc_topic_memory_vector_chunks"
 _TOPIC_VECTOR_INDEX = "ix_pc_topic_memory_vector_topics_embedding"
 
-_INDEX_EXISTS_SQL = text(
-    """
-    SELECT COUNT(*) FROM information_schema.statistics
-    WHERE table_schema = DATABASE() AND table_name = :table_name AND index_name = :index_name
-    """
-)
 _VECTOR_TYPE_SQL = text(
     """
     SELECT data_type FROM information_schema.columns
@@ -155,8 +150,8 @@ class OceanBaseTopicMemoryFTSIndex:
     async def initialize(self, connection: AsyncConnection, /) -> None:
         if connection.dialect.name != "mysql":
             raise TopicMemoryCapabilityError("oceanbase-fts")
-        await self._ensure_index(connection, TOPIC_MEMORY_ACTIVE_TOPICS_TABLE.name, _TOPIC_FTS_INDEX)
-        await self._ensure_index(connection, TOPIC_MEMORY_ACTIVE_CHUNKS_TABLE.name, _CHUNK_FTS_INDEX)
+        await ensure_fulltext_index(connection, TOPIC_MEMORY_ACTIVE_TOPICS_TABLE.name, _TOPIC_FTS_INDEX)
+        await ensure_fulltext_index(connection, TOPIC_MEMORY_ACTIVE_CHUNKS_TABLE.name, _CHUNK_FTS_INDEX)
         await connection.execute(
             select(TOPIC_MEMORY_ACTIVE_TOPICS_TABLE.c.artifact_id)
             .where(match(TOPIC_MEMORY_ACTIVE_TOPICS_TABLE.c.searchable_text, against="powercontext"))
@@ -328,35 +323,6 @@ class OceanBaseTopicMemoryFTSIndex:
             topic_fts_eligible=len(topic_hits),
             detail_fts_eligible=len(chunk_hits),
         )
-
-    @staticmethod
-    async def _ensure_index(connection: AsyncConnection, table_name: str, index_name: str) -> None:
-        for attempt in range(len(_INDEX_DDL_RETRY_DELAYS) + 1):
-            count = await connection.scalar(
-                _INDEX_EXISTS_SQL,
-                {"table_name": table_name, "index_name": index_name},
-            )
-            if int(count or 0):
-                return
-            try:
-                await connection.exec_driver_sql(
-                    f"CREATE FULLTEXT INDEX {index_name} ON {table_name} (searchable_text) WITH PARSER SPACE"
-                )
-            except OperationalError as error:
-                # OceanBase maps a NOWAIT DDL lock conflict to MySQL 1205.
-                # Retry only this idempotent DDL, checking for an index another
-                # initializer may have created. Never replay startup writes or
-                # roll back/commit the caller's transaction here.
-                if (
-                    error.orig is None
-                    or not error.orig.args
-                    or error.orig.args[0] != 1205
-                    or attempt == len(_INDEX_DDL_RETRY_DELAYS)
-                ):
-                    raise
-                await asyncio.sleep(_INDEX_DDL_RETRY_DELAYS[attempt])
-            else:
-                return
 
 
 class OceanBaseTopicMemoryVectorIndex:

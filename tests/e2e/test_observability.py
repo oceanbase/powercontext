@@ -82,6 +82,9 @@ from powercontext.server.settings import McpConfig, ServerSettings
 from powercontext.server.tracing import ServerTracing
 from tests.e2e.dream_support import atomic_memory_pipeline
 
+# Observe cold child imports, execution, and natural exit separately from fault deadlines.
+_WORKER_LIFECYCLE_TIMEOUT_SECONDS = 60
+
 _STAGE_ATTRIBUTE_KEYS = {
     "scope.context": {
         "powercontext.operation.name",
@@ -1179,7 +1182,11 @@ def test_scope_worker_lifecycle_trace_is_family_neutral_and_detaches_ambient_htt
                 )
                 await runtime.records.for_scope(scope.scope_id).create_source("content", content)
                 root = await asyncio.to_thread(
-                    _wait_for_named_span, exporter, "artifact_processing.worker", outcome="success", timeout=30
+                    _wait_for_named_span,
+                    exporter,
+                    "artifact_processing.worker",
+                    outcome="success",
+                    timeout=_WORKER_LIFECYCLE_TIMEOUT_SECONDS,
                 )
                 return scope.scope_id, root
 
@@ -1219,7 +1226,9 @@ def test_scheduled_family_worker_starts_an_independent_trace_root(monkeypatch, t
             json={"scope_id": scope_id, "source_id": "task-1", "content": content},
         )
         assert captured.status_code == 202
-        root = _wait_for_named_span(exporter, "artifact_processing.worker", outcome="success", timeout=30)
+        root = _wait_for_named_span(
+            exporter, "artifact_processing.worker", outcome="success", timeout=_WORKER_LIFECYCLE_TIMEOUT_SECONDS
+        )
         spans = list(exporter.get_finished_spans())
         assert (root.attributes or {})["powercontext.artifact_processing.family"] == family
         for stage_name in ("start", "wait", "acknowledge"):
@@ -1245,7 +1254,7 @@ def test_scheduled_worker_failure_trace_requires_acknowledgement_and_excludes_pa
             runtime=RuntimeConfig(
                 artifact_processing_families=("memory",),
                 memory_schedule_seconds=0.02,
-                memory_worker_timeout_seconds=0.01 if failure == "timeout" else 30,
+                memory_worker_timeout_seconds=0.01 if failure == "timeout" else _WORKER_LIFECYCLE_TIMEOUT_SECONDS,
             ),
             inference=InferenceConfig(generation_model="test"),
             mcp=McpConfig(enabled=False),
@@ -1261,7 +1270,9 @@ def test_scheduled_worker_failure_trace_requires_acknowledgement_and_excludes_pa
             json={"scope_id": scope_id, "source_id": "task-1", "content": content},
         )
         assert captured.status_code == 202
-        root = _wait_for_named_span(exporter, "artifact_processing.worker", outcome="failure", timeout=30)
+        root = _wait_for_named_span(
+            exporter, "artifact_processing.worker", outcome="failure", timeout=_WORKER_LIFECYCLE_TIMEOUT_SECONDS
+        )
         spans = list(exporter.get_finished_spans())
         assert root.parent is None
         assert (root.attributes or {})["powercontext.artifact_processing.failure"] == failure

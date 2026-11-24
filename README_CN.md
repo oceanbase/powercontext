@@ -11,6 +11,16 @@
 
 [网站](https://powercontext.oceanbase.io/zh/) · [快速开始](https://powercontext.oceanbase.io/zh/docs/get-started/quickstart/) · [手动启动](https://powercontext.oceanbase.io/zh/docs/get-started/manual-start/) · [接入 Agent](https://powercontext.oceanbase.io/zh/docs/integrations/) · [评测](https://powercontext.oceanbase.io/zh/benchmarks/) · [接口](https://powercontext.oceanbase.io/zh/docs/develop/interfaces/)
 
+## 1.6.0 新增
+
+**知识库首次发布，Gateway 推出正式版。** 将已有资料变成可检索的知识库，并在把 Agent 对话沉淀为长期记忆时，减少重复支付的非缓存输入。
+
+- **知识库：**导入 Markdown 和 PNG/JPEG/WebP 图片，通过关键词与向量混合检索查找资料，在 Dashboard 中查看、编辑和重新处理版本化文档分块。请按[知识库指南](https://powercontext.oceanbase.io/zh/docs/workflows/knowledge-base/)安装可选插件和依赖；本次不包含 PDF/Office 导入和答案生成。
+- **Gateway 节省 token 成本：**可选的前缀提取在 Agent 精确的对话前缀后追加记忆指令，让供应商复用提示词缓存。Core 仅在估算比常规提取更便宜时采用此路径。Gateway 默认开启前缀提取，采集仍需显式开启并配置 Server 回调地址。实际节省取决于缓存命中、会话长度和回退请求；Codex 订阅在 Core 未强制执行保护时支持该路径。详见 [Gateway 配置](https://powercontext.oceanbase.io/zh/docs/operate/deploy-server/)。
+- **更完整的使用流程：**插件热重载、Server 与设备 Source runner、Deep Agents 集成，以及更清晰的处理诊断。
+
+安装、兼容性与数据库维护要求见 [1.6.0 发布说明](https://powercontext.oceanbase.io/zh/releases/)。
+
 ## PowerContext 是什么？
 
 **PowerContext 是一个面向 AI Agent 的开源上下文服务。** 它把工作里值得长期保留的部分——已经确认的决定、约束、证据、进展——从某一次对话里搬出来，这样下一个会话、下一个 Agent、或者下一个接手的人，都能从当前进展继续，而不必重读全部记录。
@@ -127,7 +137,9 @@ PowerContext 把可长期复用的项目上下文放在单次对话之外。一�
 Agent 输入 → Source 证据 → Memory / Topic Memory → PreparedContext → 新会话或新 Agent
 ```
 
-PowerContext 1.5.2 包含交互式配置向导。需要 Python 3.11+、Git 和 [uv](https://docs.astral.sh/uv/getting-started/installation/)；需要时 uv 可以按需提供 Python。要接入 Agent，还需要安装对应的 CLI。向导中选择“基础记忆”即可在没有模型 API 的情况下显式保存与召回；选择“完整记忆能力”则需要独立的 Generation、Embedding API 凭据。只想启动不依赖模型 API 的本地 Server 时，请参考[安装与运行](https://powercontext.oceanbase.io/zh/docs/get-started/install-and-run/)。支持 macOS 和 Linux；Windows 支持为 `experimental`。需要自动安装 Python 和 uv 时，使用[安装脚本](https://powercontext.oceanbase.io/zh/docs/get-started/install-and-run/#使用推荐安装脚本)。
+PowerContext 1.6.0 包含交互式配置向导。需要 Python 3.11+、Git 和 [uv](https://docs.astral.sh/uv/getting-started/installation/)；需要时 uv 可以按需提供 Python。要接入 Agent，还需要安装对应的 CLI。向导中选择“基础记忆”即可在没有模型 API 的情况下显式保存与召回；选择“完整记忆能力”则需要独立的 Generation、Embedding API 凭据。只想启动不依赖模型 API 的本地 Server 时，请参考[安装与运行](https://powercontext.oceanbase.io/zh/docs/get-started/install-and-run/)。支持 macOS 和 Linux；Windows 支持为 `experimental`。需要自动安装 Python 和 uv 时，使用[安装脚本](https://powercontext.oceanbase.io/zh/docs/get-started/install-and-run/#使用推荐安装脚本)。
+
+后台生成也可以手动在保存的 `.env` 中配置已有订阅，向导暂不提供该选项。Embedding 仍需独立连接，该路径不支持 Topic Memory 和 Dream，且推理保护需保持关闭。详见[模型配置](https://powercontext.oceanbase.io/zh/docs/get-started/configure-models/)。
 
 请选择与你目标匹配的路径：
 
@@ -140,7 +152,7 @@ PowerContext 1.5.2 包含交互式配置向导。需要 Python 3.11+、Git 和 [
 ### 1. 安装并运行配置向导
 
 ```bash
-uv tool install --force "powercontext[cli,server]==1.5.2"
+uv tool install --force "powercontext[cli,server]==1.6.0"
 mkdir -p powercontext-config && cd powercontext-config
 powercontext config init --language zh --output .env
 ```
@@ -170,7 +182,7 @@ powercontext capabilities
 接着按 `.env.next-steps.md` 创建并绑定 Scope。使用创建请求返回的真实 `scope_id`；向导规划的 `codex-...` 标题不是 ID。切换目录不会创建隔离；Dashboard 和 Agent 要使用同一个 Server 和 Scope。修改 `.env` 后，重新执行 `powercontext service install --env-file .env` 使修改后的配置生效。然后安装相同版本的插件，再打开新 Agent 会话。[完整安装流程](https://powercontext.oceanbase.io/zh/docs/get-started/quickstart/)包含 Codex、Claude Code、Dashboard 登录、SSH 隧道、HTTPS 前提及逐项验收。例如，匹配本版本的 Codex 安装命令是：
 
 ```bash
-powercontext setup codex --ref powercontext-v1.5.2
+powercontext setup codex --ref powercontext-v1.6.0
 powercontext doctor codex
 ```
 

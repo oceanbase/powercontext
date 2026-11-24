@@ -88,6 +88,7 @@ fn call() -> ManagedCall {
             passthrough_fields: None,
         },
         target_protocol: "openai-chat".into(),
+        credential_target: None,
         headers: vec![],
         inject_context: true,
         include_code: false,

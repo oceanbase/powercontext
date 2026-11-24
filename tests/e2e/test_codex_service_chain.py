@@ -22,7 +22,6 @@ import socket
 import subprocess
 import sys
 import threading
-import time
 from pathlib import Path
 
 import httpx
@@ -49,6 +48,7 @@ from powercontext.server.factory import create_server_app
 from powercontext.server.settings import AccessControlConfig, BearerAuthConfig, McpConfig, ServerSettings
 from tests.e2e.atomic_memory_models import independent_atomic_memory_model
 from tests.e2e.plugin_server import ADMIN_AUTHORIZATION_VALUE, create_scope, running_server
+from tests.e2e.server_startup import wait_for_server_startup
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 CODEX_PLUGIN = PROJECT_ROOT / "integrations" / "codex" / "plugins" / "powercontext"
@@ -99,7 +99,7 @@ def test_execution_constraints_preserve_fts_facts_through_codex_hook(tmp_path, r
             " If no reliable context is present, say so."
         )
     try:
-        _wait_until_started(server, thread)
+        wait_for_server_startup(server, thread)
         scope_id = _create_scope(base_url, authorization=AUTHORIZATION)
         plugin = tmp_path / "plugin"
         shutil.copytree(CODEX_PLUGIN, plugin, ignore=shutil.ignore_patterns("__pycache__", ".venv"))
@@ -176,7 +176,7 @@ def test_codex_hook_injects_fts_memory_while_optional_embedding_is_stalled(
     thread = threading.Thread(target=server.run, kwargs={"sockets": [listener]}, daemon=True)
     thread.start()
     try:
-        _wait_until_started(server, thread)
+        wait_for_server_startup(server, thread)
         plugin = _copy_plugin(tmp_path, base_url)
         scope_id = _create_scope(base_url, authorization=AUTHORIZATION)
         text = "For ORCHID the release codename is ORCHID-728 and the required validation command is pytest -q."
@@ -272,7 +272,7 @@ def test_codex_hook_http_sdk_and_mcp_share_one_composed_context(
     )
     thread.start()
     try:
-        _wait_until_started(server, thread)
+        wait_for_server_startup(server, thread)
         plugin = tmp_path / "plugin"
         shutil.copytree(
             CODEX_PLUGIN,
@@ -418,7 +418,7 @@ def test_codex_session_binding_switch_resume_and_child_scope_flow(tmp_path: Path
     thread = threading.Thread(target=server.run, kwargs={"sockets": [listener]}, daemon=True)
     thread.start()
     try:
-        _wait_until_started(server, thread)
+        wait_for_server_startup(server, thread)
         plugin = _copy_plugin(tmp_path, base_url)
         root_scope_id = _create_named_scope(base_url, title="Feature", key="codex-feature")
         first_child_id = _create_named_scope(
@@ -592,7 +592,7 @@ def test_codex_workspace_cli_preserves_session_and_repository_boundaries(tmp_pat
     thread = threading.Thread(target=server.run, kwargs={"sockets": [listener]}, daemon=True)
     thread.start()
     try:
-        _wait_until_started(server, thread)
+        wait_for_server_startup(server, thread)
         plugin = _copy_plugin(tmp_path, base_url)
         checkout = tmp_path / "checkout"
         other = tmp_path / "other"
@@ -807,10 +807,3 @@ def _run_codex_plugin_hook(
         check=True,
         timeout=15,
     )
-
-
-def _wait_until_started(server: uvicorn.Server, thread: threading.Thread) -> None:
-    deadline = time.monotonic() + 10
-    while thread.is_alive() and not server.started and time.monotonic() < deadline:
-        time.sleep(0.01)
-    assert server.started

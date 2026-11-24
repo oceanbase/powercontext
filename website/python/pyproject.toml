@@ -12,13 +12,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Add Source collection runners and targets through the shared DDL executor."""
+[project]
+name = "powercontext-website-api"
+version = "0.0.0"
+requires-python = ">=3.11"
+dependencies = [
+    "fumapy",
+    # Later TypingDoc releases install griffelib over fumapy's Griffe 1.x files.
+    "griffe-typingdoc==0.3.0",
+]
 
-from alembic import context
+[tool.uv]
+package = false
 
-revision = "v1_5_2_pr2639"
-down_revision = "v1_5_0_005"
-
-
-def upgrade() -> None:
-    context.config.attributes["execute_revision"](revision)
+[tool.uv.sources]
+fumapy = { path = "../node_modules/fumadocs-python" }
