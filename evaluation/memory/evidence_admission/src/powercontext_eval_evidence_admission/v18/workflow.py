@@ -396,6 +396,48 @@ def review_context(directory, row, record):
     return case, value, supports, output, kind
 
 
+def review_scores(directory, row, record):
+    """Recheck append-only reviews and keep assistant judgements out of formal scores."""
+    legacy = directory / "reviews" / (record["call_id"] + ".json")
+    human = directory / "reviews" / (record["call_id"] + ".human.json")
+    paths = [path for path in (legacy, human) if path.exists()]
+    if not paths:
+        original = record.get("score")
+        if original and original.get("score_kind") == "assistant_diagnostic":
+            # A legacy diagnostic cache is not a substitute for a bound formal review.
+            return None, original
+        return original, None
+    case, value, supports, output, kind = review_context(directory, row, record)
+    formal, _ = score_output(case, value, supports, output)
+    diagnostic = None
+    human_reviewed = False
+    for path in paths:
+        reviewed = read_json(path)
+        if reviewed.get("call_id") != record["call_id"] or reviewed.get("original_record_hash") != digest(record):
+            raise EvaluationError("v18_review_derivation_changed")
+        if reviewed.get("output_kind", kind) != kind:
+            raise EvaluationError("v18_review_output_kind_changed")
+        review = reviewed.get("review")
+        if not review:
+            raise EvaluationError("v18_review_empty")
+        try:
+            scored, _ = score_output(case, value, supports, output, review)
+        except ValidationError:
+            raise EvaluationError("v18_review_schema_unsupported") from None
+        if digest(scored) != digest(reviewed.get("score")):
+            raise EvaluationError("v18_review_score_changed")
+        if path == human and scored["reviewer_kind"] != "human":
+            raise EvaluationError("v18_human_review_kind_changed")
+        if scored["reviewer_kind"] == "human":
+            if human_reviewed:
+                raise EvaluationError("v18_multiple_human_reviews")
+            formal = scored
+            human_reviewed = True
+        elif scored["score_kind"] == "assistant_diagnostic":
+            diagnostic = scored
+    return formal, diagnostic
+
+
 def apply_review(directory, call_id, review_file):
     with locked(directory):
         manifest = load(directory)
@@ -416,6 +458,9 @@ def apply_review(directory, call_id, review_file):
         if not review:
             raise EvaluationError("v18_review_empty")
         result, _ = score_output(case, value, supports, output, review)
+        formal, _ = review_scores(directory, row, record)
+        if review["reviewer_kind"] == "human" and formal and formal["score_kind"] == "human_bound_review":
+            raise EvaluationError("v18_output_exists")
         # Keep automatic/original records immutable; audited scores are separate derivatives.
         derivative = {
             "call_id": call_id,
@@ -424,5 +469,17 @@ def apply_review(directory, call_id, review_file):
             "review": review,
             "score": result,
         }
-        dump(directory / "reviews" / (call_id + ".json"), derivative, new=True)
-        return {"call_id": call_id, "review_hash": digest(review), "unresolved": result["unresolved_candidates"]}
+        suffix = ".human.json" if review["reviewer_kind"] == "human" else ".json"
+        dump(directory / "reviews" / (call_id + suffix), derivative, new=True)
+        if review["reviewer_kind"] == "human":
+            formal = result
+        formal_unresolved = formal["unresolved_candidates"] if formal is not None else None
+        return {
+            "call_id": call_id,
+            "review_hash": digest(review),
+            "reviewer_kind": result["reviewer_kind"],
+            "score_kind": result["score_kind"],
+            "unresolved": result["unresolved_candidates"],
+            "formal_unresolved": formal_unresolved,
+            "formal_human_review_required": formal_unresolved is None or formal_unresolved > 0,
+        }

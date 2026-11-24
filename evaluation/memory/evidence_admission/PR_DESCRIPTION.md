@@ -39,6 +39,15 @@ output schema, model settings, and per-input budgets; input admission and genera
   the completed-score-before-cursor-advance state. Missing bindings or changed evidence invalidate the cached score
   and stop without resending or double charging. Report generation revalidates review context and recomputes derivative
   scores instead of trusting the saved score cache.
+- Formal retention, paired improvements and decisions use deterministic exact-ground-truth scores or bound human
+  reviews. Assistant-only semantic reviews remain separately visible as `assistant_diagnostic_score` and cannot clear
+  unresolved formal semantics. Reports retain `qualifying_human_review_missing` until qualifying human evidence exists.
+  Human reviews append to `<call_id>.human.json` without replacing assistant or original audit records; existing human
+  reviews in the legacy path remain supported, and competing human derivatives are rejected.
+- Zero-fact negative controls require empty candidate lists. Nonempty outputs are quality failures even when a bound
+  review marks them supported with no entailed atoms; report rows expose `negative_control_nonempty_output`.
+- Review import receipts distinguish the imported review's `unresolved` count from `formal_unresolved` and
+  `formal_human_review_required`, and identify `reviewer_kind`/`score_kind`. A zero diagnostic count is not formal approval.
 - Current-runtime regressions alongside explicit historical instruction/schema fixtures. Historical responses,
   scores, thresholds, and unavailable usage are not rewritten to satisfy the rebased runtime.
 - Runtime sources included in the committed-freeze check, frozen JSON byte verification, optional evidence-reader
@@ -128,10 +137,19 @@ bounded strategy lacks value. They are limited to synthetic workloads, the recor
 execution revisions; a model alias is not a fixed physical snapshot. No new comparison under the rebased schema,
 remote-backend acceptance, host qualification, or provider cancellation/refund guarantee is claimed.
 
+The public archive has not been rescored with the current formal-review and zero-fact negative-control fixes.
+Read-only inspection found assistant-diagnostic score receipts in the v18/v19/v20 reports; all three already record
+`insufficient_evidence`. Corrected historical formal metrics and complete semantic review are not established.
+The original private session audit material is unavailable in the current checkout and absent from the public archive.
+Local mock-provider regressions validate the implementation and cannot substitute for historical rescoring.
+If the original audit material becomes available, compatible identity-checked offline reanalysis must publish separate
+derived reports with code/execution identities and preserve the original archive bytes and checksum; no new model call
+is needed to rescore an existing response, and no replacement call recovers a missing historical response.
+
 # Are there any user-facing changes?
 
 This PR adds evaluation commands and documentation. Production source and Gateway behavior are unchanged relative
-to the integrated upstream base `e725225b103a7b41e601710d352ca3c3d3ae0ea0`.
+to the integrated upstream base `d053c094b1e0930e2b8e639e81001219f8392e61`.
 The refusal-coverage change is excluded from the evaluation diff and retained in Git history for a separate follow-up; this PR
 does not claim to fix that upstream gap. No new production admission policy, feature flag, migration, or API is added.
 
@@ -141,34 +159,37 @@ The contributor confirmed that full local engineering validation passed for the 
 `make check`, `make evaluation-unit-test`, `make test`, `make build` and `tox`. This increment was checked with focused
 regressions rather than repeating that matrix; the contributor-reported baseline is separate from the checks below.
 
-Python 3.11.15 focused validation passed 150 tests across durable JSON publication, v18 comparison/review,
-v19/v20 continuation and sample review. Four native Source/SQLite/Pipeline regressions terminate child processes
-immediately before publishing the scored state, covering both returned and citation-rejected outputs in v19/v20.
-All four reproduced the stale-temporary failure before the fix and pass afterward, including two consecutive
-interruptions followed by recovery without another provider request, extra charge or duplicate cursor advance.
-Six additional publication cases cover abandoned files, invalid JSON, failed publication and immutable-record races.
-Existing output-binding, score-recomputation and audit-corruption regressions also pass.
+Python 3.11.15 focused validation passed 169 tests across inherited v10 scoring, v18 comparison/review,
+durable JSON publication and v19/v20 continuation. The regressions cover assistant-only formal blocking, independent
+append-only human review, deterministic evidence, nonempty zero-fact controls, cache/binding tampering, and shared
+v18/v19/v20 report export. Three CLI receipt cases distinguish assistant diagnostics, human review and deterministic
+exact evidence without conflating a zero diagnostic count with formal resolution.
+
+Existing native Source/SQLite/Pipeline crash regressions cover interrupted scoring publication and recovery without
+another provider request, extra charge or duplicate cursor advance. Output-binding, score-recomputation and
+audit-corruption regressions remain in the focused run.
 
 ```bash
-uv run --project evaluation --extra capture-ownership pytest -c evaluation/pyproject.toml \
-  evaluation/memory/evidence_admission/tests/test_v18_state_writes.py \
+uv run --project evaluation --locked pytest -c evaluation/pyproject.toml \
+  evaluation/memory/evidence_admission/tests/test_v10_scoring.py \
   evaluation/memory/evidence_admission/tests/test_v18_comparison.py \
+  evaluation/memory/evidence_admission/tests/test_v18_state_writes.py \
   evaluation/memory/evidence_admission/tests/test_v19_continuation.py \
-  evaluation/memory/evidence_admission/tests/test_v20_continuation.py \
-  evaluation/memory/evidence_admission/tests/test_sample_review.py -m "not live" -q
+  evaluation/memory/evidence_admission/tests/test_v20_continuation.py -m "not live" -q
 ```
 
-Ruff lint/format for the four affected Python files, evaluator types, frozen-contract bytes and whitespace checks passed.
-The contributor also reports that local validation of this change passed. Tests use the real local Source/SQLite/Pipeline
-with a mock provider; no model requests or spending were incurred. Historical evidence and decision thresholds remain
-unchanged. These checks do not establish real-provider acceptance or a passing remote CI run.
+Ruff lint/format for the three affected Python files, evaluator types, frozen-contract bytes and whitespace checks
+passed. The contributor-reported full engineering baseline is separate from these focused checks. Tests use the real
+local Source/SQLite/Pipeline with a mock provider; no model requests or spending were incurred. Historical evidence
+and decision thresholds remain unchanged. These checks do not establish real-provider acceptance, corrected
+historical metrics, or a passing remote CI run.
 
 Historical bundle-dependent tests skip by default; the bundle does not replace the matching historical runtime or
 unavailable private responses. Default tests need no provider credentials or network. Live execution, manual cost
 calculation, cancellation, audit, and report regeneration are documented in [the runbook](LIVE_RUNBOOK.md) and
 [Chinese instructions](LIVE_RUNBOOK.zh.md).
 
-Upstream `master` at `e725225b103a7b41e601710d352ca3c3d3ae0ea0` is integrated with a normal merge.
+Upstream `master` at `d053c094b1e0930e2b8e639e81001219f8392e61` is integrated with a normal merge.
 The `.gitignore` resolution preserves both evaluation-result ignores and upstream DSH pet file exceptions.
 The `evaluation-unit-test` target keeps evidence-admission tests in the evaluation environment and prepared-context
 budget/recovery tests in the root environment. Remote mergeability and CI must be checked after publication.

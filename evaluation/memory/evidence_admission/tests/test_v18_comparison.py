@@ -364,7 +364,7 @@ def test_bound_review_import_rejects_changed_or_unavailable_audit(tmp_path, revi
 def test_report_rejects_changed_review_score(tmp_path, reviewable_attempt, field, replacement):
     record, review_file, _ = reviewable_attempt
     workflow.apply_review(tmp_path, record["call_id"], review_file)
-    path = tmp_path / "reviews" / (record["call_id"] + ".json")
+    path = tmp_path / "reviews" / (record["call_id"] + ".human.json")
     derivative = read_json(path)
     derivative["score"][field] = replacement
     core.dump(path, derivative)
@@ -379,7 +379,7 @@ def test_report_rechecks_bound_review_evidence(tmp_path, reviewable_attempt, cha
     record, review_file, rejected = reviewable_attempt
     call_id = record["call_id"]
     workflow.apply_review(tmp_path, call_id, review_file)
-    derivative_path = tmp_path / "reviews" / (call_id + ".json")
+    derivative_path = tmp_path / "reviews" / (call_id + ".human.json")
     if change == "response":
         path = tmp_path / "audit" / (call_id + ".response-bytes.json")
         path.write_bytes(path.read_bytes() + b" ")
@@ -701,3 +701,345 @@ def test_cli_cancellation_before_source_read_closes_ready_session(tmp_path, monk
     state = read_json(tmp_path / "state.json")
     assert state["state"] == "cancelled" and state["records"] == []
     assert state["known_charge_cny"] == "0"
+
+
+async def reviewed_report_session(
+    tmp_path,
+    monkeypatch,
+    *,
+    case_id="single-source-overflow",
+    reviewer="assistant",
+    exact=False,
+    empty=False,
+    review_receipts=None,
+):
+    """Controlled formal-gate fixture; every provider response is local, never live evidence."""
+    from argparse import Namespace
+
+    from powercontext_eval_evidence_admission.v18 import __main__ as cli
+
+    manifest = await controlled_session(tmp_path, monkeypatch, case_id)
+    manifest["rows"][1]["sample"]["window_attempts"] = [[0, 1, 0, False]]
+    state = read_json(tmp_path / "state.json")
+    state["preparation_hash"] = digest(manifest)
+    core.dump(tmp_path / "state.json", state)
+    row = manifest["rows"][-1]
+    case = next(c for c in core.suite_for(row["dataset"]).cases if c.case_id == row["case"])
+    truth = ground_truth(case)
+    text = truth[0]["text"] if truth else "Routine synthetic status was recorded."
+    if not exact:
+        text = "Recorded fact: " + text
+    reviews = []
+    for call in workflow.calls_for(manifest):
+        value = read_json(tmp_path / "inputs" / (row["row_id"] + ".json"))[call["input_index"]]
+        candidates = (
+            []
+            if empty
+            else [
+                {
+                    "kind": "fact",
+                    "text": text,
+                    "description": text,
+                    "evidence_ids": [e["evidence_id"] for e in value["evidence"]],
+                }
+            ]
+        )
+        response = mock_response()
+        response["model"] = "deepseek-flash"
+        response["choices"][0]["message"]["content"] = json.dumps({"candidates": candidates})
+        await workflow.run_next(
+            tmp_path, transport=httpx.MockTransport(lambda req, body=response: httpx.Response(200, json=body))
+        )
+        call_id = digest(call)
+        review = read_json(tmp_path / "audit" / (call_id + ".review.json"))
+        review.update(reviewer="synthetic-reviewer", reviewer_kind=reviewer)
+        output = AtomicMemoryExtractionOutput.model_validate({"candidates": candidates})
+        review["judgements"] = {
+            candidate_key(candidate, index): {
+                "supported": True,
+                "atomic": True,
+                "false_attribution": False,
+                "entailed_atom_ids": [truth[0]["id"]] if truth else [],
+            }
+            for index, candidate in enumerate(output.candidates)
+        }
+        path = tmp_path / (call_id + ".review-input.json")
+        core.dump(path, review)
+        imported = await cli.execute(Namespace(command="review", session=tmp_path, call_id=call_id, review_file=path))
+        if review_receipts is not None:
+            review_receipts.append(imported)
+        reviews.append((call_id, path))
+    await workflow.run_next(
+        tmp_path, transport=httpx.MockTransport(lambda req: pytest.fail("unexpected provider call"))
+    )
+    state = read_json(tmp_path / "state.json")
+    # Exercise the report's live decision branch without making a live request.
+    state["mode"] = "live"
+    core.dump(tmp_path / "state.json", state)
+    return manifest, reviews
+
+
+@pytest.mark.parametrize(
+    ("reviewer", "exact", "formal_unresolved"),
+    [("assistant", False, 1), ("human", False, 0), ("assistant", True, 0)],
+)
+def test_review_cli_distinguishes_diagnostic_and_formal_status(
+    tmp_path, monkeypatch, reviewer, exact, formal_unresolved
+):
+    receipts = []
+    asyncio.run(
+        reviewed_report_session(tmp_path, monkeypatch, reviewer=reviewer, exact=exact, review_receipts=receipts)
+    )
+    assert receipts
+    for receipt in receipts:
+        assert receipt["reviewer_kind"] == reviewer
+        assert receipt["unresolved"] == 0
+        assert receipt["formal_unresolved"] == formal_unresolved
+        assert receipt["formal_human_review_required"] is (formal_unresolved > 0)
+    result = report.summarize(tmp_path)
+    assert ("qualifying_human_review_missing" in result["formal_blockers"]) is (formal_unresolved > 0)
+
+
+def test_assistant_review_cannot_clear_the_formal_follow_up_gate(tmp_path, monkeypatch):
+    asyncio.run(reviewed_report_session(tmp_path, monkeypatch))
+    result = report.summarize(tmp_path)
+    assert result["live_execution_complete"]
+    assert result["decision"] == "insufficient_evidence"
+    assert "qualifying_human_review_missing" in result["formal_blockers"]
+    assert not result["quality_gate_passed"]
+    assert not result["reproducible_window_improvement"]
+    assert not result["rows"][-1]["proven_delivered_atom_hashes"]
+    assert result["rows"][-1]["semantic_unresolved"] == 2
+    for record in result["records"]:
+        assert record["score"]["retained_atoms"] == 0
+        assert record["assistant_diagnostic_score"]["score_kind"] == "assistant_diagnostic"
+        assert record["assistant_diagnostic_score"]["retained_atoms"] == 1
+
+
+@pytest.mark.parametrize("audit_available", [False, True])
+def test_legacy_assistant_score_cache_cannot_supply_formal_evidence(tmp_path, monkeypatch, audit_available):
+    _, reviews = asyncio.run(reviewed_report_session(tmp_path, monkeypatch))
+    state = read_json(tmp_path / "state.json")
+    for record in state["records"]:
+        call_id = record["call_id"]
+        path = tmp_path / "reviews" / (call_id + ".json")
+        derivative = read_json(path)
+        record["score"] = derivative["score"]
+        core.dump(tmp_path / "audit" / (call_id + ".review.json"), derivative["review"])
+        path.unlink()
+        if not audit_available:
+            (tmp_path / "audit" / (call_id + ".response-bytes.json")).unlink()
+    core.dump(tmp_path / "state.json", state)
+    result = report.summarize(tmp_path)
+    assert result["decision"] == "insufficient_evidence"
+    assert result["human_review_required_calls"] == 2
+    assert "qualifying_human_review_missing" in result["formal_blockers"]
+    assert not result["rows"][-1]["proven_delivered_atom_hashes"]
+    assert all(r["score"] is None and r["assistant_diagnostic_score"] for r in result["records"])
+    if audit_available:
+        for call_id, review_file in reviews:
+            review = read_json(review_file)
+            review["reviewer_kind"] = "human"
+            core.dump(review_file, review)
+            workflow.apply_review(tmp_path, call_id, review_file)
+        assert report.summarize(tmp_path)["decision"] == "bounded_projection_follow_up_required"
+
+
+def test_human_review_appends_after_assistant_without_changing_originals(tmp_path, monkeypatch):
+    _, reviews = asyncio.run(reviewed_report_session(tmp_path, monkeypatch))
+    original_state = (tmp_path / "state.json").read_bytes()
+    original_audit = {p.name: p.read_bytes() for p in (tmp_path / "audit").iterdir()}
+    diagnostics = {p.name: p.read_bytes() for p in (tmp_path / "reviews").iterdir()}
+    for call_id, path in reviews:
+        review = read_json(path)
+        review.update(reviewer="synthetic-human-reviewer", reviewer_kind="human")
+        core.dump(path, review)
+        workflow.apply_review(tmp_path, call_id, path)
+        with pytest.raises(EvaluationError, match="output_exists"):
+            workflow.apply_review(tmp_path, call_id, path)
+    result = report.summarize(tmp_path)
+    assert result["decision"] == "bounded_projection_follow_up_required"
+    assert result["quality_gate_passed"] and result["formal_blockers"] == []
+    assert all(r["score"]["score_kind"] == "human_bound_review" for r in result["records"])
+    assert all(r["assistant_diagnostic_score"] for r in result["records"])
+    assert (tmp_path / "state.json").read_bytes() == original_state
+    assert {p.name: p.read_bytes() for p in (tmp_path / "audit").iterdir()} == original_audit
+    assert all((tmp_path / "reviews" / name).read_bytes() == value for name, value in diagnostics.items())
+
+
+def test_assistant_diagnostic_does_not_discard_deterministic_evidence(tmp_path, monkeypatch):
+    asyncio.run(reviewed_report_session(tmp_path, monkeypatch, exact=True))
+    result = report.summarize(tmp_path)
+    assert result["decision"] == "bounded_projection_follow_up_required"
+    assert result["formal_blockers"] == []
+    assert all(r["score"]["score_kind"] == "deterministic_exact_ground_truth" for r in result["records"])
+
+
+@pytest.mark.parametrize("reviewer", ["human", "assistant"])
+@pytest.mark.parametrize("empty", [False, True], ids=["nonempty-output", "empty-output"])
+def test_zero_fact_control_requires_empty_candidates_even_with_bound_review(tmp_path, monkeypatch, reviewer, empty):
+    asyncio.run(
+        reviewed_report_session(tmp_path, monkeypatch, case_id="negative-control", reviewer=reviewer, empty=empty)
+    )
+    result = report.summarize(tmp_path)
+    row = result["rows"][-1]
+    assert row["required_atom_hashes"] == row["proven_delivered_atom_hashes"] == []
+    assert row["known_quality_failure"] is not empty
+    assert row["negative_control_nonempty_output"] is not empty
+    assert result["candidate_known_quality_failure_rows"] == int(not empty)
+    assert not result["quality_gate_passed"]
+    if reviewer == "human":
+        assert all(r["score"]["semantic_complete"] is empty for r in result["records"])
+        assert result["decision"] == "no_production_change"
+    elif not empty:
+        assert result["decision"] == "insufficient_evidence"
+
+
+def test_legacy_human_review_is_readable_but_two_formal_reviews_are_rejected(tmp_path, monkeypatch):
+    _, reviews = asyncio.run(reviewed_report_session(tmp_path, monkeypatch, reviewer="human"))
+    call_id, path = reviews[0]
+    human = tmp_path / "reviews" / (call_id + ".human.json")
+    legacy = tmp_path / "reviews" / (call_id + ".json")
+    original = human.read_bytes()
+    human.rename(legacy)
+    assert report.summarize(tmp_path)["decision"] == "bounded_projection_follow_up_required"
+    with pytest.raises(EvaluationError, match="output_exists"):
+        workflow.apply_review(tmp_path, call_id, path)
+    human.write_bytes(original)
+    with pytest.raises(EvaluationError, match="multiple_human_reviews"):
+        report.summarize(tmp_path)
+
+
+def test_assistant_review_in_human_slot_is_not_a_formal_review(tmp_path, monkeypatch):
+    _, reviews = asyncio.run(reviewed_report_session(tmp_path, monkeypatch))
+    call_id, _ = reviews[0]
+    (tmp_path / "reviews" / (call_id + ".json")).rename(tmp_path / "reviews" / (call_id + ".human.json"))
+    with pytest.raises(EvaluationError, match="human_review_kind_changed"):
+        report.summarize(tmp_path)
+
+
+def test_assistant_diagnostic_cannot_replace_an_existing_human_review(tmp_path, monkeypatch):
+    _, reviews = asyncio.run(reviewed_report_session(tmp_path, monkeypatch, reviewer="human"))
+    for call_id, path in reviews:
+        review = read_json(path)
+        review["reviewer_kind"] = "assistant"
+        for judgement in review["judgements"].values():
+            judgement.update(supported=False, entailed_atom_ids=[])
+        core.dump(path, review)
+        workflow.apply_review(tmp_path, call_id, path)
+    result = report.summarize(tmp_path)
+    assert result["decision"] == "bounded_projection_follow_up_required"
+    assert all(r["score"]["retained_atoms"] == 1 for r in result["records"])
+    assert all(r["assistant_diagnostic_score"]["unsupported_candidates"] == 1 for r in result["records"])
+
+
+def test_human_review_does_not_hide_a_tampered_assistant_derivative(tmp_path, monkeypatch):
+    _, reviews = asyncio.run(reviewed_report_session(tmp_path, monkeypatch, reviewer="human"))
+    call_id, path = reviews[0]
+    review = read_json(path)
+    review["reviewer_kind"] = "assistant"
+    core.dump(path, review)
+    workflow.apply_review(tmp_path, call_id, path)
+    derivative = tmp_path / "reviews" / (call_id + ".json")
+    data = read_json(derivative)
+    data["score"]["retained_atoms"] = 99
+    core.dump(derivative, data)
+    with pytest.raises(EvaluationError, match="review_score_changed"):
+        report.summarize(tmp_path)
+
+
+def test_nonempty_negative_control_blocks_an_otherwise_passing_follow_up(tmp_path, monkeypatch):
+    import shutil
+
+    positive = tmp_path / "positive"
+    negative = tmp_path / "negative"
+    manifest, _ = asyncio.run(reviewed_report_session(positive, monkeypatch, reviewer="human"))
+    control, _ = asyncio.run(
+        reviewed_report_session(negative, monkeypatch, case_id="negative-control", reviewer="human")
+    )
+    manifest["rows"].extend(control["rows"])
+    state = read_json(positive / "state.json")
+    other_state = read_json(negative / "state.json")
+    state["records"].extend(other_state["records"])
+    state["known_charge_cny"] = str(Decimal(state["known_charge_cny"]) + Decimal(other_state["known_charge_cny"]))
+    for folder in ("inputs", "audit", "reviews"):
+        shutil.copytree(negative / folder, positive / folder, dirs_exist_ok=True)
+    core.dump(positive / "state.json", state)
+    monkeypatch.setattr(report, "load", lambda *args, **kwargs: manifest)
+    result = report.summarize(positive)
+    assert result["live_execution_complete"] and result["reproducible_window_improvement"]
+    assert result["semantic_unresolved_candidates"] == 0 and result["formal_blockers"] == []
+    assert result["candidate_known_quality_failure_rows"] == 1
+    assert result["decision"] == "no_production_change"
+    assert not result["quality_gate_passed"]
+
+
+def test_partial_request_scores_still_aggregate_into_complete_sample_coverage(tmp_path, monkeypatch):
+    async def scenario():
+        manifest = await controlled_session(tmp_path, monkeypatch, "single-source-overflow")
+        manifest["rows"][1]["sample"]["window_attempts"] = [[0, 1, 0, False]]
+        state = read_json(tmp_path / "state.json")
+        state["preparation_hash"] = digest(manifest)
+        core.dump(tmp_path / "state.json", state)
+        row = manifest["rows"][-1]
+        case = next(c for c in core.suite_for(row["dataset"]).cases if c.case_id == row["case"])
+        value = read_json(tmp_path / "inputs" / (row["row_id"] + ".json"))[0]
+        fact = ground_truth(case)[0]["text"]
+        for candidates in (
+            [],
+            [
+                {
+                    "kind": "fact",
+                    "text": fact,
+                    "description": fact,
+                    "evidence_ids": [e["evidence_id"] for e in value["evidence"]],
+                }
+            ],
+        ):
+            response = mock_response()
+            response["model"] = "deepseek-flash"
+            response["choices"][0]["message"]["content"] = json.dumps({"candidates": candidates})
+            await workflow.run_next(
+                tmp_path, transport=httpx.MockTransport(lambda req, body=response: httpx.Response(200, json=body))
+            )
+        await workflow.run_next(
+            tmp_path, transport=httpx.MockTransport(lambda req: pytest.fail("unexpected provider call"))
+        )
+        state = read_json(tmp_path / "state.json")
+        state.update(state="finished", mode="live")
+        core.dump(tmp_path / "state.json", state)
+
+    asyncio.run(scenario())
+    result = report.summarize(tmp_path)
+    assert result["records"][0]["score"]["semantic_complete"] is False
+    assert result["records"][1]["score"]["semantic_complete"] is True
+    assert result["decision"] == "bounded_projection_follow_up_required"
+    assert result["rows"][-1]["known_quality_failure"] is False
+
+
+@pytest.mark.parametrize("version", ["v18", "v19", "v20"])
+def test_versioned_export_preserves_assistant_review_blocker(tmp_path, monkeypatch, version):
+    from importlib import import_module
+
+    manifest, _ = asyncio.run(reviewed_report_session(tmp_path, monkeypatch))
+    module = report if version == "v18" else import_module(f"powercontext_eval_evidence_admission.{version}.workflow")
+    if version != "v18":
+        state = read_json(tmp_path / "state.json")
+        monkeypatch.setattr(
+            module,
+            "session_data",
+            lambda *args, **kwargs: (
+                manifest,
+                state,
+                {
+                    "authorization": "controlled-fixture",
+                    "source_freeze": {},
+                    "approved_total_cny": "5",
+                },
+            ),
+        )
+        monkeypatch.setattr(module, "status", lambda directory: {})
+        monkeypatch.setattr(module, "load", lambda *args, **kwargs: manifest)
+    output = tmp_path / "public-report.json"
+    assert module.export(tmp_path, output)["decision"] == "insufficient_evidence"
+    assert "qualifying_human_review_missing" in read_json(output)["formal_blockers"]

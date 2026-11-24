@@ -41,8 +41,33 @@ and unexpected exceptions. Validation details, private values, filesystem paths 
 these failure diagnostics. Failures exit with code 2; Ctrl-C retains the cancelled state output and exits with 130.
 The error handlers do not change persisted scoring, billing or cursor state and do not resend requests.
 
-Report generation reloads the bound review context and recomputes each human-review derivative's score. It rejects
+Report generation reloads the bound review context and recomputes each imported review derivative's score. It rejects
 changed evidence, review bindings and cached scores, including numeric type changes; it never silently repairs them.
+Human reviews append to `reviews/<call_id>.human.json`; existing human reviews in `reviews/<call_id>.json` remain
+readable. An assistant review in the legacy slot can be followed by a human review without replacing either file.
+Only one human review is accepted per call; competing human derivatives are rejected rather than ranked by score.
+The import receipt names `reviewer_kind` and `score_kind`. Its existing `unresolved` field describes only the imported
+review; `formal_unresolved` and `formal_human_review_required` describe the effective formal score for that call.
+`formal_unresolved: null` means no formal score is available. Neither a zero diagnostic count nor a resolved single-call
+score establishes the final experiment decision; export the report to inspect all quality gates and blockers.
+
+Formal fact/literal retention, paired improvements and decisions use deterministic exact-ground-truth scores or
+bound human reviews. Assistant semantic judgements remain visible as `assistant_diagnostic_score` and cannot clear
+unresolved formal semantics. Such rows retain `qualifying_human_review_missing` and `insufficient_evidence` until
+qualifying human review is available. Deterministic exact-ground-truth checks remain valid without human review.
+Zero-fact negative controls require empty candidates even when a review marks a nonempty output as supported with
+no entailed atoms. Reports mark these rows with `negative_control_nonempty_output` and count them as quality failures.
+Multi-request fact coverage still aggregates across a sample. Export corrected reports to new paths and compare
+their decisions and blockers separately; archived reports and original audit records remain unchanged.
+Preparation/code identity checks remain enforced; historical sessions are not automatically upgraded.
+
+The public archive is unchanged and has not been rescored with these formal-review and negative-control fixes.
+Read-only inspection found assistant-diagnostic score receipts in the v18/v19/v20 reports, all of which already
+declare `insufficient_evidence`. This establishes neither corrected historical metrics nor full semantic review.
+The original private session audit material is unavailable in this checkout and is not included in the public archive.
+Current local mock-provider regressions verify the implementation, not historical or new real-provider outcomes.
+If original audit material becomes available, a compatible, identity-checked offline reanalysis must publish separate
+derived reports with their execution/code identities and preserve the archive bytes; it needs no new model calls.
 
 [v20 results](V20_RESULTS.zh.md): all 351 remaining requests were attempted with responses and usage, with no new
 unknown usage. The original 471-call plan has zero unrun calls; all 469 available responses replayed identically,

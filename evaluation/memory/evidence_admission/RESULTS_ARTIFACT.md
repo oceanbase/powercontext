@@ -45,6 +45,15 @@ the extracted bundle; it does not bypass identity checks, supply private outputs
 the current runtime. Full historical replay also requires the matching code, locked environment, and private audit
 material. The two unavailable historical responses remain unavailable.
 
+The archive has not been rescored with the current formal-review and zero-fact negative-control fixes.
+Read-only receipt inspection found assistant-diagnostic scores in the v18/v19/v20 reports, whose frozen decisions
+already remain `insufficient_evidence`. Corrected historical formal metrics have not been established: the original
+private session audit material is unavailable in the current checkout and absent from this public archive.
+Passing local mock-provider regressions does not replace historical rescoring or complete semantic review.
+Any future reanalysis must validate the original bindings and compatible identities, publish separate derived reports
+with their code/execution identities, and preserve this archive and its checksum. No replacement model call can
+recover a missing historical response.
+
 Default validation does not download this archive and does not require provider credentials. Tests that exercise a
 historical result bundle skip when `POWERCONTEXT_EVIDENCE_ADMISSION_RESULTS` is unset; implementation, fixtures,
 manifests, current-runtime regressions, and model-free protocol tests remain self-contained in the code PR.

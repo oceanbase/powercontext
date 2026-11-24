@@ -19,32 +19,10 @@ from __future__ import annotations
 from collections import Counter, defaultdict
 from decimal import Decimal
 
-from pydantic import ValidationError
-
 from ..manifests import EvaluationError, read_json
 from ..models import digest
 from .core import ARMS, contract, dump, offline_summary
-from .scoring import score_output
-from .workflow import calls_for, charge, load, reservation, review_context
-
-
-def _reviewed_score(directory, row, record, reviewed):
-    if reviewed.get("call_id") != record["call_id"] or reviewed.get("original_record_hash") != digest(record):
-        raise EvaluationError("v18_review_derivation_changed")
-    case, value, supports, output, kind = review_context(directory, row, record)
-    # Older derivatives may omit this descriptive field; the original attempt fixes the kind.
-    if reviewed.get("output_kind", kind) != kind:
-        raise EvaluationError("v18_review_output_kind_changed")
-    review = reviewed.get("review")
-    if not review:
-        raise EvaluationError("v18_review_empty")
-    try:
-        score, _ = score_output(case, value, supports, output, review)
-    except ValidationError:
-        raise EvaluationError("v18_review_schema_unsupported") from None
-    if digest(score) != digest(reviewed.get("score")):
-        raise EvaluationError("v18_review_score_changed")
-    return score
+from .workflow import calls_for, charge, load, reservation, review_scores
 
 
 def summarize(directory):
@@ -60,14 +38,11 @@ def summarize(directory):
     public_records = []
     audit_unavailable = 0
     unscored_required = 0
+    human_review_required = 0
     for record in records:
         if {k: record[k] for k in ("row_id", "input_index", "input_hash")} != expected[record["call_id"]]:
             raise EvaluationError("v18_call_result_binding_changed")
-        derivative = directory / "reviews" / (record["call_id"] + ".json")
-        score = record.get("score")
-        if derivative.exists():
-            reviewed = read_json(derivative)
-            score = _reviewed_score(directory, prepared_rows[record["row_id"]], record, reviewed)
+        score, diagnostic = review_scores(directory, prepared_rows[record["row_id"]], record)
         raw = directory / "audit" / (record["call_id"] + ".response-bytes.json")
         if not raw.exists() or digest(raw.read_bytes().hex()) != record.get("response_hash"):
             audit_unavailable += 1
@@ -84,7 +59,9 @@ def summarize(directory):
         score_required = record.get("score_required", record["outcome"] == "returned")
         if score_required and score is None:
             unscored_required += 1
-        effective = {**record, "score": score}
+        if (score or {}).get("unresolved_candidates", 0) or score is None and diagnostic is not None:
+            human_review_required += 1
+        effective = {**record, "score": score, "assistant_diagnostic_score": diagnostic}
         by_row[record["row_id"]].append(effective)
         usage = record.get("provider_usage") or {}
         public = {
@@ -164,9 +141,12 @@ def summarize(directory):
         literal_measured = row["planned_calls"] > 0 and missing == 0 and scoring_incomplete == 0
         known_literal_absence = eligible and literal_measured and bool(required_literals - raw_literals)
         failed_output = any(r["outcome"] != "returned" for r in actual)
+        negative_control_nonempty = not required and any((r.get("score") or {}).get("candidates", 0) for r in actual)
+        c["negative_control_nonempty_output_rows"] += bool(negative_control_nonempty)
         failure = (
             critical > 0
             or failed_output
+            or negative_control_nonempty
             or known_literal_absence
             or eligible
             and missing == 0
@@ -195,6 +175,7 @@ def summarize(directory):
             "semantic_unresolved": unreviewed,
             "known_quality_failure": bool(failure),
             "failed_output": failed_output,
+            "negative_control_nonempty_output": bool(negative_control_nonempty),
             "known_literal_absence": bool(known_literal_absence),
             "literal_output_measured": literal_measured,
             "literal_presence_basis": "Pipeline_accepted_candidates; rejected_output_occurrences_are_separate_diagnostics",
@@ -260,6 +241,8 @@ def summarize(directory):
         blockers.append("scoring_incomplete")
     if unresolved:
         blockers.append("critical_semantics_unresolved")
+    if human_review_required:
+        blockers.append("qualifying_human_review_missing")
     if audit_unavailable:
         blockers.append("raw_audit_unavailable_or_hash_mismatch")
     # No positive claim without established per-row gates and reproducible window-control improvement.
@@ -315,6 +298,7 @@ def summarize(directory):
         "live_execution_complete": live_complete,
         "quality_gate_passed": bool(passed),
         "semantic_unresolved_candidates": unresolved,
+        "human_review_required_calls": human_review_required,
         "candidate_known_quality_failure_rows": quality_failures,
         "candidate_input_loss": input_loss,
         "reproducible_window_improvement": improvement,
