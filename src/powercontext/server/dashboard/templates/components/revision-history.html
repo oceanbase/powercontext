@@ -52,7 +52,7 @@ limitations under the License.
             {% elif history.family == "topic-memory" %}
               <a class="btn btn-sm" href="{{ link('topics', topic_artifact=history.artifact_id, topic_revision=item.revision) }}">{{ t.revision }} {{ item.revision }}</a>
             {% elif history.family == "prompt" %}
-              <a class="btn btn-sm" hx-swap="outerHTML show:none" href="{{ link('prompts', prompt_key=history.artifact_id, prompt_revision=(none if item.revision == history.head else item.revision), compare=none) }}">{{ t.revision }} {{ item.revision }}</a>
+              <a class="btn btn-sm" hx-swap="outerHTML show:none" href="{{ link('prompts', prompt_key=history.artifact_id, prompt_revision=item.revision, compare=none) }}">{{ t.revision }} {{ item.revision }}</a>
             {% elif history.family == "atomic-memory" %}
               <a class="btn btn-sm" href="{{ link('notes', artifact=history.artifact_id, revision=item.revision, compare=none, fragment='note-reading') }}">{{ t.revision }} {{ item.revision }}</a>
             {% else %}

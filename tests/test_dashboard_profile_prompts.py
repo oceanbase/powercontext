@@ -1775,3 +1775,105 @@ def test_browser_saved_revisit_and_rejected_save_preserve_draft_and_url(dashboar
             assert not errors
         finally:
             browser.close()
+
+
+def test_injected_custom_prompt_exposes_auto_only_reset_form(dashboard: TestClient) -> None:
+    """Verify an injected_component Custom head still offers an Auto-only reset without exposing the Custom editor."""
+    _set_prompt_registry(dashboard, supported=frozenset({"profile.generate"}))
+    scope = create_scope(dashboard, "Injected custom reset")["scope_id"]
+
+    created = _post_profile_prompt(
+        dashboard,
+        scope=scope,
+        mode="custom",
+        instructions="Previously saved custom instructions.",
+        expected_etag="",
+        lang="en",
+    )
+    assert created.status_code == 303
+
+    _set_prompt_registry(dashboard, injected=frozenset({"profile.generate"}))
+    page = dashboard.get("/dashboard/prompts", params={"scope": scope, "prompt_key": "profile.generate", "lang": "en"})
+    assert page.status_code == 200, page.text
+    card = _prompt_card(page.text, "profile.generate")
+    assert _extract_editor_form(card) is None
+    assert "data-profile-prompt-reset" in card
+    assert 'name="return_to_auto"' in card
+    reset_match = re.search(
+        r'<form[^>]*action="(/dashboard/prompts/profile-generate[^"]*)"[^>]*data-profile-prompt-reset', card
+    )
+    assert reset_match is not None
+
+    reset = dashboard.post(
+        unescape(reset_match.group(1)),
+        data={"scope": scope, "expected_etag": '"revision:1"', "return_to_auto": "1"},
+        headers={"Origin": "http://testserver"},
+        follow_redirects=False,
+    )
+    assert reset.status_code == 303, reset.text
+    after = dashboard.get(reset.headers["location"])
+    assert after.status_code == 200, after.text
+    after_card = _prompt_card(after.text, "profile.generate")
+    assert "data-profile-prompt-reset" not in after_card
+    assert f"{CATALOGS['en']['prompt_mode']}: {CATALOGS['en']['prompt_auto']}" in after_card
+
+
+def test_prompt_history_pins_head_revision_and_oversized_413_preserves_scope(dashboard: TestClient) -> None:
+    """Verify numbered history links always pin prompt_revision and 413 keeps the edited non-default Scope."""
+    _set_prompt_registry(dashboard, supported=frozenset({"profile.generate"}))
+    scope_default = create_scope(dashboard, "Default scope for 413")["scope_id"]
+    scope_other = create_scope(dashboard, "Secondary scope for 413")["scope_id"]
+
+    first = _post_profile_prompt(
+        dashboard,
+        scope=scope_other,
+        mode="custom",
+        instructions="Rev 1 instructions.",
+        expected_etag="",
+        lang="en",
+    )
+    assert first.status_code == 303
+    second = _post_profile_prompt(
+        dashboard,
+        scope=scope_other,
+        mode="custom",
+        instructions="Rev 2 instructions.",
+        expected_etag='"revision:1"',
+        lang="en",
+    )
+    assert second.status_code == 303
+
+    # History row for current head (Revision 2) still pins prompt_revision=2 in its numbered link.
+    history_page = dashboard.get(
+        "/dashboard/prompts",
+        params={"scope": scope_other, "prompt_key": "profile.generate", "prompt_revision": "1", "lang": "en"},
+    )
+    assert history_page.status_code == 200, history_page.text
+    rev2_links = re.findall(r'href="(/dashboard/prompts\?[^"]*)"[^>]*>Revision 2</a>', history_page.text)
+    assert rev2_links
+    assert parse_qs(urlsplit(unescape(rev2_links[0])).query).get("prompt_revision") == ["2"]
+
+    # Editor form action carries the edited non-default Scope so 413 rejection never falls back to default Scope.
+    editor_page = dashboard.get(
+        "/dashboard/prompts",
+        params={"scope": scope_other, "prompt_key": "profile.generate", "lang": "en"},
+    )
+    assert editor_page.status_code == 200, editor_page.text
+    action_match = re.search(r'<form[^>]*action="(/dashboard/prompts/profile-generate[^"]*)"', editor_page.text)
+    assert action_match is not None
+    form_action = unescape(action_match.group(1))
+    assert parse_qs(urlsplit(form_action).query).get("scope") == [scope_other]
+
+    oversized = dashboard.post(
+        form_action,
+        content=f"scope={scope_other}&mode=custom&expected_etag=&instructions=".encode() + b"x" * 520_000,
+        headers={
+            "Origin": "http://testserver",
+            "Content-Type": "application/x-www-form-urlencoded",
+            "HX-Request": "true",
+        },
+    )
+    assert oversized.status_code == 413, oversized.text
+    push_url = oversized.headers.get("hx-push-url", "")
+    assert parse_qs(urlsplit(push_url).query).get("scope") == [scope_other]
+    assert scope_default not in push_url
