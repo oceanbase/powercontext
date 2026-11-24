@@ -179,7 +179,18 @@ async function main() {
       await page.unroute(notes);
     }
 
-    // Replacing a held navigation must preserve the newer selection until its own response.
+    // A delayed options preload and a replaced navigation must both preserve a newer selection.
+    const options = '**/dashboard/scope-options?*';
+    const optionsReady = Promise.withResolvers();
+    const releaseOptions = Promise.withResolvers();
+    await page.route(options, async route => {
+      optionsReady.resolve();
+      await releaseOptions.promise;
+      const current = {scope_id: scope, title: 'Original Scope', display_title: 'Original Scope', parent_scope_id: null};
+      await route.fulfill({json: {current, parent: null, items: [current], next_cursor: null}});
+    });
+    await open();
+    await optionsReady.promise;
     const firstRequest = Promise.withResolvers();
     const secondRequest = Promise.withResolvers();
     const releaseFirst = Promise.withResolvers();
@@ -195,11 +206,19 @@ async function main() {
     await pickScope('');
     await secondRequest.promise;
     releaseFirst.resolve();
+    await page.evaluate(() => {
+      window.scopeOptionsLoaded = new Promise(resolve => {
+        document.querySelector('#scope').tomselect.on('load', () => resolve());
+      });
+    });
+    releaseOptions.resolve();
+    await page.evaluate(() => window.scopeOptionsLoaded);
     assert.equal(await page.locator('#scope').inputValue(), '');
     releaseSecond.resolve();
     await page.locator('[data-scope-switch-error]').waitFor();
     assert.equal(await page.locator('#scope').inputValue(), scope);
     await page.unroute(notes);
+    await page.unroute(options);
 
     // Changing the Scope while a refresh is delayed must discard that response.
     await page.route(fragment, async route => {

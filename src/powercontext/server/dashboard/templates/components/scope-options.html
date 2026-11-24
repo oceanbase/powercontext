@@ -43,6 +43,7 @@ limitations under the License.
 <script>
   me().run(component => {
     const controller = new AbortController();
+    let navigation;
     const picker = new TomSelect(me('select', component), {
       plugins: ['dropdown_input', 'virtual_scroll'],
       valueField: 'scope_id',
@@ -71,7 +72,8 @@ limitations under the License.
             if (result.current) {
               if (this.options[result.current.scope_id]) this.updateOption(result.current.scope_id, result.current);
               else this.addOption(result.current);
-              if ({{ scope|tojson }} === result.current.scope_id && !this.getValue()) {
+              // After navigation begins, an empty value can be the user's selection.
+              if (!navigation && {{ scope|tojson }} === result.current.scope_id && !this.getValue()) {
                 this.setValue(result.current.scope_id, true);
               }
             }
@@ -110,7 +112,6 @@ limitations under the License.
     const form = component.closest('form');
     const switchError = component.querySelector('[data-scope-switch-error]');
     const currentScope = {{ scope|tojson }} || '';
-    let navigation;
     form.addEventListener('htmx:beforeRequest', event => {
       navigation = event.detail.xhr;
       switchError.hidden = true;
