@@ -1,0 +1,21 @@
+scripts/dashboard_processing_browser.cjs
+  s_624ad8983708a5::t_4539e2bc1ec638 153-164
+src/powercontext/server/dashboard/static/artifact-processing.js
+  s_624ad8983708a5::t_e8579a252b7aef 151-153,155-156
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "f99775e78f12183e82e9037e88c76e97145ffcec",
+  "prompts": {},
+  "sessions": {
+    "s_624ad8983708a5": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1ab57-e572-7090-b0f7-d55ee829f4b0",
+        "model": "gpt-6.2-astra"
+      },
+      "human_author": "Frey <110882560+Zxf-xufeng@users.noreply.github.com>"
+    }
+  }
+}
