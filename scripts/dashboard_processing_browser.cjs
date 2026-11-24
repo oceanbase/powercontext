@@ -150,6 +150,18 @@ async function main() {
     await page.unroute(fragment);
 
     await open('methods');
+    const methods = '**/dashboard/methods?*';
+    await page.route(methods, route => route.abort('failed'));
+    const failedNavigation = page.waitForEvent('requestfailed', request =>
+      new URL(request.url()).pathname === '/dashboard/methods');
+    await page.locator('.nav-tabs a[href*="kind=skill"]').click();
+    await failedNavigation;
+    await page.unroute(methods);
+    await refresh();
+    await settled();
+    assert.equal(await snapshot.getAttribute('data-family'), 'experience');
+    assert.equal(await snapshot.getAttribute('data-scope'), scope);
+
     await page.locator('.nav-tabs a[href*="kind=skill"]').click();
     await page.waitForURL(url => url.searchParams.get('kind') === 'skill');
     await settled();

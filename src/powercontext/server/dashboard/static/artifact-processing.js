@@ -148,8 +148,12 @@ limitations under the License.
     }
   });
   document.addEventListener('htmx:afterRequest', event => {
+    const {failed, xhr} = event.detail;
+    // HTMX sets failed for HTTP errors. A transport failure ends with XHR status 0.
+    if (!failed && xhr.status !== 0) return;
     for (const [root, state] of instances) {
-      if (!root.isConnected || !state.suspended || state.navigation !== event.detail.xhr || !event.detail.failed) continue;
+      if (!root.isConnected || !state.suspended || state.navigation !== xhr) continue;
+      state.navigation = null;
       state.suspended = false;
       root.removeAttribute('aria-busy');
       root.querySelector('[data-processing-refresh]').disabled = false;
