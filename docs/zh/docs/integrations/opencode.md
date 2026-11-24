@@ -100,9 +100,10 @@ OpenCode 的每一轮准备并注入上下文；独立运行的 gateway 需要�
 OpenCode 总是发送流式请求。指向 gateway `/gateway/v1` 的 OpenCode provider 请使用 `@ai-sdk/openai`，它使用
 Responses 路由。gateway 以非流式方式向上游模型请求 Responses 结果，再把放行的结果以流式重放，因此在 Core 的任何
 [隐私模式](../operate/inference-protection.md#配置受支持的目标)下，流式都不会阻止这一轮完成或被采集。enforcing 模式的
-Core 仍会执行它的其他请求和响应规则。`@ai-sdk/openai-compatible` 使用 Chat Completions 路由，gateway 会转发流式响应。
-enforcing 模式的 Core 会扣留这一轮，gateway 返回 HTTP 400。非 enforcing 模式的 Core（包括默认的 `disabled`
-模式）下，gateway 会放行流式响应，但不会采集这一轮，因为它只采集 JSON 响应。
+Core 仍会执行它的其他请求和响应规则。`@ai-sdk/openai-compatible` 使用 Chat Completions 路由。
+enforcing 模式的 Core 会扣留流式 Chat Completions 响应，gateway 返回 HTTP 400。非 enforcing 模式的 Core
+（包括默认的 `disabled` 模式）下，gateway 会原样放行流式响应。设置 `PC_GATEWAY_SEDIMENT=on` 后，
+gateway 还会拼接终止流式响应中的助手文本，并采集已完成的回合。
 
 ## 验证安装
 

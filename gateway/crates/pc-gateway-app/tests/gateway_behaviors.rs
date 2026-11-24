@@ -57,6 +57,7 @@ struct Peers {
     replies: Mutex<VecDeque<Reply>>,
     sent: Mutex<Vec<(HeaderMap, Bytes)>>,
     checks: Mutex<Vec<Value>>,
+    captures: Mutex<Vec<Value>>,
     deny: Option<(&'static str, &'static str)>,
 }
 
@@ -98,6 +99,11 @@ async fn check(State(peers): State<Arc<Peers>>, Json(request): Json<Value>) -> J
         "policy_version": "test", "valid_until": "2999-01-01T00:00:00Z",
         "binding": format!("test-{phase}")
     }))
+}
+
+async fn capture(State(peers): State<Arc<Peers>>, Json(request): Json<Value>) -> Json<Value> {
+    peers.captures.lock().unwrap().push(request);
+    Json(json!({}))
 }
 
 struct Gateway {
@@ -149,6 +155,7 @@ impl Gateway {
         let peer_base = format!("http://{}", listener.local_addr().unwrap());
         let router = Router::new()
             .route("/v1/context/check", post(check))
+            .route("/v1/sources/content/batch", post(capture))
             // Startup discovery needs the complete v1 capability document; without it the model
             // routes stay paused (`input_capacity_unconfirmed`). These cases verify payload and
             // streaming semantics, so advertise the same ceiling as Core's v1 parser.
@@ -161,7 +168,7 @@ impl Gateway {
                         "reuse_versions": [], "reuse_families": [], "enforcing": enforcing,
                         "limits": {"payload_bytes": 1_048_576, "binding_bytes": 8192,
                             "prepared_contexts": 16, "dependencies": 256,
-                            "send_seconds": 60, "correlate_seconds": 300}
+                            "send_seconds": 60, "correlate_seconds": 300, "capture_batch_sources": 128}
                     }}))
                 }),
             )
@@ -489,6 +496,123 @@ async fn chat_preserves_request_fields_and_tool_continuations() {
             gateway.assert_forwarded(&expected, &bodies);
         }
     }
+}
+
+#[tokio::test]
+async fn chat_captures_a_streamed_turn_after_tool_continuation() {
+    let tool = Reply::fixture("fantasy_chat_tool_streaming", 0);
+    let mut terminal = Reply::fixture("fantasy_chat_tool_streaming", 1);
+    let message = chat_message(&terminal.body, true);
+    assert_eq!(
+        message["content"],
+        "The current temperature in Florence, Italy is 40°C."
+    );
+    terminal.body = format!(
+        "\u{feff}{}",
+        String::from_utf8(terminal.body)
+            .unwrap()
+            .replace('\n', "\r\n")
+    )
+    .into_bytes();
+    let json_reply = Reply {
+        body: serde_json::to_vec(
+            &json!({"choices": [{"index": 0, "message": message, "finish_reason": "stop"}]}),
+        )
+        .unwrap(),
+        content_type: "application/json",
+        status: 200,
+    };
+    let bodies = [
+        tool.body.clone(),
+        terminal.body.clone(),
+        json_reply.body.clone(),
+    ];
+    let gateway = Gateway::start_with_env(
+        vec![tool, terminal, json_reply],
+        None,
+        &[("PC_GATEWAY_SEDIMENT", "on")],
+        false,
+    )
+    .await;
+    let initial = request("chat", "tool", true);
+    let response = gateway.post("chat/completions", &initial).await;
+    assert_eq!(response.status(), 200);
+    assert_eq!(response.bytes().await.unwrap().as_ref(), bodies[0]);
+    assert!(gateway.peers.captures.lock().unwrap().is_empty());
+
+    let mut continued = initial.clone();
+    let tool_call = chat_message(&bodies[0], true);
+    continued["messages"].as_array_mut().unwrap().extend([
+        tool_call.clone(),
+        json!({"role": "tool", "tool_call_id": tool_call["tool_calls"][0]["id"], "content": "40 C"}),
+    ]);
+    let response = gateway.post("chat/completions", &continued).await;
+    assert_eq!(response.status(), 200);
+    assert_eq!(response.headers()["content-type"], "text/event-stream");
+    assert_eq!(response.bytes().await.unwrap().as_ref(), bodies[1]);
+
+    let mut json_request = continued.clone();
+    json_request["stream"] = json!(false);
+    json_request
+        .as_object_mut()
+        .unwrap()
+        .remove("stream_options");
+    let response = gateway.post("chat/completions", &json_request).await;
+    assert_eq!(response.status(), 200);
+    assert_eq!(response.headers()["content-type"], "application/json");
+    assert_eq!(response.bytes().await.unwrap().as_ref(), bodies[2]);
+    gateway.assert_forwarded(&[initial, continued, json_request], &bodies);
+
+    let captures = gateway.peers.captures.lock().unwrap();
+    assert_eq!(
+        captures.len(),
+        2,
+        "expected a Source batch for each terminal reply"
+    );
+    assert_eq!(
+        captures[0]["sources"][0]["content"],
+        captures[1]["sources"][0]["content"]
+    );
+    let transcript: Value =
+        serde_json::from_str(captures[0]["sources"][0]["content"].as_str().unwrap()).unwrap();
+    assert_eq!(transcript["assistant"], message["content"]);
+    assert_eq!(transcript["steps"][0]["name"], "weather");
+    assert_eq!(
+        transcript["steps"][1],
+        json!({"type": "tool_output", "output": "40 C"})
+    );
+}
+
+#[tokio::test]
+async fn chat_does_not_capture_unfinished_or_withheld_streams() {
+    let settings = [("PC_GATEWAY_SEDIMENT", "on")];
+    let body = request("chat", "simple", true);
+    let unfinished = Reply {
+        body: b"data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"partial answer\"},\"finish_reason\":null}]}\n\ndata: [DONE]\n\n".to_vec(),
+        content_type: "text/event-stream",
+        status: 200,
+    };
+    let bytes = unfinished.body.clone();
+    let gateway = Gateway::start_with_env(vec![unfinished], None, &settings, false).await;
+    let response = gateway.post("chat/completions", &body).await;
+    assert_eq!(response.status(), 200);
+    assert_eq!(response.bytes().await.unwrap().as_ref(), bytes);
+    gateway.assert_forwarded(std::slice::from_ref(&body), &[bytes]);
+    assert!(gateway.peers.captures.lock().unwrap().is_empty());
+
+    let terminal = Reply::fixture("fantasy_chat_simple_streaming", 0);
+    let bytes = terminal.body.clone();
+    let gateway = Gateway::start_with_env(
+        vec![terminal],
+        Some(("before_release", "withhold")),
+        &settings,
+        true,
+    )
+    .await;
+    let response = gateway.post("chat/completions", &body).await;
+    assert_eq!(response.status(), 400);
+    gateway.assert_forwarded(&[body], &[bytes]);
+    assert!(gateway.peers.captures.lock().unwrap().is_empty());
 }
 
 #[tokio::test]
