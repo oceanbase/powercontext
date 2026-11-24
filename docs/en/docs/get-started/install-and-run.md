@@ -125,6 +125,8 @@ Existing uv settings take precedence over automatic mirrors. `--index-url` chang
 
 An unavailable automatic mirror can fall back to an official source. A reachable package mirror that lacks the requested version returns an installation error. Select `--region global` or an explicit index to retry elsewhere. Explicit sources stay selected when they fail.
 
+On macOS and Linux, file downloads through `curl` retry timeouts, connection refusals and temporary HTTP errors up to three times at the selected source. Each connection attempt allows up to 15 seconds for DNS, TCP and TLS setup. These retries fetch the file again; they do not rerun an installer that has already started.
+
 ## Recover a failed installation
 
 Use the error reported by the installer to choose the next step:

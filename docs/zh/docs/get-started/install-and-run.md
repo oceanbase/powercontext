@@ -125,6 +125,8 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1 --region cn
 
 自动镜像不可用时，可以回退官方源；可达包镜像缺少请求版本时，会返回安装错误。使用 `--region global` 或显式索引切换来源后重试。显式来源失败时仍保持选中。
 
+在 macOS 和 Linux 上，通过 `curl` 下载文件时，超时、连接被拒绝和暂时性 HTTP 错误会在选定来源最多重试三次。每次连接尝试为 DNS、TCP 和 TLS 建连保留最多 15 秒。这些重试仅重新获取文件，不会重新执行已经启动的安装器。
+
 ## 安装失败后恢复
 
 根据安装器报告的错误选择下一步：

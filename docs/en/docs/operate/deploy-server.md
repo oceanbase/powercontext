@@ -151,6 +151,8 @@ When the Server uses UDS, `powercontext source-agent` on a device connects to it
 
 This listener provides the Core transport for the [Rust Gateway design (RFC #2199)](https://github.com/oceanbase/powercontext/pull/2199). The Rust executable, joint launcher, gateway settings, private channel authentication, private routes, and gateway state tables remain separate work. The design assigns the original public TCP port to the gateway, which calls the Core over UDS with channel and user authentication.
 
+Install a [prebuilt Gateway](install-gateway.md) to use the Rust executable without a local Rust toolchain. Core remains a separately installed and configured service.
+
 ### Gateway authentication boundaries
 
 `PC_GATEWAY_API_KEY` applies only to `/gateway/v1/chat/completions` and `/gateway/v1/responses`. A non-loopback Gateway listener requires a valid, nonempty key; that startup check does not authenticate other routes. In a combined deployment (`PC_GATEWAY_CORE_UDS`), requests forwarded to Core retain the client's credentials. Core API, MCP and Dashboard requests follow Core's existing authentication and access-control rules. The Gateway key does not grant Core API access, and UDS does not replace Core authentication.
