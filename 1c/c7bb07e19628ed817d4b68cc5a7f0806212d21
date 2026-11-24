@@ -1,0 +1,27 @@
+desktop/VALIDATION.md
+  s_624ad8983708a5::t_a70747af7efa3d 4167-4180
+desktop/src-tauri/src/transport/operations.json
+  s_624ad8983708a5::t_a70747af7efa3d 2
+desktop/src-tauri/src/connections/compatibility.json
+  s_624ad8983708a5::t_a70747af7efa3d 2215-2236
+desktop/ui/src/generated/api.d.ts
+  s_624ad8983708a5::t_a70747af7efa3d 9339
+desktop/ui/src/generated/operations.ts
+  s_624ad8983708a5::t_a70747af7efa3d 18
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "1cc7bb07e19628ed817d4b68cc5a7f0806212d21",
+  "prompts": {},
+  "sessions": {
+    "s_624ad8983708a5": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1ab57-e572-7090-b0f7-d55ee829f4b0",
+        "model": "gpt-6.2-astra"
+      },
+      "human_author": "Frey <110882560+Zxf-xufeng@users.noreply.github.com>"
+    }
+  }
+}
