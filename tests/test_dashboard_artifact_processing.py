@@ -17,7 +17,9 @@ from types import SimpleNamespace
 
 import httpx
 import pytest
+from fastapi import FastAPI
 from sqlalchemy import event, insert
+from starlette.middleware import Middleware
 
 from powercontext.builtin.artifacts.topic_memory import TOPIC_MEMORY_SOURCE_WINDOW_BINDING
 from powercontext.builtin.inference import InferenceTimeoutError
@@ -37,6 +39,7 @@ from powercontext.http import ArtifactProcessingStatusResponse, GetArtifactProce
 from powercontext.server.app import create_app
 from powercontext.server.dashboard.api import DashboardAPI, ReadError
 from powercontext.server.dashboard.routes import router
+from powercontext.server.middleware import StaticBearerMiddleware
 from tests.builtin.runtime.test_processing_scheduler import _Launcher, _request, _wait
 from tests.builtin.test_processing_status import _run_record, _runtime, _topic_budget
 from tests.e2e.test_access_control_regressions import _grant, _resource, _scope, _server
@@ -348,7 +351,7 @@ def test_http_evidence_is_passive_bounded_and_keeps_independent_paths(tmp_path):
                     ({}, 400),
                     ({"family": ""}, 400),
                     ({"family": "x" * 129}, 400),
-                    ([("family", "skill"), ("family", "skill")], 422),
+                    ((("family", "skill"), ("family", "skill")), 422),
                     ({"family": "skill", "extra": "x"}, 422),
                 ]:
                     invalid = await client.get(path, params=params)
@@ -647,6 +650,30 @@ def test_inspection_returns_no_evidence_when_snapshot_audit_fails(tmp_path, monk
             )
             assert response.status_code == 503, response.text
             assert "source_head" not in response.text and "data-processing-snapshot" not in response.text
+
+    asyncio.run(scenario())
+
+
+def test_mounted_status_cache_policy_covers_authentication_and_unhandled_errors(tmp_path, monkeypatch):
+    async def fail(*args, **kwargs):
+        raise RuntimeError
+
+    async def scenario():
+        async with _runtime(tmp_path) as (runtime, (scope, _)):
+            credential = "local-fixture"
+            api = create_app(application=runtime, middleware=[Middleware(StaticBearerMiddleware, token=credential)])
+            host = FastAPI()
+            host.mount("/base", api)
+            transport = httpx.ASGITransport(app=host, raise_app_exceptions=False)
+            path = f"/base/v1/scopes/{scope}/processing-status"
+            async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+                denied = await client.get(path, params={"family": "handoff"})
+                assert denied.status_code == 401 and denied.headers.get("cache-control") == "no-store"
+                monkeypatch.setattr(ScopedProcessingStatusApplication, "status", fail)
+                failed = await client.get(
+                    path, params={"family": "handoff"}, headers={"Authorization": f"Bearer {credential}"}
+                )
+                assert failed.status_code == 500 and failed.headers.get("cache-control") == "no-store"
 
     asyncio.run(scenario())
 
