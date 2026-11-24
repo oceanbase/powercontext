@@ -37,6 +37,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from powercontext.builtin.artifacts.skill.allowed_tools import parse_allowed_tools
 from powercontext.builtin.artifacts.skill.models import SkillContent, SkillPackageRef
+from powercontext.errors import PowerContextError
 
 MAX_SKILL_PACKAGE_FILES = 256
 MAX_SKILL_PACKAGE_BYTES = 4 * 1024 * 1024
@@ -80,12 +81,16 @@ class SkillPackageError(ValueError):
     """Raised when a package cannot be captured without changing its meaning."""
 
 
+class InvalidAllowedToolsError(PowerContextError, SkillPackageError):
+    """A new tool declaration has no parseable rules."""
+
+
 def validate_allowed_tools(value: str | None, /) -> None:
     """Require at least one parsed rule when accepting a new tool declaration."""
 
     declaration = parse_allowed_tools(value)
     if value is not None and not declaration.rules:
-        raise SkillPackageError(
+        raise InvalidAllowedToolsError(
             f"Agent Skill allowed-tools must contain a parsed rule: {value!r}; unparsed={declaration.unparsed!r}"
         )
 

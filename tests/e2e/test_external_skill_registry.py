@@ -17,12 +17,13 @@ from pathlib import Path
 from typing import cast
 
 import httpx
+import pytest
 
 from powercontext.builtin.artifacts.generation import ArtifactGenerationInput
 from powercontext.builtin.artifacts.skill import CodexSkillRoot, SkillContent
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.runtime import BuiltinConfig, ExternalSkillsConfig, open_builtin_runtime
-from powercontext.client import PowerContextClient
+from powercontext.client import PowerContextClient, ServerResponseError
 from powercontext.http import (
     ExternalSkillImportMode,
     GeneratedCandidateStatus,
@@ -107,12 +108,23 @@ class _SkillGenerator:
         )
 
 
-def test_http_sdk_explicitly_imports_exact_external_snapshot_into_review(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    ("declaration", "mode"),
+    [
+        ("Read) Bash", ExternalSkillImportMode.IMPORT),
+        ("Bash(git:*", ExternalSkillImportMode.IMPORT),
+        ("Bash(git:*", ExternalSkillImportMode.FORK),
+    ],
+)
+def test_http_sdk_explicitly_imports_exact_external_snapshot_into_review(
+    tmp_path: Path, declaration: str, mode: ExternalSkillImportMode
+) -> None:
     root = tmp_path / ".agents" / "skills"
     package = root / "friendly-python"
     package.mkdir(parents=True)
     (package / "SKILL.md").write_text(
-        "---\nname: friendly-python\ndescription: Use when writing Python.\n---\n\nKeep boundaries explicit.\n",
+        "---\nname: friendly-python\ndescription: Use when writing Python.\n"
+        f'allowed-tools: "{declaration}"\n---\n\nKeep boundaries explicit.\n',
         encoding="utf-8",
     )
     config = BuiltinConfig(
@@ -136,19 +148,27 @@ def test_http_sdk_explicitly_imports_exact_external_snapshot_into_review(tmp_pat
                     await client.scan_external_skills(ScanExternalSkillsRequest(scope_id=scope_id))
                 ).registrations[0]
 
-                imported = await client.import_external_skill(
-                    ImportExternalSkillRequest(
-                        scope_id=scope_id,
-                        external_skill_id=registration.external_skill_id,
-                        fingerprint=registration.fingerprint,
-                        mode=ExternalSkillImportMode.IMPORT,
-                        reason="Govern a caller-selected external package.",
-                    )
+                request = ImportExternalSkillRequest(
+                    scope_id=scope_id,
+                    external_skill_id=registration.external_skill_id,
+                    fingerprint=registration.fingerprint,
+                    mode=mode,
+                    reason="Govern a caller-selected external package.",
                 )
+                if declaration == "Bash(git:*":
+                    with pytest.raises(ServerResponseError) as rejected:
+                        await client.import_external_skill(request)
+                    assert rejected.value.status_code == 422
+                    details = rejected.value.details
+                    assert details is not None and details["field"] == "allowed_tools"
+                    assert f": {declaration!r}; unparsed=({declaration!r},)" in str(details["reason"])
+                    return
 
+                imported = await client.import_external_skill(request)
                 assert imported.status is GeneratedCandidateStatus.PENDING
                 assert imported.candidate is not None
                 assert imported.candidate.family == "skill"
+                assert imported.candidate.proposal.model_dump()["allowed_tools"] == declaration
                 assert imported.candidate.source_refs[0].name == "external-skill-snapshot"
 
     asyncio.run(scenario())

@@ -16,15 +16,27 @@ from __future__ import annotations
 
 import base64
 import io
+import json
 import sqlite3
 import zipfile
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
+from pydantic_ai.messages import ModelResponse, TextPart
+from pydantic_ai.models.function import FunctionModel
 
-from powercontext.builtin.artifacts.skill import SkillContent, build_instruction_skill_package, capture_skill_archive
+from powercontext.builtin.artifacts.generation import ArtifactGenerationInput
+from powercontext.builtin.artifacts.skill import (
+    LLMSkillGenerator,
+    SkillContent,
+    SkillGenerationOutput,
+    build_instruction_skill_package,
+    capture_skill_archive,
+)
+from powercontext.builtin.inference.pydantic_ai import PydanticAIStructuredGenerator
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.server.factory import create_server_app
 from powercontext.server.settings import McpConfig, ServerSettings
@@ -248,196 +260,193 @@ def _skill_archive(instructions: str, reference_marker: str, *, allowed_tools: s
     return buffer.getvalue()
 
 
-@pytest.mark.parametrize(("declaration", "expected"), [("Bash(git:*", 422), ("Read) Bash", 201)])
-def test_skill_new_writes_validate_declarations(tmp_path: Path, declaration: str, expected: int) -> None:
-    app = create_server_app(
-        settings=ServerSettings(
-            database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'declarations.db'}"),
-            mcp=McpConfig(enabled=False),
-        )
-    )
-    with TestClient(app) as client:
-        scope = client.post(
-            "/v1/scopes", json={"title": "Tools", "summary": "Write validation", "idempotency_key": "tools"}
-        ).json()["scope_id"]
-        content = {
-            "name": "tool-check",
-            "description": "Inspect tools.",
-            "instructions": "Read the source.",
-            "validation": ["Source checked."],
-            "allowed_tools": declaration,
-        }
-        created = client.post(f"/v1/scopes/{scope}/artifacts", json={"family": "skill", "content": content})
-        uploaded = client.post(
-            "/v1/skill/package/propose",
-            json={
-                "scope_id": scope,
-                "archive_base64": base64.b64encode(
-                    _skill_archive("Read the source.", "tools", allowed_tools=declaration)
-                ).decode(),
-                "reason": "Review the declaration.",
-            },
-        )
-        source = client.post(
-            "/v1/sources/content", json={"scope_id": scope, "source_id": "tools", "content": "Check the tools."}
-        ).json()["source"]
-        proposed = client.post(
-            "/v1/skill/propose",
-            json={
-                "scope_id": scope,
-                "proposal": content,
-                "source_refs": [source],
-                "artifact_refs": [],
-                "reason": "Review the declaration.",
-            },
-        )
-        assert created.status_code == expected, created.text
-        assert uploaded.status_code == expected, uploaded.text
-        assert proposed.status_code == expected, proposed.text
-
-
-@pytest.mark.parametrize("package_backed", [False, True])
-def test_historical_tool_declarations_support_reads_and_exact_restore(tmp_path: Path, package_backed: bool) -> None:
-    database = tmp_path / "historical.db"
-    app = create_server_app(
-        settings=ServerSettings(
-            database=SQLiteConfig(url=f"sqlite+aiosqlite:///{database}"), mcp=McpConfig(enabled=False)
-        )
-    )
-    old = SkillContent(
+@pytest.fixture
+def historical_skill() -> SkillContent:
+    return SkillContent(
         name="historical-tools",
         description="Inspect historical tools.",
         instructions="Inspect the source.",
         validation=("Source checked.",),
         allowed_tools="Bash(git:*",
     )
-    snapshot = build_instruction_skill_package(old)
-    historical = snapshot.as_skill_content() if package_backed else old
-    with TestClient(app) as client:
+
+
+@pytest.fixture
+def skill_write_api(
+    tmp_path: Path, historical_skill: SkillContent
+) -> Iterator[tuple[TestClient, Path, dict[str, Any]]]:
+    database = tmp_path / "skills.db"
+    model_response = json.dumps({"proposal": historical_skill.model_dump(mode="json")})
+    app = create_server_app(
+        settings=ServerSettings(
+            database=SQLiteConfig(url=f"sqlite+aiosqlite:///{database}"), mcp=McpConfig(enabled=False)
+        ),
+        skill_generator=LLMSkillGenerator(
+            PydanticAIStructuredGenerator(
+                model=FunctionModel(lambda _messages, _info: ModelResponse(parts=[TextPart(model_response)])),
+                instructions="Revise the instruction Skill.",
+                input_type=ArtifactGenerationInput,
+                output_type=SkillGenerationOutput,
+            )
+        ),
+    )
+    with TestClient(app, raise_server_exceptions=False) as client:
         scope = client.post(
-            "/v1/scopes", json={"title": "Tools", "summary": "Historical tools", "idempotency_key": "tools"}
+            "/v1/scopes", json={"title": "Tools", "summary": "Skill writes", "idempotency_key": "tools"}
         ).json()["scope_id"]
-        collection = f"/v1/scopes/{scope}/artifacts"
-        created = client.post(
-            collection,
-            json={
-                "family": "skill",
-                "content": old.model_copy(update={"allowed_tools": "Bash Read"}).model_dump(mode="json"),
-            },
-        )
-        assert created.status_code == 201, created.text
-        artifact_id = created.json()["artifact_id"]
-        path = f"{collection}/skill/{artifact_id}"
-        # Model a pre-upgrade revision through storage, while exercising writes through the public API.
-        with sqlite3.connect(database) as connection:
-            connection.execute(
-                "INSERT INTO pc_skill_packages "
-                "(scope_id, tree_digest, archive_digest, archive_bytes, manifest, file_count, "
-                "uncompressed_size, archive_size, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (
-                    scope,
-                    snapshot.reference.tree_digest,
-                    snapshot.reference.archive_digest,
-                    snapshot.archive_bytes,
-                    snapshot.manifest_bytes,
-                    snapshot.reference.file_count,
-                    snapshot.reference.uncompressed_size,
-                    snapshot.reference.archive_size,
-                    "2026-11-24 00:00:00",
-                ),
-            )
-            connection.execute(
-                "UPDATE pc_artifacts SET content = ? WHERE scope_id = ? AND artifact_id = ? AND revision = 1",
-                (historical.model_dump_json().encode(), scope, artifact_id),
-            )
-        original = client.get(path + "/revisions/1")
-        assert original.status_code == 200, original.text
-        body = original.json()["content"]
-        assert body["allowed_tools"] == old.allowed_tools
-        if package_backed:
-            ref = {"family": "skill", "artifact_id": artifact_id, "revision": 1}
-            for operation in ("manifest", "download"):
-                result = client.post(f"/v1/skill/package/{operation}", json={"scope_id": scope, "artifact": ref})
-                assert result.status_code == 200, result.text
-        clone = client.post(collection, json={"family": "skill", "content": body})
-        assert clone.status_code == 422, clone.text
         source = client.post(
             "/v1/sources/content",
             json={"scope_id": scope, "source_id": "feedback", "content": "Improve the procedure."},
         ).json()["source"]
-        target = {"family": "skill", "artifact_id": artifact_id, "revision": 1}
-        proposed = client.post(
-            "/v1/skill/propose",
-            json={
-                "scope_id": scope,
-                "proposal": body,
-                "target": target,
-                "artifact_refs": [target],
-                "source_refs": [source],
-                "reason": "Keep the historical declaration.",
-            },
-        )
-        assert proposed.status_code == 201, proposed.text
-        revised = client.post(
-            "/v1/candidates/revise",
-            json={
-                "scope_id": scope,
-                "candidate_id": proposed.json()["candidate_id"],
-                "expected_version": 1,
-                "proposal": body,
-                "target": target,
-                "artifact_refs": [target],
-                "source_refs": [source],
-                "reason": "Keep the declaration during review.",
-            },
-        )
-        assert revised.status_code == 200, revised.text
-        approved = _approve(client, scope, revised.json())
-        assert approved["result_artifact"]["revision"] == 2
-        reviewed = client.get(path)
-        assert reviewed.json()["content"]["allowed_tools"] == old.allowed_tools
-        inherited = client.put(path, headers={"If-Match": reviewed.headers["ETag"]}, json={"content": body})
-        assert inherited.status_code == 200, inherited.text
-        modified = client.put(
-            path,
-            headers={"If-Match": inherited.headers["ETag"]},
-            json={
-                "content": {**old.model_dump(mode="json"), "allowed_tools": "Write("},
-            },
-        )
-        assert modified.status_code == 422, modified.text
-        changed = client.put(
-            path,
-            headers={"If-Match": inherited.headers["ETag"]},
-            json={
-                "content": {
-                    **old.model_dump(mode="json"),
-                    "allowed_tools": "Read",
-                    "instructions": "Check the report.",
+        yield client, database, {"scope_id": scope, "source_refs": [source], "artifact_refs": []}
+
+
+@pytest.mark.parametrize(("declaration", "expected"), [("Bash(git:*", 422), ("Read) Bash", 201)])
+def test_skill_new_writes_validate_declarations(
+    skill_write_api: tuple[TestClient, Path, dict[str, Any]],
+    historical_skill: SkillContent,
+    declaration: str,
+    expected: int,
+) -> None:
+    client, database, lineage = skill_write_api
+    scope = lineage["scope_id"]
+    content = historical_skill.model_copy(update={"allowed_tools": declaration})
+    payload = content.model_dump(mode="json")
+    created = client.post(f"/v1/scopes/{scope}/artifacts", json={"family": "skill", "content": payload})
+    uploaded = client.post(
+        "/v1/skill/package/propose",
+        json={
+            "scope_id": scope,
+            "archive_base64": base64.b64encode(build_instruction_skill_package(content).archive_bytes).decode(),
+        },
+    )
+    proposed = client.post("/v1/skill/propose", json={**lineage, "proposal": payload})
+    for response in (created, uploaded, proposed):
+        assert response.status_code == expected, response.text
+        if expected == 422:
+            details = response.json()["error"]["details"]
+            assert details["field"] == "allowed_tools"
+            assert f": {declaration!r}; unparsed=({declaration!r},)" in details["reason"]
+    if expected == 422:
+        with sqlite3.connect(database) as connection:
+            assert connection.execute("SELECT count(*) FROM pc_skill_packages").fetchone()[0] == 0
+
+
+@pytest.mark.parametrize("package_backed", [False, True])
+def test_historical_tool_declarations_support_reads_and_exact_restore(
+    skill_write_api: tuple[TestClient, Path, dict[str, Any]], historical_skill: SkillContent, package_backed: bool
+) -> None:
+    client, database, lineage = skill_write_api
+    old = historical_skill
+    snapshot = build_instruction_skill_package(old)
+    historical = snapshot.as_skill_content() if package_backed else old
+    scope = lineage["scope_id"]
+    collection = f"/v1/scopes/{scope}/artifacts"
+    valid = old.model_copy(update={"allowed_tools": "Bash Read"}).model_dump(mode="json")
+    created = client.post(collection, json={"family": "skill", "content": valid})
+    assert created.status_code == 201, created.text
+    artifact_id = created.json()["artifact_id"]
+    path = f"{collection}/skill/{artifact_id}"
+    target = {"family": "skill", "artifact_id": artifact_id, "revision": 1}
+
+    # Seed a pre-upgrade revision, then exercise writes through the public API.
+    with sqlite3.connect(database) as connection:
+        if package_backed:
+            connection.execute(
+                "INSERT INTO pc_skill_packages "
+                "(scope_id, tree_digest, archive_digest, archive_bytes, manifest, file_count, "
+                "uncompressed_size, archive_size, created_at) VALUES "
+                "(:scope_id, :tree_digest, :archive_digest, :archive_bytes, :manifest, :file_count, "
+                ":uncompressed_size, :archive_size, CURRENT_TIMESTAMP)",
+                {
+                    **snapshot.reference.model_dump(),
+                    "scope_id": scope,
+                    "archive_bytes": snapshot.archive_bytes,
+                    "manifest": snapshot.manifest_bytes,
                 },
-            },
+            )
+        connection.execute(
+            "UPDATE pc_artifacts SET content = ? WHERE scope_id = ? AND artifact_id = ? AND revision = 1",
+            (historical.model_dump_json().encode(), scope, artifact_id),
         )
-        assert changed.status_code == 200, changed.text
-        forged = client.put(
-            path,
-            headers={"If-Match": changed.headers["ETag"]},
-            json={
-                "content": {**body, "description": "Different content."},
-                "restored_from_revision": 1,
-                "reason": "Restore.",
-            },
+    original = client.get(path + "/revisions/1")
+    assert original.status_code == 200, original.text
+    body = original.json()["content"]
+    assert body["allowed_tools"] == old.allowed_tools
+    if package_backed:
+        for operation in ("manifest", "download"):
+            result = client.post(f"/v1/skill/package/{operation}", json={"scope_id": scope, "artifact": target})
+            assert result.status_code == 200, result.text
+    clone = client.post(collection, json={"family": "skill", "content": body})
+    assert clone.status_code == 422, clone.text
+
+    _propose_package(client, scope, snapshot.archive_bytes, target=target)
+    targeted_lineage = {**lineage, "target": target, "artifact_refs": [target]}
+    generated = client.post("/v1/skill/generate", json={**targeted_lineage, "origin": "usage"})
+    assert generated.status_code == 200, generated.text
+    assert generated.json()["candidate"]["proposal"]["allowed_tools"] == old.allowed_tools
+    fresh_generation = client.post("/v1/skill/generate", json={**lineage, "origin": "source"})
+    assert fresh_generation.status_code == 422, fresh_generation.text
+    assert fresh_generation.json()["error"]["details"]["field"] == "allowed_tools"
+
+    review = {**targeted_lineage, "proposal": body}
+    proposed = client.post("/v1/skill/propose", json=review)
+    assert proposed.status_code == 201, proposed.text
+    revised = client.post(
+        "/v1/candidates/revise", json={**review, "candidate_id": proposed.json()["candidate_id"], "expected_version": 1}
+    )
+    assert revised.status_code == 200, revised.text
+    assert _approve(client, scope, revised.json())["result_artifact"]["revision"] == 2
+    reviewed = client.get(path)
+    assert reviewed.json()["content"]["allowed_tools"] == old.allowed_tools
+
+    inherited = client.put(path, headers={"If-Match": reviewed.headers["ETag"]}, json={"content": body})
+    assert inherited.status_code == 200, inherited.text
+    headers = {"If-Match": inherited.headers["ETag"]}
+    instruction_content = old.model_dump(mode="json")
+    modified = client.put(path, headers=headers, json={"content": {**instruction_content, "allowed_tools": "Write("}})
+    assert modified.status_code == 422, modified.text
+    changed = client.put(
+        path,
+        headers=headers,
+        json={"content": {**instruction_content, "allowed_tools": "Read", "instructions": "Check."}},
+    )
+    assert changed.status_code == 200, changed.text
+
+    headers = {"If-Match": changed.headers["ETag"]}
+    restore = {"content": body, "restored_from_revision": 1, "reason": "Restore the historical declaration."}
+    forged = client.put(
+        path, headers=headers, json={**restore, "content": {**body, "description": "Different content."}}
+    )
+    assert forged.status_code == 422, forged.text
+    restored = client.put(path, headers=headers, json=restore)
+    assert restored.status_code == 200, restored.text
+    assert restored.json()["restored_from_revision"] == 1
+    assert restored.json()["content"]["allowed_tools"] == old.allowed_tools
+    assert client.get(path + "/revisions/1").json() == original.json()
+
+
+@pytest.mark.parametrize("name", ["Legacy Display Name", "legacy-instruction"])
+def test_approve_historical_packageless_skill_candidate(
+    skill_write_api: tuple[TestClient, Path, dict[str, Any]], historical_skill: SkillContent, name: str
+) -> None:
+    client, database, lineage = skill_write_api
+    scope = lineage["scope_id"]
+    content = historical_skill.model_copy(update={"allowed_tools": None})
+    proposed = client.post("/v1/skill/propose", json={**lineage, "proposal": content.model_dump(mode="json")})
+    assert proposed.status_code == 201, proposed.text
+    candidate = proposed.json()
+    legacy = content.model_copy(update={"name": name})
+    with sqlite3.connect(database) as connection:
+        connection.execute(
+            "UPDATE pc_candidate_versions SET proposal = ? WHERE scope_id = ? AND candidate_id = ?",
+            (legacy.model_dump_json().encode(), scope, candidate["candidate_id"]),
         )
-        assert forged.status_code == 422, forged.text
-        restored = client.put(
-            path,
-            headers={"If-Match": changed.headers["ETag"]},
-            json={
-                "content": body,
-                "restored_from_revision": 1,
-                "reason": "Restore the historical declaration.",
-            },
-        )
-        assert restored.status_code == 200, restored.text
-        assert restored.json()["restored_from_revision"] == 1
-        assert restored.json()["content"]["allowed_tools"] == old.allowed_tools
-        assert client.get(path + "/revisions/1").json() == original.json()
+        packages = connection.execute("SELECT count(*) FROM pc_skill_packages").fetchone()[0]
+    approved = _approve(client, scope, candidate)
+    artifact_id = approved["result_artifact"]["artifact_id"]
+    stored = client.get(f"/v1/scopes/{scope}/artifacts/skill/{artifact_id}").json()["content"]
+    assert stored["name"] == name
+    assert stored["package"] is None
+    with sqlite3.connect(database) as connection:
+        assert connection.execute("SELECT count(*) FROM pc_skill_packages").fetchone()[0] == packages

@@ -28,11 +28,7 @@ from powercontext.builtin.artifacts.skill.external import (
     ExternalSkillResolutionStatus,
     ExternalSkillSnapshotUnavailableError,
 )
-from powercontext.builtin.artifacts.skill.package import (
-    SkillPackageError,
-    capture_skill_directory,
-    validate_allowed_tools,
-)
+from powercontext.builtin.artifacts.skill.package import SkillPackageError, capture_skill_directory
 from powercontext.builtin.persistence.database import AsyncDatabase
 from powercontext.builtin.persistence.errors import RepositoryNotFoundError
 from powercontext.builtin.persistence.external_skills import ExternalSkillRepository
@@ -114,7 +110,6 @@ class ExternalSkillRegistryService:
             raise ExternalSkillSnapshotUnavailableError(external_skill_id)
         try:
             package = await asyncio.to_thread(capture_skill_directory, Path(resolution.entrypoint).parent)
-            validate_allowed_tools(package.metadata.allowed_tools)
         except (OSError, UnicodeError, SkillPackageError):
             raise ExternalSkillSnapshotUnavailableError(external_skill_id) from None
         confirmed = await self.resolve(external_skill_id, fingerprint)

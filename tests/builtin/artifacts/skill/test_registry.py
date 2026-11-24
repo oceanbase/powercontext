@@ -24,7 +24,6 @@ from powercontext.builtin.artifacts.skill import (
     CodexSkillRoot,
     ExternalSkillNotFoundError,
     ExternalSkillResolutionStatus,
-    ExternalSkillSnapshotUnavailableError,
 )
 from powercontext.builtin.artifacts.skill.registry import ExternalSkillRegistryService
 from powercontext.builtin.persistence.external_skills import ExternalSkillRepository
@@ -32,38 +31,14 @@ from powercontext.builtin.persistence.sqlite import SQLiteConfig, SQLiteProfile
 from powercontext.builtin.persistence.tables import BUILTIN_TABLES
 
 
-def _write_skill(root: Path, allowed_tools: str = "") -> Path:
+def _write_skill(root: Path) -> Path:
     package = root / "friendly-python"
     package.mkdir(parents=True)
     (package / "SKILL.md").write_text(
-        f"---\nname: friendly-python\ndescription: Use when writing Python.\n{allowed_tools}---\n\nKeep boundaries explicit.\n",
+        "---\nname: friendly-python\ndescription: Use when writing Python.\n---\n\nKeep boundaries explicit.\n",
         encoding="utf-8",
     )
     return package
-
-
-@pytest.mark.parametrize(("declaration", "accepted"), [("Bash(git:*", False), ("Read) Bash", True)])
-def test_registry_validates_new_external_tool_declarations(tmp_path: Path, declaration: str, accepted: bool) -> None:
-    async def exercise() -> None:
-        root = tmp_path / "skills"
-        _write_skill(root, f'allowed-tools: "{declaration}"\n')
-        provider = CodexSkillProvider(
-            host_id="workstation-1",
-            roots=(CodexSkillRoot(root_id="repository", installation_scope="project", path=root),),
-        )
-        async with SQLiteProfile.open(SQLiteConfig(), tables=BUILTIN_TABLES) as profile:
-            service = ExternalSkillRegistryService(
-                database=profile.database, scope_id="scope", repository=ExternalSkillRepository(), provider=provider
-            )
-            registration = (await service.scan()).registrations[0]
-            if accepted:
-                captured = await service.snapshot(registration.external_skill_id, registration.fingerprint)
-                assert captured.package.metadata.allowed_tools == declaration
-            else:
-                with pytest.raises(ExternalSkillSnapshotUnavailableError):
-                    await service.snapshot(registration.external_skill_id, registration.fingerprint)
-
-    asyncio.run(exercise())
 
 
 def test_registry_refreshes_projection_and_checks_live_availability(tmp_path: Path) -> None:

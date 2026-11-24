@@ -133,6 +133,7 @@ from powercontext.builtin.artifacts.skill.distribution import (
 from powercontext.builtin.artifacts.skill.distribution import (
     RemoteTargetEnrollment as DomainRemoteTargetEnrollment,
 )
+from powercontext.builtin.artifacts.skill.package import InvalidAllowedToolsError
 from powercontext.builtin.artifacts.skill.publication import ManagedSkillPublicationStatus
 from powercontext.builtin.artifacts.topic_memory import (
     PublishedTopicMemory,
@@ -5330,6 +5331,8 @@ async def propose_skill_package(
             None if request.target is None else mapping.runtime_artifact_reference(request.target),
             **_candidate_owner_commit(http_request, request.scope_id),
         )
+    except InvalidAllowedToolsError:
+        raise
     except ValueError as error:
         raise InvalidRuntimeRequestError("skill-package") from error
     await _attest_candidate_owner(
@@ -7750,6 +7753,13 @@ def _map_report_error(error: Exception) -> tuple[int, str, str, dict[str, Any] |
 
 
 def _map_domain_error(error: Exception) -> tuple[int, str, str, dict[str, Any] | None]:
+    if isinstance(error, InvalidAllowedToolsError):
+        return (
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            "invalid_request",
+            "The request is invalid.",
+            {"field": "allowed_tools", "reason": str(error)},
+        )
     if isinstance(error, TopicMemoryBlockNotFoundError):
         return (
             status.HTTP_404_NOT_FOUND,

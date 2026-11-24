@@ -302,13 +302,9 @@ class SkillManagementWriter(_RepositoryFamilyWriter):
         connection: AsyncConnection,
         scope_id: str,
         content: BaseModel,
-        *,
-        validate_declaration: bool = False,
     ) -> tuple[SkillContent, Any]:
         proposal = cast(SkillContent, content)
         try:
-            if validate_declaration:
-                validate_allowed_tools(proposal.allowed_tools)
             if proposal.package is None:
                 package = build_instruction_skill_package(proposal)
                 await self._packages.add(connection, scope_id, package)
@@ -342,7 +338,8 @@ class SkillManagementWriter(_RepositoryFamilyWriter):
         direct_source: SourceRef,
         /,
     ) -> Skill:
-        canonical, package = await self._canonical_content(connection, scope_id, content, validate_declaration=True)
+        validate_allowed_tools(cast(SkillContent, content).allowed_tools)
+        canonical, package = await self._canonical_content(connection, scope_id, content)
         artifact = cast(
             Skill,
             await self._create_artifact(connection, scope_id, artifact_id, canonical, direct_source),
@@ -360,13 +357,11 @@ class SkillManagementWriter(_RepositoryFamilyWriter):
         /,
     ) -> Skill:
         proposal = cast(SkillContent, content)
-        restoring = bool(rollback_columns(self.family, current.artifact_id, current.revision + 1))
-        canonical, package = await self._canonical_content(
-            connection,
-            scope_id,
-            content,
-            validate_declaration=not restoring and proposal.allowed_tools != current.content.allowed_tools,
-        )
+        if proposal.allowed_tools != current.content.allowed_tools and not rollback_columns(
+            self.family, current.artifact_id, current.revision + 1
+        ):
+            validate_allowed_tools(proposal.allowed_tools)
+        canonical, package = await self._canonical_content(connection, scope_id, content)
         artifact = cast(
             Skill,
             await self._revise_artifact(connection, scope_id, current, canonical, direct_source),
