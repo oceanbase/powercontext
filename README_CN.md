@@ -271,6 +271,7 @@ make test
 - [接入 Agent](https://powercontext.oceanbase.io/zh/docs/integrations/)
 - [管理上下文](https://powercontext.oceanbase.io/zh/docs/workflows/)
 - [部署与运维](https://powercontext.oceanbase.io/zh/docs/operate/)
+- [为每个 Gateway 请求选择 Scope](docs/zh/docs/operate/deploy-server.md#gateway-请求-scope)
 - [开发与 API](https://powercontext.oceanbase.io/zh/docs/develop/)
 - [Python API 参考](https://powercontext.oceanbase.io/zh/modules/)
 - [RFC](https://powercontext.oceanbase.io/zh/rfcs/)

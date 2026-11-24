@@ -46,6 +46,7 @@ from powercontext.builtin.inference.models import (
     InferenceUsage,
     combine_inference_usage,
 )
+from powercontext.limits import MAX_SCOPE_ID_LENGTH
 
 if TYPE_CHECKING:
     from powercontext.builtin.artifacts.atomic_memory.extraction import (
@@ -128,6 +129,13 @@ def _count(value: object) -> TypeGuard[int]:
     return isinstance(value, int) and not isinstance(value, bool) and value >= 0
 
 
+def _scope_headers(scope_id: str | None) -> dict[str, str]:
+    # Legacy Scope IDs outside the header syntax can only have prefixes under the Gateway default.
+    if scope_id and len(scope_id) <= MAX_SCOPE_ID_LENGTH and all("!" <= ch <= "~" and ch != "," for ch in scope_id):
+        return {"X-PowerContext-Scope-ID": scope_id}
+    return {}
+
+
 @dataclass(frozen=True)
 class GatewayPrefixedExtractor:
     """Generate extraction output through the gateway's prefixed extraction route."""
@@ -160,7 +168,7 @@ class GatewayPrefixedExtractor:
         if self.max_output_tokens is not None:
             body["max_output_tokens"] = self.max_output_tokens
         try:
-            response = await self.client.post(EXTRACT_PATH, json=body)
+            response = await self.client.post(EXTRACT_PATH, json=body, headers=_scope_headers(value.scope_id))
         except httpx.HTTPError as error:
             raise PrefixedExtractionUnavailable("gateway_unavailable") from error
         payload = _json_object(response)
@@ -237,6 +245,7 @@ class PrefixStart:
     cached_tokens: int
     uncached_tokens: int
     normal_input_tokens: int
+    scope_id: str | None = None
 
 
 def prefix_start(value: AtomicMemoryExtractionInput, normal_input_tokens: int) -> PrefixStart:
@@ -248,7 +257,7 @@ def prefix_start(value: AtomicMemoryExtractionInput, normal_input_tokens: int) -
     tokens = _prefix_tokens(value.evidence[-1])
     if tokens is None:
         raise PrefixedExtractionUnavailable("prefix_size_unknown")
-    return PrefixStart(handle, tokens[0], tokens[1], normal_input_tokens)
+    return PrefixStart(handle, tokens[0], tokens[1], normal_input_tokens, scope_id=value.scope_id)
 
 
 @dataclass(frozen=True)
@@ -278,7 +287,7 @@ class GatewayPrefixedConversation:
         detail = "the reply does not satisfy the turn"
         for _ in range(self.max_requests):
             try:
-                text, spent = await self._send(start.handle, instruction, messages[1:])
+                text, spent = await self._send(start, instruction, messages[1:])
             except PrefixedExtractionUnavailable as error:
                 # The requests this turn already made stay accounted for.
                 error.usage = usage
@@ -317,15 +326,15 @@ class GatewayPrefixedConversation:
             raise PrefixedExtractionUnavailable("not_cheaper")
 
     async def _send(
-        self, handle: str, instruction: str, continuation: list[tuple[str, str]]
+        self, start: PrefixStart, instruction: str, continuation: list[tuple[str, str]]
     ) -> tuple[str, InferenceUsage]:
-        body: dict[str, Any] = {"handle": handle, "instruction": instruction}
+        body: dict[str, Any] = {"handle": start.handle, "instruction": instruction}
         if continuation:
             body["continuation"] = [{"role": role, "text": text} for role, text in continuation]
         if self.max_output_tokens is not None:
             body["max_output_tokens"] = self.max_output_tokens
         try:
-            response = await self.client.post(EXTRACT_PATH, json=body)
+            response = await self.client.post(EXTRACT_PATH, json=body, headers=_scope_headers(start.scope_id))
         except httpx.HTTPError as error:
             raise PrefixedExtractionUnavailable("gateway_unavailable") from error
         payload = _json_object(response)

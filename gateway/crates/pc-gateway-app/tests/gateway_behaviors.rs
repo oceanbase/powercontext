@@ -57,6 +57,8 @@ struct Peers {
     replies: Mutex<VecDeque<Reply>>,
     sent: Mutex<Vec<(HeaderMap, Bytes)>>,
     checks: Mutex<Vec<Value>>,
+    prepares: Mutex<Vec<Value>>,
+    captures: Mutex<Vec<Value>>,
     deny: Option<(&'static str, &'static str)>,
 }
 
@@ -98,6 +100,27 @@ async fn check(State(peers): State<Arc<Peers>>, Json(request): Json<Value>) -> J
         "policy_version": "test", "valid_until": "2999-01-01T00:00:00Z",
         "binding": format!("test-{phase}")
     }))
+}
+
+async fn prepare(State(peers): State<Arc<Peers>>, Json(request): Json<Value>) -> Json<Value> {
+    let content = format!("Memory for {}", request["scope_id"].as_str().unwrap());
+    peers.prepares.lock().unwrap().push(request);
+    Json(json!({
+        "schema": "test-reuse-envelope",
+        "context": {
+            "schema": "test-context", "status": "ready",
+            "content": content, "content_bytes": content.len()
+        },
+        "reuse": {
+            "schema": "test-reuse", "binding": "test-prepare",
+            "expires_at": "2999-01-01T00:00:00Z"
+        }
+    }))
+}
+
+async fn capture(State(peers): State<Arc<Peers>>, Json(request): Json<Value>) -> Json<Value> {
+    peers.captures.lock().unwrap().push(request);
+    Json(json!({}))
 }
 
 struct Gateway {
@@ -149,6 +172,8 @@ impl Gateway {
         let peer_base = format!("http://{}", listener.local_addr().unwrap());
         let router = Router::new()
             .route("/v1/context/check", post(check))
+            .route("/v1/context/prepare", post(prepare))
+            .route("/v1/sources/content/batch", post(capture))
             // Startup discovery needs the complete v1 capability document; without it the model
             // routes stay paused (`input_capacity_unconfirmed`). These cases verify payload and
             // streaming semantics, so advertise the same ceiling as Core's v1 parser.
@@ -161,7 +186,7 @@ impl Gateway {
                         "reuse_versions": [], "reuse_families": [], "enforcing": enforcing,
                         "limits": {"payload_bytes": 1_048_576, "binding_bytes": 8192,
                             "prepared_contexts": 16, "dependencies": 256,
-                            "send_seconds": 60, "correlate_seconds": 300}
+                            "send_seconds": 60, "correlate_seconds": 300, "capture_batch_sources": 16}
                     }}))
                 }),
             )
@@ -857,6 +882,154 @@ async fn default_steering_and_overrides_reach_only_responses() {
             .all(|message| message["role"] != "developer"));
     }
     std::fs::remove_file(custom).unwrap();
+}
+
+#[tokio::test]
+async fn request_scope_binds_recall_checks_and_capture() {
+    let requests = [
+        (
+            "responses",
+            "responses",
+            Some("project:alpha"),
+            "project:alpha",
+        ),
+        (
+            "responses",
+            "responses",
+            Some("project:beta"),
+            "project:beta",
+        ),
+        (
+            "chat/completions",
+            "chat",
+            Some("project:chat"),
+            "project:chat",
+        ),
+        ("responses", "responses", None, "gateway:fallback"),
+    ];
+    let replies = requests
+        .iter()
+        .map(|(_, format, _, _)| Reply::fixture(&format!("fantasy_{format}_simple"), 0))
+        .chain(std::iter::once(Reply::fixture(
+            "fantasy_responses_simple",
+            0,
+        )))
+        .collect();
+    let gateway = Gateway::start_with_env(
+        replies,
+        None,
+        &[
+            ("PC_GATEWAY_DEFAULT_SCOPE", "gateway:fallback"),
+            ("PC_GATEWAY_INJECTION", "on"),
+            ("PC_GATEWAY_SEDIMENT", "on"),
+            ("PC_GATEWAY_STEERING", "off"),
+        ],
+        true,
+    )
+    .await;
+
+    for (route, format, header, _) in requests {
+        let mut call = gateway
+            .client
+            .post(format!("{}/{route}", gateway.base))
+            .bearer_auth("gateway-test-key")
+            .header("X-PowerContext-Conversation-ID", "shared-conversation")
+            .json(&request(format, "simple", false));
+        if let Some(scope) = header {
+            call = call.header("X-PowerContext-Scope-ID", scope);
+        }
+        assert_eq!(call.send().await.unwrap().status(), 200);
+    }
+
+    let expected = requests.map(|(_, _, _, scope)| scope);
+    let handle = {
+        let prepares = gateway.peers.prepares.lock().unwrap();
+        let actual: Vec<_> = prepares
+            .iter()
+            .map(|value| value["scope_id"].as_str().unwrap())
+            .collect();
+        assert_eq!(
+            actual, expected,
+            "Core preparation must use the selected Scope"
+        );
+
+        let checks = gateway.peers.checks.lock().unwrap();
+        let captures = gateway.peers.captures.lock().unwrap();
+        let sent = gateway.peers.sent.lock().unwrap();
+        assert_eq!(checks.len(), expected.len() * 2);
+        assert_eq!(captures.len(), expected.len());
+        assert_eq!(sent.len(), expected.len());
+        for (index, scope) in expected.into_iter().enumerate() {
+            let send = &checks[index * 2];
+            let release = &checks[index * 2 + 1];
+            assert_eq!(send["phase"], "before_send");
+            assert_eq!(send["scope_id"], scope);
+            assert_eq!(release["phase"], "before_release");
+            assert_eq!(release["scope_id"], scope);
+            assert_eq!(release["request_binding"], "test-before_send");
+            assert_eq!(captures[index]["scope_id"], scope);
+            let (headers, body) = &sent[index];
+            assert!(!headers.contains_key("X-PowerContext-Scope-ID"));
+            assert!(std::str::from_utf8(body)
+                .unwrap()
+                .contains(&format!("Memory for {scope}")));
+            assert!(!captures[index]["sources"][0]["content"]
+                .to_string()
+                .contains("Memory for "));
+        }
+        captures[0]["sources"][0]["metadata"]["prefix_handle"]
+            .as_str()
+            .unwrap()
+            .to_owned()
+    };
+
+    let model = || {
+        gateway
+            .client
+            .post(format!("{}/responses", gateway.base))
+            .bearer_auth("gateway-test-key")
+            .json(&request("responses", "simple", false))
+    };
+    for invalid in [
+        "",
+        "project alpha",
+        "project:alpha,project:beta",
+        &"a".repeat(257),
+    ] {
+        let rejected = model()
+            .header("X-PowerContext-Scope-ID", invalid)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(rejected.status(), 400);
+    }
+    let duplicate = model()
+        .header("X-PowerContext-Scope-ID", "project:alpha")
+        .header("X-PowerContext-Scope-ID", "project:beta")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(duplicate.status(), 400);
+
+    let extract = json!({"handle": handle, "instruction": "Extract memory."});
+    assert_eq!(gateway.post("extract", &extract).await.status(), 404);
+    for (scope, status) in [("project:beta", 404), ("project:alpha", 200)] {
+        let response = gateway
+            .client
+            .post(format!("{}/extract", gateway.base))
+            .bearer_auth("gateway-test-key")
+            .header("X-PowerContext-Scope-ID", scope)
+            .json(&extract)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), status);
+    }
+    let checks = gateway.peers.checks.lock().unwrap();
+    assert_eq!(checks.len(), expected.len() * 2 + 2);
+    assert_eq!(checks[checks.len() - 2]["scope_id"], "project:alpha");
+    assert_eq!(checks[checks.len() - 1]["scope_id"], "project:alpha");
+    assert_eq!(gateway.peers.sent.lock().unwrap().len(), expected.len() + 1);
 }
 
 #[tokio::test]

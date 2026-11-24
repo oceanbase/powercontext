@@ -504,7 +504,7 @@ class AtomicMemorySourceWindowProcessor:
             await project_atomic_memory_evidence(item, self.sources, evidence_id=f"source:{item.journal_position}")
             for item in eligible
         ])
-        extraction_input = AtomicMemoryExtractionInput(evidence=evidence)
+        extraction_input = AtomicMemoryExtractionInput(evidence=evidence, scope_id=scope_id)
         self._require_budget(pipeline, extraction_input, "atomic_memory.extract")
         extraction_prompt = current_prompt("atomic_memory.extract")
         prompt_refs = (

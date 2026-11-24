@@ -90,8 +90,9 @@ opencode
 OpenCode 不保存召回添加到用户消息中的上下文，因此开启召回时开始的会话可以继续经过 gateway。但
 `pc_prepare_context` 的结果会被保存：如果模型在某个会话中调用过该工具，请新建 OpenCode 会话，不要继续那个会话。
 
-关闭召回后，提示词时上下文只来自 gateway。gateway 在 `PC_GATEWAY_DEFAULT_SCOPE` 指定的 Scope 中准备和采集，
-而不是插件为 Session 或 workspace 解析的 Scope。请把它设为同一个 Scope。
+关闭召回后，提示词时上下文只来自 gateway。gateway 在 `X-PowerContext-Scope-ID` 选择的 Scope 中准备和采集，
+未发送该请求头时使用 `PC_GATEWAY_DEFAULT_SCOPE`。若要使用插件为 Session 或 workspace 解析的 Scope，请在请求头
+中指定该 Scope，或将其设为默认值。见 [Gateway 请求 Scope](../operate/deploy-server.md#gateway-请求-scope)。
 
 OpenCode 在每个模型请求的 `x-opencode-session-id` 头中发送会话 ID。因此，通过 UDS 连接 Core 的 gateway 默认为
 OpenCode 的每一轮准备并注入上下文；独立运行的 gateway 需要设置 `PC_GATEWAY_INJECTION=on`。见

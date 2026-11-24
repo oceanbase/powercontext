@@ -183,6 +183,12 @@ Gemini disables Gateway context injection. Claude CLI accepts fresh text-only tu
 
 Do not route Core's own generation through automatic Gateway recall or capture without a separate recursion boundary.
 
+### Gateway request Scope
+
+Send `X-PowerContext-Scope-ID` on `/gateway/v1/chat/completions` or `/gateway/v1/responses` to select the Scope for recall, both Core checks, and turn capture. Send one Scope ID of 1–256 visible ASCII characters, excluding commas. An invalid or repeated value returns HTTP 400 with `invalid_scope_id`. When the header is absent, the Gateway uses `PC_GATEWAY_DEFAULT_SCOPE` (defaults to `gateway:default`). Clients should send the same Scope on every request in a conversation. The Gateway partitions prepared context replay by Scope and conversation ID.
+
+Use a Gateway with clients trusted to select the Scopes available to its Core credential. Core checks access under that credential according to its configured access mode. A client or a trusted proxy can set the header on each request.
+
 ### Gateway context injection
 
 When the gateway connects to the Core over UDS (`PC_GATEWAY_CORE_UDS`, the combined deployment), it injects prepared context by default into Chat and Responses requests that belong to a conversation. Within a conversation it prepares once per new user message and replays the exact result for the rest of that turn, such as an agent's tool loop.

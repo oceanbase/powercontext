@@ -274,6 +274,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the complete development workflow. Co
 - [Connect Agents](https://powercontext.oceanbase.io/en/docs/integrations/)
 - [Manage context](https://powercontext.oceanbase.io/en/docs/workflows/)
 - [Deploy and operate](https://powercontext.oceanbase.io/en/docs/operate/)
+- [Select a Scope per Gateway request](docs/en/docs/operate/deploy-server.md#gateway-request-scope)
 - [Develop with APIs](https://powercontext.oceanbase.io/en/docs/develop/)
 - [Python API reference](https://powercontext.oceanbase.io/en/modules/)
 - [RFCs](https://powercontext.oceanbase.io/en/rfcs/)

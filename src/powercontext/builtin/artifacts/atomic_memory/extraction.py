@@ -143,6 +143,8 @@ class AtomicMemoryEvidence(BaseModel):
 class AtomicMemoryExtractionInput(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
     evidence: tuple[AtomicMemoryEvidence, ...]
+    # Routing metadata for the Gateway callback, excluded from model input.
+    scope_id: str | None = Field(default=None, exclude=True)
 
 
 class AtomicMemoryCandidate(BaseModel):

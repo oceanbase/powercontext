@@ -271,6 +271,7 @@ make test
 - [Agent と接続する](https://powercontext.oceanbase.io/en/docs/integrations/)
 - [コンテキストの管理](https://powercontext.oceanbase.io/en/docs/workflows/)
 - [デプロイと運用](https://powercontext.oceanbase.io/en/docs/operate/)
+- [Gateway のリクエストごとに Scope を選択する](docs/en/docs/operate/deploy-server.md#gateway-request-scope)
 - [開発と API](https://powercontext.oceanbase.io/en/docs/develop/)
 - [Python API リファレンス](https://powercontext.oceanbase.io/en/modules/)
 - [RFC](https://powercontext.oceanbase.io/en/rfcs/)
