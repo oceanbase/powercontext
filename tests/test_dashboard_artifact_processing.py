@@ -473,7 +473,7 @@ def test_local_execution_observations_are_scoped_expiring_and_redacted(tmp_path,
                         scheduler_observed=True,
                         observed_at=datetime.now(UTC) - timedelta(seconds=age),
                         worker_id="private-worker",
-                        last_error_code="private-error",
+                        last_error_code="private-error" if age == 0 else "model_timeout",
                         last_error_at=datetime.now(UTC) - timedelta(seconds=age + 1),
                         last_error_stage="private-stage",
                         last_error_trace_id="private-trace",
@@ -500,6 +500,8 @@ def test_local_execution_observations_are_scoped_expiring_and_redacted(tmp_path,
                     "dirty_generation",
                     "clean_generation",
                 }.isdisjoint(result["executor"])
+                assert result["executor"]["last_error_stage"] is None
+                assert result["executor"]["last_error_code"] == (None if age == 0 else "model_timeout")
                 sample = result["evidence"]["executor"]
                 assert datetime.fromisoformat(sample["observed_at"]) <= datetime.fromisoformat(sample["read_at"])
                 assert datetime.fromisoformat(sample["read_at"]) <= datetime.fromisoformat(result["queried_at"])

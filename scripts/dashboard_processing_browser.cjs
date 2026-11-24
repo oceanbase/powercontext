@@ -128,18 +128,35 @@ async function main() {
 
     // Hold the destination page until a late Memory refresh has finished.
     const topics = '**/dashboard/topics?*';
-    const destinationRequest = new Promise(resolve => page.route(topics, resolve, {times: 1}));
-    const memoryRequest = new Promise(resolve => page.route(fragment, resolve, {times: 1}));
+    const destinationReady = Promise.withResolvers();
+    const releaseDestination = Promise.withResolvers();
+    const refreshReady = Promise.withResolvers();
+    const releaseRefresh = Promise.withResolvers();
+    const refreshFinished = Promise.withResolvers();
+    await page.route(topics, async route => {
+      destinationReady.resolve();
+      await releaseDestination.promise;
+      await route.continue();
+    });
+    await page.route(fragment, async route => {
+      const response = await route.fetch();
+      refreshReady.resolve();
+      await releaseRefresh.promise;
+      await route.fulfill({response}).catch(() => {}); // The outgoing fetch may already be cancelled.
+      refreshFinished.resolve();
+    });
     await root.locator('[data-processing-refresh]').click();
-    const memoryRoute = await memoryRequest;
-    const previousResponse = await memoryRoute.fetch();
+    await refreshReady.promise;
     await page.locator('.nav-link[href*="/dashboard/topics"]').first().click();
-    const topicsRoute = await destinationRequest;
-    await memoryRoute.fulfill({response: previousResponse}).catch(() => {});
+    await destinationReady.promise;
+    releaseRefresh.resolve();
+    await refreshFinished.promise;
     assert.equal(await snapshot.count(), 0, 'Navigation retained the outgoing Memory snapshot');
-    await topicsRoute.continue();
+    await page.unroute(fragment);
+    releaseDestination.resolve();
     await settled();
     assert.equal(await snapshot.getAttribute('data-family'), 'topic-memory');
+    await page.unroute(topics);
     await open();
 
     // Changing the Scope while a refresh is delayed must discard that response.

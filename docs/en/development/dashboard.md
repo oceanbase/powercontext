@@ -216,6 +216,8 @@ The four generation counters belong to the durable invocation. For Topic Memory,
 | Handoff | Not applicable | `refresh_handoff` |
 | Prompt | Not applicable | `revise_prompt` |
 
+The drawer shows the last failed attempt for this Scope and binding when the local supervisor has a known failure category and timestamp. It also shows the stage when available. A later successful acknowledgement clears that observation.
+
 Each page also includes `revise_tags` runs targeting that family. Invocation counters come from the Scope’s processing intent. The executor observation comes from the local supervisor for that binding.
 
 The details drawer shows safe diagnostic reasons and each dimension's source and time, without raw errors, private input or worker identifiers. Budget-derived blocks are distinguished from retained block records. Execution observations apply only to this process, Scope and shared binding; they do not identify a specific Dream run or establish other workers' activity. After 30 seconds, a local execution snapshot is marked stale without polling.
