@@ -89,6 +89,7 @@ def test_source_and_artifact_api_round_trip(tmp_path: Path) -> None:
             )
             assert await client.get_source(scope_id, "content", source.source_id) == source
             assert source.content == {"statement": "Keep the public Source immutable."}
+            assert source.handoff_receipt is False
             assert set(source.model_dump()) == {
                 "scope_id",
                 "source_type",
@@ -96,6 +97,7 @@ def test_source_and_artifact_api_round_trip(tmp_path: Path) -> None:
                 "content",
                 "position",
                 "content_digest",
+                "handoff_receipt",
                 "receipt_identity",
             }
             null_source = await client.create_source(scope_id, CreateSourceRequest(content=None))
@@ -310,6 +312,8 @@ def test_subject_key_projects_one_source_into_a_stable_user_root(tmp_path: Path)
             assert second.scope_id == created.subject_scope_id != origin_scope_id
             assert first.source_id == second.source_id
             assert first.content == second.content == "我偏好中文简洁回答。"
+            assert first.handoff_receipt is False and second.handoff_receipt is False
+            assert await client.get_source(first.scope_id, "content", first.source_id) == first
             assert await client.get_source(second.scope_id, "content", second.source_id) == second
 
     asyncio.run(scenario())
