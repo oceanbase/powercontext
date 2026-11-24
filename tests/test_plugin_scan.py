@@ -246,10 +246,13 @@ def test_a_server_schedule_failure_keeps_the_collection_loop_alive(monkeypatch, 
 
     requested = []
     collected = asyncio.Event()
+    parked = asyncio.Event()
 
     async def request_collection(name):
         requested.append(name)
         collected.set()
+        # One collection only: the scenario cancels the task while it waits here.
+        await parked.wait()
 
     manager = SimpleNamespace(request_collection=request_collection)
     manifest = SimpleNamespace(
@@ -279,6 +282,8 @@ def test_a_server_schedule_failure_keeps_the_collection_loop_alive(monkeypatch, 
         task = asyncio.create_task(PluginManager._collect_due(cast(Any, manager), cast(Any, manifest)))
         # A loop that dies on the scheduling failure never collects; fail instead of hanging.
         await asyncio.wait_for(collected.wait(), 5)
+        # The task is parked inside request_collection after its first call, so canceling there
+        # keeps the count below exact regardless of how the recovered iterations interleave.
         task.cancel()
         with pytest.raises(asyncio.CancelledError):
             await task
