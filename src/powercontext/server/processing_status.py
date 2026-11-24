@@ -126,7 +126,8 @@ def processing_status_response(value: ArtifactProcessingStatus) -> ArtifactProce
                 "accepted_at": run.accepted_at,
                 "completed_at": run.completed_at,
                 "candidate": None if run.candidate is None else run.candidate.model_dump(),
-                "reason": None if run.diagnostics is None else run.diagnostics.reason,
+                # classify_dream_code only retains locations from its public rejection vocabulary.
+                "reason": (run.diagnostics.reason or run.diagnostics.failure_location) if run.diagnostics else None,
                 "stage": None if run.diagnostics is None else run.diagnostics.stage,
             }
             for run in value.dream_operations

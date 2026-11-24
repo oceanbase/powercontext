@@ -16,12 +16,13 @@ limitations under the License.
 <div data-processing-snapshot data-scope="{{ status.scope_id }}" data-family="{{ status.family }}"
      {% if status.executor and status.evidence.executor.freshness == 'fresh' %}data-queried="{{ status.queried_at }}" data-expires="{{ status.executor_expires_at }}"{% endif %}>
 {% macro execution() %}{% if not status.executor %}{{ t.ps_unknown }}{% elif status.evidence.executor.freshness != 'fresh' %}{{ t.ps_stale }}{% else %}{{ t.get('ps_exec_' ~ status.executor.state, t.ps_unknown) }}{% endif %}{% endmacro %}
+{% set invocation_notice = t['ps_invocation_' ~ status.invocation.state] if status.invocation and status.invocation.state in ['pending', 'dirty'] else none %}
 {% if status.unavailable_reason == 'family_not_supported' %}<p>{{ t.ps_unsupported }}</p>{% else %}
   {% if status.progress %}
     <p class="mb-1"><strong>{{ t.ps_source }}：</strong>{% if status.block %}{{ t.ps_block }}{% elif status.progress.pending_inputs %}{{ t.ps_pending }}{% else %}{{ t.ps_caught_up }}{% endif %}</p>
     <p class="small text-secondary mb-2">{{ t.ps_positions.format(cursor=status.progress.source_cursor,head=status.progress.source_head) }}{% if status.progress.target_source_through is not none %} {{ t.ps_target }}：{{ status.progress.target_source_through }}{% endif %}</p>
   {% endif %}
-  {% if status.invocation and status.invocation.state in ['pending','dirty'] %}<p class="mb-2">{{ t.ps_invocation_pending }}</p>{% endif %}
+  {% if invocation_notice %}<p class="mb-2">{{ invocation_notice }}</p>{% endif %}
   <p class="mb-2"><strong>{{ t.ps_dream }}：</strong>{% if status.dream_pending is none %}{{ t.ps_dream_unavailable }}{% elif status.dream_pending %}{{ t.ps_dream_pending }}{% elif not status.dream_operations %}{{ t.ps_dream_empty }}{% else %}{{ t.ps_dream_none_pending }}{% endif %}</p>
   {% if status.dream_operations %}{% set latest = status.dream_operations[0] %}<p class="small mb-2">{{ t.ps_latest }}：<a href="{{ destination('processing',record_type='dreams',run_id=latest.run_id) }}">{{ t.get('processing_operation_' ~ latest.operation,latest.operation) }}</a> · {{ t['processing_status_' ~ latest.status] }}{% if latest.outcome %} · {{ t['ps_outcome_' ~ latest.outcome] }}{% endif %}</p>{% endif %}
   <p class="text-secondary mb-2"><strong>{{ t.ps_executor }}：</strong><span data-processing-executor>{{ execution() }}</span></p>
@@ -38,7 +39,7 @@ limitations under the License.
       {% if status.progress %}<p>{{ t.ps_positions.format(cursor=status.progress.source_cursor,head=status.progress.source_head) }}</p>{% if status.progress.target_source_through is not none %}<p>{{ t.ps_target }}：{{ status.progress.target_source_through }}</p>{% endif %}{% else %}<p>{{ t.ps_not_applicable if status.availability.progress == 'not_applicable' else t.ps_unavailable }}</p>{% endif %}
     </section>
     <section class="supporting-details"><h3 class="h4">{{ t.ps_invocation }}</h3>
-      {% if status.invocation %}<p>{{ t.ps_invocation_pending if status.invocation.state in ['pending','dirty'] else t.ps_invocation_clear }}</p><p class="small">{{ t.ps_counters.format(requested=status.invocation.requested_generation,handled=status.invocation.handled_generation,dirty=status.invocation.dirty_generation,clean=status.invocation.clean_generation) }}</p>{% else %}<p>{{ t.ps_unavailable }}</p>{% endif %}
+      {% if status.invocation %}<p>{{ invocation_notice or t.ps_invocation_clear }}</p><p class="small">{{ t.ps_counters.format(requested=status.invocation.requested_generation,handled=status.invocation.handled_generation,dirty=status.invocation.dirty_generation,clean=status.invocation.clean_generation) }}</p>{% else %}<p>{{ t.ps_unavailable }}</p>{% endif %}
     </section>
     <section class="supporting-details"><h3 class="h4">{{ t.ps_executor }}</h3><p data-processing-executor>{{ execution() }}</p>
       {% if status.executor %}<p class="small text-secondary">{{ t.ps_local }}</p><p>{{ t.get('ps_schedule_' ~ status.executor.reason, t.ps_reason_unknown) }}</p><p class="small">{{ t.ps_observed_at }}：{{ status.executor.observed_at|display_time }}</p>{% endif %}

@@ -171,18 +171,64 @@ def test_empty_topic_scope_has_no_block_provenance(dashboard):
     assert "Read-only budget projection" not in html.text
 
 
+def test_source_changes_and_requested_invocations_have_distinct_labels(tmp_path):
+    async def scenario():
+        async with _runtime(tmp_path) as (runtime, (scope, _)):
+            app = create_app(application=runtime)
+            app.include_router(router, prefix="/dashboard")
+            async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+                capture = await client.post(f"/v1/scopes/{scope}/sources", json={"content": "New input"})
+                capture.raise_for_status()
+                for state in ("dirty", "pending"):
+                    if state == "pending":
+                        async with runtime.primary_database.transaction() as connection:
+                            await ArtifactProcessingIntentRepository().request(
+                                connection, scope, FAMILY_BINDINGS["memory"]
+                            )
+                    status = await client.get(
+                        f"/v1/scopes/{scope}/processing-status", params={"family": "atomic-memory"}
+                    )
+                    status.raise_for_status()
+                    assert status.json()["invocation"]["state"] == state
+                    for lang, dirty, pending in [
+                        (
+                            "en",
+                            "Input changes are waiting to be processed.",
+                            "A processing request is awaiting acknowledgement.",
+                        ),
+                        ("zh", "有尚未处理的输入变更。", "处理请求正在等待确认。"),
+                    ]:
+                        fragment = await client.get(
+                            "/dashboard/artifact-processing-status",
+                            params={"scope": scope, "family": "atomic-memory", "lang": lang},
+                        )
+                        fragment.raise_for_status()
+                        summary, drawer = fragment.text.split("data-processing-drawer", 1)
+                        expected, other = (dirty, pending) if state == "dirty" else (pending, dirty)
+                        assert expected in summary and expected in drawer
+                        assert other not in fragment.text
+
+    asyncio.run(scenario())
+
+
 def test_dream_failure_diagnostics_reach_the_api_and_drawer(tmp_path):
     async def scenario():
         async with _runtime(tmp_path) as (runtime, (scope, _)):
             async with runtime.primary_database.transaction() as connection:
                 await _run_record(connection, scope, 1, status="failed", error="budget_exceeded")
                 await _run_record(connection, scope, 2, status="failed")
+                await _run_record(connection, scope, 3, status="failed", error="artifact_conflict")
+                await _run_record(connection, scope, 4, status="failed", error="access_revoked")
+                await _run_record(connection, scope, 5, status="failed", error="evidence_unavailable")
             app = create_app(application=runtime)
             app.include_router(router, prefix="/dashboard")
             async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
                 response = await client.get(f"/v1/scopes/{scope}/processing-status", params={"family": "skill"})
                 assert response.status_code == 200
-                unknown, budget = response.json()["dream_operations"]
+                evidence, revoked, conflict, unknown, budget = response.json()["dream_operations"]
+                assert (evidence["reason"], evidence["stage"]) == ("evidence_unavailable", "business_validation")
+                assert (revoked["reason"], revoked["stage"]) == ("access_revoked", None)
+                assert (conflict["reason"], conflict["stage"]) == ("artifact_conflict", None)
                 assert (budget["reason"], budget["stage"]) == ("usage_limit", "generation")
                 assert (unknown["reason"], unknown["stage"]) == (None, None)
                 html = await client.get(
@@ -191,7 +237,13 @@ def test_dream_failure_diagnostics_reach_the_api_and_drawer(tmp_path):
                 assert html.status_code == 200
                 assert "Processing usage limit reached" in html.text
                 assert "Failure stage" in html.text and "Generation</p>" in html.text
-                assert "private-error-text" not in response.text + html.text
+                assert "Artifact conflict" in html.text and "Access was revoked" in html.text
+                zh = await client.get(
+                    "/dashboard/artifact-processing-status", params={"scope": scope, "family": "skill", "lang": "zh"}
+                )
+                zh.raise_for_status()
+                assert "产物发生冲突" in zh.text and "访问权限已撤销" in zh.text
+                assert "private-error-text" not in response.text + html.text + zh.text
 
     asyncio.run(scenario())
 
