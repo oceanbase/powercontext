@@ -3968,6 +3968,15 @@ export interface components {
             running_seconds: number | null;
             next_check_seconds: number | null;
             retry_failures: number | null;
+            /** @description Known failure category from the last observed failed attempt for this Scope and binding. */
+            last_error_code?: string | null;
+            /** @description Safe observation boundary of that failure, when known. */
+            last_error_stage?: string | null;
+            /**
+             * Format: date-time
+             * @description Time of that failed attempt in the current local retry cycle.
+             */
+            last_error_at?: string | null;
         };
         ArtifactProcessingBlock: {
             reason: string | null;
