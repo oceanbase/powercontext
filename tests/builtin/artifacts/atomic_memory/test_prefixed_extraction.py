@@ -67,6 +67,15 @@ CANDIDATE = {
 }
 
 
+def test_scope_routing_metadata_is_not_part_of_the_extraction_contract() -> None:
+    value = AtomicMemoryExtractionInput(evidence=(), scope_id="project")
+
+    assert value.scope_id == "project"
+    assert value.model_dump(mode="json") == {"evidence": []}
+    assert set(AtomicMemoryExtractionInput.model_json_schema()["properties"]) == {"evidence"}
+    assert set(AtomicMemoryExtractionInput.model_json_schema(mode="serialization")["properties"]) == {"evidence"}
+
+
 class _Extractor:
     def __init__(self) -> None:
         self.calls = 0
