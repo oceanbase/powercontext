@@ -1,0 +1,37 @@
+src/powercontext/server/dashboard/templates/components/scope-options.html
+  s_624ad8983708a5::t_ca9ae8b43fd4ec 110-123,127-129
+  s_624ad8983708a5::t_7f4674d9f3d349 40,124-126
+scripts/dashboard_processing_browser.cjs
+  s_624ad8983708a5::t_7f4674d9f3d349 169-180
+  s_624ad8983708a5::t_0966bb766dfaf8 162-168,181-203,214
+tests/builtin/test_processing_status.py
+  s_624ad8983708a5::t_5304b6600ce8b4 247-248,255,258,263,276,287-290
+  s_624ad8983708a5::t_0bee08b529b1cb 249-254,256-257,259-262,264-275,277-283,285-286
+  s_624ad8983708a5::t_a05853ed2f1df0 229-233,237,284
+src/powercontext/builtin/processing_status.py
+  s_624ad8983708a5::t_dd6c33aba454d9 339,343-345
+  s_624ad8983708a5::t_f949457e5bca5a 24,303-322,324,326-327,329-330,334-338,340-342,346-347,353-354,373
+  s_624ad8983708a5::t_611a7ec4d3c87a 323,331-333,348-352
+src/powercontext/server/dashboard/labels.en.json
+  s_624ad8983708a5::t_7f4674d9f3d349 50
+src/powercontext/server/dashboard/labels.json
+  s_624ad8983708a5::t_7f4674d9f3d349 50
+src/powercontext/server/dashboard/static/artifact-processing.js
+  s_624ad8983708a5::t_1bda9785abdba8 144,155
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "df7486d9a30dcd224daa7d206cd22109fc634d35",
+  "prompts": {},
+  "sessions": {
+    "s_624ad8983708a5": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1ab57-e572-7090-b0f7-d55ee829f4b0",
+        "model": "gpt-6.2-astra"
+      },
+      "human_author": "Frey <110882560+Zxf-xufeng@users.noreply.github.com>"
+    }
+  }
+}
