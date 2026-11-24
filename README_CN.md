@@ -16,7 +16,7 @@
 **知识库首次发布，Gateway 推出正式版。** 将已有资料变成可检索的知识库，并在把 Agent 对话沉淀为长期记忆时，减少重复支付的非缓存输入。
 
 - **知识库：**导入 Markdown 和 PNG/JPEG/WebP 图片，通过关键词与向量混合检索查找资料，在 Dashboard 中查看、编辑和重新处理版本化文档分块。请按[知识库指南](https://powercontext.oceanbase.io/zh/docs/workflows/knowledge-base/)安装可选插件和依赖；本次不包含 PDF/Office 导入和答案生成。
-- **Gateway 节省 token 成本：**可选的前缀提取在 Agent 精确的对话前缀后追加记忆指令，让供应商复用提示词缓存。Core 仅在估算比常规提取更便宜时采用此路径。Gateway 默认开启前缀提取，采集仍需显式开启并配置 Server 回调地址。实际节省取决于缓存命中、会话长度和回退请求；Codex 订阅在 Core 未强制执行保护时支持该路径。详见 [Gateway 配置](https://powercontext.oceanbase.io/zh/docs/operate/deploy-server/)。
+- **Gateway 节省 token 成本：**对于受支持的 Chat 和 Responses 上游，前缀提取在 Agent 精确的对话前缀后追加记忆指令，让供应商复用提示词缓存。Core 仅在估算比常规提取更便宜时采用此路径。Gateway 默认开启前缀提取，采集仍需显式开启并配置 Server 回调地址。实际节省取决于缓存命中、会话长度和回退请求；Codex 订阅在 Core 未强制执行保护时支持该路径。详见 [Gateway 配置](https://powercontext.oceanbase.io/zh/docs/operate/deploy-server/)。
 - **更完整的使用流程：**插件热重载、Server 与设备 Source runner、Deep Agents 集成，以及更清晰的处理诊断。
 
 安装、兼容性与数据库维护要求见 [1.6.0 发布说明](https://powercontext.oceanbase.io/zh/releases/)。

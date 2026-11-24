@@ -57,6 +57,7 @@ struct Peers {
     replies: Mutex<VecDeque<Reply>>,
     sent: Mutex<Vec<(HeaderMap, Bytes)>>,
     checks: Mutex<Vec<Value>>,
+    captures: Mutex<Vec<Value>>,
     deny: Option<(&'static str, &'static str)>,
 }
 
@@ -149,6 +150,22 @@ impl Gateway {
         let peer_base = format!("http://{}", listener.local_addr().unwrap());
         let router = Router::new()
             .route("/v1/context/check", post(check))
+            .route("/v1/context/prepare", post(|| async {
+                Json(json!({
+                    "schema": "powercontext.prepared-context-with-reuse.v1",
+                    "context": {"schema": "powercontext.prepared-context.v1", "status": "ready",
+                        "content": "Mémoire", "content_bytes": 8},
+                    "reuse": {"schema": "powercontext.context-reuse.v1",
+                        "expires_at": "2999-01-01T00:00:00Z", "binding": "chat-reuse"}
+                }))
+            }))
+            .route(
+                "/v1/sources/content/batch",
+                post(|State(peers): State<Arc<Peers>>, Json(request): Json<Value>| async move {
+                    peers.captures.lock().unwrap().push(request);
+                    Json(json!({}))
+                }),
+            )
             // Startup discovery needs the complete v1 capability document; without it the model
             // routes stay paused (`input_capacity_unconfirmed`). These cases verify payload and
             // streaming semantics, so advertise the same ceiling as Core's v1 parser.
@@ -161,7 +178,7 @@ impl Gateway {
                         "reuse_versions": [], "reuse_families": [], "enforcing": enforcing,
                         "limits": {"payload_bytes": 1_048_576, "binding_bytes": 8192,
                             "prepared_contexts": 16, "dependencies": 256,
-                            "send_seconds": 60, "correlate_seconds": 300}
+                            "send_seconds": 60, "correlate_seconds": 300, "capture_batch_sources": 16}
                     }}))
                 }),
             )
@@ -277,6 +294,17 @@ impl Gateway {
         self.client
             .post(format!("{}/{route}", self.base))
             .bearer_auth("gateway-test-key")
+            .json(request)
+            .send()
+            .await
+            .unwrap()
+    }
+
+    async fn post_turn(&self, request: &Value) -> reqwest::Response {
+        self.client
+            .post(format!("{}/chat/completions", self.base))
+            .bearer_auth("gateway-test-key")
+            .header("X-PowerContext-Conversation-ID", "chat-cost-test")
             .json(request)
             .send()
             .await
@@ -786,7 +814,142 @@ async fn responses_stream_delivers_reasoning_summaries_and_citations() {
 }
 
 #[tokio::test]
-async fn default_steering_and_overrides_reach_only_responses() {
+async fn chat_cost_steering_preserves_the_client_messages() {
+    let guidance = include_str!("../src/default_steering.txt").trim();
+    let user = json!({"role": "user", "content": "hello"});
+    let developer = json!({"role": "developer", "content": "developer instructions"});
+    let parts = json!([{"type": "text", "text": "Original instructions"}]);
+    let gateway = Gateway::start_with_env(
+        (0..3)
+            .map(|_| Reply::fixture("fantasy_chat_simple", 0))
+            .collect(),
+        None,
+        &[],
+        true,
+    )
+    .await;
+    for (index, (messages, expected)) in [
+        (
+            json!([{"role": "system", "name": "agent", "content": "Original instructions"}, user]),
+            json!([{"role": "system", "name": "agent", "content": format!("Original instructions\n\n{guidance}")}, user]),
+        ),
+        (
+            json!([developer, {"role": "system", "content": parts}, user]),
+            json!([developer, {"role": "system", "content": [
+                parts[0], {"type": "text", "text": guidance}
+            ]}, user]),
+        ),
+        (
+            json!([developer, user]),
+            json!([developer, {"role": "system", "content": guidance}, user]),
+        ),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let mut body = request("chat", "simple", false);
+        body["messages"] = messages;
+        assert!(gateway.post("chat/completions", &body).await.status().is_success());
+        let sent: Value = serde_json::from_slice(&gateway.peers.sent.lock().unwrap()[index].1).unwrap();
+        assert_eq!(sent["messages"], expected, "Chat steering case {index}");
+    }
+}
+
+#[tokio::test]
+async fn chat_cost_extraction_extends_the_admitted_chat_prefix() {
+    let terminal = Reply::fixture("fantasy_chat_simple", 0);
+    let mut output: Value = serde_json::from_slice(&terminal.body).unwrap();
+    output["choices"][0]["message"]["content"] = json!("Extracted memory.");
+    output["usage"]["prompt_tokens_details"]["cached_tokens"] = json!(15);
+    let extracted = serde_json::to_vec(&output).unwrap();
+    let gateway = Gateway::start_with_env(
+        vec![
+            Reply::fixture("fantasy_chat_simple", 0),
+            Reply {
+                body: extracted.clone(),
+                content_type: "application/json",
+                status: 200,
+            },
+        ],
+        None,
+        &[
+            ("PC_GATEWAY_SEDIMENT", "on"),
+            ("PC_GATEWAY_INJECTION", "on"),
+            ("PC_GATEWAY_UPSTREAM_URL_RESPONSES", ""),
+        ],
+        true,
+    )
+    .await;
+    let mut body = request("chat", "tool", false);
+    body["prompt_cache_key"] = json!("agent-cache");
+    body["response_format"] = json!({"type": "json_object"});
+    body["stop"] = json!(["END"]);
+    let response = gateway.post_turn(&body).await;
+    assert_eq!(response.status(), 200);
+    assert_eq!(response.bytes().await.unwrap(), terminal.body);
+
+    let capture = gateway.peers.captures.lock().unwrap()[0].clone();
+    let source = &capture["sources"][0];
+    assert!(!source["content"].as_str().unwrap().contains("Mémoire"));
+    let metadata = &source["metadata"];
+    let handle = metadata["prefix_handle"]
+        .as_str()
+        .expect("captured Chat turn must carry a prefix handle");
+    assert_eq!(metadata["prefix_input_tokens"], 20);
+    assert_eq!(metadata["prefix_output_tokens"], 2);
+    let response = gateway
+        .post(
+            "extract",
+            &json!({
+                "handle": handle,
+                "instruction": "Extract memory.",
+                "continuation": [
+                    {"role": "assistant", "text": "First pass."},
+                    {"role": "user", "text": "Continue."},
+                ],
+                "max_output_tokens": 256,
+            }),
+        )
+        .await;
+    assert_eq!(response.status(), 200);
+    let callback: Value = response.json().await.unwrap();
+    assert_eq!(callback["text"], "Extracted memory.");
+    assert_eq!(callback["model"], output["model"]);
+    assert_eq!(callback["usage"]["input_tokens"], 20);
+    assert_eq!(callback["usage"]["output_tokens"], 2);
+    assert_eq!(
+        callback["usage"]["input_tokens_details"]["cached_tokens"],
+        15
+    );
+
+    let sent: Value = serde_json::from_slice(&gateway.peers.sent.lock().unwrap()[0].1).unwrap();
+    assert_eq!(
+        sent["messages"][1]["content"],
+        "Mémoire\n\nWhat's the weather in Florence,Italy?"
+    );
+    assert_eq!(sent["response_format"], body["response_format"]);
+    assert_eq!(sent["stop"], body["stop"]);
+    let mut expected = sent.clone();
+    expected["messages"].as_array_mut().unwrap().extend([
+        json!({"role": "assistant", "content": "Olá!"}),
+        json!({"role": "user", "content": "Extract memory."}),
+        json!({"role": "assistant", "content": "First pass."}),
+        json!({"role": "user", "content": "Continue."}),
+    ]);
+    expected["tool_choice"] = json!("none");
+    expected["max_completion_tokens"] = json!(256);
+    gateway.assert_forwarded(&[sent, expected], &[terminal.body, extracted]);
+    let checks = gateway.peers.checks.lock().unwrap();
+    let prepared = &checks[0]["prepared_contexts"];
+    assert_eq!(prepared[0]["binding"], "chat-reuse");
+    assert_eq!(prepared[0]["location"]["pointer"], "/messages/1/content");
+    assert_eq!(prepared[0]["location"]["end_byte"], 8);
+    assert_eq!(checks[2]["prepared_contexts"], *prepared);
+    assert_eq!(gateway.peers.captures.lock().unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn default_steering_and_overrides_reach_both_routes() {
     let custom =
         std::env::temp_dir().join(format!("pc-default-steering-{}.txt", std::process::id()));
     std::fs::write(&custom, "Custom deployment guidance.").unwrap();
@@ -849,12 +1012,14 @@ async fn default_steering_and_overrides_reach_only_responses() {
             None => assert!(developer.is_empty(), "settings: {settings:?}"),
         }
         let chat: Value = serde_json::from_slice(&sent[1].1).unwrap();
-        assert_eq!(chat["messages"].as_array().unwrap().len(), 2);
-        assert!(chat["messages"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .all(|message| message["role"] != "developer"));
+        let original = request("chat", "simple", false);
+        let mut messages = original["messages"].clone();
+        if expected.is_some() {
+            let base = original["messages"][0]["content"].as_str().unwrap();
+            let guidance = developer[0]["content"][0]["text"].as_str().unwrap();
+            messages[0]["content"] = json!(format!("{base}\n\n{guidance}"));
+        }
+        assert_eq!(chat["messages"], messages, "settings: {settings:?}");
     }
     std::fs::remove_file(custom).unwrap();
 }

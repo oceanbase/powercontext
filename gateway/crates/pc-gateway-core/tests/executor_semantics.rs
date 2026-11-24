@@ -4469,10 +4469,10 @@ async fn a_terminal_responses_turn_keeps_its_prefix_for_extraction() {
         transport.sends.lock().unwrap()[0],
         "the prefix is the exact body sent upstream"
     );
-    assert_eq!(
-        serde_json::Value::from(prefix.response_output.clone()),
-        output
-    );
+    let pc_gateway_core::PrefixOutput::Responses(items) = &prefix.response_output else {
+        panic!("expected a Responses prefix");
+    };
+    assert_eq!(serde_json::Value::from(items.clone()), output);
     assert!(executor.prefix(&handle, "project:other").is_none());
     // 前缀规模取自终止响应的用量，供 Core 判断复用前缀是否更便宜。
     assert_eq!(metadata[0]["prefix_input_tokens"], 10);

@@ -262,6 +262,7 @@ impl Gateway {
             });
             (task, path)
         });
+        command.env("PC_GATEWAY_STEERING", if steering { "on" } else { "off" });
         let steering = steering.then(|| {
             let path = std::env::temp_dir().join(format!(
                 "pc2464-{}-{}.txt",
@@ -500,6 +501,7 @@ async fn ingress_and_final_wire_bytes_obey_both_limits() {
 async fn prepared_context_and_steering_cannot_bypass_final_capacity() {
     for (injection, steering, route, body) in [
         (true, false, CHAT, chat("hello")),
+        (false, true, CHAT, chat("hello")),
         (
             false,
             true,

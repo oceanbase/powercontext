@@ -39,7 +39,7 @@ pub use executor::*;
 pub use gate_client::*;
 pub use http_gate_client::*;
 pub use lifecycle::*;
-pub use prefix_store::{PrefixEntry, PREFIX_TTL_MS, UPSTREAM_SESSION_HEADER};
+pub use prefix_store::{PrefixEntry, PrefixOutput, PREFIX_TTL_MS, UPSTREAM_SESSION_HEADER};
 pub use transcript::source_token_limit;
 pub use uds_gate_client::*;
 

@@ -18,7 +18,7 @@
 **ナレッジベースを初公開し、Gateway の安定版を提供します。** 既存の資料を検索可能にし、Agent の会話から長期記憶を抽出する際の非キャッシュ入力コストを抑えます。
 
 - **ナレッジベース：**Markdown と PNG/JPEG/WebP 画像を取り込み、キーワードとベクトルによる検索、Dashboard での文書チャンクの確認・編集・再処理ができます。任意のプラグインと依存関係は[ナレッジベースガイド](https://powercontext.oceanbase.io/en/docs/workflows/knowledge-base/)に従って導入してください。PDF/Office の取り込みと回答生成は含まれません。
-- **Gateway のトークンコスト削減：**任意のプレフィックス抽出は Agent の会話プレフィックスをそのまま使い、記憶の指示を追加してプロバイダーのキャッシュを再利用します。Core は通常の抽出より安いと推定した場合だけこの経路を選びます。Gateway ではプレフィックス抽出が既定で有効ですが、キャプチャの有効化と Server のコールバック URL の設定が必要です。実際の削減幅はキャッシュのヒット率、会話の長さ、フォールバック要求に依存します。Codex サブスクリプションでは Core が保護を強制しない場合に利用できます。[Gateway 設定](https://powercontext.oceanbase.io/en/docs/operate/deploy-server/#memory-extraction-over-the-cached-prefix)を参照してください。
+- **Gateway のトークンコスト削減：**対応する Chat および Responses のアップストリームでは、プレフィックス抽出が Agent の会話プレフィックスをそのまま使い、記憶の指示を追加してプロバイダーのキャッシュを再利用します。Core は通常の抽出より安いと推定した場合だけこの経路を選びます。Gateway ではプレフィックス抽出が既定で有効ですが、キャプチャの有効化と Server のコールバック URL の設定が必要です。実際の削減幅はキャッシュのヒット率、会話の長さ、フォールバック要求に依存します。Codex サブスクリプションでは Core が保護を強制しない場合に利用できます。[Gateway 設定](https://powercontext.oceanbase.io/en/docs/operate/deploy-server/#memory-extraction-over-the-cached-prefix)を参照してください。
 - **ワークフローの拡充：**プラグインのホットリロード、Server とデバイスの Source runner、Deep Agents 連携、処理診断の改善。
 
 導入、互換性、データベース保守の要件は [1.6.0 リリースノート](https://powercontext.oceanbase.io/en/releases/)を参照してください。

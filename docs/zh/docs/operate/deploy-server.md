@@ -204,17 +204,17 @@ Gemini 关闭 Gateway 上下文注入。Claude CLI 只接受新的单轮文本�
 
 ### 网关固定指令
 
-网关默认向 Responses 入口（`/gateway/v1/responses`）的每个请求加入内置的成本指导指令（S），提示模型定向搜索、合并读取、集中修改并进行针对性验证；Chat 入口不受影响。`PC_GATEWAY_STEERING=off` 关闭指令；未设置或设为 `on` 时开启，其他值会阻止启动。
+网关默认向 Chat 入口（`/gateway/v1/chat/completions`）和 Responses 入口（`/gateway/v1/responses`）的每个请求加入内置的成本指导指令（S），提示模型定向搜索、合并读取、集中修改并进行针对性验证。`PC_GATEWAY_STEERING=off` 关闭指令；未设置或设为 `on` 时开启，其他值会阻止启动。
 
 `PC_GATEWAY_STEERING_FILE` 用自定义指令替换内置文本。开启指令时，网关只在启动时读取一次该文件。文件必须是 UTF-8，去掉首尾空白后不能为空，不超过 4096 字节，并且不能含有 PowerContext 保留的 `BEGIN_POWERCONTEXT_` 标记；否则网关在启动时退出，不会改用其他指令。`PC_GATEWAY_STEERING=off` 优先于文件配置，关闭时不读取文件。
 
-指令文本成为客户端第一条 developer 消息之后那条 developer 消息的第一个内容块，也就是 Codex 放置自身 `developer_instructions` 的位置。没有这样的消息时，网关在客户端第一条 developer 消息之后插入一条新的 developer 消息；请求中没有 developer 消息时，插在第一条用户消息之前。每个请求中的文本都相同，因此它始终是缓存前缀的一部分。Core 把它作为最终请求的一部分，像其他请求文本一样检查。它与上下文注入、沉淀和重放相互独立。
+在 Responses 入口，指令文本成为客户端第一条 developer 消息之后那条 developer 消息的第一个内容块，也就是 Codex 放置自身 `developer_instructions` 的位置。没有这样的消息时，网关在客户端第一条 developer 消息之后插入一条新的 developer 消息；请求中没有 developer 消息时，插在第一条用户消息之前。在 Chat 入口，网关将指令追加到第一条 system 消息，或在第一条用户消息之前插入一条 system 消息。每个请求中的文本都相同，因此它始终是缓存前缀的一部分。Core 把它作为最终请求的一部分，像其他请求文本一样检查。它与上下文注入、沉淀和重放相互独立。
 
 ### Gateway 字节容量
 
 Rust Gateway 在启动时通过 `/v1/capabilities` 查询一次 `context_protection`。模型入口要求 OpenAPI 定义的完整 `ContextProtectionCapabilities` DTO： `check_versions`、`payload_versions`、`reuse_versions`、`reuse_families`、`enforcing`，以及包含 `payload_bytes`、`binding_bytes`、`prepared_contexts`、`dependencies`、`send_seconds` 和 `correlate_seconds` 的 `limits`。即使存在输入容量，任何必需字段缺失或类型错误也会暂停准入。 check/payload 版本必须包含 v1，且 `limits.payload_bytes` 必须是正整数。查询失败、版本不兼容、DTO 不完整或容量无效时，两个模型入口返回 HTTP 503 暂停服务； `/healthz` 和已配置的 Core/MCP 转发仍可访问。恢复 Core 契约后，重启 Gateway 以重新发现容量。每次模型发送和响应释放仍须分别通过 Core 检查。若 Core 在 Gateway 重启前收紧限制，这次检查可以拒绝调用；增大 Core 限制不会在重启前放大 Gateway 启动时确认的额度。启动诊断通过固定消息区分传输失败、查询被拒、响应畸形/不完整、版本不兼容和容量无效，不输出 Core 错误值。
 
-`PC_GATEWAY_MAX_BODY_BYTES` 默认 16 MiB（1 MiB = 1,048,576 字节）。模型输入的有效上限是该配置、 Core 声明的输入容量和当前完整正文解析器 1 MiB 硬上限的最小值。部署上限为零时，模型输入禁用，返回 HTTP 503 和 `input_capacity_disabled`，不表示 Core 能力查询失败。 Content-Length 预检和 chunked 正文实际读取都受限。执行器还会在 prepared context 注入/重放、 Responses steering 和协议渲染后，检查最终 UTF-8 JSON 正文字节数。入口正文超限返回 HTTP 413；最终正文超限返回 HTTP 403 和 `request_payload_too_large`，不会发送模型。放大配置不能绕过解析器硬上限。
+`PC_GATEWAY_MAX_BODY_BYTES` 默认 16 MiB（1 MiB = 1,048,576 字节）。模型输入的有效上限是该配置、 Core 声明的输入容量和当前完整正文解析器 1 MiB 硬上限的最小值。部署上限为零时，模型输入禁用，返回 HTTP 503 和 `input_capacity_disabled`，不表示 Core 能力查询失败。 Content-Length 预检和 chunked 正文实际读取都受限。执行器还会在 prepared context 注入/重放、 steering 和协议渲染后，检查最终 UTF-8 JSON 正文字节数。入口正文超限返回 HTTP 413；最终正文超限返回 HTTP 403 和 `request_payload_too_large`，不会发送模型。放大配置不能绕过解析器硬上限。
 
 固定长度和 chunked/SSE provider 响应的默认缓冲上限均为 1 MiB。传输器显式设置的缓冲上限可以进一步收紧该值。输入 `payload_bytes` **不声明**输出额度。 Core 的响应配置、内容检查以及 JSON/RPC 包装仍有各自的限制，因此低于 1 MiB 的正文也可能被拒绝。 UDS 客户端的 8 MiB RPC 响应解析上限属于另一个传输方向，不是模型正文容量。
 
@@ -229,10 +229,10 @@ Rust Gateway 在启动时通过 `/v1/capabilities` 查询一次 `context_protect
 网关与 Server 部署在同一主机时，为一个已沉淀回合抽取 Atomic Memory 可以复用服务商为 Agent 会话写下的提示缓存，
 而不必再次发送对话记录。网关对支持的上游默认开启前缀抽取；`PC_GATEWAY_PREFIX_EXTRACTION=off` 关闭，`on` 显式开启，其他值会阻止启动。使用 OAuth 订阅时，只有 `codex` 支持前缀抽取，并且必须确认 Server 为非 enforcing：抽取请求和 agent 自己的请求一样用订阅的凭据发出，计入该账号的用量限额，并且不能带输出上限（该端点拒绝这个参数）。其他订阅的流量使用普通抽取。还需配置沉淀与 Server 回连：
 
-- **网关：** 设置 `PC_GATEWAY_SEDIMENT=on` 开启沉淀；沉淀仍默认关闭。对 Responses 会话，网关
-  在内存中保留每个回合终止响应对应的、实际发出的请求及其响应输出，最多 30 分钟、最多 64 个回合、总计最多 64 MiB，
+- **网关：** 设置 `PC_GATEWAY_SEDIMENT=on` 开启沉淀；沉淀仍默认关闭。网关在内存中保留每个回合终止响应对应的、实际发出的请求及其响应输出，最多 30 分钟、最多 64 个回合、总计最多 64 MiB，
   超出时先丢弃最早的，抽取前已被丢弃的回合走普通抽取；并在沉淀的 Source
-  元数据中记录一个不透明的句柄，以及该终止响应的输入和输出 token 数。请求和响应本身从不进入 Source、证据或日志。
+  元数据中记录一个不透明的句柄，以及该终止响应的输入和输出 token 数。Chat 前缀抽取适用于携带会话 ID、
+  只有一条完整文本回复的非流式 Chat Completions 请求。请求和响应本身从不进入 Source、证据或日志。
   沉淀的 Source 完整记录这一回合（投影 `gateway-turn-text.v2`）：字段不截断、步骤不省略，工具调用的全部参数字段、
   工具输出与错误、其他消息和无法识别的条目都在其中；只有推理密文、ID 和其他传输元数据不进入记录，二进制数据记为带字节数
   的占位文本。注入的记忆块不在 Source 里。一段 Source 按 Core 的字符估算最多 50,000 个 token；Server 生效的
@@ -257,8 +257,8 @@ Rust Gateway 在启动时通过 `/v1/capabilities` 查询一次 `context_protect
 证据。处理窗口须恰好含一个完整回合：一段 Source，或同一回合按顺序排列的全部分段；各段合起来放不进一次抽取输入的回合，
 因此逐段走普通抽取：这样的窗口第一次处理时超出输入预算，`/v1/memory/flush` 返回错误并缩小窗口，后续处理逐段完成；
 自动处理按退避间隔重试。只有前者更低时才复用前缀。工具输出较多的回合通常满足这一条件；长会话的前缀不断增长后，就不再满足。随后 Server 把抽取指令、输出 Schema 和该 Source 的来源信息发给
-`POST /gateway/v1/extract`。网关把它们作为一条用户消息追加在保留的请求和响应之后，把 `tool_choice` 设为 `none`，
-发往 Agent 自己的目标和账号。工具、`prompt_cache_key`、推理设置、响应格式等会改变缓存前缀的字段保持不变。该请求
+`POST /gateway/v1/extract`。网关把它们作为一条用户消息追加在保留的请求和响应之后，关闭抽取请求的工具选择，并发往
+Agent 自己的目标和账号。请求保留工具、`prompt_cache_key`、推理设置和响应格式等缓存相关字段。该请求
 照常经过 Server 的 `before_send` 和 `before_release` 检查。前缀里含有网关注入的记忆块，抽取指令说明
 `BEGIN_POWERCONTEXT_*` 与 `END_POWERCONTEXT_*` 标记之间的内容不是这一回合的证据。enforcing 模式下，Server 会暂扣重放服务商加密推理的请求，
 因此对 Codex 等客户端，抽取会回退到普通抽取。它不注入、也不沉淀。Server
