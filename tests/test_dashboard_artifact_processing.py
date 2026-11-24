@@ -24,7 +24,11 @@ from powercontext.builtin.persistence.processing_intents import ArtifactProcessi
 from powercontext.builtin.persistence.tables import TOPIC_MEMORY_WORK_BLOCKS_TABLE
 from powercontext.builtin.processing_status import ScopedProcessingStatusApplication
 from powercontext.builtin.runtime import CaptureSource
-from powercontext.builtin.runtime.artifact_processing import ArtifactProcessingSupervisors
+from powercontext.builtin.runtime.artifact_processing import (
+    ArtifactProcessingBinding,
+    ArtifactProcessingSupervisor,
+    ArtifactProcessingSupervisors,
+)
 from powercontext.builtin.runtime.family_processing import FAMILY_BINDINGS
 from powercontext.builtin.statistics.models import ProcessingObservation
 from powercontext.client import PowerContextClient
@@ -32,6 +36,7 @@ from powercontext.http import ArtifactProcessingStatusResponse, GetArtifactProce
 from powercontext.server.app import create_app
 from powercontext.server.dashboard.api import DashboardAPI, ReadError
 from powercontext.server.dashboard.routes import router
+from tests.builtin.runtime.test_processing_scheduler import _Launcher, _request, _wait
 from tests.builtin.test_processing_status import _run_record, _runtime, _topic_budget
 from tests.e2e.test_access_control_regressions import _grant, _resource, _scope, _server
 from tests.test_dashboard import create_scope
@@ -348,6 +353,41 @@ def test_http_evidence_is_passive_bounded_and_keeps_independent_paths(tmp_path):
                     unavailable.status_code == 503
                     and unavailable.json()["error"]["code"] == "processing_status_unavailable"
                 )
+
+    asyncio.run(scenario())
+
+
+def test_periodic_binding_with_an_active_scope_leaves_an_empty_scope_idle(tmp_path):
+    async def scenario():
+        async with _runtime(tmp_path) as (runtime, (active, empty)):
+            db = runtime.primary_database
+            binding = FAMILY_BINDINGS["memory"]
+            await _request(db, binding, active)
+            launcher = _Launcher(db, gates={active: asyncio.Event()})
+            async with ArtifactProcessingSupervisor(
+                database=db,
+                bindings=(
+                    ArtifactProcessingBinding(
+                        binding, "memory", launcher, automatic_processing_interval=timedelta(hours=1)
+                    ),
+                ),
+                lease_mode="single-process",
+            ) as supervisor:
+                runtime.artifact_processing_supervisor = ArtifactProcessingSupervisors((supervisor,))
+                await _wait(lambda: (binding, active) in launcher.active)
+                app = create_app(application=runtime)
+                async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+                    params = {"family": "atomic-memory"}
+                    running = await client.get(f"/v1/scopes/{active}/processing-status", params=params)
+                    running.raise_for_status()
+                    assert running.json()["executor"]["state"] == "running"
+                    idle = await client.get(f"/v1/scopes/{empty}/processing-status", params=params)
+                    idle.raise_for_status()
+                    status = idle.json()
+                    assert status["state"] == "idle" and status["invocation"] is None
+                    executor = status["executor"]
+                    assert executor["state"] == "idle" and executor["reason"] == "idle"
+                    assert executor["next_check_seconds"] is None
 
     asyncio.run(scenario())
 
