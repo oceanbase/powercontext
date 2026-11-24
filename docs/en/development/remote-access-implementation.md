@@ -232,9 +232,11 @@ export POWERCONTEXT_SERVER_MCP_PATH="/agent"
 
 The MCP projection includes the agent-facing Memory operations for recall, search, listing, reading, remembering, and
 Atomic Memory state changes or restoration; Source capture; Experience and Skill synthesis and reads; external Skill
-discovery; Artifact read, replace, and publication; and Candidate Review. Health and capability inspection, Memory
-flush, Memory revise or retire, and change-history endpoints remain HTTP-only, and the Server's `tools/list` response is
-the authoritative tool set.
+discovery; Artifact read, replace, and publication; and Candidate Review. Health and capability inspection and Memory
+flush remain HTTP-only, and the legacy `revise_memory_entry`, `retire_memory_entry`, and `list_memory_changes`
+operations are rejected on both transports with HTTP 422 `legacy_memory_operation_unsupported`; use
+`replace_artifact`, `change_atomic_memory_lifecycle`, and `get_artifact_revision` over MCP instead. The Server's
+`tools/list` response is the authoritative tool set.
 
 HTTP and MCP share the same Server application and Runtime binding. A request made through either transport therefore
 uses the same scope isolation, validation, concurrency checks, and persistence behavior.

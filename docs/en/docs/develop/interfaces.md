@@ -329,9 +329,15 @@ transaction over HTTP and MCP.
 Readiness is `ready` with HTTP 200 when all checks pass, `degraded` with HTTP 200 when only configured inference checks
 fail, and `not_ready` with HTTP 503 when the Runtime or database fails. Dependency checks use `ready`, `unavailable`,
 `timeout`, or `misconfigured`; an intentionally unbound Runtime reports `not_ready` for the `runtime` check.
-Skill lifecycle changes, Skill package download or publishing to remote targets, low-level Artifact administration
-(creating, listing, tagging, merging, forgetting, restoring, or enumerating revisions), Memory flush and change-history
-reads, and health or capability inspection remain HTTP-only.
+Skill lifecycle changes, Skill package download or publishing to remote targets, low-level Artifact administration for
+families other than Atomic Memory (creating, listing, tagging, merging, forgetting, restoring, or enumerating
+revisions), Memory flush, and health or capability inspection remain HTTP-only. Three legacy Memory operations are
+unavailable on both transports: `revise_memory_entry` (`POST /v1/memory/entries/revise`), `retire_memory_entry`
+(`POST /v1/memory/entries/retire`), and `list_memory_changes` (`POST /v1/memory/changes`) reject every call with HTTP
+422 `legacy_memory_operation_unsupported`. Their Atomic Memory equivalents are projected instead: `replace_artifact`
+with the Artifact's content ETag, `change_atomic_memory_lifecycle` with `forgotten`, and `get_artifact_revision`. See
+[Legacy Memory API compatibility](../workflows/atomic-memory.md#legacy-memory-api-compatibility) for the complete list
+of rejected legacy calls.
 
 MCP uses stateless Streamable HTTP and does not issue MCP session IDs. When authentication is enabled, each
 request uses its own verified identity and current group membership. Scopes, Memory, and Handoffs remain

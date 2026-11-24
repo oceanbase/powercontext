@@ -295,8 +295,13 @@ Scalar reference 仍可公开访问，但其中描述的 operation 继续遵守�
 面向 Agent 的精选子集，覆盖 Source 采集、Memory 维护、工作连续性、scope 与 Handoff Report 查询、Experience 与
 Skill 合成、Artifact 读取/替换/发布，以及 Candidate Review；权威 tool 清单以 Server 的 `tools/list` 返回为准。
 六个 Candidate Review operation 通过 HTTP 和 MCP 使用相同的 validation、`expected_version` 并发校验和 approval
-transaction。仍只通过 HTTP 提供的是：Skill 生命周期变更、Skill 包下载与发布到远端 target、Artifact 的低阶管理
-（创建、列举、打标签、合并、遗忘、恢复、revision 枚举）、Memory flush 与变更历史读取，以及健康与能力检查。
+transaction。仍只通过 HTTP 提供的是：Skill 生命周期变更、Skill 包下载与发布到远端 target、Atomic Memory 之外的通用 Artifact 管理
+（创建、列举、打标签、合并、遗忘、恢复、revision 枚举）、Memory flush，以及健康与能力检查。另有三个旧 Memory operation
+在 HTTP 与 MCP 上均不可用：`revise_memory_entry`（`POST /v1/memory/entries/revise`）、`retire_memory_entry`
+（`POST /v1/memory/entries/retire`）和 `list_memory_changes`（`POST /v1/memory/changes`）对任何调用都返回 HTTP 422
+`legacy_memory_operation_unsupported`；对应的 Atomic Memory 能力已投影为 tool：`replace_artifact`（搭配 Artifact 的
+content ETag）、`change_atomic_memory_lifecycle`（`forgotten`）和 `get_artifact_revision`。被拒绝的旧调用完整清单见
+[旧 Memory API 兼容](../workflows/atomic-memory.md#旧-memory-api-兼容)。
 
 MCP 使用无状态 Streamable HTTP，不签发 MCP 会话 ID。启用认证时，每个请求均使用自身经过验证的身份和当前
 组成员关系。Scope、Memory 和 Handoff 仍持久化在 Runtime 中。升级后请重新连接 MCP 客户端；不提供跨请求的
