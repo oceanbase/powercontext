@@ -2630,26 +2630,21 @@ async fn run_tool_loop(responses: bool) {
         };
         assert!(matches!(outcome, ManagedOutcome::Released { .. }));
     }
-    // 一个回合只准备一次；每一步注入同一个块、声明同一个绑定和位置。
+    // 一个回合只准备一次；只有用户回合注入，工具续写不注入。
     assert_eq!(gate.prepare_queries.lock().unwrap().len(), 1);
     let sent = sends(&gate);
     assert_eq!(sent.len(), 3);
-    for (body, declared) in &sent {
-        assert_eq!(declared.len(), 1);
-        assert_eq!(declared[0].binding, "opaque-binding");
-        assert_eq!(declared[0].location.pointer, sent[0].1[0].location.pointer);
-        assert_eq!(
-            declared[0].location.end_byte,
-            sent[0].1[0].location.end_byte
-        );
-        let body: serde_json::Value = serde_json::from_str(body).unwrap();
-        let text = body
-            .pointer(&declared[0].location.pointer)
-            .unwrap()
-            .as_str()
-            .unwrap();
-        assert!(text.starts_with(block));
-    }
+    assert_eq!(sent[0].1.len(), 1);
+    assert_eq!(sent[0].1[0].binding, "opaque-binding");
+    let body: serde_json::Value = serde_json::from_str(&sent[0].0).unwrap();
+    let text = body
+        .pointer(&sent[0].1[0].location.pointer)
+        .unwrap()
+        .as_str()
+        .unwrap();
+    assert!(text.starts_with(block));
+    assert!(sent[1].1.is_empty());
+    assert!(sent[2].1.is_empty());
     // 新的用户消息开始新回合：重新准备一次。
     let c = tool_loop_call("next question", 0, responses);
     if responses {
@@ -2686,7 +2681,7 @@ async fn responses_tool_loop_prepares_once_per_user_message() {
 }
 
 #[tokio::test]
-async fn empty_preparation_is_reused_within_the_turn() {
+async fn empty_preparation_leaves_every_step_uninjected() {
     let (executor, renderer, transport, gate) =
         harness(allow_runs(3), (0..3).map(|_| raw_response()).collect(), 2);
     for step in 0..3 {
@@ -2706,15 +2701,15 @@ async fn empty_preparation_is_reused_within_the_turn() {
 }
 
 #[tokio::test]
-async fn failed_preparation_is_retried_on_the_next_step_without_blocking() {
+async fn failed_preparation_is_retried_on_the_next_user_turn_without_blocking() {
     let (executor, renderer, transport, gate) =
         harness(allow_runs(2), (0..2).map(|_| raw_response()).collect(), 2);
     *gate.prepare_result.lock().unwrap() = Some(Err(GateError::GateUnavailable("down".into())));
-    for step in 0..2 {
+    for _ in 0..2 {
         let outcome = executor
             .run(
                 request_control(),
-                tool_loop_call("hello", step, false),
+                tool_loop_call("hello", 0, false),
                 &RendererRef(renderer.clone()),
                 &NoopEvidenceSink,
             )
@@ -2724,7 +2719,7 @@ async fn failed_preparation_is_retried_on_the_next_step_without_blocking() {
             "prepare 失败不阻塞主链路"
         );
     }
-    // 失败不缓存：第二步重新准备（这次得到空结果）。
+    // 失败不缓存：下一个用户回合重新准备（这次得到空结果）。
     assert_eq!(gate.prepare_queries.lock().unwrap().len(), 2);
     assert_eq!(transport.sends.lock().unwrap().len(), 2);
 }
@@ -2766,8 +2761,8 @@ async fn requests_without_a_conversation_id_never_inherit_an_injection() {
             )
             .await;
     }
-    // 每个请求各自准备；第二次准备返回空，第二个请求不得沿用第一个请求的块。
-    assert_eq!(gate.prepare_queries.lock().unwrap().len(), 2);
+    // 没有会话 ID 时只有用户回合准备；工具续写不检索也不注入。
+    assert_eq!(gate.prepare_queries.lock().unwrap().len(), 1);
     let sent = sends(&gate);
     assert_eq!(sent[0].1.len(), 1);
     assert!(sent[1].1.is_empty());
@@ -2780,7 +2775,10 @@ async fn evidence_records_the_turn_kind_for_chat_and_responses_requests() {
     let evidence = BufferedEvidenceSink::new();
     let r = RendererRef(renderer.clone());
 
+    let mut user_turn = call(DegradePolicy::Pause);
+    user_turn.inject_context = true;
     let mut assistant_only = call(DegradePolicy::Pause);
+    assistant_only.inject_context = true;
     assistant_only.request.messages = vec![CanonicalMessage {
         role: Role::Assistant,
         content: vec![serde_json::json!("done")],
@@ -2790,10 +2788,11 @@ async fn evidence_records_the_turn_kind_for_chat_and_responses_requests() {
         extra_fields: Default::default(),
     }];
     let mut empty = call(DegradePolicy::Pause);
+    empty.inject_context = true;
     empty.request.messages.clear();
 
     executor
-        .run(request_control(), call(DegradePolicy::Pause), &r, &evidence)
+        .run(request_control(), user_turn, &r, &evidence)
         .await;
     executor
         .run(
@@ -2827,14 +2826,20 @@ async fn evidence_records_the_turn_kind_for_chat_and_responses_requests() {
             Some(TurnKind::Empty),
         ]
     );
+    // 只有用户回合准备并注入，其余回合都跳过准备。
+    let skipped: Vec<bool> = evidence
+        .calls()
+        .iter()
+        .map(|call| call.prepare_skipped)
+        .collect();
+    assert_eq!(skipped, vec![false, true, true, true, true]);
 }
 
 #[tokio::test]
-async fn the_skip_switch_stops_prepare_for_tool_continuations_without_a_replay_entry() {
+async fn tool_continuations_do_not_prepare_or_inject() {
     let block = "BEGIN_POWERCONTEXT_PREPARED_CONTEXT_V1\n{\"items\":[]}\nEND_POWERCONTEXT_PREPARED_CONTEXT_V1";
     let (executor, renderer, transport, gate) =
         harness(allow_runs(2), (0..2).map(|_| raw_response()).collect(), 2);
-    let executor = executor.with_turn_skip_prepare(true);
     let evidence = BufferedEvidenceSink::new();
     let r = RendererRef(renderer.clone());
 
@@ -2851,7 +2856,7 @@ async fn the_skip_switch_stops_prepare_for_tool_continuations_without_a_replay_e
         .run(request_control(), next_turn, &r, &evidence)
         .await;
 
-    // 工具续写不再检索；新的用户回合照常准备并注入。
+    // 工具续写不检索也不注入；用户回合照常准备并注入。
     assert_eq!(gate.prepare_queries.lock().unwrap().len(), 1);
     assert_eq!(gate.prepare_queries.lock().unwrap()[0], "next question");
     let sent = sends(&gate);
@@ -2879,9 +2884,8 @@ async fn the_skip_switch_stops_prepare_for_tool_continuations_without_a_replay_e
 }
 
 #[tokio::test]
-async fn a_responses_developer_tail_keeps_preparing_with_the_skip_switch() {
+async fn a_responses_developer_tail_does_not_prepare_or_inject() {
     let (executor, _renderer, _transport, gate) = harness(allow_runs(1), vec![raw_response()], 2);
-    let executor = executor.with_turn_skip_prepare(true);
     let evidence = BufferedEvidenceSink::new();
     let mut c = call(DegradePolicy::Pause);
     c.inject_context = true;
@@ -2917,17 +2921,16 @@ async fn a_responses_developer_tail_keeps_preparing_with_the_skip_switch() {
         )
         .await;
 
-    assert_eq!(gate.prepare_queries.lock().unwrap().len(), 1);
-    assert_eq!(gate.prepare_queries.lock().unwrap()[0], "继续");
+    assert!(gate.prepare_queries.lock().unwrap().is_empty());
+    assert!(sends(&gate)[0].1.is_empty());
     let call = evidence.calls().pop().unwrap();
     assert_eq!(call.turn_kind, Some(TurnKind::Empty));
-    assert!(!call.prepare_skipped);
+    assert!(call.prepare_skipped);
 }
 
 #[tokio::test]
-async fn an_assistant_only_tail_still_prepares_with_the_skip_switch() {
+async fn an_assistant_only_tail_does_not_prepare_or_inject() {
     let (executor, renderer, _transport, gate) = harness(allow_runs(1), vec![raw_response()], 2);
-    let executor = executor.with_turn_skip_prepare(true);
     let evidence = BufferedEvidenceSink::new();
     let mut c = call(DegradePolicy::Pause);
     c.inject_context = true;
@@ -2948,20 +2951,19 @@ async fn an_assistant_only_tail_still_prepares_with_the_skip_switch() {
         )
         .await;
 
-    assert_eq!(gate.prepare_queries.lock().unwrap().len(), 1);
-    assert_eq!(gate.prepare_queries.lock().unwrap()[0], "hello");
+    assert!(gate.prepare_queries.lock().unwrap().is_empty());
+    assert!(sends(&gate)[0].1.is_empty());
     let call = evidence.calls().pop().unwrap();
     assert_eq!(call.turn_kind, Some(TurnKind::AssistantOnly));
-    assert!(!call.prepare_skipped);
-    assert_eq!(executor.turn_counters().skipped_prepare, 0);
+    assert!(call.prepare_skipped);
+    assert_eq!(executor.turn_counters().skipped_prepare, 1);
 }
 
 #[tokio::test]
-async fn a_replayed_tool_continuation_is_not_skipped() {
+async fn a_replayed_tool_continuation_is_not_injected() {
     let block = "BEGIN_POWERCONTEXT_PREPARED_CONTEXT_V1\n{\"items\":[]}\nEND_POWERCONTEXT_PREPARED_CONTEXT_V1";
     let (executor, renderer, _transport, gate) =
         harness(allow_runs(2), (0..2).map(|_| raw_response()).collect(), 2);
-    let executor = executor.with_turn_skip_prepare(true);
     *gate.prepare_result.lock().unwrap() = Some(Ok(reuse_result(block)));
     for step in 0..2 {
         executor
@@ -2974,11 +2976,12 @@ async fn a_replayed_tool_continuation_is_not_skipped() {
             .await;
     }
 
-    // 有会话 ID 且同一锚点命中重放：不跳过，两步都注入同一个块。
+    // 用户回合准备并注入一次；工具续写即便命中重放也不注入。
     assert_eq!(gate.prepare_queries.lock().unwrap().len(), 1);
     let sent = sends(&gate);
     assert_eq!(sent.len(), 2);
-    assert!(sent.iter().all(|(_, declared)| declared.len() == 1));
+    assert_eq!(sent[0].1.len(), 1);
+    assert!(sent[1].1.is_empty());
     assert_eq!(
         executor.turn_counters(),
         TurnCounterSnapshot {
@@ -2986,7 +2989,7 @@ async fn a_replayed_tool_continuation_is_not_skipped() {
             tool_continuation: 1,
             assistant_only: 0,
             empty: 0,
-            skipped_prepare: 0,
+            skipped_prepare: 1,
         }
     );
 }
@@ -3009,7 +3012,7 @@ async fn concurrent_requests_of_a_turn_commit_one_prepared_value() {
         ),
         executor.run(
             request_control(),
-            tool_loop_call("hello", 1, false),
+            tool_loop_call("hello", 0, false),
             &r,
             &NoopEvidenceSink
         ),
@@ -3023,11 +3026,11 @@ async fn concurrent_requests_of_a_turn_commit_one_prepared_value() {
     );
     *gate.prepare_barrier.lock().unwrap() = None;
 
-    // 稍后的同一回合请求重放已提交的那一份。
+    // 稍后的同一用户回合重试重放已提交的那一份。
     executor
         .run(
             request_control(),
-            tool_loop_call("hello", 2, false),
+            tool_loop_call("hello", 0, false),
             &r,
             &NoopEvidenceSink,
         )
@@ -3099,7 +3102,7 @@ async fn a_late_preparation_from_an_earlier_turn_does_not_replace_the_current_tu
     );
     assert!(matches!(late, ManagedOutcome::Released { .. }));
     assert!(matches!(current, ManagedOutcome::Released { .. }));
-    // 当前回合的续写仍重放它已提交的内容，不再准备。
+    // 当前回合的续写不再注入，也不触发新的准备。
     executor
         .run(
             request_control(),
@@ -3114,12 +3117,16 @@ async fn a_late_preparation_from_an_earlier_turn_does_not_replace_the_current_tu
         .filter(|(body, _)| body.contains("second"))
         .collect();
     assert_eq!(current_turn_sends.len(), 2);
-    assert!(
-        current_turn_sends
-            .iter()
-            .all(|(body, _)| body.contains("memory-snapshot-2")
-                && !body.contains("memory-snapshot-3"))
-    );
+    assert!(current_turn_sends
+        .iter()
+        .all(|(body, _)| !body.contains("memory-snapshot-3")));
+    // 只有用户回合那条注入当前回合已提交的内容；工具续写不注入。
+    let injected: Vec<_> = current_turn_sends
+        .iter()
+        .filter(|(_, declared)| !declared.is_empty())
+        .collect();
+    assert_eq!(injected.len(), 1);
+    assert!(injected[0].0.contains("memory-snapshot-2"));
 }
 
 // ---------- #2407：每个用户回合在终止响应时沉淀一次规范化记录 ----------
@@ -4227,13 +4234,13 @@ async fn a_stale_reuse_proof_drops_the_replay_and_prepares_once_more() {
             .push_back(Ok(reuse_result(snapshot)));
     }
     let r = RendererRef(renderer.clone());
-    for step in 0..3 {
+    for _ in 0..3 {
         let control = request_control();
         let observation = control.observation();
         let outcome = executor
             .run(
                 control,
-                tool_loop_call("fix the bug", step, false),
+                tool_loop_call("fix the bug", 0, false),
                 &r,
                 &NoopEvidenceSink,
             )

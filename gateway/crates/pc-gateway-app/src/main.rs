@@ -234,11 +234,6 @@ async fn main() {
         .unwrap_or(0);
     let degradation_allowed = capabilities.as_ref().is_some_and(|caps| !caps.enforcing);
     let sediment = matches!(std::env::var("PC_GATEWAY_SEDIMENT").as_deref(), Ok("on"));
-    // 工具续写且没有可重放结果时跳过准备；默认关闭，未设置时行为不变。
-    let turn_skip_prepare = matches!(
-        std::env::var("PC_GATEWAY_TURN_SKIP_PREPARE").as_deref(),
-        Ok("on")
-    );
     let capture_batch = capabilities
         .as_ref()
         .and_then(|caps| caps.limits.capture_batch_sources)
@@ -293,8 +288,7 @@ async fn main() {
                     .and_then(|caps| caps.limits.atomic_memory_input_tokens),
             ))
             .with_capture_batch_limit(capture_batch)
-            .with_core_enforcement(capabilities.as_ref().is_none_or(|caps| caps.enforcing))
-            .with_turn_skip_prepare(turn_skip_prepare),
+            .with_core_enforcement(capabilities.as_ref().is_none_or(|caps| caps.enforcing)),
         ),
         evidence,
         upstream_profile: std::env::var("PC_GATEWAY_UPSTREAM_PROFILE")

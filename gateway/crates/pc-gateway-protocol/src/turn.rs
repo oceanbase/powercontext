@@ -48,11 +48,11 @@ fn has_tool_calls(message: &CanonicalMessage) -> bool {
         .is_some_and(|calls| !calls.is_empty())
 }
 
-/// Responses 入口把每个非用户 item 封装成单元素 content。没有对象时按工具结果处理；
-/// 否则按 item 自身的 `role`/`type` 还原语义，而不是沿用承载它的 `Role::Tool`。
+/// Responses 入口把每个非用户 item 封装成单元素 content。content 不是单个对象时无法还原语义，
+/// 按空回合处理；否则按 item 自身的 `role`/`type` 还原，而不是沿用承载它的 `Role::Tool`。
 fn responses_item_turn_kind(content: &[Value]) -> TurnKind {
     let [Value::Object(item)] = content else {
-        return TurnKind::ToolContinuation;
+        return TurnKind::Empty;
     };
     if let Some(role) = item.get("role").and_then(Value::as_str) {
         return match role {
@@ -72,13 +72,26 @@ fn responses_item_turn_kind(content: &[Value]) -> TurnKind {
     }
 }
 
-/// 与 `transcript::classify` 相同的工具条目词汇：客户端工具调用、工具结果与 MCP 审批往返。
-/// 使用下划线边界而不是子串匹配，避免普通条目名偶然包含 `call` 而被当作工具续写。
+/// 需要客户端执行的工具条目：客户端工具调用、工具结果与 MCP 审批往返，与 `transcript::classify`
+/// 的客户端条目同词汇；服务商在响应内执行完毕的内置工具不在此列。
+const TOOL_ITEMS: &[&str] = &[
+    "function_call",
+    "custom_tool_call",
+    "computer_call",
+    "local_shell_call",
+    "apply_patch_call",
+    "function_call_output",
+    "custom_tool_call_output",
+    "computer_call_output",
+    "local_shell_call_output",
+    "apply_patch_call_output",
+    "mcp_approval_request",
+    "mcp_approval_response",
+];
+
+/// 使用显式清单而不是后缀匹配，避免普通条目名以 `_call` 结尾就被当作工具续写。
 fn is_tool_item(item_type: &str) -> bool {
-    item_type.ends_with("_call")
-        || item_type.ends_with("_call_output")
-        || item_type == "mcp_approval_request"
-        || item_type == "mcp_approval_response"
+    TOOL_ITEMS.contains(&item_type)
 }
 
 #[cfg(test)]
@@ -221,9 +234,24 @@ mod tests {
                 TurnKind::ToolContinuation,
             ),
             (
-                // 名称包含 call 但不是工具条目，不能触发跳过召回。
+                // 名称包含 call 但不是工具条目。
                 vec![item(serde_json::json!({"type": "recall"}))],
                 TurnKind::AssistantOnly,
+            ),
+            (
+                // 自定义类型以 _call 结尾也不在工具清单里。
+                vec![item(serde_json::json!({"type": "my_hook_call"}))],
+                TurnKind::AssistantOnly,
+            ),
+            (
+                // 服务商在响应内执行完毕的内置工具不是客户端工具续写。
+                vec![item(serde_json::json!({"type": "web_search_call"}))],
+                TurnKind::AssistantOnly,
+            ),
+            (
+                // content 不是单个 item 对象时无法还原语义。
+                vec![message(Role::Tool, None)],
+                TurnKind::Empty,
             ),
             (
                 vec![item(
@@ -239,6 +267,35 @@ mod tests {
             ),
         ] {
             assert_eq!(turn_kind(&request(messages), "input"), expected);
+        }
+    }
+
+    /// 工具清单里的每个条目都必须判为工具续写。清单在这里独立写出，常量拼错时用例失败，
+    /// 而不是静默降级成助手回合。
+    #[test]
+    fn every_client_tool_item_is_a_tool_continuation() {
+        for item_type in [
+            "function_call",
+            "custom_tool_call",
+            "computer_call",
+            "local_shell_call",
+            "apply_patch_call",
+            "function_call_output",
+            "custom_tool_call_output",
+            "computer_call_output",
+            "local_shell_call_output",
+            "apply_patch_call_output",
+            "mcp_approval_request",
+            "mcp_approval_response",
+        ] {
+            assert_eq!(
+                turn_kind(
+                    &request(vec![item(serde_json::json!({ "type": item_type }))]),
+                    "input"
+                ),
+                TurnKind::ToolContinuation,
+                "{item_type}"
+            );
         }
     }
 }

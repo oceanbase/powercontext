@@ -122,7 +122,7 @@ pub struct CallEvidence {
     pub upstream_ttft_ms: Option<u64>,
     /// Canonical tail classification of the inbound request, when the executor classified it.
     pub turn_kind: Option<pc_gateway_types::TurnKind>,
-    /// The skip switch suppressed preparation for this tool continuation.
+    /// The call skipped preparation because its tail was not a user turn.
     #[serde(default)]
     pub prepare_skipped: bool,
 }

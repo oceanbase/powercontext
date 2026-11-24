@@ -164,8 +164,6 @@ pub struct Executor<G, T> {
     capture_batch: Option<usize>,
     require_privacy_coverage: bool,
     prefixes: PrefixStore,
-    /// 跳过工具续写（且没有可重放结果）的 `prepare`；由开关控制，默认关闭。
-    skip_tool_continuation_prepare: bool,
     turn_counters: TurnCounters,
 }
 
@@ -216,7 +214,6 @@ where
             capture_batch: Some(128),
             require_privacy_coverage: true,
             prefixes: PrefixStore::default(),
-            skip_tool_continuation_prepare: false,
             turn_counters: TurnCounters::default(),
         }
     }
@@ -305,12 +302,6 @@ where
     /// admission still requires Core's allow verdict, binding, and deadline.
     pub fn with_core_enforcement(mut self, enforcing: bool) -> Self {
         self.require_privacy_coverage = enforcing;
-        self
-    }
-
-    /// 工具续写且没有可重放结果时跳过 `prepare`。默认关闭；开启后只影响该形态的请求。
-    pub fn with_turn_skip_prepare(mut self, skip: bool) -> Self {
-        self.skip_tool_continuation_prepare = skip;
         self
     }
 
@@ -891,10 +882,10 @@ where
         Some(fields)
     }
 
-    /// 有可信会话 ID 时：同一消息锚点（工具续写、重试）精确重放已准备的内容与绑定，不再检索；
+    /// 只有用户回合准备并注入：工具续写、助手续写以及空回合都不检索，也不读重放缓存。
+    /// 用户回合有可信会话 ID 时，同一消息锚点（重试）精确重放已准备的内容与绑定，不再检索；
     /// 新锚点（新的用户消息）准备一次。没有会话 ID 时每个请求各自准备，不继承任何旧注入。
     /// 准备失败不写入，下一次请求重试，且不阻塞本次请求；空结果同样重放。
-    /// 开关打开时，没有可重放结果的工具续写不再准备。
     async fn enrich(
         &self,
         call: &mut ManagedCall,
@@ -904,23 +895,20 @@ where
         recording: &mut CallRecorder<'_>,
         execution: &Execution,
     ) {
+        if kind != TurnKind::UserTurn {
+            self.turn_counters.record_skipped_prepare();
+            recording.prepare_skipped();
+            tracing::debug!(
+                turn_kind = kind.as_str(),
+                "skipping prepare for a non-user turn"
+            );
+            return;
+        }
         let replay = call.conversation_id.clone().zip(anchor);
         let cached = replay.as_ref().and_then(|(conversation, anchor)| {
             self.replays
                 .get(&call.scope_id, conversation, *anchor, now_ms())
         });
-        if cached.is_none()
-            && kind == TurnKind::ToolContinuation
-            && self.skip_tool_continuation_prepare
-        {
-            self.turn_counters.record_skipped_prepare();
-            recording.prepare_skipped();
-            tracing::debug!(
-                turn_kind = kind.as_str(),
-                "skipping prepare for a tool continuation without a replay entry"
-            );
-            return;
-        }
         let prepared = match cached {
             Some(prepared) => prepared,
             None => {
