@@ -52,6 +52,8 @@ from tests.e2e.zcode_acceptance.runner import serve
 PLUGIN = Path(__file__).resolve().parents[2] / "integrations" / "opencode" / "plugins" / "powercontext"
 TOKEN = "opencode-service-chain-token"  # noqa: S105 - non-secret test credential.
 LABEL = "PowerContext host-supplied context."
+# The prefix of both block markers that Core's context check rejects unless the gateway bound them.
+PREPARED_MARKER = "BEGIN_POWERCONTEXT_PREPARED_"
 FACT_MARKER = "teal-728"
 FACT = f"In the synthetic orchid project, the verification color is {FACT_MARKER}."
 QUESTION = "Which verification color does the synthetic orchid project use?"
@@ -428,6 +430,62 @@ def test_opencode_recall_and_capture_settings_are_independent(opencode_stack: Op
     assert len(opencode_stack.records("/v1/sources/content")) == captured
     assert len(opencode_stack.records("/v1/context/prepare")) == 1
     assert unsent not in json.dumps(opencode_stack.wire.records)
+
+
+def test_opencode_session_leaves_recall_behind_once_recall_is_off(opencode_stack: OpenCodeStack) -> None:
+    """With recall off, the model receives no prepared-context block that the plugin added.
+
+    The guide's gateway setup relies on this: Core rejects a block that the gateway did not bind. No gateway runs here.
+    """
+    with opencode_stack.open() as host:
+        host.prompt(host.session("Capture")["id"], FACT)
+        opencode_stack.wait_for_sources([FACT])
+        opencode_stack.flush()
+        session = host.session("Recall")["id"]
+        start = len(opencode_stack.model.requests)
+        host.prompt(session, QUESTION)
+        assert PREPARED_MARKER in json.dumps(opencode_stack.model.requests[start:])
+        assert "pc_prepare_context" in _tool_names(opencode_stack.model.requests[start])
+
+        # OpenCode builds each turn from the stored session, so an earlier turn's context is not sent again.
+        start = len(opencode_stack.model.requests)
+        host.prompt(session, "Which synthetic orchid project are we discussing?")
+        assert LABEL not in json.dumps(_history(opencode_stack.model.requests[start]))
+
+        # A tool result, unlike recall context, is stored with the session.
+        called = host.session("Prepare tool")["id"]
+        opencode_stack.model.plan([("pc_prepare_context", {"query": QUESTION})])
+        host.prompt(called, QUESTION)
+        assert PREPARED_MARKER in json.dumps(host.tool_output(called, "pc_prepare_context"))
+        # The fixture would otherwise replay the finished call in the next session's turn.
+        opencode_stack.model.plan()
+
+    with opencode_stack.open(POWERCONTEXT_OPENCODE_PROMPT_RECALL="false") as host:
+        start = len(opencode_stack.model.requests)
+        host.prompt(session, "Continue the synthetic orchid release notes.")
+        sent = json.dumps(opencode_stack.model.requests[start:])
+        tools = _tool_names(opencode_stack.model.requests[start])
+
+        # The session that called the tool keeps sending its result, so the guide says to start a new session.
+        start = len(opencode_stack.model.requests)
+        host.prompt(called, "Continue the synthetic orchid release notes.")
+        assert PREPARED_MARKER in json.dumps(opencode_stack.model.requests[start:])
+
+    assert LABEL not in sent
+    assert PREPARED_MARKER not in sent
+    assert "pc_prepare_context" not in tools
+    assert "pc_search" in tools
+
+
+def _tool_names(request: dict[str, Any]) -> set[str]:
+    return {tool["function"]["name"] for tool in request.get("tools", [])}
+
+
+def _history(request: dict[str, Any]) -> list[Any]:
+    """The messages a request carries before its last user message."""
+    messages = request["messages"]
+    last = max(index for index, message in enumerate(messages) if message.get("role") == "user")
+    return messages[:last]
 
 
 def test_opencode_memory_writes_wait_for_permission(opencode_stack: OpenCodeStack) -> None:

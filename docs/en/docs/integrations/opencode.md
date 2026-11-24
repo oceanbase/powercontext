@@ -72,7 +72,8 @@ for non-loopback HTTP, explicitly set `POWERCONTEXT_OPENCODE_ALLOW_INSECURE_HTTP
 stays enabled. See [Connect to a remote Server](../operate/connect-remote-server.md) for setup and saved consent.
 Set `POWERCONTEXT_OPENCODE_CAPTURE_PROMPTS=false` when prompts must not be persisted as Source evidence.
 `POWERCONTEXT_OPENCODE_PROMPT_RECALL` defaults to `true`; set it to `false` to stop preparing and injecting context
-for each prompt.
+for each prompt. With recall off, the plugin also does not offer the `pc_prepare_context` tool; `pc_search` stays
+available for explicit retrieval.
 
 ## Leave prompt-time context to the gateway
 
@@ -87,18 +88,34 @@ export POWERCONTEXT_OPENCODE_CAPTURE_PROMPTS=false
 opencode
 ```
 
-With recall off, the plugin sends no preparation request and adds no context to the user message. It still captures
-prompts while `POWERCONTEXT_OPENCODE_CAPTURE_PROMPTS` is `true`; with both off, it sends no request for a prompt. The
-Session Scope, `pc_*` tools, and the TUI keep working. Keep the default where OpenCode calls its model directly,
-because the gateway does not carry that traffic.
+With recall off, the plugin sends no preparation request, adds no context to the user message, and does not offer the
+`pc_prepare_context` tool. That tool's result stays in the session and carries a prepared-context block. Core
+would reject the request that returns the result to the model, and every later request of the session, with HTTP 422
+in every privacy mode; the gateway returns HTTP 503 `gate_paused`. The plugin still captures prompts while
+`POWERCONTEXT_OPENCODE_CAPTURE_PROMPTS` is `true`; with both off, it sends no request for a prompt. The Session Scope,
+the other `pc_*` tools, and the TUI keep working. Keep the default where OpenCode calls its model directly, because the
+gateway does not carry that traffic.
+
+OpenCode does not store the context that recall adds to a user message, so a session started with recall on can
+continue behind the gateway. A `pc_prepare_context` result is stored, however: start a new OpenCode session instead of
+continuing one in which the model called that tool.
 
 With recall off, prompt-time context comes only from the gateway. The gateway prepares and captures in the Scope set
 by `PC_GATEWAY_DEFAULT_SCOPE`, not in the Scope this plugin resolves for the Session or workspace. Set it to the same
 Scope.
 
-OpenCode always streams, and the gateway completes streamed turns only on its Responses route. Configure the OpenCode
-provider that points at the gateway's `/gateway/v1` with `@ai-sdk/openai`. On the Chat Completions route
-(`@ai-sdk/openai-compatible`), Core withholds streamed responses and the turn fails.
+OpenCode sends its session ID in the `x-opencode-session-id` header of every model request. A gateway connected to
+the Core over UDS therefore prepares and injects each OpenCode turn by default; a standalone gateway needs
+`PC_GATEWAY_INJECTION=on`. See [Gateway context injection](../operate/deploy-server.md#gateway-context-injection).
+
+OpenCode always streams. Configure the OpenCode provider that points at the gateway's `/gateway/v1` with
+`@ai-sdk/openai`, which uses the Responses route. The gateway requests a Responses result from the upstream model
+without streaming and replays the released result as a stream, so streaming does not stop these turns or their
+capture in any Core [privacy mode](../operate/inference-protection.md#configure-a-supported-target). An enforcing
+Core still applies its other request and response rules. `@ai-sdk/openai-compatible` uses the Chat Completions route,
+where the gateway forwards the stream. An enforcing Core withholds that turn, and the gateway returns HTTP 400. A
+non-enforcing Core, including the default `disabled` mode, lets the gateway release the streamed response, but the
+gateway does not capture the turn, because it captures only JSON responses.
 
 ## Verify the installation
 
