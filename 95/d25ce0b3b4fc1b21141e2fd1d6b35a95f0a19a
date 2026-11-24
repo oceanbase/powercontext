@@ -1,0 +1,174 @@
+Makefile
+  s_1dc7d92681d5aa::t_275b7a6027ce9c 1-3,87,93,105,125,127,130,206,223,228,240,251,259,265,277,320
+docs/zh/docs/operate/observability.md
+  s_1dc7d92681d5aa::t_275b7a6027ce9c 147,149-152
+.licenserc.yaml
+  s_1dc7d92681d5aa::t_3b3015da6f472f 76-77
+.github/workflows/gateway.yml
+  s_1dc7d92681d5aa::t_275b7a6027ce9c 74
+e2e/bub/src/powercontext_e2e/runner.py
+  s_1dc7d92681d5aa::t_275b7a6027ce9c 457-458
+.github/workflows/desktop-candidate.yml
+  s_1dc7d92681d5aa::t_275b7a6027ce9c 39,183
+.github/actions/cache-npm/action.yml
+  s_1dc7d92681d5aa::t_275b7a6027ce9c 7-9,26-29,34
+gateway/README.md
+  s_1dc7d92681d5aa::t_3b3015da6f472f 23
+deploy/observability/compose.split.yaml
+  s_1dc7d92681d5aa::t_275b7a6027ce9c 20-21,65-66,142-143
+scripts/ci_python_mirror.py
+  s_1dc7d92681d5aa::t_275b7a6027ce9c 1-314
+e2e/bub/src/powercontext_e2e/harbor_codex.py
+  s_1dc7d92681d5aa::t_275b7a6027ce9c 20,29,36-37,79-89,107,111-122,128,130
+src/powercontext/builtin/runtime/atomic_memory_processing.py
+  s_1dc7d92681d5aa::t_275b7a6027ce9c 39,54-59,86,672-681,684-686,697-734,737,1356,1360-1361,1371,1376
+.github/workflows/candidate-schema-replay.yml
+  s_1dc7d92681d5aa::t_275b7a6027ce9c 47-48
+deploy/observability/compose.container.yaml
+  s_1dc7d92681d5aa::t_275b7a6027ce9c 20-21
+e2e/bub/tests/test_harbor_job_config.py
+  s_1dc7d92681d5aa::t_275b7a6027ce9c 49,382-415,581-714
+  s_1dc7d92681d5aa::t_ce39e2b51b537d 715-716
+tests/test_hook_characterization.py
+  s_1dc7d92681d5aa::t_275b7a6027ce9c 196-198,200
+gateway/crates/pc-gateway-app/src/ingress.rs
+  s_1dc7d92681d5aa::t_275b7a6027ce9c 165-168,173-186,188-205,229-238,251-253,258-259,278,296-297,318-331,562-568,932-1004,1740,1778-2010
+  s_1dc7d92681d5aa::t_215270c74aa3db 2011
+docs/zh/docs/operate/deploy-server.md
+  s_1dc7d92681d5aa::t_3b3015da6f472f 228
+  s_1dc7d92681d5aa::t_275b7a6027ce9c 272-282
+  s_1dc7d92681d5aa::t_4ec4f54d324ed4 283
+tests/test_release_schema_capture.py
+  s_1dc7d92681d5aa::t_275b7a6027ce9c 1-175
+docs/en/docs/operate/observability.md
+  s_1dc7d92681d5aa::t_275b7a6027ce9c 156,158-162
+.github/actions/setup-uv/action.yml
+  s_1dc7d92681d5aa::t_275b7a6027ce9c 70-73
+tests/builtin/artifacts/atomic_memory/test_prefixed_extraction.py
+  s_1dc7d92681d5aa::t_275b7a6027ce9c 19,33-38,44-45,47,50,191-192,294-578
+scripts/ci_cache.py
+  s_1dc7d92681d5aa::t_275b7a6027ce9c 262-277
+tests/test_ci_release_verification.py
+  s_1dc7d92681d5aa::t_275b7a6027ce9c 46,52-75,78,89,93-107,110-111,156-158,163-206
+  s_1dc7d92681d5aa::t_0bae0fa173d05c 207-208
+tests/test_ci_cache.py
+  s_1dc7d92681d5aa::t_275b7a6027ce9c 149-153,491-567
+  s_1dc7d92681d5aa::t_359fd3297f791c 568-569
+integrations/dsh/plugins/powercontext/tests/pack-release.test.mjs
+  s_1dc7d92681d5aa::t_275b7a6027ce9c 36-40
+scripts/prepare_bundle_dependencies.py
+  s_1dc7d92681d5aa::t_275b7a6027ce9c 141-142
+scripts/run_upgrade_release_gate.py
+  s_1dc7d92681d5aa::t_275b7a6027ce9c 20,23,61-63,66
+tests/test_ci_pipeline.py
+  s_1dc7d92681d5aa::t_275b7a6027ce9c 322
+docs/en/development/released-schema-capture.md
+  s_1dc7d92681d5aa::t_275b7a6027ce9c 15-21
+.github/actions/cache-pnpm/action.yml
+  s_1dc7d92681d5aa::t_275b7a6027ce9c 30-33
+.github/workflows/seekdb-lock-probe.yml
+  s_1dc7d92681d5aa::t_275b7a6027ce9c 43
+src/powercontext/builtin/artifacts/atomic_memory/one_pass.py
+  s_1dc7d92681d5aa::t_275b7a6027ce9c 39,66-77,82,141-144,146-154
+scripts/capture_release_schema.py
+  s_1dc7d92681d5aa::t_275b7a6027ce9c 154-165,168,173
+.github/workflows/skill-guidance.yml
+  s_1dc7d92681d5aa::t_275b7a6027ce9c 45
+tests/test_ci_node_mirror.py
+  s_1dc7d92681d5aa::t_275b7a6027ce9c 1-256
+.github/workflows/installation.yml
+  s_1dc7d92681d5aa::t_275b7a6027ce9c 63
+scripts/ci_node_mirror.mjs
+  s_1dc7d92681d5aa::t_275b7a6027ce9c 1-144
+docker/Dockerfile
+  s_1dc7d92681d5aa::t_275b7a6027ce9c 22,25,27-28
+docs/zh/design/atomic_memory_one_pass_design.md
+  s_1dc7d92681d5aa::t_d22801a57a6817 159
+  s_1dc7d92681d5aa::t_275b7a6027ce9c 170-202,208,290-293
+.github/workflows/seekdb-lock-observation.yml
+  s_1dc7d92681d5aa::t_275b7a6027ce9c 26
+src/powercontext/builtin/artifacts/atomic_memory/extraction.py
+  s_1dc7d92681d5aa::t_275b7a6027ce9c 174-175,198,200,204-208,217
+.github/workflows/build-artifacts.yml
+  s_1dc7d92681d5aa::t_275b7a6027ce9c 80,103-104
+tests/test_ci_python_mirror.py
+  s_1dc7d92681d5aa::t_275b7a6027ce9c 1-359
+e2e/bub/Dockerfile
+  s_1dc7d92681d5aa::t_275b7a6027ce9c 48,53-54
+.github/workflows/master.yml
+  s_1dc7d92681d5aa::t_275b7a6027ce9c 55,251,321,341,416,430,499,619,784,1000,1111-1118,1122-1128,1133,1277,1338,1496,1524,1818-1830
+src/powercontext/builtin/artifacts/atomic_memory/prefixed_extraction.py
+  s_1dc7d92681d5aa::t_275b7a6027ce9c 25-28,42-48,73-75,190-213,225-348
+scripts/upgrade_release_gate.py
+  s_1dc7d92681d5aa::t_275b7a6027ce9c 423-425,427
+e2e/bub/src/powercontext_e2e/harbor_agent.py
+  s_1dc7d92681d5aa::t_275b7a6027ce9c 160-175
+gateway/crates/pc-gateway-app/tests/gateway_behaviors.rs
+  s_1dc7d92681d5aa::t_dd47797b0ee3f3 134,141,157,161,820,864-868,875,889-893,898,906-908,916-920
+  s_1dc7d92681d5aa::t_d01ff5ad51c3bd 870-872,877-881,883-888
+  s_1dc7d92681d5aa::t_138050df5fcb0c 882,894-897,899,905
+tests/e2e/test_knowledge_base_dashboard.py
+  s_1dc7d92681d5aa::t_275b7a6027ce9c 68,73,75-84,86-89,91-92
+.github/actions/setup-python-env/action.yml
+  s_1dc7d92681d5aa::t_275b7a6027ce9c 13-16,72-75,112-113,115-116
+src/powercontext/builtin/runtime/composition.py
+  s_1dc7d92681d5aa::t_275b7a6027ce9c 248,1549-1560,1562,1565-1568,1584-1590,1831-1833,1840-1841
+e2e/bub/compose.yaml
+  s_1dc7d92681d5aa::t_275b7a6027ce9c 24,62,75
+website/scripts/generate-python-api.ts
+  s_1dc7d92681d5aa::t_275b7a6027ce9c 23-32
+.github/actions/setup-python-env/README.md
+  s_1dc7d92681d5aa::t_275b7a6027ce9c 1-31
+gateway/SUBSCRIPTIONS.md
+  s_1dc7d92681d5aa::t_d22801a57a6817 65
+  s_1dc7d92681d5aa::t_275b7a6027ce9c 66
+.github/workflows/upgrade-release.yml
+  s_1dc7d92681d5aa::t_275b7a6027ce9c 101-110,142-148,220-224
+gateway/crates/pc-gateway-app/src/main.rs
+  s_1dc7d92681d5aa::t_3b3015da6f472f 73
+  s_1dc7d92681d5aa::t_cd2f9514658705 170-174
+  s_1dc7d92681d5aa::t_275b7a6027ce9c 250-262,321
+pyproject.toml
+  s_1dc7d92681d5aa::t_275b7a6027ce9c 194,196
+docs/en/docs/operate/deploy-server.md
+  s_1dc7d92681d5aa::t_275b7a6027ce9c 288-303
+  s_1dc7d92681d5aa::t_3b3015da6f472f 226
+  s_1dc7d92681d5aa::t_97179f2740c693 304
+docs/zh/development/released-schema-capture.md
+  s_1dc7d92681d5aa::t_275b7a6027ce9c 13-17
+.github/actions/setup-bundle-builder/action.yml
+  s_1dc7d92681d5aa::t_275b7a6027ce9c 27-30,66
+.github/workflows/kimi-code-acceptance.yml
+  s_1dc7d92681d5aa::t_275b7a6027ce9c 71-75
+.github/workflows/e2e-harness.yml
+  s_1dc7d92681d5aa::t_275b7a6027ce9c 126,131,400,699-701
+  s_1dc7d92681d5aa::t_ed4d136d485a15 702
+deploy/observability/Dockerfile
+  s_1dc7d92681d5aa::t_275b7a6027ce9c 25,27-29
+scripts/ci_legacy_upgrade_rejection.py
+  s_1dc7d92681d5aa::t_275b7a6027ce9c 27,177-179,181
+scripts/ci_installation_roles.py
+  s_1dc7d92681d5aa::t_275b7a6027ce9c 72-73,76,83
+e2e/bub/uv.lock
+  s_1dc7d92681d5aa::t_0fe178d0450785 1851,1858
+evaluation/uv.lock
+  s_1dc7d92681d5aa::t_9e2eca508928b7 2007,2014
+uv.lock
+  s_1dc7d92681d5aa::t_8fc76f49ff738f 3282,3289-3296,3769,3776
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "95d25ce0b3b4fc1b21141e2fd1d6b35a95f0a19a",
+  "prompts": {},
+  "sessions": {
+    "s_1dc7d92681d5aa": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a19db9-d0ca-7db2-8730-6878cbc5ae02",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "frf12 <rongfeng.frf@antgroup.com>"
+    }
+  }
+}

@@ -1,0 +1,39 @@
+docs/assets/scenarios/profile.svg
+  s_08eaaedfaa31d0::t_7d9fa9073d04f7 1-4
+docs/assets/scenarios/rules.svg
+  s_08eaaedfaa31d0::t_7d9fa9073d04f7 1-4
+README_JP.md
+  s_08eaaedfaa31d0::t_9a616dbd351506 56
+  s_08eaaedfaa31d0::t_5759eca182a864 34,60-62,64-108
+  s_08eaaedfaa31d0::t_cd51951e6a51a6 63
+README_CN.md
+  s_08eaaedfaa31d0::t_9a616dbd351506 54
+  s_08eaaedfaa31d0::t_5759eca182a864 32,58-60,62-106
+  s_08eaaedfaa31d0::t_1cf04c2b87980d 61
+docs/assets/scenarios/handoff.svg
+  s_08eaaedfaa31d0::t_7d9fa9073d04f7 1-4
+README.md
+  s_08eaaedfaa31d0::t_9a616dbd351506 54
+  s_08eaaedfaa31d0::t_5759eca182a864 32,58-60,62-106
+  s_08eaaedfaa31d0::t_37c8b7f299b5b8 61
+docs/assets/scenarios/dream.svg
+  s_08eaaedfaa31d0::t_7d9fa9073d04f7 1-4
+docs/assets/scenarios/topic.svg
+  s_08eaaedfaa31d0::t_7d9fa9073d04f7 1-4
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "d5bb2a535199cc4725a0e2d5a636ef4d8261d9df",
+  "prompts": {},
+  "sessions": {
+    "s_08eaaedfaa31d0": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1c18c-f3bd-72a0-964f-7ee6c62e7e29",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "frf12 <rongfeng.frf@antgroup.com>"
+    }
+  }
+}

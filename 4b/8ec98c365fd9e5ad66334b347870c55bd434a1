@@ -1,0 +1,26 @@
+docs/zh/docs/get-started/install-and-run.md
+  s_2ef0feea0a110d::t_63c7069280c341 126-127
+docs/en/docs/get-started/install-and-run.md
+  s_2ef0feea0a110d::t_63c7069280c341 126-127
+tests/native/test_install_sources.py
+  s_2ef0feea0a110d::t_2a404811bc4109 31,359-361,367-368,386,395-400,402-406,409-410,437,439,441,446-473,475-485
+  s_2ef0feea0a110d::t_992dc96d98f340 401,407-408,474
+website/public/install.sh
+  s_2ef0feea0a110d::t_63c7069280c341 123-125
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "4b8ec98c365fd9e5ad66334b347870c55bd434a1",
+  "prompts": {},
+  "sessions": {
+    "s_2ef0feea0a110d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1a9cf-a4e7-7f63-9c51-1284f7c332e8",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "frf12 <rongfeng.frf@antgroup.com>"
+    }
+  }
+}

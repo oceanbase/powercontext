@@ -1,0 +1,26 @@
+tests/e2e/test_knowledge_base_dashboard.py
+  s_2ef0feea0a110d::t_ac67931f5ad14c 73
+  s_2ef0feea0a110d::t_f614bd4e1ecdd4 68,75-84,86-89,91-92
+.github/workflows/master.yml
+  s_2ef0feea0a110d::t_f614bd4e1ecdd4 1818-1830
+pyproject.toml
+  s_2ef0feea0a110d::t_39e336e96f5243 194,196
+uv.lock
+  s_2ef0feea0a110d::t_9325b2f31589e3 3282,3289-3296,3769,3776
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "47a1142c9db5a9de810ed9778849301a1c4a4540",
+  "prompts": {},
+  "sessions": {
+    "s_2ef0feea0a110d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1a9cf-a4e7-7f63-9c51-1284f7c332e8",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "frf12 <rongfeng.frf@antgroup.com>"
+    }
+  }
+}

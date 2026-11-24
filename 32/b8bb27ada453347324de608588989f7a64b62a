@@ -1,0 +1,46 @@
+docs/en/docs/operate/install-gateway.md
+  s_6a8444cedb8f98::t_b26965e1781a4a 18-19,27-30
+  s_2ef0feea0a110d::t_a4dcacf66d06bf 31
+docs/zh/docs/operate/install-gateway.md
+  s_6a8444cedb8f98::t_b26965e1781a4a 18-19,26-28
+  s_2ef0feea0a110d::t_5e54198692b4cc 29
+gateway/README.md
+  s_6a8444cedb8f98::t_b26965e1781a4a 31
+.github/workflows/gateway-distribution.yml
+  s_6a8444cedb8f98::t_98a20c61f03e35 44-45,152-169
+  s_6a8444cedb8f98::t_d4e4a079d70ffc 41-43,90-99,105,108-115,145-146,148
+docs/en/development/releasing.md
+  s_6a8444cedb8f98::t_b26965e1781a4a 362,365-366,368
+  s_6a8444cedb8f98::t_d1fe8879a7032a 363-364,367
+tests/test_gateway_distribution.py
+  s_6a8444cedb8f98::t_395b991f2b44d7 62-67,71
+scripts/gateway_distribution.py
+  s_6a8444cedb8f98::t_483072758d86c2 33-34
+docs/zh/development/releasing.md
+  s_6a8444cedb8f98::t_b26965e1781a4a 328-329,332,334
+  s_6a8444cedb8f98::t_d1fe8879a7032a 330-331,333
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "32b8bb27ada453347324de608588989f7a64b62a",
+  "prompts": {},
+  "sessions": {
+    "s_2ef0feea0a110d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1a9cf-a4e7-7f63-9c51-1284f7c332e8",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "frf12 <rongfeng.frf@antgroup.com>"
+    },
+    "s_6a8444cedb8f98": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a20894-fcd6-7122-b920-7431199c49c5",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "frf12 <rongfeng.frf@antgroup.com>"
+    }
+  }
+}
