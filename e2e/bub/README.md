@@ -511,7 +511,8 @@ declares 4 GB of memory, which the harness does not enforce, and its image is on
 1.6 GB), so plan disk space and time per run accordingly. The images keep a pip configuration that names the index
 their build used, at a loopback address that no longer answers (confirmed in the ansible image), so Bub's runtime
 install sets `PIP_INDEX_URL` to PyPI, or to `POWERCONTEXT_E2E_PIP_INDEX_URL` for a mirror the containers can reach;
-the host's own `PIP_INDEX_URL` is not forwarded, and uv and apt keep their defaults. The manifests' `max_steps` and
+the host's own `PIP_INDEX_URL` is not forwarded. Unless `POWERCONTEXT_E2E_PYTHON_INDEX_URL` is set as described below,
+uv keeps its defaults; apt keeps its defaults unless the Debian mirror setting below is supplied. The manifests' `max_steps` and
 `max_tokens` budgets apply to Bub only; the other hosts run with their own defaults. This OFF arm differs from the
 published SWE-bench Pro run, whose OFF arm had the Codex plugin installed but disabled: here OFF is the host as a user
 without PowerContext has it, the same on every host, so that the arms differ in nothing but the integration. The
@@ -566,6 +567,28 @@ a mirror the containers can reach; the host's own `PIP_INDEX_URL` is not forward
 install command in the container and is not written to evidence, but it does appear in that command's environment,
 so prefer a mirror that needs no credentials in its URL.
 
+To use one task-reachable index throughout Bub setup, set `POWERCONTEXT_E2E_PYTHON_INDEX_URL`. This explicit setting
+takes precedence over the pip-only setting and supplies both `PIP_INDEX_URL` and `UV_INDEX_URL` to the runtime,
+Bub tool, and ACP plugin installation commands, including Bub's child uv processes. Compose forwards both harness
+index settings; it does not forward the host's generic pip or uv index variables, which may point to host loopback.
+The index hostname is added to both task `NO_PROXY` and `no_proxy`, preserving private Server routes and existing
+exclusions. The index must therefore be directly reachable from the task container; package links on other hosts
+still use the task's normal proxy route. Without this setting, pip retains its pip-only/default selection and uv is unchanged.
+No index credentials are written into Harbor job configuration; installation tools can still include the URL in
+their own diagnostics, so prefer an index without URL credentials.
+
+`POWERCONTEXT_E2E_DEBIAN_MIRROR_URL` optionally names a directly reachable mirror base URL, for example
+`https://mirrors.aliyun.com`. Before Bub's dependency installation, Debian task containers replace only the default
+`http://deb.debian.org` or `https://deb.debian.org` repository URIs ending in `/debian` or `/debian-security` with that
+base and the same repository path. Both `.list` and `.sources` formats retain their suites, components, signing keys,
+and custom repository URIs. Other operating systems keep their sources. Compose also forwards this public URL as a
+harness image build argument, so the same source selection applies before the image installs its Debian packages.
+During the build, APT uses a host-specific `DIRECT` rule for the mirror and retains other proxy settings; during task
+setup, the mirror hostname joins the task's proxy exclusions alongside the Python index and private Server routes.
+The mirror must be directly reachable during both build and task execution. Use a public URL without credentials:
+build arguments and package manager diagnostics are not secret storage. No package versions, apt arguments, retry
+policy, or setup deadline change; without the setting, no apt sources or proxy rules are modified.
+
 The agent container sees only the repository files that installation needs: the `powercontext` package and the host
 integration, and none of them in a paired OFF arm. Workload files, answer keys, and benchmark data stay on the host,
 because the agent can search its container. Agent setup uses Bub's supported installation path: `uv tool install`
@@ -577,9 +600,19 @@ client runner uses a separate virtual environment constrained to `agent-client-p
 on `text_block` and `set_session_model` APIs. This client constraint does not replace the server's SDK pin.
 The harness checks the runner's startup and a deterministic ACP exchange locally; full Bub workload acceptance
 still requires the container harness and its configured model provider.
+Each Bub setup phase (`dependencies`, `bub`, and `acp`) streams its complete command output into
+`agent/setup/<phase>.stdout.log` and `<phase>.stderr.log` in the existing trial artifacts. Docker merges stderr into
+stdout, so its stderr file is empty. These files preserve failure tails that Harbor's exception summary truncates,
+and output received before cancellation; the original exit status and setup timeout still apply. They pass through
+the same evidence scan as the other agent artifacts.
 The Terminal-Bench task keeps its original image, setup, verifier, and isolation boundary. The harness ignores dataset CPU
 and memory limits because it evaluates Memory behavior rather than benchmark resource compliance. This also keeps the
 fixed harness usable in nested container runtimes that cannot create additional cgroups.
+
+The nested Docker daemon reads the MTU of the harness container's default-route interface and uses it for both
+`docker0` and newly created Compose bridge networks. The outer container network must already match its parent
+network's MTU; this keeps inner task connections from advertising packets larger than the surrounding network can
+carry. Existing networks and explicitly configured network MTUs are not changed.
 
 Long-horizon acceptance requires observable Memory behavior:
 

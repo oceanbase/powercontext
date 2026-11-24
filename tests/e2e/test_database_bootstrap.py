@@ -423,7 +423,9 @@ def test_seekdb_db_migrate_plans_and_applies_a_missing_selected_database(short_t
 @pytest.mark.skipif(not _SEEKDB, reason="set POWERCONTEXT_TEST_BOOTSTRAP_SEEKDB=1")
 def test_seekdb_legacy_choice_preserves_old_data_and_separates_new_database(short_tmp_path: Path) -> None:
     pytest.importorskip("pylibseekdb")
-    run_seekdb_scenario(short_tmp_path, "seekdb_legacy_choice.py", timeout=360)
+    from tests.fixtures.seekdb_legacy_choice import SERVER_SCENARIO_PROCESS_TIMEOUT_SECONDS
+
+    run_seekdb_scenario(short_tmp_path, "seekdb_legacy_choice.py", timeout=SERVER_SCENARIO_PROCESS_TIMEOUT_SECONDS)
 
 
 @pytest.mark.skipif(not _SEEKDB, reason="set POWERCONTEXT_TEST_BOOTSTRAP_SEEKDB=1")

@@ -55,6 +55,7 @@ from powercontext.server.authentication import (
 )
 from powercontext.server.factory import create_server_app
 from powercontext.server.settings import AccessControlConfig, McpConfig, MetricsConfig, ServerSettings
+from tests.e2e.server_startup import SERVER_STARTUP_TIMEOUT_SECONDS
 from tests.e2e.server_storage import prepare_server_database
 
 _FIXTURE_PATH = Path(__file__).resolve()
@@ -232,7 +233,7 @@ async def _process_server(directory: Path, socket_path: Path, tls_port: int | No
                 trust_env=False,
                 headers={"Authorization": "Bearer transport-admin"},
             ) as http:
-                deadline = time.monotonic() + 25
+                deadline = time.monotonic() + SERVER_STARTUP_TIMEOUT_SECONDS
                 last_error = "No response"
                 while True:
                     if process.poll() is not None or time.monotonic() >= deadline:

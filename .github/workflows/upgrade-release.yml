@@ -29,6 +29,7 @@ on:
         default: false
 
 permissions:
+  actions: read
   contents: read
 
 env:
@@ -97,10 +98,16 @@ jobs:
                   "optional v or powercontext-v prefix (for example, powercontext-v1.1.0)"
               )
 
-          package_version = subprocess.check_output(
-              ["uvx", "--from", "hatchling", "--with", "hatch-vcs", "hatchling", "version"],
-              text=True,
-          ).strip()
+          # Existing release tags may predate the shared Python installer.
+          installer = os.environ.get("PC_CI_PYTHON_INSTALLER")
+          if installer:
+              version_command = [
+                  "python", installer, "run", "--no-project", "--with", "hatchling",
+                  "--with", "hatch-vcs", "--", "hatchling", "version",
+              ]
+          else:
+              version_command = ["uvx", "--from", "hatchling", "--with", "hatch-vcs", "hatchling", "version"]
+          package_version = subprocess.check_output(version_command, text=True).strip()
           if package_version != release_version:
               raise SystemExit(
                   f"Release tag version {release_version!r} does not match VCS version {package_version!r}"
@@ -132,8 +139,13 @@ jobs:
 
       - name: Build release distributions
         run: |
-          uv build --out-dir dist
-          uvx --from 'twine>=7.0.0' twine check dist/*
+          if [ -n "${PC_CI_PYTHON_INSTALLER:-}" ]; then
+            python "$PC_CI_PYTHON_INSTALLER" build --out-dir dist
+            python "$PC_CI_PYTHON_INSTALLER" run --no-project --with 'twine>=7.0.0' -- twine check dist/*
+          else
+            uv build --out-dir dist
+            uvx --from 'twine>=7.0.0' twine check dist/*
+          fi
 
       - name: Freeze distributions and resolve the source matrix once
         if: ${{ !inputs.skip_upgrade_acceptance }}
@@ -205,7 +217,11 @@ jobs:
           verification="$RUNNER_TEMP/release-fresh-install"
           uv venv "$verification"
           wheels=("$RUNNER_TEMP"/release-without-upgrades/validated-dist/*.whl)
-          uv pip install --python "$verification/bin/python" "${wheels[0]}[cli,server]"
+          if [ -n "${PC_CI_PYTHON_INSTALLER:-}" ]; then
+            python "$PC_CI_PYTHON_INSTALLER" uv-pip install --python "$verification/bin/python" "${wheels[0]}[cli,server]"
+          else
+            uv pip install --python "$verification/bin/python" "${wheels[0]}[cli,server]"
+          fi
           uv pip check --python "$verification/bin/python"
           version="$("$verification/bin/python" -c 'from importlib.metadata import version; print(version("powercontext"))')"
           "$verification/bin/python" scripts/ci_release_smoke.py --version "$version"
@@ -257,7 +273,8 @@ jobs:
     needs: prepare
     if: ${{ !inputs.skip_upgrade_acceptance }}
     runs-on: ${{ inputs.internal_runner && 'powercontext-ci-standard' || 'ubuntu-24.04' }}
-    timeout-minutes: ${{ matrix.backend == 'oceanbase' && 75 || 60 }}
+    # Include cold provisioning, separate installs, full acceptance and evidence cleanup.
+    timeout-minutes: 120
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
@@ -290,6 +307,10 @@ jobs:
         with:
           name: upgrade-prepared
           path: ${{ runner.temp }}/upgrade-prepared/
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ github.run_id }}
+          digest-mismatch: error
       - name: Start the isolated upgrade OceanBase environment
         if: matrix.backend == 'oceanbase'
         uses: ./.github/actions/setup-upgrade-oceanbase

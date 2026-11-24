@@ -69,16 +69,18 @@ def run_roles(*, wheel: Path, python: Path, smoke_script: Path, output: Path, uv
         environment.update(TMPDIR=str(temporary), TEMP=str(temporary), TMP=str(temporary), NO_COLOR="1")
         executable = root / "venv" / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
         requirement = str(wheel) if extras == "core" else f"{wheel}[{extras}]"
+        installer = environment.get("PC_CI_PYTHON_INSTALLER")
+        uv_pip = [sys.executable, installer, "uv-pip", "--no-config"] if installer else [uv, "--no-config", "pip"]
         commands = [
             ("create environment", [uv, "--no-config", "venv", "--python", str(python), str(root / "venv")]),
-            ("install wheel", [uv, "--no-config", "pip", "install", "--python", str(executable), requirement]),
+            ("install wheel", [*uv_pip, "install", "--python", str(executable), requirement]),
             ("role smoke", [str(executable), "-I", str(smoke_script), extras]),
         ]
         if extras == "cli":
             commands.extend([
                 (
                     "install unrelated packages",
-                    [uv, "--no-config", "pip", "install", "--python", str(executable), "sqlalchemy", "fastapi"],
+                    [*uv_pip, "install", "--python", str(executable), "sqlalchemy", "fastapi"],
                 ),
                 ("optional CLI isolation", [str(executable), "-I", str(smoke_script), extras]),
             ])

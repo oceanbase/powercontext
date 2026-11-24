@@ -23,7 +23,6 @@ import shutil
 import socket
 import subprocess
 import threading
-import time
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -40,6 +39,7 @@ from pydantic import SecretStr
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.server.factory import create_server_app
 from powercontext.server.settings import AccessControlConfig, BearerAuthConfig, ServerSettings
+from tests.e2e.server_startup import wait_for_server_startup
 
 CINDY_COMMIT = "6e12261af3121a1fc8f56a23481f3b99bb32787c"
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -94,11 +94,7 @@ def cindy_server(tmp_path: Path, cindy_provider: Path) -> Iterator[tuple[str, st
     thread = threading.Thread(target=server.run, kwargs={"sockets": [listener]}, daemon=True)
     thread.start()
     try:
-        deadline = time.monotonic() + 20
-        while not server.started:
-            assert thread.is_alive(), "the isolated Server exited before startup"
-            assert time.monotonic() < deadline, "the isolated Server did not start"
-            time.sleep(0.05)
+        wait_for_server_startup(server, thread)
         yield url, token
     finally:
         server.should_exit = True

@@ -34,6 +34,9 @@ from powercontext.builtin.runtime.artifact_processing import (
 from powercontext.builtin.runtime.extraction_diagnostics import ExtractionDiagnostics
 from powercontext.builtin.triggers import SOURCE_WINDOW_TRIGGER_NAME
 
+# Observe cold child imports, execution, and natural exit separately from fault deadlines.
+_WORKER_LIFECYCLE_TIMEOUT_SECONDS = 60
+
 
 class _ProviderTimeout(InferenceTimeoutError):
     pass
@@ -54,8 +57,8 @@ def _worker_timeout(_assignment) -> None:
 @pytest.mark.parametrize(
     ("entrypoint", "category", "stage", "deadline"),
     [
-        (_model_timeout, "model_timeout", "inference", 15),
-        (_worker_crash, "worker_crash", "worker", 15),
+        (_model_timeout, "model_timeout", "inference", _WORKER_LIFECYCLE_TIMEOUT_SECONDS),
+        (_worker_crash, "worker_crash", "worker", _WORKER_LIFECYCLE_TIMEOUT_SECONDS),
         (_worker_timeout, "worker_timeout", "worker", 1),
     ],
 )
@@ -83,7 +86,7 @@ def test_extraction_diagnostics_observes_spawned_worker_failure_and_stopped_supe
                 retry_base_seconds=60,
             ) as supervisor:
                 supervisors = ArtifactProcessingSupervisors((supervisor,))
-                async with asyncio.timeout(20):
+                async with asyncio.timeout(_WORKER_LIFECYCLE_TIMEOUT_SECONDS):
                     while diagnostics.snapshot(supervisors).observation.status == "unverified":  # noqa: ASYNC110
                         await asyncio.sleep(0.01)
                 snapshot = diagnostics.snapshot(supervisors)

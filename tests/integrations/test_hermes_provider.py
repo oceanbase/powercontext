@@ -462,43 +462,20 @@ def test_standalone_command_companion_keeps_interleaved_sessions_isolated():
         sys.modules.pop(module_name, None)
 
 
-def test_queue_prefetch_honors_max_bytes_environment_override(provider_and_client, monkeypatch):
+def test_queue_prefetch_sends_nothing_and_the_next_prefetch_prepares_its_own_prompt(provider_and_client):
     provider, client = provider_and_client
-    monkeypatch.setenv("POWERCONTEXT_HERMES_MAX_BYTES", "16000")
+    before = list(client.calls)
 
-    provider.queue_prefetch("What did we decide about the deployment?")
+    # Hermes queues after turn N with that turn's text, then prefetches turn N+1 with the next prompt.
+    provider.queue_prefetch("What did we decide about the deployment?", session_id="session-1")
     provider._wait_for_background()
+    assert client.calls == before
 
-    assert client.calls[0] == (
-        "prepare_context",
-        ("scp_00000000000000000000000000", "What did we decide about the deployment?"),
-        {"max_bytes": 16000},
-    )
+    recalled = provider.prefetch("Which database does staging use?", session_id="session-1")
 
-
-def test_queue_prefetch_does_not_wait_for_http(provider_and_client):
-    provider, client = provider_and_client
-    started = threading.Event()
-    release = threading.Event()
-    caller_done = threading.Event()
-
-    def blocked_prepare(*args, **kwargs):
-        started.set()
-        release.wait(timeout=1)
-        return {"status": "ready", "content": "context"}
-
-    client.prepare_context = blocked_prepare
-    caller = threading.Thread(
-        target=lambda: (provider.queue_prefetch("query"), caller_done.set()),
-        daemon=True,
-    )
-    caller.start()
-
-    assert started.wait(timeout=1)
-    assert caller_done.wait(timeout=0.2)
-    release.set()
-    caller.join(timeout=1)
-    provider._wait_for_background()
+    assert "remembered project context" in recalled
+    prepares = [call for call in client.calls if call[0] == "prepare_context"]
+    assert [call[1] for call in prepares] == [("scp_00000000000000000000000000", "Which database does staging use?")]
 
 
 def test_json_config_is_loaded_from_hermes_home(tmp_path, hermes_modules):
@@ -1603,20 +1580,25 @@ def test_scope_binding_isolates_queued_background_work(tmp_path, hermes_modules,
     release = threading.Event()
     started = threading.Event()
     old_scope_id = "scp_00000000000000000000000000"
+    capture = client.capture_content
+    prepare = client.prepare_context
 
-    def blocked_prepare(*args: Any, **kwargs: Any) -> dict[str, Any]:
-        scope_id = args[0]
-        query = args[1]
-        client.calls.append(("prepare_context", (scope_id, query), {"max_bytes": kwargs["max_bytes"]}))
-        started.set()
-        release.wait(timeout=2)
+    def scoped_prepare(scope_id: str, query: str, *, max_bytes: int) -> dict[str, Any]:
+        prepare(scope_id, query, max_bytes=max_bytes)
         return {"status": "ready", "content": f"context for {scope_id}"}
 
-    monkeypatch.setattr(client, "prepare_context", blocked_prepare)
+    def blocked_capture(scope_id: str, **kwargs: Any) -> dict[str, Any]:
+        result = capture(scope_id, **kwargs)
+        started.set()
+        release.wait(timeout=2)
+        return result
+
+    monkeypatch.setattr(client, "prepare_context", scoped_prepare)
+    monkeypatch.setattr(client, "capture_content", blocked_capture)
     try:
-        provider.queue_prefetch("same query")
+        provider.sync_turn("old in-flight user", "old assistant")
         assert started.wait(timeout=1)
-        provider.sync_turn("old user", "old assistant")
+        provider.sync_turn("old queued user", "old assistant")
 
         result = json.loads(provider.handle_slash_command("scope bind new:scope"))
         assert result["status"] == "bound"
@@ -1625,13 +1607,14 @@ def test_scope_binding_isolates_queued_background_work(tmp_path, hermes_modules,
         provider._config["shutdown_timeout"] = 1.0
         provider._wait_for_background()
 
+        # The in-flight capture keeps its original Scope; the queued one is cancelled by the bind.
         capture_calls = [call for call in client.calls if call[0] == "capture_content"]
-        assert capture_calls == []
+        assert [(call[1][0], "old in-flight user" in call[1][2]) for call in capture_calls] == [(old_scope_id, True)]
 
         recalled = provider.prefetch("same query")
         assert "context for new:scope" in recalled
         prepare_calls = [call for call in client.calls if call[0] == "prepare_context"]
-        assert [call[1][0] for call in prepare_calls] == [old_scope_id, "new:scope"]
+        assert [call[1][0] for call in prepare_calls] == ["new:scope"]
     finally:
         release.set()
         provider.shutdown()
@@ -2105,11 +2088,7 @@ def test_text_assembly_preserves_content_and_refreshes_prefetch_options(provider
 
     monkeypatch.setattr(client, "prepare_context", prepare)
     monkeypatch.setenv("POWERCONTEXT_HERMES_CONTEXT_ASSEMBLY", "{}")
-    provider.queue_prefetch("same query")
-    provider._wait_for_background()
     assert provider.prefetch("same query").endswith(original)
-    provider.queue_prefetch("same query")
-    provider._wait_for_background()
     monkeypatch.setenv("POWERCONTEXT_HERMES_CONTEXT_ASSEMBLY", '{"sections": []}')
     assert provider.prefetch("same query") == ""
     assert observed[-1]["assembly"] == {"sections": []}

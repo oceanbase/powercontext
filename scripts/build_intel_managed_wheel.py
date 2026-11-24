@@ -351,7 +351,7 @@ def build(  # noqa: C901 - ordered native build and verification boundary
         )
         if _hash(lock_path) != lock_digest:
             raise ValueError("The source build changed Cargo.lock")
-        produced = list(wheels.glob("cryptography-50.0.0-*.whl"))
+        produced = list(wheels.glob(f"{pins['package'].replace('-', '_')}-{pins['version']}-*.whl"))
         if len(produced) != 1:
             raise ValueError("Native source build must produce one exact cryptography wheel")
         unpacked = work / "wheel"

@@ -280,7 +280,7 @@ def test_server_info_uses_one_durable_identity_across_restarts(tmp_path) -> None
     assert first.status_code == second.status_code == 200
     assert first.json() == second.json()
     assert first.json()["schema_version"] == {"major": 1, "minor": 0}
-    assert first.json()["api_contract_version"] == {"major": 1, "minor": 5}
+    assert first.json()["api_contract_version"] == {"major": 1, "minor": 6}
 
 
 def test_server_startup_fails_when_identity_initialization_fails(tmp_path, monkeypatch) -> None:
@@ -1027,6 +1027,11 @@ def test_server_provider_cache_shares_refreshes_and_retries_transient_failures_s
     monkeypatch,
     tmp_path,
 ) -> None:
+    async def ready_database(_database: AsyncDatabase) -> None:
+        pass
+
+    # Provider-cache behavior is independent of the database probe's real-time deadline.
+    monkeypatch.setattr(AsyncDatabase, "ping", ready_database)
     now = [0.0]
     monkeypatch.setattr("powercontext.builtin.runtime.readiness.monotonic", lambda: now[0])
     embedding = _SequencedEmbeddingModel(
@@ -1058,10 +1063,12 @@ def test_server_provider_cache_shares_refreshes_and_retries_transient_failures_s
             now[0] = 330
             refreshed_ready = await client.get("/health/ready")
 
-        assert cached_transient.json()["status"] == "degraded"
-        assert all(response.json()["status"] == "ready" for response in refreshed)
-        assert cached_ready.json()["status"] == "ready"
-        assert refreshed_ready.json()["status"] == "ready"
+        assert cached_transient.json()["status"] == "degraded", cached_transient.json()
+        assert all(response.json()["status"] == "ready" for response in refreshed), [
+            response.json() for response in refreshed
+        ]
+        assert cached_ready.json()["status"] == "ready", cached_ready.json()
+        assert refreshed_ready.json()["status"] == "ready", refreshed_ready.json()
 
     asyncio.run(scenario())
 
