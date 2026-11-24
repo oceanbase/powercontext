@@ -35,6 +35,7 @@ from pathlib import Path, PurePosixPath
 import yaml
 from pydantic import BaseModel, ConfigDict, Field
 
+from powercontext.builtin.artifacts.skill.allowed_tools import parse_allowed_tools
 from powercontext.builtin.artifacts.skill.models import SkillContent, SkillPackageRef
 
 MAX_SKILL_PACKAGE_FILES = 256
@@ -77,6 +78,16 @@ _MEDIA_TYPES_BY_SUFFIX = {
 
 class SkillPackageError(ValueError):
     """Raised when a package cannot be captured without changing its meaning."""
+
+
+def validate_allowed_tools(value: str | None, /) -> None:
+    """Require at least one parsed rule when accepting a new tool declaration."""
+
+    declaration = parse_allowed_tools(value)
+    if value is not None and not declaration.rules:
+        raise SkillPackageError(
+            f"Agent Skill allowed-tools must contain a parsed rule: {value!r}; unparsed={declaration.unparsed!r}"
+        )
 
 
 class SkillPackageEntry(BaseModel):
@@ -563,4 +574,5 @@ __all__ = [
     "comparable_skill_content",
     "materialize_skill_package",
     "package_file",
+    "validate_allowed_tools",
 ]

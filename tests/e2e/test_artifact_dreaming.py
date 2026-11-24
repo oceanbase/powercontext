@@ -1004,8 +1004,9 @@ def test_handoff_dream_publishes_for_explicit_continue(database: DatabaseConfig,
 
 
 @pytest.mark.parametrize("evidence_kind", ["source", "approved-experience", "memory"])
+@pytest.mark.parametrize("allowed_tools", [None, "Bash(git:*"])
 def test_skill_dream_revision_publishes_after_review_without_trusted_evaluation(
-    database: DatabaseConfig, evidence_kind: str
+    database: DatabaseConfig, evidence_kind: str, allowed_tools: str | None
 ) -> None:
     class SkillRevisionGenerator(Generator):
         async def generate(self, value: DreamGenerationInput) -> GenerationResult[DreamPlan]:
@@ -1049,6 +1050,7 @@ def test_skill_dream_revision_publishes_after_review_without_trusted_evaluation(
                 instructions="Retry immediately.",
                 validation=("A retry was attempted.",),
                 license="MIT",
+                allowed_tools=allowed_tools,
             )
             async with runtime._provider.database.transaction() as connection:
                 target = await runtime._provider.repositories.artifacts.create(
@@ -1105,7 +1107,7 @@ def test_skill_dream_revision_publishes_after_review_without_trusted_evaluation(
             )
             assert tuple(ref for ref in candidate.artifacts if ref.family == "atomic-memory") == citations
             changed_metadata = await runtime._provider.review(scope.scope_id).prepare_skill(
-                candidate.proposal.model_copy(update={"name": "changed-name", "package": None})
+                candidate.proposal.model_copy(update={"name": "changed-name", "package": None, "allowed_tools": None})
             )
             from powercontext.builtin.review.errors import InvalidCandidateError
 
@@ -1131,6 +1133,7 @@ def test_skill_dream_revision_publishes_after_review_without_trusted_evaluation(
                 GetSkillRequest(artifact=approved.result_artifact)
             )
             assert skill.content.name == "receipt-check" and skill.content.license == "MIT"
+            assert skill.content.allowed_tools == allowed_tools
             assert skill.content.instructions.startswith("Check the receipt first, then retry if needed.")
             assert skill.content.package is not None and skill.content.package.file_count == 1
             assert tuple(ref for ref in skill.lineage.artifacts if ref.family == "atomic-memory") == citations

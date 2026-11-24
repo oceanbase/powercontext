@@ -79,6 +79,26 @@ def test_directory_package_round_trips_exact_files_and_executable_mode(tmp_path:
         assert (restored / entry.path).read_bytes() == (package / entry.path).read_bytes()
 
 
+def test_historical_malformed_declaration_round_trips_before_write_validation(tmp_path: Path) -> None:
+    package = _write_package(tmp_path)
+    entrypoint = package / "SKILL.md"
+    entrypoint.write_text(
+        entrypoint.read_text(encoding="utf-8").replace("Bash(git:*) Read", "Bash(git:*"), encoding="utf-8"
+    )
+    snapshot = capture_skill_directory(package)
+
+    assert capture_skill_archive(snapshot.archive_bytes).reference == snapshot.reference
+    assert snapshot.metadata.allowed_tools == "Bash(git:*"
+    with pytest.raises(SkillPackageError, match=r"Bash\(git:\*") as failure:
+        package_module.validate_allowed_tools(snapshot.metadata.allowed_tools)
+    assert "unparsed=" in str(failure.value)
+
+
+@pytest.mark.parametrize("declaration", [None, "Read) Bash", "Bash Read"])
+def test_write_validation_accepts_absent_or_partially_parsed_declarations(declaration: str | None) -> None:
+    package_module.validate_allowed_tools(declaration)
+
+
 @pytest.mark.parametrize("mode", [0o644, 0o755])
 def test_archive_round_trips_explicit_modes_and_exact_bytes(tmp_path: Path, mode: int) -> None:
     script = zipfile.ZipInfo("scripts/verify.py")

@@ -96,6 +96,7 @@ from powercontext.builtin.artifacts.skill import (
     capture_skill_archive,
 )
 from powercontext.builtin.artifacts.skill.distribution import RemoteSkillDistributionService
+from powercontext.builtin.artifacts.skill.package import validate_allowed_tools
 from powercontext.builtin.artifacts.skill.publication import ManagedSkillPublicationService
 from powercontext.builtin.artifacts.skill.registry import ExternalSkillRegistryService
 from powercontext.builtin.artifacts.topic_memory import (
@@ -1281,6 +1282,7 @@ class RelationalContexts:
 
         scope = validate_scope_id(scope_id)
         package = await asyncio.to_thread(capture_skill_archive, archive_bytes)
+        validate_allowed_tools(package.metadata.allowed_tools)
         source = await SKILL_PACKAGE_UPLOAD_SOURCE_ADAPTER.resolve(
             SkillPackageUploadCapture(
                 package=package.reference,

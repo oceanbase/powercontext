@@ -34,12 +34,14 @@ from powercontext.builtin.artifacts.skill import (
     SkillPackageError,
     build_instruction_skill_package,
 )
+from powercontext.builtin.artifacts.skill.package import validate_allowed_tools
 from powercontext.builtin.persistence.artifacts import ArtifactRepository, RepositoryArtifactDraft
 from powercontext.builtin.persistence.database import AsyncDatabase
 from powercontext.builtin.persistence.errors import RepositoryNotFoundError
 from powercontext.builtin.persistence.experience_index import ExperienceIndex
 from powercontext.builtin.persistence.generation_sources import GenerationSourceAccess
 from powercontext.builtin.persistence.handoff import RelationalHandoffBackend, RelationalHandoffEvidenceResolver
+from powercontext.builtin.persistence.revision_meta import rollback_columns
 from powercontext.builtin.persistence.skill_packages import SkillPackageRepository
 from powercontext.builtin.persistence.sources import SourceRepository, _SourceReadSet
 from powercontext.builtin.records import (
@@ -300,9 +302,13 @@ class SkillManagementWriter(_RepositoryFamilyWriter):
         connection: AsyncConnection,
         scope_id: str,
         content: BaseModel,
+        *,
+        validate_declaration: bool = False,
     ) -> tuple[SkillContent, Any]:
         proposal = cast(SkillContent, content)
         try:
+            if validate_declaration:
+                validate_allowed_tools(proposal.allowed_tools)
             if proposal.package is None:
                 package = build_instruction_skill_package(proposal)
                 await self._packages.add(connection, scope_id, package)
@@ -336,7 +342,7 @@ class SkillManagementWriter(_RepositoryFamilyWriter):
         direct_source: SourceRef,
         /,
     ) -> Skill:
-        canonical, package = await self._canonical_content(connection, scope_id, content)
+        canonical, package = await self._canonical_content(connection, scope_id, content, validate_declaration=True)
         artifact = cast(
             Skill,
             await self._create_artifact(connection, scope_id, artifact_id, canonical, direct_source),
@@ -353,7 +359,14 @@ class SkillManagementWriter(_RepositoryFamilyWriter):
         direct_source: SourceRef,
         /,
     ) -> Skill:
-        canonical, package = await self._canonical_content(connection, scope_id, content)
+        proposal = cast(SkillContent, content)
+        restoring = bool(rollback_columns(self.family, current.artifact_id, current.revision + 1))
+        canonical, package = await self._canonical_content(
+            connection,
+            scope_id,
+            content,
+            validate_declaration=not restoring and proposal.allowed_tools != current.content.allowed_tools,
+        )
         artifact = cast(
             Skill,
             await self._revise_artifact(connection, scope_id, current, canonical, direct_source),

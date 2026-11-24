@@ -22,7 +22,11 @@ from pydantic import BaseModel, Field, ValidationError, model_validator
 
 from powercontext.builtin.artifacts.generation import ArtifactGenerationInput
 from powercontext.builtin.artifacts.skill.models import SkillContent
-from powercontext.builtin.artifacts.skill.package import SKILL_NAME_PATTERN, build_instruction_skill_package
+from powercontext.builtin.artifacts.skill.package import (
+    SKILL_NAME_PATTERN,
+    build_instruction_skill_package,
+    validate_allowed_tools,
+)
 from powercontext.builtin.inference import GenerationResult, InvalidInferenceOutputError, StructuredGenerator
 
 
@@ -35,6 +39,7 @@ class _GeneratedSkillContent(SkillContent):
     @model_validator(mode="after")
     def require_standard_package(self) -> _GeneratedSkillContent:
         # Reject invalid names/frontmatter while model retries are still available, before proposing a write.
+        validate_allowed_tools(self.allowed_tools)
         build_instruction_skill_package(self)
         return self
 
