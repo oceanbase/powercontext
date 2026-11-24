@@ -1,0 +1,33 @@
+openapi/powercontext.yaml
+  s_624ad8983708a5::t_0790132fa7821c 8965-8977
+scripts/dashboard_processing_browser.cjs
+  s_624ad8983708a5::t_c75119faf29183 129-144
+src/powercontext/server/dashboard/labels.en.json
+  s_624ad8983708a5::t_07f86e1b3d0010 993-1009
+src/powercontext/server/dashboard/labels.json
+  s_624ad8983708a5::t_d865f6b1cf7a07 993-1009
+src/powercontext/server/dashboard/static/artifact-processing.js
+  s_624ad8983708a5::t_bb2e0ae02a01e8 141-142
+src/powercontext/server/dashboard/templates/components/artifact-processing-result.html
+  s_624ad8983708a5::t_264b821ad3a266 46
+src/powercontext/server/processing_status.py
+  s_624ad8983708a5::t_4f62c0b3ec5480 19,21,31-61,134
+tests/test_dashboard_artifact_processing.py
+  s_624ad8983708a5::t_d3de5560bc87f4 23,396-453,477-478,511-512
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "ddfb69283fa49c4b0a9b8674678713be76bed9c9",
+  "prompts": {},
+  "sessions": {
+    "s_624ad8983708a5": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1ab57-e572-7090-b0f7-d55ee829f4b0",
+        "model": "gpt-6.2-astra"
+      },
+      "human_author": "Frey <110882560+Zxf-xufeng@users.noreply.github.com>"
+    }
+  }
+}
