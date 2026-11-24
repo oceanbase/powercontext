@@ -3014,12 +3014,12 @@ async def create_subject_source(
         subject_scope_id=request.subject_scope_id,
         authorize=authorize,
     )
-    return CreateSubjectSourceResponse.model_validate({
-        "subject_key": request.subject_key,
-        "subject_type": "user",
-        "subject_scope_id": target,
-        "sources": [source.model_dump(mode="json") for source in sources],
-    })
+    return CreateSubjectSourceResponse(
+        subject_key=request.subject_key,
+        subject_type=request.subject_type,
+        subject_scope_id=target,
+        sources=[_source_record_response(source) for source in sources],
+    )
 
 
 async def get_profile_policy(
