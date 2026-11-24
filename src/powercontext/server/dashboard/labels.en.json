@@ -990,5 +990,21 @@
   "ps_reason_usage_limit": "Processing usage limit reached",
   "ps_exec_pending": "An outstanding invocation was observed.",
   "ps_exec_dirty": "Unprocessed changes were observed.",
-  "ps_exec_acknowledged": "Invocation acknowledged when observed; this does not prove publication."
+  "ps_exec_acknowledged": "Invocation acknowledged when observed; this does not prove publication.",
+  "ps_last_failed_attempt": "Last observed failed attempt",
+  "ps_stage_authorization": "Authorization",
+  "ps_stage_inference": "Inference",
+  "ps_stage_completion": "Completion",
+  "ps_stage_worker": "Worker execution",
+  "ps_stage_work_admission": "Work admission",
+  "auto_cause_model_configuration_error": "Model configuration error",
+  "auto_cause_access_denied": "Access denied",
+  "auto_cause_access_identity_required": "Identity required",
+  "auto_cause_access_unavailable": "Authorization unavailable",
+  "auto_cause_invalid_worker_result": "Invalid worker result",
+  "auto_cause_missing_durable_acknowledgement": "Missing durable acknowledgement",
+  "auto_cause_invalid_topic_placeholder": "Invalid topic placeholder",
+  "auto_cause_invalid_topic_coordination_content": "Invalid topic coordination content",
+  "auto_cause_worker_cancelled": "Worker cancelled",
+  "auto_cause_processing_failed": "Processing failed"
 }

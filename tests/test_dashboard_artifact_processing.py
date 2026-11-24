@@ -20,6 +20,7 @@ import pytest
 from sqlalchemy import event, insert
 
 from powercontext.builtin.artifacts.topic_memory import TOPIC_MEMORY_SOURCE_WINDOW_BINDING
+from powercontext.builtin.inference import InferenceTimeoutError
 from powercontext.builtin.persistence.processing_intents import ArtifactProcessingIntentRepository
 from powercontext.builtin.persistence.tables import TOPIC_MEMORY_WORK_BLOCKS_TABLE
 from powercontext.builtin.processing_status import ScopedProcessingStatusApplication
@@ -392,6 +393,64 @@ def test_periodic_binding_with_an_active_scope_leaves_an_empty_scope_idle(tmp_pa
     asyncio.run(scenario())
 
 
+def test_last_failed_attempt_is_scoped_and_clears_after_recovery(tmp_path):
+    async def scenario():
+        async with _runtime(tmp_path) as (runtime, (active, empty)):
+            db = runtime.primary_database
+            binding = FAMILY_BINDINGS["memory"]
+            await _request(db, binding, active)
+            recovering = asyncio.Event()
+            release = asyncio.Event()
+
+            async def work(_assignment):
+                if len(launcher.assignments) == 1:
+                    raise InferenceTimeoutError("private-operation", 1)
+                recovering.set()
+                await release.wait()
+
+            launcher = _Launcher(db, on_work=work)
+            async with ArtifactProcessingSupervisor(
+                database=db,
+                bindings=(ArtifactProcessingBinding(binding, "memory", launcher),),
+                lease_mode="single-process",
+                retry_base_seconds=0.05,
+                retry_jitter=lambda: 1,
+            ) as supervisor:
+                runtime.artifact_processing_supervisor = ArtifactProcessingSupervisors((supervisor,))
+                app = create_app(application=runtime)
+                app.include_router(router, prefix="/dashboard")
+                async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+
+                    async def executor(scope):
+                        response = await client.get(
+                            f"/v1/scopes/{scope}/processing-status", params={"family": "memory"}
+                        )
+                        response.raise_for_status()
+                        return response.json()["executor"]
+
+                    await asyncio.wait_for(recovering.wait(), 5)
+                    last = await executor(active)
+                    assert last["state"] == "running" and last["last_error_code"] == "model_timeout"
+                    assert last["last_error_stage"] == "inference"
+                    assert datetime.fromisoformat(last["last_error_at"]) <= datetime.fromisoformat(last["observed_at"])
+                    assert (await executor(empty))["last_error_code"] is None
+                    for lang, clue in [("en", "The last model request timed out"), ("zh", "模型调用超时")]:
+                        html = await client.get(
+                            "/dashboard/artifact-processing-status",
+                            params={"scope": active, "family": "memory", "lang": lang},
+                        )
+                        html.raise_for_status()
+                        assert clue in html.text and "private-operation" not in html.text
+                    release.set()
+                    await _wait(lambda: supervisor.family_status["memory"]["completed"] == 1)
+                    recovered = await executor(active)
+                    assert all(
+                        recovered[field] is None for field in ("last_error_code", "last_error_stage", "last_error_at")
+                    )
+
+    asyncio.run(scenario())
+
+
 @pytest.mark.parametrize("age", [0, 60])
 def test_local_execution_observations_are_scoped_expiring_and_redacted(tmp_path, monkeypatch, age):
     async def scenario():
@@ -415,6 +474,8 @@ def test_local_execution_observations_are_scoped_expiring_and_redacted(tmp_path,
                         observed_at=datetime.now(UTC) - timedelta(seconds=age),
                         worker_id="private-worker",
                         last_error_code="private-error",
+                        last_error_at=datetime.now(UTC) - timedelta(seconds=age + 1),
+                        last_error_stage="private-stage",
                         last_error_trace_id="private-trace",
                     ),
                 )
@@ -447,7 +508,8 @@ def test_local_execution_observations_are_scoped_expiring_and_redacted(tmp_path,
                 assert result["evidence"]["executor"]["durability"] == "process_local"
                 assert result["evidence"]["executor"]["freshness"] == ("fresh" if age == 0 else "stale")
                 assert all(
-                    secret not in response.text for secret in ["private-worker", "private-error", "private-trace"]
+                    secret not in response.text
+                    for secret in ["private-worker", "private-error", "private-stage", "private-trace"]
                 )
                 html = await client.get(
                     "/dashboard/artifact-processing-status",

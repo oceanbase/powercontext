@@ -43,6 +43,7 @@ limitations under the License.
     </section>
     <section class="supporting-details"><h3 class="h4">{{ t.ps_executor }}</h3><p data-processing-executor>{{ execution() }}</p>
       {% if status.executor %}<p class="small text-secondary">{{ t.ps_local }}</p><p>{{ t.get('ps_schedule_' ~ status.executor.reason, t.ps_reason_unknown) }}</p><p class="small">{{ t.ps_observed_at }}：{{ status.executor.observed_at|display_time }}</p>{% endif %}
+      {% if status.executor and status.executor.last_error_code %}<p>{{ t.ps_last_failed_attempt }} · {{ t.get('auto_cause_' ~ status.executor.last_error_code, t.auto_error_unknown) }}{% if status.executor.last_error_stage %} · {{ t['ps_stage_' ~ status.executor.last_error_stage] }}{% endif %} · <time>{{ status.executor.last_error_at|display_time }}</time></p>{% endif %}
     </section>
     {% if status.block %}<section class="supporting-details"><h3 class="h4">{{ t.ps_persisted_block if status.block.persisted else t.ps_derived_block }}</h3>
       <p>{{ t.ps_reason }}：{{ t.get('ps_reason_' ~ status.block.reason, status.block.reason) if status.block.reason else t.ps_reason_unknown }}</p>

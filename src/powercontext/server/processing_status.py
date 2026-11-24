@@ -16,8 +16,9 @@
 
 from datetime import UTC, datetime, timedelta
 
-from powercontext.builtin.processing_diagnostics import ProcessingDiagnostics
+from powercontext.builtin.processing_diagnostics import ProcessingDiagnostics, processing_error_code
 from powercontext.builtin.processing_status import ArtifactProcessingStatus
+from powercontext.builtin.statistics.models import ProcessingObservation
 from powercontext.http import (
     ArtifactProcessingExecutor,
     ArtifactProcessingObservation,
@@ -25,6 +26,37 @@ from powercontext.http import (
 )
 
 EXECUTOR_TTL_SECONDS = 30
+
+
+def _public_executor(observation: ProcessingObservation | None) -> ArtifactProcessingExecutor | None:
+    if observation is None:
+        return None
+    code = observation.last_error_code
+    when = observation.last_error_at
+    known_failure = (
+        observation.scheduler_observed
+        and when is not None
+        and when <= observation.observed_at
+        and code is not None
+        and (processing_error_code("", code) == code or code == "worker_cancelled")
+    )
+    stage = observation.last_error_stage
+    return ArtifactProcessingExecutor.model_validate({
+        "binding": observation.binding,
+        "family": observation.family,
+        "state": observation.state,
+        "reason": observation.reason,
+        "observed_at": observation.observed_at,
+        "scheduler_observed": observation.scheduler_observed,
+        "running_seconds": observation.running_seconds,
+        "next_check_seconds": observation.next_check_seconds,
+        "retry_failures": observation.retry_failures,
+        "last_error_code": code if known_failure else None,
+        "last_error_stage": stage
+        if known_failure and stage in {"authorization", "inference", "completion", "worker", "work_admission"}
+        else None,
+        "last_error_at": when if known_failure else None,
+    })
 
 
 def _block_reason(diagnostics: ProcessingDiagnostics | None) -> str | None:
@@ -99,7 +131,7 @@ def processing_status_response(value: ArtifactProcessingStatus) -> ArtifactProce
         "invocation": ArtifactProcessingObservation.model_validate(value.invocation, from_attributes=True)
         if value.invocation
         else None,
-        "executor": ArtifactProcessingExecutor.model_validate(executor, from_attributes=True) if executor else None,
+        "executor": _public_executor(executor),
         "executor_expires_at": expires,
         "block": None
         if block is None

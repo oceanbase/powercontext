@@ -138,7 +138,8 @@ limitations under the License.
       if (!event.detail.target?.contains(root)) continue;
       const scope = url.searchParams.get('scope');
       const family = url.pathname === '/dashboard/methods' ? url.searchParams.get('kind') || 'experience' : null;
-      if ((url.searchParams.has('scope') && scope !== root.dataset.scope) || (family && family !== root.dataset.family)) {
+      const scopeChanged = url.searchParams.has('scope') && scope !== root.dataset.scope;
+      if (url.pathname !== location.pathname || scopeChanged || (family && family !== root.dataset.family)) {
         state.suspended = true;
         state.navigation = event.detail.xhr;
         state.controller?.abort();

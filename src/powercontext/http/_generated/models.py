@@ -5397,6 +5397,16 @@ class ArtifactProcessingExecutor(BaseModel):
     running_seconds: Annotated[StrictFloat | None, Field(ge=0.0)]
     next_check_seconds: Annotated[StrictFloat | None, Field(ge=0.0)]
     retry_failures: Annotated[StrictInt | None, Field(ge=0)]
+    last_error_code: Annotated[
+        StrictStr | None,
+        Field(description="Known failure category from the last observed failed attempt for this Scope and binding."),
+    ] = None
+    last_error_stage: Annotated[
+        StrictStr | None, Field(description="Safe observation boundary of that failure, when known.")
+    ] = None
+    last_error_at: Annotated[
+        AwareDatetime | None, Field(description="Time of that failed attempt in the current local retry cycle.")
+    ] = None
 
 
 class ArtifactProcessingDream(BaseModel):

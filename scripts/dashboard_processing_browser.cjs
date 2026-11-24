@@ -126,6 +126,22 @@ async function main() {
     }
     assert.equal(requests, 2);
 
+    // Hold the destination page until a late Memory refresh has finished.
+    const topics = '**/dashboard/topics?*';
+    const destinationRequest = new Promise(resolve => page.route(topics, resolve, {times: 1}));
+    const memoryRequest = new Promise(resolve => page.route(fragment, resolve, {times: 1}));
+    await root.locator('[data-processing-refresh]').click();
+    const memoryRoute = await memoryRequest;
+    const previousResponse = await memoryRoute.fetch();
+    await page.locator('.nav-link[href*="/dashboard/topics"]').first().click();
+    const topicsRoute = await destinationRequest;
+    await memoryRoute.fulfill({response: previousResponse}).catch(() => {});
+    assert.equal(await snapshot.count(), 0, 'Navigation retained the outgoing Memory snapshot');
+    await topicsRoute.continue();
+    await settled();
+    assert.equal(await snapshot.getAttribute('data-family'), 'topic-memory');
+    await open();
+
     // Changing the Scope while a refresh is delayed must discard that response.
     await page.route(fragment, async route => {
       const response = await route.fetch();

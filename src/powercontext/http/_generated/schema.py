@@ -9883,6 +9883,35 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "running_seconds": {"type": "number", "minimum": 0.0, "nullable": True},
                     "next_check_seconds": {"type": "number", "minimum": 0.0, "nullable": True},
                     "retry_failures": {"type": "integer", "minimum": 0.0, "nullable": True},
+                    "last_error_code": {
+                        "type": "string",
+                        "description": "Known "
+                        "failure "
+                        "category "
+                        "from "
+                        "the "
+                        "last "
+                        "observed "
+                        "failed "
+                        "attempt "
+                        "for "
+                        "this "
+                        "Scope "
+                        "and "
+                        "binding.",
+                        "nullable": True,
+                    },
+                    "last_error_stage": {
+                        "type": "string",
+                        "description": "Safe observation boundary of that failure, when known.",
+                        "nullable": True,
+                    },
+                    "last_error_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "description": "Time of that failed attempt in the current local retry cycle.",
+                        "nullable": True,
+                    },
                 },
                 "additionalProperties": False,
                 "type": "object",

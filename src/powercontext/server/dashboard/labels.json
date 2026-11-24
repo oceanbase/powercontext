@@ -990,5 +990,21 @@
   "ps_reason_usage_limit": "处理用量达到限制",
   "ps_exec_pending": "观察时存在待处理调用。",
   "ps_exec_dirty": "观察时存在待处理变更。",
-  "ps_exec_acknowledged": "观察时调用已确认；不代表发布了新内容。"
+  "ps_exec_acknowledged": "观察时调用已确认；不代表发布了新内容。",
+  "ps_last_failed_attempt": "最近一次观测到的失败尝试",
+  "ps_stage_authorization": "权限检查",
+  "ps_stage_inference": "模型推理",
+  "ps_stage_completion": "完成确认",
+  "ps_stage_worker": "工作进程执行",
+  "ps_stage_work_admission": "任务准入",
+  "auto_cause_model_configuration_error": "模型配置错误",
+  "auto_cause_access_denied": "访问被拒绝",
+  "auto_cause_access_identity_required": "需要验证身份",
+  "auto_cause_access_unavailable": "权限服务不可用",
+  "auto_cause_invalid_worker_result": "工作进程结果无效",
+  "auto_cause_missing_durable_acknowledgement": "缺少持久化确认",
+  "auto_cause_invalid_topic_placeholder": "主题占位信息无效",
+  "auto_cause_invalid_topic_coordination_content": "主题协调内容无效",
+  "auto_cause_worker_cancelled": "工作进程已取消",
+  "auto_cause_processing_failed": "处理失败"
 }

@@ -8962,6 +8962,19 @@ components:
           type: integer
           minimum: 0
           nullable: true
+        last_error_code:
+          type: string
+          nullable: true
+          description: Known failure category from the last observed failed attempt for this Scope and binding.
+        last_error_stage:
+          type: string
+          nullable: true
+          description: Safe observation boundary of that failure, when known.
+        last_error_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: Time of that failed attempt in the current local retry cycle.
     ArtifactProcessingBlock:
       type: object
       additionalProperties: false
