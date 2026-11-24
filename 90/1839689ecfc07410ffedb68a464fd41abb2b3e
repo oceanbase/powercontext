@@ -1,0 +1,30 @@
+src/powercontext/server/dashboard/labels.json
+  s_624ad8983708a5::t_1222307876b5e5 900
+  s_624ad8983708a5::t_37ceafe267d8d8 901,957-978
+src/powercontext/server/dashboard/labels.en.json
+  s_624ad8983708a5::t_37ceafe267d8d8 900-901,957-978
+src/powercontext/server/dashboard/templates/components/artifact-processing-result.html
+  s_624ad8983708a5::t_37ceafe267d8d8 19,25,42
+src/powercontext/server/processing_status.py
+  s_624ad8983708a5::t_37ceafe267d8d8 129-130
+tests/test_dashboard_artifact_processing.py
+  s_624ad8983708a5::t_37ceafe267d8d8 185-198,201-204
+  s_624ad8983708a5::t_1222307876b5e5 199
+  s_624ad8983708a5::t_915a62cfb4ced9 174-184,200,205-213,220-222,228-231,240-246
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "901839689ecfc07410ffedb68a464fd41abb2b3e",
+  "prompts": {},
+  "sessions": {
+    "s_624ad8983708a5": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1ab57-e572-7090-b0f7-d55ee829f4b0",
+        "model": "gpt-6.2-astra"
+      },
+      "human_author": "Frey <110882560+Zxf-xufeng@users.noreply.github.com>"
+    }
+  }
+}
