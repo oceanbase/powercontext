@@ -57,6 +57,7 @@ struct Peers {
     replies: Mutex<VecDeque<Reply>>,
     sent: Mutex<Vec<(HeaderMap, Bytes)>>,
     checks: Mutex<Vec<Value>>,
+    prepares: Mutex<Vec<Value>>,
     deny: Option<(&'static str, &'static str)>,
 }
 
@@ -97,6 +98,19 @@ async fn check(State(peers): State<Arc<Peers>>, Json(request): Json<Value>) -> J
         }, "coverage": {"profile": "text-and-tools.v1", "complete": true},
         "policy_version": "test", "valid_until": "2999-01-01T00:00:00Z",
         "binding": format!("test-{phase}")
+    }))
+}
+
+async fn prepare(State(peers): State<Arc<Peers>>, Json(request): Json<Value>) -> Json<Value> {
+    let mut prepares = peers.prepares.lock().unwrap();
+    prepares.push(request);
+    let content = format!("Prepared context {}", prepares.len());
+    Json(json!({
+        "schema": "powercontext.prepared-context-with-reuse.v1",
+        "context": {"schema": "powercontext.prepared-context.v1", "status": "ready",
+            "content": content, "content_bytes": content.len()},
+        "reuse": {"schema": "powercontext.context-reuse.v1", "expires_at": "2999-01-01T00:00:00Z",
+            "binding": format!("reuse-{}", prepares.len())}
     }))
 }
 
@@ -149,6 +163,7 @@ impl Gateway {
         let peer_base = format!("http://{}", listener.local_addr().unwrap());
         let router = Router::new()
             .route("/v1/context/check", post(check))
+            .route("/v1/context/prepare", post(prepare))
             // Startup discovery needs the complete v1 capability document; without it the model
             // routes stay paused (`input_capacity_unconfirmed`). These cases verify payload and
             // streaming semantics, so advertise the same ceiling as Core's v1 parser.
@@ -706,6 +721,96 @@ async fn responses_text_input_is_admitted_as_a_user_message() {
     assert_eq!(response.bytes().await.unwrap().as_ref(), bytes);
     body["input"] = json!([{"role": "user", "content": "Hello"}]);
     gateway.assert_forwarded(&[body], &[bytes]);
+}
+
+#[tokio::test]
+async fn headerless_requests_replay_preparation_within_each_turn() {
+    for (format, route, list) in [
+        ("chat", "chat/completions", "messages"),
+        ("responses", "responses", "input"),
+    ] {
+        let case = format!("fantasy_{format}_tool");
+        let gateway = Gateway::start_with_env(
+            vec![
+                Reply::fixture(&case, 0),
+                Reply::fixture(&case, 1),
+                Reply::fixture(&case, 1),
+            ],
+            None,
+            &[
+                ("PC_GATEWAY_INJECTION", "on"),
+                ("PC_GATEWAY_STEERING", "off"),
+            ],
+            true,
+        )
+        .await;
+        let mut body = request(format, "tool", false);
+        let response = gateway.post(route, &body).await;
+        assert_eq!(response.status(), 200);
+        let bytes = response.bytes().await.unwrap();
+        let history = body[list].as_array_mut().unwrap();
+        if format == "chat" {
+            let message = chat_message(&bytes, false);
+            let call = &message["tool_calls"][0];
+            history.push(message.clone());
+            history.push(json!({"role": "tool", "tool_call_id": call["id"], "content": "Sunny"}));
+        } else {
+            let response: Value = serde_json::from_slice(&bytes).unwrap();
+            let call = &response["output"][0];
+            assert_eq!(call["type"], "function_call");
+            history.push(call.clone());
+            history.push(json!({"type": "function_call_output", "call_id": call["call_id"], "output": "Sunny"}));
+        }
+        assert_eq!(gateway.post(route, &body).await.status(), 200);
+        body[list]
+            .as_array_mut()
+            .unwrap()
+            .push(json!({"role": "user", "content": "What about tomorrow?"}));
+        assert_eq!(gateway.post(route, &body).await.status(), 200);
+
+        let prepares = gateway.peers.prepares.lock().unwrap();
+        let queries: Vec<_> = prepares.iter().map(|request| &request["query"]).collect();
+        assert_eq!(
+            queries,
+            [
+                "What's the weather in Florence,Italy?",
+                "What about tomorrow?"
+            ],
+            "{format}: tool continuation must replay the turn's preparation"
+        );
+        let checks = gateway.peers.checks.lock().unwrap();
+        let sent = gateway.peers.sent.lock().unwrap();
+        assert_eq!(checks.len(), 6);
+        assert_eq!(sent.len(), 3);
+        for (index, (send, release)) in checks
+            .chunks_exact(2)
+            .map(|pair| (&pair[0], &pair[1]))
+            .enumerate()
+        {
+            assert_eq!(send["phase"], "before_send");
+            assert_eq!(release["phase"], "before_release");
+            assert_eq!(release["request_binding"], "test-before_send");
+            let location = &send["prepared_contexts"][0];
+            let preparation = if index == 2 { 2 } else { 1 };
+            assert_eq!(location["binding"], format!("reuse-{preparation}"));
+            assert_eq!(
+                send["payload"]["body"].as_str().unwrap().as_bytes(),
+                sent[index].1.as_ref()
+            );
+            let outgoing: Value = serde_json::from_slice(&sent[index].1).unwrap();
+            let text = outgoing
+                .pointer(location["location"]["pointer"].as_str().unwrap())
+                .unwrap()
+                .as_str()
+                .unwrap();
+            let end = location["location"]["end_byte"].as_u64().unwrap() as usize;
+            assert_eq!(location["location"]["start_byte"], 0);
+            assert_eq!(&text[..end], format!("Prepared context {preparation}"));
+            if index == 2 {
+                assert_eq!(outgoing[list][1], body[list][1]);
+            }
+        }
+    }
 }
 
 #[tokio::test]
