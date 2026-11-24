@@ -1,0 +1,25 @@
+scripts/dashboard_processing_browser.cjs
+  s_624ad8983708a5::t_9b26cc18318cf9 131-147,149,151-153,155-156,159
+docs/zh/development/dashboard.md
+  s_624ad8983708a5::t_9b26cc18318cf9 210-211
+tests/test_dashboard_artifact_processing.py
+  s_624ad8983708a5::t_9b26cc18318cf9 476,503-504
+docs/en/development/dashboard.md
+  s_624ad8983708a5::t_9b26cc18318cf9 219-220
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "b4a1090466c480bab7625a27c55f6236513b301c",
+  "prompts": {},
+  "sessions": {
+    "s_624ad8983708a5": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1ab57-e572-7090-b0f7-d55ee829f4b0",
+        "model": "gpt-6.2-astra"
+      },
+      "human_author": "Frey <110882560+Zxf-xufeng@users.noreply.github.com>"
+    }
+  }
+}
