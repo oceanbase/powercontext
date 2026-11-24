@@ -1,0 +1,119 @@
+name: Desktop protocol qualification for PR 2725
+
+on:
+  push:
+    branches: [codex/desktop-qualification-2725-status-errors]
+
+permissions:
+  contents: read
+
+jobs:
+  qualify:
+    runs-on: macos-15
+    timeout-minutes: 55
+    env:
+      RUSTUP_TOOLCHAIN: '1.95.0'
+      CARGO_BUILD_JOBS: '2'
+      CARGO_PROFILE_DEV_DEBUG: '0'
+      CARGO_PROFILE_TEST_DEBUG: '0'
+      SERVER_COMMIT: 24df3df190e5f6650f0e1479daeb603d38eb4699
+      QUALIFICATION_ID: sqlite-processing-status-24df3df1-v1
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Verify hosted native build tools
+        run: |
+          java -version
+          xcodebuild -version
+          clang --version
+      - uses: jdx/mise-action@d5574b52816a478f9d4e6529a3f6ff17a8a36785 # v5.2.8
+        with:
+          working_directory: desktop
+      - name: Install pinned Rust toolchain
+        run: |
+          rustup toolchain install 1.95.0 --profile minimal --component rustfmt --component clippy
+          cargo --version
+          rustc --version
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          workspaces: desktop/src-tauri -> target
+          key: macos-macos-15
+          cache-bin: false
+      - name: Install locked JavaScript dependencies
+        run: pnpm --dir desktop install --frozen-lockfile
+      - uses: ./.github/actions/setup-openapi-generator
+      - name: Verify complete native and TypeScript generation
+        run: |
+          pnpm --dir desktop generate
+          pnpm --dir desktop generate:check
+          pnpm --dir desktop typecheck
+          mkdir -p desktop/.artifacts/qualification/generated
+          cp desktop/ui/src/generated/{api.d.ts,operations.ts} desktop/src-tauri/src/transport/operations.json desktop/.artifacts/qualification/generated/
+          git diff --exit-code -- desktop/src-tauri/src/transport/wire.rs
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          version: '0.10.12'
+          enable-cache: true
+          cache-suffix: desktop-qualification-2725
+      - name: Install locked Python dependencies
+        run: |
+          uv sync --locked --python 3.12.13 --managed-python
+          uv run --no-sync python - <<'PY'
+          import sqlite3
+          assert hasattr(sqlite3.Connection, 'enable_load_extension')
+          PY
+      - name: Build the exact implementation commit
+        run: |
+          git worktree add --detach "$RUNNER_TEMP/qualification-source" "$SERVER_COMMIT"
+          uv build --wheel --directory "$RUNNER_TEMP/qualification-source" \
+            --out-dir "$GITHUB_WORKSPACE/desktop/.artifacts/qualification/server-wheel"
+      - name: Prepare the candidate product profile for actual verification
+        run: |
+          uv run --no-sync python - <<'PY'
+          import hashlib, json, os
+          from pathlib import Path
+          root = Path('desktop')
+          artifact = root / '.artifacts/qualification'
+          wheels = list((artifact / 'server-wheel').glob('*.whl'))
+          assert len(wheels) == 1
+          wheel = wheels[0]
+          contract = json.loads((root / 'src-tauri/src/transport/operations.json').read_text())
+          profile = {
+              'id': os.environ['QUALIFICATION_ID'],
+              'serverCommit': os.environ['SERVER_COMMIT'],
+              'contractSha256': contract['contractSha256'],
+              'artifactSha256': hashlib.sha256(wheel.read_bytes()).hexdigest(),
+              'operations': sorted(contract['operations']),
+              'evidence': 'desktop/VALIDATION.md#processing-status-query-errors',
+          }
+          catalog_path = root / 'src-tauri/src/connections/compatibility.json'
+          catalog = json.loads(catalog_path.read_text())
+          assert not any(item['id'] == profile['id'] for item in catalog)
+          catalog.append(profile)
+          catalog_path.write_text(json.dumps(catalog, indent=2) + '\n')
+          (artifact / 'candidate-profile.json').write_text(json.dumps(profile, indent=2) + '\n')
+          (artifact / 'wheel-name.txt').write_text(wheel.name + '\n')
+          PY
+      - name: Build the ordinary product native client
+        run: cargo build --locked --manifest-path desktop/src-tauri/Cargo.toml --example server_probe
+      - name: Qualify all native protocol modes against the exact wheel
+        run: |
+          uv run --no-sync python desktop/tests/real_server.py \
+            --product-qualification "$QUALIFICATION_ID" \
+            --wheel desktop/.artifacts/qualification/server-wheel/*.whl
+          cp desktop/.artifacts/real-server.json desktop/.artifacts/qualification/real-server.json
+          shasum -a 256 desktop/src-tauri/target/debug/examples/server_probe > desktop/.artifacts/qualification/native-probe.sha256
+          uname -a > desktop/.artifacts/qualification/platform.txt
+          uv run --no-sync python --version >> desktop/.artifacts/qualification/platform.txt
+      - name: Retain exact qualification evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: desktop-protocol-qualification-2725
+          include-hidden-files: true
+          path: |
+            desktop/.artifacts/qualification/
+            desktop/.artifacts/real-server.json
+            desktop/.artifacts/real-server-*/
