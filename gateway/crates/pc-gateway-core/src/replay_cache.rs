@@ -53,11 +53,7 @@ pub(crate) struct ReplayCache {
 }
 
 /// 消息锚点：截至最后一条用户消息（含）的原始消息摘要；没有用户消息时为 `None`。
-pub(crate) fn message_anchor(request: &CanonicalRequest) -> Option<u64> {
-    let last_user = request
-        .messages
-        .iter()
-        .rposition(|m| matches!(m.role, pc_gateway_protocol::Role::User))?;
+pub(crate) fn message_anchor(request: &CanonicalRequest, last_user: usize) -> Option<u64> {
     let prefix = serde_json::to_string(&request.messages[..=last_user]).ok()?;
     let mut hasher = DefaultHasher::new();
     prefix.hash(&mut hasher);

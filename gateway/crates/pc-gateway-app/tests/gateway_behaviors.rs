@@ -58,6 +58,8 @@ struct Peers {
     sent: Mutex<Vec<(HeaderMap, Bytes)>>,
     checks: Mutex<Vec<Value>>,
     deny: Option<(&'static str, &'static str)>,
+    prepares: Mutex<Vec<Value>>,
+    captures: Mutex<Vec<Value>>,
 }
 
 async fn upstream(
@@ -98,6 +100,24 @@ async fn check(State(peers): State<Arc<Peers>>, Json(request): Json<Value>) -> J
         "policy_version": "test", "valid_until": "2999-01-01T00:00:00Z",
         "binding": format!("test-{phase}")
     }))
+}
+
+const PREPARED: &str = "BEGIN_POWERCONTEXT_MEMORY\n记忆\nEND_POWERCONTEXT_MEMORY";
+
+async fn prepare(State(peers): State<Arc<Peers>>, Json(request): Json<Value>) -> Json<Value> {
+    peers.prepares.lock().unwrap().push(request);
+    Json(json!({
+        "schema": "powercontext.context-prepare-reuse.v1",
+        "context": {"schema": "powercontext.prepared-context.v1", "status": "ready",
+            "content": PREPARED, "content_bytes": PREPARED.len()},
+        "reuse": {"schema": "powercontext.context-reuse.v1", "binding": "test-memory",
+            "expires_at": "2999-01-01T00:00:00Z"}
+    }))
+}
+
+async fn capture(State(peers): State<Arc<Peers>>, Json(request): Json<Value>) -> Json<Value> {
+    peers.captures.lock().unwrap().push(request);
+    Json(json!({}))
 }
 
 struct Gateway {
@@ -149,6 +169,8 @@ impl Gateway {
         let peer_base = format!("http://{}", listener.local_addr().unwrap());
         let router = Router::new()
             .route("/v1/context/check", post(check))
+            .route("/v1/context/prepare", post(prepare))
+            .route("/v1/sources/content/batch", post(capture))
             // Startup discovery needs the complete v1 capability document; without it the model
             // routes stay paused (`input_capacity_unconfirmed`). These cases verify payload and
             // streaming semantics, so advertise the same ceiling as Core's v1 parser.
@@ -160,13 +182,14 @@ impl Gateway {
                         "payload_versions": ["powercontext.model-json-payload.v1"],
                         "reuse_versions": [], "reuse_families": [], "enforcing": enforcing,
                         "limits": {"payload_bytes": 1_048_576, "binding_bytes": 8192,
-                            "prepared_contexts": 16, "dependencies": 256,
+                            "prepared_contexts": 16, "dependencies": 256, "capture_batch_sources": 128,
                             "send_seconds": 60, "correlate_seconds": 300}
                     }}))
                 }),
             )
             .route("/v1/chat/completions", post(upstream))
             .route("/v1/responses", post(upstream))
+            .route("/v1/messages", post(upstream))
             .with_state(peers.clone());
         let server = tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
         let client = reqwest::Client::builder()
@@ -207,6 +230,11 @@ impl Gateway {
                     format!("{peer_base}/v1/responses"),
                 )
                 .env("PC_GATEWAY_UPSTREAM_API_KEY", "provider-test-key")
+                .env(
+                    "PC_GATEWAY_UPSTREAM_URL_MESSAGES",
+                    format!("{peer_base}/v1/messages"),
+                )
+                .env("PC_GATEWAY_UPSTREAM_API_KEY_MESSAGES", "anthropic-test-key")
                 .env("PC_GATEWAY_API_KEY", "gateway-test-key")
                 .env("PC_GATEWAY_INJECTION", "off")
                 .env("PC_GATEWAY_SEDIMENT", "off")
@@ -951,4 +979,314 @@ fn invalid_default_feature_switches_reject_startup() {
         assert_eq!(result.status.code(), Some(2));
         assert!(String::from_utf8(result.stderr).unwrap().contains(setting));
     }
+}
+
+#[tokio::test]
+async fn messages_routes_through_bound_checks() {
+    let message = json!({
+        "type": "message", "id": "msg_test", "role": "assistant", "model": "claude-test",
+        "content": [{"type":"text", "text":"answer"}],
+        "stop_reason": "end_turn", "stop_sequence": null,
+        "usage": {"input_tokens": 10, "output_tokens": 2}
+    });
+    let reply = || Reply {
+        body: serde_json::to_vec(&message).unwrap(),
+        content_type: "application/json",
+        status: 200,
+    };
+    let gateway = Gateway::start(vec![reply(), reply()], None).await;
+    let mut request = json!({
+        "model":"claude-test", "max_tokens":64,
+        "system":[{"type":"text","text":"base","cache_control":{"type":"ephemeral"}}],
+        "tools":[{"name":"look_up","input_schema":{"type":"object"}}],
+        "messages":[
+            {"role":"user","content":"question"},
+            {"role":"assistant","content":[{"type":"tool_use","id":"toolu_test","name":"look_up","input":{}}]},
+            {"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_test","content":"result"}]}
+        ]
+    });
+    let send = |request: &Value, key: &str| {
+        gateway
+            .client
+            .post(format!("{}/messages?beta=true", gateway.base))
+            .header("x-api-key", key)
+            .header("anthropic-version", "2023-06-01")
+            .header("anthropic-beta", "example-beta")
+            .header("x-claude-code-session-id", "session")
+            .header("x-claude-code-agent-id", "child")
+            .json(request)
+            .send()
+    };
+
+    let response = send(&request, "gateway-test-key").await.unwrap();
+    assert_eq!(
+        response.status(),
+        200,
+        "the configured Messages endpoint must reach the provider through the executor"
+    );
+    assert_eq!(response.headers()["content-type"], "application/json");
+    assert_eq!(response.json::<Value>().await.unwrap(), message);
+    assert_eq!(send(&request, "wrong-key").await.unwrap().status(), 401);
+    request["stream"] = true.into();
+    let response = send(&request, "gateway-test-key").await.unwrap();
+    assert_eq!(response.status(), 200);
+    assert_eq!(response.headers()["content-type"], "text/event-stream");
+    let events = sse_data(&response.bytes().await.unwrap());
+    assert_eq!(
+        events
+            .iter()
+            .map(|e| e["type"].as_str().unwrap())
+            .collect::<Vec<_>>(),
+        [
+            "message_start",
+            "content_block_start",
+            "content_block_delta",
+            "content_block_stop",
+            "message_delta",
+            "message_stop"
+        ]
+    );
+    assert_eq!(events[2]["delta"]["text"], "answer");
+    assert_eq!(events[4]["delta"]["stop_reason"], "end_turn");
+    assert_eq!(events[4]["usage"]["output_tokens"], 2);
+
+    request["stream"] = false.into();
+    let sent = gateway.peers.sent.lock().unwrap();
+    let checks = gateway.peers.checks.lock().unwrap();
+    assert_eq!(sent.len(), 2);
+    assert_eq!(checks.len(), 4);
+    for ((headers, body), phases) in sent.iter().zip(checks.chunks_exact(2)) {
+        assert_eq!(headers["x-api-key"], "anthropic-test-key");
+        assert!(!headers.contains_key("authorization"));
+        assert_eq!(headers["anthropic-version"], "2023-06-01");
+        assert_eq!(headers["anthropic-beta"], "example-beta");
+        assert_eq!(serde_json::from_slice::<Value>(body).unwrap(), request);
+        assert_eq!(phases[0]["phase"], "before_send");
+        assert_eq!(
+            phases[0]["payload"]["body"].as_str().unwrap().as_bytes(),
+            body.as_ref()
+        );
+        assert_eq!(
+            phases[0]["payload"]["headers"]["anthropic-beta"],
+            "example-beta"
+        );
+        assert!(phases[0]["payload"]["headers"].get("x-api-key").is_none());
+        assert_eq!(phases[1]["phase"], "before_release");
+        assert_eq!(phases[1]["request_binding"], "test-before_send");
+        assert_eq!(
+            phases[1]["payload"]["body"].as_str().unwrap().as_bytes(),
+            reply().body
+        );
+    }
+}
+
+#[tokio::test]
+async fn messages_replays_injection_and_captures_only_completed_tool_turns() {
+    let reply = |content: Value, stop_reason: &str| Reply {
+        body: serde_json::to_vec(&json!({
+            "type":"message", "id":"msg_test", "role":"assistant", "model":"claude-test",
+            "content":content, "stop_reason":stop_reason, "stop_sequence":null,
+            "usage":{"input_tokens":64, "output_tokens":4}
+        }))
+        .unwrap(),
+        content_type: "application/json",
+        status: 200,
+    };
+    let tool_use = json!({"type":"tool_use","id":"toolu_test","name":"look_up","input":{"id":7}});
+    let terminal = json!([{"type":"text","text":"found it"}]);
+    let gateway = Gateway::start_with_env(
+        vec![
+            reply(json!([tool_use]), "tool_use"),
+            reply(terminal.clone(), "end_turn"),
+            reply(terminal, "end_turn"),
+        ],
+        None,
+        &[
+            ("PC_GATEWAY_INJECTION", "on"),
+            ("PC_GATEWAY_SEDIMENT", "on"),
+        ],
+        true,
+    )
+    .await;
+    let mut request = json!({
+        "model":"claude-test", "max_tokens":64, "stream":true,
+        "system":[
+            {"type":"text","text":"x-anthropic-billing-header: example;"},
+            {"type":"text","text":"base","cache_control":{"type":"ephemeral"}}
+        ],
+        "messages":[
+            {"role":"user","content":"earlier"},
+            {"role":"assistant","content":"earlier reply"},
+            {"role":"system","content":[{"type":"text","text":"mid-conversation instruction"}]},
+            {"role":"user","content":[{"type":"text","text":"Look it up"}]}
+        ]
+    });
+    let send = |request: &Value, agent: &str| {
+        gateway
+            .client
+            .post(format!("{}/messages", gateway.base))
+            .bearer_auth("gateway-test-key")
+            .header("x-claude-code-session-id", "session")
+            .header("x-claude-code-agent-id", agent)
+            .json(request)
+            .send()
+    };
+
+    let response = send(&request, "child").await.unwrap();
+    assert_eq!(response.status(), 200);
+    let events = sse_data(&response.bytes().await.unwrap());
+    assert_eq!(events[1]["content_block"]["id"], "toolu_test");
+    assert_eq!(events[2]["delta"]["partial_json"], r#"{"id":7}"#);
+    assert_eq!(events[4]["delta"]["stop_reason"], "tool_use");
+    assert!(gateway.peers.captures.lock().unwrap().is_empty());
+
+    let messages = request["messages"].as_array_mut().unwrap();
+    messages.push(json!({"role":"assistant","content":[
+        {"type":"thinking","thinking":"private thinking","signature":"opaque signature"}, tool_use
+    ]}));
+    messages.push(json!({"role":"user","content":[
+        {"type":"tool_result","tool_use_id":"toolu_test","content":"tool answer","is_error":false}
+    ]}));
+    for agent in ["child", "other-child"] {
+        let response = send(&request, agent).await.unwrap();
+        assert_eq!(response.status(), 200);
+        assert!(sse_data(&response.bytes().await.unwrap())
+            .iter()
+            .any(|e| e["delta"]["text"] == "found it"));
+    }
+
+    let prepares = gateway.peers.prepares.lock().unwrap();
+    assert_eq!(
+        prepares.len(),
+        2,
+        "same subagent replays, different subagent prepares"
+    );
+    assert!(prepares
+        .iter()
+        .all(|prepare| prepare["query"] == "Look it up"));
+
+    let sent = gateway.peers.sent.lock().unwrap();
+    let checks = gateway.peers.checks.lock().unwrap();
+    assert_eq!(sent.len(), 3);
+    for ((_, body), phases) in sent.iter().zip(checks.chunks_exact(2)) {
+        let upstream: Value = serde_json::from_slice(body).unwrap();
+        assert_eq!(upstream["messages"][0], request["messages"][0]);
+        assert_eq!(upstream["messages"][1], request["messages"][1]);
+        assert_eq!(upstream["messages"][2], request["messages"][2]);
+        assert_eq!(upstream["system"][0], request["system"][0]);
+        assert_eq!(upstream["system"][1], request["system"][1]);
+        assert_eq!(upstream["system"][2]["type"], "text");
+        assert_eq!(
+            upstream["system"][2]["text"],
+            include_str!("../src/default_steering.txt").trim()
+        );
+        let prepared = &phases[0]["prepared_contexts"][0];
+        assert_eq!(prepared["binding"], "test-memory");
+        let pointer = prepared["location"]["pointer"].as_str().unwrap();
+        assert_eq!(pointer, "/messages/3/content/0/text");
+        let start = prepared["location"]["start_byte"].as_u64().unwrap() as usize;
+        let end = prepared["location"]["end_byte"].as_u64().unwrap() as usize;
+        assert_eq!(
+            &upstream
+                .pointer(pointer)
+                .unwrap()
+                .as_str()
+                .unwrap()
+                .as_bytes()[start..end],
+            PREPARED.as_bytes()
+        );
+        assert_eq!(
+            phases[0]["payload"]["body"].as_str().unwrap().as_bytes(),
+            body.as_ref()
+        );
+        assert_eq!(phases[1]["request_binding"], "test-before_send");
+    }
+    for (_, body) in &sent[1..] {
+        let upstream: Value = serde_json::from_slice(body).unwrap();
+        assert_eq!(upstream["messages"][4], request["messages"][4]);
+        assert_eq!(upstream["messages"][5], request["messages"][5]);
+    }
+
+    let captures = gateway.peers.captures.lock().unwrap();
+    assert_eq!(captures.len(), 2);
+    let first = &captures[0]["sources"][0];
+    let second = &captures[1]["sources"][0];
+    assert_ne!(first["source_id"], second["source_id"]);
+    let content = first["content"].as_str().unwrap();
+    assert_eq!(first["content"], second["content"]);
+    assert!(!content.contains("opaque signature"));
+    assert!(!content.contains("private thinking"));
+    assert!(!content.contains("BEGIN_POWERCONTEXT_MEMORY"));
+    let transcript: Value = serde_json::from_str(content).unwrap();
+    assert_eq!(transcript["user"], "Look it up");
+    assert_eq!(
+        transcript["steps"][0],
+        json!({"type":"tool_call","name":"look_up","arguments":r#"{"id":7}"#})
+    );
+    assert_eq!(transcript["steps"][1]["type"], "tool_output");
+    assert!(transcript["steps"][1]["output"]
+        .as_str()
+        .unwrap()
+        .contains("tool answer"));
+    assert_eq!(transcript["assistant"], "found it");
+}
+
+#[tokio::test]
+async fn messages_preserves_provider_errors_and_denies_before_send_or_release() {
+    let request = json!({
+        "model":"claude-test", "max_tokens":64, "stream":true,
+        "messages":[{"role":"user","content":"hello"}]
+    });
+    let error_body =
+        r#"{"type":"error","error":{"type":"rate_limit_error","message":"slow down"}}"#;
+    let gateway = Gateway::start(
+        vec![Reply {
+            body: error_body.as_bytes().to_vec(),
+            content_type: "application/json; charset=utf-8",
+            status: 429,
+        }],
+        None,
+    )
+    .await;
+    let response = gateway.post("messages", &request).await;
+    assert_eq!(response.status(), 429);
+    assert_eq!(
+        response.headers()["content-type"],
+        "application/json; charset=utf-8"
+    );
+    assert_eq!(response.text().await.unwrap(), error_body);
+
+    for (phase, decision, expected_sends) in
+        [("before_send", "block", 0), ("before_release", "block", 1)]
+    {
+        let replies = (0..expected_sends)
+            .map(|_| Reply {
+                body:
+                    br#"{"type":"message","content":[{"type":"text","text":"must not release"}]}"#
+                        .to_vec(),
+                content_type: "application/json",
+                status: 200,
+            })
+            .collect();
+        let gateway = Gateway::start(replies, Some((phase, decision))).await;
+        let response = gateway.post("messages", &request).await;
+        assert_eq!(response.status(), 403);
+        assert!(!response.text().await.unwrap().contains("must not release"));
+        assert_eq!(gateway.peers.sent.lock().unwrap().len(), expected_sends);
+        assert_eq!(
+            gateway.peers.checks.lock().unwrap().len(),
+            expected_sends + 1
+        );
+    }
+
+    let gateway = Gateway::start_with_env(
+        vec![],
+        None,
+        &[("PC_GATEWAY_UPSTREAM_URL_MESSAGES", "")],
+        true,
+    )
+    .await;
+    let response = gateway.post("messages", &request).await;
+    assert_eq!(response.status(), 501);
+    assert!(gateway.peers.checks.lock().unwrap().is_empty());
 }

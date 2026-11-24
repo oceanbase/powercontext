@@ -56,6 +56,8 @@ pub struct AppState {
     pub upstream_responses: String,
     pub upstream_chat_api_key: String,
     pub upstream_responses_api_key: String,
+    pub upstream_messages: String,
+    pub upstream_messages_api_key: String,
     pub subscription: Option<pc_gateway_auth::SubscriptionAuth>,
     pub api_key: Option<String>,
     pub degrade: pc_gateway_core::DegradePolicy,
@@ -68,7 +70,7 @@ pub struct AppState {
     pub inject_code: bool,
     /// 过检后同步沉淀对话（默认关）。
     pub sediment: bool,
-    /// 默认内置固定指令，只插入 Responses 请求；文件可覆盖，`PC_GATEWAY_STEERING=off` 可关闭。
+    /// 默认内置固定指令，插入 Responses 和 Messages 请求；文件可覆盖，`PC_GATEWAY_STEERING=off` 可关闭。
     pub steering: Option<String>,
     /// 支持的上游默认保留记忆抽取前缀；`PC_GATEWAY_PREFIX_EXTRACTION=off` 可关闭（#2413）。
     pub prefix_extraction: bool,
@@ -312,6 +314,10 @@ async fn main() {
             .unwrap_or_else(|_| "default".into()),
         upstream_chat,
         upstream_responses,
+        upstream_messages: std::env::var("PC_GATEWAY_UPSTREAM_URL_MESSAGES").unwrap_or_default(),
+        upstream_messages_api_key: std::env::var("PC_GATEWAY_UPSTREAM_API_KEY_MESSAGES")
+            .or_else(|_| std::env::var("PC_GATEWAY_UPSTREAM_API_KEY"))
+            .unwrap_or_default(),
         subscription,
         upstream_chat_api_key: std::env::var("PC_GATEWAY_UPSTREAM_API_KEY_CHAT")
             .or_else(|_| std::env::var("PC_GATEWAY_UPSTREAM_API_KEY"))
@@ -402,6 +408,7 @@ fn router(state: Arc<AppState>, proxy_state: proxy::ProxyState) -> Router {
             post(ingress::chat_completions),
         )
         .route("/gateway/v1/responses", post(ingress::responses))
+        .route("/gateway/v1/messages", post(ingress::messages))
         .route("/gateway/v1/extract", post(ingress::extract))
         .fallback(proxy::fallback)
         .with_state((state, proxy_state))

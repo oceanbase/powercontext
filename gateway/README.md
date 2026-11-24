@@ -1,24 +1,41 @@
 # PowerContext Rust Gateway
 
-The optional Rust Gateway adds PowerContext recall and conversation capture to OpenAI-compatible model traffic. PowerContext Core decides whether a request may be sent and whether its response may be released. See [RFC 2199](../docs/en/rfcs/2199-powercontext-gateway.md) for the design.
+The optional Rust Gateway adds PowerContext recall and conversation capture to OpenAI-compatible and Anthropic Messages model traffic. PowerContext Core decides whether a request may be sent and whether its response may be released. See [RFC 2199](../docs/en/rfcs/2199-powercontext-gateway.md) for the design.
 
 The Gateway is a stable optional component in PowerContext 1.6.0. Its opt-in prefix extraction can reduce uncached input cost for memory generation by reusing the Agent conversation cache. Actual savings depend on provider cache hits and the size of the retained prefix; see the [release notes](../release/notes/powercontext-v1.6.0.md) for configuration and compatibility.
 
 ## Model traffic
 
-The Gateway serves `/gateway/v1/chat/completions` and `/gateway/v1/responses`. It checks the final request with Core before sending it, then buffers the response and checks it before releasing content. Clients requesting a stream receive buffered replay after approval, rather than live token delivery. Upstream error statuses are preserved.
+The Gateway serves `/gateway/v1/chat/completions`, `/gateway/v1/responses`, and `/gateway/v1/messages`. It checks the final request with Core before sending it, then buffers the response and checks it before releasing content. Clients requesting a stream receive buffered replay after approval, rather than live token delivery. Upstream error statuses are preserved.
 
 Requests with uncertain delivery are not automatically resent. When Core is unreachable, the default is to pause model traffic. `PC_GATEWAY_DEGRADE=passthrough` allows marked passthrough only in deployments where Core protection permits it.
 
-The default upstream uses the same API format as the client. [Subscription adapters](SUBSCRIPTIONS.md) provide channel-specific conversions. The Gateway does not serve the Anthropic Messages API.
+The default upstream uses the same API format as the client. [Subscription adapters](SUBSCRIPTIONS.md) provide channel-specific conversions.
 
 Blocked calls return HTTP 403. Withheld calls return HTTP 400 unless the executor marks them retryable, in which case they return HTTP 409. Currently, only a nonempty reason list containing exclusively `context-refresh-required` is retryable. Admission expiry also returns HTTP 409. A retry after upstream generation may spend provider quota again.
+
+### Anthropic Messages
+
+Set `PC_GATEWAY_UPSTREAM_URL_MESSAGES=https://api.anthropic.com/v1/messages` and
+`PC_GATEWAY_UPSTREAM_API_KEY_MESSAGES` on the Gateway. The key falls back to
+`PC_GATEWAY_UPSTREAM_API_KEY`. Configure the selected Core upstream profile
+for `anthropic-messages` and the upstream model. In Claude Code, set
+`ANTHROPIC_BASE_URL=http://127.0.0.1:8787/gateway` (adjust the host and port)
+and set `ANTHROPIC_API_KEY` to the Gateway's `PC_GATEWAY_API_KEY`. The
+Messages route also accepts the Gateway key as a Bearer token.
+
+This route uses the API-key upstream channel. It preserves Anthropic version and
+beta headers and replays an approved JSON Message as Anthropic SSE when the
+client requests streaming. Anthropic token counting is optional for Claude Code.
+Messages uses standard memory extraction from captured Sources. See
+[deployment settings](../docs/en/docs/operate/deploy-server.md#gateway-anthropic-messages)
+for details.
 
 ## Memory
 
 In a combined UDS deployment, recall injection is enabled by default for requests with a conversation ID. The Gateway prepares context once per new user message and reuses it for tool continuations in that turn. Core verifies the injected text and its binding. Empty or failed preparation leaves the request uninjected.
 
-Use `X-PowerContext-Conversation-ID` to identify a conversation. The Gateway also recognizes client session headers from OpenCode, Codex and translated Claude Code traffic. See [context injection settings](../docs/en/docs/operate/deploy-server.md#gateway-context-injection) for header precedence and subagent handling. Standalone deployments require `PC_GATEWAY_INJECTION=on` to enable injection.
+Use `X-PowerContext-Conversation-ID` to identify a conversation. The Gateway also recognizes client session headers from OpenCode, Codex and Claude Code. See [context injection settings](../docs/en/docs/operate/deploy-server.md#gateway-context-injection) for header precedence and subagent handling. Standalone deployments require `PC_GATEWAY_INJECTION=on` to enable injection.
 
 Set `PC_GATEWAY_SEDIMENT=on` to capture completed user turns as Sources for later extraction. Capture excludes injected context and provider reasoning ciphertext. Tool continuations remain open until the final response. Long turns are split into Sources, and Core stores all parts in one batch. With a trusted conversation ID, captures share a turn digest and include a digest of the ordered normalized Source parts in their Source IDs. Distinct terminal records are stored independently; identical normalized parts are idempotent even when provider response IDs or usage change. Existing Sources remain unchanged, and a repeated capture under the former turn-only ID creates a new Source. Capture requires a Core that supports batch capture. Capture failure does not prevent response delivery. Blocked and degraded turns are not captured.
 
@@ -26,7 +43,7 @@ For a supported Responses upstream, prefix extraction is enabled by default; `PC
 
 ## Steering
 
-Responses requests include the [built-in cost guidance](crates/pc-gateway-app/src/default_steering.txt) by default. Set `PC_GATEWAY_STEERING_FILE` to replace it, or `PC_GATEWAY_STEERING=off` to disable steering even when a file is configured. Chat requests are unchanged. Both `PC_GATEWAY_STEERING` and `PC_GATEWAY_PREFIX_EXTRACTION` accept only `on` or `off` when set. See [instruction settings](../docs/en/docs/operate/deploy-server.md#gateway-instruction).
+Responses and Messages requests include the [built-in cost guidance](crates/pc-gateway-app/src/default_steering.txt) by default. Set `PC_GATEWAY_STEERING_FILE` to replace it, or `PC_GATEWAY_STEERING=off` to disable steering even when a file is configured. Messages steering appends a text block to the system prompt, keeping the client’s system blocks in order. Both `PC_GATEWAY_STEERING` and `PC_GATEWAY_PREFIX_EXTRACTION` accept only `on` or `off` when set. See [instruction settings](../docs/en/docs/operate/deploy-server.md#gateway-instruction).
 
 ## Run
 
@@ -52,7 +69,7 @@ PC_GATEWAY_UPSTREAM_API_KEY_CHAT="$PROVIDER_API_KEY" \
 
 The Rust process owns the public listener and forwards other routes to Core over UDS. For a standalone Gateway, set `PC_GATEWAY_CORE_BASE` to the Core HTTP URL instead; standalone mode does not reverse-proxy Core routes.
 
-`PC_GATEWAY_API_KEY` authenticates the two model routes and is required on a non-loopback listener. Forwarded Core API, MCP and Dashboard requests retain the client's credentials. `PC_GATEWAY_CORE_TOKEN` authenticates Gateway-initiated Core calls. See [deployment authentication](../docs/en/docs/operate/deploy-server.md#gateway-authentication-boundaries) before exposing the service.
+`PC_GATEWAY_API_KEY` authenticates the model routes and is required on a non-loopback listener. Forwarded Core API, MCP and Dashboard requests retain the client's credentials. `PC_GATEWAY_CORE_TOKEN` authenticates Gateway-initiated Core calls. See [deployment authentication](../docs/en/docs/operate/deploy-server.md#gateway-authentication-boundaries) before exposing the service.
 
 Request size, response buffering and concurrency have separate limits. The effective input limit includes Core's advertised capacity and the parser ceiling; increasing a deployment setting cannot bypass either. See [byte capacity](../docs/en/docs/operate/deploy-server.md#gateway-byte-capacity) for limits and failure statuses. Operational JSONL omits request and response bodies; its configuration is in [Gateway evidence](../docs/en/docs/operate/gateway-evidence.md).
 

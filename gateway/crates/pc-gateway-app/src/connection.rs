@@ -38,7 +38,7 @@ use tower::ServiceExt;
 pub(crate) fn is_model_route(path: &str) -> bool {
     matches!(
         path,
-        "/gateway/v1/chat/completions" | "/gateway/v1/responses"
+        "/gateway/v1/chat/completions" | "/gateway/v1/responses" | "/gateway/v1/messages"
     )
 }
 

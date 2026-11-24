@@ -64,6 +64,17 @@ pub fn authenticate(expected: &str, headers: &HeaderMap) -> bool {
         && bool::from(expected.as_bytes().ct_eq(credential.as_bytes()))
 }
 
+/// Anthropic clients may authenticate with x-api-key or the existing Bearer scheme.
+pub fn authenticate_messages(expected: &str, headers: &HeaderMap) -> bool {
+    let mut values = headers.get_all("x-api-key").iter();
+    let Some(value) = values.next() else {
+        return authenticate(expected, headers);
+    };
+    values.next().is_none()
+        && !headers.contains_key(header::AUTHORIZATION)
+        && bool::from(expected.as_bytes().ct_eq(value.as_bytes()))
+}
+
 fn is_bearer_token(value: &str) -> bool {
     // RFC 6750: at least one token character followed by optional '=' padding.
     let token = value.trim_end_matches('=');

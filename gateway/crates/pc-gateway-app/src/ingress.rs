@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! 模型入口：OpenAI 兼容 `/gateway/v1/chat/completions`。
+//! Model ingress for Chat Completions, Responses, and Anthropic Messages.
 //! 客户端只改 Base URL 与 API Key 即接入（PR #2199 产品形态）。
 
 use crate::evidence_body::FirstContentOffset;
@@ -132,9 +132,30 @@ pub async fn responses(
     ingress_common(state, headers, req, Format::Responses).await
 }
 
+/// Send native Anthropic Messages through the same managed executor as other model calls.
+pub async fn messages(
+    State((state, _)): State<SharedProxy>,
+    headers: HeaderMap,
+    req: Request,
+) -> Response {
+    ingress_common(state, headers, req, Format::Messages).await
+}
+
+#[derive(Clone, Copy)]
 enum Format {
     Chat,
     Responses,
+    Messages,
+}
+
+impl Format {
+    fn output_protocol(self) -> OutputProtocol {
+        match self {
+            Self::Chat => OutputProtocol::OpenAiChat,
+            Self::Responses => OutputProtocol::OpenAiResponses,
+            Self::Messages => OutputProtocol::AnthropicMessages,
+        }
+    }
 }
 
 /// Marks a response carrying released or explicitly degraded model content.
@@ -142,9 +163,13 @@ enum Format {
 pub(crate) struct ModelContent;
 
 /// 网关密钥认证（替代服务商 key；上游凭据由受控配置持有）。
-fn unauthorized(state: &AppState, headers: &HeaderMap) -> Option<Response> {
+fn unauthorized(state: &AppState, headers: &HeaderMap, format: Format) -> Option<Response> {
     let expected = state.api_key.as_ref()?;
-    (!crate::authentication::authenticate(expected, headers)).then(|| {
+    let authenticated = match format {
+        Format::Messages => crate::authentication::authenticate_messages(expected, headers),
+        _ => crate::authentication::authenticate(expected, headers),
+    };
+    (!authenticated).then(|| {
         (
             StatusCode::UNAUTHORIZED,
             [(header::WWW_AUTHENTICATE, "Bearer")],
@@ -218,7 +243,7 @@ pub async fn extract(
     if !state.prefix_extraction {
         return error(StatusCode::NOT_FOUND, "prefix_extraction_disabled");
     }
-    if let Some(rejected) = unauthorized(&state, &headers) {
+    if let Some(rejected) = unauthorized(&state, &headers, Format::Responses) {
         return rejected;
     }
     if request.instruction.trim().is_empty()
@@ -371,10 +396,7 @@ async fn ingress_common(
             req.extensions().get::<String>().cloned(),
         ),
     };
-    let protocol = match format {
-        Format::Chat => OutputProtocol::OpenAiChat,
-        Format::Responses => OutputProtocol::OpenAiResponses,
-    };
+    let protocol = format.output_protocol();
     let lifecycle = control.lifecycle();
     let observation = control.observation();
     let cancellation = control.cancellation();
@@ -424,18 +446,25 @@ async fn ingress_model(
     format: Format,
     control: RequestControl,
 ) -> Response {
-    if let Some(rejected) = unauthorized(&state, &headers) {
+    if let Some(rejected) = unauthorized(&state, &headers, format) {
         return rejected;
     }
 
     if state.max_body_bytes == 0 {
         return respond(
             ManagedOutcome::GatePaused("input_capacity_unconfirmed".into()),
-            match format {
-                Format::Chat => OutputProtocol::OpenAiChat,
-                Format::Responses => OutputProtocol::OpenAiResponses,
-            },
+            format.output_protocol(),
         );
+    }
+
+    // Claude SDKs use beta=true on the same endpoint. Upstream routing stays deployment-owned.
+    if matches!(format, Format::Messages) && !matches!(req.uri().query(), None | Some("beta=true"))
+    {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": "unsupported_query"})),
+        )
+            .into_response();
     }
 
     // Applies the configured limit to the consumed body as well: chunked requests have no Content-Length,
@@ -466,10 +495,7 @@ async fn ingress_model(
                 reason,
                 model_send: lifecycle.observation().snapshot().model_send,
             },
-            match format {
-                Format::Chat => OutputProtocol::OpenAiChat,
-                Format::Responses => OutputProtocol::OpenAiResponses,
-            },
+            format.output_protocol(),
         );
     }
     let mut client_stream = false;
@@ -522,21 +548,46 @@ async fn ingress_model(
                 }
             }
         }
+        Format::Messages => {
+            let parsed = pc_gateway_protocol::parse_messages(&body, state.steering.as_deref());
+            match parsed {
+                Ok((request, stream)) => {
+                    client_stream = stream;
+                    request
+                }
+                Err(error) => {
+                    return (
+                        StatusCode::BAD_REQUEST,
+                        Json(serde_json::json!({"error": error})),
+                    )
+                        .into_response();
+                }
+            }
+        }
     };
     // P1 review：未配置的上游禁用路由（不默认到任何第三方）。
-    if (matches!(format, Format::Responses) && state.upstream_responses.is_empty())
-        || (matches!(format, Format::Chat) && state.upstream_chat.is_empty())
-    {
+    let subscription_kind = state.subscription.as_ref().map(|auth| auth.kind());
+    let disabled = match format {
+        Format::Chat if state.upstream_chat.is_empty() => Some("chat_route_disabled"),
+        Format::Responses if state.upstream_responses.is_empty() => {
+            Some("responses_route_disabled")
+        }
+        Format::Messages if subscription_kind.is_some() => {
+            Some("subscription_messages_unsupported")
+        }
+        Format::Messages if state.upstream_messages.is_empty() => Some("messages_route_disabled"),
+        _ => None,
+    };
+    if let Some(error) = disabled {
         return (
             StatusCode::NOT_IMPLEMENTED,
             Json(serde_json::json!({
-                "error": match format { Format::Chat => "chat_route_disabled", Format::Responses => "responses_route_disabled" },
+                "error": error,
                 "hint": "configure a provider-supported upstream endpoint for this route"
             })),
         )
             .into_response();
     }
-    let subscription_kind = state.subscription.as_ref().map(|auth| auth.kind());
     if subscription_kind == Some(pc_gateway_auth::Subscription::Codex)
         && matches!(format, Format::Chat)
     {
@@ -561,22 +612,28 @@ async fn ingress_model(
         )
             .into_response();
     }
-    let Ok(UpstreamChannel {
+    let UpstreamChannel {
         target_url,
         renderer,
         headers: upstream_headers,
-    }) = upstream_channel(
-        &state,
-        &format,
-        // 只有 Codex 订阅端点用到它；其他上游不为它解析请求体。
-        (subscription_kind == Some(pc_gateway_auth::Subscription::Codex))
+    } = if matches!(format, Format::Messages) {
+        let Some(channel) = messages_channel(&state, &headers) else {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({"error": "invalid_anthropic_headers"})),
+            )
+                .into_response();
+        };
+        channel
+    } else {
+        // Only Codex subscriptions use an upstream session identity.
+        let session = (subscription_kind == Some(pc_gateway_auth::Subscription::Codex))
             .then(|| upstream_session(&headers, &body))
-            .flatten()
-            .as_deref(),
-    )
-    .await
-    else {
-        return subscription_auth_failed();
+            .flatten();
+        let Ok(channel) = upstream_channel(&state, &format, session.as_deref()).await else {
+            return subscription_auth_failed();
+        };
+        channel
     };
 
     let conversation = conversation_id(&headers, &format);
@@ -614,47 +671,59 @@ async fn ingress_model(
                 reason,
                 model_send: lifecycle.observation().snapshot().model_send,
             },
-            match format {
-                Format::Chat => OutputProtocol::OpenAiChat,
-                Format::Responses => OutputProtocol::OpenAiResponses,
-            },
+            format.output_protocol(),
         );
     }
     let outcome = state
         .executor
         .run(control, call, &renderer, state.evidence.as_ref())
         .await;
+    let protocol = format.output_protocol();
     if client_stream {
-        return respond_responses_sse(outcome);
+        return respond_buffered_sse(outcome, protocol);
     }
-    respond(
-        outcome,
-        match format {
-            Format::Chat => OutputProtocol::OpenAiChat,
-            Format::Responses => OutputProtocol::OpenAiResponses,
-        },
-    )
+    respond(outcome, protocol)
 }
 
-/// 流式 Responses 客户端：把放行（或允许降级直通）后的完整响应重放为 Responses SSE 事件。
-/// 非 200 或无法解析的结果按普通 JSON 返回，错误状态码不被包装成流；
-/// 降级直通的流保留 `x-pc-degraded` 头。
-fn respond_responses_sse(outcome: ManagedOutcome) -> Response {
-    let (body, degraded) = match &outcome {
+/// Replay a completed, released JSON response using the client's native SSE framing.
+fn respond_buffered_sse(outcome: ManagedOutcome, protocol: OutputProtocol) -> Response {
+    let (body, content_type, degraded) = match &outcome {
         ManagedOutcome::Released {
-            status: 200, body, ..
-        } => (body, false),
+            status: 200,
+            body,
+            content_type,
+            ..
+        } => (body, content_type, false),
         ManagedOutcome::Degraded {
-            status: 200, body, ..
-        } => (body, true),
-        _ => return respond(outcome, OutputProtocol::OpenAiResponses),
+            status: 200,
+            body,
+            content_type,
+            ..
+        } => (body, content_type, true),
+        _ => return respond(outcome, protocol),
     };
-    let Ok(resp) = serde_json::from_slice::<serde_json::Value>(body) else {
-        return respond(outcome, OutputProtocol::OpenAiResponses);
+    if protocol == OutputProtocol::AnthropicMessages
+        && !content_type
+            .split(';')
+            .next()
+            .is_some_and(|mime| mime.trim().eq_ignore_ascii_case("application/json"))
+    {
+        return respond(outcome, protocol);
+    }
+    let Ok(resp @ serde_json::Value::Object(_)) = serde_json::from_slice(body) else {
+        return respond(outcome, protocol);
     };
-    let body = responses_sse(&resp);
-    let first_content =
-        first_model_content_offset(body.as_bytes(), OutputProtocol::OpenAiResponses, true);
+    let body = match protocol {
+        OutputProtocol::OpenAiResponses => responses_sse(&resp),
+        OutputProtocol::AnthropicMessages => {
+            let Some(body) = pc_gateway_protocol::messages_sse(resp) else {
+                return respond(outcome, protocol);
+            };
+            body
+        }
+        OutputProtocol::OpenAiChat => return respond(outcome, protocol),
+    };
+    let first_content = first_model_content_offset(body.as_bytes(), protocol, true);
     let mut response = (
         StatusCode::OK,
         [(header::CONTENT_TYPE, "text/event-stream")],
@@ -890,7 +959,7 @@ fn injects(format: &Format, injection: Injection, responses: bool, has_conversat
         Injection::ConversationsOnly => has_conversation,
         Injection::Off => false,
     };
-    enabled && (matches!(format, Format::Chat) || responses)
+    enabled && (!matches!(format, Format::Responses) || responses)
 }
 
 /// 请求所属的会话，决定准备结果在哪些请求之间重放。依次取：
@@ -923,7 +992,7 @@ fn conversation_id(headers: &HeaderMap, format: &Format) -> Option<String> {
         Format::Responses => {
             header_id(headers, CODEX_THREAD_ID_HEADER).map(|id| format!("codex-thread:{id}"))
         }
-        Format::Chat => None,
+        Format::Chat | Format::Messages => None,
     }
 }
 
@@ -968,19 +1037,53 @@ struct UpstreamChannel {
     headers: Vec<(String, String)>,
 }
 
+fn messages_channel(state: &AppState, incoming: &HeaderMap) -> Option<UpstreamChannel> {
+    let mut headers = Vec::new();
+    for name in ["anthropic-version", "anthropic-beta"] {
+        let mut values = incoming.get_all(name).iter();
+        if let Some(value) = values.next() {
+            if values.next().is_some() {
+                return None;
+            }
+            headers.push((name.into(), value.to_str().ok()?.into()));
+        } else if name == "anthropic-version" {
+            headers.push((name.into(), "2023-06-01".into()));
+        }
+    }
+    if !state.upstream_messages_api_key.is_empty() {
+        headers.push(("x-api-key".into(), state.upstream_messages_api_key.clone()));
+    }
+    Some(UpstreamChannel {
+        target_url: state.upstream_messages.clone(),
+        renderer: pc_gateway_protocol::SubscriptionRenderer {
+            inner: pc_gateway_protocol::GatewayRenderer::Messages,
+            subscription: None,
+        },
+        headers,
+    })
+}
+
 async fn upstream_channel(
     state: &AppState,
     format: &Format,
     session: Option<&str>,
 ) -> Result<UpstreamChannel, pc_gateway_auth::AuthError> {
+    let (inner, target_url, key) = match format {
+        Format::Chat => (
+            pc_gateway_protocol::GatewayRenderer::Chat(Default::default()),
+            &state.upstream_chat,
+            &state.upstream_chat_api_key,
+        ),
+        Format::Responses => (
+            pc_gateway_protocol::GatewayRenderer::Responses(Default::default()),
+            &state.upstream_responses,
+            &state.upstream_responses_api_key,
+        ),
+        Format::Messages => return Err(pc_gateway_auth::AuthError::Configuration),
+    };
     let subscription_kind = state.subscription.as_ref().map(|auth| auth.kind());
     let mut renderer = pc_gateway_protocol::SubscriptionRenderer {
-        inner: match format {
-            Format::Chat => pc_gateway_protocol::GatewayRenderer::Chat(Default::default()),
-            Format::Responses => {
-                pc_gateway_protocol::GatewayRenderer::Responses(Default::default())
-            }
-        },
+        inner,
         subscription: match subscription_kind {
             Some(pc_gateway_auth::Subscription::Grok) => {
                 Some(pc_gateway_protocol::SubscriptionProtocol::Grok)
@@ -997,28 +1100,21 @@ async fn upstream_channel(
             _ => None,
         },
     };
-    let target_url = match format {
-        Format::Chat => state.upstream_chat.clone(),
-        Format::Responses => state.upstream_responses.clone(),
-    };
     let mut headers = if let Some(auth) = state.subscription.as_ref() {
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|v| v.as_secs() as i64)
             .unwrap_or(0);
         if auth.kind() == pc_gateway_auth::Subscription::Gemini {
-            let (headers, project) = auth.gemini_context(&target_url, now).await?;
+            let (headers, project) = auth.gemini_context(target_url, now).await?;
             renderer.subscription =
                 Some(pc_gateway_protocol::SubscriptionProtocol::Gemini { project });
             headers
         } else {
-            auth.headers(&target_url, now).await?
+            auth.headers(target_url, now).await?
         }
     } else {
-        bearer_headers(match format {
-            Format::Chat => &state.upstream_chat_api_key,
-            Format::Responses => &state.upstream_responses_api_key,
-        })
+        bearer_headers(key)
     };
     if let (Some(pc_gateway_auth::Subscription::Codex), Some(session)) =
         (subscription_kind, session)
@@ -1029,7 +1125,7 @@ async fn upstream_channel(
         ));
     }
     Ok(UpstreamChannel {
-        target_url,
+        target_url: target_url.clone(),
         renderer,
         headers,
     })
@@ -1156,7 +1252,7 @@ fn to_canonical_responses(r: OpenAiResponsesRequest) -> Result<CanonicalRequest,
             max_output_tokens: r.max_output_tokens,
         },
         // 上游一律非流式：发送检查目前只支持 openai-chat 的流式，Responses 流式请求会被 withhold。
-        // 客户端要求流式时，由 `respond_responses_sse` 在 before_release 放行后重放为 SSE，
+        // 客户端要求流式时，由 `respond_buffered_sse` 在 before_release 放行后重放为 SSE，
         // 保持“检查通过前不释放任何内容”的语义。
         stream: false,
         // Responses 的结构化输出在 text.format，不在 response_format（Chat 字段）。
@@ -1462,6 +1558,8 @@ pub(crate) mod tests {
             upstream_profile: "test".into(),
             upstream_chat: format!("{base}/v1/chat/completions"),
             upstream_responses: format!("{base}/v1/responses"),
+            upstream_messages: String::new(),
+            upstream_messages_api_key: String::new(),
             upstream_chat_api_key: "SYNTHETIC_SENSITIVE_CREDENTIAL".into(),
             upstream_responses_api_key: String::new(),
             subscription: None,
@@ -1935,6 +2033,8 @@ pub(crate) mod tests {
             upstream_profile: "test".into(),
             upstream_chat: String::new(),
             upstream_responses: "https://chatgpt.com/backend-api/codex/responses".into(),
+            upstream_messages: String::new(),
+            upstream_messages_api_key: String::new(),
             upstream_chat_api_key: String::new(),
             upstream_responses_api_key: "SYNTHETIC_STATIC_KEY".into(),
             subscription,
@@ -2340,7 +2440,7 @@ pub(crate) mod tests {
                     body,
                 }
             };
-            let response = respond_responses_sse(outcome);
+            let response = respond_buffered_sse(outcome, OutputProtocol::OpenAiResponses);
             let body = axum::body::to_bytes(response.into_body(), usize::MAX)
                 .await
                 .unwrap();
@@ -2381,7 +2481,7 @@ pub(crate) mod tests {
                 br#"{"id":"resp_1","object":"response","status":"completed","output":[]}"#,
             ),
         };
-        let response = respond_responses_sse(outcome);
+        let response = respond_buffered_sse(outcome, OutputProtocol::OpenAiResponses);
         assert_eq!(response.status(), StatusCode::OK);
         assert_eq!(
             response.headers()[header::CONTENT_TYPE],
@@ -2401,7 +2501,7 @@ pub(crate) mod tests {
             content_type: "application/json".into(),
             body: bytes::Bytes::from_static(br#"{"error":{"message":"bad"}}"#),
         };
-        let response = respond_responses_sse(outcome);
+        let response = respond_buffered_sse(outcome, OutputProtocol::OpenAiResponses);
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
         assert_eq!(response.headers()[header::CONTENT_TYPE], "application/json");
     }

@@ -32,7 +32,7 @@ use crate::evidence::CallRecorder;
 use crate::lifecycle::Execution;
 use crate::prefix_store::{PrefixEntry, PrefixStore};
 use crate::replay_cache::{message_anchor, PreparedBlock, ReplayCache, MAX_REPLAY_MS};
-use crate::transcript::turn_transcript;
+use crate::transcript::{turn_start, turn_transcript};
 
 /// Core 的 before_send 在复用证明的依赖已变化或证明已失效时给出的 withhold 原因。
 const CONTEXT_REFRESH_REQUIRED: &str = "context-refresh-required";
@@ -40,7 +40,7 @@ use crate::{GateClient, GateError};
 use crate::{LifecycleStopReason, ModelSendState, RequestControl};
 use pc_gateway_evidence::EvidenceSink;
 use pc_gateway_evidence::UsageMapping;
-use pc_gateway_protocol::{CanonicalRequest, WireRenderer};
+use pc_gateway_protocol::{CanonicalMessage, CanonicalRequest, OutputProtocol, WireRenderer};
 use pc_gateway_transport::{
     AdmittedSend, RawResponse, SendIndeterminateReason, SendOutcome, Transport,
 };
@@ -314,9 +314,9 @@ where
             control.observation(),
             control.cancellation(),
             &call.target_url,
-            match renderer.message_list_key() {
-                "input" => Some(UsageMapping::OpenAiResponses),
-                "messages" => Some(UsageMapping::OpenAiChat),
+            match (renderer.output_protocol(), renderer.message_list_key()) {
+                (OutputProtocol::OpenAiResponses, "input") => Some(UsageMapping::OpenAiResponses),
+                (OutputProtocol::OpenAiChat, "messages") => Some(UsageMapping::OpenAiChat),
                 _ => None,
             },
         );
@@ -353,19 +353,20 @@ where
         // 重新渲染，否则 prepare 召回的私密记忆会在未经任何检查的情况下外发。
         let pristine_request = call.request.clone();
 
-        let anchor = call
-            .inject_context
-            .then(|| message_anchor(&pristine_request))
-            .flatten();
+        let protocol = renderer.output_protocol();
+        let start = turn_start(&pristine_request, protocol);
+        let injection = start
+            .filter(|_| call.inject_context)
+            .map(|index| (index, message_anchor(&pristine_request, index)));
         let mut refreshed = false;
         let (payload, admission) = loop {
             if let Err(stop) = execution.checkpoint() {
                 return stop;
             }
-            if call.inject_context {
+            if let Some((index, anchor)) = injection {
                 self.enrich(
                     &mut call,
-                    anchor,
+                    (index, anchor),
                     renderer.message_list_key(),
                     evidence,
                     execution,
@@ -483,8 +484,10 @@ where
                                 .any(|reason| reason == CONTEXT_REFRESH_REQUIRED) =>
                     {
                         refreshed = true;
-                        if let Some((conversation, anchor)) =
-                            call.conversation_id.as_deref().zip(anchor)
+                        if let Some((conversation, anchor)) = call
+                            .conversation_id
+                            .as_deref()
+                            .zip(injection.and_then(|(_, anchor)| anchor))
                         {
                             self.replays.forget(&call.scope_id, conversation, anchor);
                         }
@@ -683,7 +686,7 @@ where
                                 turn_transcript(
                                     &pristine_request,
                                     &release_body,
-                                    renderer.message_list_key(),
+                                    protocol,
                                     self.source_tokens,
                                 )
                             })
@@ -702,8 +705,9 @@ where
                             (Some(transcript), Some(_)) => Some(transcript),
                         };
                         if let Some(transcript) = batch {
-                            let digest =
-                                turn_digest(&call, &pristine_request).unwrap_or_else(|| {
+                            let digest = start
+                                .and_then(|index| turn_digest(&call, &pristine_request, index))
+                                .unwrap_or_else(|| {
                                     result
                                         .binding
                                         .as_deref()
@@ -874,7 +878,7 @@ where
     async fn enrich(
         &self,
         call: &mut ManagedCall,
-        anchor: Option<u64>,
+        (index, anchor): (usize, Option<u64>),
         list_key: &str,
         evidence: &dyn EvidenceSink,
         execution: &Execution,
@@ -888,7 +892,7 @@ where
             Some(prepared) => prepared,
             None => {
                 let Some((prepared, expires_at)) =
-                    self.prepare_turn(call, evidence, execution).await
+                    self.prepare_turn(call, index, evidence, execution).await
                 else {
                     return;
                 };
@@ -914,7 +918,7 @@ where
         let Some(PreparedBlock { block, binding }) = prepared else {
             return;
         };
-        self.inject(call, &block, &binding, list_key);
+        self.inject(call, index, &block, &binding, list_key);
     }
 
     /// 调用 prepare：失败返回 None（不缓存、不阻塞主请求）；
@@ -922,10 +926,11 @@ where
     async fn prepare_turn(
         &self,
         call: &ManagedCall,
+        index: usize,
         evidence: &dyn EvidenceSink,
         execution: &Execution,
     ) -> Option<(Option<PreparedBlock>, Option<String>)> {
-        let query = last_user_text(&call.request)?;
+        let query = user_text(call.request.messages.get(index)?)?;
         if execution.checkpoint().is_err() {
             return None;
         }
@@ -965,10 +970,14 @@ where
     }
 
     /// 把准备好的块注入最后一条用户消息，并声明它在渲染后请求体中的位置。
-    fn inject(&self, call: &mut ManagedCall, block: &str, binding: &str, list_key: &str) {
-        let Some(index) = last_user_index(&call.request) else {
-            return;
-        };
+    fn inject(
+        &self,
+        call: &mut ManagedCall,
+        index: usize,
+        block: &str,
+        binding: &str,
+        list_key: &str,
+    ) {
         let Some(message) = call.request.messages.get_mut(index) else {
             return;
         };
@@ -1216,16 +1225,8 @@ fn is_text_part(part: &serde_json::Value) -> bool {
     )
 }
 
-fn last_user_index(request: &CanonicalRequest) -> Option<usize> {
-    request
-        .messages
-        .iter()
-        .rposition(|m| matches!(m.role, pc_gateway_protocol::Role::User))
-}
-
-fn last_user_text(request: &CanonicalRequest) -> Option<String> {
-    let i = last_user_index(request)?;
-    match request.messages[i].content.as_slice() {
+fn user_text(message: &CanonicalMessage) -> Option<String> {
+    match message.content.as_slice() {
         [serde_json::Value::String(s)] => Some(s.clone()),
         // typed content parts：[{"type":"text"或"input_text","text":"..."},...] → 拼接 text 字段。
         // 这是 Chat 与 Responses 的合法形态；不处理会导致沉淀 user 为空 + 注入被跳过。
@@ -1248,12 +1249,12 @@ fn last_user_text(request: &CanonicalRequest) -> Option<String> {
 /// 一个用户回合的稳定标识：Scope、可信会话 ID 与截至最后一条用户消息的注入前消息。同一回合的重试、重复或并发的
 /// 终止请求得到同一个回合摘要；Source ID 另含规范化记录摘要。没有可信会话时返回 `None`：调用方退回到每次放行
 /// 各自的标识。
-fn turn_digest(call: &ManagedCall, pristine: &CanonicalRequest) -> Option<String> {
+fn turn_digest(
+    call: &ManagedCall,
+    pristine: &CanonicalRequest,
+    last_user: usize,
+) -> Option<String> {
     let conversation = call.conversation_id.as_deref()?;
-    let last_user = pristine
-        .messages
-        .iter()
-        .rposition(|m| matches!(m.role, pc_gateway_protocol::Role::User))?;
     let messages = serde_json::to_string(&pristine.messages[..=last_user]).ok()?;
     Some(simple_digest(&format!(
         "{}\n{}\n{}\n{messages}",

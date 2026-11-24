@@ -23,7 +23,7 @@
 //! 按顺序拆成几段，每段都是独立的 Source。
 
 use crate::capture_coverage::declaration;
-use pc_gateway_protocol::{CanonicalMessage, CanonicalRequest, Role};
+use pc_gateway_protocol::{CanonicalMessage, CanonicalRequest, OutputProtocol, Role};
 use serde::Serialize;
 use serde_json::{Map, Value};
 
@@ -95,9 +95,17 @@ struct Transcript {
     assistant: String,
 }
 
-/// 渲染后消息列表所在的顶层键决定线格式：`input` 为 Responses，其余为 Chat。
-fn is_responses(list_key: &str) -> bool {
-    list_key == "input"
+/// Anthropic sends tool results in user-role messages, so they cannot start a new turn alone.
+pub(crate) fn turn_start(request: &CanonicalRequest, protocol: OutputProtocol) -> Option<usize> {
+    request.messages.iter().rposition(|message| {
+        message.role == Role::User
+            && (protocol != OutputProtocol::AnthropicMessages
+                || message.content.iter().any(|part| !is_tool_result(part)))
+    })
+}
+
+fn is_tool_result(part: &Value) -> bool {
+    part.get("type").and_then(Value::as_str) == Some("tool_result")
 }
 
 /// 回合的记录：放得下时是一段，否则按顺序拆成几段；以及投影的覆盖声明。
@@ -112,30 +120,42 @@ pub(crate) struct TurnProjection {
 pub(crate) fn turn_transcript(
     request: &CanonicalRequest,
     response: &str,
-    list_key: &str,
+    protocol: OutputProtocol,
     source_tokens: usize,
 ) -> Option<TurnProjection> {
     let response: Value = serde_json::from_str(response).ok()?;
-    let (final_steps, assistant) = if is_responses(list_key) {
-        responses_final(&response)?
-    } else {
-        (Vec::new(), chat_final_text(&response)?)
+    let (final_steps, assistant) = match protocol {
+        OutputProtocol::OpenAiChat => (Vec::new(), chat_final_text(&response)?),
+        OutputProtocol::OpenAiResponses => responses_final(&response)?,
+        OutputProtocol::AnthropicMessages => anthropic_final(&response)?,
     };
-    let start = request
-        .messages
-        .iter()
-        .rposition(|m| matches!(m.role, Role::User))?;
-    let user = parts_text(&request.messages[start].content);
-    let mut steps: Vec<Step> = request.messages[start + 1..]
-        .iter()
-        .flat_map(|m| {
-            if is_responses(list_key) {
-                m.content.iter().flat_map(item_steps).collect()
-            } else {
-                chat_steps(m)
-            }
-        })
-        .collect();
+    let start = turn_start(request, protocol)?;
+    let initial = &request.messages[start].content;
+    let (user, mut steps) = if protocol == OutputProtocol::AnthropicMessages {
+        let (results, prompt): (Vec<_>, Vec<_>) =
+            initial.iter().partition(|part| is_tool_result(part));
+        let prompt: Vec<_> = prompt.into_iter().map(anthropic_content).collect();
+        (
+            parts_text(&prompt),
+            results
+                .into_iter()
+                .filter_map(|part| anthropic_step(part, Role::User))
+                .collect(),
+        )
+    } else {
+        (parts_text(initial), Vec::new())
+    };
+    steps.extend(request.messages[start + 1..].iter().flat_map(|m| {
+        match protocol {
+            OutputProtocol::OpenAiChat => chat_steps(m),
+            OutputProtocol::OpenAiResponses => m.content.iter().flat_map(item_steps).collect(),
+            OutputProtocol::AnthropicMessages => m
+                .content
+                .iter()
+                .filter_map(|part| anthropic_step(part, m.role))
+                .collect(),
+        }
+    }));
     steps.extend(final_steps);
     let transcript = Transcript {
         kind: "gateway_turn",
@@ -272,6 +292,88 @@ fn chat_final_text(response: &Value) -> Option<String> {
         return None;
     }
     Some(content_text(message.get("content")))
+}
+
+fn anthropic_final(response: &Value) -> Option<(Vec<Step>, String)> {
+    if response.get("type")?.as_str()? != "message"
+        || !matches!(
+            response.get("stop_reason")?.as_str()?,
+            "end_turn"
+                | "max_tokens"
+                | "stop_sequence"
+                | "refusal"
+                | "model_context_window_exceeded"
+        )
+    {
+        return None;
+    }
+    let blocks = response.get("content")?.as_array()?;
+    let assistant: String = blocks.iter().filter_map(anthropic_text).collect();
+    let steps = blocks
+        .iter()
+        .filter(|block| anthropic_text(block).is_none())
+        .filter_map(|part| anthropic_step(part, Role::Assistant))
+        .collect();
+    Some((steps, assistant))
+}
+
+fn anthropic_text(block: &Value) -> Option<&str> {
+    if block.get("type")?.as_str()? != "text" {
+        return None;
+    }
+    block.get("text")?.as_str()
+}
+
+fn anthropic_step(block: &Value, role: Role) -> Option<Step> {
+    if let Some(text) = block.as_str().or_else(|| anthropic_text(block)) {
+        let text = text.into();
+        return Some(if role == Role::Assistant {
+            Step::Assistant { text }
+        } else {
+            Step::Message {
+                role: role_name(&role),
+                text,
+            }
+        });
+    }
+    let kind = block.get("type")?.as_str()?;
+    match kind {
+        "thinking" | "redacted_thinking" => None,
+        "tool_use" | "server_tool_use" | "mcp_tool_use" => Some(Step::ToolCall {
+            name: block.get("name")?.as_str()?.into(),
+            arguments: without_binary(block.get("input")?).to_string(),
+        }),
+        "tool_result" => {
+            let mut fields = keep_keys(block, &["content", "is_error"]);
+            if let Some(Value::Array(content)) = fields.get_mut("content") {
+                *content = content.iter().map(anthropic_content).collect();
+            }
+            Some(Step::ToolOutput {
+                output: fields_text(&fields),
+            })
+        }
+        _ => Some(Step::Item {
+            item_type: kind.into(),
+            content: anthropic_content(&drop_keys(
+                block,
+                &["type", "id", "tool_use_id", "cache_control"],
+            ))
+            .to_string(),
+        }),
+    }
+}
+
+// Anthropic binary sources contain bare base64 instead of a data URL.
+fn anthropic_content(block: &Value) -> Value {
+    let mut projected = without_binary(block);
+    if let Some(source) = projected.get_mut("source") {
+        if source.get("type").and_then(Value::as_str) == Some("base64") {
+            if let Some(length) = source.get("data").and_then(Value::as_str).map(str::len) {
+                source["data"] = format!("[base64 data omitted: {length} bytes]").into();
+            }
+        }
+    }
+    projected
 }
 
 /// Responses 条目按语义分类。
@@ -643,7 +745,7 @@ mod tests {
         let projection = turn_transcript(
             &chat_turn(std::slice::from_ref(&long)),
             FINAL,
-            "messages",
+            OutputProtocol::OpenAiChat,
             MAX_SOURCE_TOKENS,
         )
         .unwrap();
@@ -672,9 +774,14 @@ mod tests {
         let request = chat_turn(&outputs);
         // 这个回合约 60,000 个 token：上限 50,000 时两段，上限 24,000 时每段不超过 24,000。
         let at = |limit| {
-            turn_transcript(&request, FINAL, "messages", source_token_limit(limit))
-                .unwrap()
-                .parts
+            turn_transcript(
+                &request,
+                FINAL,
+                OutputProtocol::OpenAiChat,
+                source_token_limit(limit),
+            )
+            .unwrap()
+            .parts
         };
         assert_eq!(at(None).len(), 2);
         let parts = at(Some(24_000));
@@ -695,7 +802,13 @@ mod tests {
         request.messages.push(request.messages[2].clone());
         let huge = "y\n".repeat(MAX_SOURCE_TOKENS * 3);
         request.messages.last_mut().unwrap().content = vec![Value::from(huge.as_str())];
-        let projection = turn_transcript(&request, FINAL, "messages", MAX_SOURCE_TOKENS).unwrap();
+        let projection = turn_transcript(
+            &request,
+            FINAL,
+            OutputProtocol::OpenAiChat,
+            MAX_SOURCE_TOKENS,
+        )
+        .unwrap();
         let count = projection.parts.len();
         assert!(count > 2);
         let mut entries = Vec::new();
@@ -767,7 +880,13 @@ mod tests {
             {"type": "message", "role": "assistant", "content": [{"type": "output_text", "text": "done"}]}
         ]})
         .to_string();
-        let projection = turn_transcript(&request, &response, "input", MAX_SOURCE_TOKENS).unwrap();
+        let projection = turn_transcript(
+            &request,
+            &response,
+            OutputProtocol::OpenAiResponses,
+            MAX_SOURCE_TOKENS,
+        )
+        .unwrap();
         let transcript = single(&projection);
         assert_eq!(
             transcript["steps"],
@@ -802,7 +921,13 @@ mod tests {
             item(serde_json::json!({"type": "computer_call", "call_id": "e", "action": {"type": "screenshot"}})),
         ]);
         let transcript = single(
-            &turn_transcript(&request, RESPONSES_FINAL, "input", MAX_SOURCE_TOKENS).unwrap(),
+            &turn_transcript(
+                &request,
+                RESPONSES_FINAL,
+                OutputProtocol::OpenAiResponses,
+                MAX_SOURCE_TOKENS,
+            )
+            .unwrap(),
         );
         assert_eq!(
             transcript["steps"],
@@ -824,8 +949,13 @@ mod tests {
                 {"type": "image", "url": "https://example.com/plot.png"}
             ]
         })));
-        let projection =
-            turn_transcript(&request, RESPONSES_FINAL, "input", MAX_SOURCE_TOKENS).unwrap();
+        let projection = turn_transcript(
+            &request,
+            RESPONSES_FINAL,
+            OutputProtocol::OpenAiResponses,
+            MAX_SOURCE_TOKENS,
+        )
+        .unwrap();
         let transcript = single(&projection);
         assert_eq!(
             transcript["steps"][1],
@@ -841,8 +971,15 @@ mod tests {
         request.messages[1].tool_calls = Some(vec![
             serde_json::json!({"type": "custom", "id": "x1", "custom": {"name": "exec", "input": "list files"}}),
         ]);
-        let transcript =
-            single(&turn_transcript(&request, FINAL, "messages", MAX_SOURCE_TOKENS).unwrap());
+        let transcript = single(
+            &turn_transcript(
+                &request,
+                FINAL,
+                OutputProtocol::OpenAiChat,
+                MAX_SOURCE_TOKENS,
+            )
+            .unwrap(),
+        );
         assert_eq!(
             transcript["steps"][0],
             serde_json::json!({"type": "tool_call", "name": "custom",
@@ -861,7 +998,12 @@ mod tests {
         ] {
             let response = format!(r#"{{"output":[{item}]}}"#);
             assert_eq!(
-                turn_transcript(&request, &response, "input", MAX_SOURCE_TOKENS),
+                turn_transcript(
+                    &request,
+                    &response,
+                    OutputProtocol::OpenAiResponses,
+                    MAX_SOURCE_TOKENS
+                ),
                 None,
                 "{item}"
             );
@@ -869,7 +1011,12 @@ mod tests {
         let legacy = r#"{"choices":[{"message":{"role":"assistant","content":null,
             "function_call":{"name":"read","arguments":"{}"}}}]}"#;
         assert_eq!(
-            turn_transcript(&request, legacy, "messages", MAX_SOURCE_TOKENS),
+            turn_transcript(
+                &request,
+                legacy,
+                OutputProtocol::OpenAiChat,
+                MAX_SOURCE_TOKENS
+            ),
             None
         );
     }
@@ -880,17 +1027,32 @@ mod tests {
         let calling = r#"{"choices":[{"message":{"role":"assistant","content":null,
             "tool_calls":[{"function":{"name":"read","arguments":"{}"}}]}}]}"#;
         assert_eq!(
-            turn_transcript(&request, calling, "messages", MAX_SOURCE_TOKENS),
+            turn_transcript(
+                &request,
+                calling,
+                OutputProtocol::OpenAiChat,
+                MAX_SOURCE_TOKENS
+            ),
             None
         );
         assert_eq!(
-            turn_transcript(&request, "not json", "messages", MAX_SOURCE_TOKENS),
+            turn_transcript(
+                &request,
+                "not json",
+                OutputProtocol::OpenAiChat,
+                MAX_SOURCE_TOKENS
+            ),
             None
         );
         let responses_calling =
             r#"{"output":[{"type":"custom_tool_call","name":"exec","input":"ls"}]}"#;
         assert_eq!(
-            turn_transcript(&request, responses_calling, "input", MAX_SOURCE_TOKENS),
+            turn_transcript(
+                &request,
+                responses_calling,
+                OutputProtocol::OpenAiResponses,
+                MAX_SOURCE_TOKENS
+            ),
             None
         );
     }
