@@ -226,18 +226,64 @@ def test_family_filter_and_pending_query_precede_limits(tmp_path):
             async with runtime.primary_database.transaction() as connection:
                 await _run_record(connection, scopes[0], 0, status="running")
                 for index in range(1, 13):
-                    await _run_record(connection, scopes[0], index)
-                for index in range(13, 26):
+                    if index % 2:
+                        await _run_record(connection, scopes[0], index)
+                    else:
+                        await _run_record(connection, scopes[0], index, "revise_tags", tag_family="skill")
+                for index in range(13, 60):
                     await _run_record(connection, scopes[0], index, "refine_experience")
                 await _run_record(connection, scopes[1], 100, status="queued")
             result = await ProcessingStatusApplication(runtime).for_scope(scopes[0]).status("skill")
-            assert len(result.dream_operations) == 10
-            assert all(row.operation == "derive_skill" for row in result.dream_operations)
+            assert [row.run_id for row in result.dream_operations] == [f"dr_{index}" for index in range(12, 2, -1)]
             assert result.dream_operations[0].status == "succeeded"
             assert result.dream_pending is True and result.state is ProcessingStatusState.PENDING
             assert result.executor is None
             other = await ProcessingStatusApplication(runtime).for_scope(scopes[1]).status("skill")
             assert [row.run_id for row in other.dream_operations] == ["dr_100"]
+
+    asyncio.run(scenario())
+
+
+def test_other_operation_history_does_not_increase_scope_status_read_cost(tmp_path):
+    async def scenario():
+        async with (
+            _runtime(tmp_path) as (runtime, (scope, _)),
+            runtime.primary_database.transaction() as connection,
+        ):
+            await _run_record(connection, scope, 0, "refresh_handoff", "queued")
+            driver = (await connection.get_raw_connection()).driver_connection
+
+            async def read(family):
+                steps = 0
+
+                def measure():
+                    nonlocal steps
+                    steps += 100
+                    return 0
+
+                await driver.set_progress_handler(measure, 100)
+                try:
+                    status = await ProcessingStatusInspector().status(connection, scope, family)
+                finally:
+                    await driver.set_progress_handler(None, 0)
+                assert status.unavailable_reason is None
+                if family == "handoff":
+                    assert [run.run_id for run in status.dream_operations] == ["dr_0"]
+                    assert status.dream_pending
+                else:
+                    assert len(status.dream_operations) == 10 and not status.dream_pending
+                return steps
+
+            for index in range(1, 101):
+                await _run_record(connection, scope, index)
+            baseline = {family: await read(family) for family in ("handoff", "skill")}
+            for index in range(101, 2001):
+                await _run_record(connection, scope, index)
+            for family, steps in baseline.items():
+                assert await read(family) <= 2 * steps + 300, family
+            await connection.exec_driver_sql("ANALYZE")
+            for family, steps in baseline.items():
+                assert await read(family) <= 2 * steps + 300, family
 
     asyncio.run(scenario())
 

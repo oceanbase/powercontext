@@ -159,6 +159,48 @@ async function main() {
     await page.unroute(topics);
     await open();
 
+    // Failed Scope navigation must leave the picker, URL and refreshed observation in agreement.
+    const pickScope = value => page.evaluate(value => {
+      const picker = document.querySelector('#scope').tomselect;
+      picker.addOption({scope_id: value, display_title: value});
+      picker.setValue(value);
+    }, value);
+    const notes = '**/dashboard/notes?*';
+    for (const failure of ['disconnect', 503, 204]) {
+      await page.route(notes, route => failure === 'disconnect' ? route.abort('failed') : route.fulfill({status: failure}));
+      await pickScope(other);
+      await page.locator('[data-scope-switch-error]').waitFor();
+      const selectedTitle = await page.locator('#scope').evaluate(node => node.tomselect.options[node.value].display_title);
+      assert((await page.locator('[data-scope-switch-error]').innerText()).includes(selectedTitle));
+      assert.equal(await page.locator('#scope').inputValue(), scope);
+      assert.equal(new URL(page.url()).searchParams.get('scope'), scope);
+      await refresh();
+      assert.equal(await snapshot.getAttribute('data-scope'), scope);
+      await page.unroute(notes);
+    }
+
+    // Replacing a held navigation must preserve the newer selection until its own response.
+    const firstRequest = Promise.withResolvers();
+    const secondRequest = Promise.withResolvers();
+    const releaseFirst = Promise.withResolvers();
+    const releaseSecond = Promise.withResolvers();
+    await page.route(notes, async route => {
+      const first = new URL(route.request().url()).searchParams.get('scope') === other;
+      (first ? firstRequest : secondRequest).resolve();
+      await (first ? releaseFirst : releaseSecond).promise;
+      await route.abort('failed').catch(() => {});
+    });
+    await pickScope(other);
+    await firstRequest.promise;
+    await pickScope('');
+    await secondRequest.promise;
+    releaseFirst.resolve();
+    assert.equal(await page.locator('#scope').inputValue(), '');
+    releaseSecond.resolve();
+    await page.locator('[data-scope-switch-error]').waitFor();
+    assert.equal(await page.locator('#scope').inputValue(), scope);
+    await page.unroute(notes);
+
     // Changing the Scope while a refresh is delayed must discard that response.
     await page.route(fragment, async route => {
       const response = await route.fetch();
@@ -169,11 +211,7 @@ async function main() {
     });
     await root.locator('[data-processing-refresh]').click();
     await root.locator('[data-processing-details]').click();
-    await page.evaluate(other => {
-      const picker = document.querySelector('#scope').tomselect;
-      picker.addOption({scope_id: other, title: 'Other Scope', display_title: 'Other Scope'});
-      picker.setValue(other);
-    }, other);
+    await pickScope(other);
     await page.waitForURL(url => url.searchParams.get('scope') === other);
     await settled();
     await page.waitForTimeout(1000);

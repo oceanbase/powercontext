@@ -141,6 +141,7 @@ limitations under the License.
       const scopeChanged = url.searchParams.has('scope') && scope !== root.dataset.scope;
       if (url.pathname !== location.pathname || scopeChanged || (family && family !== root.dataset.family)) {
         state.suspended = true;
+        root.querySelector('[data-processing-refresh]').disabled = true;
         state.navigation = event.detail.xhr;
         state.controller?.abort();
         clearTimeout(state.timer);
@@ -151,7 +152,7 @@ limitations under the License.
   document.addEventListener('htmx:afterRequest', event => {
     const {failed, xhr} = event.detail;
     // HTMX sets failed for HTTP errors. A transport failure ends with XHR status 0.
-    if (!failed && xhr.status !== 0) return;
+    if (!failed && xhr.status !== 0 && xhr.status !== 204) return;
     for (const [root, state] of instances) {
       if (!root.isConnected || !state.suspended || state.navigation !== xhr) continue;
       state.navigation = null;

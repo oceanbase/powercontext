@@ -47,6 +47,7 @@
   "skill": "技能",
   "other_scopes": "其他范围",
   "scope_no_match": "没有匹配的范围",
+  "scope_switch_failed": "切换到「{requested}」失败，当前选择为「{current}」。",
   "scope_switch_hint": "选择后立即切换内容范围。",
   "scope_label": "内容范围",
   "navigation": "导航",

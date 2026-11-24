@@ -21,7 +21,7 @@ from datetime import UTC, datetime
 from enum import StrEnum
 from typing import TYPE_CHECKING, Literal
 
-from sqlalchemy import Text, and_, cast, func, or_, select
+from sqlalchemy import Text, and_, cast, func, or_, select, text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncConnection
 
@@ -300,19 +300,58 @@ class ProcessingStatusInspector:
         binding = FAMILY_DREAM_BINDINGS[dream_family]
         operations = tuple(spec.operation for spec in DREAM_OPERATIONS if spec.binding == binding)
         table = DREAM_RUNS_TABLE
-        target = func.json_extract(cast(table.c.payload, Text), "$.request.tag_target.target.family")
-        if connection.dialect.name == "mysql":
-            target = func.json_unquote(target)
-        condition = and_(
-            table.c.scope_id == scope_id,
-            or_(table.c.operation.in_(operations), and_(table.c.operation == "revise_tags", target == dream_family)),
-        )
-        payloads = await connection.scalars(
-            select(table.c.payload)
-            .where(condition)
+        mysql = connection.dialect.name == "mysql"
+        if mysql:
+            dispatch = select(table).with_hint(table, "FORCE INDEX (ix_pc_dream_dispatch)", dialect_name="mysql")
+        else:
+            # SQLAlchemy's SQLite compiler omits table hints.
+            dispatch = text("SELECT * FROM pc_dream_runs INDEXED BY ix_pc_dream_dispatch").columns(*table.c)
+        indexed = dispatch.subquery()
+
+        def matches(rows):
+            target = func.json_extract(cast(rows.c.payload, Text), "$.request.tag_target.target.family")
+            if mysql:
+                target = func.json_unquote(target)
+            return and_(
+                rows.c.scope_id == scope_id,
+                rows.c.operation.in_((*operations, "revise_tags")),
+                or_(rows.c.operation != "revise_tags", target == dream_family),
+            )
+
+        # Probe a bounded chronological window. A busy family usually fills the page here.
+        recent = (
+            select(table)
+            .where(table.c.scope_id == scope_id)
             .order_by(table.c.accepted_at.desc(), table.c.run_id.desc())
-            .limit(10)
+            .limit(32)
+            .subquery()
         )
+        payloads = (
+            await connection.scalars(
+                select(recent.c.payload)
+                .where(matches(recent))
+                .order_by(recent.c.accepted_at.desc(), recent.c.run_id.desc())
+                .limit(10)
+            )
+        ).all()
+        if len(payloads) < 10:
+            # For sparse families rank keys from matching operations before fetching full records.
+            latest = (
+                select(indexed.c.run_id, indexed.c.accepted_at)
+                .where(matches(indexed))
+                .order_by(indexed.c.accepted_at.desc(), indexed.c.run_id.desc())
+                .limit(10)
+                .subquery()
+            )
+            payloads = (
+                await connection.scalars(
+                    select(table.c.payload)
+                    .select_from(
+                        latest.join(table, and_(table.c.scope_id == scope_id, table.c.run_id == latest.c.run_id))
+                    )
+                    .order_by(latest.c.accepted_at.desc(), latest.c.run_id.desc())
+                )
+            ).all()
         runs: list[DreamOperationStatus] = []
         for payload in payloads:
             run: DreamRun = load_model(
@@ -331,7 +370,7 @@ class ProcessingStatusInspector:
                 )
             )
         pending = await connection.scalar(
-            select(table.c.run_id).where(condition, table.c.status.in_(("queued", "running"))).limit(1)
+            select(indexed.c.run_id).where(matches(indexed), indexed.c.status.in_(("queued", "running"))).limit(1)
         )
         return tuple(runs), pending is not None
 
