@@ -319,9 +319,11 @@ thread as a developer message, so once the plugin's recall adds context to a thr
 request and every later request in the thread with HTTP 422, even in a non-enforcing mode. The gateway returns HTTP
 503 `gate_paused`, and the turn fails before the model receives it.
 
-Keep the plugin defaults where Codex calls its model directly or signs in with a subscription account, because the
-gateway does not carry that traffic. To route Codex through the gateway, configure Core, Codex, the plugin, and the
-gateway as follows.
+Keep the plugin defaults where Codex calls its model directly, because the gateway does not carry that traffic. With a
+ChatGPT subscription, the gateway can reuse the Codex CLI sign-in through an
+[OAuth subscription](../operate/deploy-server.md#gateway-oauth-subscriptions) (`PC_GATEWAY_SUBSCRIPTION=codex`) while
+Codex points at the gateway. To route Codex through the gateway, configure Core, Codex, the plugin, and the gateway as
+follows.
 
 ### Run Core in a non-enforcing mode
 

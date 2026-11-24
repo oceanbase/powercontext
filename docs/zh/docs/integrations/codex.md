@@ -274,8 +274,9 @@ Codex 把插件准备的上下文作为 developer 消息加入 thread，因此�
 处于非 enforcing 模式，这个请求以及该 thread 之后的每个请求的检查都会被 Core 以 HTTP 422 拒绝。gateway 返回
 HTTP 503 `gate_paused`，这一轮在模型收到请求前失败。
 
-Codex 直接调用模型或使用订阅账号登录时，gateway 不承载这些流量，请保留插件的默认值。要让 Codex 经过 gateway，
-按下面的步骤配置 Core、Codex、插件和 gateway。
+Codex 直接调用模型时，gateway 不承载这些流量，请保留插件的默认值。使用 ChatGPT 订阅时，可以让 gateway 通过
+[OAuth 订阅](../operate/deploy-server.md#网关-oauth-订阅)（`PC_GATEWAY_SUBSCRIPTION=codex`）复用 Codex CLI 的登录，Codex 本身指向 gateway。
+要让 Codex 经过 gateway，按下面的步骤配置 Core、Codex、插件和 gateway。
 
 ### 让 Core 运行在非 enforcing 模式
 
