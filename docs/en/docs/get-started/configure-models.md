@@ -44,6 +44,17 @@ Its dimension must match an output size the selected model supports. The Embeddi
 of model, dimension, and vector conventions; it is not another API key. For a new database, you can use the suggested ID.
 With existing vectors, preserve their model/Profile/dimension relationship rather than changing it to suppress an error.
 
+## Add generation models to an initialized deployment
+
+A deployment that first started without models keeps its Scopes, Sources, and Memories when you add Generation later.
+The Server adopts the new capabilities through one offline Processing configuration switch. Until the switch runs,
+startup refuses with `incompatible_processing_configuration` instead of changing the recorded declaration on its own.
+Back up the database and stop the old Server, Workers, and writes, then follow
+[Artifact processing migration](../operate/artifact-processing-migration.md): inspect the read-only plan with
+`powercontext server processing-migrate --action plan`, run `apply` and `verify` with a new migration ID, and start the
+new configuration only after verification returns `ready: true`. A deployment that stays model-free keeps its recorded
+declaration unchanged.
+
 ## Use an existing subscription
 
 The Server can generate Memory, Experience, and Profile with a subscription you already have instead of a Generation

@@ -40,6 +40,15 @@ Embedding 连接可以与 Generation 共用地址和凭据，但通常使用不�
 向量维度必须是所选 Embedding 模型实际支持的输出维度。Embedding Profile ID 是标识这套模型、维度和向量约定的名称，
 不是额外 API key。首次使用可接受向导建议；复用已有向量数据时，必须保持其对应关系，不能随意改 ID 或维度来消除报错。
 
+## 向已初始化的部署添加生成模型
+
+首次启动时未配置模型的部署，在后续添加 Generation 时会保留其 Scope、Source 和 Memory。Server 通过一次离线的
+Processing 配置切换来采纳新能力。在切换完成之前，启动会以 `incompatible_processing_configuration` 拒绝启动，
+而不是自行修改已记录的声明。备份数据库并停止旧 Server、Worker 和写入，然后按照
+[后台处理状态迁移](../operate/artifact-processing-migration.md)：先用
+`powercontext server processing-migrate --action plan` 查看只读计划，再用新的 migration ID 执行 `apply` 和
+`verify`，仅在验证返回 `ready: true` 后启动新配置。保持无模型配置的部署不受影响，其已记录的声明不会改变。
+
 ## 使用已有订阅
 
 Server 可以用你已有的订阅代替 Generation API key，生成 Memory、Experience 和 Profile。支持 Codex CLI、Claude Code、
