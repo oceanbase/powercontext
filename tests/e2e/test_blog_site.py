@@ -111,12 +111,12 @@ def test_exported_blog_and_original_pages() -> None:
                         assert f"@{handle}</span>" in re.sub(r"<!--.*?-->", "", page)
                 assert "GitHub user:" not in article
                 assert "GitHub 用户" not in article
-        for route in ("index.html", "docs/index.html", "benchmarks/index.html", "changelog/index.html"):
+        for route in ("index.html", "docs/index.html", "benchmarks/index.html", "docs/changelog/index.html"):
             document = (output / route).read_text(encoding="utf-8")
             assert re.search(rf'href="/{language}/blog/?"', document)
             markup = re.sub(r"<script\b[^>]*>[\s\S]*?</script>", "", document)
             assert "blog-module" not in markup
-            for name in ("docs", "benchmarks", "changelog"):
+            for name in ("docs", "benchmarks", "docs/changelog"):
                 assert re.search(rf'href="/{language}/{name}/?"', markup)
 
 

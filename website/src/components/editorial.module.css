@@ -200,6 +200,20 @@
   text-wrap: pretty;
 }
 
+/* Authors, then date and category, on one line above a featured title. */
+.metaRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem 0.5rem;
+}
+
+.metaRow > :is(.authors, .avatarGroup) + .dateline::before {
+  content: '·';
+  margin-right: 0.5rem;
+  color: var(--faint);
+}
+
 /* Rows ------------------------------------------------------------------------ */
 
 .list {
@@ -224,6 +238,14 @@
 
   .row[data-thumb] {
     grid-template-columns: 10rem minmax(0, 1fr) 11rem;
+  }
+
+  .row[data-inline] {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .row[data-inline][data-thumb] {
+    grid-template-columns: minmax(0, 1fr) 11rem;
   }
 }
 
@@ -829,44 +851,4 @@ html:lang(zh) .prose > :is(h2, h3, h4) {
 
 .authorCard .socials {
   margin-top: 0.25rem;
-}
-
-/* Release notes --------------------------------------------------------------- */
-
-.version {
-  color: var(--foreground);
-  font-family: var(--font-mono);
-  font-size: 0.8125rem;
-  font-weight: 500;
-}
-
-.changes {
-  display: grid;
-  gap: 0.75rem;
-  padding-left: 1.25em;
-  list-style: disc;
-  color: var(--foreground);
-  line-height: 1.6;
-}
-
-.changes li::marker {
-  color: var(--faint);
-}
-
-.links {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-  margin-top: 0.5rem;
-}
-
-.command {
-  overflow-x: auto;
-  padding: 1rem 1.25rem;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-xl);
-  background-color: var(--card);
-  font-family: var(--font-mono);
-  font-size: 0.8125rem;
-  line-height: 1.7;
 }

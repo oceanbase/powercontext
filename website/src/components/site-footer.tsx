@@ -67,7 +67,7 @@ export function SiteFooter({ lang }: { lang: Language }) {
           links: [
             { label: text.docs, href: `/${lang}/docs` },
             { label: text.benchmarks, href: `/${lang}/benchmarks` },
-            { label: text.changelog, href: `/${lang}/changelog` },
+            { label: text.changelog, href: `/${lang}/docs/changelog` },
           ],
         },
         {

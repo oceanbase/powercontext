@@ -41,10 +41,14 @@ function getDocumentationTree(lang: string): Root {
   );
 
   if (!documentation || documentation.type !== 'folder') return tree;
-  const children = [
+  const children: Root['children'] = [
     { type: 'separator' as const, name: lang === 'zh' ? '产品' : 'Product' },
     ...documentation.children,
   ];
+  // Releases close the product docs, before the reference sections.
+  const productEnd = children.findIndex((node, index) => index > 0 && node.type === 'separator');
+  children.splice(productEnd === -1 ? children.length : productEnd, 0,
+    { type: 'page', name: lang === 'zh' ? '更新日志' : 'Changelog', url: `/${lang}/docs/changelog` });
   const developerChildren = [rfcs, development].filter((node): node is Folder => node?.type === 'folder');
   if (developerChildren.length > 0) {
     const apiReferenceIndex = children.findIndex((node, index) => index > 0 && node.type === 'separator');

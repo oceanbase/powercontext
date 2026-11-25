@@ -421,3 +421,97 @@ figure.shiki button:active,
     transition: none;
   }
 }
+
+/* Changelog ---------------------------------------------------------------- */
+
+/*
+ * Releases grouped under month headings, each opening with its date and a
+ * name whose version is set quieter than the product, like a release tag.
+ */
+.pc-changelog > section + section {
+  margin-top: 3.5rem;
+}
+
+.pc-changelog .pc-release {
+  margin-top: 2.5rem;
+  scroll-margin-top: 6rem;
+}
+
+.pc-changelog .pc-release + .pc-release {
+  padding-top: 2.5rem;
+  border-top: 1px solid var(--border);
+}
+
+.pc-changelog .pc-release-date {
+  display: block;
+  color: var(--muted-foreground);
+  font-size: 0.875rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.pc-changelog .pc-release > h3 {
+  margin-top: 0.25rem;
+  font-family: var(--font-display);
+  font-size: clamp(1.5rem, 1.3rem + 0.6vw, 1.875rem);
+  font-weight: 400;
+  letter-spacing: -0.015em;
+}
+
+.pc-changelog .pc-release-version {
+  color: var(--faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.pc-changelog .pc-release figure {
+  margin-block: 1.25rem 0;
+}
+
+/* Details read as a quiet text disclosure in the article flow, not a card. */
+.pc-changelog .pc-release-details {
+  margin-top: 1.25rem;
+}
+
+.pc-changelog .pc-release-details > summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  color: var(--muted-foreground);
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  list-style: none;
+  border-radius: var(--radius-sm, 0.25rem);
+  transition: color 150ms ease;
+}
+
+.pc-changelog .pc-release-details > summary::-webkit-details-marker {
+  display: none;
+}
+
+.pc-changelog .pc-release-details > summary:hover {
+  color: var(--foreground);
+}
+
+.pc-changelog .pc-release-details > summary:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+.pc-changelog .pc-release-chevron {
+  width: 1rem;
+  height: 1rem;
+  transition: transform 150ms ease;
+}
+
+.pc-changelog .pc-release-details[open] .pc-release-chevron {
+  transform: rotate(90deg);
+}
+
+.pc-changelog .pc-release-details > ul {
+  margin-top: 0.75rem;
+}
+
+.pc-changelog .pc-release-title {
+  margin-top: 0.5rem;
+  font-weight: 500;
+}

@@ -16,6 +16,7 @@
 
 import { access, mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import { releaseAnchor, releases } from '../src/lib/releases';
 import { absoluteSiteUrl, withBasePath } from '../src/lib/urls';
 
 const redirects: Record<string, string> = JSON.parse(await readFile('docs-redirects.json', 'utf8'));
@@ -34,6 +35,30 @@ for (const locale of ['en', 'zh']) {
 <link rel="canonical" href="${absoluteSiteUrl(route)}">
 <meta name="robots" content="noindex"><title>PowerContext</title></head>
 <body><a href="${target}">PowerContext documentation</a></body></html>
+`);
+  }
+}
+
+// The changelog moved into the documentation; each old release page points at its entry.
+for (const locale of ['en', 'zh']) {
+  const route = `/${locale}/docs/changelog/`;
+  await access(path.join('out', locale, 'docs', 'changelog', 'index.html'));
+  const pages = [
+    { directory: path.join('out', locale, 'changelog'), hash: '' },
+    ...releases.map((release) => ({
+      directory: path.join('out', locale, 'changelog', release.version),
+      hash: `#${releaseAnchor(release.version)}`,
+    })),
+  ];
+  for (const page of pages) {
+    const target = withBasePath(route) + page.hash;
+    await mkdir(page.directory, { recursive: true });
+    await writeFile(path.join(page.directory, 'index.html'), `<!doctype html>
+<html lang="${locale}"><head><meta charset="utf-8">
+<meta http-equiv="refresh" content="0;url=${target}">
+<link rel="canonical" href="${absoluteSiteUrl(route)}">
+<meta name="robots" content="noindex"><title>PowerContext</title></head>
+<body><a href="${target}">PowerContext changelog</a></body></html>
 `);
   }
 }

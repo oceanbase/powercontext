@@ -26,6 +26,9 @@ export interface Release {
   githubUrl: string;
 }
 
+/** A release's anchor on the changelog page, such as `v1-5-2`. */
+export const releaseAnchor = (version: string) => version.replaceAll('.', '-');
+
 // Only stable releases belong here; publish pre-release notes on GitHub Releases.
 export const releases: Release[] = [
   {

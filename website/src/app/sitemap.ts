@@ -37,9 +37,8 @@ export default function sitemap(): MetadataRoute.Sitemap {
   for (const lang of languages) {
     add(`/${lang}/`);
     add(`/${lang}/benchmarks/`);
-    add(`/${lang}/changelog/`);
+    add(`/${lang}/docs/changelog/`, releases[0]?.date);
     add(`/${lang}/modules/`);
-    for (const release of releases) add(`/${lang}/changelog/${release.version}/`, release.date);
     for (const page of source.getPages(lang)) add(page.url);
     for (const page of getPythonSource(lang).getPages()) add(page.url);
     for (const slug of blogRoutes(lang)) {
