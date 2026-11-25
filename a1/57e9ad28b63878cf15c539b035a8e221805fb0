@@ -1,0 +1,27 @@
+.github/workflows/e2e-harness.yml
+  s_2ef0feea0a110d::t_21f6d624117d68 804-809
+e2e/bub/compose.yaml
+  s_2ef0feea0a110d::t_21f6d624117d68 75,77-79
+e2e/bub/tests/test_harbor_job_config.py
+  s_2ef0feea0a110d::t_21f6d624117d68 37,85-93,574,589-592,595-599,610-611,635-640,645,648-657,661-738
+  s_2ef0feea0a110d::t_c32c4a1f8f4254 739-740
+e2e/bub/src/powercontext_e2e/harbor_agent.py
+  s_2ef0feea0a110d::t_21f6d624117d68 24,60,115-125,173-174,177-178,189,210-212
+  s_2ef0feea0a110d::t_d9c89625df379c 213-214
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "a157e9ad28b63878cf15c539b035a8e221805fb0",
+  "prompts": {},
+  "sessions": {
+    "s_2ef0feea0a110d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1a9cf-a4e7-7f63-9c51-1284f7c332e8",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "frf12 <rongfeng.frf@antgroup.com>"
+    }
+  }
+}
