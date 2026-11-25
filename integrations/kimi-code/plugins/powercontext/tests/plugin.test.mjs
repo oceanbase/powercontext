@@ -121,7 +121,8 @@ async function fixture(t, overrides = {}, settings = {}, listenHost = '127.0.0.1
     child.stdin.end(JSON.stringify(input))
     const code = await new Promise(resolve => child.on('exit', resolve))
     assert.equal(code, 0, stderr)
-    return { output: JSON.parse(stdout), stderr }
+    // No stdout is no hook result; Kimi would add even `{}` to the conversation.
+    return { output: stdout ? JSON.parse(stdout) : {}, stdout, stderr }
   }
   async function status(session = 'session-test', cwd = workspace) {
     const args = [join(installed, 'scripts/status.mjs'), '--cwd', cwd]
@@ -274,8 +275,8 @@ test('an accepted write with a lost reply stays unknown without automatic retry'
 test('timeouts fail open within the automatic budget', async t => {
   const f = await fixture(t, { '/v1/scope-bindings/resolve': () => {} })
   const started = Date.now()
-  const { output, stderr } = await f.invoke()
-  assert.deepEqual(output, {})
+  const { stdout, stderr } = await f.invoke()
+  assert.equal(stdout, '')
   assert.match(stderr, /server_unavailable/)
   assert.ok(Date.now() - started < hookTimeoutMs)
 })
@@ -590,7 +591,7 @@ test('a confirmed binding survives later resolution failure and failed resolutio
   assert.equal(result.binding.scope_id, 'scope-saved')
   assert.equal(result.status, 'failed')
   const hook = await f.invoke()
-  assert.deepEqual(hook.output, {})
+  assert.equal(hook.stdout, '')
   assert.deepEqual(f.captures, [])
   assert.ok(f.requests.every(item => !['/v1/context/prepare', '/v1/sources/content'].includes(item.path)))
   const history = await f.status()

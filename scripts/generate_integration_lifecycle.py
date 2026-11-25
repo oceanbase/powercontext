@@ -64,7 +64,13 @@ COPIES = {
         f"{_LANGGRAPH}/_prepared_context.py",
         f"{_PYDANTIC_AI}/_prepared_context.py",
     ),
-    "prompt_privacy.py": (f"{_WORKBUDDY}/hooks/prompt_privacy.py",),
+    "prompt_privacy.py": (
+        f"{_HERMES}/prompt_privacy.py",
+        f"{_WORKBUDDY}/hooks/prompt_privacy.py",
+        f"{_LANGCHAIN}/_prompt_privacy.py",
+        f"{_LANGGRAPH}/_prompt_privacy.py",
+        f"{_PYDANTIC_AI}/_prompt_privacy.py",
+    ),
 }
 # Each copy sits at the path its plugin imports.
 TYPESCRIPT_COPIES = {

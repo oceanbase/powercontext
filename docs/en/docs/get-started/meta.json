@@ -2,6 +2,7 @@
   "title": "Get started",
   "pages": [
     "quickstart",
+    "agent-install",
     "manual-start",
     "install-and-run",
     "configure-server-environment",

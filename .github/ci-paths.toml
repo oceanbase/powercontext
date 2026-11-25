@@ -38,6 +38,7 @@ tests = [
   "scripts/check_atomic_memory_migration_shards.py",
   "scripts/oceanbase_ci.py", ".github/oceanbase-migration-durations.json",
   "scripts/ci_role_smoke.py", "scripts/ci_installation_roles.py",
+  ".github/workflows/gateway-distribution.yml", "scripts/gateway_distribution.py",
   # Release tooling is covered by unit tests; the packaging and publication workflows are manual.
   ".github/workflows/desktop-candidate.yml", "scripts/desktop_candidate.py",
   ".github/workflows/desktop-release.yml", "scripts/desktop_publication_manifest.py",

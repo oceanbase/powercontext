@@ -2,6 +2,8 @@
 
 The optional Rust Gateway adds PowerContext recall and conversation capture to OpenAI-compatible model traffic. PowerContext Core decides whether a request may be sent and whether its response may be released. See [RFC 2199](../docs/en/rfcs/2199-powercontext-gateway.md) for the design.
 
+The Gateway is a stable optional component in PowerContext 1.6.0. Its opt-in prefix extraction can reduce uncached input cost for memory generation by reusing the Agent conversation cache. Actual savings depend on provider cache hits and the size of the retained prefix; see the [release notes](../release/notes/powercontext-v1.6.0.md) for configuration and compatibility.
+
 ## Model traffic
 
 The Gateway serves `/gateway/v1/chat/completions` and `/gateway/v1/responses`. It checks the final request with Core before sending it, then buffers the response and checks it before releasing content. Clients requesting a stream receive buffered replay after approval, rather than live token delivery. Upstream error statuses are preserved.
@@ -20,11 +22,33 @@ Use `X-PowerContext-Conversation-ID` to identify a conversation. The Gateway als
 
 Set `PC_GATEWAY_SEDIMENT=on` to capture completed user turns as Sources for later extraction. Capture excludes injected context and provider reasoning ciphertext. Tool continuations remain open until the final response. Long turns are split into Sources, and Core stores all parts in one batch. With a trusted conversation ID, captures share a turn digest and include a digest of the ordered normalized Source parts in their Source IDs. Distinct terminal records are stored independently; identical normalized parts are idempotent even when provider response IDs or usage change. Existing Sources remain unchanged, and a repeated capture under the former turn-only ID creates a new Source. Capture requires a Core that supports batch capture. Capture failure does not prevent response delivery. Blocked and degraded turns are not captured.
 
-For a Responses upstream configured without a subscription, `PC_GATEWAY_PREFIX_EXTRACTION=on` lets Core reuse the provider's cached prefix for memory extraction. Subscription traffic uses normal extraction. See [prefix extraction settings](../docs/en/docs/operate/deploy-server.md#memory-extraction-over-the-cached-prefix).
+When Core allows a Chat Completions stream, capture assembles the primary choice's text from its deltas and requires a terminal finish reason. The client receives the original SSE body.
+
+For a supported Responses upstream, prefix extraction is enabled by default; `PC_GATEWAY_PREFIX_EXTRACTION=off` disables it. With a subscription this applies to `codex` only, on a Core confirmed as non-enforcing; the extraction requests use the subscription account. Traffic of the other subscriptions uses normal extraction. Capture remains opt-in. Core also needs its gateway callback URL and generation model configured. With that URL configured, the Server defaults to `one_pass` unless a processing mode was explicitly supplied; `POWERCONTEXT_SERVER_RUNTIME_ATOMIC_MEMORY_PROCESSING_MODE=per_candidate` retains the previous mode. Both processing modes can reuse an eligible agent prefix when estimated cheaper, with normal extraction as the fallback. See [prefix extraction settings](../docs/en/docs/operate/deploy-server.md#memory-extraction-over-the-cached-prefix).
+
+## Steering
+
+Responses requests include the [built-in cost guidance](crates/pc-gateway-app/src/default_steering.txt) by default. Set `PC_GATEWAY_STEERING_FILE` to replace it, or `PC_GATEWAY_STEERING=off` to disable steering even when a file is configured. Chat requests are unchanged. Both `PC_GATEWAY_STEERING` and `PC_GATEWAY_PREFIX_EXTRACTION` accept only `on` or `off` when set. See [instruction settings](../docs/en/docs/operate/deploy-server.md#gateway-instruction).
+
+### Replay epoch correlation module
+
+`pc_gateway_core::replay_epoch` provides a bounded, memory-only replay epoch correlation store supporting establishment,
+continuation, recovery, and closure. It is not wired into production model ingress or the Executor; recovery restores
+correlation only, not an answer or permission to regenerate a model response.
+Closed or expired records remain charged against entry and byte limits until explicit cleanup. The store owner must
+drive `cleanup`; the module starts no background task, and `establish` does not reclaim records implicitly.
+
+Run the no-model host simulation:
+
+```bash
+cargo run --locked --manifest-path gateway/Cargo.toml -p pc-gateway-core --example replay_epoch_host
+```
 
 ## Run
 
-From the repository root, build the executable:
+Download the matching native archive from the [PowerContext Release](https://github.com/oceanbase/powercontext/releases) and verify its SHA256 before installation. Linux (glibc 2.28+) and macOS 15+ archives cover x86_64 and arm64; macOS archives are unsigned and not notarized. Core and provider CLI requirements apply separately from the Gateway's platform baseline. See [Install the Gateway](../docs/en/docs/operate/install-gateway.md) / [安装 Gateway](../docs/zh/docs/operate/install-gateway.md) for commands, Core configuration, compatibility checks and upgrade steps. `pc-gateway --version` reports release version, source commit and target without connecting to Core. Python packages do not include this executable.
+
+If the selected Release has no Gateway archive, build from its source tag. From the repository root:
 
 ```bash
 cargo build --locked --manifest-path gateway/Cargo.toml --release

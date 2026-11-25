@@ -292,6 +292,17 @@ async def _search_notes(api, request, ctx, *, default_scope):
         ctx["errors"]["notes"] = ReadError.from_exception(error)
 
 
+async def _load_topic_processing(api, ctx):
+    try:
+        async with asyncio.timeout(2):
+            status = await api.project(ctx["scope"], "topic_memory_processing_status")
+    except Exception as error:
+        ctx["errors"]["topic_processing"] = ReadError.from_exception(error)
+    else:
+        # Adopt the projection only after its transaction and audit have completed.
+        ctx["data"]["topic_processing"] = status
+
+
 async def load_builtin_page(api, request, ctx) -> bool:  # noqa: C901 - Keep the page lifecycle explicit.
     """Return whether the page used the built-in snapshot instead of public reads."""
     runtime = api.builtin
@@ -318,6 +329,8 @@ async def load_builtin_page(api, request, ctx) -> bool:  # noqa: C901 - Keep the
             await load_review(api, request, ctx)
         else:
             await load_content(api, request, ctx)
+            if ctx["page"] == "topics" and not ctx["record_only"] and not ctx["topic_artifact"]:
+                await _load_topic_processing(api, ctx)
             if ctx["page"] == "handoff-detail" and ctx["data"]["handoff"]:
                 from powercontext.artifacts import ArtifactRef
 
