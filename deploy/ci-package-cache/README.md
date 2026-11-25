@@ -37,6 +37,12 @@ fallback owned by the same fill operation. Python package metadata uses the
 official Simple index first and Aliyun as fallback, so a successful but stale
 mirror index does not hide a newly released version. File links still use the
 shared cache and prefer Aliyun for the large distribution files.
+Mutable indexes retain their upstream ETag or Last-Modified validator. Later
+requests revalidate them, reuse the stored body on HTTP 304, and replace it on
+HTTP 200; concurrent requests share an in-flight validation. There is no TTL
+that hides a new index version, and unchanged large indexes are not repeatedly
+transferred from upstream. Validators belong to the exact upstream that issued
+them; fallback does not reuse another origin's validator.
 Incomplete transfers are not published. The guarantee applies while the
 object remains in this persistent store; deleting the store requires new fills.
 

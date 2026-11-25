@@ -356,3 +356,130 @@ def test_new_release_uses_authoritative_index_and_mirror_package_bytes(service_m
             assert b'data-requires-python=">=3.11"' in body
             assert get(endpoint + "/pypi/packages/pkg-2.whl")[:2] == (200, b"new wheel bytes")
     assert origin.counts == {"/official/simple/pkg/": 1, "/mirror/packages/pkg-2.whl": 1}
+
+
+@pytest.mark.parametrize(
+    ("validator", "conditional", "initial", "changed"),
+    [
+        ("ETag", "If-None-Match", '"release-1"', '"release-2"'),
+        ("Last-Modified", "If-Modified-Since", "Mon, 23 Nov 2026 00:00:00 GMT", "Tue, 24 Nov 2026 00:00:00 GMT"),
+    ],
+)
+def test_index_revalidation_survives_restart_and_new_release_refreshes(
+    service_module, tmp_path, validator, conditional, initial, changed
+):
+    origin = Origin()
+    current = [initial, b"<html>release one</html>"]
+    transfers = []
+
+    def index():
+        if origin.headers["/primary/simple/pkg/"].get(conditional) == current[0]:
+            transfers.append(0)
+            return 304, b"", {validator: current[0]}
+        transfers.append(len(current[1]))
+        return 200, current[1], {validator: current[0]}
+
+    origin.responses["/primary/simple/pkg/"] = index
+    with serving(origin.server()) as upstream:
+        with serving(make_service(service_module, tmp_path, upstream)) as endpoint:
+            assert get(endpoint + "/pypi/simple/pkg/")[:2] == (200, current[1])
+        with serving(make_service(service_module, tmp_path, upstream)) as endpoint:
+            assert get(endpoint + "/pypi/simple/pkg/")[:2] == (200, current[1])
+            assert transfers == [len(current[1]), 0]
+            current[:] = changed, b"<html>newly published release</html>"
+            assert get(endpoint + "/pypi/simple/pkg/")[:2] == (200, current[1])
+            assert transfers[-1] == len(current[1])
+
+
+def test_concurrent_index_requests_share_one_validation_but_later_request_revalidates(service_module, tmp_path):
+    origin = Origin()
+    path = "/primary/simple/pkg/"
+    body = b"<html>release one</html>"
+    origin.responses[path] = 200, body, {"ETag": '"one"'}
+    started, release, waiting = threading.Event(), threading.Event(), threading.Event()
+    waits = []
+
+    def observe(event):
+        if event["event"] == "wait":
+            waits.append(event)
+            if len(waits) == 3:
+                waiting.set()
+
+    def validate():
+        started.set()
+        assert release.wait(5)
+        assert origin.headers[path].get("If-None-Match") == '"one"'
+        return 304, b"", {}
+
+    with serving(origin.server()) as upstream:
+        server = make_service(service_module, tmp_path, upstream)
+        server.cache.log = observe
+        with serving(server) as endpoint, ThreadPoolExecutor(max_workers=4) as pool:
+            url = endpoint + "/pypi/simple/pkg/"
+            assert get(url)[:2] == (200, body)
+            origin.responses[path] = validate
+            first = pool.submit(get, url)
+            assert started.wait(5)
+            rest = [pool.submit(get, url) for _ in range(3)]
+            try:
+                assert waiting.wait(5)
+            finally:
+                release.set()
+            assert [result.result()[:2] for result in [first, *rest]] == [(200, body)] * 4
+            assert origin.counts[path] == 2
+            assert get(url)[:2] == (200, body)
+            assert origin.counts[path] == 3
+
+
+def test_index_fallback_validators_never_cross_origins(service_module, tmp_path):
+    origin = Origin()
+    primary, fallback = "/primary/simple/pkg/", "/fallback/simple/pkg/"
+    origin.responses[primary] = 503, b"unavailable", {}
+    origin.responses[fallback] = 200, b"<html>mirror</html>", {"ETag": '"mirror"'}
+    with serving(origin.server()) as upstream, serving(make_service(service_module, tmp_path, upstream)) as endpoint:
+        url = endpoint + "/pypi/simple/pkg/"
+        assert get(url)[:2] == (200, b"<html>mirror</html>")
+        origin.responses[primary] = 200, b"<html>official</html>", {"ETag": '"official"'}
+        assert get(url)[:2] == (200, b"<html>official</html>")
+        assert "If-None-Match" not in origin.headers[primary]
+        origin.responses[primary] = 503, b"unavailable", {}
+        assert get(url)[:2] == (200, b"<html>mirror</html>")
+        assert origin.headers[primary].get("If-None-Match") == '"official"'
+        assert "If-None-Match" not in origin.headers[fallback]
+        origin.responses[fallback] = 304, b"", {}
+        assert get(url)[:2] == (200, b"<html>mirror</html>")
+        assert "If-None-Match" not in origin.headers[primary]
+        assert origin.headers[fallback].get("If-None-Match") == '"mirror"'
+
+
+def test_failed_index_validation_preserves_last_good_validators_without_serving_stale_data(service_module, tmp_path):
+    origin = Origin()
+    primary, fallback = "/primary/simple/pkg/", "/fallback/simple/pkg/"
+    body = b"<html>known release</html>"
+    origin.responses[primary] = 200, body, {"ETag": '"known"'}
+    with serving(origin.server()) as upstream, serving(make_service(service_module, tmp_path, upstream)) as endpoint:
+        url = endpoint + "/pypi/simple/pkg/"
+        assert get(url)[:2] == (200, body)
+        origin.responses[primary] = 503, b"unavailable", {}
+        origin.responses[fallback] = 503, b"unavailable", {}
+        assert get(url)[0] == 502
+        origin.responses[primary] = 304, b"", {}
+        assert get(url)[:2] == (200, body)
+        assert origin.headers[primary].get("If-None-Match") == '"known"'
+
+
+def test_index_snapshot_remains_stable_during_a_later_refresh(service_module, tmp_path):
+    origin = Origin()
+    path = "/primary/simple/pkg/"
+    origin.responses[path] = 200, b"<html>old release</html>", {"ETag": '"old"'}
+    with serving(origin.server()) as upstream, make_service(service_module, tmp_path, upstream) as server:
+        cache = server.cache
+        first = cache.get("/pypi/simple/pkg/")
+        origin.responses[path] = 200, b"<html>new release with more bytes</html>", {"ETag": '"new"'}
+        second = cache.get("/pypi/simple/pkg/")
+        try:
+            assert first.path.read_bytes() == b"<html>old release</html>"
+            assert second.path.read_bytes() == b"<html>new release with more bytes</html>"
+        finally:
+            first.path.unlink()
+            second.path.unlink()

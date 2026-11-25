@@ -30,7 +30,7 @@ import tempfile
 import threading
 import time
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from html.parser import HTMLParser
 from http.client import HTTPException
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -70,6 +70,10 @@ class Resource:
     content_type: str
     immutable: bool
     digest: str
+    upstream: str = ""
+    origin_etag: str = ""
+    last_modified: str = ""
+    validated_at: int = 0
 
 
 class IndexLinks(HTMLParser):
@@ -190,7 +194,72 @@ class PackageCache:
                     ))
         return href
 
-    def download(self, route: str, kind: str, suffix: str, target: Path) -> Resource:
+    def fetch(self, kind: str, url: str, target: Path, previous: Resource | None) -> tuple[Resource, int, int]:
+        headers = {"Accept": "text/html" if kind == "pypi-simple" else "*/*", "Accept-Encoding": "identity"}
+        conditional = previous is not None and previous.upstream == url
+        if conditional and previous is not None:
+            if previous.origin_etag:
+                headers["If-None-Match"] = previous.origin_etag
+            if previous.last_modified:
+                headers["If-Modified-Since"] = previous.last_modified
+        request = Request(url, headers=headers)  # noqa: S310 - deployment-owned HTTP(S) package origins
+        try:
+            response = urlopen(request, timeout=self.timeout)  # noqa: S310
+        except HTTPError as error:
+            if error.code == 304 and conditional and previous is not None:
+                with error:
+                    return (
+                        replace(
+                            previous,
+                            origin_etag=error.headers.get("ETag", previous.origin_etag),
+                            last_modified=error.headers.get("Last-Modified", previous.last_modified),
+                        ),
+                        0,
+                        304,
+                    )
+            error.close()
+            raise
+        with response, target.open("wb") as output:
+            if response.status != 200:
+                message = "Incomplete origin response"
+                raise OSError(message)
+            expected = response.headers.get("Content-Length")
+            size = 0
+            digest = hashlib.sha256()
+            while chunk := response.read(1024 * 1024):
+                output.write(chunk)
+                digest.update(chunk)
+                size += len(chunk)
+            if expected is not None and size != int(expected):
+                message = "Truncated origin response"
+                raise OSError(message)
+            content_type = response.headers.get("Content-Type", "application/octet-stream")
+            final_url = response.url
+            output.flush()
+            os.fsync(output.fileno())
+        if kind == "pypi-simple":
+            parser = IndexLinks(lambda href: self.rewrite_link(href, final_url))
+            parser.feed(target.read_text(encoding="utf-8"))
+            parser.close()
+            body = "".join(parser.parts).encode()
+            target.write_bytes(body)
+            digest = hashlib.sha256(body)
+            content_type = "text/html; charset=utf-8"
+        return (
+            Resource(
+                target,
+                content_type,
+                False,
+                digest.hexdigest(),
+                upstream=url,
+                origin_etag=response.headers.get("ETag", ""),
+                last_modified=response.headers.get("Last-Modified", ""),
+            ),
+            size,
+            200,
+        )
+
+    def download(self, route: str, kind: str, suffix: str, target: Path, previous: Resource | None = None) -> Resource:
         statuses = []
         for position, base in enumerate(self.origins[kind]):
             source = "primary" if position == 0 else "fallback"
@@ -198,60 +267,57 @@ class PackageCache:
             if position:
                 self.event("fallback", route, source=source)
             try:
-                request = Request(  # noqa: S310 - deployment-owned HTTP(S) package origins
-                    urljoin(base, suffix.lstrip("/")),
-                    headers={"Accept": "text/html" if kind == "pypi-simple" else "*/*", "Accept-Encoding": "identity"},
-                )
-                with urlopen(request, timeout=self.timeout) as response, target.open("wb") as output:  # noqa: S310
-                    if response.status != 200:
-                        message = "Incomplete origin response"
-                        raise OSError(message)  # noqa: TRY301 - both origins share this transfer validation
-                    expected = response.headers.get("Content-Length")
-                    size = 0
-                    digest = hashlib.sha256()
-                    while chunk := response.read(1024 * 1024):
-                        output.write(chunk)
-                        digest.update(chunk)
-                        size += len(chunk)
-                    if expected is not None and size != int(expected):
-                        message = "Truncated origin response"
-                        raise OSError(message)  # noqa: TRY301 - both origins share this transfer validation
-                    content_type = response.headers.get("Content-Type", "application/octet-stream")
-                    final_url = response.url
-                    output.flush()
-                    os.fsync(output.fileno())
-                if kind == "pypi-simple":
-                    parser = IndexLinks(lambda href, base=final_url: self.rewrite_link(href, base))
-                    parser.feed(target.read_text(encoding="utf-8"))
-                    parser.close()
-                    body = "".join(parser.parts).encode()
-                    target.write_bytes(body)
-                    digest = hashlib.sha256(body)
-                    content_type = "text/html; charset=utf-8"
-                self.event(
-                    "origin_fetch",
-                    route,
-                    object_key=hashlib.sha256((kind + ":" + suffix).encode()).hexdigest(),
-                    source=source,
-                    bytes=size,
-                    duration_ms=round((time.monotonic() - started) * 1000),
-                )
-                return Resource(target, content_type, False, digest.hexdigest())
+                resource, size, status = self.fetch(kind, urljoin(base, suffix.lstrip("/")), target, previous)
             except (OSError, URLError, HTTPException, ValueError) as error:
                 statuses.append(error.code if isinstance(error, HTTPError) else 502)
                 self.event("origin_error", route, source=source, error_category=type(error).__name__)
                 target.unlink(missing_ok=True)
+            else:
+                self.event(
+                    "origin_revalidate" if status == 304 else "origin_fetch",
+                    route,
+                    object_key=hashlib.sha256((kind + ":" + suffix).encode()).hexdigest(),
+                    kind=kind,
+                    source=source,
+                    bytes=size,
+                    status=status,
+                    duration_ms=round((time.monotonic() - started) * 1000),
+                )
+                return resource
         raise OriginUnavailable(404 if statuses and all(status == 404 for status in statuses) else 502)
 
-    def cached(self, route: str, key: str, target: Path, metadata: Path) -> Resource | None:
+    def cached(self, target: Path, metadata: Path, immutable: bool) -> Resource | None:
         try:
             info = json.loads(metadata.read_text())
             if target.stat().st_size == info["bytes"]:
-                self.event("hit", route, object_key=key, bytes=info["bytes"])
-                return Resource(target, info["content_type"], True, info["sha256"])
+                return Resource(
+                    target,
+                    info["content_type"],
+                    immutable,
+                    info["sha256"],
+                    upstream=info.get("upstream", ""),
+                    origin_etag=info.get("origin_etag", ""),
+                    last_modified=info.get("last_modified", ""),
+                    validated_at=info.get("validated_at", 0),
+                )
         except (OSError, ValueError, KeyError):
             pass
         return None
+
+    def snapshot(self, resource: Resource) -> Resource:
+        if resource.immutable:
+            return resource
+        fd, name = tempfile.mkstemp(prefix="index-", dir=self.directory)
+        os.close(fd)
+        snapshot = Path(name)
+        snapshot.unlink()
+        # Called under the object lock: a later atomic refresh cannot alter this response's inode.
+        os.link(resource.path, snapshot)
+        return replace(resource, path=snapshot)
+
+    def reuse(self, route: str, key: str, resource: Resource) -> Resource:
+        self.event("hit", route, object_key=key, bytes=resource.path.stat().st_size, immutable=resource.immutable)
+        return self.snapshot(resource)
 
     def get(self, route: str) -> Resource:
         kind, suffix, immutable = self.route(route)
@@ -261,20 +327,17 @@ class PackageCache:
         metadata = self.directory / (key + ".json")
         failure = self.directory / (key + ".failure")
 
-        if immutable and (resource := self.cached(route, key, target, metadata)) is not None:
-            return resource
-        if not immutable:
-            fd, name = tempfile.mkstemp(prefix="index-", dir=self.directory)
-            os.close(fd)
-            return self.download(route, kind, suffix, Path(name))
+        if immutable and (resource := self.cached(target, metadata, immutable)) is not None:
+            return self.reuse(route, key, resource)
         with (self.directory / (key + ".lock")).open("a+b") as lock:
             try:
                 fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
             except BlockingIOError:
                 self.event("wait", route, object_key=key)
                 fcntl.flock(lock, fcntl.LOCK_EX)
-            if (resource := self.cached(route, key, target, metadata)) is not None:
-                return resource
+            resource = self.cached(target, metadata, immutable)
+            if resource is not None and (immutable or resource.validated_at >= started):
+                return self.reuse(route, key, resource)
             with contextlib.suppress(OSError, ValueError):
                 failed = json.loads(failure.read_text())
                 if failed["at"] >= started:
@@ -283,17 +346,25 @@ class PackageCache:
             os.close(fd)
             temporary = Path(name)
             try:
-                resource = self.download(route, kind, suffix, temporary)
-                os.replace(temporary, target)
+                resource = self.download(route, kind, suffix, temporary, resource)
+                if resource.path == temporary:
+                    os.replace(temporary, target)
+                resource = replace(resource, path=target, immutable=immutable, validated_at=time.time_ns())
                 info = {
+                    "kind": kind,
+                    "immutable": immutable,
                     "content_type": resource.content_type,
                     "sha256": resource.digest,
                     "bytes": target.stat().st_size,
+                    "upstream": resource.upstream,
+                    "origin_etag": resource.origin_etag,
+                    "last_modified": resource.last_modified,
+                    "validated_at": resource.validated_at,
                 }
                 temporary.write_text(json.dumps(info))
                 os.replace(temporary, metadata)
                 failure.unlink(missing_ok=True)
-                return Resource(target, resource.content_type, True, resource.digest)
+                return self.snapshot(resource)
             except OriginUnavailable as error:
                 temporary.write_text(json.dumps({"at": time.time_ns(), "status": error.status}))
                 os.replace(temporary, failure)
