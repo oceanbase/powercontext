@@ -92,31 +92,29 @@ flush。
 
 ## 把提示词时上下文交给 gateway
 
-Pi 的模型请求经过 PowerContext gateway 时，gateway 为每一轮准备并注入上下文；设置 `PC_GATEWAY_SEDIMENT=on` 后，
-gateway 也会采集这一轮。Core 检查 gateway 转发的每个请求，拒绝不是 gateway 注入的 prepared-context 块，即使 Core
-处于非 enforcing 模式也是如此。package 的召回会把这样的块加入 Pi 的 system prompt，因此 Core 以 HTTP 422 拒绝这个
-请求，gateway 返回 HTTP 503 `gate_paused`，这一轮在模型收到请求前失败。
+Pi 的模型请求经过 PowerContext gateway 时，gateway 为每一轮准备并注入上下文；设置 `PC_GATEWAY_SEDIMENT=on` 后，gateway
+也会采集这一轮。Core 检查 gateway 转发的每个请求，拒绝不是 gateway 注入的 prepared-context 块，即使 Core 处于非
+enforcing 模式也是如此。package 的召回会把这样的块加入 Pi 的 system prompt，因此 Core 以 HTTP 422 拒绝这个请求，gateway
+返回 HTTP 503 `gate_paused`，这一轮在模型收到请求前失败。
 
-Pi 直接调用模型时，gateway 不承载这些流量，请保留 package 的默认值。要让 Pi 经过 gateway，按下面的步骤配置 Core、
-Pi、package 和 gateway。
+Pi 直接调用模型时，gateway 不承载这些流量，请保留 package 的默认值。要让 Pi 经过 gateway，按下面的步骤配置 Core、Pi、
+package 和 gateway。
 
 ### 选择 Core 目标
 
-Core 需要为 `PC_GATEWAY_UPSTREAM_PROFILE` 指定的 profile（未设置时为 `default`）配置目标。Pi 发送输出上限
-（`max_output_tokens`，取自模型的 `maxTokens`）、`store: false`，以及（除非 `PI_CACHE_RETENTION=none`）
-`prompt_cache_key`，因此目标满足以下条件时，
-enforcing 模式的 Core 会放行它的请求：
+Core 需要为 `PC_GATEWAY_UPSTREAM_PROFILE` 指定的 profile（未设置时为 `default`）配置目标。Pi
+发送输出上限（`max_output_tokens`，取自模型的 `maxTokens`）、`store: false`，以及（除非 `PI_CACHE_RETENTION=none`）
+`prompt_cache_key`，因此目标满足以下条件时，enforcing 模式的 Core 会放行它的请求：
 
-- 声明 `context_window_tokens`、不小于 Pi 模型 `maxTokens` 的 `max_output_tokens`，以及
-  `validated_utf8_token_bound`；
-- 在 `allowed_cache_retention` 中列出 `provider-default`；Pi 以 `PI_CACHE_RETENTION=long` 运行时还要列出 `24h`。
-  否则 Core 以 `cache_retention_unapproved` 暂缓每个请求；
-- provider 返回的模型名与 `model` 不同时，在 `response_models` 中列出这些名称。否则 Core 以
-  `response_model_mismatch` 暂缓每个响应。
+- 声明 `context_window_tokens`、不小于 Pi 模型 `maxTokens` 的 `max_output_tokens`，以及 `validated_utf8_token_bound`；
+- 在 `allowed_cache_retention` 中列出 `provider-default`；Pi 以 `PI_CACHE_RETENTION=long` 运行时还要列出 `24h`。否则
+  Core 以 `cache_retention_unapproved` 暂缓每个请求；
+- provider 返回的模型名与 `model` 不同时，在 `response_models` 中列出这些名称。否则 Core 以 `response_model_mismatch`
+  暂缓每个响应。
 
-窗口检查把请求的每个 UTF-8 字节计为一个 token。一个会话中 Pi 的第一个请求就超过 60 KB，主要是工具定义和
-system prompt，技能、上下文文件和对话还会让它更大。因此 `context_window_tokens` 过小时，每一轮都会以
-`context_window_exceeded` 被暂缓。例如：
+窗口检查把请求的每个 UTF-8 字节计为一个 token。一个会话中 Pi 的第一个请求就超过 60 KB，主要是工具定义和 system prompt，
+技能、上下文文件和对话还会让它更大。因此 `context_window_tokens` 过小时，每一轮都会以 `context_window_exceeded` 被暂缓。
+例如：
 
 ```bash
 export POWERCONTEXT_SERVER_INFERENCE_PROTECTION='{
@@ -141,8 +139,8 @@ export POWERCONTEXT_SERVER_INFERENCE_PROTECTION='{
 
 ### 让 Pi 指向 gateway
 
-在 `~/.pi/agent/models.json` 中添加指向 gateway `/gateway/v1` 的 provider，设置 `api: "openai-responses"`，并把
-gateway 密钥用作它的 `apiKey`；Pi 会把它作为 bearer token 发送：
+在 `~/.pi/agent/models.json` 中添加指向 gateway `/gateway/v1` 的 provider，设置 `api: "openai-responses"`，并把 gateway
+密钥用作它的 `apiKey`；Pi 会把它作为 bearer token 发送：
 
 ```json
 {
@@ -160,10 +158,11 @@ gateway 密钥用作它的 `apiKey`；Pi 会把它作为 bearer token 发送：
 在启动 Pi 的环境中，把 gateway 的 `PC_GATEWAY_API_KEY` 的值导出为 `PC_GATEWAY_KEY`，然后用 `/model` 或
 `pi --provider powercontext-gateway --model approved-model` 选择这个模型。
 
-请使用 Responses API。Pi 总是流式请求。在 Responses 路由上，gateway 以非流式方式调用模型，再把检查通过的响应以流的
-形式重放给 Pi，因此这一轮能够完成并被采集。在 Chat Completions 路由（`openai-completions`）上，gateway 转发 Pi 的流式请求：
-enforcing 模式的 Core 只对启用 `allow_streaming` 的 `openai-chat` 目标放行它，并在释放前缓冲整个流；gateway 也不采集
-流式的一轮。
+请使用 Responses API。Pi 总是流式请求。在 Responses 路由上，gateway 以非流式方式调用模型，
+再把检查通过的响应以流的形式重放给 Pi，因此这一轮能够完成并被采集。在 Chat Completions 路由（`openai-completions`）上，
+gateway 转发 Pi 的流式请求。enforcing 模式的 Core 会暂缓流式响应，gateway 返回 HTTP 400。非 enforcing 模式的
+Core（包括默认的 `disabled` 模式）下，gateway 会原样放行流式响应。设置 `PC_GATEWAY_SEDIMENT=on` 后，gateway
+还会拼接终止流式响应中的助手文本，并采集已完成的回合。
 
 在组合部署（`PC_GATEWAY_CORE_UDS`）中，gateway 把 Core API 请求连同客户端自己的凭据转发给 Core，因此
 `POWERCONTEXT_PI_BASE_URL` 可以使用 gateway 的地址。
@@ -178,33 +177,34 @@ export POWERCONTEXT_PI_CAPTURE_PROMPTS=false
 pi
 ```
 
-关闭召回后，package 不发送准备请求，不向 system prompt 添加上下文，也不提供 `pc_prepare_context`：它的结果会留在
-会话历史中，使 Core 拒绝之后的每个请求。`POWERCONTEXT_PI_CAPTURE_PROMPTS` 为 `true` 时它仍会采集提示词；两项都
-关闭时，它不会为提示词发送任何请求。其余 `pc_*` 工具、`/pc` 命令和边界 flush 照常工作。
+关闭召回后，package 不发送准备请求，不向 system prompt 添加上下文，也不提供 `pc_prepare_context`。gateway
+已经为每一轮注入上下文，并会在 Core 检查请求之前，把会话历史中的 `pc_prepare_context` 结果替换为占位文本。
+`POWERCONTEXT_PI_CAPTURE_PROMPTS` 为 `true` 时 package 仍会采集提示词；两项都关闭时，它不会为提示词发送任何请求。其余
+`pc_*` 工具、`/pc` 命令和边界 flush 照常工作。
 
-关闭召回后，package 还会在每个模型请求上把 Pi 的会话 ID 作为 `X-PowerContext-Conversation-ID` 发送。gateway 只向
-属于某个对话的请求注入上下文，因此这个请求头让 Pi 无需 `PC_GATEWAY_INJECTION=on` 就能获得注入。gateway 随后对每条
-用户消息只准备一次，把同一份上下文重放给这条消息的工具循环步骤，并让一轮的重试使用同一个 Source ID，见
-[网关上下文注入](../operate/deploy-server.md#网关上下文注入)。Pi 会把这个请求头发给处理该请求的任何 provider，包括
-它直接调用的 provider；除非 `PI_CACHE_RETENTION=none`，Pi 自己的 Responses 请求本来就以 `prompt_cache_key` 携带同一个 ID。Pi 的压缩和
-分支摘要请求不带这个请求头，因此 gateway 不会向摘要注入上下文。
+关闭召回后，package 还会在每个模型请求上把 Pi 的会话 ID 作为 `X-PowerContext-Conversation-ID` 发送。gateway
+只向属于某个对话的请求注入上下文，因此这个请求头让 Pi 无需 `PC_GATEWAY_INJECTION=on` 就能获得注入。gateway
+随后对每条用户消息只准备一次，把同一份上下文重放给这条消息的工具循环步骤，并让一轮的重试使用同一个 Source ID，见
+[网关上下文注入](../operate/deploy-server.md#网关上下文注入)。Pi 会把这个请求头发给处理该请求的任何 provider，
+包括它直接调用的 provider；除非 `PI_CACHE_RETENTION=none`，Pi 自己的 Responses 请求本来就以 `prompt_cache_key`
+携带同一个 ID。Pi 的压缩和分支摘要请求不带这个请求头，因此 gateway 不会向摘要注入上下文。
 
 修改这些设置后请重启 Pi。已有会话可以继续：Pi 每一轮都重新构建 system prompt，不把 package 召回的上下文存进会话。
-如果模型在某个会话中调用过 `pc_prepare_context`，这个结果会留在会话历史中，请改用新会话（`/new`）。
+模型调用过 `pc_prepare_context` 的会话也可以继续，因为 gateway 会把这个结果替换为占位文本。
 
 ### 配置 gateway
 
 以组合部署（`PC_GATEWAY_CORE_UDS`）运行 gateway，它默认注入带有对话 ID 的请求。设置：
 
-- `PC_GATEWAY_UPSTREAM_URL_RESPONSES` 设为目标的 `endpoint`，`PC_GATEWAY_UPSTREAM_API_KEY_RESPONSES` 设为供应商
-  密钥。未设置 URL 时，Responses 路由返回 HTTP 501 `responses_route_disabled`。
+- `PC_GATEWAY_UPSTREAM_URL_RESPONSES` 设为目标的 `endpoint`，`PC_GATEWAY_UPSTREAM_API_KEY_RESPONSES` 设为供应商密钥。
+  未设置 URL 时，Responses 路由返回 HTTP 501 `responses_route_disabled`。
 - `PC_GATEWAY_API_KEY` 设为 Pi 作为 `apiKey` 发送的密钥。监听非回环地址时必须设置。
 - Core 启用鉴权时，设置 `PC_GATEWAY_CORE_TOKEN`。
 - `PC_GATEWAY_SEDIMENT=on`，让 gateway 把每个完成的轮次采集为 Source。
 - `PC_GATEWAY_DEFAULT_SCOPE` 设为 package 为该 workspace 解析的 Scope，`/pc` 会打印这个 Scope。
 
-gateway 把所有对话都放在 `PC_GATEWAY_DEFAULT_SCOPE` 指定的同一个 Scope 中准备和采集，而不是 package 为每个
-workspace 解析的 Scope。gateway 的鉴权设置和请求大小上限见[部署 Server](../operate/deploy-server.md#网关认证边界)。
+gateway 把所有对话都放在 `PC_GATEWAY_DEFAULT_SCOPE` 指定的同一个 Scope 中准备和采集，而不是 package 为每个 workspace
+解析的 Scope。gateway 的鉴权设置和请求大小上限见[部署 Server](../operate/deploy-server.md#网关认证边界)。
 
 ## 使用显式工具和命令
 

@@ -273,7 +273,7 @@ def test_pi_turns_take_context_and_capture_only_from_the_gateway(pi_gateway: PiG
         assert PLUGIN_LABEL not in text
         assert sum(text.count(marker) for marker in PREPARED_MARKERS) == 1, "gateway_block_count"
         assert FACT in text
-        # The prepare tool would put a block the gateway did not bind into the history, so Pi does not offer it.
+        # The gateway injects context itself and replaces a prepare result with a placeholder, so Pi does not offer it.
         offered = {tool.get("name") for tool in request.get("tools", [])}
         assert "pc_search" in offered
         assert "pc_prepare_context" not in offered

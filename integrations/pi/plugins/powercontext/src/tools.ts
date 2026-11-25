@@ -503,8 +503,8 @@ export function registerTools(pi: ExtensionAPI, runtime: PluginRuntime): void {
     mutates: true,
   })
 
-  // A prepare result carries a prepared-context block. Behind the gateway it stays in the session history, and Core
-  // rejects every later request that carries a block the gateway did not inject, so offer the tool only with recall.
+  // With recall off, the gateway injects context for each turn and replaces a prepare result in the session history
+  // with a placeholder, so offer the tool only with recall.
   if (runtime.config.promptRecall) {
     registerOperationTool(pi, runtime, {
       name: 'pc_prepare_context',

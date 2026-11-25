@@ -168,9 +168,10 @@ Export the gateway's `PC_GATEWAY_API_KEY` value as `PC_GATEWAY_KEY` where Pi sta
 
 Use the Responses API. Pi always streams. On the Responses route, the gateway calls the model without streaming and
 replays the checked response to Pi as a stream, so the turn completes and is captured. On the Chat Completions route
-(`openai-completions`), the gateway forwards Pi's streamed request: an enforcing Core admits it only for an
-`openai-chat` target with `allow_streaming`, which buffers the whole stream before release, and the gateway does not
-capture a streamed turn.
+(`openai-completions`), the gateway forwards Pi's streamed request. An enforcing Core withholds the streamed response,
+and the gateway returns HTTP 400. With a non-enforcing Core, including the default `disabled` mode, the gateway
+releases the stream unchanged. With `PC_GATEWAY_SEDIMENT=on`, it also assembles the assistant's text from a terminal
+stream and captures the completed turn.
 
 In a combined deployment (`PC_GATEWAY_CORE_UDS`), the gateway forwards Core API requests to Core with the client's own
 credentials, so `POWERCONTEXT_PI_BASE_URL` can be the gateway's address.
@@ -186,9 +187,10 @@ pi
 ```
 
 With recall off, the package sends no preparation request, adds no context to the system prompt, and does not offer
-`pc_prepare_context`, whose result would stay in the session history and make Core reject every later request. It
-still captures prompts while `POWERCONTEXT_PI_CAPTURE_PROMPTS` is `true`; with both off, it sends no request for a
-prompt. The other `pc_*` tools, `/pc` commands, and boundary flushes keep working.
+`pc_prepare_context`. The gateway already injects context for each turn, and it replaces a `pc_prepare_context` result
+in the session history with a placeholder before Core checks the request. The package still captures prompts while
+`POWERCONTEXT_PI_CAPTURE_PROMPTS` is `true`; with both off, it sends no request for a prompt. The other `pc_*` tools,
+`/pc` commands, and boundary flushes keep working.
 
 While recall is off, the package also sends Pi's session ID as `X-PowerContext-Conversation-ID` on every model
 request. The gateway injects context only into requests that belong to a conversation, so this header enables
@@ -201,7 +203,7 @@ so the gateway does not inject context into a summary.
 
 Restart Pi after changing these settings. An existing session can continue: Pi rebuilds the system prompt for every
 turn and does not store the package's recalled context in the session. A session in which the model called
-`pc_prepare_context` keeps that result in its history, so start a new session (`/new`) instead.
+`pc_prepare_context` can continue as well, because the gateway replaces that result with a placeholder.
 
 ### Configure the gateway
 
