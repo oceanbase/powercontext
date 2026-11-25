@@ -132,7 +132,7 @@ Install PowerContext on this machine by following https://powercontext.oceanbase
 <details>
 <summary><b>Install it yourself</b></summary>
 
-You need Python 3.11+, Git, and [uv](https://docs.astral.sh/uv/getting-started/installation/), plus the CLI of any Agent you want to connect. This setup pins version **1.6.0** for macOS and Linux; Windows support is experimental. The [installation script](https://powercontext.oceanbase.io/en/docs/get-started/install-and-run/#install-with-the-recommended-script) can also provision Python and uv.
+You need Python 3.11+, Git, and [uv](https://docs.astral.sh/uv/getting-started/installation/), plus the CLI of any Agent you want to connect. This setup pins **PowerContext 1.6.0** for macOS and Linux; Windows support is experimental. The [installation script](https://powercontext.oceanbase.io/en/docs/get-started/install-and-run/#install-with-the-recommended-script) can also provision Python and uv.
 
 Choose **Basic memory** in the wizard to try explicit saves and recall without a separate Server model API. Automatic extraction requires **Full memory** with Generation and Embedding credentials. SQLite is a simple first storage choice.
 
@@ -223,10 +223,10 @@ Codex is officially maintained; other Agent and Python framework integrations ar
 
 ## News
 
-- **2026-11-23 · [v1.6.0](https://github.com/oceanbase/powercontext/releases/tag/powercontext-v1.6.0)** — Knowledge bases debut: import Markdown and images, search with hybrid retrieval, and manage revisioned chunks in the Dashboard. The Gateway reaches its stable release with prebuilt binaries, and memory extraction can reuse the prompt cache of the Agent's conversation.
-- **2026-11-16 · [v1.5.2](https://github.com/oceanbase/powercontext/releases/tag/powercontext-v1.5.2)** — Batched writes and query optimizations: maintainer measurements report about 190% higher write throughput and 171% higher query throughput than v1.5.1. The Dashboard now shows processing progress, failure diagnostics, and token usage.
-- **2026-11-09 · [v1.5.1](https://github.com/oceanbase/powercontext/releases/tag/powercontext-v1.5.1)** — Trace memories to precise source locations, plus an optional monitoring stack for metrics, logs, and traces.
-- **2026-11-03 · [v1.5.0](https://github.com/oceanbase/powercontext/releases/tag/powercontext-v1.5.0)** — Source and Artifact plugins for custom ingestion and artifact types, and reversible encoding that removes repeated evidence from model input.
+- **2026-11-23 · [v1.6.0](https://powercontext.oceanbase.io/en/changelog/v1.6.0/)** — Knowledge bases debut: import Markdown and images, search with hybrid retrieval, and manage revisioned chunks in the Dashboard. The Gateway reaches its stable release with prebuilt binaries, and memory extraction can reuse the prompt cache of the Agent's conversation.
+- **2026-11-16 · [v1.5.2](https://powercontext.oceanbase.io/en/changelog/v1.5.2/)** — Batched writes and query optimizations: maintainer measurements report about 190% higher write throughput and 171% higher query throughput than v1.5.1. The Dashboard now shows processing progress, failure diagnostics, and token usage.
+- **2026-11-09 · [v1.5.1](https://powercontext.oceanbase.io/en/changelog/v1.5.1/)** — Trace memories to precise source locations, plus an optional monitoring stack for metrics, logs, and traces.
+- **2026-11-03 · [v1.5.0](https://powercontext.oceanbase.io/en/changelog/v1.5.0/)** — Source and Artifact plugins for custom ingestion and artifact types, and reversible encoding that removes repeated evidence from model input.
 
 [All releases →](https://github.com/oceanbase/powercontext/releases)
 

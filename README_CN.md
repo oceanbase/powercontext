@@ -132,7 +132,7 @@ Agent 通过 Hooks、MCP 或 SDK 接入 Server；也可以让模型请求经过�
 <details>
 <summary><b>自己动手安装</b></summary>
 
-需要 Python 3.11+、Git 和 [uv](https://docs.astral.sh/uv/getting-started/installation/)；接入 Agent 时还需安装对应的 CLI。以下命令安装 **1.6.0**，适用于 macOS 和 Linux；Windows 为实验性支持。需要自动准备 Python 和 uv 时，可使用[安装脚本](https://powercontext.oceanbase.io/zh/docs/get-started/install-and-run/#使用推荐安装脚本)。
+需要 Python 3.11+、Git 和 [uv](https://docs.astral.sh/uv/getting-started/installation/)；接入 Agent 时还需安装对应的 CLI。以下命令安装 **PowerContext 1.6.0**，适用于 macOS 和 Linux；Windows 为实验性支持。需要自动准备 Python 和 uv 时，可使用[安装脚本](https://powercontext.oceanbase.io/zh/docs/get-started/install-and-run/#使用推荐安装脚本)。
 
 首次体验可在向导中选择**基础记忆**，显式保存与召回不需要为 Server 配置模型 API；自动提取需要选择**完整记忆能力**并配置生成模型和 Embedding 凭据。存储可先选 SQLite。
 
@@ -223,10 +223,10 @@ Codex 为官方维护；其余 Agent 和 Python 框架集成为社区维护；Bu
 
 ## 最新动态
 
-- **2026-11-23 · [v1.6.0](https://github.com/oceanbase/powercontext/releases/tag/powercontext-v1.6.0)** — 知识库首次发布：导入 Markdown 和图片，混合检索并在 Dashboard 中管理版本化分块。Gateway 推出正式版并提供预编译二进制，记忆提取可复用 Agent 对话的提示词缓存。
-- **2026-11-16 · [v1.5.2](https://github.com/oceanbase/powercontext/releases/tag/powercontext-v1.5.2)** — 批量写入和查询优化：维护者实测写入吞吐提升约 190%、查询吞吐提升约 171%（对比 v1.5.1）；Dashboard 原生展示处理进度、失败诊断和 Token 用量。
-- **2026-11-09 · [v1.5.1](https://github.com/oceanbase/powercontext/releases/tag/powercontext-v1.5.1)** — 记忆可追溯到来源中的精确位置；新增可选的监控栈，覆盖指标、日志和链路追踪。
-- **2026-11-03 · [v1.5.0](https://github.com/oceanbase/powercontext/releases/tag/powercontext-v1.5.0)** — Source 与 Artifact 插件，可扩展数据接入和自定义制品；用可逆编码减少模型输入中的重复证据。
+- **2026-11-23 · [v1.6.0](https://powercontext.oceanbase.io/zh/changelog/v1.6.0/)** — 知识库首次发布：导入 Markdown 和图片，混合检索并在 Dashboard 中管理版本化分块。Gateway 推出正式版并提供预编译二进制，记忆提取可复用 Agent 对话的提示词缓存。
+- **2026-11-16 · [v1.5.2](https://powercontext.oceanbase.io/zh/changelog/v1.5.2/)** — 批量写入和查询优化：维护者实测写入吞吐提升约 190%、查询吞吐提升约 171%（对比 v1.5.1）；Dashboard 原生展示处理进度、失败诊断和 Token 用量。
+- **2026-11-09 · [v1.5.1](https://powercontext.oceanbase.io/zh/changelog/v1.5.1/)** — 记忆可追溯到来源中的精确位置；新增可选的监控栈，覆盖指标、日志和链路追踪。
+- **2026-11-03 · [v1.5.0](https://powercontext.oceanbase.io/zh/changelog/v1.5.0/)** — Source 与 Artifact 插件，可扩展数据接入和自定义制品；用可逆编码减少模型输入中的重复证据。
 
 [全部版本 →](https://github.com/oceanbase/powercontext/releases)
 
