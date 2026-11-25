@@ -1,0 +1,27 @@
+docs/assets/render_architecture.py
+  s_08eaaedfaa31d0::t_b6f1171cae79c2 1-14
+.licenserc.yaml
+  s_08eaaedfaa31d0::t_b6f1171cae79c2 78-79
+docs/assets/render_scenarios.py
+  s_08eaaedfaa31d0::t_b6f1171cae79c2 1-14
+docs/benchmarks/token-savings/verify.py
+  s_08eaaedfaa31d0::t_b6f1171cae79c2 1-14
+docs/assets/render_hero.py
+  s_08eaaedfaa31d0::t_b6f1171cae79c2 1-14
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "f1308d5a2ca94407f5ca197c145792f987dae03d",
+  "prompts": {},
+  "sessions": {
+    "s_08eaaedfaa31d0": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1c18c-f3bd-72a0-964f-7ee6c62e7e29",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "frf12 <rongfeng.frf@antgroup.com>"
+    }
+  }
+}
