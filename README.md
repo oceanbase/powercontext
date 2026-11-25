@@ -11,6 +11,16 @@
 
 [Website](https://powercontext.oceanbase.io/) · [Quickstart](https://powercontext.oceanbase.io/en/docs/get-started/quickstart/) · [Manual startup](https://powercontext.oceanbase.io/en/docs/get-started/manual-start/) · [Integrations](https://powercontext.oceanbase.io/en/docs/integrations/) · [Benchmarks](https://powercontext.oceanbase.io/en/benchmarks/) · [Interfaces](https://powercontext.oceanbase.io/en/docs/develop/interfaces/)
 
+## New in 1.6.0
+
+**Knowledge bases debut, and the Gateway reaches its stable release.** Bring existing documents into searchable knowledge bases and spend less uncached input on turning Agent conversations into long-term memory.
+
+- **Knowledge bases:** import Markdown and PNG/JPEG/WebP images, search with keyword and vector retrieval, and inspect, edit or reprocess revisioned document chunks in the Dashboard. Install the optional plugin and dependencies using the [knowledge-base guide](https://powercontext.oceanbase.io/en/docs/workflows/knowledge-base/). PDF/Office import and answer generation are not included.
+- **Gateway token savings:** optional prefix extraction appends memory instructions to the Agent's exact conversation prefix so the provider can reuse its prompt cache. Core selects it only when estimated to cost less than normal extraction. The Gateway enables prefix extraction by default; capture remains opt-in and the Server callback URL must be configured. Cache hits, conversation length and fallback requests determine actual savings. Codex subscriptions support it with a non-enforcing Core. See [Gateway setup](https://powercontext.oceanbase.io/en/docs/operate/deploy-server/#memory-extraction-over-the-cached-prefix).
+- **A more complete workflow:** plugin hot reload, Server/device Source runners, Deep Agents integration and clearer processing diagnostics.
+
+See the [1.6.0 release notes](https://powercontext.oceanbase.io/en/releases/) for setup, compatibility and database maintenance requirements.
+
 ## What is PowerContext?
 
 **PowerContext is an open-source context service for AI agents.** It keeps the durable part of your work — decisions, constraints, evidence, progress — outside any single conversation, so the next session, the next agent, or the next person can pick up from the current state instead of rereading the transcript.
@@ -129,7 +139,9 @@ PowerContext keeps durable project context outside any single chat. A first run 
 Agent input → Source evidence → Memory / Topic Memory → PreparedContext → next session or Agent
 ```
 
-PowerContext 1.5.2 includes an interactive setup wizard. You need Python 3.11+, Git, and [uv](https://docs.astral.sh/uv/getting-started/installation/); uv can provision Python when needed. To connect an Agent, also install its CLI. In the wizard, choose Basic memory for explicit saves and recall without model APIs; Full memory requires separate Generation and Embedding API credentials. For a local Server without model APIs, see [Install and run](https://powercontext.oceanbase.io/en/docs/get-started/install-and-run/). macOS and Linux are supported; Windows support is `experimental`. To provision Python and uv automatically, use the [installation script](https://powercontext.oceanbase.io/en/docs/get-started/install-and-run/#install-with-the-recommended-script).
+PowerContext 1.6.0 includes an interactive setup wizard. You need Python 3.11+, Git, and [uv](https://docs.astral.sh/uv/getting-started/installation/); uv can provision Python when needed. To connect an Agent, also install its CLI. In the wizard, choose Basic memory for explicit saves and recall without model APIs; Full memory requires separate Generation and Embedding API credentials. For a local Server without model APIs, see [Install and run](https://powercontext.oceanbase.io/en/docs/get-started/install-and-run/). macOS and Linux are supported; Windows support is `experimental`. To provision Python and uv automatically, use the [installation script](https://powercontext.oceanbase.io/en/docs/get-started/install-and-run/#install-with-the-recommended-script).
+
+To use an existing subscription for background generation, configure it manually in the saved `.env`; the wizard does not offer subscriptions yet. Embedding still needs its own connection, Topic Memory and Dream are unsupported on this path, and inference protection must remain disabled. See [subscription setup](https://powercontext.oceanbase.io/en/docs/get-started/configure-models/#use-an-existing-subscription).
 
 Choose the path that matches your goal:
 
@@ -142,7 +154,7 @@ Choose the path that matches your goal:
 ### 1. Install and run the wizard
 
 ```bash
-uv tool install --force "powercontext[cli,server]==1.5.2"
+uv tool install --force "powercontext[cli,server]==1.6.0"
 mkdir -p powercontext-config && cd powercontext-config
 powercontext config init --language en --output .env
 ```
@@ -172,7 +184,7 @@ powercontext capabilities
 Continue with `.env.next-steps.md` to create and bind the selected Scopes. Use the real `scope_id` returned by the creation request; a planned `codex-...` title is not an ID. Changing directories does not create isolation; use the same Server and Scope in the Dashboard and Agent. After editing `.env`, rerun `powercontext service install --env-file .env` to apply the updated settings. Then install the matching plugins and launch a new Agent session. The [complete walkthrough](https://powercontext.oceanbase.io/en/docs/get-started/quickstart/) covers Codex and Claude Code, Dashboard login, SSH forwarding, HTTPS prerequisites, and observable acceptance checks. For example, the matching Codex installation is:
 
 ```bash
-powercontext setup codex --ref powercontext-v1.5.2
+powercontext setup codex --ref powercontext-v1.6.0
 powercontext doctor codex
 ```
 

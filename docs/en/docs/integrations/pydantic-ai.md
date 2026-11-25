@@ -44,9 +44,10 @@ agent = Agent(
 
 The capability adds `powercontext_search`, `powercontext_remember`, and `powercontext_context`. It also requests
 `prepare_context` from the latest textual user prompt and prepends at most one untrusted evidence block per run. A new
-run prepares context again even when it starts from the previous run's message history. A prompt longer than 8,192
-characters or 8,192 UTF-8 bytes recalls from its most recent text, cut to the last 8,192 characters and then to the
-last 8,192 bytes.
+run prepares context again even when it starts from the previous run's message history. The query is the prompt,
+trimmed, with recognized credentials replaced by `[REDACTED]` as described in
+[automatic prompt privacy](index.md#automatic-prompt-privacy). A prompt longer than 8,192 characters or 8,192 UTF-8
+bytes recalls from its most recent text, cut to the last 8,192 characters and then to the last 8,192 bytes.
 
 Use only the toolset when automatic preparation and capture are not wanted:
 
@@ -111,8 +112,9 @@ create Scope IDs.
 
 Capture is off by default. Set `POWERCONTEXT_PYDANTIC_AI_CAPTURE_EVENTS=true` only when sending the initial user text,
 visible model text and tool calls, and completed tool arguments and results to the configured scope is acceptable.
-Thinking/reasoning content is excluded. Events are redacted for credential-like keys and known environment/Codex
-credentials, rendered within the configured byte limit, and stored under
+Thinking/reasoning content is excluded. A user prompt that contains a recognized credential is not captured; see
+[automatic prompt privacy](index.md#automatic-prompt-privacy). Events are redacted for credential-like keys and known
+environment/Codex credentials, rendered within the configured byte limit, and stored under
 `powercontext.pydantic-ai-capture-event/v1`.
 
 Every successful Capture advances the run-local Source position. A checkpoint Flush runs after the configured number

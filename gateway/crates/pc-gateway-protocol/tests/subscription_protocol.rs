@@ -103,7 +103,7 @@ fn grok_lone_choice_and_plain_agent_message_follow_backend_shape() {
 }
 
 #[test]
-fn codex_request_settings_and_unsupported_output_budget_are_explicit() {
+fn codex_request_settings_are_explicit_and_an_output_limit_is_left_out() {
     let mut request = request(
         json!([]),
         vec![json!({"role":"user","content":"hello"})],
@@ -120,8 +120,18 @@ fn codex_request_settings_and_unsupported_output_budget_are_explicit() {
     assert_eq!(body["stream"], true);
     assert_eq!(body["store"], false);
     assert_eq!(body["instructions"], "You are Codex.");
+    // The endpoint rejects an output limit; agents other than the Codex CLI send one.
     request.output_limits.max_output_tokens = Some(100);
-    assert!(renderer.render(&request, None).is_err());
+    let limited: Value =
+        serde_json::from_slice(&renderer.render(&request, None).unwrap().bytes).unwrap();
+    assert_eq!(limited, body);
+
+    // The Chat route is not available on this subscription.
+    let chat = SubscriptionRenderer {
+        inner: GatewayRenderer::Chat(Default::default()),
+        subscription: Some(SubscriptionProtocol::Codex),
+    };
+    assert!(chat.render(&request, None).is_err());
 }
 
 #[test]
