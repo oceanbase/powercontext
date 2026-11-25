@@ -23,6 +23,7 @@ jobs:
       - name: Set up the environment
         uses: ./.github/actions/setup-python-env
         with:
+          sync-args: "--extra seekdb"
           python-version: "3.11"
 
       - name: Observe lock recovery beyond the normal test deadline

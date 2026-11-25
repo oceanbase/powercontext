@@ -24,7 +24,7 @@
 
 use crate::capture_coverage::declaration;
 use crate::turn_message::last_user_index;
-use pc_gateway_protocol::{CanonicalMessage, CanonicalRequest, Role};
+use pc_gateway_protocol::{CanonicalMessage, CanonicalRequest, Role, SseFramer};
 use serde::Serialize;
 use serde_json::{Map, Value};
 
@@ -113,14 +113,20 @@ pub(crate) struct TurnProjection {
 pub(crate) fn turn_transcript(
     request: &CanonicalRequest,
     response: &str,
+    content_type: &str,
     list_key: &str,
     source_tokens: usize,
 ) -> Option<TurnProjection> {
-    let response: Value = serde_json::from_str(response).ok()?;
+    let mime = content_type.split(';').next()?.trim();
     let (final_steps, assistant) = if is_responses(list_key) {
-        responses_final(&response)?
+        responses_final(&serde_json::from_str(response).ok()?)?
+    } else if mime.eq_ignore_ascii_case("text/event-stream") {
+        (Vec::new(), chat_stream_final_text(response)?)
     } else {
-        (Vec::new(), chat_final_text(&response)?)
+        (
+            Vec::new(),
+            chat_final_text(&serde_json::from_str(response).ok()?)?,
+        )
     };
     let start = last_user_index(request)?;
     let user = parts_text(&request.messages[start].content);
@@ -263,15 +269,68 @@ fn fit(entry: Value, budget: usize) -> Vec<Value> {
 /// Chat 终止响应：第一个 choice 的消息既没有 `tool_calls`，也没有旧式的 `function_call`。
 fn chat_final_text(response: &Value) -> Option<String> {
     let message = response.get("choices")?.get(0)?.get("message")?;
-    let calls = message.get("tool_calls").and_then(Value::as_array);
-    if calls.is_some_and(|calls| !calls.is_empty())
-        || message
-            .get("function_call")
-            .is_some_and(|call| !call.is_null())
-    {
+    if chat_has_tool_call(message) {
         return None;
     }
     Some(content_text(message.get("content")))
+}
+
+fn chat_has_tool_call(message: &Value) -> bool {
+    let calls = message.get("tool_calls").and_then(Value::as_array);
+    calls.is_some_and(|calls| !calls.is_empty())
+        || message
+            .get("function_call")
+            .is_some_and(|call| !call.is_null())
+}
+
+/// Project the primary choice of an approved Chat stream once it has a terminal finish reason.
+fn chat_stream_final_text(response: &str) -> Option<String> {
+    let response = response.strip_prefix('\u{feff}').unwrap_or(response);
+    let mut framer = SseFramer::default();
+    let mut text = String::new();
+    let mut finished = false;
+    let mut done = false;
+    for line in response.split_inclusive('\n') {
+        if !matches!(line, "\n" | "\r\n") {
+            framer.push(line.as_bytes());
+            continue;
+        }
+        // Dispatch only blank-line-terminated events, one block at a time.
+        for event in framer.finish() {
+            if done || event.event.as_deref() == Some("error") {
+                return None;
+            }
+            if event.data == "[DONE]" {
+                done = true;
+                continue;
+            }
+            let chunk: Value = serde_json::from_slice(&event.data).ok()?;
+            for choice in chunk.get("choices")?.as_array()? {
+                if choice.get("index")?.as_u64()? != 0 {
+                    continue;
+                }
+                let delta = &choice["delta"];
+                if finished || chat_has_tool_call(delta) {
+                    return None;
+                }
+                match &delta["content"] {
+                    Value::String(part) => text.push_str(part),
+                    Value::Null => {}
+                    _ => return None,
+                }
+                match &choice["finish_reason"] {
+                    Value::Null => {}
+                    Value::String(reason)
+                        if matches!(reason.as_str(), "stop" | "length" | "content_filter") =>
+                    {
+                        finished = true
+                    }
+                    _ => return None,
+                }
+            }
+        }
+    }
+    finished.then_some(text)
 }
 
 /// Responses 条目按语义分类。
@@ -643,6 +702,7 @@ mod tests {
         let projection = turn_transcript(
             &chat_turn(std::slice::from_ref(&long)),
             FINAL,
+            "application/json",
             "messages",
             MAX_SOURCE_TOKENS,
         )
@@ -672,9 +732,15 @@ mod tests {
         let request = chat_turn(&outputs);
         // 这个回合约 60,000 个 token：上限 50,000 时两段，上限 24,000 时每段不超过 24,000。
         let at = |limit| {
-            turn_transcript(&request, FINAL, "messages", source_token_limit(limit))
-                .unwrap()
-                .parts
+            turn_transcript(
+                &request,
+                FINAL,
+                "application/json",
+                "messages",
+                source_token_limit(limit),
+            )
+            .unwrap()
+            .parts
         };
         assert_eq!(at(None).len(), 2);
         let parts = at(Some(24_000));
@@ -695,7 +761,14 @@ mod tests {
         request.messages.push(request.messages[2].clone());
         let huge = "y\n".repeat(MAX_SOURCE_TOKENS * 3);
         request.messages.last_mut().unwrap().content = vec![Value::from(huge.as_str())];
-        let projection = turn_transcript(&request, FINAL, "messages", MAX_SOURCE_TOKENS).unwrap();
+        let projection = turn_transcript(
+            &request,
+            FINAL,
+            "application/json",
+            "messages",
+            MAX_SOURCE_TOKENS,
+        )
+        .unwrap();
         let count = projection.parts.len();
         assert!(count > 2);
         let mut entries = Vec::new();
@@ -767,7 +840,14 @@ mod tests {
             {"type": "message", "role": "assistant", "content": [{"type": "output_text", "text": "done"}]}
         ]})
         .to_string();
-        let projection = turn_transcript(&request, &response, "input", MAX_SOURCE_TOKENS).unwrap();
+        let projection = turn_transcript(
+            &request,
+            &response,
+            "application/json",
+            "input",
+            MAX_SOURCE_TOKENS,
+        )
+        .unwrap();
         let transcript = single(&projection);
         assert_eq!(
             transcript["steps"],
@@ -802,7 +882,14 @@ mod tests {
             item(serde_json::json!({"type": "computer_call", "call_id": "e", "action": {"type": "screenshot"}})),
         ]);
         let transcript = single(
-            &turn_transcript(&request, RESPONSES_FINAL, "input", MAX_SOURCE_TOKENS).unwrap(),
+            &turn_transcript(
+                &request,
+                RESPONSES_FINAL,
+                "application/json",
+                "input",
+                MAX_SOURCE_TOKENS,
+            )
+            .unwrap(),
         );
         assert_eq!(
             transcript["steps"],
@@ -824,8 +911,14 @@ mod tests {
                 {"type": "image", "url": "https://example.com/plot.png"}
             ]
         })));
-        let projection =
-            turn_transcript(&request, RESPONSES_FINAL, "input", MAX_SOURCE_TOKENS).unwrap();
+        let projection = turn_transcript(
+            &request,
+            RESPONSES_FINAL,
+            "application/json",
+            "input",
+            MAX_SOURCE_TOKENS,
+        )
+        .unwrap();
         let transcript = single(&projection);
         assert_eq!(
             transcript["steps"][1],
@@ -841,8 +934,16 @@ mod tests {
         request.messages[1].tool_calls = Some(vec![
             serde_json::json!({"type": "custom", "id": "x1", "custom": {"name": "exec", "input": "list files"}}),
         ]);
-        let transcript =
-            single(&turn_transcript(&request, FINAL, "messages", MAX_SOURCE_TOKENS).unwrap());
+        let transcript = single(
+            &turn_transcript(
+                &request,
+                FINAL,
+                "application/json",
+                "messages",
+                MAX_SOURCE_TOKENS,
+            )
+            .unwrap(),
+        );
         assert_eq!(
             transcript["steps"][0],
             serde_json::json!({"type": "tool_call", "name": "custom",
@@ -861,7 +962,13 @@ mod tests {
         ] {
             let response = format!(r#"{{"output":[{item}]}}"#);
             assert_eq!(
-                turn_transcript(&request, &response, "input", MAX_SOURCE_TOKENS),
+                turn_transcript(
+                    &request,
+                    &response,
+                    "application/json",
+                    "input",
+                    MAX_SOURCE_TOKENS
+                ),
                 None,
                 "{item}"
             );
@@ -869,7 +976,13 @@ mod tests {
         let legacy = r#"{"choices":[{"message":{"role":"assistant","content":null,
             "function_call":{"name":"read","arguments":"{}"}}}]}"#;
         assert_eq!(
-            turn_transcript(&request, legacy, "messages", MAX_SOURCE_TOKENS),
+            turn_transcript(
+                &request,
+                legacy,
+                "application/json",
+                "messages",
+                MAX_SOURCE_TOKENS
+            ),
             None
         );
     }
@@ -880,17 +993,35 @@ mod tests {
         let calling = r#"{"choices":[{"message":{"role":"assistant","content":null,
             "tool_calls":[{"function":{"name":"read","arguments":"{}"}}]}}]}"#;
         assert_eq!(
-            turn_transcript(&request, calling, "messages", MAX_SOURCE_TOKENS),
+            turn_transcript(
+                &request,
+                calling,
+                "application/json",
+                "messages",
+                MAX_SOURCE_TOKENS
+            ),
             None
         );
         assert_eq!(
-            turn_transcript(&request, "not json", "messages", MAX_SOURCE_TOKENS),
+            turn_transcript(
+                &request,
+                "not json",
+                "application/json",
+                "messages",
+                MAX_SOURCE_TOKENS
+            ),
             None
         );
         let responses_calling =
             r#"{"output":[{"type":"custom_tool_call","name":"exec","input":"ls"}]}"#;
         assert_eq!(
-            turn_transcript(&request, responses_calling, "input", MAX_SOURCE_TOKENS),
+            turn_transcript(
+                &request,
+                responses_calling,
+                "application/json",
+                "input",
+                MAX_SOURCE_TOKENS
+            ),
             None
         );
     }

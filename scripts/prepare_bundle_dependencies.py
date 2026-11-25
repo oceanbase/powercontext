@@ -138,6 +138,8 @@ def download(work: Path) -> None:
             "--no-build-isolation",
         ]
         command += ["--dest", str(destination), "--requirement", str(exported)]
+        if installer := os.environ.get("PC_CI_PYTHON_INSTALLER"):
+            command = [sys.executable, installer, "pip", "--python", sys.executable, *command[3:]]
         subprocess.run(command, check=True)
         accepted_hashes = set(re.findall(r"--hash=sha256:([0-9a-f]{64})", contents))
         artifacts = []

@@ -69,11 +69,11 @@ def test_release_names_preserve_source_upgrade_plan_and_evidence(tmp_path, monke
         "v1_5_0_003",
         "v1_5_0_004",
         "v1_5_0_005",
-        "v1_5_2_pr2639",
-        "000",
+        "v1_5_0_006",
+        "v1_6_0",
     ]
     assert [item["revision"] for item in plan["pending_migrations"]] == list(reviewed.revisions)
-    target = {"revision": "000", "name": "000", "software_version": None, "sequence": None}
+    target = {"revision": "v1_6_0", "name": "v1_6_0", "software_version": "1.6.0", "sequence": None}
     assert plan["target_migration"] == target
 
     applied = invoke(
@@ -88,7 +88,7 @@ def test_release_names_preserve_source_upgrade_plan_and_evidence(tmp_path, monke
     )
     assert applied["migration"] == target and applied["server_ready"]
     with closing(sqlite3.connect(runner.database)) as connection:
-        assert connection.execute("SELECT version_num FROM pc_schema_revision").fetchall() == [("000",)]
+        assert connection.execute("SELECT version_num FROM pc_schema_revision").fetchall() == [("v1_6_0",)]
     evidence = runner.evidence_path.read_bytes()
     recorded = json.loads(evidence)
     assert recorded["source_revision"] == expected_source["revision"]
@@ -105,8 +105,8 @@ def test_release_names_preserve_source_upgrade_plan_and_evidence(tmp_path, monke
         "v1_5_0_003",
         "v1_5_0_004",
         "v1_5_0_005",
-        "v1_5_2_pr2639",
-        "000",
+        "v1_5_0_006",
+        "v1_6_0",
     }
     assert runner.verify().state == "ready"
     assert invoke("verify")["migration"] == target

@@ -279,6 +279,10 @@ class ServerSettings(BaseSettings):
                 # BaseSettings serializes nested model defaults before validation. Keep an
                 # omitted name implicit so legacy detection and environment selection work.
                 init_settings.init_kwargs["database"] = database.model_dump(exclude={"database"})
+            runtime = init_settings.init_kwargs.get("runtime")
+            if isinstance(runtime, RuntimeConfig) and "atomic_memory_processing_mode" not in runtime.model_fields_set:
+                # Preserve an omitted mode for environment overrides and the Gateway deployment default.
+                init_settings.init_kwargs["runtime"] = runtime.model_dump(exclude={"atomic_memory_processing_mode"})
         return super().settings_customise_sources(
             settings_cls, init_settings, env_settings, dotenv_settings, file_secret_settings
         )
@@ -309,6 +313,15 @@ class ServerSettings(BaseSettings):
     def configure_default_local_skill_targets(self) -> ServerSettings:
         if "external_skills" not in self.model_fields_set:
             self.external_skills = _default_local_external_skills(self.workspace)
+        return self
+
+    @model_validator(mode="after")
+    def configure_gateway_memory_processing(self) -> ServerSettings:
+        if (
+            self.inference.prefix_extraction_gateway_url is not None
+            and "atomic_memory_processing_mode" not in self.runtime.model_fields_set
+        ):
+            self.runtime = self.runtime.model_copy(update={"atomic_memory_processing_mode": "one_pass"})
         return self
 
     @field_validator("public_url")

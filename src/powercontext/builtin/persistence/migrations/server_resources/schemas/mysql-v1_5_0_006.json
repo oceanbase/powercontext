@@ -1,7 +1,7 @@
 {
   "format": "powercontext.mysql-state-layouts.v1",
   "revisions": {
-    "v1_5_2_pr2639": {
+    "v1_5_0_006": {
       "statements": [
         "DROP TABLE pc_source_write_plugins",
         "CREATE TABLE pc_source_runners (\n\trunner VARCHAR(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, \n\tdisplay_name VARCHAR(256) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, \n\tprincipal_type VARCHAR(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, \n\tprincipal_id VARCHAR(256) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, \n\tregistration_id VARCHAR(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin, \n\tregistered_at DATETIME(6) NOT NULL, \n\tcapabilities MEDIUMBLOB NOT NULL, \n\tcapabilities_digest VARCHAR(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, \n\tlast_seen_at DATETIME(6), \n\tPRIMARY KEY (runner), \n\tCONSTRAINT uq_pc_source_runner_registration UNIQUE (principal_type, principal_id, registration_id)\n)",

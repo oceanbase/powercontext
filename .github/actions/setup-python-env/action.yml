@@ -10,6 +10,10 @@ inputs:
     description: "uv version to use"
     required: true
     default: "0.10.12"
+  sync-args:
+    description: "Additional uv sync arguments, for example --extra seekdb or --group tracing-tests"
+    required: false
+    default: ''
   shared-cache:
     description: "Share and save root dependencies after installation. Leave disabled when later steps install additional Python dependencies."
     required: false
@@ -65,6 +69,10 @@ runs:
         cache-dependency-glob: ${{ inputs.cache-dependency-glob }}
         download-from-astral-mirror: 'true'
 
+    - name: Configure Python dependency mirror
+      shell: bash
+      run: python3 "$GITHUB_ACTION_PATH/../../../scripts/ci_python_mirror.py" configure
+
     - id: path
       shell: bash
       run: echo "cache-path=$(uv cache dir)" >> "$GITHUB_OUTPUT"
@@ -101,8 +109,11 @@ runs:
 
     - name: Install Python dependencies
       id: dependencies
+      env:
+        PYTHON_SYNC_ARGS: ${{ inputs.sync-args }}
       run: |
-        uv sync --frozen
+        read -r -a sync_args <<< "$PYTHON_SYNC_ARGS"
+        python3 "$GITHUB_ACTION_PATH/../../../scripts/ci_python_mirror.py" sync --frozen "${sync_args[@]}"
       shell: bash
 
     - name: Use a writable cache directory for project tools

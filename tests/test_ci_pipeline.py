@@ -319,7 +319,7 @@ def test_all_end_to_end_suites_have_extended_timeout():
 def test_installation_roles_use_only_two_python_runners():
     job = workflow("master.yml")["jobs"]["isolated-installations"]
     assert job["strategy"]["matrix"] == {"python-version": ["3.11", "3.14"]}
-    build = [step for step in job["steps"] if "uv build --wheel" in step.get("run", "")]
+    build = [step for step in job["steps"] if "build --wheel" in step.get("run", "")]
     assert len(build) == 1
     verify = next(step for step in job["steps"] if "ci_installation_roles.py" in step.get("run", ""))
     assert not verify.get("continue-on-error")
@@ -543,3 +543,14 @@ def test_workflow_event_routes_native_jobs_and_backend_matrices(event):
         assert resolve(harness[name]["if"]) is native, name
     plan = next(step for step in harness["validate"]["steps"] if step.get("id") == "plan")
     assert resolve(plan["env"]["NATIVE_DATABASES"]) is native
+
+
+def test_gateway_distribution_runs_only_manually_or_from_release():
+    distribution = workflow("gateway-distribution.yml")
+    assert set(distribution["on"]) == {"workflow_dispatch", "workflow_call"}
+    assert not any(
+        job.get("uses", "").endswith("/gateway-distribution.yml") for job in workflow("master.yml")["jobs"].values()
+    )
+    release = workflow("release.yml")["jobs"]
+    assert release["gateway-release-build"]["uses"].endswith("/gateway-distribution.yml")
+    assert release["gateway-release-verify"]["with"]["published"] is True
