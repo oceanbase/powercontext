@@ -62,6 +62,8 @@ Core must approve the final target, model and protocol through `PC_GATEWAY_UPSTR
 
 Codex's endpoint rejects `max_output_tokens`. The Codex CLI sends none, but other agents (OpenCode, Pi, DeepSeek Harness) set one on every request, so the Gateway leaves the field out of a request to this endpoint and the reply has no output limit. A Core policy requiring that explicit output cap withholds the request with `output_limit_required`; a configured profile limit cannot make the upstream enforce an unsupported parameter.
 
+The Codex subscription adapter also omits `temperature`, `top_p`, and `prompt_cache_options` before Core checks the final request. The endpoint uses its own sampling and cache defaults. For multi-turn sessions, use `store: false` and send the conversation history, including tool calls and their results, in `input`. The endpoint rejects `previous_response_id`, which refers to stored response state.
+
 The Codex endpoint routes its prompt cache by the `session-id` request header; `prompt_cache_key` in the body does not do this there. The Gateway forwards the request's `session-id` to this endpoint, or the body's `prompt_cache_key` as `session-id` when the request has no such header, and sends the same value on a prefix extraction request, so requests of one session reach the same cache. A request with neither gets few cache hits. The header is not forwarded to other upstreams.
 
 Memory extraction over the cached prefix is enabled by default on `codex` when Core is confirmed as non-enforcing at startup; `PC_GATEWAY_PREFIX_EXTRACTION=off` disables it. Each extraction request is sent with the credentials in the Codex login at that moment, counts against that account's usage limits, and has no output limit; a request that asks for one is refused with `output_limit_unsupported`, and Core uses normal extraction. See [prefix extraction settings](../docs/en/docs/operate/deploy-server.md#memory-extraction-over-the-cached-prefix).
@@ -71,6 +73,24 @@ Gemini maps Chat output limits to `request.generationConfig.maxOutputTokens`. Re
 Do not route Core's own generation calls back through a Gateway with automatic recall or capture enabled without a separate recursion boundary. These global features cannot distinguish internal generation from ordinary clients.
 
 ## Compatibility and tests
+
+### Codex subscription clients
+
+Point the client provider at the Gateway's `/gateway/v1` base URL and select the OpenAI Responses protocol. Give the client the Gateway API key and configure the Codex subscription credential file on the Gateway. The client can declare an output limit for its own budgeting, but the subscription endpoint cannot enforce that limit.
+
+The following clients completed a streamed text turn, a read-tool call and result, and a later turn in the same session against a real Codex subscription with `gpt-5.6-sol`. The Gateway used UDS to reach Core, with inference protection disabled and recall injection, capture, steering, and prefix extraction off.
+
+| Client | Provider configuration exercised |
+| --- | --- |
+| DeepSeek Harness `@deepseek-ai/dsh@0.2.2-rc.5` (pi-ai `1.6.0`) | Headless profile, custom `llm-pi-ai` provider with `api: openai-responses`, an `apiKeyEnv` reference to the Gateway key, and the custom provider and model selected by `agent-default-model`. Resume with `--session-id`. |
+| Pi `@mariozechner/pi-coding-agent@0.73.1` (pi-ai `0.73.1`) | Custom provider in `models.json` with `api: openai-responses`, the Gateway key, and the model ID. Resume with `--continue`. |
+| OpenCode `opencode-ai@1.19.6` | Custom `@ai-sdk/openai` provider with `options.baseURL` set to the Gateway and model `options.store: false`. Resume with `--continue`. |
+
+All three sent `stream: true`, `store: false`, and `max_output_tokens`, and carried tool continuations in `input`. Their normal requests omitted `temperature`, `top_p`, `prompt_cache_options`, and `previous_response_id`. A Pi extension that set the three sampling and cache options reproduced the upstream HTTP 400 for `temperature` and completed all three turns with the Codex adaptation. Separate single-field probes confirmed HTTP 400 for each of the other two options and for `previous_response_id`. In a separate check, a real enforcing Core with a target profile requiring an explicit output limit returned `output_limit_required` for a request carrying `max_output_tokens` at ingress.
+
+DeepSeek Harness loads `$DSH_HOME/.credentials.yaml` during startup. The `0.1.0-rc.6` credential loader expects a flat mapping of reference names to strings. A file with a numeric `version: 1` and nested `refs` fails at startup with “the value for "version" … must be a string”, before any Gateway request. Use a compatible build for that file format, as in the `0.2.2-rc.5` run, or use a separate `DSH_HOME` if an older build is required. Keep the original credential file and profile, including any managed credential records. Add the Gateway provider alongside existing entries in `llm-pi-ai.config.providers` and point its `apiKeyEnv` at a dedicated environment variable.
+
+### Controlled protocol coverage
 
 Grok Responses follows Magpie's tool adaptation: namespaced functions are flattened for the upstream and restored before Core release checks and client JSON/SSE delivery. Codex, Copilot, Grok and Code Assist reject duplicate JSON keys before response rewriting. When identity restoration changes the response, Core checks both its original bytes and the final response before release. `allowed_tools` restricts the forwarded declarations while preserving `auto` or `required`. Ambiguous flattened names, names longer than 64 bytes, unsupported explicit tool choices and top-level union tool schemas are rejected before sending. A required choice with no supported tools is rejected. Claude CLI supports single-turn text execution rather than Magpie's persistent session and tool bridge; token-limit stops are reported as truncated responses.
 

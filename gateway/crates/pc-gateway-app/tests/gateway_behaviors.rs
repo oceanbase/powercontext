@@ -860,6 +860,68 @@ async fn default_steering_and_overrides_reach_only_responses() {
 }
 
 #[tokio::test]
+async fn codex_omits_unsupported_options_before_send_check() {
+    let credentials =
+        std::env::temp_dir().join(format!("pc-codex-options-{}.json", std::process::id()));
+    std::fs::write(
+        &credentials,
+        r#"{"auth_mode":"chatgpt","tokens":{"access_token":"synthetic","account_id":"test"}}"#,
+    )
+    .unwrap();
+    let mut body = request("responses", "tool", true);
+    body["temperature"] = json!(0.5);
+    body["top_p"] = json!(0.9);
+    body["prompt_cache_options"] = json!({});
+    body["prompt_cache_key"] = json!("test-session");
+    body["reasoning"] = json!({"effort": "low"});
+
+    for subscription in [None, Some("codex")] {
+        let mut settings = vec![("PC_GATEWAY_STEERING", "off")];
+        if let Some(subscription) = subscription {
+            let (chat, responses) = pc_gateway_auth::Subscription::Codex.default_targets();
+            settings.extend([
+                ("PC_GATEWAY_SUBSCRIPTION", subscription),
+                (
+                    "PC_GATEWAY_SUBSCRIPTION_CREDENTIALS",
+                    credentials.to_str().unwrap(),
+                ),
+                ("PC_GATEWAY_UPSTREAM_URL_CHAT", chat),
+                ("PC_GATEWAY_UPSTREAM_URL_RESPONSES", responses),
+            ]);
+        }
+        let gateway =
+            Gateway::start_with_env(vec![], Some(("before_send", "withhold")), &settings, true)
+                .await;
+        let response = gateway.post("responses", &body).await;
+        if subscription.is_some() {
+            std::fs::remove_file(&credentials).unwrap();
+        }
+        assert_eq!(response.status(), 400);
+        let checks = gateway.peers.checks.lock().unwrap();
+        assert_eq!(checks.len(), 1);
+        assert_eq!(checks[0]["phase"], "before_send");
+        let checked: Value =
+            serde_json::from_str(checks[0]["payload"]["body"].as_str().unwrap()).unwrap();
+        let mut expected = body.clone();
+        if subscription.is_some() {
+            for field in [
+                "temperature",
+                "top_p",
+                "prompt_cache_options",
+                "max_output_tokens",
+            ] {
+                expected.as_object_mut().unwrap().remove(field);
+            }
+            expected["instructions"] = json!("You are Codex.");
+        } else {
+            expected["stream"] = json!(false);
+        }
+        assert_eq!(checked, expected, "before_send body for {subscription:?}");
+        assert!(gateway.peers.sent.lock().unwrap().is_empty());
+    }
+}
+
+#[tokio::test]
 async fn prefix_extraction_defaults_on_but_respects_off_and_subscription_boundary() {
     for (subscription, setting, enforcing, expected) in [
         (None, None, true, "prefix_unavailable"),
