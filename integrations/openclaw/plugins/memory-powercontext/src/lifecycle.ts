@@ -40,6 +40,8 @@ type LifecycleDependencies = {
   getConfig: () => PowerContextConfig;
   isPrivateSession: (agentId: string, sessionKey: string | undefined) => boolean;
   createClosingSignal?: () => AbortSignal;
+  // Defaults to state private to this registration.
+  state?: LifecycleState;
 };
 
 const MAX_SESSION_SCOPES = 32;
@@ -56,6 +58,56 @@ type CheckpointResult = {
 type FlushCallBudget = {
   remaining: number;
 };
+
+type QueuedFlush = {
+  run: () => Promise<void>;
+  resolve: () => void;
+  reject: (error: unknown) => void;
+  signal?: AbortSignal;
+  deadlineReported: boolean;
+  onDeadline?: () => void;
+};
+
+/** What one plugin process knows about its sessions, runs, captured positions, and flush queue. */
+export type LifecycleState = {
+  sessionScopes: Map<string, Set<string>>;
+  activeRunProjects: Map<string, readonly string[]>;
+  completedRunProjects: Map<string, readonly string[]>;
+  sessionProjects: Map<string, readonly string[]>;
+  pendingPositions: Map<string, number>;
+  confirmedCursors: Map<string, number>;
+  normalFlushQueue: QueuedFlush[];
+  closingFlushQueue: QueuedFlush[];
+  flushQueueRunning: boolean;
+};
+
+export function createLifecycleState(): LifecycleState {
+  return {
+    sessionScopes: new Map(),
+    activeRunProjects: new Map(),
+    completedRunProjects: new Map(),
+    sessionProjects: new Map(),
+    pendingPositions: new Map(),
+    confirmedCursors: new Map(),
+    normalFlushQueue: [],
+    closingFlushQueue: [],
+    flushQueueRunning: false,
+  };
+}
+
+// OpenClaw registers the plugin more than once in one Gateway process: agent runs fire `agent_end` and
+// `before_compaction` on a registration made for the run's plugin registry, while `session_end` and `gateway_stop`
+// fire on the Gateway's own registration. Every registration must see the same captured positions, so a closing
+// boundary can flush what any run captured. The state lives on `globalThis` because a registration is not guaranteed
+// to share a module instance with the others. Change the key's version whenever `LifecycleState` changes shape, so a
+// rebuilt plugin loaded into a running Gateway never adopts an older object.
+const SHARED_STATE_KEY = Symbol.for("powercontext.openclaw.memory-lifecycle-state.v1");
+
+export function sharedLifecycleState(): LifecycleState {
+  const holder = globalThis as typeof globalThis & { [SHARED_STATE_KEY]?: LifecycleState };
+  holder[SHARED_STATE_KEY] ??= createLifecycleState();
+  return holder[SHARED_STATE_KEY];
+}
 
 // OpenClaw resolves a run's agent from its agent-scoped session key before any other source, and it gives every run
 // such a key, so the key names the same agent that the run's other hooks report.
@@ -117,19 +169,26 @@ export function registerPowerContextLifecycle(api: OpenClawPluginApi, deps: Life
       ...extra,
     });
   };
-  const sessionScopes = new Map<string, Set<string>>();
+  const state = deps.state ?? createLifecycleState();
+  const {
+    sessionScopes,
+    activeRunProjects,
+    completedRunProjects,
+    sessionProjects,
+    pendingPositions,
+    confirmedCursors,
+    normalFlushQueue,
+    closingFlushQueue,
+  } = state;
   // OpenClaw supplies a run's active projects to `before_prompt_build` but not to `agent_end`; capture resolves
   // with the projects of the run it captures, so it reaches the same project binding as that run's recall.
   // A completed run moves to its own map instead of being dropped: a replayed `agent_end` must resolve the same
   // Scope, because Source deduplication holds only within one Scope, and completed runs must not evict runs that
   // are still in progress. Each map keeps its most recent runs.
-  const activeRunProjects = new Map<string, readonly string[]>();
-  const completedRunProjects = new Map<string, readonly string[]>();
   // `before_compaction` carries neither a run nor its active projects, only the session key. OpenClaw queues a
   // session's runs and compactions on one session lane, so the session's most recent prompt belongs to the run being
   // compacted, or to the session's last run when compaction happens between runs; the checkpoint resolves with
   // that run's projects. A prompt context without `activeProjectKeys` clears the session's entry.
-  const sessionProjects = new Map<string, readonly string[]>();
   const trackRecent = (
     records: Map<string, readonly string[]>,
     key: string,
@@ -174,8 +233,6 @@ export function registerPowerContextLifecycle(api: OpenClawPluginApi, deps: Life
     trackRecent(completedRunProjects, runId, projectKeys, MAX_TRACKED_RUNS);
     return projectKeys;
   };
-  const pendingPositions = new Map<string, number>();
-  const confirmedCursors = new Map<string, number>();
   const clearConfirmedPending = (scopeId: string): boolean => {
     const pending = pendingPositions.get(scopeId);
     if (pending === undefined || (confirmedCursors.get(scopeId) ?? -1) < pending) {
@@ -202,17 +259,6 @@ export function registerPowerContextLifecycle(api: OpenClawPluginApi, deps: Life
       });
     }
   };
-  type QueuedFlush = {
-    run: () => Promise<void>;
-    resolve: () => void;
-    reject: (error: unknown) => void;
-    signal?: AbortSignal;
-    deadlineReported: boolean;
-    onDeadline?: () => void;
-  };
-  const normalFlushQueue: QueuedFlush[] = [];
-  const closingFlushQueue: QueuedFlush[] = [];
-  let flushQueueRunning = false;
   const reportBoundaryDeadline = (queued: QueuedFlush) => {
     if (queued.deadlineReported) return;
     queued.deadlineReported = true;
@@ -223,8 +269,8 @@ export function registerPowerContextLifecycle(api: OpenClawPluginApi, deps: Life
     }
   };
   const drainFlushQueue = async () => {
-    if (flushQueueRunning) return;
-    flushQueueRunning = true;
+    if (state.flushQueueRunning) return;
+    state.flushQueueRunning = true;
     try {
       while (closingFlushQueue.length || normalFlushQueue.length) {
         const queued = closingFlushQueue.shift() ?? normalFlushQueue.shift()!;
@@ -241,7 +287,7 @@ export function registerPowerContextLifecycle(api: OpenClawPluginApi, deps: Life
         }
       }
     } finally {
-      flushQueueRunning = false;
+      state.flushQueueRunning = false;
     }
   };
   const enqueueFlush = (
