@@ -269,10 +269,9 @@ export POWERCONTEXT_CODEX_FLUSH_ON_CAPTURE=true
 ## 把提示词时上下文交给 gateway
 
 Codex 的模型请求经过 PowerContext gateway 时，gateway 为每一轮准备并注入上下文；设置 `PC_GATEWAY_SEDIMENT=on`
-后，gateway 也会采集这一轮。Core 检查 gateway 转发的每个请求，拒绝不是 gateway 注入的 prepared-context 块。
-Codex 把插件准备的上下文作为 developer 消息加入 thread，因此插件的召回一旦向某个 thread 添加了上下文，即使 Core
-处于非 enforcing 模式，这个请求以及该 thread 之后的每个请求的检查都会被 Core 以 HTTP 422 拒绝。gateway 返回
-HTTP 503 `gate_paused`，这一轮在模型收到请求前失败。
+后，gateway 也会采集这一轮。Codex 将插件准备的上下文保存在 developer 消息中，并随 thread 历史记录重新发送。
+在 Core 和模型收到请求前，gateway 会移除这些消息中完整的 PowerContext prepared-context 块。请求和响应仍会经过
+Core 的常规检查。
 
 Codex 直接调用模型或使用订阅账号登录时，gateway 不承载这些流量，请保留插件的默认值。要让 Codex 经过 gateway，
 按下面的步骤配置 Core、Codex、插件和 gateway。
@@ -342,8 +341,8 @@ export POWERCONTEXT_CODEX_CAPTURE_PROMPTS=false
 codex
 ```
 
-修改这些设置后请开启新的 thread。Codex 每次请求都会重新发送 thread 的历史，因此已经带有插件上下文的 thread
-在关闭召回后，经过 gateway 时仍会失败。
+修改这些设置后可以继续已有的 thread。gateway 移除重发的上下文时，会记录
+`PowerContext plugin prepared context omitted by the gateway.`。
 
 关闭召回后，`UserPromptSubmit` 不发送准备请求，也不添加上下文。`POWERCONTEXT_CODEX_CAPTURE_PROMPTS` 为 `true`
 时它仍会采集提示词；两项都关闭时，它不发送任何请求。Session binding、启动上下文、MCP 工具和诊断仍由各自的设置控制。

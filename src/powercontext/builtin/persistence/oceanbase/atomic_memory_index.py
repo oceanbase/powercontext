@@ -60,6 +60,7 @@ from powercontext.builtin.persistence.atomic_memory_index_schema import (
     ATOMIC_MEMORY_PROJECTION_FORMAT,
     atomic_memory_current_table,
 )
+from powercontext.builtin.persistence.oceanbase.fulltext_index import ensure_fulltext_index
 from powercontext.builtin.persistence.oceanbase.vector import OceanBaseVector
 from powercontext.builtin.persistence.schema import create_tables
 
@@ -171,10 +172,7 @@ class OceanBaseAtomicMemoryIndex(RelationalAtomicMemoryIndex):
         await create_tables(connection, self.tables)
         await self.require_current_schema(connection)
         try:
-            if not await connection.scalar(_INDEX_EXISTS, {"index_name": _FTS_INDEX_NAME}):
-                await connection.exec_driver_sql(
-                    f"CREATE FULLTEXT INDEX {_FTS_INDEX_NAME} ON pc_atomic_memory_current (searchable_text) WITH PARSER SPACE"
-                )
+            await ensure_fulltext_index(connection, self.table.name, _FTS_INDEX_NAME)
             await connection.exec_driver_sql(
                 "SELECT artifact_id FROM pc_atomic_memory_current "
                 "WHERE MATCH(searchable_text) AGAINST ('powercontext') > 0 LIMIT 1"

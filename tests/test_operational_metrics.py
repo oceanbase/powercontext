@@ -189,14 +189,10 @@ def test_collection_cost_and_labels_depend_on_registered_families_not_scope_coun
 @pytest.mark.parametrize("prior_failure", [False, True])
 @pytest.mark.parametrize("observation_failure", ["error", "timeout"])
 def test_healthy_combined_api_exposes_idle_stalled_and_stopped_processing(  # noqa: C901 - lifecycle regression
-    tmp_path, monkeypatch, observation_failure, prior_failure
+    tmp_path, observation_failure, prior_failure
 ):
     # Fault injection is confined to the worker boundary. API, runtime, database,
     # supervisor, durable requests and Prometheus rendering are real components.
-    if observation_failure == "timeout":
-        monkeypatch.setattr(
-            "powercontext.builtin.runtime.artifact_processing._PENDING_OBSERVATION_TIMEOUT_SECONDS", 0.2
-        )
     app = create_server_app(settings=_settings(tmp_path / "stalled.db"))
     with TestClient(app) as client:
         runtime = app.state.application
@@ -290,7 +286,8 @@ def test_healthy_combined_api_exposes_idle_stalled_and_stopped_processing(  # no
                 failures_before = supervisor.family_status["memory"]["pending_observation_failures"]
                 intents.fail_observation = True
                 intents.release_observation.set()
-                async with asyncio.timeout(3):
+                # Preserve the real observation deadline without shortening discovery.
+                async with asyncio.timeout(10):
                     while (  # noqa: ASYNC110
                         supervisor.family_status["memory"]["pending_observation_failures"] == failures_before
                     ):

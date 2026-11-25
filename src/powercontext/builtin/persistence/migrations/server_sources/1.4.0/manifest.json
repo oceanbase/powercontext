@@ -52,9 +52,13 @@
       "schemas/sqlite-v1_5_0_005.json",
       "schemas/mysql-v1_5_0_005.json"
     ],
-    "v1_5_2_pr2639": [
-      "schemas/sqlite-v1_5_2_pr2639.json",
-      "schemas/mysql-v1_5_2_pr2639.json"
+    "v1_5_0_006": [
+      "schemas/sqlite-v1_5_0_006.json",
+      "schemas/mysql-v1_5_0_006.json"
+    ],
+    "v1_6_0": [
+      "schemas/sqlite-v1_6_0.json",
+      "schemas/mysql-v1_6_0.json"
     ],
     "000": [
       "schemas/sqlite-000.json",
@@ -101,11 +105,14 @@
     "v1_5_0_005": [
       "50bff3a823c596084264f6b8bfbe495677217aa7f419b342966d287387058741"
     ],
-    "v1_5_2_pr2639": [
+    "v1_5_0_006": [
       "893b1b3ce4893b11f5f68478f54dc8484f696e0e1dc039b8fd01ce56e2dbb478"
     ],
+    "v1_6_0": [
+      "ecebbef5e9c33c1445a3686a1e6753b7e513c13db70ab8fe79483eceba1930c7"
+    ],
     "000": [
-      "b7e6fbcc0aae1b64e37ccaa17a51a4b56bc6fa415407e1b759b73868159049d1"
+      "7a748a60138e2c22057ed757927573a77790efa55956119138f07fed7e79b9ad"
     ]
   },
   "affected_objects": [
@@ -171,6 +178,7 @@
     "pc_candidate_versions",
     "pc_connector_checkpoints",
     "pc_context_bootstrap_receipts",
+    "pc_context_prepare_diagnostics",
     "pc_decision_observations",
     "pc_dream_runs",
     "pc_external_skill_registrations",
@@ -345,7 +353,7 @@
     },
     {
       "id": "source_collection",
-      "revision": "v1_5_2_pr2639",
+      "revision": "v1_5_0_006",
       "kind": "data",
       "module": "source_collection_readiness.py",
       "resources": [
@@ -413,7 +421,12 @@
       "portable_storage",
       "atomic_memory_evidence_projection"
     ],
-    "v1_5_2_pr2639": [
+    "v1_5_0_006": [
+      "source_collection",
+      "portable_storage",
+      "atomic_memory_evidence_projection"
+    ],
+    "v1_6_0": [
       "source_collection",
       "portable_storage",
       "atomic_memory_evidence_projection"
@@ -445,7 +458,8 @@
     "schemas/mysql-v1_5_0_003.json",
     "schemas/mysql-v1_5_0_004.json",
     "schemas/mysql-v1_5_0_005.json",
-    "schemas/mysql-v1_5_2_pr2639.json",
+    "schemas/mysql-v1_6_0.json",
+    "schemas/mysql-v1_5_0_006.json",
     "schemas/mysql-000.json"
   ],
   "mysql_history": "mysql",

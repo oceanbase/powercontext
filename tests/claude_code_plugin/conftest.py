@@ -36,12 +36,11 @@ _PLUGIN_MODULE_NAMES = (
     "powercontext_lifecycle.host_profile",
     "powercontext_lifecycle.prepared_context",
     "powercontext_lifecycle.prompt_privacy",
+    "powercontext_lifecycle.scope_binding",
     "powercontext_lifecycle.scope_binding_errors",
     "powercontext_lifecycle.session_start",
     "powercontext_lifecycle.transport",
-    "scripts",
-    "scripts.workspace_scope",
-    "workspace_scope",
+    "powercontext_lifecycle.user_prompt_submit",
     "powercontext_claude_code_statusline",
 )
 
@@ -85,6 +84,11 @@ def hook_module(plugin_imports: None) -> ModuleType:
     )
 
 
+@pytest.fixture
+def prompt_flow(hook_module: ModuleType) -> ModuleType:
+    return sys.modules[hook_module.run_user_prompt_submit.__module__]
+
+
 @pytest.fixture(autouse=True)
 def isolated_diagnostic_state(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setenv("POWERCONTEXT_DIAGNOSTIC_STATE_FILE", str(tmp_path / "claude-code-diagnostics.json"))
@@ -112,6 +116,11 @@ def scope_module(plugin_imports: None) -> ModuleType:
         "powercontext_claude_code_scope",
         PLUGIN_ROOT / "scripts" / "workspace_scope.py",
     )
+
+
+@pytest.fixture
+def scope_binding_client(scope_module: ModuleType) -> ModuleType:
+    return sys.modules[scope_module.resolve_scope_id.__module__]
 
 
 @pytest.fixture

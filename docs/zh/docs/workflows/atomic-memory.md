@@ -172,7 +172,8 @@ operation 和 target 向 restorations 提交原 token：
 `changed: true` 时，`restored` 和 `retired` 均引用实际变化对象所追加的新版本。
 no-op 返回 `changed: false`，`restored` 保留当前主制品的引用，不追加版本。
 若要撤销创建结果 C 的合并，改用 `operation: "undo_merge"`、`target: {"artifact_id": "C"}`；
-该操作不能同时指定内容 revision。
+该操作不能同时指定内容 revision。其目标必须是合并结果：指定输入 A 或 B，或指定并非由合并创建的记忆，
+都会返回 `invalid_memory_state`，且不做任何修改。若要让某个输入重新在役，应改为恢复该输入。
 
 公共 Python runtime 可以按本次操作的主新版本查询精确的整组历史结果：
 
@@ -187,7 +188,7 @@ outcome = await runtime.artifact_merge.for_scope("S", "atomic-memory").restorati
 | `invalid_preview` | 422 | 检查 token、主体、Scope、operation、target 及共享签名配置 |
 | `preview_expired` | 409 | 重新预览 |
 | `preview_stale` | 409 | 重新读取影响范围并预览 |
-| `invalid_memory_state` | 409 | 不直接编辑 merged，也不恢复 retired |
+| `invalid_memory_state` | 409 | 不直接编辑 merged，不恢复 retired，也不对非合并结果的记忆撤销合并 |
 | `atomic_memory_changed` | 409 | 当前内容或状态已变，重新读取后决定是否重试 |
 | `invalid_memory_relation` | 409 | 关系数据不一致，需要排查存储数据 |
 

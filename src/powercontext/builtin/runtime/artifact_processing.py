@@ -65,6 +65,7 @@ from powercontext.builtin.persistence.supervision import (
 from powercontext.builtin.persistence.tables import ARTIFACT_PROCESSING_LEASES_TABLE
 from powercontext.builtin.processing_diagnostics import (
     ProcessingDiagnostics,
+    allow_processing_failure_log,
     classify_block_code,
     safe_classify_processing_error,
     safe_log_fields,
@@ -104,7 +105,6 @@ _RETRY_STATE_LIMIT = 1000
 _CHANNEL_QUEUE_LIMIT = _DISCOVERY_PAGE_SIZE // 2
 _DISCOVERY_PAGE_DELAY_SECONDS = 0.01
 _DISCOVERY_TIMEOUT_SECONDS = 2.0
-_PENDING_OBSERVATION_TIMEOUT_SECONDS = 2.0
 _SPAWN_SIGTERM_GRACE_SECONDS = 1.0
 _WORKER_SHUTDOWN_TIMEOUT_SECONDS = 5.0
 ProcessingKey = tuple[str, str]
@@ -931,7 +931,7 @@ class ArtifactProcessingSupervisor:
             return
         state.next_pending_observation_at = now + self._pending_observation_interval
         try:
-            async with asyncio.timeout(_PENDING_OBSERVATION_TIMEOUT_SECONDS):
+            async with asyncio.timeout(_DISCOVERY_TIMEOUT_SECONDS):
                 async with self._database.transaction(consistent_snapshot=True) as connection:
                     observation = await self._intents.pending_observation(connection, state.binding.binding_name)
         except asyncio.CancelledError:
@@ -1831,6 +1831,14 @@ class ArtifactProcessingSupervisor:
             if isinstance(error, _WorkerExecutionError) and error.failure.diagnostics is not None
             else safe_classify_processing_error(error)
         )
+        with suppress(Exception):
+            if not cancelled and not allow_processing_failure_log(
+                "",
+                "artifact_processing.failed",
+                _worker_error_code(error),
+                None if diagnostics is None else diagnostics.reason,
+            ):
+                return
         log_safely(
             logger,
             logging.INFO if cancelled else logging.ERROR,

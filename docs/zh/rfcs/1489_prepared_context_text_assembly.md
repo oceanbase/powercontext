@@ -306,7 +306,7 @@ rank 继续递增。对应的丢弃计数等于这些记录数加上上限之后
 | Codex、Claude Code、WorkBuddy | 严格校验四字段响应，取出正文交付 Hook。 | 传递显式组装配置，并原样交付校验后的正文。 |
 | OpenCode、DSH、Pi | 校验四字段响应，再放入 Host 消息或提示词包装。 | 传递配置，保持正文不变；Host 附加说明位于正文之外。 |
 | OpenClaw | 对旧格式执行本地 UTF-8 裁剪、XML 边界转义，再增加包装。 | 完整校验并拒绝超预算响应，在未改写的正文外添加说明。 |
-| Hermes | 使用 `status`/`content`，调用 `strip()` 后增加说明，并维护预取缓存。 | 完整校验响应和字节数，原样交付正文，缓存区分组装配置与预算。 |
+| Hermes | 使用 `status`/`content`，调用 `strip()` 后增加说明；每轮按当前 prompt 准备。 | 完整校验响应和字节数，原样交付正文。 |
 | LangChain、Pydantic AI、Bub | 通过 Python Client 请求，并使用返回的 `content`。 | 通过 Client 传递显式配置，交付返回的正文。 |
 | LangGraph | 使用 Python Client，并缓存当前用户回合的 prepare 结果。 | 传递配置，缓存同时区分组装配置与字节预算。 |
 
@@ -318,8 +318,7 @@ Python Client 沿用 `TypeAdapter(...).dump_python(..., by_alias=True)` 完成�
 `null` 保持原有语义。出站 JSON 回归覆盖字段省略、显式默认配置和空 sections。
 
 缓存以现有 Scope/turn/query 身份为基础，额外区分规范化后的有效组装配置及 `max_bytes`；旧模式使用独立标识。
-Hermes 的预取生产者与消费者必须使用同一个键。新增配置在当前回合生效时，不能复用此前其他类别、顺序或预算的
-文本；配置固定在回合开始时则明确冻结到该回合结束。
+新增配置在当前回合生效时，不能复用此前其他类别、顺序或预算的文本；配置固定在回合开始时则明确冻结到该回合结束。
 
 | 请求方与 Server 组合 | 预期行为 |
 | --- | --- |
