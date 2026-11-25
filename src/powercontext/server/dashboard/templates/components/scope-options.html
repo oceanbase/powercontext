@@ -37,11 +37,13 @@ limitations under the License.
   <optgroup label="{{ t.parent_scope }}">{{ option(parent_scope) }}</optgroup>
   {% endif %}
 </select>
+<p class="small mt-2" data-scope-switch-error role="status" hidden></p>
 <span id="scope-switch-hint" class="visually-hidden">{{ t.scope_switch_hint }}</span>
 {% set scope_input %}<input type="text" aria-label="{{ t.scope_label }}">{% endset %}
 <script>
   me().run(component => {
     const controller = new AbortController();
+    let navigation;
     const picker = new TomSelect(me('select', component), {
       plugins: ['dropdown_input', 'virtual_scroll'],
       valueField: 'scope_id',
@@ -70,7 +72,8 @@ limitations under the License.
             if (result.current) {
               if (this.options[result.current.scope_id]) this.updateOption(result.current.scope_id, result.current);
               else this.addOption(result.current);
-              if ({{ scope|tojson }} === result.current.scope_id && !this.getValue()) {
+              // After navigation begins, an empty value can be the user's selection.
+              if (!navigation && {{ scope|tojson }} === result.current.scope_id && !this.getValue()) {
                 this.setValue(result.current.scope_id, true);
               }
             }
@@ -106,6 +109,25 @@ limitations under the License.
         no_results: (data, escape) => `<div class="no-results">${escape(component.dataset.noResults)}</div>`,
       },
     });
+    const form = component.closest('form');
+    const switchError = component.querySelector('[data-scope-switch-error]');
+    const currentScope = {{ scope|tojson }} || '';
+    form.addEventListener('htmx:beforeRequest', event => {
+      navigation = event.detail.xhr;
+      switchError.hidden = true;
+    }, {signal: controller.signal});
+    form.addEventListener('htmx:afterRequest', event => {
+      const {xhr, failed, requestConfig} = event.detail;
+      if (xhr !== navigation || (!failed && xhr.status !== 0 && xhr.status !== 204)) return;
+      const requested = requestConfig.parameters.scope || '';
+      // Replacing a request may abort it after the user has already picked a different Scope.
+      if (!component.isConnected || requested === currentScope || picker.getValue() !== requested) return;
+      const title = value => picker.options[value]?.display_title || value || {{ t.scope_none|tojson }};
+      const labels = {requested: title(requested), current: title(currentScope)};
+      switchError.textContent = {{ t.scope_switch_failed|tojson }}.replace(/\{(requested|current)\}/g, (_, key) => labels[key]);
+      picker.setValue(currentScope, true);
+      switchError.hidden = false;
+    }, {signal: controller.signal});
     component.closest('#workspace').addEventListener('htmx:beforeSwap', event => {
       if (event.detail.shouldSwap && event.detail.target.contains(component)) {
         // Do not restore the outgoing picker's focus into the new workspace.

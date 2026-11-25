@@ -682,16 +682,16 @@ class ArtifactProcessingSupervisor:
             retry = state.retries.get(scope_id)
             queued = scope_id in state.queued
             status = "idle"
-            reason = "waiting_schedule" if state.next_schedule_at is not None else "idle"
-            next_check = state.next_schedule_at
+            reason = "idle"
+            # The periodic scan belongs to the binding. Only a scoped retry has a deadline here.
+            next_check = None
             if running is not None:
-                status, reason, next_check = "running", "executing", None
+                status, reason = "running", "executing"
             elif queued:
                 status, reason = (
                     "queued",
                     "waiting_capacity" if len(state.running) >= state.binding.max_workers else "waiting_dispatch",
                 )
-                next_check = None
             elif retry is not None:
                 status, reason = (
                     ("blocked", "policy_block") if retry.block is not None else ("retry_wait", "retry_backoff")

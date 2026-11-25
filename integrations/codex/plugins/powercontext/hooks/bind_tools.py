@@ -86,6 +86,7 @@ _CURRENT_OPERATIONS = frozenset({
     "generate_skill",
     "get_artifact",
     "get_artifact_governance",
+    "get_artifact_processing_status",
     "get_candidate",
     "get_candidate_history",
     "get_artifact_revision",

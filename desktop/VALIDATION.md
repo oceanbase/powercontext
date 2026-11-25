@@ -3928,3 +3928,17 @@ Reproduce with the recorded artifact (allow sufficient local startup time):
   --product-qualification sqlite-release-1-6-0-98a9b1f7-v1 \
   --wheel /data/codex-tmp/release-1.6.0/wheel/powercontext-1.5.3.dev327+g98a9b1f7f-py3-none-any.whl
 ```
+
+## Processing status query errors
+
+The ordinary macOS Desktop client selected `sqlite-processing-status-24df3df1-v1` for all 13 native operations against the SQLite server with the processing-status query error contract. Anonymous loopback, static Bearer, HTTPS with an explicit CA and base path, and enforced Provider authentication passed. The verification checkout was `65e856f14306eb173c70c94ed7bcac050d28f142`. It regenerated the Desktop bindings and compiled the native probe with the candidate compatibility profile. [Qualification run and retained evidence](https://github.com/oceanbase/powercontext/actions/runs/45339568375)
+
+| Input | Identity |
+| --- | --- |
+| Server source | `24df3df190e5f6650f0e1479daeb603d38eb4699` |
+| OpenAPI SHA-256 | `0c2d4a26da2669f6fd917b13a668a53dfb952efe11727d2efd9a5cd2cadcb47a` |
+| Wheel | `powercontext-1.5.3.dev352+g24df3df19-py3-none-any.whl` |
+| Wheel SHA-256 | `5d37d4df1fd3ca22694f5c460840cc36b97f0ea83acbe5e8effeeac395e20cce` |
+| Native probe SHA-256 | `44e07ee1ae91624e4b160054b6d92e38c6fb745489b2ae18164127184abfe579` |
+
+The `desktop-protocol-qualification-2725` artifact contains the wheel and the four-mode report. Run `desktop/tests/real_server.py --product-qualification sqlite-processing-status-24df3df1-v1 --wheel PATH_TO_WHEEL` with the recorded wheel and the product `server_probe` build.

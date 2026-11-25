@@ -172,19 +172,18 @@ def test_non_builtin_runtime_keeps_sources_when_status_is_unsupported(dashboard,
 
 
 def test_inspection_enforces_scope_read_before_returning_evidence(dashboard, monkeypatch):
-    from powercontext.builtin.authz import AccessDeniedError
-    from powercontext.builtin.runtime.atomic_memory import AtomicMemoryAccess
+    from powercontext.builtin.authz import AccessControlService, AccessDeniedError
 
     scope = create_scope(dashboard, "Restricted inspection")["scope_id"]
     dashboard.post(f"/v1/scopes/{scope}/sources", json={"content": "Independently authorized source."})
-    original = AtomicMemoryAccess.authorize
+    original = AccessControlService.require_scope_read
 
-    async def denied(self, connection, scope_id, context, action, ref=None):
-        if context is not None and context.audit.operation == "dashboard_processing_status":
+    async def denied(self, principal, scope_id, *, connection, context):
+        if context.operation == "dashboard_processing_status":
             raise AccessDeniedError
-        return await original(self, connection, scope_id, context, action, ref)
+        return await original(self, principal, scope_id, connection=connection, context=context)
 
-    monkeypatch.setattr(AtomicMemoryAccess, "authorize", denied)
+    monkeypatch.setattr(AccessControlService, "require_scope_read", denied)
     page = dashboard.get("/dashboard/processing", params={"scope": scope, "record_type": "sources", "lang": "en"})
     assert page.status_code == 200
     assert "Independently authorized source." in page.text

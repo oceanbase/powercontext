@@ -163,6 +163,7 @@ def _generate_models(
     transport_data["paths"] = {}
     components = _JSON_OBJECT_ADAPTER.validate_python(transport_data["components"])
     transport_schemas = _JSON_OBJECT_ADAPTER.validate_python(components["schemas"])
+    _normalize_nullable_references(transport_schemas)
     _inline_artifact_read_family(contract_schemas, transport_schemas)
     for name in exclusive_schemas:
         schema_data = _JSON_OBJECT_ADAPTER.validate_python(transport_schemas[name])
@@ -198,6 +199,24 @@ def _generate_models(
     source = _with_artifact_search_validation(source, contract_schemas)
     source = _with_family_dispatch(source, contract_schemas)
     return _with_candidate_evidence_limits(source, evidence_models)
+
+
+def _normalize_nullable_references(schemas: dict[str, JsonValue]) -> None:
+    """Generate Python T | None for a reference union with an explicit null-only schema.
+
+    The model generator otherwise wraps JSON null in a RootModel instead of returning None.
+    Keep the published OpenAPI schema intact.
+    """
+    for schema in schemas.values():
+        properties = schema.get("properties") if isinstance(schema, dict) else None
+        if not isinstance(properties, dict):
+            continue
+        for name, field in properties.items():
+            match field:
+                case {"anyOf": [{"$ref": str(reference)} as target, null_schema]} if len(field) == len(
+                    target
+                ) == 1 and null_schema == {"type": "string", "nullable": True, "enum": [None]}:
+                    properties[name] = {"$ref": reference, "nullable": True}
 
 
 def _inline_artifact_read_family(

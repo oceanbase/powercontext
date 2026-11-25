@@ -16,6 +16,7 @@ limitations under the License.
 
 {% from 'components/page-heading.html' import page_heading %}
 {{ page_heading(t.prompts,t.prompts_subtitle) }}
+{% with processing_family='prompt' %}{% include 'components/artifact-processing.html' %}{% endwith %}
 {% if errors.get('prompts') %}{{ read_error(errors.prompts,t.prompts) }}{% endif %}
 {% if not data.prompts and not errors.get('prompts') %}<div class="quiet-empty"><h2>{{ t.prompt_empty }}</h2><p>{{ t.prompt_empty_body }}</p></div>{% endif %}
 <div class="prompt-browser">

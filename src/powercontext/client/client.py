@@ -216,8 +216,10 @@ from powercontext.http import (
 from powercontext.http._generated import models as atomic_models
 from powercontext.http._generated import operations as atomic_operations
 from powercontext.http._generated.models import (
+    ArtifactProcessingStatusResponse,
     ArtifactTagPage,
     ArtifactTagSet,
+    GetArtifactProcessingStatusRequest,
     GetTopicMemoryProcessingBlockRequest,
     QueryArtifactTagsRequest,
     ReplaceArtifactTagsRequest,
@@ -261,6 +263,7 @@ from powercontext.http._generated.operations import (
     GENERATE_SKILL,
     GET_ACCESS_PRINCIPAL,
     GET_ARTIFACT,
+    GET_ARTIFACT_PROCESSING_STATUS,
     GET_ARTIFACT_REVISION,
     GET_ARTIFACT_TAGS,
     GET_CANDIDATE,
@@ -663,6 +666,12 @@ class PowerContextClient:
         """Read one durable Dream without triggering generation."""
 
         return await self._request(GET_DREAM_RUN, path_parameters={"scope_id": scope_id, "run_id": run_id})
+
+    async def get_artifact_processing_status(
+        self, scope_id: str, request: GetArtifactProcessingStatusRequest
+    ) -> ArtifactProcessingStatusResponse:
+        """Read passive Scope evidence without activating processing or recovery."""
+        return await self._request(GET_ARTIFACT_PROCESSING_STATUS, request, path_parameters={"scope_id": scope_id})
 
     async def list_dream_runs(self, scope_id: str, request: ListDreamRunsRequest | None = None) -> DreamRunPage:
         """List a bounded page of Dream history in reverse acceptance order."""

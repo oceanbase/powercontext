@@ -3687,6 +3687,65 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "x-powercontext-scope-mode": "none",
             }
         },
+        "/v1/scopes/{scope_id}/processing-status": {
+            "get": {
+                "tags": ["processing"],
+                "summary": "Inspect existing artifact processing evidence",
+                "description": "Read bounded "
+                "existing progress, "
+                "safe blocks and "
+                "Dream outcomes for "
+                "one Scope and "
+                "family without "
+                "invoking models, "
+                "readiness probes, "
+                "processing, retries "
+                "or business-state "
+                "writes. Requires "
+                "Scope read access. "
+                "Local observations "
+                "are not remote "
+                "worker coverage.",
+                "operationId": "get_artifact_processing_status",
+                "x-powercontext-access": {"resolver": "path_scope_read_access"},
+                "x-powercontext-scope-mode": "current",
+                "parameters": [
+                    {
+                        "name": "scope_id",
+                        "in": "path",
+                        "required": True,
+                        "schema": {"type": "string", "minLength": 1, "maxLength": 256, "pattern": ".*\\S.*"},
+                    },
+                    {
+                        "name": "family",
+                        "in": "query",
+                        "required": True,
+                        "schema": {"type": "string", "minLength": 1, "maxLength": 128},
+                    },
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Existing processing evidence; unsupported families are explicitly unavailable.",
+                        "headers": {
+                            "X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"},
+                            "Cache-Control": {"schema": {"type": "string"}, "description": "Always no-store."},
+                        },
+                        "content": {
+                            "application/json": {
+                                "schema": {"$ref": "#/components/schemas/ArtifactProcessingStatusResponse"}
+                            }
+                        },
+                    },
+                    "400": {"$ref": "#/components/responses/BadRequest"},
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "403": {"$ref": "#/components/responses/Forbidden"},
+                    "404": {"$ref": "#/components/responses/NotFound"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                    "503": {"$ref": "#/components/responses/Unavailable"},
+                    "500": {"$ref": "#/components/responses/InternalError"},
+                },
+            }
+        },
         "/v1/scopes/{scope_id}/dream": {
             "post": {
                 "tags": ["dream"],
@@ -9762,6 +9821,300 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "additionalProperties": False,
                 "type": "object",
                 "required": ["period", "estimator", "totals", "daily"],
+            },
+            "GetArtifactProcessingStatusRequest": {
+                "properties": {"family": {"type": "string", "maxLength": 128, "minLength": 1}},
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["family"],
+            },
+            "ArtifactProcessingProgress": {
+                "properties": {
+                    "source_cursor": {"type": "integer", "minimum": 0.0},
+                    "source_head": {"type": "integer", "minimum": 0.0},
+                    "target_source_through": {"type": "integer", "minimum": 0.0, "nullable": True},
+                    "pending_inputs": {"type": "boolean"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["source_cursor", "source_head", "target_source_through", "pending_inputs"],
+            },
+            "ArtifactProcessingObservation": {
+                "properties": {
+                    "binding": {"type": "string"},
+                    "family": {"type": "string", "nullable": True},
+                    "state": {"$ref": "#/components/schemas/ProcessingState"},
+                    "reason": {"$ref": "#/components/schemas/ProcessingReason"},
+                    "observed_at": {"type": "string", "format": "date-time"},
+                    "scheduler_observed": {"type": "boolean"},
+                    "requested_generation": {"type": "integer", "minimum": 0.0},
+                    "handled_generation": {"type": "integer", "minimum": 0.0},
+                    "dirty_generation": {"type": "integer", "minimum": 0.0},
+                    "clean_generation": {"type": "integer", "minimum": 0.0},
+                    "running_seconds": {"type": "number", "minimum": 0.0, "nullable": True},
+                    "next_check_seconds": {"type": "number", "minimum": 0.0, "nullable": True},
+                    "retry_failures": {"type": "integer", "minimum": 0.0, "nullable": True},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": [
+                    "binding",
+                    "family",
+                    "state",
+                    "reason",
+                    "observed_at",
+                    "scheduler_observed",
+                    "requested_generation",
+                    "handled_generation",
+                    "dirty_generation",
+                    "clean_generation",
+                    "running_seconds",
+                    "next_check_seconds",
+                    "retry_failures",
+                ],
+            },
+            "ArtifactProcessingExecutor": {
+                "properties": {
+                    "binding": {"type": "string"},
+                    "family": {"type": "string", "nullable": True},
+                    "state": {"$ref": "#/components/schemas/ProcessingState"},
+                    "reason": {"$ref": "#/components/schemas/ProcessingReason"},
+                    "observed_at": {"type": "string", "format": "date-time"},
+                    "scheduler_observed": {"type": "boolean"},
+                    "running_seconds": {"type": "number", "minimum": 0.0, "nullable": True},
+                    "next_check_seconds": {"type": "number", "minimum": 0.0, "nullable": True},
+                    "retry_failures": {"type": "integer", "minimum": 0.0, "nullable": True},
+                    "last_error_code": {
+                        "type": "string",
+                        "description": "Known "
+                        "failure "
+                        "category "
+                        "from "
+                        "the "
+                        "last "
+                        "observed "
+                        "failed "
+                        "attempt "
+                        "for "
+                        "this "
+                        "Scope "
+                        "and "
+                        "binding.",
+                        "nullable": True,
+                    },
+                    "last_error_stage": {
+                        "type": "string",
+                        "description": "Safe observation boundary of that failure, when known.",
+                        "nullable": True,
+                    },
+                    "last_error_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "description": "Time of that failed attempt in the current local retry cycle.",
+                        "nullable": True,
+                    },
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": [
+                    "binding",
+                    "family",
+                    "state",
+                    "reason",
+                    "observed_at",
+                    "scheduler_observed",
+                    "running_seconds",
+                    "next_check_seconds",
+                    "retry_failures",
+                ],
+            },
+            "ArtifactProcessingBlock": {
+                "properties": {
+                    "reason": {"type": "string", "nullable": True},
+                    "stage": {"type": "string", "nullable": True},
+                    "source_after": {"type": "integer", "minimum": 0.0},
+                    "source_through": {
+                        "type": "integer",
+                        "minimum": 0.0,
+                        "description": "Inclusive end of the attempted Source window, when recorded.",
+                        "nullable": True,
+                    },
+                    "budget_source_through": {
+                        "type": "integer",
+                        "minimum": 0.0,
+                        "description": "Inclusive end of the Source window used for budget accounting, when recorded.",
+                        "nullable": True,
+                    },
+                    "target_source_through": {"type": "integer", "minimum": 0.0},
+                    "attempts": {"type": "integer", "minimum": 0.0},
+                    "requests": {"type": "integer", "minimum": 0.0},
+                    "tokens": {"type": "integer", "minimum": 0.0},
+                    "block_id": {"type": "string", "nullable": True},
+                    "blocked_at": {"type": "string", "format": "date-time", "nullable": True},
+                    "persisted": {"type": "boolean"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": [
+                    "reason",
+                    "stage",
+                    "source_after",
+                    "source_through",
+                    "budget_source_through",
+                    "target_source_through",
+                    "attempts",
+                    "requests",
+                    "tokens",
+                    "block_id",
+                    "blocked_at",
+                    "persisted",
+                ],
+            },
+            "ArtifactProcessingDream": {
+                "properties": {
+                    "run_id": {"type": "string"},
+                    "operation": {"type": "string"},
+                    "status": {"$ref": "#/components/schemas/ArtifactProcessingDreamState"},
+                    "outcome": {
+                        "anyOf": [
+                            {"$ref": "#/components/schemas/ArtifactProcessingDreamOutcome"},
+                            {"type": "string", "enum": [None], "nullable": True},
+                        ]
+                    },
+                    "accepted_at": {"type": "string", "format": "date-time"},
+                    "completed_at": {"type": "string", "format": "date-time", "nullable": True},
+                    "candidate": {
+                        "anyOf": [
+                            {"$ref": "#/components/schemas/DreamCandidateRef"},
+                            {"type": "string", "enum": [None], "nullable": True},
+                        ]
+                    },
+                    "reason": {"type": "string", "nullable": True},
+                    "stage": {"type": "string", "nullable": True},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": [
+                    "run_id",
+                    "operation",
+                    "status",
+                    "outcome",
+                    "accepted_at",
+                    "completed_at",
+                    "candidate",
+                    "reason",
+                    "stage",
+                ],
+            },
+            "ArtifactProcessingEvidence": {
+                "properties": {
+                    "origin": {"type": "string"},
+                    "durability": {"$ref": "#/components/schemas/ArtifactProcessingDurability"},
+                    "scope_id": {"type": "string"},
+                    "binding": {"type": "string", "nullable": True},
+                    "observed_at": {"type": "string", "format": "date-time", "nullable": True},
+                    "read_at": {"type": "string", "format": "date-time"},
+                    "freshness": {"$ref": "#/components/schemas/ArtifactProcessingFreshness"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["origin", "durability", "scope_id", "binding", "observed_at", "read_at", "freshness"],
+            },
+            "ArtifactProcessingStatusResponse": {
+                "properties": {
+                    "scope_id": {"type": "string"},
+                    "family": {"type": "string"},
+                    "state": {"$ref": "#/components/schemas/ArtifactProcessingSummaryState"},
+                    "observed_at": {"type": "string", "format": "date-time"},
+                    "queried_at": {"type": "string", "format": "date-time"},
+                    "source_consumption_applicable": {"type": "boolean"},
+                    "progress": {
+                        "anyOf": [
+                            {"$ref": "#/components/schemas/ArtifactProcessingProgress"},
+                            {"type": "string", "enum": [None], "nullable": True},
+                        ]
+                    },
+                    "invocation": {
+                        "anyOf": [
+                            {"$ref": "#/components/schemas/ArtifactProcessingObservation"},
+                            {"type": "string", "enum": [None], "nullable": True},
+                        ]
+                    },
+                    "executor": {
+                        "anyOf": [
+                            {"$ref": "#/components/schemas/ArtifactProcessingExecutor"},
+                            {"type": "string", "enum": [None], "nullable": True},
+                        ]
+                    },
+                    "executor_expires_at": {"type": "string", "format": "date-time", "nullable": True},
+                    "block": {
+                        "anyOf": [
+                            {"$ref": "#/components/schemas/ArtifactProcessingBlock"},
+                            {"type": "string", "enum": [None], "nullable": True},
+                        ]
+                    },
+                    "dream_operations": {
+                        "items": {"$ref": "#/components/schemas/ArtifactProcessingDream"},
+                        "type": "array",
+                        "maxItems": 10,
+                    },
+                    "dream_pending": {"type": "boolean", "nullable": True},
+                    "unavailable_reason": {"type": "string", "nullable": True},
+                    "availability": {
+                        "additionalProperties": {"$ref": "#/components/schemas/ArtifactProcessingAvailability"},
+                        "type": "object",
+                    },
+                    "evidence": {
+                        "additionalProperties": {"$ref": "#/components/schemas/ArtifactProcessingEvidence"},
+                        "type": "object",
+                    },
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": [
+                    "scope_id",
+                    "family",
+                    "state",
+                    "observed_at",
+                    "queried_at",
+                    "source_consumption_applicable",
+                    "progress",
+                    "invocation",
+                    "executor",
+                    "executor_expires_at",
+                    "block",
+                    "dream_operations",
+                    "dream_pending",
+                    "unavailable_reason",
+                    "availability",
+                    "evidence",
+                ],
+                "description": "Passive evidence "
+                "for one Scope and "
+                "family. "
+                "Consumption, "
+                "invocation "
+                "acknowledgement, "
+                "local execution, "
+                "blocks and "
+                "historical Dream "
+                "outcomes are "
+                "independent. Idle "
+                "does not prove "
+                "publication. "
+                "Missing execution "
+                "observations do "
+                "not prove stopped "
+                "work.",
+            },
+            "ArtifactProcessingSummaryState": {"type": "string", "enum": ["idle", "pending", "blocked", "unknown"]},
+            "ArtifactProcessingDreamState": {"type": "string", "enum": ["queued", "running", "succeeded", "failed"]},
+            "ArtifactProcessingDreamOutcome": {"type": "string", "enum": ["proposed", "no_change", "needs_evidence"]},
+            "ArtifactProcessingDurability": {"type": "string", "enum": ["durable", "process_local"]},
+            "ArtifactProcessingFreshness": {"type": "string", "enum": ["fresh", "stale", "unknown", "not_applicable"]},
+            "ArtifactProcessingAvailability": {
+                "type": "string",
+                "enum": ["available", "unavailable", "not_applicable"],
             },
             "ProcessingState": {
                 "type": "string",

@@ -187,6 +187,36 @@ Home 的记忆、交接、经验和技能可以独立阅读。一类内容缺失
 
 中英文和明暗主题适用于全部 Dashboard 页面，包括登录与独立材料页。翻译可以自然换行，但不应打乱导航顺序、按钮分组或主栏比例。主题切换保留相同的信息层级和可读性；业务内容不随界面语言改写。完整 Logo 使用现有品牌资源，favicon 只使用图形部分。
 
+## 产物处理证据
+
+记忆、主题记忆、经验、技能、当前画像、交接和提示词集合页独立加载共享处理摘要，不阻塞已保存内容。摘要面向当前 Scope 和 family，不随搜索、统计周期或产物生命周期筛选缩小范围。画像历史修订和生成表单保留原有内容视图。
+
+`GET /v1/scopes/{scope_id}/processing-status?family={family}` 要求 `scope.read` 权限，复用内置只读 inspector，并返回 `Cache-Control: no-store`。Python Client 提供 `get_artifact_processing_status`。支持 `atomic-memory`（兼容别名 `memory`）、`topic-memory`、`experience`、`skill`、`profile`、`handoff` 和 `prompt`。未知 family 明确返回不可用；未提供内置 inspector 的 runtime 返回 HTTP 503。读取不创建处理意图、不获取执行租约、不重试任务、不调用模型，也不需要数据库迁移。
+
+Source 消费、调用意图、执行观察、阻塞和 Dream 记录是独立证据。Source 阻塞可与待处理 Dream 并存。技能、交接和提示词不适用 Source 消费路径。消费追平或调用已确认不能证明产物发布。Dream 历史最多展示十条，是否存在待处理操作则独立查询。候选提出后仍需审核；成功无变化和需要更多证据保留各自含义。
+
+四个代次计数均来自持久化的处理意图。主题记忆的详情抽屉展示尝试处理的 Source 区间（左开右闭）、有记录的预算统计结束位置，以及该阻塞对应的目标。当前日志头位置可以继续前移。
+
+| 产物页面 | Source 证据 | Dream 操作 |
+| --- | --- | --- |
+| Memory | 消费游标和日志头位置 | `revise_memory` |
+| Topic Memory | 游标、日志头位置、目标窗口，以及导致阻塞的预算或已保存的阻塞记录 | `revise_topic_memory` |
+| Experience | 消费游标和日志头位置 | `refine_experience` |
+| Skill | 不适用 | `derive_skill`、`revise_skill` |
+| 当前 Profile | 消费游标和日志头位置 | `revise_profile` |
+| Handoff | 不适用 | `refresh_handoff` |
+| Prompt | 不适用 | `revise_prompt` |
+
+本地调度器记录了失败类别和时间时，抽屉会展示当前 Scope 和 binding 最近一次失败的尝试，并在阶段已知时显示阶段。后续尝试成功确认后，这条观察会清除。
+
+各页也会展示以该产物类型为目标的 `revise_tags` 记录。调用计数来自当前 Scope 的处理意图，执行状态来自本进程对相应 binding 的调度观察。
+
+详情抽屉展示安全诊断原因，以及各维度的来源和时间，不披露原始异常、私有输入或 worker 标识。预算推导的阻塞与已保存阻塞记录分别说明。执行观察仅适用于本进程、当前 Scope 和共享 binding，不能归因到具体 Dream run，也不代表其他进程的活动。执行快照经过 30 秒后在本地标记过期，不自动轮询。
+
+状态查询采用独立的三秒超时，失败不替换已有内容工作区。手动刷新保留搜索与选中记录。切换 Scope 或 family 会取消旧请求、关闭抽屉；晚到响应不能覆盖其他 Scope 的证据。链接使用既有 Scope 处理记录、精确 Dream run、候选审核和全服务运行状态页面，沿用目标页面授权。
+
+Node 可加载 Playwright 时，可执行 `node scripts/dashboard_processing_browser.cjs SERVER_URL SCOPE_ID OTHER_SCOPE_ID`，选择两个已有且可读取的 Scope。需要鉴权时设置 `POWERCONTEXT_TOKEN`。脚本读取现有数据，并拦截响应来验证失败、过期和导航竞态，不写入服务端数据。第一个 Scope 包含记忆时，还会检查记录选择行为。
+
 ## 启用与访问
 
 通过 `POWERCONTEXT_SERVER_DASHBOARD_ENABLED=true` 启用 Dashboard。本地 `ACCESS_MODE=disabled` 时直接访问，无需 token；`ACCESS_MODE=enforced` 时要求 `AUTH_TOKEN`，使用内置静态 Bearer 身份，所有 token 持有者共享同一权限。注入认证或授权 Provider 的团队部署必须关闭它。页面遵循服务的访问模式和当前权限，不提供成员或角色管理。个人启用步骤见[安装和运行](../docs/get-started/install-and-run.md)。

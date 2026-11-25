@@ -196,6 +196,36 @@ Prefer Tabler's default typography, font weights, buttons and form states. Use r
 
 Chinese, English, light and dark settings apply across the Dashboard, including login and standalone source pages. Translations may wrap naturally, but should preserve navigation order, button groups and column proportions. Theme changes retain the information hierarchy and readability. Changing the interface language does not rewrite business content. Use existing brand assets for the full logo and only the graphic for the favicon.
 
+## Artifact processing evidence
+
+Memory, Topic Memory, Experience, Skill, current Profile, Handoff and Prompt collection pages load a shared processing summary independently of saved content. The summary applies to the current Scope and family, regardless of search, period or artifact lifecycle filters. Historical Profile revisions and generation forms keep their existing content views.
+
+`GET /v1/scopes/{scope_id}/processing-status?family={family}` requires `scope.read`. It reuses the built-in passive inspector and returns `Cache-Control: no-store`. The Python client exposes `get_artifact_processing_status`. Supported families are `atomic-memory` (`memory` is an alias), `topic-memory`, `experience`, `skill`, `profile`, `handoff` and `prompt`. Unsupported families return an explicit unavailable reading; runtimes without the built-in inspector return HTTP 503. Inspection does not create processing intents, acquire worker leases, retry work or call a model. No database migration is required.
+
+Source consumption, invocation intent, execution observation, blocks and Dream records are independent evidence. A Source block can coexist with pending Dream work. Skills, Handoffs and Prompts have no Source consumption path. A caught-up cursor or acknowledged invocation does not establish publication. Dream history is bounded to ten records, while pending work is checked independently. Proposed candidates remain subject to review; successful `no_change` and `needs_evidence` retain their separate meanings.
+
+The four generation counters belong to the durable invocation. For Topic Memory, the drawer shows the attempted Source interval (exclusive start, inclusive end), the budget end when recorded, and the target associated with the block. The current journal head can advance beyond all three.
+
+| Artifact page | Source evidence | Dream operations |
+| --- | --- | --- |
+| Memory | Consumption cursor and journal head | `revise_memory` |
+| Topic Memory | Cursor, journal head, target window and blocking budget or block record | `revise_topic_memory` |
+| Experience | Consumption cursor and journal head | `refine_experience` |
+| Skill | Not applicable | `derive_skill`, `revise_skill` |
+| Current Profile | Consumption cursor and journal head | `revise_profile` |
+| Handoff | Not applicable | `refresh_handoff` |
+| Prompt | Not applicable | `revise_prompt` |
+
+The drawer shows the last failed attempt for this Scope and binding when the local supervisor has a known failure category and timestamp. It also shows the stage when available. A later successful acknowledgement clears that observation.
+
+Each page also includes `revise_tags` runs targeting that family. Invocation counters come from the Scope’s processing intent. The executor observation comes from the local supervisor for that binding.
+
+The details drawer shows safe diagnostic reasons and each dimension's source and time, without raw errors, private input or worker identifiers. Budget-derived blocks are distinguished from retained block records. Execution observations apply only to this process, Scope and shared binding; they do not identify a specific Dream run or establish other workers' activity. After 30 seconds, a local execution snapshot is marked stale without polling.
+
+Status reads have a separate three-second deadline and do not replace the saved-content workspace on failure. Manual refresh preserves search and selection. Scope or family changes cancel outstanding reads and close the drawer; late responses cannot replace another Scope's evidence. Links open the existing Scope-wide processing records, exact Dream run, candidate review or whole-service runtime page with their normal authorization.
+
+With Playwright available to Node, run `node scripts/dashboard_processing_browser.cjs SERVER_URL SCOPE_ID OTHER_SCOPE_ID` against two existing readable Scopes. Use `POWERCONTEXT_TOKEN` for an authenticated server. The script reads existing data and intercepts responses to exercise failures, expiration and navigation races; it does not write server data. A Scope containing a memory also exercises record selection.
+
 ## Enablement and access
 
 Enable Dashboard with `POWERCONTEXT_SERVER_DASHBOARD_ENABLED=true`. Local `ACCESS_MODE=disabled` opens directly without a token. With `ACCESS_MODE=enforced`, it requires `AUTH_TOKEN` and uses the built-in static Bearer identity, with the same permissions for every token holder. Team deployments that inject authentication or authorization Providers must disable it. Pages follow the Server access mode and current authority, and provide no member or role management. See [Install and run](../docs/get-started/install-and-run.md) for personal setup.

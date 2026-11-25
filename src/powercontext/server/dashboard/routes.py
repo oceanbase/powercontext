@@ -42,7 +42,7 @@ from powercontext.server.dashboard.page import load_builtin_page
 from powercontext.server.dashboard.pagination import PAGE_SIZE
 from powercontext.server.dashboard.plugin_pages import plugin_pages
 from powercontext.server.dashboard.preferences import CATALOGS, presentation, remember_language
-from powercontext.server.dashboard.presenters import set_scope, source_view
+from powercontext.server.dashboard.presenters import artifact_family_label, set_scope, source_view
 from powercontext.server.dashboard.review import load_review, load_review_inspection, submit_review
 from powercontext.server.dashboard.session import login_response, same_origin
 
@@ -78,6 +78,7 @@ ENV = Environment(
     loader=FileSystemLoader(ROOT / "templates"), autoescape=select_autoescape(), undefined=StrictUndefined
 )
 ENV.policies["json.dumps_kwargs"] = {"sort_keys": True, "ensure_ascii": False}
+ENV.filters["artifact_family_label"] = artifact_family_label
 ENV.filters["markdown"] = profile_html
 
 
@@ -429,6 +430,17 @@ async def scope_context(api: DashboardAPI, ctx: dict[str, Any], descriptor: dict
             return
         raise
     set_scope(ctx, descriptor)
+
+
+@router.get("/artifact-processing-status")
+async def artifact_processing_status(
+    request: Request,
+    scope: str = Query(min_length=1, max_length=256),
+    family: str = Query(min_length=1, max_length=128),
+) -> HTMLResponse:
+    from powercontext.server.dashboard.artifact_processing import artifact_processing_status as inspect
+
+    return await inspect(request, scope, family)
 
 
 @router.get("/scope-options")

@@ -70,7 +70,16 @@ async def _runtime(tmp_path):
         yield runtime, scopes
 
 
-async def _run_record(connection, scope, index, operation="derive_skill", status="succeeded", *, tag_family=None):
+async def _run_record(
+    connection,
+    scope,
+    index,
+    operation="derive_skill",
+    status="succeeded",
+    *,
+    tag_family=None,
+    error="private-error-text",
+):
     family = {
         "derive_skill": "experience",
         "refine_experience": "experience",
@@ -101,7 +110,7 @@ async def _run_record(connection, scope, index, operation="derive_skill", status
             operation=operation,
             status=status,
             outcome="no_change" if status == "succeeded" else None,
-            error="private-error-text" if status == "failed" else None,
+            error=error if status == "failed" else None,
             accepted_at=accepted,
             completed_at=accepted if status in {"failed", "succeeded"} else None,
         ),
@@ -217,18 +226,100 @@ def test_family_filter_and_pending_query_precede_limits(tmp_path):
             async with runtime.primary_database.transaction() as connection:
                 await _run_record(connection, scopes[0], 0, status="running")
                 for index in range(1, 13):
-                    await _run_record(connection, scopes[0], index)
-                for index in range(13, 26):
+                    if index % 2:
+                        await _run_record(connection, scopes[0], index)
+                    else:
+                        await _run_record(connection, scopes[0], index, "revise_tags", tag_family="skill")
+                for index in range(13, 60):
                     await _run_record(connection, scopes[0], index, "refine_experience")
                 await _run_record(connection, scopes[1], 100, status="queued")
             result = await ProcessingStatusApplication(runtime).for_scope(scopes[0]).status("skill")
-            assert len(result.dream_operations) == 10
-            assert all(row.operation == "derive_skill" for row in result.dream_operations)
+            assert [row.run_id for row in result.dream_operations] == [f"dr_{index}" for index in range(12, 2, -1)]
             assert result.dream_operations[0].status == "succeeded"
             assert result.dream_pending is True and result.state is ProcessingStatusState.PENDING
             assert result.executor is None
             other = await ProcessingStatusApplication(runtime).for_scope(scopes[1]).status("skill")
             assert [row.run_id for row in other.dream_operations] == ["dr_100"]
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize(("handoff_every", "initial_size"), [(None, 500), (5, 500), (19, 5000)])
+def test_other_operation_history_does_not_increase_scope_status_read_cost(tmp_path, handoff_every, initial_size):
+    async def scenario():
+        async with (
+            _runtime(tmp_path) as (runtime, (scope, _)),
+            runtime.primary_database.transaction() as connection,
+        ):
+            await _run_record(connection, scope, 0, "refresh_handoff", "queued")
+            driver = (await connection.get_raw_connection()).driver_connection
+
+            expected_handoffs = ["dr_0"]
+
+            async def seed(start, end):
+                for index in range(start, end):
+                    if handoff_every and index % handoff_every == 0:
+                        await _run_record(connection, scope, index, "refresh_handoff")
+                        expected_handoffs.insert(0, f"dr_{index}")
+                        del expected_handoffs[10:]
+                    else:
+                        await _run_record(connection, scope, index)
+
+            async def read(family):
+                steps = 0
+
+                def measure():
+                    nonlocal steps
+                    steps += 100
+                    return 0
+
+                await driver.set_progress_handler(measure, 100)
+                try:
+                    status = await ProcessingStatusInspector().status(connection, scope, family)
+                finally:
+                    await driver.set_progress_handler(None, 0)
+                assert status.unavailable_reason is None
+                if family == "handoff":
+                    assert [run.run_id for run in status.dream_operations] == expected_handoffs
+                    assert status.dream_pending
+                else:
+                    assert len(status.dream_operations) == 10 and not status.dream_pending
+                return steps
+
+            await seed(1, initial_size + 1)
+            baseline = {family: await read(family) for family in ("handoff", "skill")}
+            await seed(initial_size + 1, initial_size + 5001)
+            for family, steps in baseline.items():
+                assert await read(family) <= 2 * steps + 300, family
+            await connection.exec_driver_sql("ANALYZE")
+            for family, steps in baseline.items():
+                assert await read(family) <= 2 * steps + 300, family
+
+    asyncio.run(scenario())
+
+
+def test_sparse_dream_family_read_budget_with_unrelated_tag_revisions(tmp_path):
+    async def scenario():
+        async with _runtime(tmp_path) as (runtime, (scope, _)), runtime.primary_database.transaction() as connection:
+            await _run_record(connection, scope, 0, "revise_tags", "queued", tag_family="handoff")
+            for index in range(1, 5001):
+                await _run_record(connection, scope, index, "revise_tags", tag_family="atomic-memory")
+            steps = 0
+
+            def measure():
+                nonlocal steps
+                steps += 100
+                return 0
+
+            driver = (await connection.get_raw_connection()).driver_connection
+            await driver.set_progress_handler(measure, 100)
+            try:
+                result = await ProcessingStatusInspector().status(connection, scope, "handoff")
+            finally:
+                await driver.set_progress_handler(None, 0)
+            assert [run.run_id for run in result.dream_operations] == ["dr_0"] and result.dream_pending
+            # Allow a linear pass over unindexed tag targets, including the independent pending query.
+            assert steps < 150_000
 
     asyncio.run(scenario())
 
