@@ -882,9 +882,10 @@ where
         Some(fields)
     }
 
-    /// 只有用户回合准备并注入：工具续写、助手续写以及空回合都不检索，也不读重放缓存。
-    /// 用户回合有可信会话 ID 时，同一消息锚点（重试）精确重放已准备的内容与绑定，不再检索；
-    /// 新锚点（新的用户消息）准备一次。没有会话 ID 时每个请求各自准备，不继承任何旧注入。
+    /// 用户回合准备并注入；非用户回合只复用本轮已准备的块，不发起新的查询。
+    /// 有可信会话 ID 时，同一消息锚点（工具续写、重试）精确重放已准备的内容与绑定，不再检索；
+    /// 新锚点（新的用户消息）准备一次。没有会话 ID 时每个用户回合各自准备，不继承任何旧注入，
+    /// 因此没有会话 ID 的工具续写既不准备也不注入。
     /// 准备失败不写入，下一次请求重试，且不阻塞本次请求；空结果同样重放。
     async fn enrich(
         &self,
@@ -895,20 +896,20 @@ where
         recording: &mut CallRecorder<'_>,
         execution: &Execution,
     ) {
-        if kind != TurnKind::UserTurn {
-            self.turn_counters.record_skipped_prepare();
-            recording.prepare_skipped();
-            tracing::debug!(
-                turn_kind = kind.as_str(),
-                "skipping prepare for a non-user turn"
-            );
-            return;
-        }
         let replay = call.conversation_id.clone().zip(anchor);
         let cached = replay.as_ref().and_then(|(conversation, anchor)| {
             self.replays
                 .get(&call.scope_id, conversation, *anchor, now_ms())
         });
+        if cached.is_none() && kind != TurnKind::UserTurn {
+            self.turn_counters.record_skipped_prepare();
+            recording.prepare_skipped();
+            tracing::debug!(
+                turn_kind = kind.as_str(),
+                "skipping prepare for a non-user turn without a replay entry"
+            );
+            return;
+        }
         let prepared = match cached {
             Some(prepared) => prepared,
             None => {

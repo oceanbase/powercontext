@@ -37,7 +37,7 @@ pub struct TurnCounterSnapshot {
     pub tool_continuation: u64,
     pub assistant_only: u64,
     pub empty: u64,
-    /// 非用户回合跳过准备的次数。
+    /// 非用户回合且没有可复用结果时跳过准备的次数。
     pub skipped_prepare: u64,
 }
 
