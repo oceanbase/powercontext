@@ -86,23 +86,30 @@ PC_GATEWAY_CORE_BASE=http://127.0.0.1:8000 \
 PC_GATEWAY_CORE_TOKEN="$POWERCONTEXT_DEPLOYMENT_TOKEN" \
 PC_GATEWAY_DEFAULT_SCOPE=your-scope \
 PC_GATEWAY_UPSTREAM_PROFILE=approved-provider \
-PC_GATEWAY_UPSTREAM_URL_CHAT=https://provider.example/v1/chat/completions \
+PC_GATEWAY_API_KEY="$GATEWAY_CLIENT_TOKEN" \
 PC_GATEWAY_UPSTREAM_API_KEY_CHAT="$PROVIDER_API_KEY" \
 pc-gateway
 ```
 
 The default Gateway listener is loopback. For a combined deployment, replace `PC_GATEWAY_CORE_BASE` with
 `PC_GATEWAY_CORE_UDS=/path/to/core.sock`; Core must already be listening on that private socket.
-`PC_GATEWAY_API_KEY` protects model routes and is required for a non-loopback listener. It does not replace Core's
-credentials for forwarded API, MCP or Dashboard routes. See [authentication boundaries](deploy-server.md#gateway-authentication-boundaries).
+`PC_GATEWAY_API_KEY` protects model routes and is required for every model listener, including loopback. It must be
+different from `PC_GATEWAY_CORE_TOKEN`; it does not replace Core's credentials for forwarded API, MCP or Dashboard
+routes. The selected `PC_GATEWAY_UPSTREAM_PROFILE` must already exist in Core and must contain the provider endpoint,
+model and `openai-chat` protocol. Grant the service identity behind `PC_GATEWAY_CORE_TOKEN` both `scope.read` and
+`gateway.invoke` on `your-scope` (for example, `scope.viewer` and `gateway.user`). See
+[authentication boundaries](deploy-server.md#gateway-authentication-boundaries).
 
 `curl --fail http://127.0.0.1:8787/healthz` checks the Gateway listener only. In a combined UDS deployment, an authenticated
 request to `/v1/server-info` through the Gateway should return the same Server identity as Core. Standalone HTTP mode
 does not forward Core routes. Provider/model acceptance remains separate from startup and connection checks.
 
-For an upgrade, stop the Gateway, download and verify the matching release, replace the executable, then restart with
-the existing configuration. Follow the Server's database maintenance requirements separately. Keep the previous binary
-for operational rollback; replacing a Gateway binary does not roll back Core's database.
+For an upgrade, stop the Gateway, download and verify the matching release, and replace the executable. Before restart,
+remove any `PC_GATEWAY_UPSTREAM_URL*` settings, configure the approved Core profile and distinct mandatory Gateway/Core
+tokens, and grant the Gateway service `scope.read` and `gateway.invoke` on the selected Scope. Deployments that selected
+different models per request need a separate Gateway instance for each model; provider endpoints must be directly
+reachable without an ambient HTTP proxy. Follow the Server's database maintenance requirements separately. Keep the
+previous binary for operational rollback; replacing a Gateway binary does not roll back Core's database.
 
 ## Build from source
 

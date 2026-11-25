@@ -83,21 +83,28 @@ PC_GATEWAY_CORE_BASE=http://127.0.0.1:8000 \
 PC_GATEWAY_CORE_TOKEN="$POWERCONTEXT_DEPLOYMENT_TOKEN" \
 PC_GATEWAY_DEFAULT_SCOPE=your-scope \
 PC_GATEWAY_UPSTREAM_PROFILE=approved-provider \
-PC_GATEWAY_UPSTREAM_URL_CHAT=https://provider.example/v1/chat/completions \
+PC_GATEWAY_API_KEY="$GATEWAY_CLIENT_TOKEN" \
 PC_GATEWAY_UPSTREAM_API_KEY_CHAT="$PROVIDER_API_KEY" \
 pc-gateway
 ```
 
 Gateway 默认监听回环地址。同机组合部署时，将 `PC_GATEWAY_CORE_BASE` 替换为
 `PC_GATEWAY_CORE_UDS=/path/to/core.sock`；Core 必须已经监听该私有 socket。
-`PC_GATEWAY_API_KEY` 保护模型路由，监听非回环地址时必须配置；它不替代转发 API、MCP 和 Dashboard 路由所需的
-Core 凭据。详见[认证边界](deploy-server.md#网关认证边界)。
+`PC_GATEWAY_API_KEY` 保护模型路由，包括回环监听在内的所有模型监听都必须配置。它必须与
+`PC_GATEWAY_CORE_TOKEN` 不同；它不替代转发 API、MCP 和 Dashboard 路由所需的 Core 凭据。
+`PC_GATEWAY_UPSTREAM_PROFILE` 必须已存在于 Core，并包含服务商 endpoint、模型和 `openai-chat` 协议。
+`PC_GATEWAY_CORE_TOKEN` 对应的服务身份必须在 `your-scope` 上同时具备 `scope.read` 和 `gateway.invoke`
+（例如通过 `scope.viewer` 和 `gateway.user` 两项角色授予）。
+详见[认证边界](deploy-server.md#网关认证边界)。
 
 `curl --fail http://127.0.0.1:8787/healthz` 只检查 Gateway 监听状态。同机 UDS 部署时，通过 Gateway
 携带认证请求 `/v1/server-info` 应返回与 Core 相同的 Server 身份。独立 HTTP 模式不转发 Core 路由。
 供应商和模型验收与启动、连接检查相互独立。
 
-升级时先停止 Gateway，下载并校验匹配版本，替换可执行文件后使用原配置重启。
+升级时先停止 Gateway，下载并校验匹配版本，然后替换可执行文件。重启前删除所有
+`PC_GATEWAY_UPSTREAM_URL*` 配置，配置 Core 批准的 profile 和相互不同的必填 Gateway/Core token，并在选定的
+Scope 上授予 Gateway 服务身份 `scope.read` 和 `gateway.invoke`。此前按请求选择不同模型的部署需为每个模型
+单独配置 Gateway 实例；服务商 endpoint 必须可直连，不能依赖进程环境中的 HTTP 代理。
 Server 的数据库维护要求需要单独遵循。保留旧二进制以便回退程序；替换 Gateway 二进制不会回退 Core 数据库。
 
 ## 从源码构建
