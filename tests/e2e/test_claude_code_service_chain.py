@@ -22,7 +22,6 @@ import socket
 import subprocess
 import sys
 import threading
-import time
 from pathlib import Path
 
 import httpx
@@ -38,6 +37,7 @@ from powercontext.builtin.runtime import InferenceConfig
 from powercontext.server.factory import create_server_app
 from powercontext.server.settings import AccessControlConfig, BearerAuthConfig, McpConfig, ServerSettings
 from tests.e2e.atomic_memory_models import independent_atomic_memory_model
+from tests.e2e.server_startup import wait_for_server_startup
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 CLAUDE_PLUGIN = PROJECT_ROOT / "integrations" / "claude-code" / "plugins" / "powercontext"
@@ -89,7 +89,7 @@ def test_claude_sessions_and_codex_share_one_project_memory(
     thread = threading.Thread(target=server.run, kwargs={"sockets": [listener]}, daemon=True)
     thread.start()
     try:
-        _wait_until_started(server, thread)
+        wait_for_server_startup(server, thread)
         codex_plugin = tmp_path / "codex-plugin"
         shutil.copytree(CODEX_PLUGIN, codex_plugin, ignore=shutil.ignore_patterns("__pycache__", ".venv"))
         mcp_configuration = json.loads((codex_plugin / ".mcp.json").read_text())
@@ -166,7 +166,7 @@ def test_claude_plugin_mcp_supports_explicit_memory_and_handoff_workflows(
     thread = threading.Thread(target=server.run, kwargs={"sockets": [listener]}, daemon=True)
     thread.start()
     try:
-        _wait_until_started(server, thread)
+        wait_for_server_startup(server, thread)
         endpoint, headers, helper_errors = _claude_mcp_connection(
             base_url,
             authorization=AUTHORIZATION if authentication_enabled else None,
@@ -385,10 +385,3 @@ def _create_scope(base_url: str, *, authorization: str | None) -> str:
     )
     response.raise_for_status()
     return response.json()["scope_id"]
-
-
-def _wait_until_started(server: uvicorn.Server, thread: threading.Thread) -> None:
-    deadline = time.monotonic() + 10
-    while thread.is_alive() and not server.started and time.monotonic() < deadline:
-        time.sleep(0.01)
-    assert server.started

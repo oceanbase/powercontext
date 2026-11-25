@@ -23,6 +23,7 @@
     "---Python Agent 框架---",
     "pydantic-ai",
     "langchain",
+    "deepagents",
     "langgraph",
     "---评测与能力---",
     "evaluation",

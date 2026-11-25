@@ -17,6 +17,8 @@ services:
     build:
       context: ../..
       dockerfile: deploy/observability/Dockerfile
+      args:
+        PC_CI_PYTHON_MIRROR: ${PC_CI_PYTHON_MIRROR:-}
     env_file:
     - ./.local/server.env
     environment:

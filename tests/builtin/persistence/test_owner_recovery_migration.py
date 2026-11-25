@@ -70,7 +70,7 @@ def test_registered_owner_recovery_upgrade_preserves_history_and_revision_checks
             connection.execute("SELECT operation_id,payload,completed FROM pc_access_owner_recovery").fetchall()
             == expected_intents
         )
-        # v1_5_0_005 and v1_5_2_pr2639 drop the empty storage of the removed plugin frameworks.
+        # v1_5_0_005 and v1_5_0_006 drop the empty storage of the removed plugin frameworks.
         for retired in ("pc_artifact_family_schemas", "pc_source_write_plugins"):
             assert not connection.execute("SELECT 1 FROM sqlite_schema WHERE name=?", (retired,)).fetchall()
     fresh = SQLiteMigrationRunner(tmp_path / "fresh.db", current, configuration=configuration(embedding))

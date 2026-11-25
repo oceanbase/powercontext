@@ -70,6 +70,27 @@ jobs:
     assert "checkout@v7" in result.stderr
 
 
+def test_workflow_action_checker_accepts_same_repository_action_bound_to_workflow_commit(tmp_path: Path) -> None:
+    workflow = tmp_path / "workflow.yml"
+    workflow.write_text("jobs:\n  check:\n    steps:\n      - uses: $/.github/actions/setup-uv\n", encoding="utf-8")
+
+    result = run_checker(workflow)
+
+    assert result.returncode == 0, result.stderr
+    assert "1 action references checked" in result.stdout
+
+
+def test_workflow_action_checker_does_not_treat_self_repository_ref_as_a_mutable_pin_escape(tmp_path: Path) -> None:
+    workflow = tmp_path / "workflow.yml"
+    workflow.write_text(
+        "jobs:\n  check:\n    steps:\n      - uses: $/.github/actions/setup-uv@main\n", encoding="utf-8"
+    )
+
+    result = run_checker(workflow)
+
+    assert result.returncode == 1
+
+
 def test_workflow_action_checker_parses_flow_style_and_quoted_references(tmp_path: Path) -> None:
     workflow = tmp_path / "workflow.yml"
     workflow.write_text(

@@ -41,6 +41,7 @@ from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.server.factory import create_server_app
 from powercontext.server.settings import McpConfig, ServerSettings
 from tests.e2e.dream_support import atomic_memory_pipeline, memory_source_text
+from tests.e2e.server_startup import wait_for_server_startup
 
 HOOK = Path(__file__).resolve().parents[2] / "integrations/zcode/plugins/powercontext/hooks/user_prompt_submit.mjs"
 # Exceed the Hook's 3-second request limit; Stop has a separate 800 ms network budget.
@@ -236,6 +237,7 @@ def _exercise_scope_bindings(
     binding_mutations: list[tuple[str, dict[str, Any]]],
     binding_delay: float,
     slow_initial_prepare: bool,
+    slow_initial_capture_receipt: bool,
     record,
 ) -> None:
     binding = _run_scope(node, environment, "bind", "--scope-id", scope_id)
@@ -296,11 +298,26 @@ def _exercise_scope_bindings(
             timeout=10,
         )
         assert probe_status.returncode == 0, probe_status.stdout + probe_status.stderr
-        stages = json.loads(probe_status.stdout)["observation"]["stages"]
+        result = json.loads(probe_status.stdout)
+        stages = result["observation"]["stages"]
         assert stages["prepare"]["state"] == "failed"
         assert stages["prepare"]["code"] == "timeout"
-        assert stages["capture"]["state"] == "accepted"
-        assert stages["capture"]["source_position"] == probe_sources.json()["items"][0]["position"]
+        if slow_initial_capture_receipt:
+            assert stages["capture"]["state"] == "unknown", result
+        if stages["capture"]["state"] == "unknown":
+            # Prepare and capture share the Hook budget. A committed Source does
+            # not make a timed-out capture receipt an acknowledged position.
+            assert stages["capture"]["code"] == "timeout", result
+            assert "source_position" not in stages["capture"], result
+            assert result["pending"]["selection"] == "session_exact", result
+            pending = result["pending"]["scopes"]
+            assert len(pending) == 1 and pending[0]["scope_id"] == session_scope, result
+            assert pending[0]["receipt_count"] == 0, result
+            assert pending[0]["target_position"] is None, result
+            assert pending[0]["tracking_incomplete"] is True, result
+        else:
+            assert stages["capture"]["state"] == "accepted"
+            assert stages["capture"]["source_position"] == probe_sources.json()["items"][0]["position"]
     unbinding = _run_scope(node, environment, "unbind")
     if binding_delay:
         assert unbinding["status"] == "failed" and unbinding["binding"]["status"] == "unknown", unbinding
@@ -342,16 +359,26 @@ def _delay_first_capture_response():
 
 
 class _HookBoundaryFaults:
-    def __init__(self, slow_flush_receipt: bool, slow_initial_prepare: bool = False) -> None:
+    def __init__(
+        self, slow_flush_receipt: bool, slow_initial_prepare: bool = False, slow_initial_capture_receipt: bool = False
+    ) -> None:
         self.slow_flush_receipt = slow_flush_receipt
         self.slow_initial_prepare = slow_initial_prepare
+        self.slow_initial_capture_receipt = slow_initial_capture_receipt
         self.delay_retry_resolution = False
         self.flush_requests = 0
+        self.capture_requests = 0
 
     async def __call__(self, request, call_next):
         delay_prepare = self.slow_initial_prepare and request.url.path == "/v1/context/prepare"
         if delay_prepare:
             self.slow_initial_prepare = False
+        is_capture = request.url.path == "/v1/sources/content"
+        delay_capture = self.slow_initial_capture_receipt and is_capture
+        if is_capture:
+            self.capture_requests += 1
+        if delay_capture:
+            self.slow_initial_capture_receipt = False
         is_flush = request.url.path == "/v1/memory/flush"
         if is_flush:
             self.flush_requests += 1
@@ -360,6 +387,10 @@ class _HookBoundaryFaults:
         response = await call_next(request)
         if delay_prepare:
             await asyncio.sleep(SLOW_HOOK_RESPONSE_SECONDS)
+        if delay_capture:
+            # Real capture commits before its receipt exceeds the shared budget
+            # left after the first prepare reaches its 3-second request limit.
+            await asyncio.sleep(1.2)
         if is_flush and self.slow_flush_receipt:
             # The real Server commits before the response exceeds Stop's 800 ms budget.
             await asyncio.sleep(1.2)
@@ -367,14 +398,22 @@ class _HookBoundaryFaults:
 
 
 @pytest.mark.parametrize(
-    ("processing_delay", "binding_delay", "slow_flush_receipt", "slow_retry_resolution", "slow_initial_prepare"),
+    (
+        "processing_delay",
+        "binding_delay",
+        "slow_flush_receipt",
+        "slow_retry_resolution",
+        "slow_initial_prepare",
+        "slow_initial_capture_receipt",
+    ),
     [
-        (0, 0, False, False, False),
-        (0, 0, True, False, False),
-        (0, 0, True, True, False),
-        (0, 0, False, False, True),
-        (1.2, 0, False, False, False),
-        (0, SLOW_HOOK_RESPONSE_SECONDS, False, False, False),
+        (0, 0, False, False, False, False),
+        (0, 0, True, False, False, False),
+        (0, 0, True, True, False, False),
+        (0, 0, False, False, True, False),
+        (0, 0, False, False, True, True),
+        (1.2, 0, False, False, False, False),
+        (0, SLOW_HOOK_RESPONSE_SECONDS, False, False, False, False),
     ],
 )
 def test_zcode_source_is_processed_and_recalled_in_a_new_session(
@@ -385,6 +424,7 @@ def test_zcode_source_is_processed_and_recalled_in_a_new_session(
     slow_flush_receipt,
     slow_retry_resolution,
     slow_initial_prepare,
+    slow_initial_capture_receipt,
     hook_timeline,
 ) -> None:
     monkeypatch.setenv("ZCODE_PLUGIN_DATA", str(tmp_path / "plugin-data"))
@@ -398,24 +438,21 @@ def test_zcode_source_is_processed_and_recalled_in_a_new_session(
         candidate_pipeline=atomic_memory_pipeline(DeterministicSourcePipeline(processing_delay)),
     )
     binding_mutations = _observe_binding_replies(app, binding_delay)
-    boundary = _HookBoundaryFaults(slow_flush_receipt, slow_initial_prepare)
+    boundary = _HookBoundaryFaults(slow_flush_receipt, slow_initial_prepare, slow_initial_capture_receipt)
     app.middleware("http")(boundary)
 
     if not slow_initial_prepare:
         app.middleware("http")(_delay_first_capture_response())
     app.middleware("http")(_http_timing(hook_timeline))
 
-    with socket.socket() as socket_probe:
-        socket_probe.bind(("127.0.0.1", 0))
-        port = socket_probe.getsockname()[1]
+    listener = socket.socket()
+    listener.bind(("127.0.0.1", 0))
+    port = listener.getsockname()[1]
     server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port, log_level="error"))
-    thread = threading.Thread(target=server.run, daemon=True)
+    thread = threading.Thread(target=server.run, kwargs={"sockets": [listener]}, daemon=True)
     thread.start()
     try:
-        deadline = time.monotonic() + 10
-        while not server.started and thread.is_alive() and time.monotonic() < deadline:
-            time.sleep(0.05)
-        assert server.started
+        wait_for_server_startup(server, thread)
         base_url = f"http://127.0.0.1:{port}"
         with httpx.Client(base_url=base_url, timeout=10) as client:
             created = client.post(
@@ -441,7 +478,11 @@ def test_zcode_source_is_processed_and_recalled_in_a_new_session(
                 binding_mutations,
                 binding_delay,
                 slow_initial_prepare,
+                slow_initial_capture_receipt,
                 hook_timeline,
+            )
+            assert boundary.capture_requests == 1, (
+                "An unknown capture receipt must never replay its write automatically"
             )
 
             first = _invoke_hook(
@@ -612,3 +653,4 @@ def test_zcode_source_is_processed_and_recalled_in_a_new_session(
         thread.join(timeout=10)
         hook_timeline("test_end")
         assert not thread.is_alive()
+        listener.close()

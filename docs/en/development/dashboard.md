@@ -47,6 +47,77 @@ Prepared-context estimates cover only comparable records. A reduction percentage
 
 Home summaries, daily charts and detail tables use the same statistical definitions. The Server supplies the reporting period and daily attribution; the interface does not invent historical data.
 
+## Topic Memory processing evidence
+
+The Topic Memory directory has a compact Processing status section and a details drawer for the selected Scope.
+This covers the Source-window path in [#2308](https://github.com/oceanbase/powercontext/issues/2308), within
+[#2130](https://github.com/oceanbase/powercontext/issues/2130). Saved Topic search, pagination and exact revision
+reads remain independent; an inspection error leaves independently readable topics available.
+
+| Family / path | Coverage of this section | Evidence and limitations |
+| --- | --- | --- |
+| Topic Memory / Source window | Selected-Scope progress, current allowance and applicable retained block | Durable records; current execution is unknown. |
+| Memory, Profile, Experience / Source consumption | Not covered by this section | Each path needs its own progress and intent mapping. |
+| Skill, Prompt and other explicit / Dream paths | Not covered by this section | Existing Dream records remain on the processing page; Source-window progress is not applicable. |
+| Handoff | Not covered by this section | Existing corresponding operation outcomes remain separate from Source-window progress. |
+
+| Displayed fact | Authoritative source | Meaning and limitation |
+| --- | --- | --- |
+| Consumed through position | `pc_source_cursors`, selected Scope and `topic-memory-source-window` binding | Input consumption; does not establish publication or a recorded no-change outcome. A missing cursor starts at zero. |
+| Source head position | `pc_source_journal_heads`, selected Scope | Latest journal position; position differences are not artifact counts or completion percentages. A missing head starts at zero. |
+| Retained target position | `pc_topic_memory_processing_targets`, same Scope and binding | Can remain after the cursor catches up; absence means no retained target, not execution success. |
+| Current frontier allowance | `pc_topic_memory_work_budgets`, same Scope, binding and cursor position | Recorded attempts, request reservations and token capacity reservations; missing records remain unavailable. Reservations are conservative, not exact provider calls, usage or billing. |
+| Exact attempt / allowance end positions | Current allowance or retained block | Attempt and cumulative allowance ranges can differ. Missing exact attempt positions remain unknown. |
+| Current retained block | `pc_topic_memory_work_blocks`, matched to current allowance | Scope, binding, frontier, attempt and terminal reason must match; the block must be unretried and still apply to outstanding input. Historical or superseded blocks are not current failures. |
+| Safe reason and last error | Applicable retained block | Retained codes only; no raw provider exceptions, Source bodies or model content. Missing last errors remain unknown. |
+| Block first observed at | Applicable retained block's `blocked_at` | First observation time, not an invented failure time. |
+| Snapshot read time | Scope read snapshot clock | Read time, not proof of a fresh Worker observation. |
+| Current execution | No Scope-and-binding execution observation is used | Explicitly unknown, including external workers and after restart; family-wide counts cannot establish this Scope's state. |
+
+The directory loads saved topics first, then inspects processing in a separate authorized, consistent read snapshot
+with its own two-second timeout. Exact revision pages do not inspect processing. The projection is adopted only after
+its transaction and required audit complete. Inspection timeout, connection failure or inspection-specific
+authorization/audit failure produces a section error without discarding independently authorized topic reads.
+Request cancellation still propagates. At most five keyed SELECTs return at most one current allowance and block. It does not scan Source content or block history, call
+models, probe readiness, dispatch work, request retries, change allowances or write business/processing state.
+Existing authorization and audit behavior stays at its owning boundary. No public HTTP contract is added.
+
+The two-second budget applies to processing inspection, including its transaction and audit boundary; it is not a
+two-second response-time guarantee for the entire page. Topic reads, cancellation cleanup and rendering also take
+time. Directory browsing uses pages of 50 topics. Search uses the existing bounded result set and has no search
+pagination; processing inspection does not change either behavior.
+
+The supported recovery status operation can materialize legacy diagnostics and remains separate. An exhausted
+allowance without an applicable retained block stays pending while input or a target remains; page access does not
+create its missing diagnostic. The final allowed attempt might still publish. Explicit recovery retains the old
+block for audit, but that retried block no longer appears as current. A caught-up cursor without a retained target
+is shown as Inputs caught up, without claiming artifact completion, stopped execution or a no-change outcome.
+
+Run the provider-free Dashboard acceptance scenarios with:
+
+```bash
+uv run --locked pytest -q tests/e2e/test_dashboard_topic_processing.py
+```
+
+The suite uses real Dashboard requests, SQLite and controlled persisted fixtures. It covers progress, targets,
+current/obsolete blocks, recovery transitions, missing legacy diagnostics, a final attempt without a block, repeated
+passive reads, Scope isolation, immediate errors, timeouts, invalidated inspection connections, inspection-specific
+authorization/audit failures, independent saved-topic reads and a second Runtime opening the same
+database without local execution history. These are local checks, not real-provider or OceanBase acceptance.
+Additional scenarios cover search hits and empty results, multi-page browsing during inspection errors and timeouts,
+exact historical revisions after replacement, return navigation, and distinct per-Scope progress, targets, allowances
+and blocks. Provider-free repeated reads observe the actual worker-launch boundary and must launch no workers.
+Existing Dashboard pagination and recovery suites cover their respective behavior separately.
+
+For a manual check, enable the Dashboard using [Install and run](../docs/get-started/install-and-run.md), open
+`/dashboard/topics?lang=en` and `/dashboard/topics?lang=zh`, switch Scope, and open View details. Check drawer
+scrolling, close-button and Escape dismissal, focus return, narrow viewports and both themes. Search and open a saved
+exact revision, then return to the directory. Also exercise directory → detail → browser Back → open the drawer →
+browser Forward, including navigation during the opening transition. The new page must scroll normally, with no
+remaining backdrop or focus trap; repeat the sequence to check cleanup. The drawer uses native dismissal before
+instance disposal when HTMX replaces its element. Without a configured model, captured input can remain pending and
+execution must stay unknown; opening or refreshing this page must not create a block or start processing.
+
 ## How pages organize reading
 
 ### Home provides an overview and entry points
@@ -78,6 +149,69 @@ Memory search follows the deployment's capabilities by default and allows users 
 The processing page reads Content Sources from the existing Source journal and checks the existing Artifact lineage relation. A Source cited by exact Artifact revisions shows one tag per type, such as Memory, Topic Memory, Experience or Skill. Each tag opens the matching type group in the Source detail. Groups show the type first, followed by each result title and body, with links to exact revision details. Results use pages of at most 20 exact revisions, with previous and next links; selecting a type starts its own result page. The original Source section preserves the complete content, including every field of a structured JSON value. A Source without a lineage row shows None. A runtime without a lineage projection shows Unknown. Neither establishes that processing failed. The page shows the first server save time in UTC from the stored Source envelope. Historical envelopes without this metadata show Unknown and are not backfilled. Readers predating this envelope field cannot read newly written envelopes; do not roll back to such a reader after new writes. This view adds no table, no public JSON interface and no execution or feedback record.
 
 Dream details show the persisted status, outcome, reason, attempt count and timestamps, plus saved input-manifest references and a link to the recorded candidate. Candidate publication and current review state are checked in Review. Input-manifest nodes can supply resolved upstream Source references; these execution inputs are not automatically direct evidence for every output. Per-attempt timings, errors and missing history are not invented. Dream records cover only recorded Dream executions, not all automatic Source processing.
+
+### Automatic processing status
+
+Runtime data → Automatic processing shows current-Scope evidence for Memory, Topic Memory, Profile and Experience above the Source directory. Input consumption and local-process execution observations are separate. Input positions and request acknowledgement do not prove publication; missing execution observations do not prove that workers stopped. Dream pending work is excluded; Dream records keep their separate entry.
+
+Expand a type in place to see cursor / input head, the current bottleneck or stage, the latest recorded processing event and the blocked or unconsumed range. These facts remain visible in a compact panel. Cursor positions are not a generated-artifact count or completion percentage. The processing-event time uses a matching durable block or the latest exact-Scope/binding local failure observation, with its source labeled; it does not establish the last successful processing time. No record is shown explicitly when neither is available. Read time is never substituted for processing time. A matching persisted block may provide the last failure in that window, shown using bounded vocabulary; missing or unknown causes are not invented. Request generations and read/observation times stay in a collapsed technical-evidence section. Runtime configuration and the diagnostic guide have separate links. Historical errors do not imply a current failure. The status section offers no retry or budget reset. The Source table's Related artifacts column represents exact Artifact revision lineage. No lineage does not establish processing failure.
+
+Inspection uses selected-Scope read authorization and completed audit, without model calls, work dispatch or business writes. One type's inspection failure preserves other types and independently authorized Source reads. A non-built-in Runtime without a public inspection operation reports unavailable status while Sources remain readable through existing public operations. This is not service-wide monitoring, per-Source execution history or an artifact-completion percentage.
+
+
+### Context diagnostics
+
+The built-in Server captures prepare diagnostics without an enable switch. Capture uses a separate
+`pc_context_prepare_diagnostics` store for all Scopes and actual recall rounds. Standalone SDK use does not write
+this Server store. Records have no expiry, retention limit or cleanup action.
+
+Capture starts after initial request validation, Scope admission and authorization of referenced Scopes it will read. Calls rejected
+before that boundary have no diagnostic record. Each observed execution attempts one best-effort write for its
+ready, empty, failed or cancelled outcome. Storage failure, cancellation during persistence or process termination
+can leave a missing record; this is not a lossless audit ledger.
+
+A record contains UTC start/end times, elapsed milliseconds, existing principal/request/trace identities, the original
+query and normalized digest, byte budget/use, selected count, optional Receipt, final prepared text and available
+same-execution search, rerank and assembly evidence. Elapsed time runs from capture creation to record construction;
+it excludes earlier validation/authorization, diagnostic persistence and response delivery. Stage timings can overlap:
+Memory search includes reranking, so their sum is not total request time.
+
+Capture does not repeat retrieval or model calls, add an unrequested Receipt to the response or change reuse.
+Persistence uses an independent transaction with a two-second deadline; failures do not replace a normal prepare
+result, and request cancellation propagates. Authentication headers, vectors and raw model responses are not copied
+into the record as separate fields. Query and candidate/final text are stored without redaction; secrets present in
+that text remain in the diagnostic copy. Public Receipt v1 remains body-free, with an 8 KiB limit and at most 32 selected
+references. Ordinary logs, metrics and traces remain body-free.
+
+The history page defaults to all dates. It reads query and summary columns without stage payloads, with at most 25
+records per page ordered by finish time and record ID. Signed cursors bind the Scope, result/date filters and current
+subject. Long queries expand in place. Selecting Details opens `/dashboard/context-diagnostic-detail` for one record.
+
+Details show query → retrieval → reranking → budget assembly → final context. Stage tables combine counts, outcomes,
+reasons and original-text drawers. Headings show available measured timings; Profile and Code durations come from
+their recorded search calls. Retrieval counts use pre-rerank candidate snapshots; without a Memory snapshot that
+count stays unknown. Public Receipt search-group counts remain call counts. Reranking shows separate input and output
+text. Assembly text contains only Artifact candidates selected by the same-execution Receipt; without a valid Receipt
+selection is unknown. Code has no supported exact-revision reader here, so its selected reference and assembly text
+are unavailable; captured Code text can still appear in retrieval and final context.
+
+Selected Artifact rows are grouped by family in first-appearance order. They use retained assembly text for the exact
+revision, without filling missing evidence from current content. Omission counts describe excluded candidates;
+`not_retrieved` is a family-level absence marker, not a candidate count. Empty retrieval, failed retrieval and missing
+evidence stay distinct. Topic text contains only the returned title, summary and snippet. Original queries and stage
+text missing from older records are not reconstructed. Final content remains readable when Receipt validation fails;
+Receipt validation checks its shape, byte use and content digest. UTF-8 byte budgets are not character counts.
+
+Reads complete existing authorization and audit. Releasing stored bodies requires current access to the recorded
+Scopes and retained Artifact references. Exact revision links use ordinary authorized reads, with a shared ten-second
+deadline; unavailable links are not rendered. Pages escape stored text and send `Cache-Control: no-store`. Inspection
+does not prepare again, invoke models or write business data. Prepared text does not prove host delivery, model use
+or task benefit.
+
+Migration `000` adds the independent table and indexes, including nullable UTF-8 `query_text`, without rewriting
+existing domain records or backfilling past calls. Existing managed databases require explicit migration before startup.
+The table adds no Scope deletion cascade or new permission path to deleted-Scope content. Recovery follows the
+verified-backup workflow; capture provides no table-drop or history-cleanup operation.
 
 ### Review explains the proposal and the saved result
 

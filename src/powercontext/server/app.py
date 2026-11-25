@@ -1116,6 +1116,7 @@ class _ScopedContextApplication(Protocol):
         authorize_scopes: Callable[[tuple[str, ...]], Awaitable[None]] | None = None,
         atomic_context=None,
         binding_identity: str = "local",
+        diagnostic_sink: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
     ) -> RuntimePrepareContextResult: ...
 
     async def check(
@@ -4615,6 +4616,11 @@ async def prepare_context(
     )
     scoped = application.context.for_scope(request.scope_id)
     reuse_arguments = {"binding_identity": _context_binding_identity()} if request.include_reuse else {}
+    from powercontext.server.context_diagnostics import diagnostic_sink
+
+    sink = diagnostic_sink(application)
+    if sink is not None:
+        reuse_arguments["diagnostic_sink"] = sink
     access = access_control_for_mode(
         http_request.app.state.access_control,
         mode=http_request.app.state.access_mode,
@@ -6021,16 +6027,26 @@ async def approve_candidate(
         artifact = result.result_artifact
         if artifact is None:
             raise AccessUnavailableError("artifact_owner_pending")
-        await access.establish_artifact_owner(
-            ResourceRef.artifact(
-                request.scope_id,
-                family=artifact.family,
-                artifact_id=artifact.artifact_id,
-            ),
-            attestation.proposed_owner,
-            idempotency_key=bounded_idempotency_key("candidate-artifact-owner", request.scope_id, request.candidate_id),
-            context=_access_audit_context(APPROVE_CANDIDATE.operation_id),
-        )
+        try:
+            await access.establish_artifact_owner(
+                ResourceRef.artifact(
+                    request.scope_id,
+                    family=artifact.family,
+                    artifact_id=artifact.artifact_id,
+                ),
+                attestation.proposed_owner,
+                idempotency_key=bounded_idempotency_key(
+                    "candidate-artifact-owner", request.scope_id, request.candidate_id
+                ),
+                context=_access_audit_context(APPROVE_CANDIDATE.operation_id),
+            )
+        except AccessConflictError:
+            # Ownership migration may already have recorded this owner under its own idempotency key.
+            existing = await access.artifact_owner(
+                ResourceRef.artifact(request.scope_id, family=artifact.family, artifact_id=artifact.artifact_id)
+            )
+            if existing is None or existing.owner != attestation.proposed_owner:
+                raise
     return await _candidate_response(http_request, request.scope_id, result)
 
 

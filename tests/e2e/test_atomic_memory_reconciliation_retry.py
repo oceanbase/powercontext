@@ -153,14 +153,16 @@ def test_exhausted_identity_correction_keeps_both_unpublished_candidates(monkeyp
 
     error, cursor, entries = asyncio.run(_flush(provider, monkeypatch, tmp_path))
 
+    # Keeping the proposal unchanged equals a create decision: both candidates publish and later Sources can proceed.
     assert error is None
     assert cursor == 1
-    assert {entry.artifact.content.text for entry in entries} == {
-        "Billing uses PostgreSQL 16.",
+    assert sorted(entry.artifact.content.text for entry in entries) == [
         "Billing no longer uses MySQL.",
-    }
-    # The default generation_max_requests of 2 allows one corrected attempt.
+        "Billing uses PostgreSQL 16.",
+    ]
+    # The default generation_max_requests of 2 allows one corrected attempt before the proposal is retained.
     assert provider.comparisons == 2
+    assert len(provider.retry_feedback) == 1
 
 
 @pytest.mark.parametrize(
@@ -552,3 +554,138 @@ def test_changed_workflow_revises_published_fact_and_preserves_history(monkeypat
     assert current.artifact.lineage.artifacts == (original.ref,)
     assert len(history.items) == 2
     assert not provider.retry_feedback
+
+
+_DATABASE = "Billing uses PostgreSQL 16 since 2026-01-15."
+_REPLICA = "Billing reads from one PostgreSQL replica since 2026-03-01."
+_UPGRADE = "Billing uses PostgreSQL 17 since 2026-11-01."
+
+
+def _revised(published: str) -> str:
+    return f"{_UPGRADE} Before that: {published}"
+
+
+class _TwoIdentityProvider:
+    """Revise one published memory, then keep 'revising' a second published memory into that working item."""
+
+    def __init__(self) -> None:
+        self.retry_feedback: list[str] = []
+        self.revised: list[str] = []
+        self.rejected: list[str] = []
+
+    async def respond(self, messages: list[ModelMessage], _info: AgentInfo) -> ModelResponse:
+        request = messages[-1]
+        assert isinstance(request, ModelRequest)
+        self.retry_feedback.extend(
+            str(part.content)
+            for part in request.parts
+            if isinstance(part, UserPromptPart) and REVISE_RULE in str(part.content)
+        )
+        prompt = next(
+            part.content
+            for message in messages
+            if isinstance(message, ModelRequest)
+            for part in message.parts
+            if isinstance(part, UserPromptPart)
+        )
+        value = json.loads(str(prompt))
+        if "proposal" not in value:
+            return _json({
+                "candidates": [
+                    {
+                        "kind": "decision",
+                        "text": _UPGRADE,
+                        "description": "Billing database upgrade",
+                        "evidence_ids": [value["evidence"][0]["evidence_id"]],
+                    }
+                ]
+            })
+        (target,) = value["related"]
+        assert len(target["original_refs"]) == 1
+        proposal = value["proposal"]
+        if proposal["original_refs"]:
+            # The proposal already holds the first published identity; this revise combines two identities. Its text
+            # also drops the cited dates, so the identity rule must be reported ahead of the time-qualifier rule.
+            self.rejected.append(target["text"])
+            text = "Billing uses PostgreSQL."
+        else:
+            self.revised.append(target["text"])
+            text = _revised(target["text"])
+        return _json({
+            "action": "revise",
+            "compared_ids": [target["item_id"]],
+            "target_ids": [target["item_id"]],
+            "content": {"kind": "decision", "text": text, "description": "Billing database"},
+            "evidence_ids": list(dict.fromkeys([*proposal["evidence_ids"], *target["evidence_ids"]])),
+            "reason": "Same database decision.",
+        })
+
+
+@pytest.mark.parametrize("max_requests", [1, 2])
+def test_exhausted_identity_correction_keeps_the_absorbed_identity_and_leaves_the_other_published(
+    monkeypatch, tmp_path, max_requests
+):
+    provider = _TwoIdentityProvider()
+    monkeypatch.setattr("pydantic_ai.models.infer_model", lambda _name, **_kwargs: FunctionModel(provider.respond))
+    monkeypatch.setattr(
+        "pydantic_ai.embeddings.infer_embedding_model", lambda _name, **_kwargs: TestEmbeddingModel(dimensions=3)
+    )
+    config = BuiltinConfig(
+        database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'two-identities.db'}"),
+        inference=InferenceConfig(
+            generation_model="provider:test-model",
+            generation_max_requests=max_requests,
+            embedding_model="test",
+            embedding_profile_id="identity-fixture",
+            embedding_dimension=3,
+        ),
+        runtime=RuntimeConfig(atomic_memory_related_mode="vector", atomic_memory_comparison_batch_size=1),
+    )
+
+    async def scenario():
+        async with open_builtin_runtime(config) as runtime:
+            assert runtime.scopes is not None and runtime.atomic_memory is not None
+            scope = await runtime.scopes.create(
+                ScopeDraft(title="Billing", summary="Database decisions", idempotency_key="billing")
+            )
+            memory = runtime.atomic_memory.for_scope(scope.scope_id)
+            published = (
+                await memory.create([
+                    AtomicMemoryContent(kind="decision", text=_DATABASE, description="Billing database"),
+                    AtomicMemoryContent(kind="decision", text=_REPLICA, description="Billing replica"),
+                ])
+            ).records
+            by_text = {record.artifact.content.text: record for record in published}
+            receipt = await runtime.sources.for_scope(scope.scope_id).capture(
+                CaptureSource(source_id="upgrade", content=_UPGRADE, metadata={})
+            )
+
+            await memory.flush()
+
+            assert (await memory.cursor()).sequence == receipt.sequence
+            (revised_text,) = provider.revised
+            (untouched_text,) = set(provider.rejected)
+            assert {revised_text, untouched_text} == {_DATABASE, _REPLICA}
+            assert len(provider.rejected) == max_requests
+            assert len(provider.retry_feedback) == max_requests - 1
+            # The absorbed identity keeps the decision made before the rejected comparison.
+            first = by_text[revised_text]
+            current = await memory.get(first.ref.artifact_id)
+            assert current.ref.revision == first.ref.revision + 1
+            assert current.artifact.content.text == _revised(revised_text)
+            assert current.artifact.lineage.sources == (
+                receipt.source_ref.model_copy(update={"locator": SourceSequenceLocator(sequence=receipt.sequence)}),
+            )
+            # The second published identity is neither revised nor merged without an explicit merge decision.
+            other = by_text[untouched_text]
+            assert await memory.get(other.ref.artifact_id) == other
+            history = await runtime.records.for_scope(scope.scope_id).list_artifact_revisions(
+                "atomic-memory", other.ref.artifact_id, limit=10, cursor=None
+            )
+            assert len(history.items) == 1
+            entries = (await memory.list()).items
+            assert {entry.artifact.content.text for entry in entries} == {_revised(revised_text), untouched_text}
+            await memory.flush()
+            assert (await memory.list()).items == entries
+
+    asyncio.run(scenario())

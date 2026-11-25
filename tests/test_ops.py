@@ -41,6 +41,41 @@ def _request(action: str, **fields: Any) -> dict[str, Any]:
     return {"protocol_version": 1, "request_id": "test", "action": action, **fields}
 
 
+@pytest.mark.parametrize("command", ["help", "invalid-option", "invalid-request"])
+def test_command_line_help_and_errors_do_not_create_state(tmp_path: Path, command: str) -> None:
+    home = tmp_path / "home"
+    state = tmp_path / "operations"
+    arguments = ["--target-file", str(tmp_path / "missing.json"), "--state-dir", str(state)]
+    if command == "help":
+        arguments = ["--help"]
+    elif command == "invalid-option":
+        arguments.append("--unknown")
+    result = subprocess.run(
+        [sys.executable, "-m", "powercontext.ops", *arguments],
+        input="{}\n" if command == "invalid-request" else None,
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=False,
+        env={**os.environ, "POWERCONTEXT_HOME": str(home)},
+    )
+    if command == "help":
+        assert result.returncode == 0, result.stderr
+        assert "Explicitly authorized local PowerContext service operations" in result.stdout
+        assert "--catalog-file" in result.stdout
+        assert "--target-file" in result.stdout
+    elif command == "invalid-option":
+        assert result.returncode == 2
+        assert "unrecognized arguments: --unknown" in result.stderr
+    else:
+        assert result.returncode == 1
+        response = json.loads(result.stdout)
+        assert response["outcome"] == "rejected"
+        assert response["error"] == {"code": "unsupported_protocol"}
+    assert not home.exists()
+    assert not state.exists()
+
+
 def _plan(ops: Ops, operation: str, **options: Any) -> dict[str, Any]:
     result = ops.handle(_request("preflight", operation=operation, options=options))
     assert result["outcome"] == "succeeded", result

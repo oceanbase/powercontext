@@ -163,10 +163,6 @@ class AtomicMemoryReconciliationOutput(BaseModel):
     )
 
 
-class AtomicMemoryRevisionIdentityError(InvalidInferenceOutputError):
-    """A revision whose proposal and target contain zero or several published identities."""
-
-
 class RedundantAtomicMemoryRevisionError(InvalidInferenceOutputError):
     """A structurally valid revision that leaves its target's facts unchanged."""
 
@@ -176,6 +172,16 @@ class RedundantAtomicMemoryRevisionError(InvalidInferenceOutputError):
             "unchanged target kind and text require noop; description or supporting evidence alone cannot revise",
         )
         self.target_id = target_id
+
+
+class AtomicMemoryRevisionIdentityError(InvalidInferenceOutputError):
+    """A revision whose combined inputs do not hold exactly one published identity."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            "atomic-memory-reconcile",
+            "revise must have exactly one published identity; use merge for multiple identities",
+        )
 
 
 @dataclass(frozen=True)
@@ -216,6 +222,16 @@ class AtomicMemoryWindowWorkset:
         self.aliases: dict[str, str] = {}
         self.origins: dict[str, str] = {}
         self.reads: dict[str, AtomicMemoryRead] = {}
+
+    def copy(self) -> AtomicMemoryWindowWorkset:
+        """Return an independent workset over the same immutable items."""
+
+        duplicate = AtomicMemoryWindowWorkset()
+        duplicate.items = dict(self.items)
+        duplicate.aliases = dict(self.aliases)
+        duplicate.origins = dict(self.origins)
+        duplicate.reads = dict(self.reads)
+        return duplicate
 
     def resolve(self, key: str) -> str:
         while key in self.aliases:
@@ -409,14 +425,17 @@ def validate_reconciliation_decision(
     validate_reconciliation_output(request, output)
     related = {item.item_id: item for item in request.related}
     targets = tuple(related[identifier] for identifier in output.target_ids)
-    # Check identity before content because recovery retains only the existing workset items.
-    if (
-        output.action == "revise"
-        and len({read.ref.artifact_id for item in (request.proposal, *targets) for read in item.original_refs}) != 1
+    if output.action == "revise" and (
+        len({read.ref.artifact_id for item in (request.proposal, *targets) for read in item.original_refs}) != 1
     ):
-        _invalid(
-            "revise must have exactly one published identity; use merge for multiple identities",
-            error_type=AtomicMemoryRevisionIdentityError,
+        # Checked before content rules: its recovery keeps the proposal and never uses the rejected content.
+        raise attach_diagnostics(
+            AtomicMemoryRevisionIdentityError(),
+            ProcessingDiagnostics(
+                stage=ProcessingStage.BUSINESS_VALIDATION,
+                reason=ProcessingFailureReason.INVALID_OUTPUT,
+                failure_location="atomic-memory-reconcile",
+            ),
         )
     if output.content is not None and any(
         not preserves_time_literals(
@@ -470,9 +489,9 @@ def unique_evidence(
     return tuple(by_id.values())
 
 
-def _invalid(reason: str, *, error_type: type[InvalidInferenceOutputError] = InvalidInferenceOutputError) -> NoReturn:
+def _invalid(reason: str) -> NoReturn:
     raise attach_diagnostics(
-        error_type("atomic-memory-reconcile", reason),
+        InvalidInferenceOutputError("atomic-memory-reconcile", reason),
         ProcessingDiagnostics(
             stage=ProcessingStage.BUSINESS_VALIDATION,
             reason=ProcessingFailureReason.INVALID_OUTPUT,
