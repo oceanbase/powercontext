@@ -129,6 +129,40 @@ class SQLiteProfile:
 
     @classmethod
     @asynccontextmanager
+    async def open_maintenance(
+        cls,
+        config: SQLiteConfig,
+        *,
+        load_vector_extension: bool = False,
+    ) -> AsyncIterator[SQLiteProfile]:
+        """Open an existing persistent database for its owning maintenance transition.
+
+        Startup admission is deliberately skipped: an interrupted managed profile
+        transition can leave derived projections ahead of their recorded
+        declaration, and only the command that owns that transition can finish or
+        roll it back. Callers must verify admission before reporting success, and
+        this path never creates a database, a directory or a table.
+        """
+
+        if not config.is_persistent:
+            raise PersistenceError("SQLite maintenance requires a persistent database")  # noqa: TRY003
+        url = make_url(config.url)
+        target = Path(url.database) if url.database else None
+        if target is None or not target.is_file():
+            from powercontext.builtin.persistence.bootstrap import MissingDatabaseError
+
+            raise MissingDatabaseError(target.name if target is not None else config.url)
+        engine = _create_sqlite_engine(config.url, echo=config.echo, hide_parameters=True)
+        _configure_sqlite(engine, config, load_vector_extension=load_vector_extension)
+        database = AsyncDatabase.own(engine)
+        try:
+            await database.ping()
+            yield cls(database=database, tables=())
+        finally:
+            await database.close()
+
+    @classmethod
+    @asynccontextmanager
     async def open_readonly(
         cls,
         config: SQLiteConfig,

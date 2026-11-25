@@ -76,6 +76,7 @@ _INDEX_DDL_RETRY_DELAYS = (0.1, 0.2, 0.4, 0.8, 1.6)
 _TOPIC_VECTOR_TABLE = "pc_topic_memory_vector_topics"
 _CHUNK_VECTOR_TABLE = "pc_topic_memory_vector_chunks"
 _TOPIC_VECTOR_INDEX = "ix_pc_topic_memory_vector_topics_embedding"
+_CHUNK_VECTOR_INDEX = "ix_pc_topic_memory_vector_chunks_embedding"
 
 _VECTOR_TYPE_SQL = text(
     """

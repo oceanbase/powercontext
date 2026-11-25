@@ -55,6 +55,7 @@ from powercontext.builtin.persistence.seekdb import (
 )
 from powercontext.builtin.persistence.sqlite import SQLiteConfig, SQLiteProfile
 from powercontext.builtin.persistence.sqlite.atomic_memory_index import SQLiteAtomicMemoryIndex
+from powercontext.builtin.persistence.topic_memory_reindex import plan_topic_memory_reindex, reindex_topic_memory
 from powercontext.builtin.runtime.atomic_memory_rebuild import rebuild_atomic_memory_projection
 from powercontext.builtin.runtime.composition import _embedding_models, open_builtin_runtime
 from powercontext.builtin.runtime.config import BuiltinConfig
@@ -573,6 +574,221 @@ def atomic_memory_rebuild_projection(
             _report_database_guidance(error)
     if not ready:
         raise typer.Exit(code=1)
+
+
+@app.command("topic-memory-reindex")
+def topic_memory_reindex(
+    action: Annotated[
+        Literal["dry-run", "apply"],
+        typer.Option(help="Inspect readiness or stage and activate the configured profile."),
+    ] = "dry-run",
+    env_file: Annotated[Path | None, typer.Option(help="Load the deployment's settings.")] = None,
+    evidence_dir: database_migration.EvidenceDir = None,
+    maintenance_confirmed: Annotated[
+        bool, typer.Option(help="Confirm every API, host and Worker is stopped and Topic writes are paused.")
+    ] = False,
+    batch_size: Annotated[int, typer.Option(min=1, max=1000, help="Topics read per committed staging batch.")] = 25,
+    rebuild_atomic_memory: Annotated[
+        bool,
+        typer.Option(help="Also rebuild incompatible managed Atomic Memory projections with the target profile."),
+    ] = False,
+    progress: Annotated[bool, typer.Option(help="Write committed Topic and chunk counts to stderr.")] = True,
+) -> None:
+    """Migrate active Topic Memory vectors without changing authoritative Artifacts."""
+
+    if action == "apply" and not maintenance_confirmed:
+        raise typer.BadParameter(  # noqa: TRY003
+            "Topic Memory reindex requires --maintenance-confirmed after stopping every writer"
+        )
+    env_file = resolve_server_environment_file(env_file, discover=True)
+    with server_settings_context(env_file=env_file) as settings:
+        try:
+            ready = asyncio.run(
+                _topic_memory_reindex(
+                    settings,
+                    dry_run=action == "dry-run",
+                    maintenance_confirmed=maintenance_confirmed,
+                    batch_size=batch_size,
+                    rebuild_atomic_memory=rebuild_atomic_memory,
+                    show_progress=progress,
+                    evidence_dir=evidence_dir,
+                )
+            )
+        except MissingDatabaseError as error:
+            if action == "apply":
+                raise
+            raise typer.BadParameter(_missing_read_only_database(error)) from error
+        except (SeekDBInspectionError, LegacySeekDBDatabaseError) as error:
+            raise typer.BadParameter(str(error)) from error
+        except (DatabaseAccessError, DatabaseCreationError) as error:
+            _report_database_guidance(error)
+    if not ready:
+        raise typer.Exit(code=1)
+
+
+async def _topic_memory_reindex(  # noqa: C901 -- Keep ordered maintenance steps beside their command.
+    settings: ServerSettings,
+    *,
+    dry_run: bool,
+    maintenance_confirmed: bool,
+    batch_size: int,
+    rebuild_atomic_memory: bool,
+    show_progress: bool,
+    evidence_dir: Path | None,
+) -> bool:
+    from powercontext.builtin.artifacts.memory import EmbeddingProfile
+    from powercontext.builtin.persistence.migrations.deployment import deployment_runner
+    from powercontext.builtin.persistence.migrations.mysql import MySQLMigrationRunner
+    from powercontext.builtin.persistence.migrations.sqlite import SQLiteMigrationRunner
+    from powercontext.builtin.persistence.oceanbase.topic_memory_reindex import OceanBaseTopicMemoryReindexBackend
+    from powercontext.builtin.persistence.sqlite.topic_memory_reindex import SQLiteTopicMemoryReindexBackend
+    from powercontext.builtin.persistence.topic_memory_reindex import declared_storage_profile
+
+    inference = settings.inference
+    if (
+        inference.embedding_model is None
+        or inference.embedding_profile_id is None
+        or inference.embedding_dimension is None
+    ):
+        raise typer.BadParameter("Topic Memory reindex requires an explicit embedding model, profile and dimension")  # noqa: TRY003
+    embedding_profile = EmbeddingProfile(
+        profile_id=inference.embedding_profile_id,
+        model=inference.embedding_model,
+        dimension=inference.embedding_dimension,
+        distance="l2",
+        normalization=inference.embedding_normalization,
+    )
+    database = settings.database
+    if isinstance(database, SQLiteConfig):
+        if not database.is_persistent:
+            raise typer.BadParameter("Topic Memory reindex requires a persistent database")  # noqa: TRY003
+        opened = (
+            SQLiteProfile.open_readonly(database, load_vector_extension=True)
+            if dry_run
+            else SQLiteProfile.open_maintenance(database, load_vector_extension=True)
+        )
+        backend = SQLiteTopicMemoryReindexBackend(embedding_profile)
+    elif isinstance(database, OceanBaseConfig):
+        opened = (
+            OceanBaseProfile.open_existing(database, tables=())
+            if dry_run
+            else OceanBaseProfile.open(database, tables=())
+        )
+        backend = OceanBaseTopicMemoryReindexBackend(embedding_profile)
+    elif isinstance(database, SeekDBConfig):
+        opened = (
+            SeekDBProfile.open_existing(database, tables=()) if dry_run else SeekDBProfile.open(database, tables=())
+        )
+        backend = OceanBaseTopicMemoryReindexBackend(embedding_profile)
+    else:
+        raise typer.BadParameter("unsupported Topic Memory reindex database")  # noqa: TRY003
+
+    def progress(counts: dict[str, int]) -> None:
+        if show_progress:
+            typer.echo(json.dumps({"progress": counts}, sort_keys=True), err=True)
+
+    runner = (
+        deployment_runner(settings, evidence_dir=evidence_dir)
+        if not dry_run and isinstance(database, (SQLiteConfig, SeekDBConfig))
+        else None
+    )
+    # Only the Server bundle carries the maintenance journal this command extends.
+    journal = runner if isinstance(runner, (SQLiteMigrationRunner, MySQLMigrationRunner)) else None
+    async with AsyncExitStack() as resources:
+        profile = await resources.enter_async_context(opened)
+        async with profile.database.transaction() as connection:
+            stored_profile = await declared_storage_profile(connection)
+            inspection = await plan_topic_memory_reindex(
+                connection,
+                backend,
+                rebuild_atomic_memory=rebuild_atomic_memory,
+            )
+        if isinstance(database, OceanBaseConfig) and stored_profile is not None:
+            # An unrecorded successful switch invalidates the coordinated migration
+            # evidence. Report the apply blocker during inspection too, and reject
+            # apply before staging, inference or journal/storage writes.
+            inspection = inspection.model_copy(
+                update={
+                    "ready": False,
+                    "errors": (
+                        *inspection.errors,
+                        "managed OceanBase Topic Memory reindex apply is not supported; "
+                        "keep the current embedding profile or create a new vector-enabled deployment",
+                    ),
+                }
+            )
+        elif not dry_run and not inspection.errors and journal is not None and stored_profile is not None:
+            if not journal.has_maintenance_evidence():
+                inspection = inspection.model_copy(
+                    update={
+                        "ready": False,
+                        "errors": (
+                            *inspection.errors,
+                            "managed Server maintenance evidence is missing from the selected directory; "
+                            "pass the deployment's --evidence-dir before applying Topic Memory reindex",
+                        ),
+                    }
+                )
+            else:
+                # Record the accepted switch before touching storage so an
+                # interrupted activation is explained by the journal it left behind.
+                journal.begin_embedding_profile_transition(stored_profile)
+        if dry_run or inspection.errors:
+            report = inspection if dry_run else inspection.model_copy(update={"action": "apply"})
+        else:
+            inference_required = inspection.atomic_memory_rebuild_required or (
+                not inspection.activated and inspection.counts["topics_remaining"] > 0
+            )
+            embedding_model = (await _embedding_models(inference, resources, None))[0] if inference_required else None
+            report = await reindex_topic_memory(
+                profile.database,
+                backend,
+                embedding_model=embedding_model,
+                maintenance_confirmed=maintenance_confirmed,
+                dry_run=False,
+                batch_size=batch_size,
+                rebuild_atomic_memory=rebuild_atomic_memory,
+                progress=progress,
+            )
+    if not dry_run and report.ready and report.activated:
+        # Prove the restarted Server admits the storage before closing the
+        # journal, so an unadmitted switch stays visibly pending.
+        await _require_reindexed_server_admission(settings)
+        if journal is not None:
+            journal.complete_embedding_profile_transition()
+    typer.echo(report.model_dump_json())
+    return report.ready
+
+
+async def _require_reindexed_server_admission(settings: ServerSettings) -> None:
+    """Prove that a restarted Server admits the storage this command activated.
+
+    Unmanaged storage has no Server startup plan; its activated vectors belong to
+    the embedding application that owns it, so only managed storage is admitted.
+    """
+
+    from powercontext.builtin.persistence.migrations.server_readiness import (
+        check_server_schema,
+        prepare_server_storage,
+    )
+
+    database = settings.database
+
+    def open_profile():
+        if isinstance(database, SQLiteConfig):
+            return SQLiteProfile.open(database, tables=(), load_vector_extension=True)
+        if isinstance(database, OceanBaseConfig):
+            return OceanBaseProfile.open(database, tables=())
+        return SeekDBProfile.open(database, tables=())
+
+    async with open_profile() as profile, profile.database.transaction() as connection:
+        managed = await connection.run_sync(lambda sync: "pc_schema_revision" in inspect(sync).get_table_names())
+    if not managed:
+        return
+    # Build the exact startup plan the Server builds before it opens storage.
+    await asyncio.to_thread(prepare_server_storage, settings)
+    async with open_profile() as profile, profile.database.transaction() as connection:
+        await connection.run_sync(lambda sync: check_server_schema(sync, _startup=True))
 
 
 @app.command("access-ownership-migrate")

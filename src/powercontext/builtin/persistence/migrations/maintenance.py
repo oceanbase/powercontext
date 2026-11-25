@@ -32,9 +32,10 @@ from .bundle import MigrationBundle, sqlite_inventory
 from .connections import BackendIdentity, MaintenanceConnections
 from .models import MigrationError, MigrationPlan, MigrationResult, digest
 from .mysql import MySQLMigrationRunner, _Evidence, _Journal, require_completed_domain_maintenance
+from .profile_transitions import verify_embedding_profile_evidence
 from .server_readiness import check_server_schema
 from .sources import MigrationSources
-from .sqlite import SQLiteMigrationRunner, read_maintenance_evidence, verify_release_checksums, verify_retained_objects
+from .sqlite import SQLiteMigrationRunner, read_maintenance_evidence, verify_retained_objects
 from .vector_profile import read_embedding_profile
 
 
@@ -279,7 +280,18 @@ class ManagedMaintenanceRunner:
                 raise MigrationError("recovery_required", "Complete the original full Server maintenance first.")
             self._select_source(main)
             if main is not None:
-                verify_release_checksums(main["release_checksums"], self.bundle.checksums)
+                verify_embedding_profile_evidence(
+                    main,
+                    profile=self.bundle.vector_profile.profile if self.bundle.vector_profile is not None else None,
+                    checksums=self.bundle.checksums,
+                    checksums_for=lambda profile: (
+                        MigrationBundle(
+                            self.bundle.directory,
+                            embedding_profile=profile,
+                            source_directory=self.bundle.source_directory,
+                        ).checksums
+                    ),
+                )
             verify_retained_objects(sqlite_inventory(connection), self.bundle.head, bundle=self.bundle, evidence=main)
         else:
             main = _Journal(self.directory, identity).read()
