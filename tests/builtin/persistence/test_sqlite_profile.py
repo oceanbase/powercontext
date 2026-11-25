@@ -705,6 +705,7 @@ def test_sqlite_pragmas_enforce_lineage_source_foreign_keys() -> None:
 @pytest.mark.parametrize("operation", ["execute", "executemany"])
 def test_failed_statement_collection_does_not_block_another_writer(tmp_path, operation) -> None:
     import gc
+    import weakref
 
     async def scenario() -> None:
         config = SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'cursor.db'}", busy_timeout_ms=2_000)
@@ -750,8 +751,12 @@ def test_failed_statement_collection_does_not_block_another_writer(tmp_path, ope
                 # Collect the earlier exception while this connection's worker
                 # waits for the other writer. Collection must leave the event
                 # loop free to release that writer, rather than await its lock.
+                retained_error = weakref.ref(failed[0])
                 del failed
-                gc.collect()
+                # Automatic collection is disabled, so this cycle is still young.
+                # A full-heap sweep would charge unrelated pytest objects to SQLite's busy timeout.
+                gc.collect(0)
+                assert retained_error() is None
                 await writer.commit()
                 await pending
                 await contender.commit()
