@@ -11,6 +11,12 @@ Generated reports, run records, and historical result bundles are distributed th
 archive documented above. Set `POWERCONTEXT_EVIDENCE_ADMISSION_RESULTS` to its extracted `results` directory only when
 running historical replay commands; default tests remain offline and self-contained.
 
+Run-specific human sample declarations and v6 assistant atom reviews use a separate
+[historical review supplement](HISTORICAL_REVIEWS.md). Set `POWERCONTEXT_EVIDENCE_ADMISSION_REVIEWS` to its extracted
+`historical-reviews/v1` directory when those readers need it. Receipts are verified against pinned byte checksums;
+ordinary protocol loading and synthetic scoring tests need no supplement. The supplement is prepared locally and
+has no public download URL yet. It preserves original evidence without rescoring the archived results.
+
 Current replay uses the versioned material identity `evidence-admission.persisted-source-material.v2`.
 It validates the `powercontext-source-v1` persistence envelope, then hashes its JSON fields with only the top-level
 server write time `saved_at` excluded. Nested timestamps, Source values, metadata, representation and identity fields

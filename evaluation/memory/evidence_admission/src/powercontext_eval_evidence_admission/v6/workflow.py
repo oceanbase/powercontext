@@ -32,7 +32,7 @@ from ..manifests import PACKAGE_ROOT, EvaluationError, load_suite, read_json
 from ..models import canonical, digest
 from ..report import code_identity, load_run
 from ..runner import instructions_for, run_sample
-from .contract import ROOT, identity, protocol
+from .contract import identity, protocol, recorded_atom_reviews
 from .fidelity import quote_inventory, request_cost
 from .scoring import score_literal_atoms
 
@@ -190,6 +190,7 @@ def replay_history(session_path: Path, output_dir: Path, legacy_replay_dir: Path
     if output_dir.exists():
         raise EvaluationError("v6_output_already_exists")
     frozen = identity()
+    atom_reviews = recorded_atom_reviews()
     session = read_json(session_path)
     public, private = Path(session["public_root"]), Path(session["private_root"])
     raw, samples, _ = load_run(public / "primary")
@@ -197,7 +198,6 @@ def replay_history(session_path: Path, output_dir: Path, legacy_replay_dir: Path
     if code_identity(load_suite(experiment_version="v5")) != raw["code"]:
         raise EvaluationError("historical_v5_freeze_changed")
     outputs = read_json(private / "primary/outputs.json")
-    atom_reviews = read_json(ROOT / "recorded-atom-reviews.json")
     if outputs["manifest_hash"] != digest(raw) or atom_reviews["original_manifest_hash"] != digest(raw):
         raise EvaluationError("historical_output_identity_mismatch")
     output_dir.mkdir(parents=True)
@@ -265,9 +265,13 @@ def replay_history(session_path: Path, output_dir: Path, legacy_replay_dir: Path
         raise EvaluationError("historical_v5_baseline_not_reproduced")
     if identity() != frozen:
         raise EvaluationError("v6_code_changed_during_replay")
+    if recorded_atom_reviews() != atom_reviews:
+        raise EvaluationError("v6_atom_review_changed_during_replay")
     result = {
         "schema": "evidence-admission.v6.recorded-replay.v1",
         "v6_identity": frozen,
+        "atom_reviews_sha256": frozen["contract"]["atom_reviews_sha256"],
+        "atom_reviews_verified": True,
         "original_manifest_hash": digest(raw),
         "verified_legacy_replay_manifest_hash": digest(replay_manifest),
         "audited_manifest_hash": digest(reviewed),

@@ -25,6 +25,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, ValidationError
 
+from .historical_artifacts import HUMAN_SAMPLE_DECLARATION_SHA256, read_review_receipt
 from .manifests import EvaluationError, file_hash, read_json
 from .models import digest
 
@@ -149,9 +150,16 @@ def _validate_call(session, record, row, original, published):
     return output
 
 
-def prepare_appendix(session, declaration_file, queue_file, result_file, fixture_root):
+def prepare_appendix(session, declaration_file, queue_file, result_file, fixture_root, *, declaration_sha256=None):
     """Validate recorded bytes, not the current native schema; partial labels never approve candidates."""
-    declaration = Declaration.model_validate(read_json(declaration_file))
+    if declaration_file is None:
+        _require(declaration_sha256 is None, "review_declaration_path_required_for_custom_checksum")
+        raw_declaration = read_review_receipt("human-sample-review-v1.json", HUMAN_SAMPLE_DECLARATION_SHA256)
+    elif declaration_sha256 is not None:
+        raw_declaration = read_review_receipt("human-sample-review-v1.json", declaration_sha256, path=declaration_file)
+    else:
+        raw_declaration = read_json(declaration_file)
+    declaration = Declaration.model_validate(raw_declaration)
     _require(
         file_hash(result_file) == declaration.basis_result_sha256
         and file_hash(queue_file) == declaration.basis_queue_sha256,
@@ -377,15 +385,26 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
     build = commands.add_parser("build")
-    for name in ("session", "declaration", "queue", "result", "fixtures", "output"):
+    for name in ("session", "queue", "result", "fixtures", "output"):
         build.add_argument("--" + name, type=Path, required=True)
+    build.add_argument("--declaration", type=Path)
+    build.add_argument("--declaration-sha256")
     commands.add_parser("verify").add_argument("directory", type=Path)
     args = parser.parse_args(argv)
     try:
         if args.command == "verify":
             result = verify_appendix(args.directory)
         else:
-            documents = prepare_appendix(args.session, args.declaration, args.queue, args.result, args.fixtures)
+            if args.declaration is not None and args.declaration_sha256 is None:
+                raise EvaluationError("review_declaration_checksum_required")
+            documents = prepare_appendix(
+                args.session,
+                args.declaration,
+                args.queue,
+                args.result,
+                args.fixtures,
+                declaration_sha256=args.declaration_sha256,
+            )
             write_appendix(args.output, args.session, documents)
             result = documents["summary.json"]
     except (EvaluationError, ValidationError, OSError, ValueError, KeyError, IndexError) as error:

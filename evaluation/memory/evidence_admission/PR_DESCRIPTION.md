@@ -55,6 +55,13 @@ output schema, model settings, and per-input budgets; input admission and genera
 - Generated reports and historical run records distributed as a separate checksummed archive. Historical helpers
   require its extracted `results` directory through `POWERCONTEXT_EVIDENCE_ADMISSION_RESULTS`.
   Documentation links point to the archive instructions and retain each member path without restoring result files.
+- Run-specific human sample declarations and v6 assistant atom reviews are externalized into a separate,
+  byte-preserving review supplement. Its checksum, member hashes and unpublished status are documented in
+  [Historical review receipts](HISTORICAL_REVIEWS.md). The original result archive and checksum are unchanged.
+  Review readers use `POWERCONTEXT_EVIDENCE_ADMISSION_REVIEWS`, verify receipt bytes before parsing and retain
+  original manifest/result/queue/state bindings. Default synthetic tests and protocol loading need no supplement.
+  Current v6/v7 dependency identities declare expected receipt hashes without impersonating historical execution
+  identities or claiming verification before replay. Explicit custom declarations require a checksum in the CLI.
 - A documented pre-execution cost calculation for generic `run-live`/`run-smoke`. These commands enforce a request
   count, not a currency limit; the historical v20 budget ledger is a separate execution path.
 
@@ -149,50 +156,55 @@ is needed to rescore an existing response, and no replacement call recovers a mi
 # Are there any user-facing changes?
 
 This PR adds evaluation commands and documentation. Production source and Gateway behavior are unchanged relative
-to the integrated upstream base `d053c094b1e0930e2b8e639e81001219f8392e61`.
+to the integrated upstream base `89d17a046a0a9c3ff113874b46131aee78425c34`.
 The refusal-coverage change is excluded from the evaluation diff and retained in Git history for a separate follow-up; this PR
 does not claim to fix that upstream gap. No new production admission policy, feature flag, migration, or API is added.
 
 # How was this change tested?
 
-The contributor confirmed that full local engineering validation passed for the preceding repair tree, including
-`make check`, `make evaluation-unit-test`, `make test`, `make build` and `tox`. This increment was checked with focused
-regressions rather than repeating that matrix; the contributor-reported baseline is separate from the checks below.
+The integration includes upstream `89d17a046a0a9c3ff113874b46131aee78425c34` and the receipt externalization.
+This delivery is kept local; no passing remote CI result is claimed. The full evaluation result below was recorded
+before committing the integration, when the working/index `pyproject.toml` differed from the actual HEAD blob.
 
-Python 3.11.15 focused validation passed 169 tests across inherited v10 scoring, v18 comparison/review,
-durable JSON publication and v19/v20 continuation. The regressions cover assistant-only formal blocking, independent
-append-only human review, deterministic evidence, nonempty zero-fact controls, cache/binding tampering, and shared
-v18/v19/v20 report export. Three CLI receipt cases distinguish assistant diagnostics, human review and deterministic
-exact evidence without conflating a zero diagnostic count with formal resolution.
-
-Existing native Source/SQLite/Pipeline crash regressions cover interrupted scoring publication and recovery without
-another provider request, extra charge or duplicate cursor advance. Output-binding, score-recomputation and
-audit-corruption regressions remain in the focused run.
+- The fixed-base schema-history check passed against that exact upstream revision; schema release/draft tests passed 38 cases.
+- The final affected offline suite passed 297 tests across external receipts, synthetic scoring, v6-v8, the versioned CLI,
+  inherited v10 scoring, v18 review/negative-control gates, durable writes and v19/v20 continuation.
+- The versioned CLI suite also passed 31 tests independently. Its real subprocess completed in 2.17 seconds standalone
+  and 1.98 seconds in the final combined suite, retaining the original 30-second timeout. The reviewer's timeout
+  was not reproduced; no timeout increase or universal slow-environment resolution is claimed.
+- Actual preserved receipts were loaded through the external readers: the declaration retains 46 sample selectors and
+  15 partial annotations; the assistant receipt retains 29 entries. This is receipt/schema verification, not private
+  session replay or historical semantic rescoring. The original result archive checksum was also reverified unchanged.
+- Evaluator Ruff lint/format, evaluator source types, frozen-contract bytes and whitespace checks passed.
 
 ```bash
+uv run --locked python scripts/schema_release.py check \
+  --base-ref 89d17a046a0a9c3ff113874b46131aee78425c34
+uv run --locked pytest tests/test_schema_release.py tests/test_schema_draft.py -q
+
 uv run --project evaluation --locked pytest -c evaluation/pyproject.toml \
-  evaluation/memory/evidence_admission/tests/test_v10_scoring.py \
-  evaluation/memory/evidence_admission/tests/test_v18_comparison.py \
-  evaluation/memory/evidence_admission/tests/test_v18_state_writes.py \
-  evaluation/memory/evidence_admission/tests/test_v19_continuation.py \
-  evaluation/memory/evidence_admission/tests/test_v20_continuation.py -m "not live" -q
+  evaluation/memory/evidence_admission/tests/test_{manifests,historical_review_receipts,sample_review,versioned_cli,v10_scoring,v18_comparison,v18_state_writes,v19_continuation,v20_continuation}.py \
+  evaluation/memory/evidence_admission/tests/test_v{6,7,8}*.py -m "not live" -q
 ```
 
-Ruff lint/format for the three affected Python files, evaluator types, frozen-contract bytes and whitespace checks
-passed. The contributor-reported full engineering baseline is separate from these focused checks. Tests use the real
-local Source/SQLite/Pipeline with a mock provider; no model requests or spending were incurred. Historical evidence
-and decision thresholds remain unchanged. These checks do not establish real-provider acceptance, corrected
-historical metrics, or a passing remote CI run.
+The tests use local Source/SQLite/Pipeline behavior with controlled provider responses. No new model request or
+spending was incurred. Historical response bodies and unresolved semantic judgements remain unavailable/unresolved;
+these checks do not establish new real-provider acceptance or corrected historical metrics.
 
-Historical bundle-dependent tests skip by default; the bundle does not replace the matching historical runtime or
-unavailable private responses. Default tests need no provider credentials or network. Live execution, manual cost
-calculation, cancellation, audit, and report regeneration are documented in [the runbook](LIVE_RUNBOOK.md) and
-[Chinese instructions](LIVE_RUNBOOK.zh.md).
+The contributor ran `make evaluation-unit-test` before the integration commit: its first pytest group recorded
+2 failed, 1736 passed, 48 skipped and 2 deselected. Both failures are v12/v13 genuine-Git freeze tests whose initial
+success assertion uses the real repository's `pyproject.toml`; the uncommitted merged bytes differ from HEAD and are
+correctly refused by the runtime guard. The Make target stopped before the root-environment recovery/budget group.
+This is not a passing full evaluation run. Other full engineering checks have not been established for this tree;
+the contributor's previously reported baseline cannot substitute for current validation.
+The receipt supplement is local only and has no public download URL. Publishing it requires upload and download
+checksum verification; original result archives and historical execution identities must remain unchanged.
 
-Upstream `master` at `d053c094b1e0930e2b8e639e81001219f8392e61` is integrated with a normal merge.
-The `.gitignore` resolution preserves both evaluation-result ignores and upstream DSH pet file exceptions.
-The `evaluation-unit-test` target keeps evidence-admission tests in the evaluation environment and prepared-context
-budget/recovery tests in the root environment. Remote mergeability and CI must be checked after publication.
+Historical result helpers use `POWERCONTEXT_EVIDENCE_ADMISSION_RESULTS`; run-specific review receipts use the separate
+`POWERCONTEXT_EVIDENCE_ADMISSION_REVIEWS` root. Default synthetic tests need neither archive, credentials nor network.
+Live execution, cost calculation, cancellation and reports are documented in [the runbook](LIVE_RUNBOOK.md) and
+[Chinese instructions](LIVE_RUNBOOK.zh.md). After publication, verify the actual workflow merge/base and full CI;
+local fixed-base validation does not update an old GitHub Actions event's `SCHEMA_BASE`.
 
 # AI usage statement
 

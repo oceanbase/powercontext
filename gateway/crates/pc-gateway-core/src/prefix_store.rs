@@ -41,7 +41,13 @@ pub struct PrefixEntry {
     pub response_output: Vec<serde_json::Value>,
     /// 原请求里注入块的绑定与位置。抽取请求原样沿用，前缀里的注入块才能凭原绑定通过检查。
     pub prepared_contexts: Vec<pc_gateway_types::PreparedContextLocation>,
+    /// 原请求带给上游的会话标识（[`UPSTREAM_SESSION_HEADER`]）。上游按它路由提示缓存，抽取请求带同一个值
+    /// 才能命中这段前缀的缓存。
+    pub session_id: Option<String>,
 }
+
+/// 上游用来把同一会话的请求路由到同一份提示缓存的请求头。
+pub const UPSTREAM_SESSION_HEADER: &str = "session-id";
 
 impl PrefixEntry {
     /// 请求体与响应输出的字节数。
@@ -123,6 +129,7 @@ mod tests {
             request_body: bytes::Bytes::from_static(b"{}"),
             response_output: Vec::new(),
             prepared_contexts: Vec::new(),
+            session_id: None,
         }
     }
 

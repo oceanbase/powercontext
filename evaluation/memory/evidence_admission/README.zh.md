@@ -7,6 +7,11 @@
 [RESULTS_ARTIFACT.md](RESULTS_ARTIFACT.md)。只有历史回放需要设置
 `POWERCONTEXT_EVIDENCE_ADMISSION_RESULTS`；默认测试不下载证据包，也不需要 provider 凭据。
 
+特定运行的人工抽查声明和 v6 assistant 原子事实审阅通过独立的[历史审阅补充包](HISTORICAL_REVIEWS.zh.md)提供。
+相关读取器需要时，将 `POWERCONTEXT_EVIDENCE_ADMISSION_REVIEWS` 设为其解压后的 `historical-reviews/v1` 目录。
+回执须通过固定的字节校验和核验；普通协议读取和合成评分测试无需补充包。
+补充包已在本地准备，尚无公开下载地址；它保留原证据，不重算归档结果。
+
 当前重放使用版本化物化身份 `evidence-admission.persisted-source-material.v2`。
 它校验 `powercontext-source-v1` 持久化信封，仅排除顶层服务器写入时间 `saved_at` 后，对其 JSON 字段计算哈希。
 嵌套时间、Source 值、元数据、表示类型和身份字段仍参与绑定。新准备清单会声明该协议，不会原地升级旧清单。

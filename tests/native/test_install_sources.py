@@ -28,7 +28,7 @@ import sys
 import urllib.parse
 import zipfile
 from pathlib import Path
-from threading import Thread
+from threading import Event, Thread
 from typing import ClassVar
 
 import pytest
@@ -356,14 +356,16 @@ def test_unrelated_config_preserved_and_region_does_not_override_index(installat
     assert not any(path.startswith("/cn/") for path in index.requests)
 
 
-@pytest.mark.parametrize("downloader", ["curl", "wget"])
-@pytest.mark.parametrize("route", ["direct", "https", "http"])
-def test_bootstrap_download_transport(tmp_path, tls_certificate, downloader, route):
+def bootstrap_download(
+    tmp_path, tls_certificate, downloader="curl", route="direct", *, statuses=(200,), stall_first_tls=False
+):
     executable = shutil.which(downloader)
     if not executable:
         pytest.skip(f"download acceptance requires {downloader}")
     assert BASH
     requests = []
+    responses = iter(statuses)
+    release_handshake = Event()
 
     class Installer(http.server.BaseHTTPRequestHandler):
         def log_message(self, format: str, *args: object) -> None:  # noqa: A002
@@ -381,17 +383,31 @@ def test_bootstrap_download_transport(tmp_path, tls_certificate, downloader, rou
                 return
             # Stop before real installation; the marker proves the bootstrap executed the download.
             payload = b'#!/bin/sh\nprintf executed > "$HOME/download-executed"\nexit 1\n'
-            self.send_response(200)
+            self.send_response(next(responses, statuses[-1]))
             self.send_header("Content-Length", str(len(payload)))
             self.end_headers()
             self.wfile.write(payload)
 
     cert, key = tls_certificate
     plain = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Installer)
-    secure = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Installer)
     context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
     context.load_cert_chain(cert, key)
-    secure.socket = context.wrap_socket(secure.socket, server_side=True)
+
+    class SecureServer(http.server.ThreadingHTTPServer):
+        # server_close waits for request threads after the stalled handshake is released.
+        daemon_threads = False
+        handshake_stalled = False
+
+        def finish_request(self, request, client_address):
+            if stall_first_tls and not self.handshake_stalled:
+                self.handshake_stalled = True
+                # Leave TCP connected without answering TLS, while accepting the retry separately.
+                release_handshake.wait()
+                return
+            with context.wrap_socket(request, server_side=True) as secured:
+                super().finish_request(secured, client_address)
+
+    secure = SecureServer(("127.0.0.1", 0), Installer)
     workers = [Thread(target=server.serve_forever, daemon=True) for server in (plain, secure)]
     utilities = tmp_path / "utilities"
     utilities.mkdir()
@@ -418,17 +434,52 @@ def test_bootstrap_download_transport(tmp_path, tls_certificate, downloader, rou
             },
             text=True,
             capture_output=True,
-            timeout=30,
+            timeout=90,
         )
-        output = completed.stdout + completed.stderr
-        assert completed.returncode != 0, output
-        expected_execution = route == "direct" or (route == "https" and downloader == "curl")
-        assert (tmp_path / "download-executed").exists() == expected_execution, output
-        assert all(scheme == "https" for scheme, _path in requests), requests
-        if downloader == "wget" and route != "direct":
-            assert "Install curl" in output
+        return completed, requests, (tmp_path / "download-executed").exists()
     finally:
+        release_handshake.set()
         for server, worker in zip((plain, secure), workers, strict=True):
             server.shutdown()
             server.server_close()
             worker.join()
+
+
+@pytest.mark.parametrize("downloader", ["curl", "wget"])
+@pytest.mark.parametrize("route", ["direct", "https", "http"])
+def test_bootstrap_download_transport(tmp_path, tls_certificate, downloader, route):
+    completed, requests, executed = bootstrap_download(tmp_path, tls_certificate, downloader, route)
+    output = completed.stdout + completed.stderr
+    assert completed.returncode != 0, output
+    expected_execution = route == "direct" or (route == "https" and downloader == "curl")
+    assert executed == expected_execution, output
+    assert all(scheme == "https" for scheme, _path in requests), requests
+    if downloader == "wget" and route != "direct":
+        assert "Install curl" in output
+
+
+@pytest.mark.parametrize("failure", ["tls-timeout", "http-503"])
+def test_bootstrap_recovers_after_transient_download_failure(tmp_path, tls_certificate, failure):
+    completed, requests, executed = bootstrap_download(
+        tmp_path,
+        tls_certificate,
+        statuses=(503, 200) if failure == "http-503" else (200,),
+        stall_first_tls=failure == "tls-timeout",
+    )
+    output = completed.stdout + completed.stderr
+    assert executed, output
+    # The fixture installer deliberately exits after writing the execution marker.
+    assert completed.returncode != 0, output
+    assert "uv installation failed" in output
+    assert ("curl: (28)" if failure == "tls-timeout" else "503") in output
+    assert set(requests) == {("https", "/direct")}
+
+
+@pytest.mark.parametrize("status", [404, 503])
+def test_bootstrap_failed_download_does_not_execute_response(tmp_path, tls_certificate, status):
+    completed, requests, executed = bootstrap_download(tmp_path, tls_certificate, statuses=(status,))
+    output = completed.stdout + completed.stderr
+    assert completed.returncode != 0, output
+    assert "Could not download the uv installer" in output
+    assert not executed, output
+    assert set(requests) == {("https", "/direct")}

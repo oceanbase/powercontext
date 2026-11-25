@@ -20,6 +20,7 @@ import json
 
 import pytest
 
+from powercontext_eval_evidence_admission.historical_artifacts import REVIEWS_ENV
 from powercontext_eval_evidence_admission.manifests import EvaluationError, file_hash, read_json
 from powercontext_eval_evidence_admission.models import digest
 from powercontext_eval_evidence_admission.sample_review import (
@@ -313,10 +314,48 @@ def test_cli_errors_do_not_disclose_private_values(recorded_sample, tmp_path, ca
     for flag, value in zip(("session", "declaration", "queue", "result", "fixtures"), recorded_sample, strict=True):
         args.extend(["--" + flag, str(value)])
     args.extend(["--output", str(tmp_path / "appendix")])
+    args.extend(["--declaration-sha256", file_hash(recorded_sample[1])])
     assert main(args) == 0
     assert main(args) == 2
     out = capsys.readouterr().out
     assert "review_output_already_exists" in out and "private-source-and-response-sentinel" not in out
+
+
+def test_default_external_declaration_is_hashed_and_bound(recorded_sample, tmp_path, monkeypatch):
+    from powercontext_eval_evidence_admission import sample_review
+
+    source = recorded_sample[1]
+    root = tmp_path / "external"
+    root.mkdir()
+    (root / "human-sample-review-v1.json").write_bytes(source.read_bytes())
+    monkeypatch.setenv(REVIEWS_ENV, str(root))
+    # Use a small synthetic declaration, never the historical reviewer's findings.
+    monkeypatch.setattr(sample_review, "HUMAN_SAMPLE_DECLARATION_SHA256", file_hash(source))
+    explicit = prepare_appendix(*recorded_sample, declaration_sha256=file_hash(source))
+    session, _, queue, result, fixtures = recorded_sample
+    assert prepare_appendix(session, None, queue, result, fixtures) == explicit
+    declaration = read_json(source)
+    declaration["state_hash"] = "a" * 64
+    save(root / "human-sample-review-v1.json", declaration)
+    with pytest.raises(EvaluationError, match="receipt_hash_mismatch"):
+        prepare_appendix(session, None, queue, result, fixtures)
+    monkeypatch.setattr(
+        sample_review, "HUMAN_SAMPLE_DECLARATION_SHA256", file_hash(root / "human-sample-review-v1.json")
+    )
+    with pytest.raises(EvaluationError, match="review_private_snapshot_changed"):
+        prepare_appendix(session, None, queue, result, fixtures)
+
+
+def test_cli_requires_and_checks_explicit_declaration_checksum(recorded_sample, tmp_path, capsys):
+    args = ["build"]
+    for flag, value in zip(("session", "declaration", "queue", "result", "fixtures"), recorded_sample, strict=True):
+        args.extend(["--" + flag, str(value)])
+    args.extend(["--output", str(tmp_path / "appendix")])
+    assert main(args) == 2
+    assert json.loads(capsys.readouterr().out) == {"error": "review_declaration_checksum_required"}
+    assert main([*args, "--declaration-sha256", "a" * 64]) == 2
+    assert json.loads(capsys.readouterr().out) == {"error": "historical_review_receipt_hash_mismatch"}
+    assert not (tmp_path / "appendix").exists()
 
 
 def test_same_recorded_review_reproduces_identical_files(recorded_sample, tmp_path):

@@ -1,6 +1,9 @@
 # External evaluation results
 
 Generated reports, run records, and historical result bundles are published separately from the code pull request.
+Run-specific review receipts are also external: the [review supplement](HISTORICAL_REVIEWS.md)
+([中文](HISTORICAL_REVIEWS.zh.md)) preserves the source declaration and v6 assistant reviews byte for byte.
+That supplement is prepared locally and not yet published; the original result archive below is unchanged.
 The archive preserves the former `results/` directory layout so historical hash checks and replay commands can use it
 without rewriting any receipt.
 
@@ -60,3 +63,8 @@ manifests, current-runtime regressions, and model-free protocol tests remain sel
 
 Historical documents retain `results/...` names as archive-relative evidence identities. Those paths resolve after
 extracting the archive; they are not files in the code pull request.
+
+The original archive does not contain byte-identical copies of the two externalized source review receipts.
+Its `results/v20-human-sample/declaration.json` must not substitute for `human-sample-review-v1.json`.
+The review supplement has its own archive checksum, member checksums and `POWERCONTEXT_EVIDENCE_ADMISSION_REVIEWS`
+root; the original `POWERCONTEXT_EVIDENCE_ADMISSION_RESULTS` root continues to locate result files.

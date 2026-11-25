@@ -40,6 +40,20 @@ private audit inputs outside the code diff. Without the original private outputs
 checks are possible, but full response replay is not established. No replacement request recovers an unavailable
 historical response.
 
+## External review receipts
+
+The current code tree keeps run-specific review judgements in the separate [review supplement](HISTORICAL_REVIEWS.md),
+not in reusable manifests or package sources. v6 replay loads its original assistant receipt through
+`POWERCONTEXT_EVIDENCE_ADMISSION_REVIEWS` and checks the unchanged contract's `atom_reviews_sha256`.
+Human sample declarations are pinned by byte checksum before their original result/queue/state bindings are checked.
+The supplement is prepared locally and has not been published; there is no download URL yet.
+
+Current v6/v7 dependency identities describe the implementation and the expected external receipt checksum.
+They do not claim receipt verification until a replay actually reads it, and they do not match the original code
+identity. Keep original reports unchanged. The historical checkout still uses its original source layout and does
+not automatically adopt the current environment variable or reader. No new historical replay or provider acceptance
+is established by moving these receipts or passing synthetic regressions.
+
 ## Fetch the published history
 
 The archive branch is separate from the PR head and must be retained independently of PR merge or head-branch cleanup.

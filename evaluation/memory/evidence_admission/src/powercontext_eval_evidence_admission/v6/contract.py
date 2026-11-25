@@ -17,6 +17,7 @@
 from pathlib import Path
 from typing import Any
 
+from ..historical_artifacts import read_review_receipt
 from ..manifests import EvaluationError, file_hash, read_json
 from ..models import digest
 from .fidelity import INSTRUCTIONS, TemplateOutput
@@ -31,14 +32,22 @@ def protocol() -> dict[str, Any]:
     contract = read_json(ROOT / "contract.json")
     if contract["schema"] != "evidence-admission.v6.contract.v1" or contract["live_requests_this_phase"] != 0:
         raise EvaluationError("invalid_v6_offline_contract")
-    if file_hash(ROOT / "recorded-atom-reviews.json") != contract["atom_reviews_sha256"]:
-        raise EvaluationError("v6_atom_review_freeze_mismatch")
     return contract
 
 
+def recorded_atom_reviews() -> dict[str, Any]:
+    """Load the external historical judgements only when replay actually needs them."""
+    return read_review_receipt("v6/recorded-atom-reviews.json", protocol()["atom_reviews_sha256"])
+
+
 def identity() -> dict[str, Any]:
+    contract = protocol()
     return {
-        "contract": protocol(),
+        "identity_protocol": "evidence-admission.v6.external-review-dependency.v1",
+        "contract": contract,
+        "historical_receipts": {
+            "v6/recorded-atom-reviews.json": {"expected_sha256": contract["atom_reviews_sha256"]},
+        },
         "files": {
             str(p.relative_to(ROOT)): file_hash(p) for p in sorted(ROOT.rglob("*")) if p.suffix in {".py", ".json"}
         },

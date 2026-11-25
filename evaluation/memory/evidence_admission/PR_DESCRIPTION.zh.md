@@ -27,6 +27,15 @@
   校验请求、输入、请求体、响应和原审阅绑定；被拒请求保持被拒，不计入已交付事实或合格字面量，审阅仅追加派生记录。
 - Pipeline 校验前保存解析输出身份，v19/v20 恢复时核验，包括评分已落盘、游标未推进的状态。
   绑定缺失或证据变化会使缓存评分失效，停止且不重发、不重复计费；报告会重验审阅上下文并重新计算派生评分。
+- 正式事实保留、配对改善及决策只使用确定性精确真值或绑定人工审阅；assistant 判断单独保留为诊断，不能解除正式未决。
+  人工审阅追加到 `.human.json`，兼容旧位置中的人工审阅，拒绝竞争的人工派生记录，不覆盖原始证据。
+- 零事实负对照要求空候选；非空输出即使被审阅标为有支持、未蕴含事实，也计入质量失败。
+- 审阅 CLI 回执明确区分导入审阅的 `unresolved`、正式 `formal_unresolved` 和 `formal_human_review_required`，
+  并提供 `reviewer_kind` / `score_kind`，诊断未决为零不代表正式通过。
+- 特定运行的人工抽查声明和 v6 assistant 原子事实审阅迁至独立、保留原字节的[历史审阅补充包](HISTORICAL_REVIEWS.zh.md)。
+  原结果包及校验和不变，补充包尚未公开发布。读取器通过 `POWERCONTEXT_EVIDENCE_ADMISSION_REVIEWS` 定位，
+  先验字节哈希再解析，保留原有清单、结果、队列和状态绑定；显式自选声明须同时给出 CLI 校验和。
+  普通协议和合成测试无需补充包。当前 v6/v7 身份声明预期哈希，不冒充历史执行身份或未发生的验证。
 - 当前运行时回归与显式历史指令/schema 夹具分开；不改历史响应、评分、门槛或未知用量。
 - 冻结提交检查覆盖运行时源码；保留冻结 JSON 原字节校验、可选 evidence reader 和评估计数兼容修复。
 - 生成报告及历史运行记录由独立校验压缩包发布；历史辅助命令通过 `POWERCONTEXT_EVIDENCE_ADMISSION_RESULTS` 定位解压目录。
@@ -105,41 +114,55 @@
 这些结果不能证明所有有界策略都无价值。测量范围限于合成场景、记录的 provider 配置及执行修订；模型别名不代表固定物理快照。
 不宣称已在整合 schema 下重新比较、通过远程数据库或宿主验收，或证明 provider 取消退款行为。
 
+公开归档尚未按正式审阅及零事实负对照修复重新评分。只读检查发现 v18/v19/v20 存在 assistant 诊断评分回执，
+原冻结结论均为 `insufficient_evidence`。当前工作区没有原私有会话审计材料，公开包也不包含这些正文；
+不能把本地模拟 provider 回归通过表述为历史指标已修正或完整语义审阅已完成。
+找回原材料后须在兼容、身份核验通过的环境中另行离线分析并发布派生报告，保留原归档字节，不需要新模型调用。
+
 # Are there any user-facing changes?
 
-本 PR 增加评估命令和文档。相对整合的上游基线 `e725225b103a7b41e601710d352ca3c3d3ae0ea0`，
+本 PR 增加评估命令和文档。相对整合的上游基线 `89d17a046a0a9c3ff113874b46131aee78425c34`，
 生产源码及 Gateway 行为不变。refusal 覆盖修改移出评估差异，在 Git 历史保留用于独立后续；本 PR 不声称修复该上游缺口。
 不增加生产准入策略、功能标志、迁移或 API。
 
 # How was this change tested?
 
-任务发起用户确认，前一轮修复树的完整本地工程验证已通过，包括 `make check`、`make evaluation-unit-test`、
-`make test`、`make build` 和 `tox`。本次增量仅运行针对性回归，不重复该矩阵；用户报告的基线与以下实测分开记录。
+本地整合包含上游 `89d17a046a0a9c3ff113874b46131aee78425c34` 和审阅文件外置修改。
+本交付保留在本地，不声称已有远程 CI 通过证据。下述全量评估结果记录于整合提交之前，
+当时工作区/暂存区的 `pyproject.toml` 与实际 HEAD blob 不同。
 
-Python 3.11.15 的持久化 JSON 发布、v18 比较/审阅、v19/v20 续跑和抽样审阅专项共 150 项通过。
-其中四项使用真实本地 Source/SQLite/Pipeline，在发布已评分状态前立即终止子进程，分别覆盖 v19/v20 的成功输出和引用拒绝输出。
-四项均在修复前复现遗留临时文件故障，修复后通过；连续两次中断后仍可恢复，不新增 provider 请求、不重复计费、不重复推进游标。
-另有六项发布用例覆盖遗留文件、非法 JSON、发布失败和不可变记录并发；既有输出绑定、评分重算及证据篡改回归也通过。
+- 针对固定上游 SHA 的迁移历史基线检查通过；schema release/draft 回归 38 项通过。
+- 最终受影响离线套件 297 项通过，覆盖外部回执、合成评分、v6-v8、版本化 CLI、继承的 v10 评分、
+  v18 审阅/负对照门槛、持久化写入及 v19/v20 续跑。
+- 版本化 CLI 另行独立运行 31 项通过。真实子进程单独运行耗时 2.17 秒，最终联合回归中耗时 1.98 秒，
+  保持原 30 秒限制。没有复现评审环境超时，不提高限制，也不声称已普遍解决慢环境问题。
+- 原始保留回执已通过外部读取器核验：声明保留 46 个抽样选择项、15 项部分判断，assistant 回执保留 29 项。
+  这是回执/结构核验，不是私有会话回放或历史语义重算；原结果包校验和也已重新确认不变。
+- 评估目录 Ruff check/format、评估源码类型、冻结合同字节及差异空白检查通过。
 
 ```bash
-uv run --project evaluation --extra capture-ownership pytest -c evaluation/pyproject.toml \
-  evaluation/memory/evidence_admission/tests/test_v18_state_writes.py \
-  evaluation/memory/evidence_admission/tests/test_v18_comparison.py \
-  evaluation/memory/evidence_admission/tests/test_v19_continuation.py \
-  evaluation/memory/evidence_admission/tests/test_v20_continuation.py \
-  evaluation/memory/evidence_admission/tests/test_sample_review.py -m "not live" -q
+uv run --locked python scripts/schema_release.py check \
+  --base-ref 89d17a046a0a9c3ff113874b46131aee78425c34
+uv run --locked pytest tests/test_schema_release.py tests/test_schema_draft.py -q
+
+uv run --project evaluation --locked pytest -c evaluation/pyproject.toml \
+  evaluation/memory/evidence_admission/tests/test_{manifests,historical_review_receipts,sample_review,versioned_cli,v10_scoring,v18_comparison,v18_state_writes,v19_continuation,v20_continuation}.py \
+  evaluation/memory/evidence_admission/tests/test_v{6,7,8}*.py -m "not live" -q
 ```
 
-四个受影响 Python 文件的 Ruff check/format、评估模块类型、冻结合同原字节和空白检查通过。
-任务发起用户另行确认本次本地验证通过。测试使用真实本地 Source/SQLite/Pipeline 和模拟 provider，未发起模型请求或产生费用。
-历史证据和决策门槛不变；这些检查不代表真实 provider 验收或远程 CI 已通过。
+测试使用真实本地 Source/SQLite/Pipeline 和受控 provider 响应，未新增模型请求或费用。
+历史响应正文不可用和语义未决仍保留；这些检查不证明新增真实 provider 验收或历史指标已修正。
 
-历史包依赖测试默认跳过；证据包不能替代原运行时和不可用私有响应。默认测试不要求 provider 凭据或网络。
-线上执行、手工费用计算、取消、审计和报告重建见 [英文手册](LIVE_RUNBOOK.md)和[中文手册](LIVE_RUNBOOK.zh.md)。
+用户在整合提交前运行了 `make evaluation-unit-test`：首组 pytest 为 2 failed、1736 passed、48 skipped、
+2 deselected。两个失败来自 v12/v13 的真实 Git 冻结测试：其首次成功断言使用实际仓库的 `pyproject.toml`，
+未提交的合并字节不同于 HEAD，因此被运行时保护正确拒绝。Make 在根环境 recovery/budget 测试组之前停止。
+这不是全量评估通过记录。其他完整工程检查尚无当前树的通过证据，用户此前的基线不能代替本次验证。
+审阅补充包仅在本地，尚无公开地址；发布时须上传并下载核验，原结果包及历史执行身份保持不变。
 
-已通过普通 merge 整合上游 `master` 的 `e725225b103a7b41e601710d352ca3c3d3ae0ea0`。
-`.gitignore` 同时保留评估结果忽略规则和上游 DSH pet 文件例外；`evaluation-unit-test` 将证据准入测试留在
-evaluation 环境，将 prepared-context 预算与恢复测试留在根项目环境。发布后仍需核对远程可合并状态和 CI。
+历史结果工具通过 `POWERCONTEXT_EVIDENCE_ADMISSION_RESULTS` 定位，运行专属审阅通过独立的
+`POWERCONTEXT_EVIDENCE_ADMISSION_REVIEWS` 定位。默认合成测试无需证据包、凭据或网络。
+线上执行、费用计算、取消及报告见[英文手册](LIVE_RUNBOOK.md)和[中文手册](LIVE_RUNBOOK.zh.md)。
+发布后须核对真实 workflow 合并/基线和完整 CI；本地固定基线通过不会改变旧 GitHub Actions 事件的 `SCHEMA_BASE`。
 
 # AI usage statement
 

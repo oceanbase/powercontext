@@ -37,7 +37,8 @@ false_attribution 和 entailed_atom_ids 均已逐项确认。无法唯一定位�
 | validation-reordered-sources | 4 | 0 | 4 |
 | 合计 | **46** | **29** | **17** |
 
-原始声明见 [human-sample-review-v1.json](manifests/human-sample-review-v1.json)，
+原始声明通过[历史审阅补充包](HISTORICAL_REVIEWS.zh.md)提供，包内路径为
+`historical-reviews/v1/human-sample-review-v1.json`，按固定 SHA-256 校验后读取；补充包尚未公开发布。
 逐条候选调用选择见 [coverage.json](RESULTS_ARTIFACT.md) (归档内路径: `results/v20-human-sample/coverage.json`)。
 单独的17条待确认清单见 [pending-mappings.json](RESULTS_ARTIFACT.md) (归档内路径: `results/v20-human-sample/pending-mappings.json`)。
 `resolution=ambiguous` 的 `possible_records` 列出所有匹配项；补充 arm 和 input_index 后才能唯一绑定。
@@ -106,31 +107,37 @@ mixed-scaffolding 的2K三次调用具有一个输入哈希、一个请求哈希
 及事实 ID 之间缺少的其他判断，因此原机器未决533项保持不变。新的知识是已明确的质量失败下界，
 不是原报告已获得完整重算。原自动评分与本附录分别存在。
 
-现有 v18 review 仅接收成功 output，且已有派生文件禁止覆盖。
+当前 v18 review 支持成功 `.output.json` 和 schema 有效但被 Pipeline 拒绝的 `.parsed.json`；
+被拒请求不会变成已交付事实。人工审阅可以在独立文件中追加，已有派生文件禁止覆盖。
+本抽查附录仍仅定位成功输出。
 本附录不向原会话写入，不把被拒绝的 parsed 输出改名为成功输出，也不覆盖已有助手诊断。
 
 ## 可重现命令
 
-以下在当前仓库执行。`REVIEW_SESSION` 由操作者设置为仓库外原私有会话，
+以下在当前仓库执行。先按证据包说明配置 `POWERCONTEXT_EVIDENCE_ADMISSION_RESULTS` 和
+`POWERCONTEXT_EVIDENCE_ADMISSION_REVIEWS`；后者对应包含原始声明的补充包，不是原结果包。
+`REVIEW_SESSION` 由操作者设置为仓库外原私有会话，
 `REVIEW_OUTPUT` 为不存在的新目录，不能位于原会话内。
 
 ```bash
 REVIEW_PACKAGE=evaluation/memory/evidence_admission
 uv run --locked --project evaluation python -m powercontext_eval_evidence_admission.sample_review build \
   --session "$REVIEW_SESSION" \
-  --declaration "$REVIEW_PACKAGE/manifests/human-sample-review-v1.json" \
-  --queue "$REVIEW_PACKAGE/results/v20-review/semantic-review-queue.json" \
-  --result "$REVIEW_PACKAGE/results/v20-live/result.json" \
+  --queue "$POWERCONTEXT_EVIDENCE_ADMISSION_RESULTS/v20-review/semantic-review-queue.json" \
+  --result "$POWERCONTEXT_EVIDENCE_ADMISSION_RESULTS/v20-live/result.json" \
   --fixtures "$REVIEW_PACKAGE/fixtures" --output "$REVIEW_OUTPUT"
 uv run --locked --project evaluation python -m powercontext_eval_evidence_admission.sample_review verify "$REVIEW_OUTPUT"
 ```
+
+省略 `--declaration` 时按固定校验和读取补充包内原始声明。显式选择其他声明时必须同时提供
+`--declaration PATH --declaration-sha256 SHA256`，文件校验和与已有会话绑定都必须通过。
 
 原上下文重算需在上述原提交的干净独立检出中，用其锁定 Python 环境运行：
 
 ```bash
 "$FROZEN_PYTHON" "$REVIEW_TOOL_ROOT/scripts/verify_sample_review_context.py" \
   --session "$REVIEW_SESSION" --appendix "$REVIEW_OUTPUT" \
-  --queue "$REVIEW_TOOL_ROOT/results/v20-review/semantic-review-queue.json" \
+  --queue "$POWERCONTEXT_EVIDENCE_ADMISSION_RESULTS/v20-review/semantic-review-queue.json" \
   --output "$NEW_VALIDATION_FILE"
 ```
 
