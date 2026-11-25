@@ -43,7 +43,7 @@ openclaw
 
 | 事件/入口 | 发送的数据 | 直接接收方 | 默认/触发条件 | 关闭方式 | 关闭后影响 |
 | --- | --- | --- | --- | --- | --- |
-| `before_prompt_build` | 最新用户文本（或 prompt 回退值），识别出的凭据替换为 `[REDACTED]` 后限制为 8192 UTF-8 字节，以及 Scope 和 prepare 预算 | 配置的 PowerContext Server；返回上下文进入宿主模型请求 | `autoRecall=true`，符合条件的私密会话 | `autoRecall=false` | 停止自动准备/注入；捕获和显式工具仍独立工作 |
+| `before_prompt_build` | 最新用户文本（或 prompt 回退值），识别出的凭据替换为 `[REDACTED]` 后去掉首尾空白，超过 8192 个字符或 8192 个 UTF-8 字节时保留同时满足两项上限的最近文本；以及 Scope 和 prepare 预算 | 配置的 PowerContext Server；返回上下文进入宿主模型请求 | `autoRecall=true`，符合条件的私密会话 | `autoRecall=false` | 停止自动准备/注入；捕获和显式工具仍独立工作 |
 | 成功的 `agent_end` | 加上 `User:` 前缀的最新用户文本、确定性 Source ID 和来源元数据；文本含有识别出的凭据时不发送 | 配置的 PowerContext Server | `autoCapture=true`，符合条件的私密会话 | `autoCapture=false` | 停止新增自动 Source；召回和显式写入仍可用 |
 | `before_compaction` | 捕获启用时发送同样有界的最新用户 Source；发送 Scope 执行有界 flush | 配置的 PowerContext Server | best-effort 边界事件 | `autoCapture=false` 关闭新增捕获，不关闭 pending flush | 仍可 flush 已接受的 position；不会阻止压缩 |
 | `session_end` / `gateway_stop` | 用于 flush 已接受 pending position 的 Scope；不发送新 transcript | 配置的 PowerContext Server | 存在 pending position 且 extraction 可用 | 没有独立的 flush 关闭设置 | 关闭捕获会阻止新增 Source，但不会取消已有 pending 工作 |
