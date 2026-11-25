@@ -22,15 +22,17 @@ import threading
 from collections import deque
 from datetime import UTC, datetime
 from functools import partial
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Generic, TypeVar, cast
 
 import pytest
-from pydantic import BaseModel, SecretStr
+from pydantic import AnyHttpUrl, BaseModel, SecretStr
 from sqlalchemy import event, select
 from sqlalchemy.engine import Engine
 
 from powercontext.artifacts import ArtifactRef
 from powercontext.builtin.artifacts.memory import EmbeddingProfile
+from powercontext.builtin.artifacts.prompt import PromptContent
 from powercontext.builtin.artifacts.search import analyze_text
 from powercontext.builtin.artifacts.skill import ExternalSkillRegistration, ExternalSkillSnapshot, SkillPackageRef
 from powercontext.builtin.artifacts.topic_memory import (
@@ -76,6 +78,7 @@ from powercontext.builtin.inference import (
     character_token_estimator,
 )
 from powercontext.builtin.inference.usage import UsageReportingEmbeddingModel, UsageReportingStructuredGenerator
+from powercontext.builtin.persistence.artifacts import RepositoryArtifactDraft
 from powercontext.builtin.persistence.cursors import SourceCursorRepository
 from powercontext.builtin.persistence.processing import ArtifactProcessingPendingRepository
 from powercontext.builtin.persistence.processing_intents import ArtifactProcessingIntentRepository
@@ -2189,6 +2192,124 @@ def test_topic_windows_exclude_lineage_only_sources_and_advance_the_full_journal
             await manager.__aexit__(None, None, None)
 
     asyncio.run(scenario())
+
+
+class _EmptyProbeServer(ThreadingHTTPServer):
+    """Chat Completions endpoint that records each request and answers with no probes."""
+
+    def __init__(self) -> None:
+        super().__init__(("127.0.0.1", 0), _EmptyProbeHandler)
+        self.requests: list[dict[str, Any]] = []
+
+
+class _EmptyProbeHandler(BaseHTTPRequestHandler):
+    server: _EmptyProbeServer
+
+    def do_POST(self) -> None:
+        body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+        self.server.requests.append(body)
+        payload = json.dumps({
+            "id": "chatcmpl-empty-probe",
+            "object": "chat.completion",
+            "created": 0,
+            "model": body["model"],
+            "choices": [
+                {"index": 0, "finish_reason": "stop", "message": {"role": "assistant", "content": '{"probes": []}'}}
+            ],
+        }).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(payload)))
+        self.end_headers()
+        self.wfile.write(payload)
+
+    def log_message(self, format: str, *args: Any) -> None:  # noqa: A002
+        return
+
+
+def test_worker_sizes_windows_against_the_scope_custom_probe_prompt(tmp_path) -> None:
+    # The Scope's custom probe guidance adds about 2,000 tokens to the probe request.
+    # Windows sized against the built-in Prompt would not fit one request under it.
+    guidance = " ".join(["Keep only durable topics."] * 320)
+    server = _EmptyProbeServer()
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        config = BuiltinConfig(
+            database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'custom-probe-window.db'}"),
+            inference=InferenceConfig(
+                generation_model="openai-chat:probe-window",
+                generation_base_url=AnyHttpUrl(f"http://127.0.0.1:{server.server_address[1]}/v1"),
+                generation_model_context_window_tokens=5_000,
+            ),
+        )
+
+        async def prepare() -> ScopeAssignment:
+            async with open_builtin_contexts(config) as contexts:
+                scope = await contexts.get("scope-a")
+                async with contexts.database.transaction() as connection:
+                    await contexts.repositories.artifacts.create(
+                        connection,
+                        "scope-a",
+                        "topic_memory.probe",
+                        RepositoryArtifactDraft(
+                            family="prompt",
+                            content=PromptContent(
+                                schema_version="powercontext.prompt.v1",
+                                mode="custom",
+                                instructions=guidance,
+                                demonstrations=(),
+                            ),
+                        ),
+                    )
+                for index in range(12):
+                    await scope.sources.capture(
+                        ContentCapture(source_id=f"source-{index}", content=f"source {index:02d} " + "y" * 1_600)
+                    )
+                async with contexts.database.transaction() as connection:
+                    term = await contexts.repositories.processing_leases.start_single_process_term(connection, "holder")
+                    await ArtifactProcessingIntentRepository().request(
+                        connection, "scope-a", TOPIC_MEMORY_SOURCE_WINDOW_BINDING
+                    )
+                return ScopeAssignment(
+                    binding_name=TOPIC_MEMORY_SOURCE_WINDOW_BINDING,
+                    scope_id="scope-a",
+                    artifact_family="topic-memory",
+                    claimed_request_generation=1,
+                    fence=term.fence("single-process"),
+                    worker_id="worker-a",
+                )
+
+        async def processed_through() -> int | None:
+            async with open_builtin_contexts(config) as contexts, contexts.database.transaction() as connection:
+                cursor = await SourceCursorRepository().load(connection, "scope-a", TOPIC_MEMORY_SOURCE_WINDOW_BINDING)
+            return None if cursor is None else cursor.cursor.sequence
+
+        assignment = asyncio.run(prepare())
+        # The worker entrypoint runs in this process; it owns its own event loop.
+        completion = run_topic_memory_worker(TopicMemoryWorkerSpec(config=config), assignment)
+        assert completion.outcome is ArtifactProcessingWorkerOutcome.SUCCEEDED
+        assert asyncio.run(processed_through()) == 12
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join()
+
+    contents: list[str] = []
+    for request in server.requests:
+        messages = request["messages"]
+        assert any(guidance in message["content"] for message in messages if message["role"] == "system")
+        user = next(message["content"] for message in messages if message["role"] == "user")
+        evidence = json.loads(user)["evidence"]
+        # Evidence identifiers restart in every Window: a split Window sends a second
+        # probe request whose evidence does not start at the first identifier.
+        assert evidence[0]["evidence_id"] == "evidence-0001"
+        contents.extend(item["content"] for item in evidence)
+    assert 1 < len(server.requests) < 12
+    # Every Source reaches exactly one probe request, in Journal order.
+    assert [next(index for index in range(12) if f"source {index:02d} " in content) for content in contents] == list(
+        range(12)
+    )
 
 
 def test_selector_keeps_one_oversized_source_without_skipping_or_truncating() -> None:

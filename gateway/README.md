@@ -22,11 +22,27 @@ Use `X-PowerContext-Conversation-ID` to identify a conversation. The Gateway als
 
 Set `PC_GATEWAY_SEDIMENT=on` to capture completed user turns as Sources for later extraction. Capture excludes injected context and provider reasoning ciphertext. Tool continuations remain open until the final response. Long turns are split into Sources, and Core stores all parts in one batch. With a trusted conversation ID, captures share a turn digest and include a digest of the ordered normalized Source parts in their Source IDs. Distinct terminal records are stored independently; identical normalized parts are idempotent even when provider response IDs or usage change. Existing Sources remain unchanged, and a repeated capture under the former turn-only ID creates a new Source. Capture requires a Core that supports batch capture. Capture failure does not prevent response delivery. Blocked and degraded turns are not captured.
 
+When Core allows a Chat Completions stream, capture assembles the primary choice's text from its deltas and requires a terminal finish reason. The client receives the original SSE body.
+
 For a supported Responses upstream, prefix extraction is enabled by default; `PC_GATEWAY_PREFIX_EXTRACTION=off` disables it. With a subscription this applies to `codex` only, on a Core confirmed as non-enforcing; the extraction requests use the subscription account. Traffic of the other subscriptions uses normal extraction. Capture remains opt-in. Core also needs its gateway callback URL and generation model configured. With that URL configured, the Server defaults to `one_pass` unless a processing mode was explicitly supplied; `POWERCONTEXT_SERVER_RUNTIME_ATOMIC_MEMORY_PROCESSING_MODE=per_candidate` retains the previous mode. Both processing modes can reuse an eligible agent prefix when estimated cheaper, with normal extraction as the fallback. See [prefix extraction settings](../docs/en/docs/operate/deploy-server.md#memory-extraction-over-the-cached-prefix).
 
 ## Steering
 
 Responses requests include the [built-in cost guidance](crates/pc-gateway-app/src/default_steering.txt) by default. Set `PC_GATEWAY_STEERING_FILE` to replace it, or `PC_GATEWAY_STEERING=off` to disable steering even when a file is configured. Chat requests are unchanged. Both `PC_GATEWAY_STEERING` and `PC_GATEWAY_PREFIX_EXTRACTION` accept only `on` or `off` when set. See [instruction settings](../docs/en/docs/operate/deploy-server.md#gateway-instruction).
+
+### Replay epoch correlation module
+
+`pc_gateway_core::replay_epoch` provides a bounded, memory-only replay epoch correlation store supporting establishment,
+continuation, recovery, and closure. It is not wired into production model ingress or the Executor; recovery restores
+correlation only, not an answer or permission to regenerate a model response.
+Closed or expired records remain charged against entry and byte limits until explicit cleanup. The store owner must
+drive `cleanup`; the module starts no background task, and `establish` does not reclaim records implicitly.
+
+Run the no-model host simulation:
+
+```bash
+cargo run --locked --manifest-path gateway/Cargo.toml -p pc-gateway-core --example replay_epoch_host
+```
 
 ## Run
 
