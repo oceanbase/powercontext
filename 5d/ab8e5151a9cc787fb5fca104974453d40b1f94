@@ -1,0 +1,23 @@
+src/powercontext/server/dashboard/templates/components/scope-options.html
+  s_624ad8983708a5::t_bb5d11963b4ba1 46,75-76
+scripts/dashboard_processing_browser.cjs
+  s_624ad8983708a5::t_d60ad15cdcc953 209-213,215
+  s_624ad8983708a5::t_3c345ca786dc40 182-188,191-193,214,221
+  s_624ad8983708a5::t_baa8ddc7391af9 189-190
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "5dab8e5151a9cc787fb5fca104974453d40b1f94",
+  "prompts": {},
+  "sessions": {
+    "s_624ad8983708a5": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1ab57-e572-7090-b0f7-d55ee829f4b0",
+        "model": "gpt-6.2-astra"
+      },
+      "human_author": "Frey <110882560+Zxf-xufeng@users.noreply.github.com>"
+    }
+  }
+}

@@ -1,0 +1,27 @@
+src/powercontext/server/dashboard/labels.en.json
+  s_624ad8983708a5::t_84b9aedd34c21e 912,956
+src/powercontext/builtin/runtime/artifact_processing.py
+  s_624ad8983708a5::t_84b9aedd34c21e 685-687,689
+tests/test_dashboard_artifact_processing.py
+  s_624ad8983708a5::t_bebf8a110c4cf1 27-31,39,360-368,374-390
+  s_624ad8983708a5::t_18f68f8b572bc6 369-373
+  s_624ad8983708a5::t_055d2a8feecf5f 391-394
+src/powercontext/server/dashboard/labels.json
+  s_624ad8983708a5::t_84b9aedd34c21e 912,956
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "61c9761225446860f88127741d06d960eed9c9c5",
+  "prompts": {},
+  "sessions": {
+    "s_624ad8983708a5": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1ab57-e572-7090-b0f7-d55ee829f4b0",
+        "model": "gpt-6.2-astra"
+      },
+      "human_author": "Frey <110882560+Zxf-xufeng@users.noreply.github.com>"
+    }
+  }
+}

@@ -1,0 +1,14 @@
+.github/workflows/desktop-qualification-2725.yml
+  h_d8db45f291afbe 1-119
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "c062f24141f8062fac904c728d9270c9dfcc3c9c",
+  "prompts": {},
+  "humans": {
+    "h_d8db45f291afbe": {
+      "author": "Frey <110882560+Zxf-xufeng@users.noreply.github.com>"
+    }
+  }
+}

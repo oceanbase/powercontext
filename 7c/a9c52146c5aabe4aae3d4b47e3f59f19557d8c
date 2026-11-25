@@ -1,0 +1,20 @@
+tests/test_dashboard_artifact_processing.py
+  s_624ad8983708a5::t_ee8386752d809c 659-674
+  s_624ad8983708a5::t_e96e37ebcd101e 20,22,42,354,657-658,675-680
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "7ca9c52146c5aabe4aae3d4b47e3f59f19557d8c",
+  "prompts": {},
+  "sessions": {
+    "s_624ad8983708a5": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1ab57-e572-7090-b0f7-d55ee829f4b0",
+        "model": "gpt-6.2-astra"
+      },
+      "human_author": "Frey <110882560+Zxf-xufeng@users.noreply.github.com>"
+    }
+  }
+}
