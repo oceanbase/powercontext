@@ -29,7 +29,7 @@ config init → 生成 .env → 启动 Server → 创建 Scope → 连接 Agent
 
 ## 前置条件
 
-需要 Python 3.11 或更高版本、Git、[uv](https://docs.astral.sh/uv/getting-started/installation/)，以及要连接的 Agent CLI（例如 Codex CLI）。
+需要 CPython 3.11–3.14、Git、[uv](https://docs.astral.sh/uv/getting-started/installation/)，以及要连接的 Agent CLI（例如 Codex CLI）。
 
 ```bash
 python3 --version
@@ -49,7 +49,7 @@ source "$HOME/.local/bin/env"
 安装 PowerContext CLI 和本地 Server：
 
 ```bash
-uv tool install --force "powercontext[cli,server]==1.6.0"
+uv tool install --python ">=3.11,<3.15" --force "powercontext[cli,server]==1.6.0"
 powercontext --version
 powercontext --help
 ```

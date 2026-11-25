@@ -32,6 +32,7 @@ ENV RUSTUP_HOME=/usr/local/rustup \
 WORKDIR /app
 
 COPY pyproject.toml uv.lock README.md LICENSE ./
+COPY LICENSES/ ./LICENSES/
 COPY src/ ./src/
 COPY scripts/build_lexical.py ./scripts/build_lexical.py
 

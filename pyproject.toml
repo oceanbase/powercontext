@@ -18,7 +18,7 @@ dynamic = ["version"]
 description = "PowerContext turns human-agent work into handoff-ready context."
 authors = [{ name = "PowerContext Team", email = "open_oceanbase@oceanbase.com" }]
 readme = "README.md"
-license-files = ["LICENSE", "LICENSES/*"]
+license-files = ["LICENSE", "LICENSES/**/*"]
 keywords = ['python']
 requires-python = ">=3.11,<3.15"
 dependencies = [

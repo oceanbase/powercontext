@@ -16,7 +16,7 @@ description: 安装最新稳定版 PowerContext，并运行本地 Server。
 
 Windows 的 CLI、Server 和个人服务支持为试验性；各 Agent 宿主仍需满足自身要求。嵌入式 seekDB 不支持 Windows。下文 Bash 示例需要在 Bash 中执行。
 
-PowerContext 包含原生词法分析器。兼容 wheel 覆盖 Linux x86_64/arm64、macOS x86_64/arm64 和 Windows x86_64 上的 CPython 3.11–3.14。安装 wheel 无需编译器；源码安装需要 Rust 1.95.0 和平台 C 工具链，Windows 使用 MSVC。内置搜索路径会自动使用原生分析器。包元数据暂不允许 Python 3.15 及更高版本安装，待实现并验证对应的 Unicode 行为后再扩展。
+PowerContext 包含原生词法分析器。兼容 wheel 覆盖 Linux x86_64/arm64、macOS x86_64/arm64 和 Windows x86_64 上的 CPython 3.11–3.14。安装 wheel 无需编译器；源码安装需要 Rust 1.95.0 和平台 C 工具链，Windows 使用 MSVC。内置搜索路径会自动使用原生分析器。Python 3.15 及更高版本暂不受支持，待实现并验证对应的 Unicode 行为后再扩展。uv 不强制执行 `Requires-Python` 的上限，因此安装和升级时应保留显式的 `--python ">=3.11,<3.15"` 选择。升级已有 tool 环境时使用 `uv tool upgrade --python ">=3.11,<3.15" powercontext`，由 uv 在替换环境前选择兼容解释器。
 
 ## 使用推荐安装脚本
 
@@ -147,7 +147,7 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1 --region cn
 已有 Python 和 uv 时，可以直接安装或升级到最新稳定版，再安装与实际版本匹配的 Agent 集成：
 
 ```bash
-uv tool install --upgrade --force "powercontext[cli,server]"
+uv tool install --python ">=3.11,<3.15" --upgrade --force "powercontext[cli,server]"
 powercontext setup codex --ref "powercontext-v$(powercontext --version)"
 ```
 
@@ -156,7 +156,7 @@ powercontext setup codex --ref "powercontext-v$(powercontext --version)"
 如需固定版本，以 PowerContext 1.6.0 为例，包与 Agent 集成保持版本一致：Python 包版本为 `1.6.0`，对应 Git tag 为 `powercontext-v1.6.0`。
 
 ```bash
-uv tool install --force "powercontext[cli,server]==1.6.0"
+uv tool install --python ">=3.11,<3.15" --force "powercontext[cli,server]==1.6.0"
 powercontext setup codex --ref powercontext-v1.6.0
 ```
 
@@ -164,16 +164,16 @@ powercontext setup codex --ref powercontext-v1.6.0
 
 ### 安装应用
 
-需要在 macOS、Linux 或 Windows 上准备 Python 3.11 或更新版本、Git 和 [`uv`](https://docs.astral.sh/uv/)，然后从 PyPI 安装 PowerContext：
+需要在 macOS、Linux 或 Windows 上准备 CPython 3.11–3.14、Git 和 [`uv`](https://docs.astral.sh/uv/)，然后从 PyPI 安装 PowerContext：
 
 ```bash
-uv tool install --upgrade --force "powercontext[cli,server]"
+uv tool install --python ">=3.11,<3.15" --upgrade --force "powercontext[cli,server]"
 ```
 
 如需从源码安装固定版本，以 PowerContext 1.6.0 为例：
 
 ```bash
-uv tool install --force "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@powercontext-v1.6.0"
+uv tool install --python ">=3.11,<3.15" --force "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@powercontext-v1.6.0"
 ```
 
 只连接远程 Server 的机器安装 `cli` extra 即可使用 `setup`、`doctor` 和远程内容命令。运行本地 Server 或使用 `service` 命令时，还需安装 `server`。如果命令 provider 缺少依赖，CLI 会报告 provider 和缺失模块，便于修复安装。
@@ -231,7 +231,7 @@ powercontext server run --env-file /path/to/powercontext.env
 在有兼容 `pylibseekdb` wheel 的 Linux 和 macOS 系统上可以使用嵌入式 seekDB；Windows 不支持该嵌入式后端。安装或替换工具时加入可选的 seekDB extra：
 
 ```bash
-uv tool install --force "powercontext[cli,server,seekdb]==1.6.0"
+uv tool install --python ">=3.11,<3.15" --force "powercontext[cli,server,seekdb]==1.6.0"
 ```
 
 从 SQLite 切换时，需要从 Server 进程环境中删除 `POWERCONTEXT_SERVER_DATABASE_URL`；seekDB 不接受显式的 SQLAlchemy 数据库 URL。然后选择 seekDB 后端并启动 Server：

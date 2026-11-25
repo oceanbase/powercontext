@@ -291,7 +291,7 @@ try {
     $Python = $null
     $FoundPython = $false
     try {
-        $Python = & $Uv python find --system --no-project --no-python-downloads '>=3.11,<4' 2>$null
+        $Python = & $Uv python find --system --no-project --no-python-downloads '>=3.11,<3.15' 2>$null
         $FoundPython = $LASTEXITCODE -eq 0 -and $Python
     }
     catch { $FoundPython = $false }

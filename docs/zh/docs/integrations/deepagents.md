@@ -22,7 +22,7 @@ middleware 只包住主 agent 的模型调用。经由 `context=` 传入的 `Pow
 安装适配层包；它依赖 `powercontext-langchain` 与 `deepagents`。
 
 ```bash
-uv tool install --force "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@master"
+uv tool install --python ">=3.11,<3.15" --force "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@master"
 powercontext server run
 ```
 

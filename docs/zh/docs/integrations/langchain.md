@@ -20,7 +20,7 @@ checkpointer。
 middleware 源码独立打包为 `powercontext-langchain`，要求 LangChain 1.3 或更高版本。目前该包没有发布到 PyPI：
 
 ```bash
-uv tool install --force "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@master"
+uv tool install --python ">=3.11,<3.15" --force "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@master"
 powercontext server run
 ```
 

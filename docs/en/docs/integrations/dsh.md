@@ -41,7 +41,7 @@ the Server and plugin together.
 For this guided-setup build:
 
 ```bash
-uv tool install --force "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@master"
+uv tool install --python ">=3.11,<3.15" --force "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@master"
 powercontext setup dsh
 ```
 
@@ -52,7 +52,7 @@ For development, install both components from one checkout and record its commit
 ```bash
 git clone --branch master https://github.com/oceanbase/powercontext.git powercontext-dsh-dev
 git -C powercontext-dsh-dev rev-parse HEAD
-uv tool install --force "./powercontext-dsh-dev[cli,server]"
+uv tool install --python ">=3.11,<3.15" --force "./powercontext-dsh-dev[cli,server]"
 powercontext setup dsh --source ./powercontext-dsh-dev
 ```
 

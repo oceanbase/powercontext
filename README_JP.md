@@ -137,7 +137,7 @@ PowerContext は、長く使うプロジェクトのコンテキストを 1 つ�
 Agent の入力 → Source の証拠 → Memory / Topic Memory → PreparedContext → 新しいセッションまたは Agent
 ```
 
-PowerContext 1.6.0 には対話式セットアップウィザードが含まれています。Python 3.11+、Git、[uv](https://docs.astral.sh/uv/getting-started/installation/) が必要です。必要に応じて uv が Python を用意できます。Agent に接続するには、その CLI もインストールしてください。ウィザードでは、モデル API なしで明示的な保存と想起を試す場合は Basic memory、自動抽出を有効にする場合は Full memory を選択してください。Full memory には Generation と Embedding API の個別の認証情報が必要です。モデル API なしでローカル Server だけを起動する場合は[インストールと実行](https://powercontext.oceanbase.io/en/docs/get-started/install-and-run/)を参照してください。macOS と Linux をサポートし、Windows のサポートは `experimental` です。Python と uv を自動で用意する場合は、[インストールスクリプト](https://powercontext.oceanbase.io/en/docs/get-started/install-and-run/#install-with-the-recommended-script)を使ってください。
+PowerContext 1.6.0 には対話式セットアップウィザードが含まれています。CPython 3.11–3.14、Git、[uv](https://docs.astral.sh/uv/getting-started/installation/) が必要です。必要に応じて uv が Python を用意できます。Agent に接続するには、その CLI もインストールしてください。ウィザードでは、モデル API なしで明示的な保存と想起を試す場合は Basic memory、自動抽出を有効にする場合は Full memory を選択してください。Full memory には Generation と Embedding API の個別の認証情報が必要です。モデル API なしでローカル Server だけを起動する場合は[インストールと実行](https://powercontext.oceanbase.io/en/docs/get-started/install-and-run/)を参照してください。macOS と Linux をサポートし、Windows のサポートは `experimental` です。Python と uv を自動で用意する場合は、[インストールスクリプト](https://powercontext.oceanbase.io/en/docs/get-started/install-and-run/#install-with-the-recommended-script)を使ってください。
 
 バックグラウンド生成には、保存した `.env` を手動で編集して既存のサブスクリプションも利用できます。ウィザードにはまだこの選択肢がありません。Embedding には別の接続が必要で、この経路では Topic Memory と Dream は使えず、推論保護は無効のままにする必要があります。[設定ガイド](https://powercontext.oceanbase.io/en/docs/get-started/configure-models/#use-an-existing-subscription)を参照してください。
 
@@ -152,7 +152,7 @@ PowerContext 1.6.0 には対話式セットアップウィザードが含まれ�
 ### 1. ウィザードをインストールして実行する
 
 ```bash
-uv tool install --force "powercontext[cli,server]==1.6.0"
+uv tool install --python ">=3.11,<3.15" --force "powercontext[cli,server]==1.6.0"
 mkdir -p powercontext-config && cd powercontext-config
 powercontext config init --language en --output .env
 ```

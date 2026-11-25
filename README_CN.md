@@ -137,7 +137,7 @@ PowerContext 把可长期复用的项目上下文放在单次对话之外。一�
 Agent 输入 → Source 证据 → Memory / Topic Memory → PreparedContext → 新会话或新 Agent
 ```
 
-PowerContext 1.6.0 包含交互式配置向导。需要 Python 3.11+、Git 和 [uv](https://docs.astral.sh/uv/getting-started/installation/)；需要时 uv 可以按需提供 Python。要接入 Agent，还需要安装对应的 CLI。向导中选择“基础记忆”即可在没有模型 API 的情况下显式保存与召回；选择“完整记忆能力”则需要独立的 Generation、Embedding API 凭据。只想启动不依赖模型 API 的本地 Server 时，请参考[安装与运行](https://powercontext.oceanbase.io/zh/docs/get-started/install-and-run/)。支持 macOS 和 Linux；Windows 支持为 `experimental`。需要自动安装 Python 和 uv 时，使用[安装脚本](https://powercontext.oceanbase.io/zh/docs/get-started/install-and-run/#使用推荐安装脚本)。
+PowerContext 1.6.0 包含交互式配置向导。需要 CPython 3.11–3.14、Git 和 [uv](https://docs.astral.sh/uv/getting-started/installation/)；需要时 uv 可以按需提供 Python。要接入 Agent，还需要安装对应的 CLI。向导中选择“基础记忆”即可在没有模型 API 的情况下显式保存与召回；选择“完整记忆能力”则需要独立的 Generation、Embedding API 凭据。只想启动不依赖模型 API 的本地 Server 时，请参考[安装与运行](https://powercontext.oceanbase.io/zh/docs/get-started/install-and-run/)。支持 macOS 和 Linux；Windows 支持为 `experimental`。需要自动安装 Python 和 uv 时，使用[安装脚本](https://powercontext.oceanbase.io/zh/docs/get-started/install-and-run/#使用推荐安装脚本)。
 
 后台生成也可以手动在保存的 `.env` 中配置已有订阅，向导暂不提供该选项。Embedding 仍需独立连接，该路径不支持 Topic Memory 和 Dream，且推理保护需保持关闭。详见[模型配置](https://powercontext.oceanbase.io/zh/docs/get-started/configure-models/)。
 
@@ -152,7 +152,7 @@ PowerContext 1.6.0 包含交互式配置向导。需要 Python 3.11+、Git 和 [
 ### 1. 安装并运行配置向导
 
 ```bash
-uv tool install --force "powercontext[cli,server]==1.6.0"
+uv tool install --python ">=3.11,<3.15" --force "powercontext[cli,server]==1.6.0"
 mkdir -p powercontext-config && cd powercontext-config
 powercontext config init --language zh --output .env
 ```

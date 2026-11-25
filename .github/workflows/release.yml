@@ -216,7 +216,10 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     needs: [resolve-release, release-build, dsh-release-build, pypi-publish]
-    if: github.repository == 'oceanbase/powercontext'
+    if: >-
+      ${{ !cancelled() && github.repository == 'oceanbase/powercontext' &&
+      needs.resolve-release.result == 'success' && needs.release-build.result == 'success' &&
+      needs.dsh-release-build.result == 'success' && needs.pypi-publish.result == 'success' }}
     permissions:
       contents: read
       id-token: write
@@ -400,6 +403,8 @@ jobs:
 
   gateway-release-verify:
     needs: [resolve-release, release-assets]
+    if: >-
+      ${{ !cancelled() && needs.resolve-release.result == 'success' && needs.release-assets.result == 'success' }}
     uses: ./.github/workflows/gateway-distribution.yml
     with:
       source_ref: ${{ needs.resolve-release.outputs.source_sha }}
@@ -408,6 +413,8 @@ jobs:
 
   release-verify:
     needs: [resolve-release, pypi-publish, release-assets]
+    if: >-
+      ${{ !cancelled() && needs.resolve-release.result == 'success' && needs.pypi-publish.result == 'success' && needs.release-assets.result == 'success' }}
     permissions:
       contents: read
     uses: ./.github/workflows/release-verify.yml
@@ -417,6 +424,8 @@ jobs:
 
   deploy-website:
     needs: [resolve-release, pypi-publish]
+    if: >-
+      ${{ !cancelled() && needs.resolve-release.result == 'success' && needs.pypi-publish.result == 'success' }}
     permissions:
       contents: read
       pages: write

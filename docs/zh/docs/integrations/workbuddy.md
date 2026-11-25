@@ -11,7 +11,7 @@ status: community
 ## 前置条件
 
 - 已安装并可运行的 PowerContext。从与下方插件相同的 `master` revision 安装 CLI 和本地 Server：
-  `uv tool install --force "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@master"`。
+  `uv tool install --python ">=3.11,<3.15" --force "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@master"`。
   然后执行 `powercontext server run` 启动 Server。
 - 支持用户级 hooks、MCP 和 Skills 的 WorkBuddy 桌面应用。
 - 用于执行 hook 进程的 Python 3.11 或更新版本，且已加入 `PATH`。

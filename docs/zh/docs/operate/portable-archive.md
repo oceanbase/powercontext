@@ -29,7 +29,7 @@ Checksum 用于发现数据损坏，不提供生产者身份认证，也不证�
 会使用操作系统用户数据目录。
 
 ```bash
-uv tool install "powercontext[cli] @ git+https://github.com/oceanbase/powercontext.git@master"
+uv tool install --python ">=3.11,<3.15" "powercontext[cli] @ git+https://github.com/oceanbase/powercontext.git@master"
 export POWERCONTEXT_HOME="$HOME/.local/share/powercontext"
 ```
 

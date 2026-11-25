@@ -53,7 +53,7 @@ durable Handoff 流程，不代表所有 Agent 的交互方式。
 在**终端 B** 的任意目录中运行：
 
 ```bash
-uv tool install --force "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@master"
+uv tool install --python ">=3.11,<3.15" --force "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@master"
 ```
 
 `uv tool install` 会创建隔离的应用环境，不会在当前目录留下 PowerContext 仓库副本。`--force` 会按当前

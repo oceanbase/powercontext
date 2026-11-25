@@ -97,13 +97,22 @@ jobs:
               output.write(f"source_ref={os.environ.get('SOURCE_REF') or source_sha}\n")
           PY
 
-      - name: Prepare the native analyzer toolchain
-        run: rustup toolchain install 1.95.0 --profile minimal
+      - name: Check out portable build tooling
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+          path: .artifact-build-tools
+          persist-credentials: false
+      - name: Keep build tooling outside the requested source
+        run: |
+          mv .artifact-build-tools "$RUNNER_TEMP/artifact-build-tools"
+          echo "UPGRADE_GATE_ROOT=$RUNNER_TEMP/artifact-build-tools" >> "$GITHUB_ENV"
 
       - name: Build Python distributions
         run: |
           mkdir -p build/artifact-input/distributions
-          python "$PC_CI_PYTHON_INSTALLER" build --out-dir build/artifact-input/distributions
+          bash "$UPGRADE_GATE_ROOT/.github/scripts/portable-upgrade-build.sh" \
+            python "$PC_CI_PYTHON_INSTALLER" build --out-dir build/artifact-input/distributions
           python "$PC_CI_PYTHON_INSTALLER" run --no-project --with 'twine>=7.0.0' -- twine check build/artifact-input/distributions/*
 
       - name: Export locked runtime dependencies

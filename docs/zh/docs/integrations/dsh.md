@@ -86,7 +86,7 @@ dsh web
 使用本站对应的配置向导版本：
 
 ```bash
-uv tool install --force "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@master"
+uv tool install --python ">=3.11,<3.15" --force "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@master"
 powercontext setup dsh
 ```
 
@@ -95,7 +95,7 @@ powercontext setup dsh
 ```bash
 git clone --branch master https://github.com/oceanbase/powercontext.git powercontext-dsh-dev
 git -C powercontext-dsh-dev rev-parse HEAD
-uv tool install --force "./powercontext-dsh-dev[cli,server]"
+uv tool install --python ">=3.11,<3.15" --force "./powercontext-dsh-dev[cli,server]"
 powercontext setup dsh --source ./powercontext-dsh-dev
 ```
 

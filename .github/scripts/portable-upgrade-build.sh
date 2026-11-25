@@ -17,6 +17,8 @@
 set -euo pipefail
 
 docker run --rm -i \
+  --user "$(id -u):$(id -g)" \
+  --env HOME="$RUNNER_TEMP/portable-home" \
   --volume "$GITHUB_WORKSPACE:$GITHUB_WORKSPACE" \
   --volume "$RUNNER_TEMP:$RUNNER_TEMP" \
   --workdir "$GITHUB_WORKSPACE" \
@@ -32,7 +34,9 @@ docker run --rm -i \
   --env RUSTUP_TOOLCHAIN=1.95.0 \
   quay.io/pypa/manylinux_2_28_x86_64 \
   bash -euc '
-    export PATH="/opt/python/cp311-cp311/bin:$CARGO_HOME/bin:$PATH"
+    mkdir -p "$HOME"
+    /opt/python/cp311-cp311/bin/python -m venv "$RUNNER_TEMP/portable-tools"
+    export PATH="$RUNNER_TEMP/portable-tools/bin:$CARGO_HOME/bin:$PATH"
     python -m pip install --disable-pip-version-check uv==0.10.12 packaging==26.3 >&2
     if ! rustup run 1.95.0 rustc --version >/dev/null 2>&1; then
       curl --proto "=https" --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain 1.95.0 >&2

@@ -18,6 +18,7 @@ import importlib.util
 import io
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -484,7 +485,6 @@ def test_release_selector_command_uses_current_python_tags(tmp_path, monkeypatch
 @pytest.mark.parametrize(
     ("workflow_name", "job_name"),
     [
-        ("build-artifacts.yml", "build"),
         ("desktop-candidate.yml", "contract"),
         ("desktop-candidate.yml", "native"),
         ("desktop-candidate.yml", "assemble"),
@@ -534,3 +534,31 @@ def test_release_routes_tagged_sources_to_their_supported_wheel_builder(tmp_path
     jobs = workflow["jobs"]
     assert jobs["native-wheel-build"]["if"] == "needs.resolve-release.outputs.native == 'true'"
     assert jobs["release-build"]["with"]["portable_wheel"] == "${{ needs.resolve-release.outputs.native == 'true' }}"
+
+
+@pytest.mark.parametrize("job_name", ["npm-publish", "gateway-release-verify", "release-verify", "deploy-website"])
+@pytest.mark.parametrize("state", ["legacy", "failed-dependency", "cancelled"])
+def test_legacy_release_continues_only_after_successful_direct_dependencies(job_name, state):
+    jobs = yaml.safe_load((Path(__file__).parents[1] / ".github/workflows/release.yml").read_text())["jobs"]
+    job = jobs[job_name]
+    results = dict.fromkeys(job["needs"], "success")
+    if state == "failed-dependency":
+        results[job["needs"][-1]] = "failure"
+    # A skipped native build is an ancestor even when all direct dependencies
+    # succeeded. GitHub's default success() is false for that legacy route.
+    expression = job.get("if", "success()").strip().removeprefix("${{").removesuffix("}}")
+    if not re.search(r"\b(?:success|failure|cancelled|always)\(", expression):
+        expression = f"success() && ({expression})"
+    expression = re.sub(r"needs\.([\w-]+)\.result", lambda match: f"results[{match[1]!r}]", expression)
+    expression = expression.replace("github.repository", "repository").replace("!", "not ").replace("&&", " and ")
+    selected = eval(  # noqa: S307 -- checked-in Actions expression and fixed contexts, no builtins.
+        f"({expression})",
+        {"__builtins__": {}},
+        {
+            "results": results,
+            "repository": "oceanbase/powercontext",
+            "success": lambda: False,
+            "cancelled": lambda: state == "cancelled",
+        },
+    )
+    assert selected is (state == "legacy")

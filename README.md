@@ -139,7 +139,7 @@ PowerContext keeps durable project context outside any single chat. A first run 
 Agent input → Source evidence → Memory / Topic Memory → PreparedContext → next session or Agent
 ```
 
-PowerContext 1.6.0 includes an interactive setup wizard. You need Python 3.11+, Git, and [uv](https://docs.astral.sh/uv/getting-started/installation/); uv can provision Python when needed. To connect an Agent, also install its CLI. In the wizard, choose Basic memory for explicit saves and recall without model APIs; Full memory requires separate Generation and Embedding API credentials. For a local Server without model APIs, see [Install and run](https://powercontext.oceanbase.io/en/docs/get-started/install-and-run/). macOS and Linux are supported; Windows support is `experimental`. To provision Python and uv automatically, use the [installation script](https://powercontext.oceanbase.io/en/docs/get-started/install-and-run/#install-with-the-recommended-script).
+PowerContext 1.6.0 includes an interactive setup wizard. You need CPython 3.11–3.14, Git, and [uv](https://docs.astral.sh/uv/getting-started/installation/); uv can provision Python when needed. To connect an Agent, also install its CLI. In the wizard, choose Basic memory for explicit saves and recall without model APIs; Full memory requires separate Generation and Embedding API credentials. For a local Server without model APIs, see [Install and run](https://powercontext.oceanbase.io/en/docs/get-started/install-and-run/). macOS and Linux are supported; Windows support is `experimental`. To provision Python and uv automatically, use the [installation script](https://powercontext.oceanbase.io/en/docs/get-started/install-and-run/#install-with-the-recommended-script).
 
 To use an existing subscription for background generation, configure it manually in the saved `.env`; the wizard does not offer subscriptions yet. Embedding still needs its own connection, Topic Memory and Dream are unsupported on this path, and inference protection must remain disabled. See [subscription setup](https://powercontext.oceanbase.io/en/docs/get-started/configure-models/#use-an-existing-subscription).
 
@@ -154,7 +154,7 @@ Choose the path that matches your goal:
 ### 1. Install and run the wizard
 
 ```bash
-uv tool install --force "powercontext[cli,server]==1.6.0"
+uv tool install --python ">=3.11,<3.15" --force "powercontext[cli,server]==1.6.0"
 mkdir -p powercontext-config && cd powercontext-config
 powercontext config init --language en --output .env
 ```

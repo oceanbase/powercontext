@@ -56,7 +56,7 @@ in Memory or a Handoff.
 From any directory in **Terminal B**, run:
 
 ```bash
-uv tool install --force "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@master"
+uv tool install --python ">=3.11,<3.15" --force "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@master"
 ```
 
 `uv tool install` creates an isolated application environment. It does not leave a PowerContext checkout in the

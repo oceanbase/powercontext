@@ -19,7 +19,7 @@ provider 把召回、采集和显式操作发送给单独运行的 PowerContext 
 - PowerContext Server 正在运行。
 
 ```bash
-uv tool install --force "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@master"
+uv tool install --python ">=3.11,<3.15" --force "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@master"
 powercontext server run
 ```
 
