@@ -196,6 +196,7 @@ export async function createClaudeCodeCliTarget(options: ClaudeCodeCliTargetOpti
             const cli = await probeClaudeCodeCli(signal, path)
             if (cli.state !== 'present') return { state: 'unknown' }
             const plugin = await installedClaudePowerContext(cli.executable, environment, signal)
+            if (plugin?.enabled === false) return { state: 'disabled', repairable: false }
             if (plugin?.enabled !== true || plugin.errors?.length) return { state: 'needs_user_action', action: 'configure_target' }
             // Environment preflight still checks the installed hook, MCP tools, Server and Scope.
             return { state: 'ready' }

@@ -419,6 +419,21 @@ it('resolves boundaries and reads receipt through the exact owner-local HTTP rou
   await expect(api.resolveBoundary('s1', 'other')).rejects.toThrow('binding_mismatch')
 })
 
+it('shows how to enable a disabled Claude user plugin before checking again', async () => {
+  vi.stubGlobal('fetch', vi.fn(async (url: RequestInfo | URL) => {
+    if (String(url) === '/powercontext/targets') return json({ targets: [{ targetId: 'claude-code-cli', availability: 'requires_preflight' }] })
+    if (String(url) === '/powercontext/preflights') return json({ ...ready, targetId: 'claude-code-cli',
+      state: 'needs_user_action', integration: 'disabled', nextAction: 'configure_target' })
+    throw new Error(`unexpected request ${url}`)
+  }))
+  const ports: HandoffPorts = { resolveBoundary: async () => source, readReceipt: async () => { throw new Error('unused') } }
+  await act(async () => root.render(React.createElement(HandoffAction, props(ports))))
+  await click('交接给其他 Agent')
+  await click('Claude Code CLI')
+  expect(document.body.textContent).toContain('claude plugin enable powercontext@powercontext --scope user')
+  expect(document.body.textContent).not.toContain('同意安装')
+})
+
 it('lists session history and requires an explicit deletion confirmation', async () => {
   const previous = { ...delivery('prepared', 'previous'), source: { ...source, messageId: 'old' },
     createdAt: '2026-11-12T00:00:00Z', pinned: false, preview: { objective: 'Previous work' } }

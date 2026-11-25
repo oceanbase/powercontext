@@ -77,6 +77,8 @@ it('reports an absent plugin and treats malformed or interrupted setup as unknow
     const service = await createClaudeIntegration({ configDir: dir, powercontextExecutable: executable, environment: { PATH: '/usr/bin:/bin' } })
     expect(await service.check(new AbortController().signal)).toEqual({ state: 'missing', repairable: true })
     expect(await service.install(new AbortController().signal)).toEqual({ state: 'unknown' })
+    await writeFile(executable, `#!/bin/sh\nprintf '%s' '{"hosts":{"claude-code":{"checks":{"claude_code":{"status":"ok"},"plugin":{"status":"failed","detail":"powercontext@powercontext enabled=False"}}}}}'\n`, { mode: 0o755 })
+    expect(await service.check(new AbortController().signal)).toEqual({ state: 'disabled', repairable: false })
     const controller = new AbortController()
     controller.abort()
     await expect(service.install(controller.signal)).rejects.toThrow()

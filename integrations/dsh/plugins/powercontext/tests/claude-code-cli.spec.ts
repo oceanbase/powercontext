@@ -126,7 +126,7 @@ describe('Claude Code CLI adapter', () => {
       expect(await adapter.resolveEnvironment(detected, '/workspace', signal)).toEqual(env)
       expect(adapter.launchIntent(detected, bundle('/tmp/handoff', 'x'))).toEqual({ draft: 'Review the handoff' })
       await writeInventory(false)
-      expect(await adapter.checkIntegration(detected, signal)).toEqual({ state: 'needs_user_action', action: 'configure_target' })
+      expect(await adapter.checkIntegration(detected, signal)).toEqual({ state: 'disabled', repairable: false })
     } finally {
       await rm(dir, { recursive: true, force: true })
     }

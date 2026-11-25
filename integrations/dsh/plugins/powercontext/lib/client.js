@@ -1614,6 +1614,7 @@ const copy = {
 		preparation: "准备",
 		launch: "启动",
 		receipt: "接收确认",
+		enableClaude: "请在当前 Claude 配置中运行",
 		original: "继续使用原来的回复",
 		yes: "同意安装",
 		no: "不安装并取消",
@@ -1690,6 +1691,7 @@ const copy = {
 		preparation: "Preparation",
 		launch: "Launch",
 		receipt: "Receipt",
+		enableClaude: "Run in this Claude profile",
 		original: "Continue with the original reply",
 		yes: "Allow installation",
 		no: "Decline and cancel",
@@ -2437,72 +2439,80 @@ function HandoffPanel({ sessionId, messageId, ports, locale, active, latest, onO
 					}),
 					preflight && !delivery && !busy && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("section", {
 						className: "pc-handoff-stage",
-						children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
-							className: "pc-handoff-stage-heading",
-							children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-								className: "pc-handoff-stage-icon",
-								children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(__deepseek_ai_dsh_client_ui_primitives.IconCheckCircleOutlineRegular, {})
-							}), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("h3", { children: t.preflight }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", { children: preflightState === "unknown" ? f.uncertain : preflightState === "needs_install_consent" ? status(preflight.nextAction ?? "install_integration", locale) : status(preflight.nextAction || preflightState, locale) })] })]
-						}), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
-							className: "pc-handoff-actions",
-							children: [
-								preflightState === "needs_install_consent" && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
-									className: "pc-handoff-emphasis",
-									disabled: !latest,
-									onClick: () => void run(async (signal) => {
-										setPhase("installing");
-										const checked = await api.decision(preflight, true, signal);
-										setPreflight(checked);
-										await prepareDelivery(checked, signal, true);
+						children: [
+							/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+								className: "pc-handoff-stage-heading",
+								children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+									className: "pc-handoff-stage-icon",
+									children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(__deepseek_ai_dsh_client_ui_primitives.IconCheckCircleOutlineRegular, {})
+								}), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("h3", { children: t.preflight }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", { children: preflightState === "unknown" ? f.uncertain : preflightState === "needs_install_consent" ? status(preflight.nextAction ?? "install_integration", locale) : status(preflight.nextAction || preflightState, locale) })] })]
+							}),
+							preflightState === "needs_user_action" && preflight.targetId === "claude-code-cli" && preflight.integration === "disabled" && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("p", { children: [
+								t.enableClaude,
+								" ",
+								/* @__PURE__ */ (0, react_jsx_runtime.jsx)("code", { children: "claude plugin enable powercontext@powercontext --scope user" })
+							] }),
+							/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+								className: "pc-handoff-actions",
+								children: [
+									preflightState === "needs_install_consent" && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+										className: "pc-handoff-emphasis",
+										disabled: !latest,
+										onClick: () => void run(async (signal) => {
+											setPhase("installing");
+											const checked = await api.decision(preflight, true, signal);
+											setPreflight(checked);
+											await prepareDelivery(checked, signal, true);
+										}),
+										children: t.yes
+									}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+										onClick: () => void run(async (signal) => setPreflight(await api.decision(preflight, false, signal))),
+										children: t.no
+									})] }),
+									preflightState === "needs_user_action" && preflight.nextAction === "reselect_source" && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+										onClick: () => void run(async (signal) => {
+											setPhase("checking");
+											const checked = await api.verify(preflight, true, signal);
+											setPreflight(checked);
+											setConfirmedOriginal(checked.state === "ready");
+											await prepareDelivery(checked, signal, true, true);
+										}),
+										children: t.original
 									}),
-									children: t.yes
-								}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
-									onClick: () => void run(async (signal) => setPreflight(await api.decision(preflight, false, signal))),
-									children: t.no
-								})] }),
-								preflightState === "needs_user_action" && preflight.nextAction === "reselect_source" && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
-									onClick: () => void run(async (signal) => {
-										setPhase("checking");
-										const checked = await api.verify(preflight, true, signal);
-										setPreflight(checked);
-										setConfirmedOriginal(checked.state === "ready");
-										await prepareDelivery(checked, signal, true, true);
+									preflightState === "needs_user_action" && preflight.nextAction !== "reselect_source" && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+										disabled: !sourceAllowed,
+										onClick: () => void run(async (signal) => {
+											setPhase("checking");
+											const checked = await api.verify(preflight, false, signal);
+											setPreflight(checked);
+											await prepareDelivery(checked, signal, true, confirmedOriginal);
+										}),
+										children: t.verify
 									}),
-									children: t.original
-								}),
-								preflightState === "needs_user_action" && preflight.nextAction !== "reselect_source" && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
-									disabled: !sourceAllowed,
-									onClick: () => void run(async (signal) => {
-										setPhase("checking");
-										const checked = await api.verify(preflight, false, signal);
-										setPreflight(checked);
-										await prepareDelivery(checked, signal, true, confirmedOriginal);
+									error === "outcome_unknown" && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+										onClick: () => void run(async (signal) => setPreflight(await api.getPreflight(preflight.preflightId, sessionId, signal))),
+										children: t.refresh
 									}),
-									children: t.verify
-								}),
-								error === "outcome_unknown" && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
-									onClick: () => void run(async (signal) => setPreflight(await api.getPreflight(preflight.preflightId, sessionId, signal))),
-									children: t.refresh
-								}),
-								([
-									"failed",
-									"cancelled",
-									"unknown"
-								].includes(preflight.state) || !sourceAllowed) && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
-									onClick: () => {
-										clearFlow();
-										setView("targets");
-									},
-									children: t.reset
-								}),
-								preflightState === "ready" && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
-									className: "pc-handoff-emphasis",
-									disabled: !canHandoff(preflight.targetId) || !sourceAllowed,
-									onClick: () => void run((signal) => prepareDelivery(preflight, signal, false, confirmedOriginal)),
-									children: t.prepare
-								})
-							]
-						})]
+									([
+										"failed",
+										"cancelled",
+										"unknown"
+									].includes(preflight.state) || !sourceAllowed) && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+										onClick: () => {
+											clearFlow();
+											setView("targets");
+										},
+										children: t.reset
+									}),
+									preflightState === "ready" && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+										className: "pc-handoff-emphasis",
+										disabled: !canHandoff(preflight.targetId) || !sourceAllowed,
+										onClick: () => void run((signal) => prepareDelivery(preflight, signal, false, confirmedOriginal)),
+										children: t.prepare
+									})
+								]
+							})
+						]
 					}),
 					delivery && (!busy || phase !== "opening") && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("section", {
 						className: "pc-handoff-stage",

@@ -156,7 +156,7 @@ export async function createClaudeIntegration(options: ClaudeIntegrationOptions)
         }
         if (plugin.status !== 'failed' || typeof plugin.detail !== 'string') return { state: 'unknown' }
         if (plugin.detail === 'PowerContext plugin is not installed') return { state: 'missing', repairable: true }
-        if (plugin.detail.includes('enabled=False')) return { state: 'disabled', repairable: true }
+        if (plugin.detail.includes('enabled=False')) return { state: 'disabled', repairable: false }
         return { state: 'broken', repairable: true }
       } catch {
         if (signal.aborted) signal.throwIfAborted()

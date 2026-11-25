@@ -37,7 +37,7 @@ export interface HandoffActionProps {
 const copy = {
   zh: { action: '交接给其他 Agent', title: '交接当前工作', close: '关闭', unavailable: '交接边界服务不可用。请等待集成完成。',
     target: '目标', select: '选择目标', check: '重新检查目标', back: '返回', diagnostics: '安装检查', checkingInstallation: '正在检查', checkFailed: '检查失败', checkUnavailable: '检查不可用', loading: '正在加载目标', discoveryFailed: '无法加载交接选项。请关闭后重新打开。', notAvailable: '目标当前不可用', unqualifiedShort: '当前版本尚未通过交接验证', installationPresent: '已安装，版本', installationMissing: '未检测到安装', installationUnknown: '无法确定安装状态', installationUnsupported: '当前平台不支持检查', unqualified: '当前版本尚未通过交接验证。可以检查安装状态；交接准备和启动暂不可用。', preflight: '预检与安装', preparation: '准备', launch: '启动', receipt: '接收确认',
-    original: '继续使用原来的回复', yes: '同意安装', no: '不安装并取消', verify: '已完成，重新检查', prepare: '整理交接', manual: '手动填写并检查交接内容',
+    enableClaude: '请在当前 Claude 配置中运行', original: '继续使用原来的回复', yes: '同意安装', no: '不安装并取消', verify: '已完成，重新检查', prepare: '整理交接', manual: '手动填写并检查交接内容',
     disposition: '工作状态', selectDisposition: '选择状态', continuable: '可以继续', blocked: '受阻', complete: '已完成', objective: '工作目标', state: '当前状态与已知问题', next: '下一步', omissions: '遗漏或未验证项（每行一项）',
     newVersion: '明确创建新的交接', submit: '使用填写内容准备', open: '打开目标', retry: '明确重试打开', cancel: '取消交接', refresh: '刷新状态',
     pinned: '已固定', pin: '固定', unpin: '取消固定', delete: '删除', confirmDelete: '确认删除', keep: '保留', noHistory: '此会话没有已保存的交接', export: '导出交接包', history: '交接记录', deliveryId: '交付 ID', recover: '查看交付', timeout: '五分钟内尚未确认，可手动刷新。',
@@ -45,7 +45,7 @@ const copy = {
     interrupted: '已请求停止，结果可能未知。请刷新预检或在交接历史中恢复；已完成的安装不会自动撤销。', processing: '正在处理…', fixedOmission: '交接会注明无法取得历史工作区快照。', reset: '重新选择目标', error: '操作未完成', boundary: '回复已变化，请重新选择最新回复。', empty: '请选择支持预检的目标。' },
   en: { action: 'Hand off to another agent', title: 'Hand off current work', close: 'Close', unavailable: 'The handoff boundary service is unavailable. Integration is required.',
     target: 'Target', select: 'Choose a target', check: 'Check target again', back: 'Back', diagnostics: 'Installation checks', checkingInstallation: 'Checking', checkFailed: 'Check failed', checkUnavailable: 'Check unavailable', loading: 'Loading targets', discoveryFailed: 'Could not load handoff options. Close and reopen to retry.', notAvailable: 'Target unavailable', unqualifiedShort: 'Current version not yet validated for handoff', installationPresent: 'Installed, version', installationMissing: 'Installation not detected', installationUnknown: 'Installation status unknown', installationUnsupported: 'Installation check is not supported on this platform', unqualified: 'This version has not yet been validated for handoff. You can check installation; preparation and launch are unavailable.', preflight: 'Preflight and installation', preparation: 'Preparation', launch: 'Launch', receipt: 'Receipt',
-    original: 'Continue with the original reply', yes: 'Allow installation', no: 'Decline and cancel', verify: 'Done, check again', prepare: 'Prepare handoff', manual: 'Enter and review handoff details',
+    enableClaude: 'Run in this Claude profile', original: 'Continue with the original reply', yes: 'Allow installation', no: 'Decline and cancel', verify: 'Done, check again', prepare: 'Prepare handoff', manual: 'Enter and review handoff details',
     disposition: 'Work disposition', selectDisposition: 'Choose a status', continuable: 'Continuable', blocked: 'Blocked', complete: 'Complete', objective: 'Objective', state: 'Current state and known issues', next: 'Next action', omissions: 'Omissions or unverified items (one per line)',
     newVersion: 'Explicitly create a new handoff', submit: 'Prepare with these details', open: 'Open target', retry: 'Retry opening explicitly', cancel: 'Cancel handoff', refresh: 'Refresh status',
     pinned: 'Pinned', pin: 'Pin', unpin: 'Unpin', delete: 'Delete', confirmDelete: 'Confirm deletion', keep: 'Keep', noHistory: 'No saved handoffs in this session', export: 'Export handoff package', history: 'Handoff history', deliveryId: 'Delivery ID', recover: 'View delivery', timeout: 'No confirmation after five minutes. Refresh manually.',
@@ -477,6 +477,8 @@ function HandoffPanel({ sessionId, messageId, ports, locale, active, latest, onO
             <div><h3>{t.preflight}</h3><p>{preflightState === 'unknown' ? f.uncertain
               : preflightState === 'needs_install_consent' ? status(preflight.nextAction ?? 'install_integration', locale)
               : status(preflight.nextAction || preflightState, locale)}</p></div></div>
+          {preflightState === 'needs_user_action' && preflight.targetId === 'claude-code-cli' && preflight.integration === 'disabled' &&
+            <p>{t.enableClaude} <code>claude plugin enable powercontext@powercontext --scope user</code></p>}
           <div className="pc-handoff-actions">
             {preflightState === 'needs_install_consent' && <>
               <button className="pc-handoff-emphasis" disabled={!latest} onClick={() => void run(async signal => {

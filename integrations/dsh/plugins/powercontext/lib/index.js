@@ -9255,7 +9255,7 @@ async function createClaudeIntegration(options) {
 				};
 				if (plugin.detail.includes("enabled=False")) return {
 					state: "disabled",
-					repairable: true
+					repairable: false
 				};
 				return {
 					state: "broken",
@@ -10081,6 +10081,10 @@ async function createClaudeCodeCliTarget(options = {}) {
 						const cli = await probeClaudeCodeCli(signal, path);
 						if (cli.state !== "present") return { state: "unknown" };
 						const plugin = await installedClaudePowerContext(cli.executable, environment, signal);
+						if (plugin?.enabled === false) return {
+							state: "disabled",
+							repairable: false
+						};
 						if (plugin?.enabled !== true || plugin.errors?.length) return {
 							state: "needs_user_action",
 							action: "configure_target"
