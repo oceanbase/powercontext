@@ -70,8 +70,10 @@ export function BackLink({ href, children }: { href: string; children: ReactNode
 }
 
 /** Rows in a list: date and labels in a side column, then the entry. */
-export function EntryRow({ href, date, lang, labels, title, children, thumb }: {
+export function EntryRow({ href, date, lang, labels, title, children, thumb, byline }: {
   href: string;
+  /** Who wrote it. With a byline, the date and labels join it on one line above the title. */
+  byline?: ReactNode;
   date: string;
   lang: Language;
   labels: ReactNode[];
@@ -80,13 +82,21 @@ export function EntryRow({ href, date, lang, labels, title, children, thumb }: {
   thumb?: ReactNode;
 }) {
   return (
-    <div className={`${styles.row} ${styles.entry}`} data-thumb={thumb ? '' : undefined}>
-      <Dateline className={styles.rowMetaInline} date={date} labels={labels} lang={lang} />
-      <p className={styles.rowMeta}>
-        <time dateTime={date}>{formatDate(date, lang)}</time>
-        {labels.filter(Boolean).map((label, index) => <span key={index}>{label}</span>)}
-      </p>
+    <div className={`${styles.row} ${styles.entry}`} data-inline={byline ? '' : undefined} data-thumb={thumb ? '' : undefined}>
+      {byline ? null : <>
+        <Dateline className={styles.rowMetaInline} date={date} labels={labels} lang={lang} />
+        <p className={styles.rowMeta}>
+          <time dateTime={date}>{formatDate(date, lang)}</time>
+          {labels.filter(Boolean).map((label, index) => <span key={index}>{label}</span>)}
+        </p>
+      </>}
       <div className={styles.rowBody}>
+        {byline ? (
+          <div className={styles.metaRow}>
+            {byline}
+            <Dateline date={date} labels={labels} lang={lang} />
+          </div>
+        ) : null}
         <h3 className={styles.rowTitle}>
           <Link className={styles.linkTitle} href={href}>{title}</Link>
         </h3>

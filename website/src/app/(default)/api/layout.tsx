@@ -20,7 +20,7 @@ import { apiSource } from '@/lib/openapi-source';
 
 export default function ApiLayout({ children }: { children: ReactNode }) {
   return (
-    <DocsShell lang="en" title="HTTP API" tree={apiSource.getPageTree()} url="/api">
+    <DocsShell lang="en" languages={false} title="HTTP API" tree={apiSource.getPageTree()} url="/api">
       {children}
     </DocsShell>
   );

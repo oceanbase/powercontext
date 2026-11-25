@@ -29,8 +29,10 @@ import { baseOptions } from '@/lib/site';
  * the site links already live in the top bar, which the sidebar and table of
  * contents stick beneath.
  */
-export function DocsShell({ lang, tree, title, url, children }: {
+export function DocsShell({ lang, tree, title, url, languages = true, children }: {
   lang: Language;
+  /** Whether the section exists in every language; when not, the top bar has no language picker. */
+  languages?: boolean;
   tree: Root;
   /** The section's name, shown above its sidebar and in the phone bar. */
   title: string;
@@ -38,7 +40,7 @@ export function DocsShell({ lang, tree, title, url, children }: {
   children: ReactNode;
 }) {
   return (
-    <HomeLayout {...baseOptions(lang)}>
+    <HomeLayout {...baseOptions(lang)} i18n={languages}>
       <DocsLayout
         containerProps={{ className: 'pc-docs', style: { '--fd-banner-height': '3.5rem' } as CSSProperties }}
         i18n={false}

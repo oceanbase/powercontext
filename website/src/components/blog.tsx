@@ -108,22 +108,23 @@ export function FeaturedPost({ post, lang }: { post: BlogPost; lang: BlogLanguag
   return <article className={`${styles.featured} ${styles.entry}`}>
     <Link aria-hidden="true" href={href} tabIndex={-1}><CoverImage post={post} priority /></Link>
     <div className={styles.featuredBody}>
-      <Dateline date={post.date} labels={labelsFor(post, lang)} lang={lang} />
+      <div className={styles.metaRow}>
+        <AuthorSummary lang={lang} post={post} />
+        <Dateline date={post.date} labels={labelsFor(post, lang)} lang={lang} />
+      </div>
       <h2 className={styles.featuredTitle}><Link className={styles.linkTitle} href={href}>{post.title}</Link></h2>
       <p className={styles.featuredLead}>{post.description}</p>
-      <AuthorSummary lang={lang} post={post} />
     </div>
   </article>;
 }
 
-/** Posts as rows, newest first: date and category, then the post, then its cover. */
+/** Posts as rows, newest first: authors, date and category on one line, the post, then its cover. */
 export function PostList({ posts, lang }: { posts: BlogPost[]; lang: BlogLanguage }) {
   return <ul className={styles.list}>
     {posts.map((post) => <li key={post.slug}>
-      <EntryRow date={post.date} href={`/${lang}/blog/${post.slug}`} labels={labelsFor(post, lang)} lang={lang}
-        thumb={<CoverImage post={post} small />} title={post.title}>
+      <EntryRow byline={<AuthorSummary lang={lang} post={post} />} date={post.date} href={`/${lang}/blog/${post.slug}`}
+        labels={labelsFor(post, lang)} lang={lang} thumb={<CoverImage post={post} small />} title={post.title}>
         <p className={styles.rowText}>{post.description}</p>
-        <AuthorSummary lang={lang} post={post} />
       </EntryRow>
     </li>)}
   </ul>;

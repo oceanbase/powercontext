@@ -21,7 +21,6 @@ import { useDocsSearch } from 'fumadocs-core/search/client';
 import { useI18n } from 'fumadocs-ui/contexts/i18n';
 import {
   SearchDialog,
-  SearchDialogClose,
   SearchDialogContent,
   SearchDialogHeader,
   SearchDialogIcon,
@@ -32,7 +31,7 @@ import {
   useSearch,
   type SharedProps,
 } from 'fumadocs-ui/components/dialog/search';
-import { buttonClasses, Segmented } from '@astrafoundry/design/ui';
+import { buttonClasses, Kbd, Segmented } from '@astrafoundry/design/ui';
 import { createDocsSearchClient, getSearchCategory, type SearchScope } from '@/lib/docs-search';
 
 // The dialog says only what the reader cannot already see: a placeholder,
@@ -42,6 +41,7 @@ const labels = {
     scopes: { all: '全部', docs: '文档', development: '开发', rfcs: 'RFC' },
     scope: '检索范围',
     search: '搜索文档',
+    close: '关闭搜索',
     error: '搜索暂时不可用，请刷新页面后重试。',
     empty: '没有找到结果',
     expand: '搜索全部',
@@ -52,6 +52,7 @@ const labels = {
     scopes: { all: 'All', docs: 'Docs', development: 'Development', rfcs: 'RFCs' },
     scope: 'Search scope',
     search: 'Search documentation',
+    close: 'Close search',
     error: 'Search is unavailable. Refresh the page to try again.',
     empty: 'No results',
     expand: 'Search all',
@@ -66,6 +67,14 @@ const scopes: SearchScope[] = ['all', 'docs', 'development', 'rfcs'];
 // shortcuts from opening a result when the user is operating a control.
 function keepControlKeys(event: KeyboardEvent) {
   if (['Enter', ' ', 'ArrowUp', 'ArrowDown'].includes(event.key)) event.stopPropagation();
+}
+
+// The scope picker is a radio group that moves its choice with every arrow
+// key, so let it handle the key first and stop it only on the way up.
+function keepScopeKeys(event: KeyboardEvent) {
+  if (['Enter', ' ', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) {
+    event.stopPropagation();
+  }
 }
 
 function SearchResult(props: ComponentProps<typeof SearchDialogListItem>) {
@@ -85,6 +94,22 @@ function SearchResult(props: ComponentProps<typeof SearchDialogListItem>) {
       if (event.key === ' ') event.currentTarget.click();
     }}
   />;
+}
+
+/** Closes the dialog; the key it shows is the one that also closes it. */
+function CloseSearch({ label }: { label: string }) {
+  const { onOpenChange } = useSearch();
+  return (
+    <button
+      aria-label={label}
+      className="rounded-md transition-transform active:scale-[0.97] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+      onClick={() => onOpenChange(false)}
+      onKeyDownCapture={keepControlKeys}
+      type="button"
+    >
+      <Kbd>Esc</Kbd>
+    </button>
+  );
 }
 
 export default function DocsSearchDialog(props: SharedProps) {
@@ -116,10 +141,10 @@ export default function DocsSearchDialog(props: SharedProps) {
           <SearchDialogHeader className="gap-3 px-5 pt-5 pb-4">
             <SearchDialogIcon />
             <SearchDialogInput ref={input} aria-label={text.search} placeholder={text.search} autoComplete="off" />
-            <SearchDialogClose onKeyDownCapture={keepControlKeys} />
+            <CloseSearch label={text.close} />
           </SearchDialogHeader>
           <div className="px-4 pb-3">
-            <div className="contents" onKeyDownCapture={keepControlKeys}>
+            <div className="contents" onKeyDown={keepScopeKeys}>
               <Segmented
                 label={text.scope}
                 onValueChange={setScope}
