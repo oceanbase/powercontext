@@ -459,6 +459,11 @@ def convert_memory(connection, bundle, *, database, embedding_factory=None):  # 
                 )
 
     class HistoricalAtomicIndex(SQLiteAtomicMemoryIndex):
+        def __init__(self, profile):
+            super().__init__(profile)
+            # This converter runs before the alias projection's registered DDL.
+            self.tables = tuple(table for table in self.tables if table is not self.alias_table)
+
         @override
         async def initialize(self, connection, /):
             # Frozen DDL established current and its FTS helper. The subsequent
@@ -474,6 +479,7 @@ def convert_memory(connection, bundle, *, database, embedding_factory=None):  # 
             # revisions, leaving the Server chain's marker INSERT unsatisfiable.
             deferred = {table.name for table in ATOMIC_MEMORY_EVIDENCE_TABLES}
             deferred.add(ATOMIC_MEMORY_EVIDENCE_PROJECTION_TABLE.name)
+            deferred.add(self.alias_table.name)
             self.tables = tuple(table for table in self.tables if table.name not in deferred)
 
         @override
