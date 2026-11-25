@@ -111,12 +111,47 @@ def test_javascript_copies_drop_parameter_types_and_const_assertions(typescript:
         "const limit: number = 3",
         "const verdict = value as Verdict",
         "const scrub = (text: string) => text",
+        "export function scrub(this: void, text: string): string {\n  return text\n}",
+        "export function scrub(this: Map<string, number>, text: string) {",
+        "export function scrub(\n  this: void,\n  text: string,\n): string {",
+        "class Scrubber {\n  scrub(this: Scrubber, text: string): string {",
+        "class Scrubber {\n  scrub(\n    this: Scrubber,\n    text: string,\n  ) {",
+        "class Scrubber {\n  scrub(text?: string) {",
+        "const scrubber = {\n  scrub(text: string) {",
+        "try {\n  scrub()\n} catch (error: unknown) {",
+        "const scrub = (\n  text: string,\n) => text",
+        "const scrub = flag\n  ? (text): string => text\n  : other",
+        "const scrub = (text?) => text",
+        "const scrub = (\n  limit?,\n  text: string,\n) => text",
+        "const { limit }: Options = options",
     ],
 )
 def test_javascript_copies_refuse_typescript_they_cannot_drop(typescript: str) -> None:
     # Each would otherwise lose code, change its meaning, or leave the copy unloadable.
     with pytest.raises(SystemExit, match="cannot drop"):
         javascript(TYPESCRIPT_SOURCE / "prompt-privacy.ts", f"{typescript}\n")
+
+
+@pytest.mark.parametrize(
+    "javascript_source",
+    [
+        "scrub(this)",
+        "const limit = this.limit",
+        "const note = 'scrub(this: void)' // scrub(this: void)",
+        "const pattern = /scrub\\(this: void\\)/u",
+        "const pick = choose(flag ? this : other)",
+        "const options = scrub({ limit: 3, [key]: [flag ? 1 : 2] })",
+        "const limit = options?.limit ? options.limit : (fallback ?? 3)",
+        "const limit = flag\n  ? (first)\n  : second",
+        "switch (kind) {\n  case 'text':\n    break\n  default:\n    break\n}",
+        "switch (true) {\n  case text.startsWith('key'):\n    break\n  case (flag ? 1 : 2):\n    break\n}",
+        "const limit = flag ? (first) : second",
+        "outer: for (const item of items) {\n  break outer\n}",
+    ],
+)
+def test_javascript_copies_keep_colons_that_javascript_allows(javascript_source: str) -> None:
+    source = f"{javascript_source}\n"
+    assert javascript(TYPESCRIPT_SOURCE / "prompt-privacy.ts", source) == source
 
 
 @pytest.mark.parametrize(

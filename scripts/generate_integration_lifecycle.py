@@ -120,12 +120,13 @@ NESTED_MESSAGE = (
 # The JavaScript copies drop the only TypeScript syntax that the helpers they come from may use: the types of plain
 # parameters, made of names, arrays, and unions, and the return type, on a one-line function signature, and `as const`
 # after a closing bracket at the end of a line. Without a TypeScript parser, the conversion rejects every other
-# construct that it recognizes as TypeScript rather than copy it. It first scans the source for comments, quoted
-# strings, and regular expression literals, following JavaScript's rules for where each ends, and it rewrites and
+# construct that it recognizes as TypeScript rather than copy it, among them a `this` parameter and any annotation whose
+# `:` stands where JavaScript allows none, such as on a method's parameters. It first scans the source for comments,
+# quoted strings, and regular expression literals, following JavaScript's rules for where each ends, and it rewrites and
 # inspects only the code around them. Generation stops where the scan cannot tell: at a template literal, a string that
-# continues past its line, a `/` that may either start a regular expression or divide, and, in code, any character
-# other than ASCII names, numbers, spaces, and operators. The Kimi Code and ZCode tests then run each copy against the
-# shared privacy fixture.
+# continues past its line, a `/` that may either start a regular expression or divide, and, in code, any character other
+# than ASCII names, numbers, spaces, and operators. The Kimi Code and ZCode tests then run each copy against the shared
+# privacy fixture.
 _SIGNATURE = re.compile(
     r"(?P<head>\s*(?:export\s+)?(?:async\s+)?function\s+[\w$]+)\((?P<parameters>[^()]*)\)(?:\s*:[^{]*?)?(?P<tail>\s*\{)"
 )
@@ -138,6 +139,7 @@ _TYPESCRIPT_ONLY = re.compile(
 )
 # Stands in for every character of a comment or literal, so that no pattern matches inside one.
 _MASK = "\0"
+_CASE = re.compile(r"\s*case\b")
 _WORD = re.compile(r"[\w$]+", re.ASCII)
 # A number keeps its decimal point, so a keyword after `1.` stays a keyword.
 _NUMBER = re.compile(r"\d[\w$]*(?:\.[\w$]*)?", re.ASCII)
@@ -262,12 +264,74 @@ def _code_masks(source: Path, lines: list[str]) -> list[str]:
     return masks
 
 
+class _Nesting:
+    """Follows brackets and `?` operators across lines to find code that only a TypeScript annotation can use.
+
+    In JavaScript, a `:` ends an object key, a label, or a `case` test, or it closes a `?`. One right after `?`, `)`, or
+    `}`, or inside parentheses or brackets, that closes no open `?` there starts an annotation: of a parameter,
+    including `this`, of a `catch` binding, of a destructured variable, or of a return type. A `:` after `)` that a
+    `=>` follows on its line is an arrow's return type even inside a `?`, and a `?` right before `,` or `)` marks an
+    optional parameter.
+    """
+
+    def __init__(self) -> None:
+        # The open brackets, each with its count of open `?` operators, the last code character seen, and the depth of
+        # the `case` test whose `:` is still to come.
+        self.openers, self.questions, self.previous, self.case = [""], [0], "", 0
+
+    def annotates(self, code: str) -> bool:
+        """Return whether a line of code, with its comments and literals masked, has such a `:` or `?`."""
+
+        self.case = len(self.openers) if _CASE.match(code) else 0
+        index = 0
+        while index < len(code):
+            if code.startswith("??", index) or (
+                code.startswith("?.", index) and not code[index + 2 : index + 3].isdigit()
+            ):
+                index, self.previous = index + 2, "."
+                continue
+            if (code[index] in ",)" and self.previous == "?") or (
+                code[index] == ":" and self._annotation(code[index + 1 :])
+            ):
+                return True
+            self._read(code[index])
+            index += 1
+        return False
+
+    def _annotation(self, rest: str) -> bool:
+        if self.previous == "?":
+            return True
+        if self.case == len(self.openers):
+            # The first `:` at the depth where a `case` test starts ends it.
+            self.case = 0
+            if self.previous == ")":
+                return False
+        if self.previous == ")" and "=>" in rest:
+            return True
+        if self.questions[-1]:
+            self.questions[-1] -= 1
+            return False
+        return self.previous in {")", "}"} or self.openers[-1] in {"(", "["}
+
+    def _read(self, character: str) -> None:
+        if character in "([{":
+            self.openers.append(character)
+            self.questions.append(0)
+        elif character in ")]}" and len(self.openers) > 1:
+            self.openers.pop()
+            self.questions.pop()
+        elif character == "?":
+            self.questions[-1] += 1
+        if not character.isspace():
+            self.previous = character
+
+
 def javascript(source: Path, text: str) -> str:
     """Return a TypeScript helper without the types, or stop at the first line the conversion cannot handle."""
 
     lines = [line for line in _LINE.findall(text) if line]
     bodies = [line.rstrip("\r\n\u2028\u2029") for line in lines]
-    converted = []
+    converted, nesting = [], _Nesting()
     for number, (line, body, masked) in enumerate(zip(lines, bodies, _code_masks(source, bodies), strict=True), 1):
         ending = line[len(body) :]
         # The patterns see the code up to its last character, so a trailing comment does not hide a signature.
@@ -276,17 +340,21 @@ def javascript(source: Path, text: str) -> str:
         if signature := _SIGNATURE.fullmatch(code):
             items = [item.strip() for item in signature["parameters"].split(",") if item.strip()]
             parameters = [_PARAMETER.fullmatch(item) for item in items]
-            unsupported = not all(parameters)
+            # A `this` parameter declares the type of `this`; JavaScript has no such parameter.
+            unsupported = not all(parameters) or any(
+                parameter["name"] == "this" for parameter in parameters if parameter
+            )
             if not unsupported:
                 names = ", ".join(parameter["name"] for parameter in parameters if parameter)
                 start, end = signature.start("parameters") - 1, signature.start("tail")
                 body = f"{body[:start]}({names}){body[end:]}"
+                code = f"{code[:start]}({names}){code[end:]}"
         else:
             if assertion := _CONST_ASSERTION.search(code):
                 body = body[: assertion.start()] + body[assertion.end() :]
                 code = code[: assertion.start()] + code[assertion.end() :]
             unsupported = bool(_TYPESCRIPT_ONLY.search(code))
-        if unsupported:
+        if unsupported or nesting.annotates(code):
             raise SystemExit(  # noqa: TRY003
                 f"{source.relative_to(ROOT)}:{number}: the JavaScript copies cannot drop this TypeScript syntax"
             )
