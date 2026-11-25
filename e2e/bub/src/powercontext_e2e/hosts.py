@@ -96,7 +96,7 @@ class BubHost:
         return {}
 
     def mounts(self, task: E2ETask, repository: Path, *, powercontext: bool) -> list[ServiceVolumeConfig]:
-        paths = (f"dist/harness-wheels/{POWERCONTEXT_VERSION}", "integrations/bub")
+        paths = (f"dist/harness-wheels/linux/{POWERCONTEXT_VERSION}", "integrations/bub")
         mounts = source_mounts(repository, paths) if powercontext else []
         # The Codex login authenticates Bub's model, so both arms get it.
         if task.execution.model and (auth_path := codex_auth_path()).is_file():

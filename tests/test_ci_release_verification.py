@@ -77,7 +77,9 @@ elif sys.argv[1:2] == ["venv"]:
         executable.chmod(0o755)
     output = tmp_path / "output"
 
-    def run(workflow_name: str, tag: str, package_version: str, *, with_installer=True, step_name=None):
+    def run(
+        workflow_name: str, tag: str, package_version: str, *, with_installer=True, step_name=None, portable_wheel=False
+    ):
         output.write_text("")
         workflow = yaml.safe_load(
             (Path(__file__).parents[1] / ".github" / "workflows" / workflow_name).read_text(encoding="utf-8")
@@ -97,7 +99,8 @@ elif sys.argv[1:2] == ["venv"]:
             "PATH": os.pathsep.join((str(bin_dir), str(Path(sys.executable).parent), os.environ.get("PATH", ""))),
             "PC_CI_PYTHON_INSTALLER": str(Path(__file__).parents[1] / "scripts/ci_python_mirror.py"),
             "PC_CI_PYTHON_MIRROR": "",
-            "PORTABLE_WHEEL": "false",
+            "PORTABLE_WHEEL": str(portable_wheel).lower(),
+            "UPGRADE_GATE_ROOT": str(tmp_path / "upgrade gate"),
             "RELEASE_TAG": tag,
             "RELEASE_PACKAGE": "powercontext",
             "TEST_PACKAGE_VERSION": package_version,
@@ -106,6 +109,10 @@ elif sys.argv[1:2] == ["venv"]:
             "RUNNER_ENVIRONMENT": "github-hosted",
             "GITHUB_OUTPUT": str(output),
         }
+        if portable_wheel:
+            wrapper = tmp_path / "upgrade gate" / ".github/scripts/portable-upgrade-build.sh"
+            wrapper.parent.mkdir(parents=True, exist_ok=True)
+            wrapper.write_text('#!/bin/sh\nprintf "%s\\n" "$@" > "$RUNNER_TEMP/portable-command"\nexec "$@"\n')
         if not with_installer:
             environment.pop("PC_CI_PYTHON_INSTALLER")
         if workflow_name == "release-verify.yml":
@@ -192,15 +199,25 @@ def test_release_workflow_accepts_existing_tag_without_python_installer(run_rele
 
 
 @pytest.mark.parametrize("with_installer", [False, True])
-def test_release_build_and_fresh_install_support_tagged_setup(run_release_step, tmp_path, with_installer) -> None:
+@pytest.mark.parametrize("portable_wheel", [False, True])
+def test_release_build_and_fresh_install_support_tagged_setup(
+    run_release_step, tmp_path, with_installer, portable_wheel
+) -> None:
     result, _ = run_release_step(
         "release.yml",
         "powercontext-v1.5.2",
         "1.5.2",
         with_installer=with_installer,
         step_name="Build release distributions",
+        portable_wheel=portable_wheel,
     )
     assert result.returncode == 0, result.stderr
+    if portable_wheel:
+        command = (tmp_path / "portable-command").read_text().splitlines()
+        expected = (
+            ["python", str(Path(__file__).parents[1] / "scripts/ci_python_mirror.py")] if with_installer else ["uv"]
+        )
+        assert command == [*expected, "build", "--out-dir", "dist"]
     validated = tmp_path / "release-without-upgrades" / "validated-dist"
     shutil.copytree(tmp_path / "dist", validated)
     result, _ = run_release_step(

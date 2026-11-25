@@ -155,7 +155,8 @@ harness-test: ## Check harness types, scenarios and CLI without repeating format
 .PHONY: harness-wheel
 harness-wheel: ## Build the current native SDK wheel for Bub's isolated task containers.
 	@harness_version="$$(uv run --project e2e/bub python -c 'from importlib.metadata import version; print(version("powercontext"))')" && \
-		SETUPTOOLS_SCM_PRETEND_VERSION="$$harness_version" uv build --wheel --out-dir "dist/harness-wheels/$$harness_version"
+		docker build --file e2e/bub/wheel.Dockerfile --build-arg POWERCONTEXT_VERSION="$$harness_version" \
+			--output "type=local,dest=dist/harness-wheels/linux/$$harness_version" .
 
 .PHONY: harness-acceptance
 harness-acceptance: harness-wheel ## Evaluate workloads by ID or category against an existing Server.

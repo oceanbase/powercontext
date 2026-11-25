@@ -104,9 +104,12 @@ export POWERCONTEXT_BUB_TRUST_TRANSPORT_SECURITY=true
 make harness-acceptance
 ```
 
-The acceptance and paired targets build the current SDK's native wheel before starting Bub. Task containers install
-that wheel and the local Bub plugin without compiling Rust. The Compose image prepares the same wheel during its build;
-when invoking the Python CLI directly, run `make harness-wheel` first.
+The acceptance and paired targets use Docker BuildKit to build the current SDK's wheel in Linux, matching the Docker
+engine's architecture, before starting Bub. This requires Docker even when the Server runs outside Compose; macOS wheels
+cannot be installed in Linux task containers. The Linux wheel is exported to
+`dist/harness-wheels/linux/<version>/`, separately from any earlier host-native wheels. Task containers use the same Docker
+engine platform and install that wheel and the local Bub plugin without compiling Rust. The Compose image prepares its
+Linux wheel during its build; when invoking the Python CLI directly, run `make harness-wheel` first.
 
 The default run executes all acceptance tasks with collect-all, then reruns `batch:acceptance` with fail-fast. LoCoMo
 stays in its own `batch:locomo`; the database decision and failure-policy tasks share `batch:acceptance`. Explicit

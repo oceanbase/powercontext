@@ -149,11 +149,12 @@ jobs:
           if [ "$PORTABLE_WHEEL" = true ]; then
             builder=(bash "$UPGRADE_GATE_ROOT/.github/scripts/portable-upgrade-build.sh")
           fi
+          # Bash 3.2 treats an empty array as unset under -u.
           if [ -n "${PC_CI_PYTHON_INSTALLER:-}" ]; then
-            "${builder[@]}" python "$PC_CI_PYTHON_INSTALLER" build --out-dir dist
+            ${builder[@]+"${builder[@]}"} python "$PC_CI_PYTHON_INSTALLER" build --out-dir dist
             python "$PC_CI_PYTHON_INSTALLER" run --no-project --with 'twine>=7.0.0' -- twine check dist/*
           else
-            "${builder[@]}" uv build --out-dir dist
+            ${builder[@]+"${builder[@]}"} uv build --out-dir dist
             uvx --from 'twine>=7.0.0' twine check dist/*
           fi
 

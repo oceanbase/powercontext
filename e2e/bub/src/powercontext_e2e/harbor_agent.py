@@ -39,7 +39,7 @@ REMOTE_SOURCE_OVERRIDE = "/installed-agent/powercontext-overrides.txt"
 REMOTE_TOOL_DIR = "/installed-agent/tools"
 BUB_VERSION = version("bub")
 POWERCONTEXT_VERSION = version("powercontext")
-REMOTE_WHEEL_DIRECTORY = f"{REMOTE_SOURCE}/dist/harness-wheels/{POWERCONTEXT_VERSION}"
+REMOTE_WHEEL_DIRECTORY = f"{REMOTE_SOURCE}/dist/harness-wheels/linux/{POWERCONTEXT_VERSION}"
 # Change ACP_SDK_REQUIREMENT together with this version: it repeats the server's own pin of the ACP SDK.
 BUB_ACP_SERVER_VERSION = "0.1.3"
 # bub-acp-server 0.1.3 pins this pre-release. uv accepts a pre-release only when a direct requirement names it, so the
