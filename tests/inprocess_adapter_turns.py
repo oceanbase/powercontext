@@ -153,7 +153,9 @@ def _recording_server(turn: Turn) -> Iterator[str]:
         server.server_close()
 
 
-def _hermes(url: str, prompt: str, *, token: str | None, capture: bool, home: Path, entry: str | None) -> bool:
+def _hermes(
+    url: str, prompt: str, *, token: str | None, capture: bool, home: Path, entry: str | None, answer: str
+) -> bool:
     del entry  # Hermes has one recall entry: the turn-start prefetch.
     names = [name for name in sys.modules if name == "plugins" or name.startswith("plugins.")]
     previous = {name: sys.modules.pop(name) for name in names}
@@ -167,7 +169,7 @@ def _hermes(url: str, prompt: str, *, token: str | None, capture: bool, home: Pa
         provider.initialize("session-1", hermes_home=str(home), agent_identity="coder", user_id="user-1")
         try:
             recalled = RECALLED in provider.prefetch(prompt, session_id="session-1")
-            provider.sync_turn(prompt, ANSWER, session_id="session-1")
+            provider.sync_turn(prompt, answer, session_id="session-1")
         finally:
             provider.shutdown()
         return recalled
@@ -178,7 +180,7 @@ def _hermes(url: str, prompt: str, *, token: str | None, capture: bool, home: Pa
         sys.modules.update(previous)
 
 
-def _chat_model() -> Any:
+def _chat_model(answer: str) -> Any:
     from langchain_core.language_models import BaseChatModel
     from langchain_core.messages import AIMessage
     from langchain_core.outputs import ChatGeneration, ChatResult
@@ -189,7 +191,7 @@ def _chat_model() -> Any:
 
         def _generate(self, messages, stop=None, run_manager=None, **kwargs) -> ChatResult:  # type: ignore[no-untyped-def]
             self.inputs.append(list(messages))
-            return ChatResult(generations=[ChatGeneration(message=AIMessage(content=ANSWER))])
+            return ChatResult(generations=[ChatGeneration(message=AIMessage(content=answer))])
 
         @property
         def _llm_type(self) -> str:
@@ -202,13 +204,15 @@ def _system_texts(messages: list[Any]) -> str:
     return "\n".join(message.text for message in messages if message.type == "system")
 
 
-def _langchain(url: str, prompt: str, *, token: str | None, capture: bool, home: Path, entry: str | None) -> bool:
+def _langchain(
+    url: str, prompt: str, *, token: str | None, capture: bool, home: Path, entry: str | None, answer: str
+) -> bool:
     del home
     from langchain.agents import create_agent
     from langchain_core.messages import HumanMessage
     from powercontext_langchain import PowerContextMiddleware, PowerContextScope
 
-    model = _chat_model()
+    model = _chat_model(answer)
     agent = create_agent(
         model,
         tools=[],
@@ -224,13 +228,15 @@ def _langchain(url: str, prompt: str, *, token: str | None, capture: bool, home:
     return RECALLED in _system_texts(model.inputs[-1])
 
 
-def _langgraph(url: str, prompt: str, *, token: str | None, capture: bool, home: Path, entry: str | None) -> bool:
+def _langgraph(
+    url: str, prompt: str, *, token: str | None, capture: bool, home: Path, entry: str | None, answer: str
+) -> bool:
     del capture, home, entry  # The LangGraph adapter captures only through explicit tools.
     from langchain_core.messages import HumanMessage
     from langgraph.prebuilt import create_react_agent  # ty: ignore[deprecated]
     from powercontext_langgraph import PowerContextRecall, PowerContextScope
 
-    model = _chat_model()
+    model = _chat_model(answer)
     # The adapter documents create_react_agent's pre_model_hook, which langchain.agents.create_agent does not offer.
     agent: Any = create_react_agent(  # ty: ignore[deprecated]
         model, tools=[], pre_model_hook=PowerContextRecall(), context_schema=PowerContextScope
@@ -243,7 +249,9 @@ def _langgraph(url: str, prompt: str, *, token: str | None, capture: bool, home:
     return RECALLED in _system_texts(model.inputs[-1])
 
 
-def _pydantic_ai(url: str, prompt: str, *, token: str | None, capture: bool, home: Path, entry: str | None) -> bool:
+def _pydantic_ai(
+    url: str, prompt: str, *, token: str | None, capture: bool, home: Path, entry: str | None, answer: str
+) -> bool:
     del home, entry
     from powercontext_pydantic_ai import PowerContext, PowerContextSettings
     from pydantic import SecretStr
@@ -259,7 +267,7 @@ def _pydantic_ai(url: str, prompt: str, *, token: str | None, capture: bool, hom
         seen.extend(
             part.content for message in messages for part in message.parts if isinstance(part, SystemPromptPart)
         )
-        return ModelResponse(parts=[TextPart(ANSWER)])
+        return ModelResponse(parts=[TextPart(answer)])
 
     secret = None if token is None else SecretStr(token)
     settings = PowerContextSettings(base_url=url, token=secret, capture_events=capture)
@@ -287,11 +295,12 @@ def run_turn(
     capture: bool = False,
     entry: str | None = None,
     expect_recall: bool = True,
+    answer: str = ANSWER,
 ) -> Turn:
     """Submit ``prompt`` as one user turn and return what the adapter sent to the Server.
 
     ``entry`` names one of the adapter's ``ENTRIES``; the default is its first. Unless ``expect_recall`` is false, the
-    recalled context must have reached the model.
+    recalled context must have reached the model. ``answer`` is the model's reply.
     """
 
     if adapter != "hermes":
@@ -301,7 +310,9 @@ def run_turn(
             monkeypatch.delenv(name)
     turn = Turn()
     with _recording_server(turn) as url:
-        turn.recalled = _RUNNERS[adapter](url, prompt, token=token, capture=capture, home=home, entry=entry)
+        turn.recalled = _RUNNERS[adapter](
+            url, prompt, token=token, capture=capture, home=home, entry=entry, answer=answer
+        )
     if expect_recall:
         assert turn.recalled, "the recalled context did not reach the model"
     return turn

@@ -63,8 +63,9 @@ middleware 本身支持同步 `invoke` 和 `stream`；异步应用应直接使�
 每个模型步骤中，middleware 都会：
 
 1. 读取最新的人类消息，不修改 state；
-2. 使用解析后的 scope 和字节上限调用 `/v1/context/prepare`。query 是去掉首尾空白的该消息；超过 8192 个字符或
-   8192 个 UTF-8 字节的消息改用最近的文本召回，先取末尾 8192 个字符，再截到末尾 8192 字节；
+2. 使用解析后的 scope 和字节上限调用 `/v1/context/prepare`。query 是去掉首尾空白的该消息，识别到的凭据按
+   [自动 prompt 隐私策略](index.md#自动-prompt-隐私策略)替换为 `[REDACTED]`；超过 8192 个字符或 8192 个 UTF-8
+   字节的消息改用最近的文本召回，先取末尾 8192 个字符，再截到末尾 8192 字节；
 3. 向当前 system message 追加一个独立文本块；
 4. 文本块以 `PowerContext host-supplied context` 开头，后接 Server 准备的内容；
    内容顶部的信任策略把其后的全部内容标为不可信的历史数据。
@@ -85,8 +86,9 @@ middleware = PowerContextMiddleware(auto_capture=True)
 LangChain 的 `structured_response` 序列化。采集不包含召回 system block、工具输出或中间的 tool-calling 模型消息。
 
 采集结果是 Source 证据，不是推断完成的 Memory entry。配置的 scheduler 或显式 `flush_memory` 操作随后执行标准的
-Source-to-Memory 抽取。这样既保留 lineage，也不会把未经处理的模型输出直接当成已经审核的持久事实。采集内容有长度
-上限，但不保证一定不含 secret；应用必须先执行自己的输入和输出策略，再选择开启。
+Source-to-Memory 抽取。这样既保留 lineage，也不会把未经处理的模型输出直接当成已经审核的持久事实。用户消息或助手回答含可识别
+凭据的轮次整轮跳过。识别是尽力而为，因此采集内容不保证一定不含 secret；应用必须先执行自己的输入和输出策略，
+再选择开启。
 
 模型或工具中止运行时，LangChain 不会执行 `after_agent`；因此，没有最终回答的失败运行不会被采集。
 
