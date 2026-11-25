@@ -112,10 +112,10 @@ OpenCode always streams. Configure the OpenCode provider that points at the gate
 `@ai-sdk/openai`, which uses the Responses route. The gateway requests a Responses result from the upstream model
 without streaming and replays the released result as a stream, so streaming does not stop these turns or their
 capture in any Core [privacy mode](../operate/inference-protection.md#configure-a-supported-target). An enforcing
-Core still applies its other request and response rules. `@ai-sdk/openai-compatible` uses the Chat Completions route,
-where the gateway forwards the stream. An enforcing Core withholds that turn, and the gateway returns HTTP 400. A
-non-enforcing Core, including the default `disabled` mode, lets the gateway release the streamed response, but the
-gateway does not capture the turn, because it captures only JSON responses.
+Core still applies its other request and response rules. `@ai-sdk/openai-compatible` uses the Chat Completions route.
+An enforcing Core withholds streamed Chat Completions responses, and the gateway returns HTTP 400. With a
+non-enforcing Core, including the default `disabled` mode, the gateway releases the stream unchanged. With
+`PC_GATEWAY_SEDIMENT=on`, it also assembles the assistant's text from a terminal stream and captures the completed turn.
 
 Core also needs a target for the profile that `PC_GATEWAY_UPSTREAM_PROFILE` names (`default` unless set), in every
 privacy mode, including `disabled`. Without one, Core withholds each request with `target_unsupported`, and the gateway
