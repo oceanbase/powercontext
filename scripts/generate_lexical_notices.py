@@ -79,11 +79,12 @@ def render():
         inventory.append(f"| {name} | {package['version']} | {package['license']} |")
         for path in files:
             text = path.read_text(encoding="utf-8").strip()
-            label = f"{name} {package['version']}: {path.relative_to(root) if path.is_relative_to(root) else path.name}"
+            relative = path.relative_to(root).as_posix() if path.is_relative_to(root) else path.name
+            label = f"{name} {package['version']}: {relative}"
             sections.setdefault(text, []).append(label)
     dictionary = (NOTICES / "python-jieba-LICENSE").read_text(encoding="utf-8").strip()
     sections.setdefault(dictionary, []).append("Python Jieba 0.42.1: embedded dict.txt")
-    digest = hashlib.sha256((CRATE / "Cargo.lock").read_bytes()).hexdigest()
+    digest = hashlib.sha256((CRATE / "Cargo.lock").read_text(encoding="utf-8").encode()).hexdigest()
     lines = [
         "# Native lexical analyzer third-party notices",
         "",
@@ -91,7 +92,7 @@ def render():
         "This also includes procedural macro dependencies; build-only and development-only dependencies are excluded.",
         "Target-conditional normal dependencies are included for all supported wheel platforms.",
         "",
-        f"Cargo.lock SHA-256: `{digest}`.",
+        f"Cargo.lock SHA-256 (UTF-8, LF): `{digest}`.",
         "",
         "The embedded Jieba dictionary is from Python Jieba 0.42.1. Its MIT notice is reproduced below.",
         "Pinned sources for notices absent from published crate archives are recorded in the adjacent source JSON files.",
