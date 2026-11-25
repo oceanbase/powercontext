@@ -435,8 +435,7 @@ function createTools(runtime: Runtime) {
       operationId: 'retire_memory_entry',
       payload: (args) => ({ artifact: args.artifact, state_version: args.state_version }),
     }),
-    // The tool result stays in the session and carries the Server's prepared-context block. Behind the gateway, where
-    // prompt recall is off, Core rejects every later request of a session that holds a block the gateway did not bind.
+    // With the gateway, let it prepare context. Tool results stay in the session and can be replayed on later turns.
     ...(runtime.config.promptRecall ? {
       pc_prepare_context: operationTool(runtime, {
         description:

@@ -1005,7 +1005,7 @@ mode = "unsupported"
 [integrations.evidence]
 implementation = ["integrations/hermes/plugins/powercontext/operations.py", "integrations/hermes/plugins/powercontext/commands.py"]
 documentation = ["docs/en/docs/integrations/hermes.md", "docs/zh/docs/integrations/hermes.md"]
-tests = ["tests/integrations/test_hermes_provider.py"]
+tests = ["tests/integrations/test_hermes_provider.py", "tests/test_automatic_prompt_privacy.py"]
 
 [[integrations]]
 id = "openclaw"
@@ -1107,7 +1107,7 @@ toolsets = ["pydantic-ai-tools"]
 [integrations.evidence]
 implementation = ["integrations/pydantic-ai/src/powercontext_pydantic_ai/toolset.py"]
 documentation = ["docs/en/docs/integrations/pydantic-ai.md", "docs/zh/docs/integrations/pydantic-ai.md"]
-tests = ["tests/pydantic_ai_adapter/test_toolset.py"]
+tests = ["tests/pydantic_ai_adapter/test_toolset.py", "tests/test_automatic_prompt_privacy.py"]
 
 [[integrations]]
 id = "langchain"
@@ -1118,7 +1118,7 @@ toolsets = ["langchain-middleware"]
 [integrations.evidence]
 implementation = ["integrations/langchain/src/powercontext_langchain/middleware.py"]
 documentation = ["docs/en/docs/integrations/langchain.md", "docs/zh/docs/integrations/langchain.md"]
-tests = ["tests/langchain_middleware/test_middleware.py"]
+tests = ["tests/langchain_middleware/test_middleware.py", "tests/test_automatic_prompt_privacy.py"]
 
 [[integrations]]
 id = "langgraph"
@@ -1129,7 +1129,7 @@ toolsets = ["langgraph-tools"]
 [integrations.evidence]
 implementation = ["integrations/langgraph/src/powercontext_langgraph/tools.py"]
 documentation = ["docs/en/docs/integrations/langgraph.md", "docs/zh/docs/integrations/langgraph.md"]
-tests = ["tests/langgraph_adapter/test_tools.py"]
+tests = ["tests/langgraph_adapter/test_tools.py", "tests/test_automatic_prompt_privacy.py"]
 
 [[integrations]]
 id = "bub"

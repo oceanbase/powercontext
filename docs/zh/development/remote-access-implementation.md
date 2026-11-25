@@ -218,9 +218,12 @@ export POWERCONTEXT_SERVER_MCP_ENABLED="false"
 export POWERCONTEXT_SERVER_MCP_PATH="/agent"
 ```
 
-MCP 投影包含面向 agent 的 Memory operation，用于 search、list、read、remember、revise 和 retire entry；也包含
-Candidate Review operation，用于 list、read、approve、reject 和 revise Candidate。health、capability、Source capture、
-Experience、flush 和 change history endpoint 仍然只通过 HTTP 提供。
+MCP 投影包含面向 agent 的 Memory operation（recall、search、list、read、remember，以及 Atomic Memory 状态变更与
+恢复）、Source capture、Experience 与 Skill 的合成与读取、external Skill 发现、Artifact 读取/替换/发布，以及
+Candidate Review。health 与 capability 检查以及 Memory flush 仍然只通过 HTTP 提供；旧 operation
+`revise_memory_entry`、`retire_memory_entry` 和 `list_memory_changes` 在两种 transport 上都会被拒绝，返回 HTTP 422
+`legacy_memory_operation_unsupported`，应改用 MCP 上的 `replace_artifact`、`change_atomic_memory_lifecycle` 与
+`get_artifact_revision`。权威 tool 清单以 Server 的 `tools/list` 返回为准。
 
 HTTP 和 MCP 共用同一个 Server application 和 Runtime binding。无论通过哪种 transport 发起请求，都会使用相同的
 scope isolation、validation、并发校验和 persistence behavior。

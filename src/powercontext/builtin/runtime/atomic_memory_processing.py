@@ -61,6 +61,7 @@ from powercontext.builtin.artifacts.atomic_memory.reconciliation import (
     ATOMIC_MEMORY_RECONCILIATION_INSTRUCTIONS,
     AtomicMemoryArtifactEvidence,
     AtomicMemoryReconciliationOutput,
+    AtomicMemoryRevisionIdentityError,
     AtomicMemoryWindowWorkset,
     AtomicMemoryWorkingItem,
     RedundantAtomicMemoryRevisionError,
@@ -627,6 +628,10 @@ class AtomicMemorySourceWindowProcessor:
                         )
                     except RedundantAtomicMemoryRevisionError as error:
                         key = workset.recover_redundant_revision(key, related, error)
+                    except AtomicMemoryRevisionIdentityError:
+                        # Correction could not label the combination. Keeping the proposal's current content,
+                        # identities and evidence equals create; the batch's items stay unchanged and compared.
+                        pass
                     del pending[:selected_count]
                     compared_keys.update(workset.resolve(item) for item in looked)
                     reconciled = True
@@ -833,17 +838,23 @@ class AtomicMemorySourceWindowProcessor:
                     *(workset.items[workset.resolve(item)] for label in batch for item in unseen[label].values()),
                 ),
             )
-            rechecked = await conversation.turn(
-                message,
-                partial(
-                    apply_one_pass_recheck,
-                    workset,
-                    created=batch,
-                    unseen={label: unseen[label] for label in batch},
-                ),
-                operations,
-            )
-            workset = rechecked.output
+            try:
+                rechecked = await conversation.turn(
+                    message,
+                    partial(
+                        apply_one_pass_recheck,
+                        workset,
+                        created=batch,
+                        unseen={label: unseen[label] for label in batch},
+                    ),
+                    operations,
+                )
+            except AtomicMemoryRevisionIdentityError:
+                # A memory merged by an earlier batch holds several identities. Once correction is exhausted, keep
+                # this batch's created memories unchanged, as a create for each; the rejected reply is not applied.
+                pass
+            else:
+                workset = rechecked.output
             for label in batch:
                 del pending[label]
         return workset

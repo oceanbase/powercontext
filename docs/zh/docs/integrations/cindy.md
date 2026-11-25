@@ -81,6 +81,7 @@ Handoff 和候选审核复用其他 MCP 宿主使用的 Server 工具与授权�
 缺失绑定时原始消息正常放行，不执行记忆操作，也不会自动创建 Scope 或回退到默认 Scope。
 
 `will-user-message` 钩子在派发前召回有界 PreparedContext，并独立采集原始 Prompt 为 Source。
+超过 8192 个字符或 8192 个 UTF-8 字节的 Prompt 改用最近的文本召回：保留同时满足两个上限的最长末尾文本，不拆分字符。
 采集可单独关闭；成功采集不代表提取完成或 Memory 已生成。
 采集的是本适配器改写前的输入，前置 Ghost 可能已经改写它；Cindy 没有单独提供未经改写的草稿字段。
 显式写入、Handoff 和审核使用原生 MCP 工具。
