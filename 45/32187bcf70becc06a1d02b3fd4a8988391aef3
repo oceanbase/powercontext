@@ -1,0 +1,32 @@
+docs/zh/development/ci-scope.md
+  s_2ef0feea0a110d::t_695b10bf6175d3 144
+tests/test_ci_package_cache.py
+  s_2ef0feea0a110d::t_c1b67431e6d4cf 475-476
+  s_2ef0feea0a110d::t_20b449d9f4d730 359-452
+  s_2ef0feea0a110d::t_044aecee0d3208 453-474,477-485
+deploy/ci-package-cache/README.md
+  s_2ef0feea0a110d::t_a87e20ca6f5984 40-45
+scripts/ci_package_cache.py
+  s_2ef0feea0a110d::t_11a69950c42793 271-275
+  s_2ef0feea0a110d::t_a19f81f02350da 280,319,354-355
+  s_2ef0feea0a110d::t_b553bb3dcf4858 197,262
+  s_2ef0feea0a110d::t_b38968fa47bc83 33,73-76,198-261,270,277,283,286,289,293-302,307-318,320-321,330-331,338-340,349-352,359-362,367
+docs/en/development/ci-scope.md
+  s_2ef0feea0a110d::t_695b10bf6175d3 144
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "4532187bcf70becc06a1d02b3fd4a8988391aef3",
+  "prompts": {},
+  "sessions": {
+    "s_2ef0feea0a110d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1a9cf-a4e7-7f63-9c51-1284f7c332e8",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "frf12 <rongfeng.frf@antgroup.com>"
+    }
+  }
+}
