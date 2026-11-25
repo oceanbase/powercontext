@@ -269,7 +269,8 @@ __all__ = [
 class OpenClawInstaller:
     # On hosts without --no-enable, install() keeps the policy it read right before installing, because installation
     # itself enables the plugin and selects the memory slot. enable() uses it only to tell whether this install was
-    # the first activation; every other decision reads the current policy.
+    # the first activation or selected the slot, which decide the tool grants, `plugins enable` and the restart;
+    # every other decision reads the current policy.
     _plugins_before_install: dict[str, Any] | None = None
 
     def install(self, source):
@@ -366,11 +367,12 @@ class OpenClawInstaller:
             if tools != allowed:
                 settings.append({"path": "tools.alsoAllow", "value": tools})
         activate = before.get("entries", {}).get(OPENCLAW_PLUGIN_NAME, {}).get("enabled") is not True
+        installed_into_slot = before.get("slots", {}).get("memory") is None and slot == OPENCLAW_PLUGIN_NAME
         if settings:
             run_openclaw(executable, "config", "set", "--batch-json", json.dumps(settings, separators=(",", ":")))
         if activate:
             run_openclaw(executable, "plugins", "enable", OPENCLAW_PLUGIN_NAME)
-        if activate or settings:
+        if activate or settings or installed_into_slot:
             run_openclaw(executable, "gateway", "restart")
 
     def verify(self) -> dict[str, Diagnostic]:

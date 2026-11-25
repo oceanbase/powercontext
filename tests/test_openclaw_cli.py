@@ -432,6 +432,38 @@ def test_setup_openclaw_without_no_enable_restarts_after_first_activation_with_p
     assert ["gateway", "restart"] in commands()
 
 
+@pytest.mark.parametrize("no_enable", [False, True], ids=["without-no-enable", "with-no-enable"])
+def test_setup_openclaw_restarts_when_only_the_memory_slot_is_selected(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, openclaw_host, no_enable
+) -> None:
+    config, commands = openclaw_host
+    if no_enable:
+        monkeypatch.setenv("FAKE_OPENCLAW_VERSION", "OpenClaw 2026.12.0")
+        monkeypatch.setenv("FAKE_OPENCLAW_NO_ENABLE", "1")
+    preset = {
+        "tools": {"alsoAllow": list(openclaw_cli.POWERCONTEXT_TOOLS)},
+        "plugins": {
+            "entries": {
+                "memory-powercontext": {
+                    "enabled": True,
+                    "config": {"autoRecall": True, "autoCapture": True},
+                    "hooks": {"allowConversationAccess": True},
+                }
+            }
+        },
+    }
+    config.write_text(json.dumps(preset), encoding="utf-8")
+
+    install_plugin(
+        "openclaw", source=str(_write_openclaw_plugin(tmp_path / "checkout")), server_url="http://127.0.0.1:8765"
+    )
+
+    # Without --no-enable installation selects the slot and setup has nothing to write; the gateway must still load it.
+    assert json.loads(config.read_text(encoding="utf-8"))["plugins"]["slots"] == {"memory": "memory-powercontext"}
+    assert ["gateway", "restart"] in commands()
+    assert ["plugins", "enable", "memory-powercontext"] not in commands()
+
+
 def test_setup_openclaw_without_no_enable_rechecks_native_policy_after_building(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, openclaw_host
 ) -> None:
