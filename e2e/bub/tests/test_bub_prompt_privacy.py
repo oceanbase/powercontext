@@ -30,6 +30,8 @@ from powercontext_bub import plugin as plugin_module
 from powercontext_bub.plugin import PowerContextPlugin, PowerContextSettings
 from pydantic import SecretStr
 
+from powercontext_e2e.models import CaptureRecord
+
 _ROOT = Path(__file__).resolve().parents[3]
 CASES = json.loads((_ROOT / "tests/fixtures/automatic_prompt_privacy.json").read_text(encoding="utf-8"))["cases"]
 # Every synthetic credential value in the fixture contains one of these markers.
@@ -137,6 +139,9 @@ def test_turn_keeps_recognized_credentials_out_of_recall_and_capture(
     prompt = str(case["prompt"])
 
     records = _run_turn(monkeypatch, tmp_path, prompt, token=_token(case))
+    # The harness reads the same capture log as run evidence.
+    for record in records:
+        CaptureRecord.model_validate(record)
 
     # Recall runs either way.
     assert len(RecordingClient.prepared) == 1

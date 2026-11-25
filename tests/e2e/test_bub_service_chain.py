@@ -210,27 +210,36 @@ def test_bub_prompt_is_recalled_in_a_later_bub_session(bub_stack: BubStack) -> N
 def test_bub_capture_removes_known_credential_values(bub_stack: BubStack) -> None:
     credential = "sk-bube2ecredential0123456789"
     workspace = bub_stack.workspace("workspace")
+    capture_log = bub_stack.root / "capture.jsonl"
     model_start = len(bub_stack.model.requests)
     # Bub's own provider key is a credential environment value of the Bub process.
     start = bub_stack.run(
         workspace,
         f"Rotate the model provider key {credential} before the orchid release.",
         POWERCONTEXT_BUB_CAPTURE_EVENTS="true",
+        POWERCONTEXT_BUB_CAPTURE_LOG=str(capture_log),
         BUB_API_KEY=credential,
     )
     # Bub's own model received the prompt as written.
     assert credential in json.dumps(bub_stack.model.requests[model_start]["messages"])
     captures = [record["request"] for record in bub_stack.calls("/v1/sources/content", start)]
-    prompts = [capture["content"] for capture in captures if capture["metadata"]["event"] == "user_prompt"]
-    assert len(prompts) == 1
-    assert (
-        "Rotate the model provider key [REDACTED] before the orchid release."
-        in json.loads(prompts[0])["payload"]["text"]
-    )
+    events = [capture["metadata"]["event"] for capture in captures]
+    # A prompt with a recognized credential is skipped rather than stored as a redacted copy; the turn's other
+    # events are still captured.
+    assert events
+    assert "user_prompt" not in events
+    log = capture_log.read_text(encoding="utf-8")
+    records = [json.loads(line) for line in log.splitlines()]
+    skips = [record for record in records if record["event"] == "user_prompt"]
+    assert len(skips) == 1
+    assert skips[0]["status"] == "skipped"
+    assert skips[0]["reason"] == "sensitive_content"
+    assert "orchid release" not in log
+    assert [record["event"] for record in records if record["status"] == "captured"] == events
     assert bub_stack.calls("/v1/memory/flush", start), "bub_turn_flush_missing"
     # Neither the captured Sources nor the Server's generation model receive the credential.
     stored = bub_stack.sources(bub_stack.scope_of(start))
-    assert credential not in json.dumps([captures, stored, bub_stack.model.generation_requests])
+    assert credential not in json.dumps([captures, stored, bub_stack.model.generation_requests, log])
 
 
 def test_bub_workspace_binding_holds_across_a_resumed_session(bub_stack: BubStack) -> None:
