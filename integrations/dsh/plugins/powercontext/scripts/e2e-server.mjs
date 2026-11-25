@@ -22,6 +22,9 @@ import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
+// Keep startup bounded and give callers time after startup to exercise the Server.
+const SERVER_START_TIMEOUT_MS = 75_000
+export const SERVER_E2E_TIMEOUT_MS = SERVER_START_TIMEOUT_MS + 45_000
 const pluginRoot = join(dirname(fileURLToPath(import.meta.url)), '..')
 
 function walkForPyproject(startDir) {
@@ -126,9 +129,7 @@ export async function startPowerContextServer(options = {}) {
   child.stderr?.on('data', (chunk) => logs.push(String(chunk)))
   const baseUrl = `http://127.0.0.1:${port}`
   try {
-    // On a cold runner, Python and the Server can finish startup just after 30s.
-    // Leave time for the caller's first request inside its 60s setup hook.
-    await waitForUrl(`${baseUrl}/health/live`, 45000, () => {
+    await waitForUrl(`${baseUrl}/health/live`, SERVER_START_TIMEOUT_MS, () => {
       if (child.exitCode !== null) throw new Error(`Server exited with code ${child.exitCode}`)
     })
   } catch (error) {

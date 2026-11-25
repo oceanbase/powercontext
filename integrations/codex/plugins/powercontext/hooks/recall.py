@@ -30,6 +30,8 @@ _PLUGIN_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(_PLUGIN_ROOT))
 
 from codex_host import CODEX  # noqa: E402
+from powercontext_lifecycle.dsh_handoff import receiver_context  # noqa: E402
+from powercontext_lifecycle.scope_binding import resolve_scope_id  # noqa: E402
 from powercontext_lifecycle.user_prompt_submit import (  # noqa: E402
     UserPromptEvent,
     payload_identifier,
@@ -59,7 +61,24 @@ def main(settings: CodexPluginSettings | None = None) -> int:
             session_id=payload_identifier(payload, "session_id", "conversation_id", "thread_id"),
             prompt_id=payload_identifier(payload, "turn_id", "request_id"),
         )
-        submitted = run_user_prompt_submit(CODEX, event, settings.prompt_settings(), deadline=http_deadline)
+        prompt_settings = settings.prompt_settings()
+        if isinstance(prompt, str) and isinstance(cwd, str):
+            handoff = receiver_context(
+                prompt,
+                cwd=cwd,
+                target_ids=("codex-desktop",),
+                resolve_scope=lambda: resolve_scope_id(
+                    CODEX,
+                    cwd,
+                    session_id=event.session_id,
+                    settings=prompt_settings.scope_binding,
+                    deadline=http_deadline,
+                ),
+            )
+            if handoff is not None:
+                _write_hook_output(context=handoff, diagnostic_events=[])
+                return 0
+        submitted = run_user_prompt_submit(CODEX, event, prompt_settings, deadline=http_deadline)
         if submitted is None:
             return 0
         if submitted.context and submitted.scope_id is not None:

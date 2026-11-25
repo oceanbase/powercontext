@@ -19,7 +19,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { PowerContextClient } from '../../src/client.ts'
 import * as plugin from '../../src/index.ts'
 import { GUIDANCE } from '../../src/guidance.ts'
-import { startPowerContextServer } from '../../scripts/e2e-server.mjs'
+import { SERVER_E2E_TIMEOUT_MS, startPowerContextServer } from '../../scripts/e2e-server.mjs'
 
 vi.mock('../../src/mcp-transport.ts', () => ({ protectMcpEndpoint: async (_ctx: unknown, endpoint: string) => endpoint }))
 
@@ -233,7 +233,7 @@ describe('plugin HTTP call-through without a model', () => {
     const resolved = await client.request('get_default_scope')
     expect(resolved.kind).toBe('json')
     scopeId = (resolved.value as { scope_id: string }).scope_id
-  }, 60_000)
+  }, SERVER_E2E_TIMEOUT_MS)
 
   afterAll(async () => {
     await server?.stop()

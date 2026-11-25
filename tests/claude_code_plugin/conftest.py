@@ -33,6 +33,7 @@ _PLUGIN_MODULE_NAMES = (
     "powercontext_lifecycle.bootstrap_state",
     "powercontext_lifecycle.client_config",
     "powercontext_lifecycle.diagnostics",
+    "powercontext_lifecycle.dsh_handoff",
     "powercontext_lifecycle.host_profile",
     "powercontext_lifecycle.prepared_context",
     "powercontext_lifecycle.prompt_privacy",

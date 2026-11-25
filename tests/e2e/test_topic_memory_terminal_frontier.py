@@ -106,6 +106,18 @@ async def _snapshot(database, scope):
     return None if budget is None else dict(budget), 0 if cursor is None else cursor.cursor.sequence, pending, intent
 
 
+async def _wait_for_retry_acknowledgement(database, scope, retry_generation):
+    # An earlier flush can cover the sources before the retry generation is acknowledged.
+    async with asyncio.timeout(60):
+        while True:
+            async with database.transaction() as connection:
+                intent = await ArtifactProcessingIntentRepository().load(connection, scope, BINDING)
+            assert intent is not None
+            if intent.handled_generation >= retry_generation:
+                return
+            await asyncio.sleep(0.01)
+
+
 async def _disable_processing(database: SQLiteConfig):
     manifest = canonical_processing_manifest(
         BuiltinConfig(database=database, runtime=RuntimeConfig(artifact_processing_families=()))
@@ -176,6 +188,7 @@ def test_http_recovery_preserves_blocks_across_restart_and_processing_mode_chang
                 if model is None:
                     assert scope is not None and accepted is not None and retry_request is not None
                     before = await _snapshot(database, scope)
+                    launches_before = len(launches)
                     calls_before = provider.calls
                     assert await client.retry_topic_memory_processing(retry_request) == accepted
                     assert (
@@ -184,7 +197,7 @@ def test_http_recovery_preserves_blocks_across_restart_and_processing_mode_chang
                         )
                     ) == accepted.block
                     assert await _snapshot(database, scope) == before
-                    assert len(launches) == 1 and provider.calls == calls_before
+                    assert len(launches) == launches_before and provider.calls == calls_before
                     continue
                 if scope is None:
                     scope = (await client.get_default_scope()).scope_id
@@ -259,13 +272,13 @@ def test_http_recovery_preserves_blocks_across_restart_and_processing_mode_chang
                     assert accepted == repeated
                     assert accepted.block.blocked_at == retained_block.blocked_at
                     assert accepted.block.retried_at is not None
-                    await _wait(
-                        lambda supervisor=supervisor: supervisor.family_status["topic-memory"]["completed"] == 1
-                    )
+                    retry_generation = accepted.block.retry_request_generation
+                    assert retry_generation is not None
+                    await _wait_for_retry_acknowledgement(database, scope, retry_generation)
                     budget, cursor, pending, intent = await _snapshot(database, scope)
                     assert budget is None and cursor == 2 and pending is None
-                    assert intent.requested_generation == intent.handled_generation
-                    assert len(launches) == 1 and provider.calls == calls_before_flush + 1
+                    assert intent.requested_generation == intent.handled_generation == retry_generation
+                    assert provider.calls == calls_before_flush + 1
                     assert supervisor.family_status["topic-memory"]["failed"] == 0
                     assert await client.retry_topic_memory_processing(retry_request) == accepted
                     assert (

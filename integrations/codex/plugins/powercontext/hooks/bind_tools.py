@@ -188,15 +188,23 @@ def main(settings: CodexPluginSettings | None = None) -> int:
             settings=settings.scope_binding_settings(),
             deadline=monotonic() + host_bounded_http_budget(settings.http_budget_seconds),
         )
-        updated = dict(tool_input)
-        if selection:
-            updated["selection"] = {"mode": "exact", "scope_ids": [scope_id]}
-        else:
-            updated["scope_id"] = scope_id
-        _allow(updated)
+        _bind_current_scope(operation, tool_input, scope_id, selection=selection)
     except Exception as error:  # Any failure denies; an exit without a decision would run the call unbound.
         _deny(_denial_reason(error))
     return 0
+
+
+def _bind_current_scope(operation: str, tool_input: dict[str, object], scope_id: str, *, selection: bool) -> None:
+    supplied = tool_input.get("scope_id")
+    if operation in {"continue_handoff", "acknowledge_handoff"} and supplied is not None and supplied != scope_id:
+        _deny("PowerContext Handoff requires the current Scope. The requested Scope does not match.")
+        return
+    updated = dict(tool_input)
+    if selection:
+        updated["selection"] = {"mode": "exact", "scope_ids": [scope_id]}
+    else:
+        updated["scope_id"] = scope_id
+    _allow(updated)
 
 
 def _allow(updated_input: dict[str, object]) -> None:

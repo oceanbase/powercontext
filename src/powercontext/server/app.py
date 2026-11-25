@@ -2916,7 +2916,7 @@ async def list_sources(
         access = _require_access_control(http_request)
         for item, source in zip(items, result.items, strict=True):
             if source.handoff_receipt:
-                identity = await access.receipt_identity(scope_id, source.source_id)
+                identity = await access.committed_receipt_identity(scope_id, source.source_id)
                 if identity is None:
                     raise AccessUnavailableError("receipt_identity_pending")
             elif _is_handoff_receipt_content(source.content):
@@ -3014,12 +3014,12 @@ async def create_subject_source(
         subject_scope_id=request.subject_scope_id,
         authorize=authorize,
     )
-    return CreateSubjectSourceResponse.model_validate({
-        "subject_key": request.subject_key,
-        "subject_type": "user",
-        "subject_scope_id": target,
-        "sources": [source.model_dump(mode="json") for source in sources],
-    })
+    return CreateSubjectSourceResponse(
+        subject_key=request.subject_key,
+        subject_type=request.subject_type,
+        subject_scope_id=target,
+        sources=[_source_record_response(source) for source in sources],
+    )
 
 
 async def get_profile_policy(
@@ -3108,7 +3108,7 @@ async def get_source(
     result = await application.records.for_scope(scope_id).get_source(source_type, source_id)
     response = _source_record_response(result)
     if http_request.app.state.access_mode == "enforced" and result.handoff_receipt:
-        identity = await _require_access_control(http_request).receipt_identity(scope_id, source_id)
+        identity = await _require_access_control(http_request).committed_receipt_identity(scope_id, source_id)
         if identity is None:
             raise AccessUnavailableError("receipt_identity_pending")
         response.receipt_identity = _receipt_identity_response(identity)
@@ -3913,6 +3913,7 @@ async def get_artifact_revision(
 
 def _source_record_response(value: RuntimeSourceRecord) -> SourceRecord:
     return SourceRecord(
+        handoff_receipt=value.handoff_receipt,
         scope_id=value.scope_id,
         source_type=value.source_type,
         source_id=value.source_id,

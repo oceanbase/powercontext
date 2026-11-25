@@ -32,6 +32,7 @@ import { requireService } from './dsh-service.ts'
 import { RuntimeStatus } from './status.ts'
 import { registerCompanionMemory } from './companion-memory.ts'
 import { registerStatusBridge } from './status-bridge.ts'
+import { registerHandoffBridge } from './handoff/host.ts'
 import { registerUpdateBridge } from './update-bridge.ts'
 
 export const name = PLUGIN_NAME
@@ -187,6 +188,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   registerCompanionMemory(ctx, runtime)
   registerStatusBridge(ctx, runtime)
   registerUpdateBridge(ctx, runtime)
+  registerHandoffBridge(ctx, runtime)
   await registerMcp(ctx, runtime.config)
 }
 

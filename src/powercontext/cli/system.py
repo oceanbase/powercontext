@@ -81,6 +81,7 @@ _CODEX_FULL_MCP_TOOLS = frozenset({
     "get_candidate_history",
     "get_artifact_revision",
     "get_atomic_memory_state",
+    "get_connection_identity",
     "get_experience",
     "get_handoff_report",
     "get_memory_entry",

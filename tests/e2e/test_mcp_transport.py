@@ -248,6 +248,7 @@ def test_mcp_projects_curated_tools_at_the_configured_server_path(tmp_path: Path
         "get_artifact",
         "get_candidate",
         "get_candidate_history",
+        "get_connection_identity",
         "get_artifact_revision",
         "get_atomic_memory_state",
         "get_handoff_report",

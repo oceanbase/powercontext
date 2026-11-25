@@ -29,6 +29,8 @@ sys.path.insert(0, str(_PLUGIN_ROOT))
 
 from claude_code_host import CLAUDE_CODE  # noqa: E402
 from claude_code_settings import ClaudeCodePluginSettings  # noqa: E402
+from powercontext_lifecycle.dsh_handoff import receiver_context  # noqa: E402
+from powercontext_lifecycle.scope_binding import resolve_scope_id  # noqa: E402
 from powercontext_lifecycle.user_prompt_submit import (  # noqa: E402
     UserPromptEvent,
     payload_identifier,
@@ -55,11 +57,29 @@ def main(settings: ClaudeCodePluginSettings | None = None) -> int:
             session_id=payload_identifier(payload, "session_id"),
             prompt_id=payload_identifier(payload, "prompt_id", "request_id"),
         )
+        deadline = monotonic() + settings.http_budget_seconds
+        prompt_settings = settings.prompt_settings()
+        if event.prompt is not None and isinstance(cwd, str):
+            handoff = receiver_context(
+                event.prompt,
+                cwd=cwd,
+                target_ids=("claude-desktop", "claude-code-cli"),
+                resolve_scope=lambda: resolve_scope_id(
+                    CLAUDE_CODE,
+                    cwd,
+                    session_id=event.session_id,
+                    settings=prompt_settings.scope_binding,
+                    deadline=deadline,
+                ),
+            )
+            if handoff is not None:
+                _write_hook_output(context=handoff, diagnostic_events=[])
+                return 0
         submitted = run_user_prompt_submit(
             CLAUDE_CODE,
             event,
-            settings.prompt_settings(),
-            deadline=monotonic() + settings.http_budget_seconds,
+            prompt_settings,
+            deadline=deadline,
         )
         if submitted is not None:
             _write_hook_output(context=submitted.context, diagnostic_events=submitted.diagnostics)

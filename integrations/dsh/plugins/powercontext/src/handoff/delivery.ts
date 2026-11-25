@@ -97,6 +97,7 @@ function safeError(error: unknown): DeliveryError {
 export class LocalDeliveryService implements DeliveryService {
   private readonly store: DeliveryStore
   private readonly active = new Map<string, Operation>()
+  private readonly preflightReaders = new Map<string, number>()
   private readonly launchReaders = new Map<string, number>()
   private readonly requestIndex = new Map<string, { deliveryId: string; fingerprint: string }>()
   private readonly limits: typeof defaultLimits
@@ -286,13 +287,35 @@ export class LocalDeliveryService implements DeliveryService {
   async prepare(context: CallContext, input: PrepareDeliveryInput): Promise<DeliveryView> {
     this.caller(context)
     const normalized = normalize(input)
-    const { requestId, preflightId, expectedRevision, source } = normalized
+    const { requestId, preflightId } = normalized
     const fingerprint = sha256(JSON.stringify({ ...normalized, requestId: undefined }))
     const owner = context.ownerId
     const replay = this.replay(owner, requestId, fingerprint)
     if (replay) return this.view(replay)
     const gate = this.options.preflightGate
     if (!gate) throw new DeliveryError('integration_unavailable')
+    this.preflightReaders.set(preflightId, (this.preflightReaders.get(preflightId) ?? 0) + 1)
+    try {
+      return await this.prepareVerified(context, gate, normalized, fingerprint)
+    } finally {
+      const count = this.preflightReaders.get(preflightId)!
+      if (count === 1) this.preflightReaders.delete(preflightId)
+      else this.preflightReaders.set(preflightId, count - 1)
+    }
+  }
+
+  /** Includes callers between gate admission and the publication of a delivery record. */
+  referencedPreflightIds(): ReadonlySet<string> {
+    const ids = new Set(this.preflightReaders.keys())
+    for (const record of this.store.records.values()) {
+      if (!record.deletedAt) ids.add(record.binding.preflightId)
+    }
+    return ids
+  }
+
+  private async prepareVerified(context: CallContext, gate: PreflightGate, normalized: NormalizedInput, fingerprint: string) {
+    const { preflightId, expectedRevision, source, requestId } = normalized
+    const owner = context.ownerId
     let binding: VerifiedPreflight
     try {
       binding = verifiedBinding(await gate.validateForPrepare(context, { preflightId, expectedRevision, source: { ...source } }))

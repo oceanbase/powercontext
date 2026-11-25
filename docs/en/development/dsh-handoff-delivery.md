@@ -72,6 +72,7 @@ future exact ACK verifier to supply confirmation for that receipt attempt. An un
 expire after seven days; its metadata is kept for 30 days after confirmation. Cleanup does not touch Server
 records or write an acceptance state. Unsupported record versions are rejected and left on disk.
 
-Host integration still needs to wire real authenticated boundary reads and connection resolution, map the
-safe delivery errors into Host responses, and coordinate path consumption with launch and deletion. Native
-target launch and receipt verification require separate acceptance tests.
+The Host assembly supplies the authenticated preflight and exact connection resolver, maps delivery errors,
+and keeps launch attempts separate from delivery records. It accepts inspected input and exact Revisions.
+Automatic drafting requires a trusted session evidence reader; the Host does not expose package deletion or
+pruning on these routes. Native target launch and receipt verification require separate acceptance tests.
