@@ -680,13 +680,13 @@ where
                         }
                         // 同一回合的不同终止记录各自沉淀；工具循环的中间响应不沉淀。
                         // 记录取自注入前的请求，不含准备结果（防止旧记忆被当成新用户证据）。
-                        let transcript = call
-                            .sediment
+                        let transcript = (call.sediment && (200..300).contains(&raw.status))
                             .then(|| {
                                 turn_transcript(
                                     &pristine_request,
                                     &release_body,
                                     protocol,
+                                    &raw.content_type,
                                     self.source_tokens,
                                 )
                             })

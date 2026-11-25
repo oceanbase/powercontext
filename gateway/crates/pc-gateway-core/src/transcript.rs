@@ -23,7 +23,7 @@
 //! 按顺序拆成几段，每段都是独立的 Source。
 
 use crate::capture_coverage::declaration;
-use pc_gateway_protocol::{CanonicalMessage, CanonicalRequest, OutputProtocol, Role};
+use pc_gateway_protocol::{CanonicalMessage, CanonicalRequest, OutputProtocol, Role, SseFramer};
 use serde::Serialize;
 use serde_json::{Map, Value};
 
@@ -121,13 +121,27 @@ pub(crate) fn turn_transcript(
     request: &CanonicalRequest,
     response: &str,
     protocol: OutputProtocol,
+    content_type: &str,
     source_tokens: usize,
 ) -> Option<TurnProjection> {
-    let response: Value = serde_json::from_str(response).ok()?;
     let (final_steps, assistant) = match protocol {
-        OutputProtocol::OpenAiChat => (Vec::new(), chat_final_text(&response)?),
-        OutputProtocol::OpenAiResponses => responses_final(&response)?,
-        OutputProtocol::AnthropicMessages => anthropic_final(&response)?,
+        OutputProtocol::OpenAiChat
+            if content_type
+                .split(';')
+                .next()?
+                .trim()
+                .eq_ignore_ascii_case("text/event-stream") =>
+        {
+            (Vec::new(), chat_stream_final_text(response)?)
+        }
+        OutputProtocol::OpenAiChat => (
+            Vec::new(),
+            chat_final_text(&serde_json::from_str(response).ok()?)?,
+        ),
+        OutputProtocol::OpenAiResponses => responses_final(&serde_json::from_str(response).ok()?)?,
+        OutputProtocol::AnthropicMessages => {
+            anthropic_final(&serde_json::from_str(response).ok()?)?
+        }
     };
     let start = turn_start(request, protocol)?;
     let initial = &request.messages[start].content;
@@ -283,12 +297,7 @@ fn fit(entry: Value, budget: usize) -> Vec<Value> {
 /// Chat 终止响应：第一个 choice 的消息既没有 `tool_calls`，也没有旧式的 `function_call`。
 fn chat_final_text(response: &Value) -> Option<String> {
     let message = response.get("choices")?.get(0)?.get("message")?;
-    let calls = message.get("tool_calls").and_then(Value::as_array);
-    if calls.is_some_and(|calls| !calls.is_empty())
-        || message
-            .get("function_call")
-            .is_some_and(|call| !call.is_null())
-    {
+    if chat_has_tool_call(message) {
         return None;
     }
     Some(content_text(message.get("content")))
@@ -374,6 +383,64 @@ fn anthropic_content(block: &Value) -> Value {
         }
     }
     projected
+}
+
+fn chat_has_tool_call(message: &Value) -> bool {
+    let calls = message.get("tool_calls").and_then(Value::as_array);
+    calls.is_some_and(|calls| !calls.is_empty())
+        || message
+            .get("function_call")
+            .is_some_and(|call| !call.is_null())
+}
+
+/// Project the primary choice of an approved Chat stream once it has a terminal finish reason.
+fn chat_stream_final_text(response: &str) -> Option<String> {
+    let response = response.strip_prefix('\u{feff}').unwrap_or(response);
+    let mut framer = SseFramer::default();
+    let mut text = String::new();
+    let mut finished = false;
+    let mut done = false;
+    for line in response.split_inclusive('\n') {
+        if !matches!(line, "\n" | "\r\n") {
+            framer.push(line.as_bytes());
+            continue;
+        }
+        // Dispatch only blank-line-terminated events, one block at a time.
+        for event in framer.finish() {
+            if done || event.event.as_deref() == Some("error") {
+                return None;
+            }
+            if event.data == "[DONE]" {
+                done = true;
+                continue;
+            }
+            let chunk: Value = serde_json::from_slice(&event.data).ok()?;
+            for choice in chunk.get("choices")?.as_array()? {
+                if choice.get("index")?.as_u64()? != 0 {
+                    continue;
+                }
+                let delta = &choice["delta"];
+                if finished || chat_has_tool_call(delta) {
+                    return None;
+                }
+                match &delta["content"] {
+                    Value::String(part) => text.push_str(part),
+                    Value::Null => {}
+                    _ => return None,
+                }
+                match &choice["finish_reason"] {
+                    Value::Null => {}
+                    Value::String(reason)
+                        if matches!(reason.as_str(), "stop" | "length" | "content_filter") =>
+                    {
+                        finished = true
+                    }
+                    _ => return None,
+                }
+            }
+        }
+    }
+    finished.then_some(text)
 }
 
 /// Responses 条目按语义分类。
@@ -746,6 +813,7 @@ mod tests {
             &chat_turn(std::slice::from_ref(&long)),
             FINAL,
             OutputProtocol::OpenAiChat,
+            "application/json",
             MAX_SOURCE_TOKENS,
         )
         .unwrap();
@@ -778,6 +846,7 @@ mod tests {
                 &request,
                 FINAL,
                 OutputProtocol::OpenAiChat,
+                "application/json",
                 source_token_limit(limit),
             )
             .unwrap()
@@ -806,6 +875,7 @@ mod tests {
             &request,
             FINAL,
             OutputProtocol::OpenAiChat,
+            "application/json",
             MAX_SOURCE_TOKENS,
         )
         .unwrap();
@@ -884,6 +954,7 @@ mod tests {
             &request,
             &response,
             OutputProtocol::OpenAiResponses,
+            "application/json",
             MAX_SOURCE_TOKENS,
         )
         .unwrap();
@@ -925,6 +996,7 @@ mod tests {
                 &request,
                 RESPONSES_FINAL,
                 OutputProtocol::OpenAiResponses,
+                "application/json",
                 MAX_SOURCE_TOKENS,
             )
             .unwrap(),
@@ -953,6 +1025,7 @@ mod tests {
             &request,
             RESPONSES_FINAL,
             OutputProtocol::OpenAiResponses,
+            "application/json",
             MAX_SOURCE_TOKENS,
         )
         .unwrap();
@@ -976,6 +1049,7 @@ mod tests {
                 &request,
                 FINAL,
                 OutputProtocol::OpenAiChat,
+                "application/json",
                 MAX_SOURCE_TOKENS,
             )
             .unwrap(),
@@ -1002,6 +1076,7 @@ mod tests {
                     &request,
                     &response,
                     OutputProtocol::OpenAiResponses,
+                    "application/json",
                     MAX_SOURCE_TOKENS
                 ),
                 None,
@@ -1015,6 +1090,7 @@ mod tests {
                 &request,
                 legacy,
                 OutputProtocol::OpenAiChat,
+                "application/json",
                 MAX_SOURCE_TOKENS
             ),
             None
@@ -1031,6 +1107,7 @@ mod tests {
                 &request,
                 calling,
                 OutputProtocol::OpenAiChat,
+                "application/json",
                 MAX_SOURCE_TOKENS
             ),
             None
@@ -1040,6 +1117,7 @@ mod tests {
                 &request,
                 "not json",
                 OutputProtocol::OpenAiChat,
+                "application/json",
                 MAX_SOURCE_TOKENS
             ),
             None
@@ -1051,6 +1129,7 @@ mod tests {
                 &request,
                 responses_calling,
                 OutputProtocol::OpenAiResponses,
+                "application/json",
                 MAX_SOURCE_TOKENS
             ),
             None

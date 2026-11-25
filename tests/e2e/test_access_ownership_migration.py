@@ -40,6 +40,7 @@ from powercontext.builtin.authz import (
     AccessAuditContext,
     AccessConflictError,
     AccessRole,
+    AccessUnavailableError,
     BindingSearchRequest,
     PrincipalRef,
     ResourceRef,
@@ -56,6 +57,7 @@ from powercontext.server.settings import AccessControlConfig, BearerAuthConfig, 
 
 ADMIN = PrincipalRef(type="service", id="admin")
 SERVER_TOKEN = PrincipalRef(type="service", id="server-token")
+AGENT = PrincipalRef(type="user", id="agent")
 DEPLOYMENT = "ownership-migration"
 
 
@@ -1091,6 +1093,94 @@ def test_migration_audit_preserves_request_context(tmp_path: Path, monkeypatch: 
                 assert planned
                 assert all(event.request_id == preview.headers["X-PowerContext-Request-ID"] for event in planned)
                 assert all(event.actor == actor for event in planned)
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize(("migration_owner", "retry_status"), [(AGENT, 200), (ADMIN, 409)])
+def test_approval_retry_after_migration_accepts_only_the_attested_owner(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, migration_owner: PrincipalRef, retry_status: int
+) -> None:
+    async def scenario() -> None:
+        database = SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'approval-retry.db'}")
+        bootstrap = create_server_app(settings=_settings(database, "disabled"))
+        async with bootstrap.router.lifespan_context(bootstrap):
+            pass
+        async with _enforced_server(database, tmp_path) as (client, access):
+            scope = checked(
+                await client.post("/v1/scopes", json={"title": "S", "summary": "S", "idempotency_key": "scope"}), 201
+            )["scope_id"]
+            checked(
+                await client.post(
+                    "/v1/access/bindings/create",
+                    json={
+                        "subject": {"type": AGENT.type, "id": AGENT.id},
+                        "resource": {"type": "scope", "scope_id": scope},
+                        "role": "scope.contributor",
+                        "idempotency_key": "agent-contribution",
+                    },
+                ),
+                201,
+            )
+            agent = {"Authorization": f"Bearer {AGENT.id}"}
+            source = checked(
+                await client.post(
+                    "/v1/sources/content",
+                    headers=agent,
+                    json={"scope_id": scope, "source_id": "evidence", "content": "A test passed."},
+                ),
+                202,
+            )["source"]
+            candidate = checked(
+                await client.post(
+                    "/v1/experience/propose",
+                    headers=agent,
+                    json={
+                        "scope_id": scope,
+                        "source_refs": [source],
+                        "artifact_refs": [],
+                        "proposal": {
+                            "situation": "API changes.",
+                            "action": "Run tests.",
+                            "outcome": "Tests pass.",
+                            "lesson": "Run tests before delivery.",
+                        },
+                    },
+                ),
+                201,
+            )
+            original_establish = access.establish_artifact_owner
+            failed: list[ResourceRef] = []
+
+            async def fail_first_approval_owner(resource, owner, *, idempotency_key, context):
+                if idempotency_key.startswith("candidate-artifact-owner") and not failed:
+                    failed.append(resource)
+                    raise AccessUnavailableError("owner_store_unavailable")
+                return await original_establish(resource, owner, idempotency_key=idempotency_key, context=context)
+
+            monkeypatch.setattr(access, "establish_artifact_owner", fail_first_approval_owner)
+            approve = {
+                "scope_id": scope,
+                "candidate_id": candidate["candidate_id"],
+                "expected_version": candidate["version"],
+            }
+            checked(await client.post("/v1/candidates/approve", json=approve), 503)
+            [resource] = failed
+            applied = checked(
+                await client.post(
+                    "/v1/access/ownership/apply",
+                    json={"scope_ids": [scope], "owner": {"type": migration_owner.type, "id": migration_owner.id}},
+                ),
+                200,
+            )
+            assert [item["artifact_id"] for item in applied["applied"]] == [resource.artifact_id]
+
+            retry = await client.post("/v1/candidates/approve", json=approve)
+            assert retry.status_code == retry_status, retry.json()
+            if retry_status == 409:
+                assert retry.json()["error"]["code"] == "artifact-owner"
+            relation = await access.artifact_owner(resource)
+            assert relation is not None and relation.owner == migration_owner
 
     asyncio.run(scenario())
 

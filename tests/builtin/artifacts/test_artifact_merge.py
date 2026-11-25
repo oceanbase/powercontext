@@ -475,3 +475,99 @@ def test_decision_captured_before_revocation_cannot_return_later_content(tmp_pat
                 await scoped.get("subject")
 
     asyncio.run(scenario())
+
+
+async def _merged_handoffs(profile, repositories):
+    """Create plain handoffs a, b and plain, then merge a and b into c."""
+
+    from powercontext.builtin.artifacts.merge import ArtifactMergeService
+    from powercontext.builtin.artifacts.merge_restoration import ArtifactMergePreviewSigner
+    from powercontext.builtin.runtime.artifact_merge import ArtifactMergeApplication
+
+    service = ArtifactMergeService(
+        artifacts=repositories.artifacts,
+        sources=SourceRepository((CONTENT_SOURCE_ADAPTER,)),
+        adapter=_HandoffAdapter(),
+        security=_LocalSecurity(),
+        merge_tags=_merge_tags,
+        preview_signer=ArtifactMergePreviewSigner(keys={"test": b"x" * 32}, active_key_id="test"),
+    )
+    scoped = ArtifactMergeApplication(profile.database, (service,), default_context="owner").for_scope(
+        "project", "handoff"
+    )
+    async with profile.database.transaction() as connection:
+        for identity in ("a", "b", "plain"):
+            await repositories.artifacts.create(
+                connection, "project", identity, HandoffDraft(content=HandoffContent(summary=identity))
+            )
+    inputs = tuple([(await scoped.get(identity)).as_read() for identity in ("a", "b")])
+    await scoped.merge(inputs, HandoffContent(summary="c"), artifact_id="c")
+    return scoped
+
+
+@pytest.mark.parametrize(
+    ("target", "message"),
+    (("plain", "was not created by a merge"), ("a", "is a merge input, so undo the merge on its result")),
+)
+def test_undo_merge_reports_a_target_that_is_not_a_merge_result_as_invalid_state(target, message) -> None:
+    async def scenario() -> None:
+        from powercontext.builtin.artifacts.merge_models import InvalidArtifactMergeStateError
+
+        async with repository_profile() as (profile, repositories):
+            scoped = await _merged_handoffs(profile, repositories)
+            before = [await scoped.get(identity) for identity in ("a", "b", "c", "plain")]
+            with pytest.raises(InvalidArtifactMergeStateError, match=message):
+                await scoped.preview_restoration(target, operation="undo_merge")
+            with pytest.raises(InvalidArtifactMergeStateError, match=message):
+                await scoped.restore(target, operation="undo_merge")
+            assert [await scoped.get(identity) for identity in ("a", "b", "c", "plain")] == before
+            # Both remedies the error names work: undo on the result, or restore the input itself.
+            if target == "a":
+                undone = await scoped.restore("a")
+                assert (await scoped.get("a")).state.lifecycle_state == "active"
+            else:
+                undone = await scoped.restore("c", operation="undo_merge")
+            assert undone.undo_merge_results == ("c",)
+            assert {ref.artifact_id for ref in undone.restored} == {"a", "b"}
+            assert (await scoped.get("c")).state.lifecycle_state == "retired"
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize(
+    ("operation", "corrupted", "destination", "message"),
+    (
+        ("restore", "c", "plain", "no valid marked merge inputs"),
+        ("undo_merge", "c", "plain", "no valid marked merge inputs"),
+        ("undo_merge", "a", None, "do not match their current destination"),
+    ),
+    ids=("restore-path-without-inputs", "undo-path-without-inputs", "undo-input-left-its-result"),
+)
+def test_inconsistent_stored_merge_relations_stay_invalid_relations(operation, corrupted, destination, message) -> None:
+    async def scenario() -> None:
+        from powercontext.builtin.artifacts.merge_models import ArtifactMergeRelationError
+        from powercontext.builtin.persistence.artifact_governance import (
+            ArtifactGovernanceRepository,
+            ArtifactLifecycleState,
+        )
+
+        async with repository_profile() as (profile, repositories):
+            scoped = await _merged_handoffs(profile, repositories)
+            # No public write produces these states: c recorded as merged into an Artifact that no merge created,
+            # or input a no longer frozen into c although c still marks it as an input.
+            states = ArtifactGovernanceRepository()
+            async with profile.database.transaction() as connection:
+                current = await states.get(connection, "project", "handoff", corrupted)
+                await states.transition_merge(
+                    connection,
+                    "project",
+                    "handoff",
+                    corrupted,
+                    current,
+                    ArtifactLifecycleState.ACTIVE if destination is None else ArtifactLifecycleState.DEPRECATED,
+                    merged_into_id=destination,
+                )
+            with pytest.raises(ArtifactMergeRelationError, match=message):
+                await scoped.restore("c", operation=operation)
+
+    asyncio.run(scenario())
