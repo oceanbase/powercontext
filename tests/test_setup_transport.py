@@ -556,3 +556,39 @@ def test_setup_json_listener_override_matches_server_precedence(tmp_path, monkey
             resolve_setup_endpoint("pi")
     else:
         assert resolve_setup_endpoint("pi") == "http://127.0.0.1:18123"
+
+
+def test_concurrent_codex_and_claude_configuration_preserves_both_connections(tmp_path, monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Event
+
+    from powercontext.cli.transport import SetupTransport, configure_connection
+
+    codex_publishing, claude_started, claude_done = Event(), Event(), Event()
+    original_publish = installation.publish
+    path = tmp_path / "clients.json"
+
+    def publish(*, writes):
+        if "claude-code" not in json.loads(writes[path])["hosts"]:
+            codex_publishing.set()
+            assert claude_started.wait(5)
+            # Allow an overlapping writer to finish before Codex publishes its snapshot.
+            claude_done.wait(0.5)
+        original_publish(writes=writes)
+
+    def configure_claude():
+        assert codex_publishing.wait(5)
+        claude_started.set()
+        try:
+            configure_connection(SetupTransport("claude-code", "https://claude.example", False))
+        finally:
+            claude_done.set()
+
+    monkeypatch.setattr(installation, "publish", publish)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        claude = pool.submit(configure_claude)
+        configure_connection(SetupTransport("codex", "https://codex.example", False))
+        claude.result()
+    hosts = json.loads(path.read_text())["hosts"]
+    assert hosts["codex"]["server_url"] == "https://codex.example"
+    assert hosts["claude-code"]["server_url"] == "https://claude.example"

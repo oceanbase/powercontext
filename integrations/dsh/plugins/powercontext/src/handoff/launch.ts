@@ -24,6 +24,7 @@ import { HandoffError } from './errors.ts'
 import type { LaunchPlanner } from './native-launch.ts'
 import { PREFLIGHT_CHECK_TIMEOUT_MS, sameSource, type PreflightService } from './preflight.ts'
 import { HandoffRecords, keyFor } from './records.ts'
+import { isHandoffLocale, type HandoffLocale } from './locale.ts'
 import { NATIVE_TARGET_IDS } from './targets.ts'
 
 const SCHEMA = 'powercontext.dsh-launch-attempts.v1'
@@ -37,6 +38,7 @@ export interface LaunchInput {
   readonly sessionId: string
   readonly requestId: string
   readonly targetId: string
+  readonly locale?: HandoffLocale
   /** Explicit confirmation of a repeat after inspecting this exact attempt. */
   readonly retryOf?: string
 }
@@ -50,6 +52,7 @@ export interface LaunchView {
 }
 
 interface Attempt extends LaunchView {
+  readonly locale?: HandoffLocale
   readonly requestId: string
   readonly retryOf?: string
 }
@@ -135,20 +138,21 @@ export class LaunchService {
 
   async launch(context: CallContext, deliveryId: string, input: LaunchInput): Promise<LaunchView> {
     this.options.requireLocal()
-    if (!(NATIVE_TARGET_IDS as readonly string[]).includes(input.targetId)) throw new HandoffError('payload_invalid')
+    if (!(NATIVE_TARGET_IDS as readonly string[]).includes(input.targetId)
+      || (input.locale !== undefined && !isHandoffLocale(input.locale))) throw new HandoffError('payload_invalid')
     const key = keyFor(context.ownerId, deliveryId)
     const record = this.read(context, key, input.sessionId)
     if (record && record.targetId !== input.targetId) throw new HandoffError('binding_mismatch')
     const existing = record?.attempts.find(attempt => attempt.requestId === input.requestId)
     if (existing) {
-      if (existing.retryOf !== input.retryOf) throw new HandoffError('idempotency_conflict')
+      if (existing.retryOf !== input.retryOf || (existing.locale ?? 'en') !== (input.locale ?? 'en')) throw new HandoffError('idempotency_conflict')
       return this.recover(key, existing)
     }
     const active = this.pending.get(key)
     if (active) {
       if (active.input.sessionId !== input.sessionId) throw new HandoffError('not_found')
       if (active.input.requestId !== input.requestId || active.input.targetId !== input.targetId
-        || active.input.retryOf !== input.retryOf) throw new HandoffError('idempotency_conflict')
+        || active.input.retryOf !== input.retryOf || (active.input.locale ?? 'en') !== (input.locale ?? 'en')) throw new HandoffError('idempotency_conflict')
       return active.done
     }
     const last = record?.attempts.at(-1)
@@ -189,7 +193,7 @@ export class LaunchService {
     }
     const createdAt = new Date().toISOString()
     const attempt: Attempt = { launchAttemptId: randomUUID(), requestId: input.requestId, retryOf: input.retryOf,
-      state: 'requested', createdAt, updatedAt: createdAt }
+      locale: input.locale, state: 'requested', createdAt, updatedAt: createdAt }
     try {
       signal.throwIfAborted()
       const { adapter, target, assertCurrent } = await this.options.preflight.validateForLaunch(call, bundle.binding)
@@ -200,7 +204,7 @@ export class LaunchService {
       if (!isDeepStrictEqual(current, bundle)) throw new HandoffError('binding_mismatch')
       if (!packageExists(bundle)) throw new HandoffError('not_ready')
       assertCurrent()
-      const launch = this.options.plan(adapter.id, bundle.binding.effectiveCwd, adapter.launchIntent(target, bundle))
+      const launch = this.options.plan(adapter.id, bundle.binding.effectiveCwd, adapter.launchIntent(target, bundle, input.locale))
       signal.throwIfAborted()
       this.options.requireLocal()
       record.attempts.push(attempt)

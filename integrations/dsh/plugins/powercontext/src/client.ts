@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 
+import type { HandoffLocale } from './handoff/locale.ts'
 import {
   InvalidResponseError,
   MAX_RESPONSE_BYTES,
@@ -228,12 +229,13 @@ export class PowerContextClient {
     id: string,
     payload?: JsonObject,
     signal?: AbortSignal,
-    options: { readinessResponse?: boolean; traceContext?: TraceContext } = {},
+    options: { readinessResponse?: boolean; traceContext?: TraceContext; handoffLanguage?: HandoffLocale } = {},
   ): Promise<ClientSuccess> {
     if (!(id in OPERATIONS)) throw new UnknownOperationError(id)
     const spec = OPERATIONS[id as OperationId]
     const prepared = prepareRequest(spec, payload)
     Object.assign(prepared.headers, traceContextHeaders(options.traceContext))
+    if (id === 'prepare_handoff' && options.handoffLanguage) prepared.headers['Accept-Language'] = options.handoffLanguage
     const url = `${this.baseUrl}${prepared.path}${prepared.query}`
     const init = this.buildInit(spec, prepared, signal, this.requestTimeoutMsFor(id))
     if (init.signal?.aborted) throw new RequestNotSentError(prepared.path, this.transportCause(undefined, init.signal))

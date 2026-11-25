@@ -41,12 +41,14 @@ const TARGETS = [
   ['langgraph', 'LangGraph', 'framework'],
 ] as const
 
-export type TargetDetection =
-  | { state: 'present'; version: string; configurationKey: string }
-  | { state: 'missing' | 'unsupported' | 'unknown' }
-export type PresentTarget = Extract<TargetDetection, { state: 'present' }>
+type UnavailableTarget = { state: 'missing' | 'unsupported' | 'unknown' }
 /** Safe to expose to the owner: the installer configuration key stays internal. */
-export type TargetDiagnostic = { state: 'present'; version: string } | { state: 'missing' | 'unsupported' | 'unknown' }
+export type TargetDiagnostic = UnavailableTarget
+  | { state: 'present' | 'unqualified'; version: string }
+export type TargetDetection = UnavailableTarget
+  | { state: 'present'; version: string; configurationKey: string }
+  | { state: 'unqualified'; version: string }
+export type PresentTarget = Extract<TargetDetection, { state: 'present' }>
 
 export type IntegrationCheck =
   | { state: 'ready' }
@@ -146,6 +148,8 @@ export class TargetCatalog {
     const adapter = this.adapters.get(targetId)
     if (!adapter) throw new HandoffError('integration_unavailable')
     const result = await adapter.detect(signal)
-    return result.state === 'present' ? { state: 'present', version: result.version } : { state: result.state }
+    // Keep the installer configuration key internal.
+    return result.state === 'present' || result.state === 'unqualified'
+      ? { state: result.state, version: result.version } : { state: result.state }
   }
 }

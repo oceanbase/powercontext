@@ -288,12 +288,18 @@ def configure_connection(
     settings: SetupTransport, *, dsh_target: DshTarget | None = None, writes: dict[Path, bytes] | None = None
 ) -> SetupAuthorizationStatus:
     """Publish the native endpoint, shared settings, and credentials as one connection."""
+    from filelock import FileLock
+
     from powercontext.cli.authorization import authorization_updates
     from powercontext.cli.installation import publish
 
-    credentials, state = authorization_updates(settings)
-    publish(writes={**(writes or {}), **setup_transport_updates(settings, dsh_target=dsh_target), **credentials})
-    return state
+    path = client_config_file()
+    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    # publish replaces clients.json, so lock a stable sibling across the read, write and any rollback.
+    with FileLock(str(path) + ".lock", timeout=30):
+        credentials, state = authorization_updates(settings)
+        publish(writes={**(writes or {}), **setup_transport_updates(settings, dsh_target=dsh_target), **credentials})
+        return state
 
 
 def setup_transport_updates(settings: SetupTransport, *, dsh_target: DshTarget | None = None) -> dict[Path, bytes]:
