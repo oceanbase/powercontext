@@ -16,12 +16,14 @@
 
 from __future__ import annotations
 
+import json
 import os
 import signal
 import socket
 import subprocess
 import sys
 import time
+from pathlib import Path
 
 import httpx
 import pytest
@@ -32,9 +34,7 @@ from tests.e2e.server_startup import SERVER_STARTUP_TIMEOUT_SECONDS
 
 @pytest.mark.skipif(sys.platform == "win32", reason="Requires POSIX SIGTERM shutdown")
 def test_combined_cli_metrics_authentication_passive_scrapes_and_shutdown(tmp_path):
-    with socket.socket() as reserved:
-        reserved.bind(("127.0.0.1", 0))
-        port = reserved.getsockname()[1]
+    port_file = tmp_path / "server-port.json"
     environment = {
         key: value
         for key, value in os.environ.items()
@@ -54,16 +54,16 @@ def test_combined_cli_metrics_authentication_passive_scrapes_and_shutdown(tmp_pa
         process = subprocess.Popen(
             [
                 sys.executable,
-                "-c",
-                "from powercontext.server.cli import app; app()",
+                str(Path(__file__).with_name("plugin_server_process.py")),
+                str(Path(sys.executable).with_name("powercontext")),
+                str(port_file),
+                "server",
                 "run",
                 "--no-env-file",
                 "--role",
                 "all",
                 "--host",
                 "127.0.0.1",
-                "--port",
-                str(port),
             ],
             cwd=tmp_path,
             env=environment,
@@ -72,15 +72,20 @@ def test_combined_cli_metrics_authentication_passive_scrapes_and_shutdown(tmp_pa
             stderr=subprocess.STDOUT,
         )
         try:
+            deadline = time.monotonic() + SERVER_STARTUP_TIMEOUT_SECONDS
+            while not port_file.exists():
+                if process.poll() is not None or time.monotonic() >= deadline:
+                    pytest.fail(f"CLI did not publish its listener: {log_path.read_text()}")
+                time.sleep(0.05)
+            port = json.loads(port_file.read_text())["port"]
             with httpx.Client(base_url=f"http://127.0.0.1:{port}", trust_env=False, timeout=2) as client:
-                deadline = time.monotonic() + SERVER_STARTUP_TIMEOUT_SECONDS
                 while True:
                     if process.poll() is not None:
                         pytest.fail(f"CLI exited before serving metrics: {log_path.read_text()}")
                     try:
                         response = client.get("/metrics")
                         break
-                    except httpx.ConnectError:
+                    except (httpx.ConnectError, httpx.ConnectTimeout):
                         if time.monotonic() >= deadline:
                             pytest.fail(f"CLI did not start: {log_path.read_text()}")
                         time.sleep(0.05)
