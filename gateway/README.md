@@ -28,6 +28,20 @@ For a supported Responses upstream, prefix extraction is enabled by default; `PC
 
 Responses requests include the [built-in cost guidance](crates/pc-gateway-app/src/default_steering.txt) by default. Set `PC_GATEWAY_STEERING_FILE` to replace it, or `PC_GATEWAY_STEERING=off` to disable steering even when a file is configured. Chat requests are unchanged. Both `PC_GATEWAY_STEERING` and `PC_GATEWAY_PREFIX_EXTRACTION` accept only `on` or `off` when set. See [instruction settings](../docs/en/docs/operate/deploy-server.md#gateway-instruction).
 
+### Replay epoch correlation module
+
+`pc_gateway_core::replay_epoch` provides a bounded, memory-only replay epoch correlation store supporting establishment,
+continuation, recovery, and closure. It is not wired into production model ingress or the Executor; recovery restores
+correlation only, not an answer or permission to regenerate a model response.
+Closed or expired records remain charged against entry and byte limits until explicit cleanup. The store owner must
+drive `cleanup`; the module starts no background task, and `establish` does not reclaim records implicitly.
+
+Run the no-model host simulation:
+
+```bash
+cargo run --locked --manifest-path gateway/Cargo.toml -p pc-gateway-core --example replay_epoch_host
+```
+
 ## Run
 
 Download the matching native archive from the [PowerContext Release](https://github.com/oceanbase/powercontext/releases) and verify its SHA256 before installation. Linux (glibc 2.28+) and macOS 15+ archives cover x86_64 and arm64; macOS archives are unsigned and not notarized. Core and provider CLI requirements apply separately from the Gateway's platform baseline. See [Install the Gateway](../docs/en/docs/operate/install-gateway.md) / [安装 Gateway](../docs/zh/docs/operate/install-gateway.md) for commands, Core configuration, compatibility checks and upgrade steps. `pc-gateway --version` reports release version, source commit and target without connecting to Core. Python packages do not include this executable.
