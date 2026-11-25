@@ -78,9 +78,8 @@ available for explicit retrieval.
 ## Leave prompt-time context to the gateway
 
 When OpenCode sends its model requests through the PowerContext gateway, the gateway prepares and injects context for
-each turn and, with `PC_GATEWAY_SEDIMENT=on`, captures the turn. Core checks every request the gateway forwards and
-rejects a prepared-context block that the gateway did not inject, so a turn that also carries the plugin's context
-fails. Turn the plugin's prompt-time recall and prompt capture off before starting OpenCode:
+each turn and, with `PC_GATEWAY_SEDIMENT=on`, captures the turn. Turn the plugin's prompt-time recall and prompt
+capture off before starting OpenCode:
 
 ```bash
 export POWERCONTEXT_OPENCODE_PROMPT_RECALL=false
@@ -89,16 +88,16 @@ opencode
 ```
 
 With recall off, the plugin sends no preparation request, adds no context to the user message, and does not offer the
-`pc_prepare_context` tool. That tool's result stays in the session and carries a prepared-context block. Core
-would reject the request that returns the result to the model, and every later request of the session, with HTTP 422
-in every privacy mode; the gateway returns HTTP 503 `gate_paused`. The plugin still captures prompts while
+`pc_prepare_context` tool. The plugin still captures prompts while
 `POWERCONTEXT_OPENCODE_CAPTURE_PROMPTS` is `true`; with both off, it sends no request for a prompt. The Session Scope,
 the other `pc_*` tools, and the TUI keep working. Keep the default where OpenCode calls its model directly, because the
 gateway does not carry that traffic.
 
-OpenCode does not store the context that recall adds to a user message, so a session started with recall on can
-continue behind the gateway. A `pc_prepare_context` result is stored, however: start a new OpenCode session instead of
-continuing one in which the model called that tool.
+You can continue an existing OpenCode session. OpenCode discards the context added to a user message by prompt-time
+recall and keeps `pc_prepare_context` tool results in the session history. When a replayed tool result carries
+a complete PowerContext prepared-context block, the gateway replaces that result's text with
+`PowerContext plugin prepared context omitted by the gateway.` and keeps its tool call ID. The request and response
+still go through Core's normal checks.
 
 With recall off, prompt-time context comes only from the gateway. The gateway prepares and captures in the Scope set
 by `PC_GATEWAY_DEFAULT_SCOPE`, not in the Scope this plugin resolves for the Session or workspace. Set it to the same
