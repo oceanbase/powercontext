@@ -1,0 +1,56 @@
+name: Restore pip HTTP downloads
+description: Restore dependency downloads without reusing locally built wheels
+inputs:
+  python-executable:
+    description: Python interpreter whose pip performs the downloads
+    default: python
+  cache-dependency-glob:
+    description: Exported dependency file globs relative to the source checkout, one per line
+    required: true
+outputs:
+  cache-path:
+    description: pip HTTP response directories
+    value: ${{ steps.snapshot.outputs.cache-path }}
+  cache-key:
+    description: Python, platform and exported dependency fingerprint
+    value: ${{ steps.snapshot.outputs.cache-key }}
+  cache-hit:
+    description: Whether the exact dependency snapshot was restored
+    value: ${{ steps.s3.outputs.cache-hit || steps.github.outputs.cache-hit }}
+runs:
+  using: composite
+  steps:
+    - id: backend
+      shell: bash
+      run: python3 "$GITHUB_ACTION_PATH/../../../scripts/ci_cache.py" backend
+
+    - id: snapshot
+      shell: bash
+      env:
+        CI_CACHE_PYTHON: ${{ inputs.python-executable }}
+        CI_CACHE_DEPENDENCY_PATH: ${{ inputs.cache-dependency-glob }}
+      run: '"$CI_CACHE_PYTHON" "$GITHUB_ACTION_PATH/../../../scripts/ci_cache.py" pip'
+
+    - id: github
+      if: steps.backend.outputs.backend == 'github'
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+      with:
+        path: ${{ steps.snapshot.outputs.cache-path }}
+        key: ${{ steps.snapshot.outputs.cache-key }}
+        restore-keys: ${{ steps.snapshot.outputs.restore-key }}
+
+    - id: s3
+      if: steps.backend.outputs.backend == 's3'
+      uses: runs-on/cache/restore@3c223729b4fda74ee12f4976048dd69b420fdd26
+      with:
+        path: ${{ steps.snapshot.outputs.cache-path }}
+        key: ${{ steps.snapshot.outputs.cache-key }}
+        restore-keys: ${{ steps.snapshot.outputs.restore-key }}
+      env:
+        AWS_ACCESS_KEY_ID: ${{ env.PC_CI_CACHE_ACCESS_KEY }}
+        AWS_SECRET_ACCESS_KEY: ${{ env.PC_CI_CACHE_SECRET_KEY }}
+        AWS_REGION: ${{ env.PC_CI_CACHE_REGION }}
+        RUNS_ON_S3_BUCKET_CACHE: ${{ env.PC_CI_CACHE_BUCKET }}
+        RUNS_ON_S3_BUCKET_ENDPOINT: ${{ env.PC_CI_CACHE_ENDPOINT }}
+        RUNS_ON_S3_FORCE_PATH_STYLE: 'true'
+        RUNS_ON_RUNNER_NAME: ''

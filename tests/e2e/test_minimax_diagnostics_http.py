@@ -30,6 +30,8 @@ import pytest
 from powercontext.http._generated.schema import OPENAPI_SCHEMA
 
 ROOT = Path(__file__).parents[2]
+# Observe the complete CLI process, including imports and normal interpreter exit.
+CLI_PROCESS_TIMEOUT_SECONDS = 60
 
 
 @pytest.fixture
@@ -158,7 +160,7 @@ def test_doctor_enforces_consent_before_any_http_request(tmp_path, diagnostic_ht
         env=environment,
         capture_output=True,
         text=True,
-        timeout=30,
+        timeout=CLI_PROCESS_TIMEOUT_SECONDS,
         check=False,
     )
     checks = json.loads(result.stdout)["hosts"]["minimax"]["checks"]

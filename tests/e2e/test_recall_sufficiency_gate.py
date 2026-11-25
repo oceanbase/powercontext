@@ -1528,6 +1528,8 @@ def test_default_recorder_persists_real_expansions_and_isolates_caller_scopes(tm
             recall_gate_min_top_score=0.0,
             recall_gate_min_top_gap=0.0,
             recall_gate_min_lexical_overlap=0.0,
+            # Exact effort totals need write time; the contention test covers bounded accounting loss.
+            model_usage_write_timeout_seconds=5.0,
         )
         async with _runtime(tmp_path / "effort.db", config, in_memory=in_memory) as runtime:
             # The caller's local date is October 10, but the statistics bucket
@@ -1694,7 +1696,9 @@ def test_cancelled_preparation_preserves_memory_and_finishes_accounting_once(
                 await connection.exec_driver_sql("DROP TRIGGER IF EXISTS pause_effort_insert")
 
         async with _runtime(
-            tmp_path / "cancel-effort.db", RuntimeConfig(recall_gate_enabled=True), in_memory=True
+            tmp_path / "cancel-effort.db",
+            RuntimeConfig(recall_gate_enabled=True, model_usage_write_timeout_seconds=5.0),
+            in_memory=True,
         ) as runtime:
             scope_id = await _create_scope(runtime, "cancel-effort")
             await _seed(runtime, scope_id, ["alpha beta gamma preserved evidence"])

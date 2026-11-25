@@ -405,36 +405,45 @@ mod tests {
             let directory = tempfile::tempdir().unwrap();
             let child_pid_file = directory.path().join("child.pid");
             let grandchild_pid_file = directory.path().join("grandchild.pid");
+            // Publish complete identities before timeout or cancellation kills their writers.
             let script = format!(
-                "sh -c 'sleep 30 & echo $! > \"{grandchild}\"; wait' & echo $! > '{child}'; while [ ! -s '{grandchild}' ]; do sleep 0.01; done; wait",
+                "sh -c 'sleep 30 & echo $! > \"{grandchild}.pending\"; mv \"{grandchild}.pending\" \"{grandchild}\"; wait' & echo $! > '{child}.pending'; mv '{child}.pending' '{child}'; while [ ! -s '{grandchild}' ]; do sleep 0.01; done; wait",
                 child = child_pid_file.display(),
                 grandchild = grandchild_pid_file.display(),
             );
             let flag = Arc::new(AtomicBool::new(false));
-            let cancellation = if cancel {
+            let deadline = Instant::now() + Duration::from_secs(2);
+            let readiness = {
                 let flag = flag.clone();
                 let child_pid_file = child_pid_file.clone();
                 let grandchild_pid_file = grandchild_pid_file.clone();
-                Some(std::thread::spawn(move || {
-                    let deadline = Instant::now() + Duration::from_secs(2);
-                    while (!child_pid_file.exists() || !grandchild_pid_file.exists())
-                        && Instant::now() < deadline
-                    {
+                std::thread::spawn(move || {
+                    loop {
+                        let pids: Option<Vec<i32>> = [&child_pid_file, &grandchild_pid_file]
+                            .into_iter()
+                            .map(|path| {
+                                std::fs::read_to_string(path)
+                                    .ok()
+                                    .and_then(|text| text.trim().parse::<i32>().ok())
+                            })
+                            .collect();
+                        if let Some(pids) = pids {
+                            if cancel {
+                                flag.store(true, Ordering::Relaxed);
+                            }
+                            return pids;
+                        }
+                        assert!(
+                            Instant::now() < deadline,
+                            "descendant PIDs were not published"
+                        );
                         std::thread::sleep(Duration::from_millis(10));
                     }
-                    flag.store(true, Ordering::Relaxed);
-                }))
-            } else {
-                None
+                })
             };
-            let result = shell(
-                &script,
-                Duration::from_millis(if cancel { 3000 } else { 200 }),
-                flag,
-            );
-            if let Some(thread) = cancellation {
-                thread.join().unwrap();
-            }
+            // Leave the bounded startup window separate from the timeout stimulus.
+            let result = shell(&script, Duration::from_secs(3), flag);
+            let pids = readiness.join().unwrap();
             assert_eq!(
                 result.err(),
                 Some(if cancel {
@@ -443,16 +452,6 @@ mod tests {
                     SafeError::Timeout
                 })
             );
-            let pids: Vec<i32> = [child_pid_file, grandchild_pid_file]
-                .into_iter()
-                .map(|path| {
-                    std::fs::read_to_string(path)
-                        .unwrap()
-                        .trim()
-                        .parse()
-                        .unwrap()
-                })
-                .collect();
             let deadline = Instant::now() + Duration::from_secs(2);
             for pid in pids {
                 loop {

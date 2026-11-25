@@ -55,7 +55,15 @@ jobs:
     outputs:
       matrix: ${{ steps.plan.outputs.matrix }}
     steps:
+      # Fetch current files through the action's retryable fetch, before using a
+      # partial clone for history. Checkout must not need an unguarded lazy fetch.
       - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Fetch version history
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
@@ -104,6 +112,7 @@ jobs:
             integrations/langchain/pyproject.toml
             integrations/langgraph/pyproject.toml
             integrations/opendal/pyproject.toml
+            integrations/deepagents/pyproject.toml
             integrations/bub/pyproject.toml
             e2e/bub/pyproject.toml
             e2e/bub/uv.lock
@@ -114,12 +123,12 @@ jobs:
       # class of failure visible.
       - name: Verify dependencies resolve from scratch
         if: steps.plan.outputs.replay == 'true'
-        run: uv lock --upgrade --dry-run
+        run: python3 scripts/ci_python_mirror.py lock --upgrade --dry-run
 
       - name: Install harness validation dependencies
         if: steps.plan.outputs.replay == 'true'
         run: |
-          uv sync --frozen
+          python3 scripts/ci_python_mirror.py sync --frozen
           make harness-sync
 
       - name: Save harness validation dependencies
@@ -165,6 +174,7 @@ jobs:
       - name: Pull the OceanBase image
         timeout-minutes: 11
         run: |
+          export OCEANBASE_IMAGE="${PC_CI_OCEANBASE_435_IMAGE:-$OCEANBASE_IMAGE}"
           if ! timeout --kill-after=5s 15s docker image inspect "$OCEANBASE_IMAGE" >/dev/null 2>&1; then
             timeout --kill-after=10s 600s docker pull "$OCEANBASE_IMAGE"
           fi
@@ -172,6 +182,7 @@ jobs:
       - name: Start the isolated OceanBase test instance
         timeout-minutes: 14
         run: |
+          export OCEANBASE_IMAGE="${PC_CI_OCEANBASE_435_IMAGE:-$OCEANBASE_IMAGE}"
           timeout --kill-after=10s 180s docker run --pull never --detach --name recall-effort-oceanbase \
             --publish 127.0.0.1:2881:2881 \
             --ulimit nofile=65536:65536 \
@@ -345,7 +356,7 @@ jobs:
 
       - name: Save validation reports
         if: always()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        uses: ./.github/actions/upload-ci-diagnostics
         with:
           name: recall-effort-validation-${{ github.sha }}
           path: .powercontext/recall-effort-ci/
@@ -358,18 +369,18 @@ jobs:
         run: timeout 30s docker rm --force recall-effort-oceanbase || true
 
   atomic-memory-clean-oceanbase-shards:
-    name: Atomic Memory clean migration (OceanBase shard ${{ matrix.shard }}/2)
+    name: Atomic Memory clean migration (OceanBase shard ${{ matrix.shard }}/6)
     needs: changes
     if: >-
       ${{ !cancelled() && contains(fromJSON('["schedule","workflow_dispatch"]'), github.event_name) && (github.event_name != 'workflow_dispatch' || inputs.suite != 'recall-effort') &&
           ((inputs.suites == '' && needs.changes.result != 'success') || fromJSON(inputs.suites || needs.changes.outputs.suites || '{}').database) }}
     runs-on: powercontext-ci-standard
-    # Test steps total 255m; reserve 40m for image pull, setup, diagnostics and artifact upload.
+    # Test steps total 260m; reserve 35m for image pull, setup, diagnostics and artifact upload.
     timeout-minutes: 295
     strategy:
       fail-fast: false
       matrix:
-        shard: [0, 1]
+        shard: [0, 1, 2, 3, 4, 5]
     env:
       OCEANBASE_CI_CONTAINER: atomic-memory-clean-oceanbase
       OCEANBASE_IMAGE: ghcr.io/oceanbase/oceanbase-ce:4.3.5.6-106000012026040916
@@ -386,11 +397,13 @@ jobs:
       - name: Set up the environment
         uses: ./.github/actions/setup-python-env
         with:
+          sync-args: "--extra server"
           python-version: "3.12"
 
       - name: Pull the OceanBase image
         timeout-minutes: 11
         run: |
+          export OCEANBASE_IMAGE="${PC_CI_OCEANBASE_435_IMAGE:-$OCEANBASE_IMAGE}"
           if ! timeout --kill-after=5s 15s docker image inspect "$OCEANBASE_IMAGE" >/dev/null 2>&1; then
             timeout --kill-after=10s 600s docker pull "$OCEANBASE_IMAGE"
           fi
@@ -398,6 +411,7 @@ jobs:
       - name: Start the isolated OceanBase test instance
         timeout-minutes: 14
         run: |
+          export OCEANBASE_IMAGE="${PC_CI_OCEANBASE_435_IMAGE:-$OCEANBASE_IMAGE}"
           timeout --kill-after=10s 180s docker run --pull never --detach --name atomic-memory-clean-oceanbase \
             --publish 127.0.0.1:2881:2881 \
             --ulimit nofile=65536:65536 \
@@ -412,7 +426,7 @@ jobs:
         timeout-minutes: 10
         run: |
           uv run --locked python scripts/run_atomic_memory_clean_migration.py \
-            oceanbase --shard "${{ matrix.shard }}/2" --durations .github/oceanbase-migration-durations.json --output "$MIGRATION_REPORTS/scope-search" --tests \
+            oceanbase --shard "${{ matrix.shard }}/6" --durations .github/oceanbase-migration-durations.json --output "$MIGRATION_REPORTS/scope-search" --tests \
             tests/e2e/test_scope_search_migration.py
 
       - name: Test background listener lifecycle without skips
@@ -421,44 +435,44 @@ jobs:
         timeout-minutes: 15
         run: |
           uv run --locked --extra server python scripts/run_atomic_memory_clean_migration.py \
-            oceanbase --test-timeout 600 --shard "${{ matrix.shard }}/2" --durations .github/oceanbase-migration-durations.json --output "$MIGRATION_REPORTS/background-metrics" --tests \
+            oceanbase --test-timeout 600 --shard "${{ matrix.shard }}/6" --durations .github/oceanbase-migration-durations.json --output "$MIGRATION_REPORTS/background-metrics" --tests \
             tests/e2e/test_background_metrics.py
 
       - name: Run clean migration evidence and vectors without skips
-        # At most 17 cases: 17 * (360s + 10s grace) + 190s collection < 110m.
+        # Each process includes native startup and cleanup; six shards share the collected cases.
         timeout-minutes: 110
         run: |
           uv run --locked python scripts/run_atomic_memory_clean_migration.py \
-            oceanbase --test-timeout 360 --shard "${{ matrix.shard }}/2" --durations .github/oceanbase-migration-durations.json --output "$MIGRATION_REPORTS/clean-migration" --tests \
+            oceanbase --test-timeout 360 --shard "${{ matrix.shard }}/6" --durations .github/oceanbase-migration-durations.json --output "$MIGRATION_REPORTS/clean-migration" --tests \
             tests/e2e/test_atomic_memory_migration_evidence.py tests/e2e/test_atomic_memory_migration_vector.py
 
       - name: Run grant migration with full Server schema cleanup without skips
         # Grant cases prepare a full Server schema; the process deadline includes DROP DATABASE.
-        # At most 7 cases: 7 * (480s + 10s grace) + 190s collection < 65m.
         timeout-minutes: 65
         run: |
           uv run --locked python scripts/run_atomic_memory_clean_migration.py \
-            oceanbase --test-timeout 480 --shard "${{ matrix.shard }}/2" --durations .github/oceanbase-migration-durations.json --output "$MIGRATION_REPORTS/grant-migration" --tests \
+            oceanbase --test-timeout 480 --shard "${{ matrix.shard }}/6" --durations .github/oceanbase-migration-durations.json --output "$MIGRATION_REPORTS/grant-migration" --tests \
             tests/e2e/test_atomic_memory_grant_migration.py
 
       - name: Test concurrent managed startup without skips
-        # Up to two full Server cases (300s each), plus collection (180s).
+        # Full Server migration was still building indexes at the old 300s process deadline.
+        # Use the same complete-lifecycle budget as background Server acceptance.
         timeout-minutes: 15
         run: |
           uv run --locked --extra server python scripts/run_atomic_memory_clean_migration.py \
-            oceanbase --test-timeout 300 --shard "${{ matrix.shard }}/2" --durations .github/oceanbase-migration-durations.json --output "$MIGRATION_REPORTS/startup-snapshot" --tests \
+            oceanbase --test-timeout 600 --shard "${{ matrix.shard }}/6" --durations .github/oceanbase-migration-durations.json --output "$MIGRATION_REPORTS/startup-snapshot" --tests \
             tests/e2e/test_managed_startup_read_consistency.py
           test "$(wc -l < "$MIGRATION_REPORTS/startup-snapshot/nodes.txt")" -eq 3
 
       - name: Test long-query retrieval and admission without skips
         env:
           POWERCONTEXT_TEST_ATOMIC_MEMORY_FTS_PATH: legacy
-        # The count cap keeps 16 cases within 8 per shard, independent of duration estimates.
-        # 8 * (300s + 10s grace) + 190s collection < 45m.
+        # Each shard receives at most ceil(collected cases / shards), independent of duration estimates.
+        # HTTP cases prepare the full Server schema; include its complete lifecycle without changing query deadlines.
         timeout-minutes: 45
         run: |
           uv run --locked python scripts/run_atomic_memory_clean_migration.py \
-            oceanbase --test-timeout 300 --shard "${{ matrix.shard }}/2" --durations .github/oceanbase-migration-durations.json --output "$MIGRATION_REPORTS/long-query" --tests \
+            oceanbase --test-timeout 600 --shard "${{ matrix.shard }}/6" --durations .github/oceanbase-migration-durations.json --output "$MIGRATION_REPORTS/long-query" --tests \
             tests/e2e/test_atomic_artifact_search_http.py \
             tests/e2e/test_atomic_memory_long_fts_query.py \
             tests/e2e/test_atomic_memory_fts_coverage.py
@@ -493,7 +507,7 @@ jobs:
 
       - name: Save clean migration reports
         if: always()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        uses: ./.github/actions/upload-ci-diagnostics
         with:
           name: atomic-memory-clean-oceanbase-${{ github.sha }}-shard-${{ matrix.shard }}
           path: ${{ env.MIGRATION_REPORTS }}/
@@ -536,6 +550,7 @@ jobs:
       - name: Pull the OceanBase image
         timeout-minutes: 11
         run: |
+          export OCEANBASE_IMAGE="${PC_CI_OCEANBASE_442_IMAGE:-$OCEANBASE_IMAGE}"
           if ! timeout --kill-after=5s 15s docker image inspect "$OCEANBASE_IMAGE" >/dev/null 2>&1; then
             timeout --kill-after=10s 600s docker pull "$OCEANBASE_IMAGE"
           fi
@@ -543,6 +558,7 @@ jobs:
       - name: Start the isolated OceanBase test instance
         timeout-minutes: 14
         run: |
+          export OCEANBASE_IMAGE="${PC_CI_OCEANBASE_442_IMAGE:-$OCEANBASE_IMAGE}"
           timeout --kill-after=10s 180s docker run --pull never --detach --name atomic-memory-native-fts-oceanbase \
             --publish 127.0.0.1:2881:2881 \
             --ulimit nofile=65536:65536 \
@@ -591,7 +607,7 @@ jobs:
 
       - name: Save native FTS reports
         if: always()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        uses: ./.github/actions/upload-ci-diagnostics
         with:
           name: atomic-memory-native-fts-oceanbase-${{ github.sha }}
           path: ${{ env.MIGRATION_REPORTS }}/
@@ -625,6 +641,10 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
+          # Coverage verification only needs the scripts and their shard configuration.
+          sparse-checkout: |
+            scripts
+            .github
 
       - name: Set up Python
         uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
@@ -641,7 +661,7 @@ jobs:
       - name: Verify complete execution coverage
         run: >-
           python scripts/check_atomic_memory_migration_shards.py
-          --reports "${{ runner.temp }}/atomic-memory-clean-oceanbase-shards" --shards 2 --durations .github/oceanbase-migration-durations.json
+          --reports "${{ runner.temp }}/atomic-memory-clean-oceanbase-shards" --shards 6 --durations .github/oceanbase-migration-durations.json
 
   acceptance:
     needs: validate
@@ -656,16 +676,29 @@ jobs:
       matrix: ${{ fromJSON(needs.validate.outputs.matrix) }}
     name: Acceptance (${{ matrix.database }})
     steps:
+      # Fetch current files through the action's retryable fetch, before using a
+      # partial clone for history. Checkout must not need an unguarded lazy fetch.
       - name: Check out
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Fetch version history
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
           fetch-depth: 0
+          filter: blob:none
           persist-credentials: false
 
       - name: Install uv
         uses: ./.github/actions/setup-uv
         with:
           version: ${{ env.UV_VERSION }}
+
+      - name: Install native acceptance dependencies
+        if: matrix.native
+        run: python3 scripts/ci_python_mirror.py sync --locked --extra server
 
       - name: Start and configure the shared OceanBase instance
         id: oceanbase_setup
@@ -675,6 +708,7 @@ jobs:
           COMPOSE_PROJECT_NAME: powercontext-e2e-oceanbase
           POWERCONTEXT_E2E_OUTPUT: ${{ github.workspace }}/.powercontext-e2e/oceanbase/acceptance
         run: |
+          export POWERCONTEXT_E2E_OCEANBASE_IMAGE="${POWERCONTEXT_E2E_OCEANBASE_IMAGE:-${PC_CI_OCEANBASE_435_IMAGE:-}}"
           mkdir -p "$POWERCONTEXT_E2E_OUTPUT" "$RUNNER_TEMP/oceanbase-acceptance"
           compose=(docker compose -f e2e/bub/compose.yaml -f e2e/bub/compose.oceanbase.yaml)
           timeout --kill-after=10s 700s "${compose[@]}" up --detach --wait --wait-timeout 660 oceanbase
@@ -761,15 +795,20 @@ jobs:
           POWERCONTEXT_E2E_DATABASE: ${{ matrix.database }}
           POWERCONTEXT_E2E_OUTPUT: ${{ github.workspace }}/.powercontext-e2e/${{ matrix.database }}/acceptance
         run: |
+          export POWERCONTEXT_E2E_OCEANBASE_IMAGE="${POWERCONTEXT_E2E_OCEANBASE_IMAGE:-${PC_CI_OCEANBASE_435_IMAGE:-}}"
+          export POWERCONTEXT_E2E_DOCKER_REGISTRY_MIRROR="${POWERCONTEXT_E2E_DOCKER_REGISTRY_MIRROR:-${PC_CI_DOCKER_REGISTRY_MIRROR:-}}"
           # Nested task containers do not inherit the runner's outbound proxy.
           # Keep an explicitly configured task-reachable proxy; otherwise use the runner's route.
           # The harness passes this secret by reference to Harbor, including during agent setup.
           export POWERCONTEXT_E2E_AGENT_PROXY_URL="${POWERCONTEXT_E2E_AGENT_PROXY_URL:-${https_proxy:-${HTTPS_PROXY:-${http_proxy:-${HTTP_PROXY:-}}}}}"
+          # Use the task-reachable package mirror for the complete pip/uv/Bub installation chain.
+          export POWERCONTEXT_E2E_PYTHON_INDEX_URL="${POWERCONTEXT_E2E_PYTHON_INDEX_URL:-https://mirrors.aliyun.com/pypi/simple/}"
+          export POWERCONTEXT_E2E_DEBIAN_MIRROR_URL="${POWERCONTEXT_E2E_DEBIAN_MIRROR_URL:-https://mirrors.aliyun.com}"
           make harness-compose-acceptance
 
       - name: Upload OceanBase native reports
         if: always() && matrix.database == 'oceanbase'
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        uses: ./.github/actions/upload-ci-diagnostics
         with:
           name: oceanbase-native-acceptance-${{ github.sha }}
           path: ${{ runner.temp }}/oceanbase-acceptance/
@@ -791,7 +830,7 @@ jobs:
           always() && matrix.replay &&
           (steps.evidence_scan.outcome != 'success' ||
            steps.acceptance_scenarios.outcome != 'success')
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        uses: ./.github/actions/upload-ci-diagnostics
         with:
           name: e2e-acceptance-diagnostics-${{ matrix.database }}-${{ github.sha }}
           path: ${{ runner.temp }}/powercontext-e2e-diagnostics-${{ matrix.database }}/summary.txt
@@ -801,7 +840,7 @@ jobs:
       - name: Upload replay evidence
         id: replay_evidence
         if: always() && matrix.replay && steps.evidence_scan.outcome == 'success'
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        uses: ./.github/actions/upload-ci-diagnostics
         with:
           name: e2e-acceptance-${{ matrix.database }}-${{ github.sha }}
           path: .powercontext-e2e/${{ matrix.database }}/acceptance
@@ -812,7 +851,7 @@ jobs:
       - name: Upload native acceptance results
         id: native_results
         if: always() && matrix.native
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        uses: ./.github/actions/upload-ci-diagnostics
         with:
           name: oceanbase-acceptance-results-${{ github.sha }}
           path: ${{ runner.temp }}/oceanbase-acceptance/junit.xml
