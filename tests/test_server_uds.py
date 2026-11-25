@@ -301,6 +301,8 @@ def test_cli_checks_started_when_uvicorn_returns_normally(short_tmp_path, monkey
         server.started = started
 
     monkeypatch.setattr(uvicorn.Server, "run", returned_startup)
+    # This startup-status check must not retain logging configured against CliRunner's temporary stdout.
+    monkeypatch.setattr("powercontext.server.cli.configure_server_logging", lambda _config, **_kwargs: None)
     path = short_tmp_path / "startup.sock"
     result = CliRunner().invoke(create_cli([app]), ["server", "run", "--no-env-file", "--uds", str(path)])
     assert result.exit_code == (0 if started else 3), result.output

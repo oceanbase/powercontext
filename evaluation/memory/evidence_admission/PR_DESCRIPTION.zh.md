@@ -128,8 +128,8 @@
 # How was this change tested?
 
 本地整合包含上游 `89d17a046a0a9c3ff113874b46131aee78425c34` 和审阅文件外置修改。
-本交付保留在本地，不声称已有远程 CI 通过证据。下述全量评估结果记录于整合提交之前，
-当时工作区/暂存区的 `pyproject.toml` 与实际 HEAD blob 不同。
+用户报告整合及 UDS 测试隔离修复后的 `make test`、`make check` 和完整 `make evaluation-unit-test` 均通过。
+这些是本地验证结果，不声称更新后的 PR head 已有远程 CI 通过证据。
 
 - 针对固定上游 SHA 的迁移历史基线检查通过；schema release/draft 回归 38 项通过。
 - 最终受影响离线套件 297 项通过，覆盖外部回执、合成评分、v6-v8、版本化 CLI、继承的 v10 评分、
@@ -139,6 +139,12 @@
 - 原始保留回执已通过外部读取器核验：声明保留 46 个抽样选择项、15 项部分判断，assistant 回执保留 29 项。
   这是回执/结构核验，不是私有会话回放或历史语义重算；原结果包校验和也已重新确认不变。
 - 评估目录 Ruff check/format、评估源码类型、冻结合同字节及差异空白检查通过。
+- UDS 启动状态测试隔离 Server 日志配置，避免抑制后续测试的诊断。修复前按 UDS、LangChain 隐私用例的顺序
+  复现了缺日志失败；修复后两种启动结果接全部 53 个助手凭据用例通过，共 55 项。
+- UDS、完整提示隐私矩阵及 LangChain 联合回归 655 项通过；因可选 `langfuse` 不可用跳过一个模块，
+  另有 66 条既有 LangGraph 弃用警告。修改的测试文件通过 Ruff check/format 和类型检查。
+- `make docs-test` 正常重试后通过，博客测试 6 项全部通过。首次构建因 Next.js 安全升级提示在文档重定向生成前
+  中断，重试完成静态导出校验。依赖安全提示仍未解决；未修改依赖版本或安全检查。
 
 ```bash
 uv run --locked python scripts/schema_release.py check \
@@ -153,10 +159,8 @@ uv run --project evaluation --locked pytest -c evaluation/pyproject.toml \
 测试使用真实本地 Source/SQLite/Pipeline 和受控 provider 响应，未新增模型请求或费用。
 历史响应正文不可用和语义未决仍保留；这些检查不证明新增真实 provider 验收或历史指标已修正。
 
-用户在整合提交前运行了 `make evaluation-unit-test`：首组 pytest 为 2 failed、1736 passed、48 skipped、
-2 deselected。两个失败来自 v12/v13 的真实 Git 冻结测试：其首次成功断言使用实际仓库的 `pyproject.toml`，
-未提交的合并字节不同于 HEAD，因此被运行时保护正确拒绝。Make 在根环境 recovery/budget 测试组之前停止。
-这不是全量评估通过记录。其他完整工程检查尚无当前树的通过证据，用户此前的基线不能代替本次验证。
+用户报告的完整评估目标通过结果包含根环境 recovery/budget 测试组。未提供全量计数和日志；
+该通过状态来自用户报告，与上面实际执行的定向结果分别记录。冻结协议字节、历史报告和决策门槛保持不变。
 审阅补充包仅在本地，尚无公开地址；发布时须上传并下载核验，原结果包及历史执行身份保持不变。
 
 历史结果工具通过 `POWERCONTEXT_EVIDENCE_ADMISSION_RESULTS` 定位，运行专属审阅通过独立的

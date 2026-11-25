@@ -163,8 +163,9 @@ does not claim to fix that upstream gap. No new production admission policy, fea
 # How was this change tested?
 
 The integration includes upstream `89d17a046a0a9c3ff113874b46131aee78425c34` and the receipt externalization.
-This delivery is kept local; no passing remote CI result is claimed. The full evaluation result below was recorded
-before committing the integration, when the working/index `pyproject.toml` differed from the actual HEAD blob.
+The contributor reports `make test`, `make check`, and the complete `make evaluation-unit-test` passing after
+integration and the UDS test isolation fix. These are local validation results; no passing remote CI result for the
+updated PR head is claimed.
 
 - The fixed-base schema-history check passed against that exact upstream revision; schema release/draft tests passed 38 cases.
 - The final affected offline suite passed 297 tests across external receipts, synthetic scoring, v6-v8, the versioned CLI,
@@ -176,6 +177,15 @@ before committing the integration, when the working/index `pyproject.toml` diffe
   15 partial annotations; the assistant receipt retains 29 entries. This is receipt/schema verification, not private
   session replay or historical semantic rescoring. The original result archive checksum was also reverified unchanged.
 - Evaluator Ruff lint/format, evaluator source types, frozen-contract bytes and whitespace checks passed.
+- The UDS startup-status test isolates Server logging configuration so it cannot suppress diagnostics in later tests.
+  A UDS-then-LangChain privacy sequence reproduced the missing-log failure before the fix. Both startup outcomes
+  followed by all 53 assistant-credential cases passed afterward (55 tests).
+- The combined UDS, complete prompt-privacy, and LangChain suite passed 655 tests with one module skipped because
+  optional `langfuse` was unavailable, plus 66 existing LangGraph deprecation warnings. The changed test passed
+  Ruff lint/format and type checks.
+- `make docs-test` passed on normal retry and all six blog tests passed. The first build stopped at a Next.js
+  security-upgrade reminder before generating documentation redirects; the retry completed static-export validation.
+  The dependency security reminder remains unresolved; no dependency version or security check was changed.
 
 ```bash
 uv run --locked python scripts/schema_release.py check \
@@ -191,12 +201,9 @@ The tests use local Source/SQLite/Pipeline behavior with controlled provider res
 spending was incurred. Historical response bodies and unresolved semantic judgements remain unavailable/unresolved;
 these checks do not establish new real-provider acceptance or corrected historical metrics.
 
-The contributor ran `make evaluation-unit-test` before the integration commit: its first pytest group recorded
-2 failed, 1736 passed, 48 skipped and 2 deselected. Both failures are v12/v13 genuine-Git freeze tests whose initial
-success assertion uses the real repository's `pyproject.toml`; the uncommitted merged bytes differ from HEAD and are
-correctly refused by the runtime guard. The Make target stopped before the root-environment recovery/budget group.
-This is not a passing full evaluation run. Other full engineering checks have not been established for this tree;
-the contributor's previously reported baseline cannot substitute for current validation.
+The contributor's full evaluation-target result includes the root-environment recovery/budget group. Full-run
+counts and logs were not supplied; the passing status is contributor-reported and is distinct from the focused
+execution results above. Frozen protocol bytes, historical reports, and decision thresholds remain unchanged.
 The receipt supplement is local only and has no public download URL. Publishing it requires upload and download
 checksum verification; original result archives and historical execution identities must remain unchanged.
 
