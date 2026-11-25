@@ -151,6 +151,19 @@ impl ManagedOutcome {
     }
 }
 
+/// 召回策略：用户回合总是准备；复用证明失效后的重试额外放行一次非用户回合的准备。
+#[derive(Clone, Copy)]
+struct RecallPolicy {
+    kind: TurnKind,
+    reprepare: bool,
+}
+
+impl RecallPolicy {
+    fn allows_prepare(self) -> bool {
+        self.kind == TurnKind::UserTurn || self.reprepare
+    }
+}
+
 pub struct Executor<G, T> {
     gate: G,
     transport: T,
@@ -371,6 +384,8 @@ where
             .then(|| message_anchor(&pristine_request))
             .flatten();
         let mut refreshed = false;
+        // Core 使已重放的块失效后，本请求需要重新准备一次；`refreshed` 保证每个请求至多刷新一次。
+        let mut reprepare = false;
         let (payload, admission) = loop {
             if let Err(stop) = execution.checkpoint() {
                 return stop;
@@ -378,7 +393,7 @@ where
             if call.inject_context {
                 self.enrich(
                     &mut call,
-                    kind,
+                    RecallPolicy { kind, reprepare },
                     anchor,
                     renderer.message_list_key(),
                     recording,
@@ -497,6 +512,7 @@ where
                                 .any(|reason| reason == CONTEXT_REFRESH_REQUIRED) =>
                     {
                         refreshed = true;
+                        reprepare = true;
                         if let Some((conversation, anchor)) =
                             call.conversation_id.as_deref().zip(anchor)
                         {
@@ -886,11 +902,13 @@ where
     /// 有可信会话 ID 时，同一消息锚点（工具续写、重试）精确重放已准备的内容与绑定，不再检索；
     /// 新锚点（新的用户消息）准备一次。没有会话 ID 时每个用户回合各自准备，不继承任何旧注入，
     /// 因此没有会话 ID 的工具续写既不准备也不注入。
+    /// 复用证明失效后的重试由 `RecallPolicy::reprepare` 放行一次：非用户回合也重新准备，
+    /// 不把可恢复的失效直接交给客户端；调用方保证每个请求至多放行一次。
     /// 准备失败不写入，下一次请求重试，且不阻塞本次请求；空结果同样重放。
     async fn enrich(
         &self,
         call: &mut ManagedCall,
-        kind: TurnKind,
+        policy: RecallPolicy,
         anchor: Option<u64>,
         list_key: &str,
         recording: &mut CallRecorder<'_>,
@@ -901,11 +919,11 @@ where
             self.replays
                 .get(&call.scope_id, conversation, *anchor, now_ms())
         });
-        if cached.is_none() && kind != TurnKind::UserTurn {
+        if cached.is_none() && !policy.allows_prepare() {
             self.turn_counters.record_skipped_prepare();
             recording.prepare_skipped();
             tracing::debug!(
-                turn_kind = kind.as_str(),
+                turn_kind = policy.kind.as_str(),
                 "skipping prepare for a non-user turn without a replay entry"
             );
             return;

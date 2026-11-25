@@ -4284,13 +4284,13 @@ async fn a_stale_reuse_proof_drops_the_replay_and_prepares_once_more() {
             .push_back(Ok(reuse_result(snapshot)));
     }
     let r = RendererRef(renderer.clone());
-    for _ in 0..3 {
+    for step in 0..3 {
         let control = request_control();
         let observation = control.observation();
         let outcome = executor
             .run(
                 control,
-                tool_loop_call("fix the bug", 0, false),
+                tool_loop_call("fix the bug", step, false),
                 &r,
                 &NoopEvidenceSink,
             )
@@ -4316,6 +4316,11 @@ async fn a_stale_reuse_proof_drops_the_replay_and_prepares_once_more() {
     );
     let checked: Vec<_> = sends(&gate).into_iter().map(|(body, _)| body).collect();
     assert_eq!(checked.len(), 4);
+    let declared: Vec<_> = sends(&gate)
+        .into_iter()
+        .map(|(_, contexts)| contexts.len())
+        .collect();
+    assert_eq!(declared, vec![1, 1, 1, 1], "刷新后必须重新声明注入位置");
     assert!(checked[0].contains("memory-snapshot-1"));
     assert!(checked[1].contains("memory-snapshot-1"));
     assert!(checked[2].contains("memory-snapshot-2") && !checked[2].contains("memory-snapshot-1"));
