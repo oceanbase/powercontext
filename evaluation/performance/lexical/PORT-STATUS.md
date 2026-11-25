@@ -4,7 +4,7 @@
 | --- | --- | --- | --- |
 | `analyze_text(str) -> str` | Default entry point directly calls Rust in `powercontext._lexical`; old Python wrapper removed | CPython 3.11–3.14 installed-wheel comparisons: zero mismatches; independent 4,924,563 comparisons: zero mismatches; focused pytest: 447 passed, 44 skipped | Windows root wheel and sdist rebuild checked; GitHub platform matrix pending |
 
-Production source belongs to `src/powercontext/builtin/artifacts/lexical/`. Source builds use Rust 1.95.0, matching gateway. Root wheels include the native module without an opt-in plugin or a separately installed analyzer package. Python support is explicitly 3.11–3.14 pending future Unicode-version support.
+Production source belongs to `src/powercontext/builtin/artifacts/lexical/`. Source builds use Rust 1.97.1, matching gateway. Root wheels include the native module without an opt-in plugin or a separately installed analyzer package. Python support is explicitly 3.11–3.14 pending future Unicode-version support.
 
 Warm installed-default analyzer medians including the bridge: Chinese documents **11.90×**, English documents **3.33×**, repeated short queries **8.24×**. These are analyzer throughput measurements; no whole-server acceleration claim is made.
 

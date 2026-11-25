@@ -14,7 +14,7 @@
 # limitations under the License.
 
 FROM docker.io/astral/uv:0.10.12@sha256:72ab0aeb448090480ccabb99fb5f52b0dc3c71923bffb5e2e26517a1c27b7fec AS uv
-FROM rust:1.95.0-slim-bookworm AS rust
+FROM rust:1.97.1-slim-bookworm AS rust
 FROM python:3.11-slim-bookworm@sha256:eb769d88622468aea09986df8172151981bf6622b5eec58dc38301e20673ff84 AS builder
 COPY --from=uv /uv /bin/uv
 COPY --from=rust /usr/local/cargo /usr/local/cargo
@@ -23,7 +23,7 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends build-essential pkg-config \
     && rm -rf /var/lib/apt/lists/*
 ENV RUSTUP_HOME=/usr/local/rustup CARGO_HOME=/usr/local/cargo \
-    PATH="/usr/local/cargo/bin:$PATH" RUSTUP_TOOLCHAIN=1.95.0
+    PATH="/usr/local/cargo/bin:$PATH" RUSTUP_TOOLCHAIN=1.97.1
 WORKDIR /app
 COPY pyproject.toml uv.lock README.md LICENSE ./
 COPY src/ ./src/

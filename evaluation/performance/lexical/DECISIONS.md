@@ -8,4 +8,4 @@ The effective Jieba dictionaries match despite different raw files. Python count
 
 The PyString entry converts surrogate code points to nonword boundaries and releases the GIL for computation. This applies only to the string projection contract. Span-producing helpers retain their Python implementation and offset behavior.
 
-Source builds use a locked Cargo graph and Rust 1.95.0. Stable source-root remapping and deterministic Windows linking preserve the release gate's byte-for-byte wheel content comparison after source-distribution rebuilds. Linux wheel auditing retains bundled shared libraries at their relative path depth when the extension moves into the root package.
+Source builds use a locked Cargo graph and Rust 1.97.1. Stable source-root remapping and deterministic Windows linking preserve the release gate's byte-for-byte wheel content comparison after source-distribution rebuilds. Linux wheel auditing retains bundled shared libraries at their relative path depth when the extension moves into the root package.

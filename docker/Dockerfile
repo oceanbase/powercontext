@@ -3,7 +3,7 @@
 FROM docker.io/astral/uv:0.10.12 AS uv
 
 
-FROM rust:1.95.0-slim-bookworm AS rust
+FROM rust:1.97.1-slim-bookworm AS rust
 
 FROM python:3.11-slim-bookworm AS builder
 
@@ -22,7 +22,7 @@ RUN --mount=type=bind,source=docker/configure_debian_mirror.py,target=/tmp/confi
 ENV RUSTUP_HOME=/usr/local/rustup \
     CARGO_HOME=/usr/local/cargo \
     PATH="/usr/local/cargo/bin:$PATH" \
-    RUSTUP_TOOLCHAIN=1.95.0 \
+    RUSTUP_TOOLCHAIN=1.97.1 \
     UV_COMPILE_BYTECODE=1 \
     UV_CONCURRENT_DOWNLOADS=4 \
     UV_HTTP_RETRIES=5 \

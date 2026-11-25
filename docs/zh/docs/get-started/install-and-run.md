@@ -16,7 +16,7 @@ description: 安装最新稳定版 PowerContext，并运行本地 Server。
 
 Windows 的 CLI、Server 和个人服务支持为试验性；各 Agent 宿主仍需满足自身要求。嵌入式 seekDB 不支持 Windows。下文 Bash 示例需要在 Bash 中执行。
 
-PowerContext 包含原生词法分析器。兼容 wheel 覆盖 Linux x86_64/arm64、macOS x86_64/arm64 和 Windows x86_64 上的 CPython 3.11–3.14。安装 wheel 无需编译器；源码安装需要 Rust 1.95.0 和平台 C 工具链，Windows 使用 MSVC。内置搜索路径会自动使用原生分析器。Python 3.15 及更高版本暂不受支持，待实现并验证对应的 Unicode 行为后再扩展。uv 不强制执行 `Requires-Python` 的上限，因此安装和升级时应保留显式的 `--python ">=3.11,<3.15"` 选择。升级已有 tool 环境时使用 `uv tool upgrade --python ">=3.11,<3.15" powercontext`，由 uv 在替换环境前选择兼容解释器。
+PowerContext 包含原生词法分析器。兼容 wheel 覆盖 Linux x86_64/arm64、macOS x86_64/arm64 和 Windows x86_64 上的 CPython 3.11–3.14。安装 wheel 无需编译器；源码安装需要 Rust 1.97.1 和平台 C 工具链，Windows 使用 MSVC。内置搜索路径会自动使用原生分析器。Python 3.15 及更高版本暂不受支持，待实现并验证对应的 Unicode 行为后再扩展。uv 不强制执行 `Requires-Python` 的上限，因此安装和升级时应保留显式的 `--python ">=3.11,<3.15"` 选择。升级已有 tool 环境时使用 `uv tool upgrade --python ">=3.11,<3.15" powercontext`，由 uv 在替换环境前选择兼容解释器。
 
 ## 使用推荐安装脚本
 

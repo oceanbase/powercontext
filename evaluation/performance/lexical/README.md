@@ -6,10 +6,10 @@ Normal PowerContext wheels include `powercontext._lexical`. The search module im
 
 ## Build and verify
 
-Source builds require Rust 1.95.0, matching gateway, and a platform C toolchain. On Windows select the MSVC toolchain. Hatchling builds the extension through maturin and includes it in the root `cp311-abi3` platform wheel. Installing a compatible wheel requires no compiler. The source distribution includes the hook, locked crate and Unicode data.
+Source builds require Rust 1.97.1, matching gateway, and a platform C toolchain. On Windows select the MSVC toolchain. Hatchling builds the extension through maturin and includes it in the root `cp311-abi3` platform wheel. Installing a compatible wheel requires no compiler. The source distribution includes the hook, locked crate and Unicode data.
 
 ```powershell
-$env:RUSTUP_TOOLCHAIN = '1.95.0-x86_64-pc-windows-msvc'
+$env:RUSTUP_TOOLCHAIN = '1.97.1-x86_64-pc-windows-msvc'
 uv sync --frozen
 uv run --no-sync pytest tests/builtin/artifacts/test_native_lexical.py -q
 cargo fmt --manifest-path src/powercontext/builtin/artifacts/lexical/Cargo.toml --all --check

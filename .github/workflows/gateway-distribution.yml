@@ -86,7 +86,7 @@ jobs:
           uv run --frozen python -c "import sqlite3; print('Core SQLite:', sqlite3.sqlite_version); assert sqlite3.sqlite_version_info >= (3, 38, 0)"
       - name: Install pinned Rust
         if: ${{ !inputs.published }}
-        run: rustup toolchain install 1.95.0 --profile minimal
+        run: rustup toolchain install 1.97.1 --profile minimal
       - name: Install pinned Linux linker tools
         if: ${{ runner.os == 'Linux' && !inputs.published }}
         run: |
@@ -107,10 +107,10 @@ jobs:
         if: ${{ !inputs.published }}
         run: |
           if [ "$RUNNER_OS" = Linux ]; then
-            cargo +1.95.0 zigbuild --locked --manifest-path gateway/Cargo.toml --release \
+            cargo +1.97.1 zigbuild --locked --manifest-path gateway/Cargo.toml --release \
               -p pc-gateway-app --target "$PC_GATEWAY_BUILD_TARGET.$GATEWAY_GLIBC_VERSION"
           else
-            cargo +1.95.0 build --locked --manifest-path gateway/Cargo.toml --release \
+            cargo +1.97.1 build --locked --manifest-path gateway/Cargo.toml --release \
               -p pc-gateway-app --target "$PC_GATEWAY_BUILD_TARGET"
           fi
       - name: Package executable

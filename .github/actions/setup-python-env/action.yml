@@ -117,9 +117,9 @@ runs:
     - name: Set up native analyzer toolchain
       shell: bash
       run: |
-        toolchain=1.95.0
+        toolchain=1.97.1
         if [ "$RUNNER_OS" = "Windows" ]; then
-          toolchain=1.95.0-x86_64-pc-windows-msvc
+          toolchain=1.97.1-x86_64-pc-windows-msvc
         fi
         # Reuse the pinned compiler without rechecking the remote channel manifest.
         if ! rustup run "$toolchain" rustc --version; then

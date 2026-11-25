@@ -134,7 +134,7 @@ jobs:
 
       - name: Prepare the native analyzer toolchain
         if: steps.plan.outputs.replay == 'true'
-        run: rustup toolchain install 1.95.0 --profile minimal
+        run: rustup toolchain install 1.97.1 --profile minimal
 
       - name: Install harness validation dependencies
         if: steps.plan.outputs.replay == 'true'

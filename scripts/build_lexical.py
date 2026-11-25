@@ -40,7 +40,7 @@ class CustomBuildHook(BuildHookInterface[BuilderConfig]):
         self._temporary = tempfile.TemporaryDirectory(prefix="powercontext-lexical-")
         work = Path(self._temporary.name)
         env = os.environ.copy()
-        toolchain = "1.95.0"
+        toolchain = "1.97.1"
         if os.name == "nt":
             arch = "aarch64" if platform.machine().lower() == "arm64" else "x86_64"
             toolchain += f"-{arch}-pc-windows-msvc"

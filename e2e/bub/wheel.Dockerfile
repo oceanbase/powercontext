@@ -14,7 +14,7 @@
 
 
 FROM docker.io/astral/uv:0.10.12 AS uv
-FROM docker.io/library/rust:1.95.0-slim-bookworm AS rust
+FROM docker.io/library/rust:1.97.1-slim-bookworm AS rust
 FROM docker.io/library/python:3.12-slim-bookworm AS build
 
 COPY --from=uv /uv /bin/uv
@@ -28,7 +28,7 @@ RUN apt-get update \
 ENV PATH="/usr/local/cargo/bin:$PATH" \
     RUSTUP_HOME=/usr/local/rustup \
     CARGO_HOME=/usr/local/cargo \
-    RUSTUP_TOOLCHAIN=1.95.0
+    RUSTUP_TOOLCHAIN=1.97.1
 
 WORKDIR /workspace/powercontext
 COPY pyproject.toml README.md LICENSE ./

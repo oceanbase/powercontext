@@ -18,7 +18,7 @@
 
 ## Rust Gateway
 
-`gateway/` is an independent Cargo workspace of seven crates behind its own manifest. Every command needs `--manifest-path gateway/Cargo.toml`; `gateway/Cargo.lock` is checked in, so add `--locked` to every build, test, and lint invocation. CI pins the toolchain to 1.95.0, and the workspace is edition 2021.
+`gateway/` is an independent Cargo workspace of seven crates behind its own manifest. Every command needs `--manifest-path gateway/Cargo.toml`; `gateway/Cargo.lock` is checked in, so add `--locked` to every build, test, and lint invocation. CI pins the toolchain to 1.97.1, and the workspace is edition 2021.
 
 ```bash
 cargo fmt --manifest-path gateway/Cargo.toml --all --check

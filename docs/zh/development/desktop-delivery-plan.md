@@ -146,7 +146,7 @@ Handoff 投递、Review/Handoff 通知、恢复、无障碍和保留数据的移
 ## macOS 内部预览
 
 Desktop 支持 macOS 原生 Keychain、WKWebView 本地页面和 `.app` / `.dmg` 打包。
-开发环境需要 macOS 12 或更新版本、Xcode Command Line Tools、Node 24.14.1、pnpm 11.13.1 和 Rust 1.95.0。
+开发环境需要 macOS 12 或更新版本、Xcode Command Line Tools、Node 24.14.1、pnpm 11.13.1 和 Rust 1.97.1。
 在 `desktop/` 执行 `pnpm install --frozen-lockfile`，再执行 `pnpm desktop:dev` 或 `pnpm desktop:build`。
 安装包位于 `desktop/src-tauri/target/release/bundle/dmg/`，打开后将应用拖入 Applications。
 

@@ -37,7 +37,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Install pinned Rust toolchain
-        run: rustup toolchain install 1.95.0-x86_64-unknown-linux-gnu --profile minimal --component rustfmt --component clippy
+        run: rustup toolchain install 1.97.1-x86_64-unknown-linux-gnu --profile minimal --component rustfmt --component clippy
       - name: Cache Rust dependencies and compilation
         id: cargo-cache
         uses: ./.github/actions/setup-rust-cache

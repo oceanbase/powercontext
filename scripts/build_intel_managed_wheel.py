@@ -233,7 +233,7 @@ def build(  # noqa: C901 - ordered native build and verification boundary
             timeout=300,
         )
         rust_version = subprocess.check_output([str(rust / "bin/rustc"), "--version"], env=env, text=True).strip()
-        if not rust_version.startswith("rustc 1.95.0 "):
+        if not rust_version.startswith("rustc 1.97.1 "):
             raise ValueError("Pinned Rust distribution reports an unexpected version")
         prefix = work / "openssl"
         subprocess.run(

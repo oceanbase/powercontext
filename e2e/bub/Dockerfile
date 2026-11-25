@@ -18,7 +18,7 @@ FROM docker.io/astral/uv:0.10.12 AS uv
 
 FROM docker.io/library/docker:27.5.1-dind AS docker
 
-FROM docker.io/library/rust:1.95.0-slim-bookworm AS rust
+FROM docker.io/library/rust:1.97.1-slim-bookworm AS rust
 
 FROM python:3.12-slim-bookworm
 
@@ -40,7 +40,7 @@ RUN --mount=type=bind,source=docker/configure_debian_mirror.py,target=/tmp/confi
 ENV PATH="/usr/local/cargo/bin:/workspace/powercontext/e2e/bub/.venv/bin:$PATH" \
     RUSTUP_HOME=/usr/local/rustup \
     CARGO_HOME=/usr/local/cargo \
-    RUSTUP_TOOLCHAIN=1.95.0 \
+    RUSTUP_TOOLCHAIN=1.97.1 \
     PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     POWERCONTEXT_E2E_REPOSITORY=/workspace/powercontext \

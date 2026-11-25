@@ -428,8 +428,8 @@ jobs:
 
       - name: Set up native analyzer toolchain
         run: |
-          rustup toolchain install 1.95.0 --profile minimal
-          echo "RUSTUP_TOOLCHAIN=1.95.0" >> "$GITHUB_ENV"
+          rustup toolchain install 1.97.1 --profile minimal
+          echo "RUSTUP_TOOLCHAIN=1.97.1" >> "$GITHUB_ENV"
 
       - name: Build one wheel for all installation roles
         run: |
