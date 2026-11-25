@@ -515,3 +515,32 @@ figure.shiki button:active,
   margin-top: 0.5rem;
   font-weight: 500;
 }
+
+/*
+ * Benchmark figures. A meter fills from the left the first time its group is
+ * in view, and again each time a hidden tab panel holding it is shown; a
+ * counting figure stays hidden until its script has set it to zero.
+ */
+.pc-meter-fill {
+  width: var(--w);
+}
+
+[data-count='pending'] {
+  opacity: 0;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  [data-reveal]:not([data-inview]) .pc-meter-fill {
+    width: 0;
+  }
+
+  [data-inview] .pc-meter-fill {
+    animation: pc-meter-fill 900ms var(--ease-out, cubic-bezier(0.16, 1, 0.3, 1)) calc(var(--i, 0) * 40ms) both;
+  }
+}
+
+@keyframes pc-meter-fill {
+  from {
+    width: 0;
+  }
+}

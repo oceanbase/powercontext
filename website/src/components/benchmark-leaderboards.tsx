@@ -16,7 +16,7 @@
 
 'use client';
 
-import { useState } from 'react';
+import { useState, type CSSProperties } from 'react';
 import { ExternalTextLink } from '@/components/external-text-link';
 import type { BenchmarkContent } from '@/lib/benchmark-content';
 
@@ -58,10 +58,10 @@ function ResultAxis({ metric, system }: { metric: string; system: string }) {
 
 function ResultBar({ highlight = false, value }: { highlight?: boolean; value: number }) {
   return (
-    <span className="block h-2 bg-fd-muted">
+    <span className="block h-2 overflow-hidden rounded-full bg-fd-muted">
       <span
-        className={`block h-full ${highlight ? 'bg-primary' : 'bg-fd-foreground'}`}
-        style={{ width: `${value}%` }}
+        className={`pc-meter-fill block h-full ${highlight ? 'bg-primary' : 'bg-[color-mix(in_oklab,var(--foreground)_22%,var(--card))]'}`}
+        style={{ '--w': `${value}%` } as CSSProperties}
       />
     </span>
   );
@@ -94,7 +94,7 @@ function LocomoResults({ benchmark, lang }: { benchmark: BenchmarkContent; lang:
                   {row.name}
                 </a>
                 <span
-                  className={`mt-1 inline-block max-w-full truncate px-1.5 py-0.5 text-xs ${row.highlight ? 'bg-primary/10 text-primary-text' : 'bg-fd-muted text-fd-muted-foreground'}`}
+                  className={`mt-1 inline-block max-w-full truncate rounded-md px-1.5 py-0.5 text-xs ${row.highlight ? 'bg-primary/10 text-primary-text' : 'bg-fd-muted text-fd-muted-foreground'}`}
                   title={row.protocol}
                 >
                   {row.evidence}
@@ -125,7 +125,7 @@ function LocomoPlusResults({ benchmark }: { benchmark: BenchmarkContent }) {
   return (
     <div aria-labelledby="locomo-plus-results-tab" id="locomo-plus-results-panel" role="tabpanel">
       {spotlight && (
-        <section className="mb-6 bg-primary/10 p-4" aria-label={board.spotlight.title}>
+        <section className="mb-6 rounded-2xl bg-primary/10 p-4" aria-label={board.spotlight.title}>
           <div className="flex flex-wrap items-baseline justify-between gap-2 text-sm">
             <strong className="font-medium">{board.spotlight.title}</strong>
             <a className="text-primary-text underline underline-offset-4" href="#locomo-plus">{board.spotlight.link_label}</a>
@@ -158,7 +158,7 @@ function LocomoPlusResults({ benchmark }: { benchmark: BenchmarkContent }) {
               <span aria-hidden="true" className="col-span-5"><ResultBar value={percentage(row.score)} /></span>
               <strong className="col-span-2 text-right text-sm font-medium tabular-nums">{row.score}</strong>
               <div className="col-span-12 flex flex-wrap items-baseline gap-x-3 gap-y-1 text-xs text-fd-muted-foreground">
-                <a className="bg-fd-muted px-1.5 py-0.5 hover:text-fd-foreground" href={row.source} rel="noreferrer" target="_blank">{row.evidence}</a>
+                <a className="rounded-md bg-fd-muted px-1.5 py-0.5 hover:text-fd-foreground" href={row.source} rel="noreferrer" target="_blank">{row.evidence}</a>
                 <span>{row.protocol}</span>
               </div>
             </li>
@@ -175,7 +175,7 @@ function SweResults({ benchmark, lang }: { benchmark: BenchmarkContent; lang: 'e
 
   return (
     <div aria-labelledby="swe-results-tab" id="swe-results-panel" role="tabpanel">
-      <section className="mb-4 bg-primary/10 p-4" aria-label={board.spotlight.label}>
+      <section className="mb-6 rounded-2xl bg-primary/10 p-4" aria-label={board.spotlight.label}>
         <div className="flex flex-col justify-between gap-1 text-sm sm:flex-row">
           <strong className="font-medium">{board.spotlight.label}</strong>
           <span className="text-fd-muted-foreground">{copy[lang].independentRun}</span>
@@ -192,7 +192,7 @@ function SweResults({ benchmark, lang }: { benchmark: BenchmarkContent; lang: 'e
                 <span className="col-span-5 text-sm text-primary-text">{score.kind.toUpperCase()} · {score.count} / {benchmark.swe.task_count}</span>
                 <span className="col-span-5">
                   <span className="block h-2 bg-fd-muted">
-                    <span className={`block h-full ${score.kind === 'on' ? 'bg-primary' : 'bg-primary/40'}`} style={{ width: `${value}%` }} />
+                    <span className={`pc-meter-fill block h-full ${score.kind === 'on' ? 'bg-primary' : 'bg-primary/40'}`} style={{ '--w': `${value}%` } as CSSProperties} />
                   </span>
                 </span>
                 <strong className="col-span-2 text-right text-sm font-medium tabular-nums text-primary-text">{value.toFixed(2)}%</strong>
@@ -250,12 +250,12 @@ export function BenchmarkLeaderboards({ benchmark, lang }: { benchmark: Benchmar
 
   return (
     <div>
-      <div aria-label={benchmark.leaderboards.tabs_label} className="mb-6 flex gap-6 overflow-x-auto border-b border-fd-border" role="tablist">
+      <div aria-label={benchmark.leaderboards.tabs_label} className="flex gap-6 overflow-x-auto border-b border-fd-border bg-flat-face px-5" role="tablist">
         {tabs.map((tab, index) => (
           <button
             aria-controls={`${tab.replace('_', '-')}-results-panel`}
             aria-selected={activeTab === tab}
-            className={`whitespace-nowrap border-b-2 pb-2.5 text-sm ${activeTab === tab ? 'border-fd-primary font-medium text-fd-foreground' : 'border-transparent text-fd-muted-foreground'}`}
+            className={`-mb-px h-11 whitespace-nowrap border-b-2 text-sm font-medium transition-colors ${activeTab === tab ? 'border-fd-foreground text-fd-foreground' : 'border-transparent text-fd-muted-foreground hover:text-fd-foreground'}`}
             id={`${tab.replace('_', '-')}-results-tab`}
             key={tab}
             onClick={() => setActiveTab(tab)}
@@ -278,9 +278,9 @@ export function BenchmarkLeaderboards({ benchmark, lang }: { benchmark: Benchmar
           </button>
         ))}
       </div>
-      <div hidden={activeTab !== 'locomo'}><LocomoResults benchmark={benchmark} lang={lang} /></div>
-      <div hidden={activeTab !== 'locomo_plus'}><LocomoPlusResults benchmark={benchmark} /></div>
-      <div hidden={activeTab !== 'swe'}><SweResults benchmark={benchmark} lang={lang} /></div>
+      <div className="p-5 sm:p-6" hidden={activeTab !== 'locomo'}><LocomoResults benchmark={benchmark} lang={lang} /></div>
+      <div className="p-5 sm:p-6" hidden={activeTab !== 'locomo_plus'}><LocomoPlusResults benchmark={benchmark} /></div>
+      <div className="p-5 sm:p-6" hidden={activeTab !== 'swe'}><SweResults benchmark={benchmark} lang={lang} /></div>
     </div>
   );
 }
