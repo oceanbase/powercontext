@@ -174,6 +174,16 @@ class RedundantAtomicMemoryRevisionError(InvalidInferenceOutputError):
         self.target_id = target_id
 
 
+class AtomicMemoryRevisionIdentityError(InvalidInferenceOutputError):
+    """A revision whose combined inputs do not hold exactly one published identity."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            "atomic-memory-reconcile",
+            "revise must have exactly one published identity; use merge for multiple identities",
+        )
+
+
 @dataclass(frozen=True)
 class AtomicMemoryWorkingItem:
     """An unpublished final candidate or one coordinated set of published identities."""
@@ -413,6 +423,20 @@ def validate_reconciliation_decision(
     """
 
     validate_reconciliation_output(request, output)
+    related = {item.item_id: item for item in request.related}
+    targets = tuple(related[identifier] for identifier in output.target_ids)
+    if output.action == "revise" and (
+        len({read.ref.artifact_id for item in (request.proposal, *targets) for read in item.original_refs}) != 1
+    ):
+        # Checked before content rules: its recovery keeps the proposal and never uses the rejected content.
+        raise attach_diagnostics(
+            AtomicMemoryRevisionIdentityError(),
+            ProcessingDiagnostics(
+                stage=ProcessingStage.BUSINESS_VALIDATION,
+                reason=ProcessingFailureReason.INVALID_OUTPUT,
+                failure_location="atomic-memory-reconcile",
+            ),
+        )
     if output.content is not None and any(
         not preserves_time_literals(
             output.content.text,
@@ -426,8 +450,6 @@ def validate_reconciliation_decision(
         if evidence.evidence_id in output.evidence_ids
     ):
         _invalid("final text must retain explicit time qualifiers from the selected evidence")
-    related = {item.item_id: item for item in request.related}
-    targets = tuple(related[identifier] for identifier in output.target_ids)
     proposal_refs = _published(request.proposal)
     if output.action == "noop":
         if not targets and proposal_refs:
@@ -435,9 +457,6 @@ def validate_reconciliation_decision(
         if targets and not proposal_refs <= _published(targets[0]):
             _invalid("noop cannot discard a published identity; use merge")
     elif output.action == "revise":
-        identities = {read.ref.artifact_id for item in (request.proposal, *targets) for read in item.original_refs}
-        if len(identities) != 1:
-            _invalid("revise must have exactly one published identity; use merge for multiple identities")
         target = targets[0]
         if (
             output.content is not None

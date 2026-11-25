@@ -311,6 +311,8 @@ def test_unrepaired_reconciliation_date_loss_preserves_published_revision_and_cu
                 await memory.flush()
 
             assert failure.value.operation == "atomic-memory-reconcile"
+            # A rule without a recovery still stops the window after its correction budget is spent.
+            assert "retain explicit time qualifiers" in failure.value.detail
             assert (await memory.cursor()).sequence == 1
             assert (await memory.list()).items == (original,)
             historical = await memory.get(original.ref.artifact_id, revision=original.ref.revision)
