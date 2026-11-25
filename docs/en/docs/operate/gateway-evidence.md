@@ -119,15 +119,15 @@ Chat requests classify by normalized role and tool-call presence. Responses requ
 a `tool` carrier, so their kind comes from the item's own `role` and `type`: client tool calls, their outputs, and MCP
 approval round trips are tool continuations; assistant messages, reasoning-like items and tools the provider already
 completed are assistant-only; system/developer messages are empty. Classification itself reads no message content and
-adds no provider or Core request. Only `user_turn` prepares and injects context; every other kind skips preparation and
-replay.
+adds no provider or Core request. Only a user turn queries Core for context; every other kind reuses the turn's
+prepared block when a replay entry exists and otherwise skips preparation and replay.
 
 The executor also emits one debug-level structured event per decision with a `turn_kind` field; raise `RUST_LOG` for
 the core crate to record it. Per-kind totals are process-local cumulative counters (`Executor::turn_counters()`) that
 cover every classified call, including requests that are not eligible for context injection. The skipped-preparation
-count covers only calls eligible for injection. All counters are never metric labels or per-record fields, and they
-reset on process restart. A call eligible for injection whose tail is not a user turn sets `prepare_skipped` to
-`true`; a user turn, and any call that is not eligible for injection, keeps it `false`.
+count covers calls eligible for injection whose tail is not a user turn and have no replay entry. All counters are
+never metric labels or per-record fields, and they reset on process restart. A call that skips preparation this way
+sets `prepare_skipped` to `true`; a call that prepares or reuses a replay entry keeps it `false`.
 When serving stops, the production host logs one `gateway turn classification totals` event at INFO with the same five
 counts (`user_turn`, `tool_continuation`, `assistant_only`, `empty`, `skipped_prepare`). It carries no request identity,
 and `RUST_LOG` filtering applies.

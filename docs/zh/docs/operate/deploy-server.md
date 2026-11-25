@@ -196,7 +196,7 @@ Gemini 关闭 Gateway 上下文注入。Claude CLI 只接受新的单轮文本�
 | `x-opencode-session-id` | OpenCode | 会话；子会话有自己的 ID |
 | `thread-id`（仅 Responses 入口） | Codex | 线程；子代理有自己的线程 ID |
 
-客户端在父代理与子代理之间共享的头不用于确定会话，例如 Codex 的 `session-id` 和 `prompt_cache_key`，以及 OpenCode 的 `x-opencode-session` 和 `x-session-affinity`。Claude Code 使用 Anthropic Messages API，而网关不提供该接口，所以只有在网关前的代理把它的请求转换到 Chat 或 Responses 入口并转发这些头时，Claude Code 的头才会生效。设置 `PC_GATEWAY_INJECTION=on` 会注入所有请求（没有会话 ID 的请求各自准备），设置 `PC_GATEWAY_INJECTION=off` 关闭注入，设置 `PC_GATEWAY_INJECTION_RESPONSES=off` 只关闭 Responses 入口的注入。独立运行的网关（`PC_GATEWAY_CORE_BASE`）只有设置 `PC_GATEWAY_INJECTION=on` 时才注入。准备结果为空或准备失败时，请求照常发送，不注入内容。只有用户回合会准备并注入上下文；工具续写、助手续写与空回合都直接发送，不召回、不注入。网关为证据与日志判定每个请求尾部的类型，见[Gateway 调用证据](gateway-evidence.md#回合类型)。
+客户端在父代理与子代理之间共享的头不用于确定会话，例如 Codex 的 `session-id` 和 `prompt_cache_key`，以及 OpenCode 的 `x-opencode-session` 和 `x-session-affinity`。Claude Code 使用 Anthropic Messages API，而网关不提供该接口，所以只有在网关前的代理把它的请求转换到 Chat 或 Responses 入口并转发这些头时，Claude Code 的头才会生效。设置 `PC_GATEWAY_INJECTION=on` 后，无论请求是否带会话 ID 都注入；设置 `PC_GATEWAY_INJECTION=off` 关闭注入，设置 `PC_GATEWAY_INJECTION_RESPONSES=off` 只关闭 Responses 入口的注入。独立运行的网关（`PC_GATEWAY_CORE_BASE`）只有设置 `PC_GATEWAY_INJECTION=on` 时才注入。准备结果为空或准备失败时，请求照常发送，不注入内容。只有用户回合会向 Core 查询上下文；同一回合的后续请求复用已准备的块，不再查询，没有会话 ID 的工具续写无可复用内容，直接发送、不召回。网关为证据与日志判定每个请求尾部的类型，见[Gateway 调用证据](gateway-evidence.md#回合类型)。
 
 设置 `PC_GATEWAY_INJECTION_CODE=on` 后，准备的上下文同时包含 Scope 代码索引中的代码证据；该选项默认关闭，并要求 Scope 已配置代码仓库。重放的内容因被引用的来源变化（例如 Agent 修改了被引用的文件）而不再通过检查时，网关丢弃该会话的重放，为该请求重新准备一次，而不是把 withhold 返回给客户端。
 
