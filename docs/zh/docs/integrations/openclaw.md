@@ -159,6 +159,72 @@ openclaw gateway restart
 `POWERCONTEXT_OPENCLAW_ALLOW_INSECURE_HTTP=true`（也可使用插件的 `allowInsecureHttp` 配置）。
 HTTPS 证书校验仍然启用。安装与持久化同意见[连接远程 Server](../operate/connect-remote-server.md)。
 
+## 把提示词时上下文交给 gateway
+
+本节所说的 PowerContext gateway（`pc-gateway`）位于 OpenClaw 与其模型供应商之间，不是 OpenClaw 自己的 Gateway，即运行
+OpenClaw Agent、通过 `openclaw gateway restart` 重启的服务。
+
+OpenClaw 的模型请求经过 PowerContext gateway 时，gateway 为每次模型调用准备并注入上下文；设置 `PC_GATEWAY_SEDIMENT=on`
+后，gateway 也会采集这一轮。Core 检查 gateway 转发的每个请求，拒绝不是 gateway 注入的 prepared-context 块，
+在每种隐私模式下都是如此：Core 返回 HTTP 422，gateway 返回 HTTP 503 `gate_paused`。
+插件的召回会向每个提示词添加这样的块，因此请关闭召回；gateway 会采集各轮，因此也请关闭采集。然后重启 OpenClaw 的
+Gateway：
+
+```bash
+openclaw config set plugins.entries.memory-powercontext.config.autoRecall false --strict-json
+openclaw config set plugins.entries.memory-powercontext.config.autoCapture false --strict-json
+openclaw gateway restart
+```
+
+memory 工具照常工作，它们都不准备上下文。关闭采集后，插件不再提交 Source，边界 flush 没有需要 flush 的内容；Server
+的定时抽取会处理 gateway 采集的各轮。修改后请新建 OpenClaw 会话，因为 OpenClaw
+可能把插件为之前的轮次添加的上下文保留在会话 transcript 中。OpenClaw 直接调用模型时，PowerContext gateway
+不承载这些流量，请保留默认值。
+
+在 `~/.openclaw/openclaw.json` 中添加一个指向 gateway `/gateway/v1`、`api: "openai-responses"` 的 provider，用 gateway
+的 `PC_GATEWAY_API_KEY` 值作为它的 `apiKey`，并把它的模型（例如 `powercontext-gateway/approved-model`）设为
+`agents.defaults.model.primary`：
+
+```json5
+{
+  models: {
+    providers: {
+      "powercontext-gateway": {
+        baseUrl: "http://127.0.0.1:8787/gateway/v1",
+        apiKey: "${PC_GATEWAY_KEY}",
+        api: "openai-responses",
+        models: [
+          { id: "approved-model", name: "Approved model", contextWindow: 400000, maxTokens: 32000 },
+        ],
+      },
+    },
+  },
+}
+```
+
+`PC_GATEWAY_KEY` 必须进入 OpenClaw Gateway 服务的环境，例如通过 `~/.openclaw/.env`。在 Responses 路由上，gateway
+以非流式方式调用模型，再把通过检查的响应以流式重放，因此流式的一轮能完成并被采集。使用 `api: "openai-completions"` 时，
+gateway 在 Chat Completions 路由上转发流式请求，不采集这一轮。
+
+配置 Core 和 gateway 时还需要：
+
+- 请让 Core 运行在非 enforcing 隐私模式（`disabled`、`shadow` 或 `advisory`）。OpenClaw 不向自定义 provider 发送 `store`
+  字段，因此 enforcing 模式的 Core 会暂缓它的每个 Responses 请求，gateway 返回 HTTP 400。gateway 在启动时发现 Core
+  的模式，修改模式后请重启 gateway。
+- 任何隐私模式下，Core 都需要为 `PC_GATEWAY_UPSTREAM_PROFILE` 指定的 profile（未设置时为 `default`）配置目标。
+  没有目标时，Core 以 `target_unsupported` 暂缓每个请求，gateway 返回 HTTP 400。
+  见[配置受支持的目标](../operate/inference-protection.md#配置受支持的目标)。
+- 把 `PC_GATEWAY_UPSTREAM_URL_RESPONSES` 和 `PC_GATEWAY_UPSTREAM_API_KEY_RESPONSES` 设为供应商的 Responses 端点和密钥，
+  设置 `PC_GATEWAY_SEDIMENT=on`；Core 启用鉴权时还要设置 `PC_GATEWAY_CORE_TOKEN`。
+- gateway 在 `PC_GATEWAY_DEFAULT_SCOPE` 指定的同一个 Scope 中准备和采集所有会话，而不是插件为每个会话或项目解析的
+  Scope。请把插件的 `scopeId` 和 `PC_GATEWAY_DEFAULT_SCOPE` 设为同一个已有的 Scope。
+- 设置 `PC_GATEWAY_INJECTION=on`。组合部署默认只向带有 `X-PowerContext-Conversation-ID`
+  或其他可识别会话头的请求注入上下文。OpenClaw 2026.8.1 只向 OpenAI 自己的端点发送会话头，而 provider 的 `headers`
+  对每个会话都相同，因此 OpenClaw 的请求不会标识会话。开启注入后，gateway 为每个请求分别准备，包括工具循环步骤。不要在
+  provider 的 `headers` 中放固定的 `X-PowerContext-Conversation-ID`，否则 gateway 会把所有会话当作同一个会话。
+
+见[网关上下文注入](../operate/deploy-server.md#网关上下文注入)和[网关认证边界](../operate/deploy-server.md#网关认证边界)。
+
 ## 验证安装
 
 ```bash

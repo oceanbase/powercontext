@@ -173,6 +173,78 @@ Do not put credentials in the endpoint. The CLI and plugin reject non-loopback H
 set `POWERCONTEXT_OPENCLAW_ALLOW_INSECURE_HTTP=true` (or the plugin's `allowInsecureHttp` setting). HTTPS certificate
 validation stays enabled. See [Connect to a remote Server](../operate/connect-remote-server.md) for setup and saved consent.
 
+## Leave prompt-time context to the gateway
+
+This section is about the PowerContext gateway (`pc-gateway`), which sits between OpenClaw and its model provider. It is
+not OpenClaw's own Gateway, the service that runs OpenClaw's agents and restarts with `openclaw gateway restart`.
+
+When OpenClaw sends its model requests through the PowerContext gateway, the gateway prepares and injects context for
+each model request and, with `PC_GATEWAY_SEDIMENT=on`, captures the turn. Core checks every request the gateway forwards
+and rejects a prepared-context block that the gateway did not inject, in every privacy mode: Core answers HTTP 422 and
+the gateway returns HTTP 503 `gate_paused`. The plugin's recall adds such a block to each prompt, so turn recall off,
+and turn capture off because the gateway captures the turns instead. Then restart OpenClaw's Gateway:
+
+```bash
+openclaw config set plugins.entries.memory-powercontext.config.autoRecall false --strict-json
+openclaw config set plugins.entries.memory-powercontext.config.autoCapture false --strict-json
+openclaw gateway restart
+```
+
+The memory tools keep working; none of them prepares context. With capture off, the plugin sends no Sources, so its
+boundary flushes have nothing to flush; the Server's scheduled extraction processes the turns the gateway captures.
+Start a new OpenClaw session after the change, because OpenClaw can keep the context a plugin added to an earlier turn
+in the session transcript. Keep the defaults where OpenClaw calls its model directly, because the PowerContext gateway
+does not carry that traffic.
+
+Add a provider for the gateway's `/gateway/v1` with `api: "openai-responses"` to `~/.openclaw/openclaw.json`, use the
+gateway's `PC_GATEWAY_API_KEY` value as its `apiKey`, and select its model, for example
+`powercontext-gateway/approved-model`, as `agents.defaults.model.primary`:
+
+```json5
+{
+  models: {
+    providers: {
+      "powercontext-gateway": {
+        baseUrl: "http://127.0.0.1:8787/gateway/v1",
+        apiKey: "${PC_GATEWAY_KEY}",
+        api: "openai-responses",
+        models: [
+          { id: "approved-model", name: "Approved model", contextWindow: 400000, maxTokens: 32000 },
+        ],
+      },
+    },
+  },
+}
+```
+
+`PC_GATEWAY_KEY` must reach OpenClaw's Gateway service, for example through `~/.openclaw/.env`. On the Responses route
+the gateway calls the model without streaming and replays the checked response as a stream, so a streamed turn completes
+and is captured. With `api: "openai-completions"`, the gateway forwards a streamed request on the Chat Completions route
+and does not capture the turn.
+
+Configure Core and the gateway as well:
+
+- Run Core in a non-enforcing privacy mode (`disabled`, `shadow`, or `advisory`). OpenClaw sends no `store` field to a
+  custom provider, so an enforcing Core withholds each of its Responses requests and the gateway returns HTTP 400.
+  Restart the gateway after changing the mode, because it discovers the mode at startup.
+- Core needs a target for the profile that `PC_GATEWAY_UPSTREAM_PROFILE` names (`default` unless set), in every privacy
+  mode. Without one, Core withholds each request with `target_unsupported` and the gateway returns HTTP 400. See
+  [Configure a supported target](../operate/inference-protection.md#configure-a-supported-target).
+- Set `PC_GATEWAY_UPSTREAM_URL_RESPONSES` and `PC_GATEWAY_UPSTREAM_API_KEY_RESPONSES` to the provider's Responses
+  endpoint and key, `PC_GATEWAY_SEDIMENT=on`, and `PC_GATEWAY_CORE_TOKEN` when Core enforces authentication.
+- The gateway prepares and captures every conversation in the one Scope that `PC_GATEWAY_DEFAULT_SCOPE` names, not in
+  the Scope this plugin resolves for each session or project. Set the plugin's `scopeId` and `PC_GATEWAY_DEFAULT_SCOPE`
+  to the same existing Scope.
+- Set `PC_GATEWAY_INJECTION=on`. A combined deployment injects by default only into requests that carry
+  `X-PowerContext-Conversation-ID` or another recognized session header. OpenClaw 2026.8.1 sends its session headers
+  only to OpenAI's own endpoints, and a provider's `headers` are the same for every session, so no OpenClaw request
+  names a conversation. With injection on, the gateway prepares each request separately, tool-loop steps included. Do
+  not put a fixed `X-PowerContext-Conversation-ID` in the provider's `headers`, because the gateway would then treat
+  every session as one conversation.
+
+See [Gateway context injection](../operate/deploy-server.md#gateway-context-injection) and [Gateway authentication
+boundaries](../operate/deploy-server.md#gateway-authentication-boundaries).
+
 ## Verify the installation
 
 ```bash

@@ -152,6 +152,72 @@ missing or wrong `POWERCONTEXT_LANGGRAPH_TOKEN` — is logged once at error leve
 debug level. The Memory tools return a short `(PowerContext unavailable: ...)` string rather than raising, so a model
 that called a tool can retry or choose another strategy instead of concluding that no memory exists.
 
+## Leave prompt-time context to the gateway
+
+When the graph sends its model requests through the PowerContext gateway, the gateway prepares and injects context for
+each model call and, with `PC_GATEWAY_SEDIMENT=on`, captures the turn. Core checks every request the gateway forwards
+and rejects a prepared-context block that the gateway did not inject, in every privacy mode: Core answers HTTP 422 and
+the gateway returns HTTP 503 `gate_paused`. Two parts of this package produce such a block:
+
+- `PowerContextRecall` adds one to each model input. Leave the hook out.
+- `powercontext_context` returns one as its tool result, which stays in the `messages` history and makes Core reject
+  every later request of the thread. Offer only the other tools.
+
+```python
+import os
+
+from langchain_openai import ChatOpenAI
+from langgraph.prebuilt import create_react_agent
+from powercontext_langgraph import PowerContextScope, powercontext_remember, powercontext_search
+
+
+def gateway_agent(thread_id: str):
+    model = ChatOpenAI(
+        model="approved-model",
+        base_url="http://127.0.0.1:8787/gateway/v1",
+        api_key=os.environ["PC_GATEWAY_KEY"],
+        use_responses_api=True,
+        default_headers={"X-PowerContext-Conversation-ID": thread_id},
+    )
+    return create_react_agent(
+        model,
+        tools=[powercontext_search, powercontext_remember],
+        context_schema=PowerContextScope,
+        checkpointer=my_checkpointer,
+    )
+```
+
+The hook never writes recalled context to the checkpointed history, so an existing thread can continue behind the
+gateway. A thread in which the model called `powercontext_context` keeps that result; start a new thread instead. In a
+custom graph, remove the recall node and have the model step read `messages`: `llm_input_messages` is graph state, so
+the checkpointer keeps the last recalled context there.
+
+`PC_GATEWAY_KEY` holds the gateway's `PC_GATEWAY_API_KEY` value. The header names the conversation: use the thread ID or
+another stable ID per conversation, of 1 to 256 visible ASCII characters, and never one ID for every conversation. A
+combined deployment (`PC_GATEWAY_CORE_UDS`) injects by default only into requests that carry this header or another
+recognized session header, prepares once per user message, and replays that context to the tool-loop steps of the
+message. An application that cannot send the header needs `PC_GATEWAY_INJECTION=on`, which prepares each request
+separately; a standalone gateway (`PC_GATEWAY_CORE_BASE`) injects only with that setting. See [Gateway context
+injection](../operate/deploy-server.md#gateway-context-injection).
+
+Use the Responses route (`use_responses_api=True`). There the gateway calls the model without streaming, captures the
+checked response, and replays it as a stream to a client that streams. On the Chat Completions route, an enforcing Core
+withholds a streamed turn, and with a non-enforcing Core the gateway releases it without capturing it.
+
+Configure Core and the gateway as well:
+
+- Run Core in a non-enforcing privacy mode (`disabled`, `shadow`, or `advisory`) unless every request meets the
+  enforcing rules: an enforcing Core withholds a Responses request without `store: false` or without an output limit
+  within the target's token budget, and the gateway returns HTTP 400. Restart the gateway after changing the mode,
+  because it discovers the mode at startup.
+- Core needs a target for the profile that `PC_GATEWAY_UPSTREAM_PROFILE` names (`default` unless set), in every privacy
+  mode. Without one, Core withholds each request with `target_unsupported` and the gateway returns HTTP 400. See
+  [Configure a supported target](../operate/inference-protection.md#configure-a-supported-target).
+- Set `PC_GATEWAY_UPSTREAM_URL_RESPONSES` and `PC_GATEWAY_UPSTREAM_API_KEY_RESPONSES` to the provider's Responses
+  endpoint and key, `PC_GATEWAY_SEDIMENT=on`, and `PC_GATEWAY_CORE_TOKEN` when Core enforces authentication.
+- The gateway prepares and captures every conversation in the one Scope that `PC_GATEWAY_DEFAULT_SCOPE` names. Set it to
+  the Scope the tools resolve, so that they search and write the Memory the gateway recalls.
+
 ## Why this package does not implement `BaseStore`
 
 `BaseStore` is LangGraph's cross-thread long-term memory interface and appears to be the intended seam for an
