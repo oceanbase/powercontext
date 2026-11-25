@@ -91,7 +91,8 @@ class Cron(BaseModel):
         try:
             zone = ZoneInfo(self.timezone) if self.timezone is not None else None
         except ZoneInfoNotFoundError as exc:
-            raise ValueError(f"Unknown IANA time zone: {self.timezone!r}") from exc
+            message = f"Unknown IANA time zone: {self.timezone!r}"
+            raise ValueError(message) from exc
         CronTrigger.from_crontab(self.expression, timezone=zone)
         return self
 
