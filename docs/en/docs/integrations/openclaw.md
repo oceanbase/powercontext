@@ -220,7 +220,7 @@ gateway's `PC_GATEWAY_API_KEY` value as its `apiKey`, and select its model, for 
 `PC_GATEWAY_KEY` must reach OpenClaw's Gateway service, for example through `~/.openclaw/.env`. On the Responses route
 the gateway calls the model without streaming and replays the checked response as a stream, so a streamed turn completes
 and is captured. With `api: "openai-completions"`, the gateway forwards a streamed request on the Chat Completions route
-and does not capture the turn.
+and releases the stream unchanged; with `PC_GATEWAY_SEDIMENT=on`, it captures the completed turn from it.
 
 Configure Core and the gateway as well:
 

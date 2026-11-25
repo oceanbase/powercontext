@@ -204,7 +204,8 @@ memory 工具照常工作，它们都不准备上下文。关闭采集后，插�
 
 `PC_GATEWAY_KEY` 必须进入 OpenClaw Gateway 服务的环境，例如通过 `~/.openclaw/.env`。在 Responses 路由上，gateway
 以非流式方式调用模型，再把通过检查的响应以流式重放，因此流式的一轮能完成并被采集。使用 `api: "openai-completions"` 时，
-gateway 在 Chat Completions 路由上转发流式请求，不采集这一轮。
+gateway 在 Chat Completions 路由上转发流式请求，并原样放行流式响应；设置 `PC_GATEWAY_SEDIMENT=on` 后，
+还会从中采集完成的一轮。
 
 配置 Core 和 gateway 时还需要：
 
