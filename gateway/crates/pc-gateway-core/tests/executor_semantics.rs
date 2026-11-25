@@ -4441,6 +4441,8 @@ async fn a_terminal_responses_turn_keeps_its_prefix_for_extraction() {
         c.inject_context = false;
         c.sediment = true;
         c.capture_prefix = capture_prefix;
+        c.headers
+            .push(("session-id".to_string(), "session-a".to_string()));
         let outcome = executor
             .run(
                 request_control(),
@@ -4460,6 +4462,8 @@ async fn a_terminal_responses_turn_keeps_its_prefix_for_extraction() {
     let prefix = executor.prefix(&handle, "project:test").unwrap();
     assert_eq!(prefix.conversation_id, "conversation-a");
     assert_eq!(prefix.target_profile, "openai:test");
+    // 上游按会话标识路由提示缓存，抽取请求要带同一个值。
+    assert_eq!(prefix.session_id.as_deref(), Some("session-a"));
     assert_eq!(
         prefix.request_body,
         transport.sends.lock().unwrap()[0],

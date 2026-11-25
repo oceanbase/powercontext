@@ -3,6 +3,7 @@
   "pages": [
     "index",
     "deploy-server",
+    "install-gateway",
     "kubernetes",
     "local-server-ops",
     "managed-local-server",

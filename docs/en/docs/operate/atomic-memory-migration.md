@@ -293,28 +293,28 @@ powercontext server atomic-memory-rebuild-projection --env-file .env --maintenan
 ```
 
 This command checks that legacy objects, columns and foreign keys have been removed from public storage and
-that Atomic heads, content revisions and head lifecycle data are valid. It rebuilds only active current rows and removes nonactive
-or orphan current rows. Heads, content revisions, lifecycle states, retained history and Source/processing
+that Atomic heads, content revisions and head lifecycle data are valid. It rebuilds active current rows and merged historical aliases, removes nonactive
+or orphan current rows, and removes aliases whose identities are no longer merged. Heads, content revisions, lifecycle states, retained history and Source/processing
 progress keep their exact identities and values. Rebuilding reads neither the archive nor legacy entry tables.
 The offline migration `verify` command checks whether legacy history was imported completely; projection
 rebuilding cannot supply missing history.
 
-Each active body's embedding is prepared outside the write transaction. Before publishing, the command
+Missing or incompatible vectors for active and merged bodies are prepared outside the write transaction. Before publishing, the command
 locks and rechecks its exact revision, state version and deployment profile, then loads the latest formal
 tags in that transaction. With vectors disabled, it retains body/full-text
 data and clears embedding, profile and input hashes. SQLite refreshes its derived FTS helper using stable
 Scope/Artifact identity tokens, independent of rowids changed by `VACUUM`.
 
 For OceanBase and seekDB, a changed vector dimension first clears the derived vectors, replaces the native
-vector index and reconfigures the current column offline. This DDL can commit independently; keep maintenance
-in force throughout the operation. Matching dimensions still require all active rows to be embedded with
-the target profile. No historical vector cache is retained.
+vector index and reconfigures the current and alias columns offline. This DDL can commit independently; keep maintenance
+in force throughout the operation. Matching dimensions with a changed profile require active and merged rows to be embedded with
+the target profile. Compatible stored historical alias vectors are retained; aliases are derived state, not an immutable vector archive.
 
 Rows commit separately. An interrupted run can leave a partial projection; repeat the same command while
-writes remain stopped. It prepares every active row again rather than resuming through a progress table.
+writes remain stopped. It reuses compatible stored vectors and regenerates missing or incompatible ones rather than resuming through a progress table.
 `--batch-size` controls identity reads (1–1000, default 100), not a vector-result limit. The JSON report
-includes `profile_fingerprint`, `active_rows`, `obsolete_rows`, `rebuilt_rows`, `removed_rows`,
-`embedding_calls` and `elapsed_ms`. Resume service only after the complete current check returns
+includes `profile_fingerprint`, `active_rows`, `obsolete_rows`, `alias_rows`, `obsolete_alias_rows`,
+`rebuilt_rows`, `removed_rows`, `embedding_calls` and `elapsed_ms`. `embedding_calls` counts embedded bodies. Resume service only after the complete current check returns
 `ready: true` and normal startup verification succeeds. Errors do not silently enable another retrieval mode.
 
 Current bounded vector searches also calculate exact L2 over the eligible current rows. Eligibility is
@@ -322,6 +322,67 @@ applied before ranking and limiting. Complete related-memory enumeration uses th
 without a result limit and returns every qualifying result within its threshold. Work grows with eligible
 row count times vector dimension. The native vector index is provisioned, but these search paths do not
 use ANN; this implementation makes no ANN performance promise or claim of production backend validation.
+
+
+## Historical aliases for reconciliation
+
+`pc_atomic_memory_alias` is a disposable projection using format `powercontext.atomic-memory.alias.v1`, keyed by
+`(scope_id, alias_artifact_id)`. A merged identity retains the exact latest historical body, revision, immediate
+merge target and merged state version. Incremental merge publication retains its original stored vector and
+embedding profile/input hashes before removing its active current row. Repeated retirement preserves an existing
+alias when that current row is already absent. Restoring an identity to active removes its outgoing alias;
+forgotten and retired identities lose their outgoing aliases as well. The current projection remains active-only.
+
+`POWERCONTEXT_SERVER_RUNTIME_ATOMIC_MEMORY_ALIAS_RECALL` (`atomic_memory_alias_recall` in `RuntimeConfig`)
+defaults to `true` and controls alias recall during reconciliation. Setting it to `false` makes no alias query. Alias maintenance and
+explicit rebuilding are independent of this switch. When enabled, aliases use the request's FTS/vector/hybrid
+mode, embedding profile and distance threshold. Matching historical wording proposes a comparison with the
+currently active successor; it does not force a merge or prove semantic equivalence. Public search, lifecycle
+states, content, reconciliation actions and prompts retain their existing semantics.
+
+Resolution follows current authority inside the same Scope, detects cycles and rejects malformed links or
+chains exceeding 64 merge edges. Forgotten or retired endpoints produce no hit. Endpoint kind/tag filters and
+existing read/comparison authorization apply before its current body enters reconciliation. Direct hits retain
+their order and take priority over duplicate alias hits after exact revision/state agreement is checked. An alias
+database operational error can fall back to validated direct results while the original snapshot remains valid.
+Invalid alias chains, stale projections, cancellation, authorization failure and lost snapshots stop reconciliation.
+Per-request comparison batches and token limits remain in effect;
+they do not bound total candidates, flush tokens or traversal work.
+Enabled recall discovers direct and alias candidates in one snapshot using identities, versions and ranking metadata.
+Each page loads bodies and checks versions and authorization in its own snapshot. Comparison runs after that
+snapshot closes, and page-local bodies are released after comparison. The candidate metadata and retained
+coordination state can still grow across pages.
+
+For unmanaged databases, supported index initialization creates this derived table. Managed Server databases
+require the explicit schema upgrade to `000` through `db-migrate --bundle server`; ordinary startup remains
+read-only and reports `migration_required` until that upgrade completes. The schema upgrade installs an empty
+alias table. Installation does not backfill earlier merges: explicitly rebuild the projection while writers are stopped
+using the maintenance flow above. Rebuild reads each merged identity's latest authoritative content revision,
+rechecks its revision/state and the configured embedding profile before publication, repairs stale alias metadata,
+cleans obsolete aliases and verifies the resulting alias set. Empty projections and profile changes regenerate
+vectors with the configured model. If the embedding service is nondeterministic, authority alone cannot reproduce
+deleted vector bytes; exact identities, historical text, immediate targets and merged state versions are preserved.
+Deterministic fixture vector equality does not establish byte-identical recovery for a real model.
+
+The authored SQLite regression uses three initial authoritative identities (two merged inputs and one active
+successor), deterministic three-dimensional unit vectors, profile `related-query-test` / model label `embo-01`,
+and maximum L2 distance `0.1`. The model label is fixture metadata; no real embedding or generation model is called.
+Each case makes one reconciliation call. Tokens below are estimated from the full selected instructions plus
+request JSON using `character:weighted/v1`; they are input tokens, not provider billing measurements.
+
+| Observation | Switch | Direct hits | Alias hits | Action | Active identities | Extraction input tokens | Reconciliation input tokens | Total input tokens |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Historical wording | Off | 0 | 0 | create | 2 | 1338 | 1980 | 3318 |
+| Historical wording | On | 0 | 1 | noop | 1 | 1338 | 2197 | 3535 |
+| Unrelated fact | Off | 0 | 0 | create | 2 | 1337 | 1978 | 3315 |
+| Unrelated fact | On | 0 | 0 | create | 2 | 1337 | 1978 | 3315 |
+
+Historical-wording input increases by 217 estimated tokens; the unrelated control changes by zero and retains
+its new identity. Neither case produces a `revise` or `merge` action. These small authored cases establish local
+mechanics only. They do not establish large-corpus
+costs, real OceanBase execution or real embedding/model acceptance. Exact vector distance evaluation remains a
+scan even when SQL calculates the distance; measure alias candidates, traversals, model calls and total tokens
+on a deployment-sized backup before making a performance claim.
 
 ## Record maintenance costs
 

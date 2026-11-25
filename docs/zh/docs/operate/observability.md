@@ -144,9 +144,12 @@ prompt 或响应内容，也不改变本次请求的结果。
 配置了前缀抽取（`POWERCONTEXT_SERVER_INFERENCE_PREFIX_EXTRACTION_GATEWAY_URL`）时，对含一个带前缀句柄的网关回合的
 窗口，每次尝试输出一条 INFO 级别的 `atomic_memory.prefixed_extraction` 事件，`operation` 为 `atomic_memory.extract`，
 `unit` 为 `inference`。使用了基于缓存前缀的回复时 `outcome` 为 `success`；改用普通抽取时为 `fallback`，此时
-`fallback_reason` 取 `not_cheaper`、`prefix_size_unknown`、`prefix_unavailable`、`target_mismatch`、`disabled`、`invalid_instruction`、`check_rejected`、
+`fallback_reason` 取 `not_cheaper`、`prefix_size_unknown`、`prefix_unavailable`、`target_mismatch`、`disabled`、`invalid_instruction`、`output_limit_unsupported`、`credentials_unavailable`、`check_rejected`、
 `gateway_unavailable`、`provider_error`、`gateway_error` 或 `invalid_output` 之一。不含这种回合的窗口不输出该事件。该事件不携带句柄、
-prompt 或响应内容。
+prompt 或响应内容。处理模式为 `one_pass` 时，该事件的 `operation` 为 `atomic_memory.one_pass`，报告的是窗口的整段对话：
+接在智能体前缀之后的对话完成了窗口的整理时为 `success`，窗口按普通的单次整理对话重新开始时为 `fallback`。第二步超出
+输入预算的窗口两者都不输出：这种情况由该窗口的 `atomic_memory.one_pass` 回退事件报告，随后的逐候选抽取以
+`operation` 为 `atomic_memory.extract` 报告它自己的尝试。
 处理模式为 `one_pass`（`POWERCONTEXT_SERVER_RUNTIME_ATOMIC_MEMORY_PROCESSING_MODE`）时，每个 Source 窗口输出一条 INFO 级别的
 `atomic_memory.one_pass` 事件，`operation` 为 `atomic_memory.one_pass`，`unit` 为 `inference`。窗口的操作由这一次对话得出时
 `outcome` 为 `success`；某一步的输入超出 `atomic_memory_input_tokens_limit`、窗口改用逐候选流程时为 `fallback`，此时

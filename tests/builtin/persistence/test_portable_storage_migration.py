@@ -132,7 +132,8 @@ def test_registered_s1401_upgrade_preserves_completed_evidence_and_matches_fresh
         "v1_5_0_003",
         "v1_5_0_004",
         "v1_5_0_005",
-        "v1_5_2_pr2639",
+        "v1_5_0_006",
+        "v1_6_0",
         "000",
     )
     assert apply(upgraded).revision == "000"
@@ -202,7 +203,8 @@ def test_release_upgrade_preserves_data_and_adds_collection_runners(tmp_path, ve
             "v1_5_0_003",
             "v1_5_0_004",
             "v1_5_0_005",
-            "v1_5_2_pr2639",
+            "v1_5_0_006",
+            "v1_6_0",
             "000",
         )
         if include_owner
@@ -215,7 +217,8 @@ def test_release_upgrade_preserves_data_and_adds_collection_runners(tmp_path, ve
             "v1_5_0_003",
             "v1_5_0_004",
             "v1_5_0_005",
-            "v1_5_2_pr2639",
+            "v1_5_0_006",
+            "v1_6_0",
             "000",
         )
     )

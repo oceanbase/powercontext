@@ -416,6 +416,72 @@ def test_split_rechecks_are_each_budgeted_as_their_own_request(tmp_path: Path) -
     _run(tmp_path, limited, scenario, input_tokens_limit=_input_estimate(measured.turns[2]) - 1)
 
 
+def test_split_recheck_keeps_created_memories_when_revise_identity_correction_is_exhausted(tmp_path: Path) -> None:
+    former_owner = "Rollout owner for the payments service is the infrastructure team."
+    merged = f"{BUDGET_200} {former_owner}"
+
+    def merge_both(listed: dict[str, Any]) -> dict[str, Any]:
+        operations = []
+        for entry in listed["recheck"]:
+            labels = [item["id"] for item in entry["existing_memories"]]
+            if "budget" in entry["text"]:
+                # Both published memories were recalled for this created memory and are merged into it.
+                assert len(labels) == 2
+                operations.append({**_write("merge", merged, *labels), "id": entry["id"]})
+            else:
+                operations.append({**_write("revise", entry["text"], labels[0]), "id": entry["id"]})
+        return {"operations": operations}
+
+    def conversation(*rechecks) -> _Conversation:
+        return _Conversation(
+            _facts("unrelated words"),
+            {"operations": [_write("create", BUDGET_200), _write("create", OWNER)]},
+            *rechecks,
+        )
+
+    async def prepare(contexts) -> None:
+        await contexts.records.create_atomic_memories(
+            SCOPE, ({"kind": "fact", "text": BUDGET_100}, {"kind": "fact", "text": former_owner})
+        )
+        await contexts.process_memory(SCOPE, 2)
+        await contexts.records.capture_source(SCOPE, "content", "second", f"{BUDGET_200} {OWNER}", {})
+
+    def noop_owner(listed: dict[str, Any]) -> dict[str, Any]:
+        first, second = listed["recheck"]
+        reply = merge_both({"recheck": [first]})
+        label = second["existing_memories"][0]["id"]
+        return {
+            "operations": [
+                *reply["operations"],
+                {"id": second["id"], "action": "noop", "target_ids": [label], "reason": "The merge states it."},
+            ]
+        }
+
+    measured = conversation(noop_owner)
+
+    async def measure(contexts, memory) -> None:
+        await prepare(contexts)
+        await contexts.process_memory(SCOPE, 1)
+        assert len(measured.turns) == 3
+
+    (tmp_path / "measure").mkdir()
+    _run(tmp_path / "measure", measured, measure)
+
+    limited = conversation(merge_both, merge_both)
+
+    async def scenario(contexts, memory) -> None:
+        await prepare(contexts)
+        cursor = await contexts.process_memory(SCOPE, 1)
+        # The second recheck saw the merged memory under an earlier label and kept answering revise for two
+        # published identities. Its created memory is kept; the earlier merge stays as decided.
+        assert len(limited.turns) == 4 and not limited.replies
+        assert cursor.current_cursor == cursor.high_watermark > cursor.previous_cursor
+        assert cursor.remaining_work is False
+        assert await _texts(memory) == {merged, OWNER}
+
+    _run(tmp_path, limited, scenario, input_tokens_limit=_input_estimate(measured.turns[2]) - 1)
+
+
 def _one_pass_events(caplog) -> list[dict[str, object]]:
     fields = ("outcome", "fallback_reason", "estimated_input_tokens", "effective_budget")
     return [

@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import json
+import struct
 from collections.abc import AsyncIterator, Callable
 from hashlib import sha256
 from itertools import groupby
@@ -47,6 +48,7 @@ from powercontext.builtin.persistence.atomic_memory_index import (
     AtomicMemoryIndex,
     AtomicMemoryIndexError,
     AtomicMemoryProjectionPublisher,
+    PreparedAtomicMemoryProjection,
     atomic_memory_embedding_input,
     atomic_memory_embedding_input_hash,
     atomic_memory_profile_fingerprint,
@@ -54,6 +56,7 @@ from powercontext.builtin.persistence.atomic_memory_index import (
     load_atomic_memory_tags,
 )
 from powercontext.builtin.persistence.atomic_memory_index_schema import (
+    ATOMIC_MEMORY_ALIAS_FORMAT,
     ATOMIC_MEMORY_EVIDENCE_PROJECTION_TABLE,
     ATOMIC_MEMORY_PROJECTION_FORMAT,
 )
@@ -326,6 +329,160 @@ def _obsolete_current(index: AtomicMemoryIndex):
     )
 
 
+def _obsolete_alias(index: AtomicMemoryIndex):
+    alias, heads = index.alias_table, ARTIFACT_HEADS_TABLE
+    return ~exists(
+        select(heads.c.artifact_id).where(
+            heads.c.scope_id == alias.c.scope_id,
+            heads.c.family == AtomicMemory.family,
+            heads.c.artifact_id == alias.c.alias_artifact_id,
+            heads.c.lifecycle_state == "deprecated",
+            heads.c.merged_into_id.is_not(None),
+        )
+    )
+
+
+def _alias_differences(index: AtomicMemoryIndex, record: AtomicMemoryRecord, row: RowMapping) -> list[str]:
+    content = record.artifact.content
+    profile = index.capabilities.embedding_profile
+    expected = {
+        "alias_revision": record.ref.revision,
+        "merged_state_version": record.state.state_version,
+        "target_artifact_id": record.state.merged_into_id,
+        "projection_format": ATOMIC_MEMORY_ALIAS_FORMAT,
+        "kind": content.kind,
+        "text": content.text,
+        "searchable_text": analyze_text(atomic_memory_embedding_input(content.kind, content.text)),
+        "profile_fingerprint": None if profile is None else atomic_memory_profile_fingerprint(profile),
+        "embedding_input_hash": None
+        if profile is None
+        else atomic_memory_embedding_input_hash(content.kind, content.text),
+    }
+    differing = [name for name, value in expected.items() if row[name] != value]
+    if (row["embedding"] is None) != (profile is None):
+        differing.append("embedding")
+    elif profile is not None and isinstance(row["embedding"], bytes) and len(row["embedding"]) != profile.dimension * 4:
+        differing.append("embedding_dimension")
+    return differing
+
+
+async def verify_atomic_memory_aliases(
+    connection: AsyncConnection, index: AtomicMemoryIndex, *, batch_size: int = 100
+) -> AtomicMemoryProjectionRebuildReport:
+    """Compare the complete alias identity set and fields with latest authority."""
+    artifacts = ArtifactRepository((AtomicMemory,))
+    errors: list[str] = []
+    after = None
+    merged = 0
+    page_size = min(batch_size, 400) if connection.dialect.name == "sqlite" else batch_size
+    while batch := await _identity_batch(connection, after, page_size):
+        aliases = {
+            (str(row["scope_id"]), str(row["alias_artifact_id"])): row
+            for row in (
+                await connection.execute(
+                    select(index.alias_table).where(
+                        tuple_(index.alias_table.c.scope_id, index.alias_table.c.alias_artifact_id).in_(batch)
+                    )
+                )
+            ).mappings()
+        }
+        for scope_id, artifact_id in batch:
+            record = await _record(connection, artifacts, scope_id, artifact_id, for_update=False)
+            after = scope_id, artifact_id
+            if record.state.state is not AtomicMemoryStateValue.MERGED:
+                continue
+            merged += 1
+            row = aliases.get((scope_id, artifact_id))
+            if row is None:
+                errors.append(f"{scope_id}/{artifact_id}: merged alias is missing")
+            elif differing := _alias_differences(index, record, row):
+                errors.append(f"{scope_id}/{artifact_id}: alias differs: {', '.join(differing)}")
+    obsolete = int(
+        await connection.scalar(select(func.count()).select_from(index.alias_table).where(_obsolete_alias(index))) or 0
+    )
+    if obsolete:
+        errors.append(f"{obsolete} nonmerged or orphan rows remain in the alias projection")
+    return AtomicMemoryProjectionRebuildReport(
+        ready=not errors, counts={"alias_rows": merged, "obsolete_alias_rows": obsolete}, errors=tuple(errors)
+    )
+
+
+async def _retained_projection(
+    connection: AsyncConnection, index: AtomicMemoryIndex, scope_id: str, record: AtomicMemoryRecord
+) -> RowMapping | None:
+    """Select an exact compatible stored row without decoding its original vector."""
+    alias = index.alias_table
+    if record.state.state is AtomicMemoryStateValue.MERGED:
+        row = (
+            (
+                await connection.execute(
+                    select(alias).where(
+                        alias.c.scope_id == scope_id, alias.c.alias_artifact_id == record.ref.artifact_id
+                    )
+                )
+            )
+            .mappings()
+            .one_or_none()
+        )
+        if row is not None and _compatible_projection_vector(index, record, row, alias=True):
+            return row
+    current = index.table
+    row = (
+        (
+            await connection.execute(
+                select(current).where(current.c.scope_id == scope_id, current.c.artifact_id == record.ref.artifact_id)
+            )
+        )
+        .mappings()
+        .one_or_none()
+    )
+    if row is None:
+        return None
+    return row if _compatible_projection_vector(index, record, row, alias=False) else None
+
+
+def _compatible_projection_vector(
+    index: AtomicMemoryIndex, record: AtomicMemoryRecord, row: RowMapping, *, alias: bool
+) -> bool:
+    # Authority metadata may be repaired independently of the unchanged embedding input.
+    content, profile = record.artifact.content, index.capabilities.embedding_profile
+    return not (
+        row["kind"] != content.kind
+        or row["text"] != content.text
+        or row["searchable_text"] != analyze_text(atomic_memory_embedding_input(content.kind, content.text))
+        or row["projection_format"] != (ATOMIC_MEMORY_ALIAS_FORMAT if alias else ATOMIC_MEMORY_PROJECTION_FORMAT)
+        or row["profile_fingerprint"] != (None if profile is None else atomic_memory_profile_fingerprint(profile))
+        or row["embedding_input_hash"]
+        != (None if profile is None else atomic_memory_embedding_input_hash(content.kind, content.text))
+        or (row["embedding"] is None) != (profile is None)
+        or (
+            profile is not None
+            and isinstance(row["embedding"], bytes)
+            and len(row["embedding"]) != profile.dimension * 4
+        )
+    )
+
+
+def _prepared_retained(
+    index: AtomicMemoryIndex, record: AtomicMemoryRecord, row: RowMapping
+) -> PreparedAtomicMemoryProjection:
+    content = record.artifact.content
+    vector = row["embedding"]
+    if isinstance(vector, bytes):
+        vector = struct.unpack(f"<{len(vector) // 4}f", vector)
+    return PreparedAtomicMemoryProjection(
+        kind=content.kind,
+        text=content.text,
+        description=content.description,
+        searchable_text=row["searchable_text"],
+        content_hash=sha256(canonical_json(content.model_dump(mode="json", by_alias=True))).hexdigest(),
+        embedding=None if vector is None else tuple(float(value) for value in vector),
+        embedding_profile=index.capabilities.embedding_profile,
+        profile_fingerprint=row["profile_fingerprint"],
+        embedding_input_hash=row["embedding_input_hash"],
+    )
+
+
 async def _projection_differences(
     connection: AsyncConnection,
     index: AtomicMemoryIndex,
@@ -404,6 +561,7 @@ async def verify_atomic_memory_current(
     sources: SourceRepository | None = None,
     require_evidence: bool = False,
     require_evidence_projection: bool = False,
+    require_alias_projection: bool = False,
 ) -> AtomicMemoryProjectionRebuildReport:
     """Check current projections and optionally each exact revision's retained evidence without business row locks.
 
@@ -470,10 +628,15 @@ async def verify_atomic_memory_current(
     )
     if obsolete:
         errors.append(f"{obsolete} nonactive or orphan rows remain in the current projection")
+    alias_counts: dict[str, int] = {}
+    if require_alias_projection:
+        alias_report = await verify_atomic_memory_aliases(connection, index, batch_size=batch_size)
+        errors.extend(alias_report.errors)
+        alias_counts = alias_report.counts
     return AtomicMemoryProjectionRebuildReport(
         ready=not errors,
         profile_fingerprint=fingerprint,
-        counts={"active_rows": active, "obsolete_rows": obsolete, **history_counts},
+        counts={"active_rows": active, "obsolete_rows": obsolete, **history_counts, **alias_counts},
         errors=tuple(errors),
     )
 
@@ -518,10 +681,15 @@ async def rebuild_atomic_memory_current(
             record = await _record(connection, artifacts, scope_id, artifact_id, for_update=True)
             if record.state.state is AtomicMemoryStateValue.ACTIVE:
                 await publisher.publish(connection, scope_id, record, await publisher.prepare(record.artifact.content))
+            elif record.state.state is AtomicMemoryStateValue.MERGED:
+                await publisher.rebuild_alias(
+                    connection, scope_id, record, await publisher.prepare(record.artifact.content)
+                )
             else:
-                await publisher.remove(connection, scope_id, artifact_id)
+                await publisher.retire(connection, scope_id, record)
             after = scope_id, artifact_id
     await connection.execute(index.table.delete().where(_obsolete_current(index)))
+    await connection.execute(index.alias_table.delete().where(_obsolete_alias(index)))
     await rebuild_atomic_memory_evidence(connection, index, batch_size=batch_size, sources=sources, guard=guard)
     return await verify_atomic_memory_current(
         connection,
@@ -530,7 +698,49 @@ async def rebuild_atomic_memory_current(
         sources=sources,
         require_evidence=True,
         require_evidence_projection=True,
+        require_alias_projection=True,
     )
+
+
+async def _publish_rebuilt_record(
+    connection: AsyncConnection,
+    index: AtomicMemoryIndex,
+    artifacts: ArtifactRepository,
+    publisher: AtomicMemoryProjectionPublisher,
+    scope_id: str,
+    before: AtomicMemoryRecord,
+    prepared: PreparedAtomicMemoryProjection | None,
+    retained: RowMapping | None,
+    fingerprint: str | None,
+) -> tuple[int, int]:
+    await artifacts.lock_heads(connection, scope_id, (before.ref,))
+    current = await _record(connection, artifacts, scope_id, before.ref.artifact_id, for_update=True)
+    if current.as_read() != before.as_read() or current.artifact.content != before.artifact.content:
+        raise AtomicMemoryIndexError(
+            "rebuild-conflict", "Atomic Memory authority changed during projection preparation"
+        )
+    if publisher.profile_fingerprint != fingerprint:
+        raise AtomicMemoryIndexError("embedding-profile", "Embedding profile changed during rebuild")
+    if prepared is not None:
+        publisher.validate_prepared(prepared)
+    if current.state.state is AtomicMemoryStateValue.MERGED:
+        if prepared is not None:
+            await publisher.rebuild_alias(connection, scope_id, current, prepared)
+        elif retained is not None:
+            await publisher.rebuild_alias_from_row(connection, scope_id, current, retained)
+        else:
+            raise AtomicMemoryIndexError("rebuild-conflict", "Merged alias has no prepared or compatible vector")
+        return 1, 0
+    if prepared is not None:
+        await publisher.publish(connection, scope_id, current, prepared)
+        return 1, 0
+    present = await connection.scalar(
+        select(index.table.c.artifact_id).where(
+            index.table.c.scope_id == scope_id, index.table.c.artifact_id == current.ref.artifact_id
+        )
+    )
+    await publisher.retire(connection, scope_id, current)
+    return 0, int(present is not None)
 
 
 async def rebuild_atomic_memory_projection(
@@ -569,7 +779,7 @@ async def rebuild_atomic_memory_projection(
         embedding_model=embedding_model,
     )
     after = None
-    rebuilt = removed = 0
+    rebuilt = removed = embedding_calls = 0
     while True:
         async with database.transaction() as connection:
             batch = await _identity_batch(connection, after, batch_size)
@@ -578,30 +788,28 @@ async def rebuild_atomic_memory_projection(
         for scope_id, artifact_id in batch:
             async with database.transaction() as connection:
                 before = await _record(connection, artifacts, scope_id, artifact_id, for_update=True)
-            prepared = (
-                await publisher.prepare(before.artifact.content)
-                if before.state.state is AtomicMemoryStateValue.ACTIVE
-                else None
-            )
+                retained = await _retained_projection(connection, index, scope_id, before)
+            prepares_content = before.state.state in {AtomicMemoryStateValue.ACTIVE, AtomicMemoryStateValue.MERGED}
+            prepared = None
+            if prepares_content and retained is None:
+                prepared = await publisher.prepare(before.artifact.content)
+                embedding_calls += int(profile is not None)
+            elif before.state.state is AtomicMemoryStateValue.ACTIVE and retained is not None:
+                prepared = _prepared_retained(index, before, retained)
             async with database.transaction() as connection:
-                await artifacts.lock_heads(connection, scope_id, (before.ref,))
-                current = await _record(connection, artifacts, scope_id, artifact_id, for_update=True)
-                if current.as_read() != before.as_read():
-                    raise AtomicMemoryIndexError(
-                        "rebuild-conflict", "Atomic Memory authority changed during projection preparation"
-                    )
-                if prepared is not None:
-                    publisher.validate_prepared(prepared)
-                    await publisher.publish(connection, scope_id, current, prepared)
-                    rebuilt += 1
-                else:
-                    present = await connection.scalar(
-                        select(index.table.c.artifact_id).where(
-                            index.table.c.scope_id == scope_id, index.table.c.artifact_id == artifact_id
-                        )
-                    )
-                    await publisher.remove(connection, scope_id, artifact_id)
-                    removed += present is not None
+                rebuilt_count, removed_count = await _publish_rebuilt_record(
+                    connection,
+                    index,
+                    artifacts,
+                    publisher,
+                    scope_id,
+                    before,
+                    prepared,
+                    retained,
+                    None if profile is None else atomic_memory_profile_fingerprint(profile),
+                )
+                rebuilt += rebuilt_count
+                removed += removed_count
             after = scope_id, artifact_id
     async with database.transaction() as connection:
         obsolete = int(
@@ -609,6 +817,7 @@ async def rebuild_atomic_memory_projection(
         )
         await connection.execute(index.table.delete().where(_obsolete_current(index)))
         removed += obsolete
+        await connection.execute(index.alias_table.delete().where(_obsolete_alias(index)))
         await rebuild_atomic_memory_evidence(connection, index, batch_size=batch_size, sources=sources)
         report = await verify_atomic_memory_current(
             connection,
@@ -617,6 +826,7 @@ async def rebuild_atomic_memory_projection(
             sources=sources,
             require_evidence=True,
             require_evidence_projection=True,
+            require_alias_projection=True,
         )
     return report.model_copy(
         update={
@@ -624,7 +834,7 @@ async def rebuild_atomic_memory_projection(
                 **report.counts,
                 "rebuilt_rows": rebuilt,
                 "removed_rows": removed,
-                "embedding_calls": rebuilt if index.capabilities.vector else 0,
+                "embedding_calls": embedding_calls,
                 "elapsed_ms": int((perf_counter() - started) * 1000),
             }
         }
@@ -636,6 +846,7 @@ __all__ = [
     "rebuild_atomic_memory_current",
     "rebuild_atomic_memory_evidence",
     "rebuild_atomic_memory_projection",
+    "verify_atomic_memory_aliases",
     "verify_atomic_memory_current",
     "verify_atomic_memory_evidence",
 ]
