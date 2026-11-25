@@ -129,8 +129,9 @@ from the Scope API rather than inventing it locally.
 
 ## Recall query
 
-`PowerContextRecall` sends the latest human message, trimmed. A message longer than 8,192 characters or 8,192 UTF-8
-bytes recalls from its most recent text, cut to the last 8,192 characters and then to the last 8,192 bytes.
+`PowerContextRecall` sends the latest human message, trimmed, with recognized credentials replaced by `[REDACTED]` as
+described in [automatic prompt privacy](index.md#automatic-prompt-privacy). A message longer than 8,192 characters or
+8,192 UTF-8 bytes recalls from its most recent text, cut to the last 8,192 characters and then to the last 8,192 bytes.
 
 ## Treat recalled context as untrusted history
 
