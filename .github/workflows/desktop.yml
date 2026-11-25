@@ -93,7 +93,7 @@ jobs:
         run: cargo run --locked --manifest-path src-tauri/Cargo.toml --example credential_probe
       - name: Set up Python fixture tooling
         timeout-minutes: 5
-        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
         with:
           version: "0.10.12"
           # Use the release source directly; a stalled mirror download can exhaust the job budget.
@@ -209,7 +209,7 @@ jobs:
       - run: pnpm ipc:check
       - name: Set up Python for product resource bundle regression
         if: matrix.runner == 'macos-15'
-        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
         with:
           version: '0.13.5'
           enable-cache: true
@@ -316,7 +316,7 @@ jobs:
             cargo run --locked --manifest-path src-tauri/Cargo.toml --example credential_probe
           '
       - name: Set up Python fixture tooling
-        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
         with:
           version: "0.10.12"
           enable-cache: true
@@ -380,7 +380,7 @@ jobs:
           git fetch --no-tags https://github.com/oceanbase/powercontext.git refs/tags/powercontext-v1.0.0:refs/tags/powercontext-v1.0.0
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           if ((git rev-parse refs/tags/powercontext-v1.0.0) -ne 'ec97efba5f26fc972e9d8bf5027d8233acab3ca1') { throw 'Unexpected Server version baseline tag' }
-      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+      - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
         with:
           version: "0.10.12"
           enable-cache: true
