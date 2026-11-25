@@ -72,8 +72,7 @@ HTTPS 证书校验仍然启用。安装与持久化同意见[连接远程 Server
 ## 把提示词时上下文交给 gateway
 
 OpenCode 的模型请求经过 PowerContext gateway 时，gateway 为每一轮准备并注入上下文；设置 `PC_GATEWAY_SEDIMENT=on`
-后，gateway 也会采集这一轮。Core 检查 gateway 转发的每个请求，拒绝不是 gateway 注入的 prepared-context 块，
-因此同时带有插件上下文的一轮会失败。启动 OpenCode 前，关闭插件的提示词时召回和提示词采集：
+后，gateway 也会采集这一轮。启动 OpenCode 前，关闭插件的提示词时召回和提示词采集：
 
 ```bash
 export POWERCONTEXT_OPENCODE_PROMPT_RECALL=false
@@ -81,14 +80,15 @@ export POWERCONTEXT_OPENCODE_CAPTURE_PROMPTS=false
 opencode
 ```
 
-关闭召回后，插件不发送准备请求，不向用户消息添加上下文，也不提供 `pc_prepare_context` 工具。该工具的结果会留在
-会话中并带有 prepared-context 块。Core 会以 HTTP 422 拒绝把该结果返回给模型的请求以及该会话之后的每个请求，
-在每种隐私模式下都是如此；gateway 返回 HTTP 503 `gate_paused`。`POWERCONTEXT_OPENCODE_CAPTURE_PROMPTS` 为
+关闭召回后，插件不发送准备请求，不向用户消息添加上下文，也不提供 `pc_prepare_context` 工具。
+`POWERCONTEXT_OPENCODE_CAPTURE_PROMPTS` 为
 `true` 时插件仍会采集提示词；两项都关闭时，插件不再为提示词发送任何请求。Session Scope、其他 `pc_*` 工具和 TUI
 照常工作。OpenCode 直接调用模型时，gateway 不承载这些流量，请保留默认值。
 
-OpenCode 不保存召回添加到用户消息中的上下文，因此开启召回时开始的会话可以继续经过 gateway。但
-`pc_prepare_context` 的结果会被保存：如果模型在某个会话中调用过该工具，请新建 OpenCode 会话，不要继续那个会话。
+你可以继续已有的 OpenCode 会话。OpenCode 会丢弃提示词时召回添加到用户消息中的上下文，并将
+`pc_prepare_context` 工具结果保存在会话历史中。当重发的工具结果包含完整的 PowerContext prepared-context 块时，
+gateway 会将该结果的文本替换为 `PowerContext plugin prepared context omitted by the gateway.`，并保留工具调用 ID。
+请求和响应仍会经过 Core 的常规检查。
 
 关闭召回后，提示词时上下文只来自 gateway。gateway 在 `X-PowerContext-Scope-ID` 选择的 Scope 中准备和采集，
 未发送该请求头时使用 `PC_GATEWAY_DEFAULT_SCOPE`。若要使用插件为 Session 或 workspace 解析的 Scope，请在请求头
@@ -101,9 +101,15 @@ OpenCode 的每一轮准备并注入上下文；独立运行的 gateway 需要�
 OpenCode 总是发送流式请求。指向 gateway `/gateway/v1` 的 OpenCode provider 请使用 `@ai-sdk/openai`，它使用
 Responses 路由。gateway 以非流式方式向上游模型请求 Responses 结果，再把放行的结果以流式重放，因此在 Core 的任何
 [隐私模式](../operate/inference-protection.md#配置受支持的目标)下，流式都不会阻止这一轮完成或被采集。enforcing 模式的
-Core 仍会执行它的其他请求和响应规则。`@ai-sdk/openai-compatible` 使用 Chat Completions 路由，gateway 会转发流式响应。
-enforcing 模式的 Core 会扣留这一轮，gateway 返回 HTTP 400。非 enforcing 模式的 Core（包括默认的 `disabled`
-模式）下，gateway 会放行流式响应，但不会采集这一轮，因为它只采集 JSON 响应。
+Core 仍会执行它的其他请求和响应规则。`@ai-sdk/openai-compatible` 使用 Chat Completions 路由。
+enforcing 模式的 Core 会扣留流式 Chat Completions 响应，gateway 返回 HTTP 400。非 enforcing 模式的 Core
+（包括默认的 `disabled` 模式）下，gateway 会原样放行流式响应。设置 `PC_GATEWAY_SEDIMENT=on` 后，
+gateway 还会拼接终止流式响应中的助手文本，并采集已完成的回合。
+
+在任何隐私模式下（包括 `disabled`），Core 都需要为 `PC_GATEWAY_UPSTREAM_PROFILE` 指定的 profile（未设置时为
+`default`）配置目标。没有目标时，Core 以 `target_unsupported` 扣留每个请求，gateway 对两条路由上的每一轮都返回
+HTTP 400，而不只是流式的 Chat Completions 轮次。gateway 响应体的 `reason_codes` 字段写明原因，可据此区分这两种情况。
+见[配置受支持的目标](../operate/inference-protection.md#配置受支持的目标)。
 
 ## 验证安装
 

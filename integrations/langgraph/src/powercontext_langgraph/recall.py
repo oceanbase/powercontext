@@ -28,6 +28,7 @@ from powercontext.client import ClientError, ServerResponseError
 from powercontext.http import PrepareContextRequest, PreparedContextStatus
 
 from ._prepared_context import bounded_recall_query
+from ._prompt_privacy import scrub_secrets
 from .client import ResolvedConfig, open_client, resolve_config, resolve_server_scope
 from .runtime import current_scope
 
@@ -120,9 +121,12 @@ class PowerContextRecall:
                     return self._turn_cache[key]
                 request = PrepareContextRequest(
                     scope_id=scope_id,
-                    # ``PrepareContextRequest.query`` has a public length limit that a human turn can exceed. The
-                    # query keeps the end of a long turn so recall stays best-effort instead of failing validation.
-                    query=bounded_recall_query(query),
+                    # Recognized credentials never leave as part of the query. ``PrepareContextRequest.query`` also
+                    # has a public length limit that a human turn can exceed; the query keeps the end of a long turn
+                    # so recall stays best-effort instead of failing validation.
+                    query=bounded_recall_query(
+                        scrub_secrets(query, f"Bearer {config.token}" if config.token else None)
+                    ),
                     max_bytes=config.max_bytes,
                     **({"assembly": config.context_assembly} if config.context_assembly is not None else {}),
                 )

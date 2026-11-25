@@ -63,8 +63,9 @@ middleware 本身支持同步 `invoke` 和 `stream`；异步应用应直接使�
 每个模型步骤中，middleware 都会：
 
 1. 读取最新的人类消息，不修改 state；
-2. 使用解析后的 scope 和字节上限调用 `/v1/context/prepare`。query 是去掉首尾空白的该消息；超过 8192 个字符或
-   8192 个 UTF-8 字节的消息改用最近的文本召回，先取末尾 8192 个字符，再截到末尾 8192 字节；
+2. 使用解析后的 scope 和字节上限调用 `/v1/context/prepare`。query 是去掉首尾空白的该消息，识别到的凭据按
+   [自动 prompt 隐私策略](index.md#自动-prompt-隐私策略)替换为 `[REDACTED]`；超过 8192 个字符或 8192 个 UTF-8
+   字节的消息改用最近的文本召回，先取末尾 8192 个字符，再截到末尾 8192 字节；
 3. 向当前 system message 追加一个独立文本块；
 4. 文本块以 `PowerContext host-supplied context` 开头，后接 Server 准备的内容；
    内容顶部的信任策略把其后的全部内容标为不可信的历史数据。
@@ -85,8 +86,9 @@ middleware = PowerContextMiddleware(auto_capture=True)
 LangChain 的 `structured_response` 序列化。采集不包含召回 system block、工具输出或中间的 tool-calling 模型消息。
 
 采集结果是 Source 证据，不是推断完成的 Memory entry。配置的 scheduler 或显式 `flush_memory` 操作随后执行标准的
-Source-to-Memory 抽取。这样既保留 lineage，也不会把未经处理的模型输出直接当成已经审核的持久事实。采集内容有长度
-上限，但不保证一定不含 secret；应用必须先执行自己的输入和输出策略，再选择开启。
+Source-to-Memory 抽取。这样既保留 lineage，也不会把未经处理的模型输出直接当成已经审核的持久事实。用户消息或助手回答含可识别
+凭据的轮次整轮跳过。识别是尽力而为，因此采集内容不保证一定不含 secret；应用必须先执行自己的输入和输出策略，
+再选择开启。
 
 模型或工具中止运行时，LangChain 不会执行 `after_agent`；因此，没有最终回答的失败运行不会被采集。
 
@@ -111,6 +113,58 @@ middleware 自己持有 `PowerContextScope`，并使用独立的 `POWERCONTEXT_L
 显式传入的 `PowerContextScope` 优先于环境配置，并且必须指向 Server 中已有的 Scope。两者都没有设置时，使用 Server
 默认 Scope。适配器不会根据 Git、路径、Agent 或 prompt 推导 Scope ID。Token 只保留在 Client 配置中，不会进入
 agent state 或消息内容。
+
+## 把提示词时上下文交给 gateway
+
+应用的模型请求经过 PowerContext gateway 时，gateway 为每次模型调用准备并注入上下文；设置 `PC_GATEWAY_SEDIMENT=on` 后，
+gateway 也会采集这一轮。Core 检查 gateway 转发的每个请求，拒绝不是 gateway 注入的 prepared-context 块，
+在每种隐私模式下都是如此：Core 返回 HTTP 422，gateway 返回 HTTP 503 `gate_paused`。middleware
+会向每次模型调用添加这样的块，因此模型经过 gateway 的 agent 不要加入 `PowerContextMiddleware`，改由 gateway 采集各轮。
+middleware 从不把召回内容保存到 agent state，因此已有的 thread 可以继续经过 gateway。
+
+模型客户端由应用持有。让它指向 gateway 的 Responses 路由，并在 `X-PowerContext-Conversation-ID` 请求头中标识会话：
+
+```python
+import os
+
+from langchain.agents import create_agent
+from langchain_openai import ChatOpenAI
+
+
+def gateway_agent(thread_id: str):
+    model = ChatOpenAI(
+        model="approved-model",
+        base_url="http://127.0.0.1:8787/gateway/v1",
+        api_key=os.environ["PC_GATEWAY_KEY"],
+        use_responses_api=True,
+        default_headers={"X-PowerContext-Conversation-ID": thread_id},
+    )
+    return create_agent(model, tools=application_tools)
+```
+
+`PC_GATEWAY_KEY` 保存 gateway 的 `PC_GATEWAY_API_KEY` 值。这个请求头标识会话：每个会话使用一个稳定的 ID，例如
+checkpointer 的 thread ID，长度为 1～256 个可见 ASCII 字符；不要让所有会话共用一个 ID。组合部署（`PC_GATEWAY_CORE_UDS`）
+默认只向带有这个请求头或其他可识别会话头的请求注入上下文，每条用户消息准备一次，并把结果重放给这条消息的工具循环步骤。
+无法发送这个请求头的应用需要设置 `PC_GATEWAY_INJECTION=on`，此时 gateway 为每个请求分别准备；独立运行的
+gateway（`PC_GATEWAY_CORE_BASE`）只有设置了这一项才会注入。
+见[网关上下文注入](../operate/deploy-server.md#网关上下文注入)。
+
+请使用 Responses 路由（`use_responses_api=True`）。在这个路由上，gateway 以非流式方式调用模型，采集通过检查的响应，
+并以流式重放给发送流式请求的客户端。在 Chat Completions 路由上，enforcing 模式的 Core 会暂缓流式的一轮；非 enforcing
+模式下，gateway 会放行这一轮，但不采集它。
+
+配置 Core 和 gateway 时还需要：
+
+- 除非每个请求都满足 enforcing 规则，否则请让 Core 运行在非 enforcing 隐私模式（`disabled`、`shadow` 或 `advisory`）：
+  enforcing 模式的 Core 会暂缓没有 `store: false`、或没有不超过目标 token 预算的输出上限的 Responses 请求，gateway 返回
+  HTTP 400。gateway 在启动时发现 Core 的模式，修改模式后请重启 gateway。
+- 任何隐私模式下，Core 都需要为 `PC_GATEWAY_UPSTREAM_PROFILE` 指定的 profile（未设置时为 `default`）配置目标。
+  没有目标时，Core 以 `target_unsupported` 暂缓每个请求，gateway 返回 HTTP 400。
+  见[配置受支持的目标](../operate/inference-protection.md#配置受支持的目标)。
+- 把 `PC_GATEWAY_UPSTREAM_URL_RESPONSES` 和 `PC_GATEWAY_UPSTREAM_API_KEY_RESPONSES` 设为供应商的 Responses 端点和密钥，
+  设置 `PC_GATEWAY_SEDIMENT=on`；Core 启用鉴权时还要设置 `PC_GATEWAY_CORE_TOKEN`。
+- gateway 在 `PC_GATEWAY_DEFAULT_SCOPE` 指定的同一个 Scope 中准备和采集所有会话。请把它设为 middleware 使用过的 Scope，
+  使 gateway 能召回之前采集的 Memory。
 
 ## 故障行为
 

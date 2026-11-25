@@ -43,8 +43,9 @@ agent = Agent(
 
 该 Capability 提供 `powercontext_search`、`powercontext_remember` 和 `powercontext_context`。它还会从最新文本
 User Prompt 请求 `prepare_context`，并在一个 run 内最多前置一次不可信证据块。即使新 run 复用旧 message
-history，也会重新准备 Context。超过 8192 个字符或 8192 个 UTF-8 字节的 prompt 改用最近的文本召回，先取末尾
-8192 个字符，再截到末尾 8192 字节。
+history，也会重新准备 Context。query 是去掉首尾空白的该 prompt，识别到的凭据按
+[自动 prompt 隐私策略](index.md#自动-prompt-隐私策略)替换为 `[REDACTED]`。超过 8192 个字符或 8192 个 UTF-8 字节的
+prompt 改用最近的文本召回，先取末尾 8192 个字符，再截到末尾 8192 字节。
 
 如果只需要工具，不需要自动准备与采集，可以只挂载 Toolset：
 
@@ -106,7 +107,8 @@ Flush 和工具调用中复用 Server 返回的 Scope ID。显式 ID 必须对�
 ## 决定是否采集事件
 
 Capture 默认关闭。只有在允许把初始用户文本、可见模型文本和工具调用、已完成的工具参数与结果发送到指定 scope
-时，才设置 `POWERCONTEXT_PYDANTIC_AI_CAPTURE_EVENTS=true`。Thinking/reasoning 内容不会采集。事件会清洗敏感键、
+时，才设置 `POWERCONTEXT_PYDANTIC_AI_CAPTURE_EVENTS=true`。Thinking/reasoning 内容不会采集。含可识别凭据的用户
+prompt 不会采集，见[自动 prompt 隐私策略](index.md#自动-prompt-隐私策略)。事件会清洗敏感键、
 已知环境凭证和 Codex 凭证，按配置的字节上限渲染，并使用
 `powercontext.pydantic-ai-capture-event/v1` schema。
 
@@ -115,6 +117,67 @@ Capture 默认关闭。只有在允许把初始用户文本、可见模型文本
 显式工具失败则转换为 `ModelRetry`。HTTP 401 或 403 首次出现时只记录一条不含凭证的配置告警。
 
 凭证清洗不能保证普通项目内容不敏感，请同时保护 Server、scope、数据库和日志。
+
+## 把提示词时上下文交给 gateway
+
+Agent 的模型请求经过 PowerContext gateway 时，gateway 为每次模型调用准备并注入上下文；设置 `PC_GATEWAY_SEDIMENT=on` 后，
+gateway 也会采集这一轮。Core 检查 gateway 转发的每个请求，拒绝不是 gateway 注入的 prepared-context 块，
+在每种隐私模式下都是如此：Core 返回 HTTP 422，gateway 返回 HTTP 503 `gate_paused`。本适配器有两处会产生这样的块：
+
+- `PowerContext` Capability 在每次运行中添加一个。请改用 `PowerContextToolset`，由 gateway 采集各轮。
+- `powercontext_context` 的工具结果带有一个，Core 会拒绝把它返回给模型的请求。请过滤掉这个工具。
+
+`openai:` 模型字符串本身就会选择 Responses 模型；要让它指向 gateway 的 `/gateway/v1`，请显式构造：
+
+```python
+import os
+
+from pydantic_ai import Agent
+from pydantic_ai.models.openai import OpenAIResponsesModel
+from pydantic_ai.providers.openai import OpenAIProvider
+from powercontext_pydantic_ai import PowerContextToolset
+
+model = OpenAIResponsesModel(
+    "approved-model",
+    provider=OpenAIProvider(base_url="http://127.0.0.1:8787/gateway/v1", api_key=os.environ["PC_GATEWAY_KEY"]),
+)
+toolset = PowerContextToolset().filtered(lambda ctx, tool_def: tool_def.name != "powercontext_context")
+agent = Agent(model, toolsets=[toolset])
+
+result = await agent.run(
+    prompt,
+    message_history=history,
+    model_settings={"extra_headers": {"X-PowerContext-Conversation-ID": conversation_id}},
+)
+```
+
+`PC_GATEWAY_KEY` 保存 gateway 的 `PC_GATEWAY_API_KEY` 值。这个请求头标识会话：每个会话使用一个稳定的 ID，长度为 1～256
+个可见 ASCII 字符；不要让所有会话共用一个 ID。组合部署（`PC_GATEWAY_CORE_UDS`）
+默认只向带有这个请求头或其他可识别会话头的请求注入上下文，每条用户消息准备一次，并把结果重放给本次运行的工具循环步骤。
+无法发送这个请求头的应用需要设置 `PC_GATEWAY_INJECTION=on`，此时 gateway 为每个请求分别准备；独立运行的
+gateway（`PC_GATEWAY_CORE_BASE`）只有设置了这一项才会注入。
+见[网关上下文注入](../operate/deploy-server.md#网关上下文注入)。
+
+开始经过 gateway 时请使用新的消息历史。使用 Capability 的运行会把召回内容作为 system prompt part 保留在历史中；
+模型调用过 `powercontext_context` 的历史会保留该结果。Core 会拒绝带有其中任何一种的请求。经过 gateway 的运行，
+其历史不含注入的上下文，可以传给下一次运行。
+
+请使用 Responses 路由。在这个路由上，gateway 以非流式方式调用模型，采集通过检查的响应，
+并以流式重放给发送流式请求的客户端。`openai-chat:` 模型使用 Chat Completions 路由，在那里，enforcing 模式的 Core
+会暂缓流式运行（`run_stream`）；非 enforcing 模式下，gateway 会放行它，但不采集它。
+
+配置 Core 和 gateway 时还需要：
+
+- 除非每个请求都满足 enforcing 规则，否则请让 Core 运行在非 enforcing 隐私模式（`disabled`、`shadow` 或 `advisory`）：
+  enforcing 模式的 Core 会暂缓没有 `store: false`、或没有不超过目标 token 预算的输出上限的 Responses 请求，gateway 返回
+  HTTP 400。gateway 在启动时发现 Core 的模式，修改模式后请重启 gateway。
+- 任何隐私模式下，Core 都需要为 `PC_GATEWAY_UPSTREAM_PROFILE` 指定的 profile（未设置时为 `default`）配置目标。
+  没有目标时，Core 以 `target_unsupported` 暂缓每个请求，gateway 返回 HTTP 400。
+  见[配置受支持的目标](../operate/inference-protection.md#配置受支持的目标)。
+- 把 `PC_GATEWAY_UPSTREAM_URL_RESPONSES` 和 `PC_GATEWAY_UPSTREAM_API_KEY_RESPONSES` 设为供应商的 Responses 端点和密钥，
+  设置 `PC_GATEWAY_SEDIMENT=on`；Core 启用鉴权时还要设置 `PC_GATEWAY_CORE_TOKEN`。
+- gateway 在 `PC_GATEWAY_DEFAULT_SCOPE` 指定的同一个 Scope 中准备和采集所有会话。请把它设为 Toolset 解析的 Scope，
+  使工具搜索和写入的正是 gateway 召回的 Memory。
 
 ## 与 MCP 备选方案比较
 
