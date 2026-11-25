@@ -62,10 +62,10 @@ CHANNELS = {
     ),
 }
 ROUTE_TARGETS = {
-    "codex": {"responses": CHANNELS["codex"][3]},
+    "codex": {"responses": (CHANNELS["codex"][3], CHANNELS["codex"][0])},
     "copilot": {
-        "chat/completions": CHANNELS["copilot"][3],
-        "responses": "https://api.githubcopilot.com/responses",
+        "chat/completions": (CHANNELS["copilot"][3], CHANNELS["copilot"][0]),
+        "responses": ("https://api.githubcopilot.com/responses", "gpt-6-luna"),
     },
 }
 PROFILE_ENV = {
@@ -97,11 +97,11 @@ def inference_targets(channel: str) -> dict[str, dict[str, str | bool]]:
     return {
         profiles[PROFILE_ENV[route]]: {
             "endpoint": endpoint,
-            "model": CHANNELS[channel][0],
+            "model": model,
             "protocol": "openai-chat" if route == "chat/completions" else "openai-responses",
             "allow_streaming": True,
         }
-        for route, endpoint in ROUTE_TARGETS[channel].items()
+        for route, (endpoint, model) in ROUTE_TARGETS[channel].items()
     }
 
 
@@ -524,11 +524,8 @@ async def exercise_routes(
                     timeout=60,
                     http_client=httpx2.AsyncClient(trust_env=False),
                 ) as sdk:
-                    routes = [("responses", "gpt-6-luna")]
-                    if channel == "copilot":
-                        routes.insert(0, ("chat/completions", "claude-haiku-5.5"))
                     cases = result["routes"] = {}
-                    for route, model in routes:
+                    for route, (_, model) in ROUTE_TARGETS[channel].items():
                         for stream in [False, True]:
                             key = f"{route}:{'sse' if stream else 'json'}"
                             try:
