@@ -59,6 +59,9 @@ def hermes_modules(monkeypatch):
 
 
 class FakeClient:
+    # A subclass or a test sets the configured Authorization value; the provider reads it like the real client's.
+    authorization: str | None = None
+
     def __init__(self) -> None:
         self.calls: list[tuple[str, tuple[Any, ...], dict[str, Any]]] = []
         self.base_url = "http://powercontext.test:8000"
@@ -913,6 +916,70 @@ def test_pre_compress_filters_roles_and_redacts_secrets(provider_and_client):
     assert "hunter2" not in content
     assert "[REDACTED]" in content
     assert "deployment" in content
+
+
+@pytest.mark.parametrize("role", ["user", "assistant"])
+@pytest.mark.parametrize("case", PROMPT_PRIVACY_CASES, ids=[case["id"] for case in PROMPT_PRIVACY_CASES])
+def test_pre_compress_keeps_recognized_credentials_out_of_the_checkpoint(tmp_path, hermes_modules, caplog, case, role):
+    provider_module, _cli_module = hermes_modules
+    helpers = importlib.import_module("plugins.powercontext.helpers")
+    client = FakeClient()
+    client.authorization = case.get("authorization")
+    provider = provider_module.PowerContextMemoryProvider(
+        {"capture_pre_compress": True}, client_factory=lambda _config: client
+    )
+    provider.initialize("session-1", hermes_home=str(tmp_path), agent_identity="coder", user_id="user-7")
+    window = [
+        {"role": "user", "content": "Keep the public API stable."},
+        {"role": role, "content": case["prompt"]},
+    ]
+
+    with caplog.at_level(logging.DEBUG):
+        try:
+            provider.on_pre_compress(window, require_checkpoint=True)
+        finally:
+            provider.shutdown()
+
+    captures = [call for call in client.calls if call[0] == "capture_content"]
+    assert len(captures) == 1
+    content = captures[0][1][2]
+    metadata = captures[0][2]["metadata"]
+    assert metadata["message_count"] == 2
+    assert metadata["powercontext_capture_coverage"]["status"] == "complete"
+    if case["sensitive"]:
+        # The message stays in the window with its credential replaced, so the checkpoint still commits.
+        assert content.startswith("[user] Keep the public API stable.\n")
+        assert "[REDACTED]" in content
+        for marker in ("synthetic-value-2084", "synthetic_value_2084", "SyntheticValue2084"):
+            assert marker not in json.dumps({"content": content, "metadata": metadata})
+            assert marker not in caplog.text
+    else:
+        assert (
+            content == f"[user] Keep the public API stable.\n[{role}] {helpers.redact_secrets(case['prompt'].strip())}"
+        )
+
+
+def test_required_checkpoint_commits_a_window_with_a_recognized_credential_once(provider_and_client):
+    provider, client = provider_and_client
+    provider._config["capture_pre_compress"] = True
+    window = [
+        {"role": "user", "content": "Which header does the deploy job send?"},
+        # The plugin's own rule consumes the scheme word and leaves this value; the shared rule replaces it.
+        {"role": "assistant", "content": "It sends Authorization: Bearer synthetic-value-2084 to the registry."},
+    ]
+
+    provider.on_pre_compress(window, require_checkpoint=True)
+    provider.on_pre_compress(window, require_checkpoint=True)
+    provider.on_pre_compress(
+        [*window, {"role": "user", "content": "Rotate it after the release."}], require_checkpoint=True
+    )
+
+    captures = [call for call in client.calls if call[0] == "capture_content"]
+    assert [capture[1][2] for capture in captures] == [
+        "[user] Which header does the deploy job send?\n[assistant] It sends [REDACTED]",
+        "[user] Rotate it after the release.",
+    ]
+    assert all(capture[2]["metadata"]["powercontext_capture_coverage"]["status"] == "complete" for capture in captures)
 
 
 @pytest.mark.parametrize(

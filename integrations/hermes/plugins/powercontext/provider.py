@@ -151,13 +151,13 @@ def _recall_query_tail(text: str) -> str:
         return ""
 
 
-def _trace_redaction(text: str, authorization: str | None) -> str:
-    """Redact evaluation-trace text with the shared rule and then the plugin's own rule.
+def _redact_credentials(text: str, authorization: str | None) -> str:
+    """Redact text with the shared rule and then the plugin's own rule.
 
-    The trace redacts everything the recall query redacts, and the plugin's rule then redacts what it still recognizes.
-    The shared rule must run first: the plugin's assignment pattern consumes a scheme word or the start of a
-    private-key block (``Authorization: Bearer X`` becomes ``[REDACTED] X``), and the shared rule no longer recognizes
-    what is left.
+    The evaluation trace and the pre-compression checkpoint redact everything the recall query redacts, and the
+    plugin's rule then redacts what it still recognizes. The shared rule must run first: the plugin's assignment
+    pattern consumes a scheme word or the start of a private-key block (``Authorization: Bearer X`` becomes
+    ``[REDACTED] X``), and the shared rule no longer recognizes what is left.
     """
     return _redact_secrets(_scrub_secrets(text, authorization))
 
@@ -889,8 +889,8 @@ class PowerContextMemoryProvider(MemoryProvider):
             self._record_trace_event(
                 "powercontext_injection",
                 session_id=session_key,
-                query=_recall_query_tail(_trace_redaction(query, authorization)),
-                injected_text=_trace_redaction(content.strip(), authorization),
+                query=_recall_query_tail(_redact_credentials(query, authorization)),
+                injected_text=_redact_credentials(content.strip(), authorization),
                 status=trace_status,
                 content_bytes=len(content.encode("utf-8")),
             )
@@ -1087,7 +1087,10 @@ class PowerContextMemoryProvider(MemoryProvider):
             return ""
 
         evidence = evidence_messages if evidence_messages is not None else messages
-        entries = _precompress_entries(evidence)
+        authorization = getattr(client, "authorization", None)
+        # A message is redacted in place rather than left out, so a credential in the transcript never makes a required
+        # checkpoint fail, and fingerprints still hash the original messages.
+        entries = _precompress_entries(evidence, redact=lambda text: _redact_credentials(text, authorization))
         new_entries = _new_precompress_entries(self._precompress_snapshot, entries)
         if not new_entries:
             self._precompress_snapshot = [fingerprint for fingerprint, _message in entries]

@@ -2077,6 +2077,8 @@ async def _open_topic_memory_processor(spec: TopicMemoryWorkerSpec, scope_id: st
                     contexts.repositories.sources,
                     contexts.token_estimator,
                     context_window_tokens=inference.generation_model_context_window_tokens,
+                    # Size windows against the Scope's selected probe Prompt, not the built-in one.
+                    probe_fixed_prompt=fixed_prompts["probe"],
                 ),
                 cursors=contexts.repositories.cursors,
                 leases=contexts.repositories.processing_leases,

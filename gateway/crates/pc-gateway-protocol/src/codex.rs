@@ -30,6 +30,10 @@ pub(super) fn adapt(body: &mut Value, message_list_key: &str) -> Result<(), Rend
     // The endpoint rejects a requested output limit. The Codex CLI sends none, but other
     // agents set one on every request, so it is left out instead of failing their turns.
     fields.remove("max_output_tokens");
+    // Codex uses its own sampling and cache defaults for these unsupported options.
+    for field in ["temperature", "top_p", "prompt_cache_options"] {
+        fields.remove(field);
+    }
     fields
         .entry("instructions")
         .or_insert_with(|| json!("You are Codex."));

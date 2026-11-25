@@ -23,7 +23,7 @@ import {
 import { resolvePowerContextConfig } from "./src/config.js";
 import { buildMemoryGuidance } from "./src/guidance.js";
 import { createPowerContextClient } from "./src/http.js";
-import { registerPowerContextLifecycle } from "./src/lifecycle.js";
+import { registerPowerContextLifecycle, sharedLifecycleState } from "./src/lifecycle.js";
 import { isEligiblePrivateSession } from "./src/privacy.js";
 import { createPowerContextMemoryRuntime } from "./src/runtime.js";
 import { PowerContextMemoryManager } from "./src/manager.js";
@@ -161,7 +161,7 @@ export default definePluginEntry({
       names: [POWERCONTEXT_TASK_OUTCOME_TOOL],
     });
 
-    registerPowerContextLifecycle(api, dependencies);
+    registerPowerContextLifecycle(api, { ...dependencies, state: sharedLifecycleState() });
     api.registerService({
       id: "memory-powercontext",
       start: () => {

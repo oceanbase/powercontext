@@ -125,6 +125,74 @@ a run-local lock. Recall, Capture, and Flush fail open during Server failures; e
 Captured project content can remain sensitive after credential redaction. Protect the Server, scope, database, and
 logs accordingly.
 
+## Leave prompt-time context to the gateway
+
+When the Agent sends its model requests through the PowerContext gateway, the gateway prepares and injects context for
+each model request and, with `PC_GATEWAY_SEDIMENT=on`, captures the turn. Core checks every request the gateway forwards
+and rejects a prepared-context block that the gateway did not inject, in every privacy mode: Core answers HTTP 422 and
+the gateway returns HTTP 503 `gate_paused`. Two parts of this adapter produce such a block:
+
+- The `PowerContext` capability adds one to each run. Use `PowerContextToolset` instead; the gateway captures the turns.
+- `powercontext_context` returns one as its tool result, which makes Core reject the request that returns it to the
+  model. Filter the tool out.
+
+An `openai:` model string already selects the Responses model; build it explicitly to point it at the gateway's
+`/gateway/v1`:
+
+```python
+import os
+
+from pydantic_ai import Agent
+from pydantic_ai.models.openai import OpenAIResponsesModel
+from pydantic_ai.providers.openai import OpenAIProvider
+from powercontext_pydantic_ai import PowerContextToolset
+
+model = OpenAIResponsesModel(
+    "approved-model",
+    provider=OpenAIProvider(base_url="http://127.0.0.1:8787/gateway/v1", api_key=os.environ["PC_GATEWAY_KEY"]),
+)
+toolset = PowerContextToolset().filtered(lambda ctx, tool_def: tool_def.name != "powercontext_context")
+agent = Agent(model, toolsets=[toolset])
+
+result = await agent.run(
+    prompt,
+    message_history=history,
+    model_settings={"extra_headers": {"X-PowerContext-Conversation-ID": conversation_id}},
+)
+```
+
+`PC_GATEWAY_KEY` holds the gateway's `PC_GATEWAY_API_KEY` value. The header names the conversation: use one stable ID
+per conversation, of 1 to 256 visible ASCII characters, and never one ID for every conversation. A combined deployment
+(`PC_GATEWAY_CORE_UDS`) injects by default only into requests that carry this header or another recognized session
+header, prepares once per user message, and replays that context to the tool-loop steps of the run. An application that
+cannot send the header needs `PC_GATEWAY_INJECTION=on`, which prepares each request separately; a standalone gateway
+(`PC_GATEWAY_CORE_BASE`) injects only with that setting. See [Gateway context
+injection](../operate/deploy-server.md#gateway-context-injection).
+
+Start behind the gateway with new message history. History from runs with the capability keeps the recalled context as a
+system prompt part, and history in which the model called `powercontext_context` keeps that result; Core rejects a
+request that carries either. History from runs behind the gateway carries no injected context and can be passed to the
+next run.
+
+Use the Responses route. There the gateway calls the model without streaming, captures the checked response, and replays
+it as a stream to a client that streams. An `openai-chat:` model uses the Chat Completions route, where an enforcing
+Core withholds a streamed run (`run_stream`), and with a non-enforcing Core the gateway releases it without capturing
+it.
+
+Configure Core and the gateway as well:
+
+- Run Core in a non-enforcing privacy mode (`disabled`, `shadow`, or `advisory`) unless every request meets the
+  enforcing rules: an enforcing Core withholds a Responses request without `store: false` or without an output limit
+  within the target's token budget, and the gateway returns HTTP 400. Restart the gateway after changing the mode,
+  because it discovers the mode at startup.
+- Core needs a target for the profile that `PC_GATEWAY_UPSTREAM_PROFILE` names (`default` unless set), in every privacy
+  mode. Without one, Core withholds each request with `target_unsupported` and the gateway returns HTTP 400. See
+  [Configure a supported target](../operate/inference-protection.md#configure-a-supported-target).
+- Set `PC_GATEWAY_UPSTREAM_URL_RESPONSES` and `PC_GATEWAY_UPSTREAM_API_KEY_RESPONSES` to the provider's Responses
+  endpoint and key, `PC_GATEWAY_SEDIMENT=on`, and `PC_GATEWAY_CORE_TOKEN` when Core enforces authentication.
+- The gateway prepares and captures every conversation in the one Scope that `PC_GATEWAY_DEFAULT_SCOPE` names. Set it to
+  the Scope the toolset resolves, so that the tools search and write the Memory the gateway recalls.
+
 ## Compare the MCP fallback
 
 Connecting PowerContext MCP requires no adapter package, but it is a lower-capability option for Pydantic AI. MCP
