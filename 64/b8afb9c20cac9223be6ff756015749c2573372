@@ -1,0 +1,64 @@
+tests/test_ci_package_cache.py
+  s_2ef0feea0a110d::t_9b6028e96c9a50 315-327
+  s_2ef0feea0a110d::t_4baa5f3a963ce4 281-314
+  s_2ef0feea0a110d::t_3530d24c2eecfa 230-266
+  s_2ef0feea0a110d::t_973f85ee674724 73,90,119-126,145-156,169-170,267-280
+  s_2ef0feea0a110d::t_a19705b0fdf972 37,82
+  s_2ef0feea0a110d::t_f94c56c4001dd0 328-354,356-358
+  s_2ef0feea0a110d::t_28d6b5b73d900e 1-36,38-72,74-81,83-89,91-118,127-144,157-168,171-205,210-229
+  s_2ef0feea0a110d::t_3550a97eec8752 355
+  s_2ef0feea0a110d::t_7e60ad69022d63 206-209
+deploy/ci-package-cache/README.md
+  s_2ef0feea0a110d::t_4ad99dc3e7273f 35-39,47-53
+  s_2ef0feea0a110d::t_1a3c08dc744531 1-34,40-46,54-59
+deploy/ci-package-cache/Dockerfile
+  s_2ef0feea0a110d::t_dc6c887aee6a66 1-14
+  s_2ef0feea0a110d::t_1a3c08dc744531 15-22
+docs/en/development/ci-scope.md
+  s_2ef0feea0a110d::t_dc6c887aee6a66 144-145
+e2e/bub/src/powercontext_e2e/harbor_agent.py
+  s_2ef0feea0a110d::t_9a17edd5a9eb24 24,60,173-174,177-178,189,210-212
+  s_2ef0feea0a110d::t_aa4ad3f21fb5b1 115-125
+  s_2ef0feea0a110d::t_3cd47faabc8105 213-214
+scripts/ci_package_cache.py
+  s_2ef0feea0a110d::t_336b912bbac541 38,43-49,83,85-86,100,104,108,112,116,120,124,136,317
+  s_2ef0feea0a110d::t_956aeb758bf13c 158-159,161-162,175-176,201,207-208,217-218,224,246-255,264,276,323-332,360-362,364-365
+  s_2ef0feea0a110d::t_d57f2000a0508b 50
+  s_2ef0feea0a110d::t_fec1f105f76513 234,307,356-358,368
+  s_2ef0feea0a110d::t_7e60ad69022d63 184-190,232-233,235-237,288-292,405-408
+  s_2ef0feea0a110d::t_687f7263c0886e 32
+  s_2ef0feea0a110d::t_7d6c9253611a09 278,298-299
+  s_2ef0feea0a110d::t_6774b539913c18 52-54
+  s_2ef0feea0a110d::t_09ec380e94d7a3 318
+  s_2ef0feea0a110d::t_3e3b2d6af90f91 1-31,33-37,39-42,51,55-82,84,87-99,101-103,105-107,109-111,113-115,117-119,121-123,125-135,137-157,160,163-174,177-183,191-200,202-206,209-216,219-223,225-231,238-245,256-263,265-275,277,279-287,293-297,300-306,308-316,319-322,333-340,342-355,359,363,366-367,370-404,409-421
+  s_2ef0feea0a110d::t_9142cb2decc3a8 341,369
+e2e/bub/tests/test_harbor_job_config.py
+  s_2ef0feea0a110d::t_2e4be0c4da758b 86-89,720-722,729-732
+  s_2ef0feea0a110d::t_3a31a19a64e462 37,85,93,595-598,645,648-654,672-676,679-690,693-719,723-728,733-738
+  s_2ef0feea0a110d::t_a5049d3524e40f 574,589-590,599,610-611,635-640,655-657
+  s_2ef0feea0a110d::t_aff9f776bb6a39 90-92,591-592,661-671,677-678,691-692
+  s_2ef0feea0a110d::t_8e31ee6f210c60 739-740
+e2e/bub/compose.yaml
+  s_2ef0feea0a110d::t_9a17edd5a9eb24 75
+  s_2ef0feea0a110d::t_aa4ad3f21fb5b1 77-79
+.github/workflows/e2e-harness.yml
+  s_2ef0feea0a110d::t_9a17edd5a9eb24 804-809
+docs/zh/development/ci-scope.md
+  s_2ef0feea0a110d::t_dc6c887aee6a66 144-145
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "64b8afb9c20cac9223be6ff756015749c2573372",
+  "prompts": {},
+  "sessions": {
+    "s_2ef0feea0a110d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1a9cf-a4e7-7f63-9c51-1284f7c332e8",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "frf12 <rongfeng.frf@antgroup.com>"
+    }
+  }
+}
