@@ -1148,7 +1148,6 @@ async fn chat_cost_extraction_extends_the_admitted_chat_prefix() {
         &[
             ("PC_GATEWAY_SEDIMENT", "on"),
             ("PC_GATEWAY_INJECTION", "on"),
-            ("PC_GATEWAY_UPSTREAM_URL_RESPONSES", ""),
         ],
         true,
     )
