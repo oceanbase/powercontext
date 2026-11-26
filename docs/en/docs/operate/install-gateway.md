@@ -37,6 +37,16 @@ On Windows, use a WSL2 Ubuntu 22.04 or newer distribution and follow the Linux i
 Run Core and any provider CLI in the same Linux environment. This uses the Linux package, not a native Windows build;
 the distribution CI validates Ubuntu runners, not WSL2 host integration.
 
+## Use the install script
+
+Pass `--gateway` when installing PowerContext. The script installs the Gateway with the same version and performs the download and verification steps below:
+
+```bash
+curl -fsSL https://powercontext.oceanbase.io/install.sh | bash -s -- --gateway
+```
+
+`pc-gateway` is installed in the same directory as `powercontext`. The version selected with `--version` also applies to the Gateway. `POWERCONTEXT_GATEWAY_DOWNLOAD_URL` names an HTTPS directory that holds the same archives and `.sha256` files, such as an internal mirror. On an unsupported platform, the script exits before installing anything. If the download or verification fails, the CLI is already installed, but the script does not install or replace `pc-gateway` and exits with a non-zero status. The option requires a local Server installation and cannot be combined with `--profile client`.
+
 ## Download and verify
 
 The example selects 1.6.0. Use the same release version as Core. No Rust compiler or repository checkout is needed.

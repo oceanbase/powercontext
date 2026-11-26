@@ -6034,6 +6034,12 @@ class SourceRecord(BaseModel):
     ]
     source_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
     content: Annotated[Any, Field(description="Persisted canonical JSON content.")]
+    metadata: Annotated[
+        dict[str, Any] | None,
+        Field(
+            description="Caller-supplied metadata for a Content Source, returned unchanged; an empty object for Sources that carry no caller metadata. Responses from servers that predate this field omit it, which clients report as null and must not treat as proof that the Source has no metadata."
+        ),
+    ] = None
     position: Annotated[StrictInt, Field(ge=1)]
     content_digest: Annotated[StrictStr, Field(pattern="^sha256:[0-9a-f]{64}$")]
 

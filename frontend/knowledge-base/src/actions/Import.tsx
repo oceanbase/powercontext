@@ -77,9 +77,11 @@ export function Import({ scope }: { scope: string }) {
             {(!results || uncertain) && (
               <Button
                 type="primary"
-                loading={mutation.isPending}
+                icon={mutation.isPending ? <span className="import-spinner" aria-hidden /> : undefined}
+                aria-busy={mutation.isPending}
+                aria-disabled={mutation.isPending || undefined}
                 disabled={mode === "upload" && !files.length}
-                onClick={submit}
+                onClick={mutation.isPending ? undefined : submit}
               >
                 {uncertain ? "重试待确认文件" : "开始导入"}
               </Button>
