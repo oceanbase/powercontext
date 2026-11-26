@@ -4330,6 +4330,56 @@ async fn a_stale_reuse_proof_drops_the_replay_and_prepares_once_more() {
 }
 
 #[tokio::test]
+async fn a_refresh_required_with_history_withholds_until_the_history_changes() {
+    let mut verdicts = allow_runs(1);
+    verdicts.push(refresh_required());
+    verdicts.extend(allow_runs(1));
+    let (executor, _, transport, gate) = harness(verdicts, vec![raw_response(), raw_response()], 2);
+    for block in ["first recall", "second recall", "compacted recall"] {
+        gate.prepare_queue
+            .lock()
+            .unwrap()
+            .push_back(Ok(reuse_result(block)));
+    }
+    let renderer = pc_gateway_protocol::OpenAiChatRenderer;
+    let initial = tool_loop_call("first question", 0, false);
+    let mut follow_up = tool_loop_call("first question", 1, false);
+    let compacted = tool_loop_call("next question", 0, false);
+    follow_up
+        .request
+        .messages
+        .extend(compacted.request.messages.clone());
+
+    let run = |call| executor.run(request_control(), call, &renderer, &NoopEvidenceSink);
+    assert!(matches!(
+        run(initial).await,
+        ManagedOutcome::Released { .. }
+    ));
+    assert!(matches!(
+        run(follow_up).await,
+        ManagedOutcome::Withheld {
+            retryable: true,
+            ..
+        }
+    ));
+    assert_eq!(transport.sends.lock().unwrap().len(), 1);
+    assert_eq!(gate.prepare_queries.lock().unwrap().len(), 2);
+    assert!(matches!(
+        run(compacted).await,
+        ManagedOutcome::Released { .. }
+    ));
+
+    let checked = sends(&gate);
+    assert_eq!(checked[1].1.len(), 2);
+    assert!(checked[1].0.contains("first recall"));
+    assert!(checked[1].0.contains("second recall"));
+    assert_eq!(checked[2].1.len(), 1);
+    assert!(checked[2].0.contains("compacted recall"));
+    assert!(!checked[2].0.contains("first recall"));
+    assert!(!checked[2].0.contains("second recall"));
+}
+
+#[tokio::test]
 async fn a_request_refreshes_at_most_once() {
     let (executor, renderer, transport, gate) =
         harness(vec![refresh_required(), refresh_required()], vec![], 2);

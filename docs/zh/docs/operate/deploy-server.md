@@ -187,7 +187,7 @@ Gemini 关闭 Gateway 上下文注入。Claude CLI 只接受新的单轮文本�
 
 ### 网关上下文注入
 
-网关通过 UDS 连接 Core（`PC_GATEWAY_CORE_UDS`，即同机组合部署）时，默认向属于某个会话的 Chat 和 Responses 请求注入准备好的上下文。在同一会话内，每条新的用户消息只准备一次，该回合的后续请求（例如 Agent 的工具循环）精确重放同一结果。
+网关通过 UDS 连接 Core（`PC_GATEWAY_CORE_UDS`，即同机组合部署）时，默认向属于某个会话的 Chat 和 Responses 请求注入准备好的上下文。在同一会话内，每条新的用户消息只准备一次。后续请求（包括工具续写）会为仍在缓存中且原始历史前缀仍然匹配的用户消息精确重放准备块。网关为每个会话最多保留八个用户回合，整个进程最多保留 1,024 个用户回合。条目在五分钟后或 Core 复用绑定到期时失效，以较早者为准。
 
 网关按以下顺序，取第一个值有效的请求头确定会话：
 
@@ -202,9 +202,9 @@ Gemini 关闭 Gateway 上下文注入。Claude CLI 只接受新的单轮文本�
 
 如果这些头均未提供 ID，网关可以根据入口以及模型、开头的指令和第一条用户消息的哈希，识别携带完整历史的 Chat 或 Responses 请求。历史开头必须有用户消息，且其前面只能有 system 或 developer 消息。通过 `previous_response_id` 或 `conversation` 续接的 Responses 请求需要提供请求头才能复用准备结果。推导出的 ID 仅在当前网关进程内用于重放准备结果。开头完全相同的会话可能共享推导出的 ID，需要区分时请发送显式会话头。
 
-如果既没有显式 ID 也无法推导 ID，组合部署默认跳过注入，并记录 `context injection skipped: no conversation identity`。设置 `PC_GATEWAY_INJECTION=on` 后，没有 ID 的请求如果带有可用的用户消息，就会各自准备。设置 `PC_GATEWAY_INJECTION=off` 关闭注入，设置 `PC_GATEWAY_INJECTION_RESPONSES=off` 仅关闭 Responses 入口的注入。独立部署（`PC_GATEWAY_CORE_BASE`）必须设置 `PC_GATEWAY_INJECTION=on` 才会注入。准备结果为空或准备失败时，请求照常发送，不注入内容。只有用户回合会向 Core 查询上下文；同一回合的后续请求复用已准备的块，不再查询，没有可重放身份的非用户尾部直接发送、不召回。网关为证据与日志判定每个请求尾部的类型，见[Gateway 调用证据](gateway-evidence.md#回合类型)。
+如果既没有显式 ID 也无法推导 ID，组合部署默认跳过注入，并记录 `context injection skipped: no conversation identity`。设置 `PC_GATEWAY_INJECTION=on` 后，没有 ID 的请求如果带有可用的用户消息，就会各自准备。设置 `PC_GATEWAY_INJECTION=off` 关闭注入，设置 `PC_GATEWAY_INJECTION_RESPONSES=off` 仅关闭 Responses 入口的注入。独立部署（`PC_GATEWAY_CORE_BASE`）必须设置 `PC_GATEWAY_INJECTION=on` 才会注入。准备结果为空或准备失败时，不为新回合添加准备块。正常重放时，只有新的用户回合会向 Core 查询上下文。没有可重放身份的非用户尾部直接发送，不召回。网关为证据与日志判定每个请求尾部的类型，见[Gateway 调用证据](gateway-evidence.md#回合类型)。
 
-设置 `PC_GATEWAY_INJECTION_CODE=on` 后，准备的上下文同时包含 Scope 代码索引中的代码证据；该选项默认关闭，并要求 Scope 已配置代码仓库。重放的内容因被引用的来源变化（例如 Agent 修改了被引用的文件）而不再通过检查时，网关丢弃该会话的重放，为该请求重新准备一次，而不是把 withhold 返回给客户端。
+设置 `PC_GATEWAY_INJECTION_CODE=on` 后，准备的上下文同时包含 Scope 代码索引中的代码证据；该选项默认关闭，并要求 Scope 已配置代码仓库。当 Core 要求刷新且请求中唯一的重放块属于最新用户消息时，网关可以替换该块，并重新检查请求。如果请求包含历史重放，网关将 Core 的 withhold 返回给客户端，因为判定未指明哪个块未通过验证。
 
 ### 网关固定指令
 

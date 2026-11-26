@@ -31,7 +31,7 @@
 use crate::evidence::CallRecorder;
 use crate::lifecycle::Execution;
 use crate::prefix_store::{PrefixEntry, PrefixOutput, PrefixStore};
-use crate::replay_cache::{message_anchor, PreparedBlock, ReplayCache, MAX_REPLAY_MS};
+use crate::replay_cache::{PreparedBlock, ReplayCache, MAX_REPLAY_MS};
 use crate::transcript::turn_transcript;
 use crate::turn::{TurnCounterSnapshot, TurnCounters};
 
@@ -402,11 +402,15 @@ where
         tracing::debug!(turn_kind = kind.as_str(), "gateway request turn classified");
 
         let conversation = call.conversation_id.clone();
-        let replay = conversation
+        let replay_id = conversation
             .as_deref()
             .or(replay_identity)
-            .filter(|_| call.inject_context)
-            .and_then(|id| Some((id, message_anchor(&pristine_request)?)));
+            .filter(|_| call.inject_context);
+        let anchors = replay_id.map_or_else(Vec::new, |_| {
+            self.replays
+                .message_anchors(&pristine_request, renderer.message_list_key())
+        });
+        let replay = replay_id.map(|id| (id, anchors.as_slice()));
         let mut refreshed = false;
         // Core 使已重放的块失效后，本请求需要重新准备一次；`refreshed` 保证每个请求至多刷新一次。
         let mut reprepare = false;
@@ -414,7 +418,7 @@ where
             if let Err(stop) = execution.checkpoint() {
                 return stop;
             }
-            if call.inject_context {
+            let has_historical_replay = if call.inject_context {
                 self.enrich(
                     &mut call,
                     RecallPolicy { kind, reprepare },
@@ -423,8 +427,10 @@ where
                     recording,
                     execution,
                 )
-                .await;
-            }
+                .await
+            } else {
+                false
+            };
 
             if let Err(stop) = execution.checkpoint() {
                 return stop;
@@ -525,10 +531,11 @@ where
                             reason_codes: result.reason_codes,
                         }
                     }
-                    // 复用证明的依赖已变化（例如 Agent 改了被引用的代码文件）：丢弃该会话的重放，从注入前的
-                    // 请求重新准备一次再送检，不把可恢复的过期交给客户端。每个请求最多刷新一次。
+                    // A refresh can replace the current block only. Core's verdict
+                    // gives no location for an invalid binding in a historical replay.
                     CheckDecision::Withhold
                         if !refreshed
+                            && !has_historical_replay
                             && !call.prepared_contexts.is_empty()
                             && result
                                 .reason_codes
@@ -537,7 +544,7 @@ where
                     {
                         refreshed = true;
                         reprepare = true;
-                        if let Some((conversation, anchor)) = replay {
+                        if let Some((conversation, &(_, anchor))) = replay_id.zip(anchors.last()) {
                             self.replays.forget(&call.scope_id, conversation, anchor);
                         }
                         call.request = pristine_request.clone();
@@ -946,7 +953,7 @@ where
         Some(fields)
     }
 
-    /// 用户回合准备并注入；非用户回合只复用本轮已准备的块，不发起新的查询。
+    /// 重放仍匹配的历史块，再为最新的用户消息重放或准备。
     /// 有重放会话 ID 时：同一消息锚点（工具续写、重试）精确重放已准备的内容与绑定，不再检索；
     /// 新锚点（新的用户消息）准备一次。没有重放身份时每个用户回合各自准备，不继承任何旧注入，
     /// 因此没有重放身份的工具续写既不准备也不注入。
@@ -957,34 +964,31 @@ where
         &self,
         call: &mut ManagedCall,
         policy: RecallPolicy,
-        replay: Option<(&str, u64)>,
+        replay: Option<(&str, &[(usize, u64)])>,
         list_key: &str,
         recording: &mut CallRecorder<'_>,
         execution: &Execution,
-    ) {
-        let cached = replay.and_then(|(conversation, anchor)| {
+    ) -> bool {
+        let replay = replay.and_then(|(id, anchors)| Some((id, anchors.split_last()?)));
+        let cached = replay.and_then(|(conversation, (&(_, anchor), _))| {
             self.replays
                 .get(&call.scope_id, conversation, anchor, now_ms())
         });
-        if cached.is_none() && !policy.allows_prepare() {
-            self.turn_counters.record_skipped_prepare();
-            recording.prepare_skipped();
-            tracing::debug!(
-                turn_kind = policy.kind.as_str(),
-                "skipping prepare for a non-user turn without a replay entry"
-            );
-            return;
-        }
         let prepared = match cached {
             Some(prepared) => prepared,
+            None if !policy.allows_prepare() => {
+                self.turn_counters.record_skipped_prepare();
+                recording.prepare_skipped();
+                tracing::debug!(
+                    turn_kind = policy.kind.as_str(),
+                    "skipping prepare for a non-user turn without a replay entry"
+                );
+                None
+            }
             None => {
-                let Some((prepared, expires_at)) =
-                    self.prepare_turn(call, recording, execution).await
-                else {
-                    return;
-                };
-                match replay {
-                    Some((conversation, anchor)) => {
+                let result = self.prepare_turn(call, recording, execution).await;
+                match (result, replay) {
+                    (Some((prepared, expires_at)), Some((conversation, (&(_, anchor), _)))) => {
                         let now = now_ms();
                         let expires = expires_at
                             .as_deref()
@@ -998,14 +1002,27 @@ where
                             expires,
                         )
                     }
-                    None => prepared,
+                    (Some((prepared, _)), None) => prepared,
+                    (None, _) => None,
                 }
             }
         };
-        let Some(PreparedBlock { block, binding }) = prepared else {
-            return;
-        };
-        self.inject(call, &block, &binding, list_key);
+        let previous_locations = call.prepared_contexts.len();
+        if let Some((conversation, (_, history))) = replay {
+            // Read after storing the current block so the same retention bound
+            // applies to this request, even when a new entry evicted an old one.
+            for (index, prepared) in
+                self.replays
+                    .history(&call.scope_id, conversation, history, now_ms())
+            {
+                self.inject(call, index, &prepared, list_key);
+            }
+        }
+        let has_historical_replay = call.prepared_contexts.len() > previous_locations;
+        if let (Some(index), Some(prepared)) = (last_user_index(&call.request), prepared) {
+            self.inject(call, index, &prepared, list_key);
+        }
+        has_historical_replay
     }
 
     /// 调用 prepare：失败返回 None（不缓存、不阻塞主请求）；
@@ -1055,11 +1072,15 @@ where
         Some((block, expires_at))
     }
 
-    /// 把准备好的块注入最后一条用户消息，并声明它在渲染后请求体中的位置。
-    fn inject(&self, call: &mut ManagedCall, block: &str, binding: &str, list_key: &str) {
-        let Some(index) = last_user_index(&call.request) else {
-            return;
-        };
+    /// 把准备好的块注入指定的用户消息，并声明它在渲染后请求体中的位置。
+    fn inject(
+        &self,
+        call: &mut ManagedCall,
+        index: usize,
+        prepared: &PreparedBlock,
+        list_key: &str,
+    ) {
+        let PreparedBlock { block, binding } = prepared;
         let Some(message) = call.request.messages.get_mut(index) else {
             return;
         };

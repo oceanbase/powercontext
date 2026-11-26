@@ -1054,10 +1054,9 @@ async fn headerless_requests_replay_preparation_within_each_turn() {
             history.push(json!({"type": "function_call_output", "call_id": call["call_id"], "output": "Sunny"}));
         }
         assert_eq!(gateway.post(route, &body).await.status(), 200);
-        body[list]
-            .as_array_mut()
-            .unwrap()
-            .push(json!({"role": "user", "content": "What about tomorrow?"}));
+        let history = body[list].as_array_mut().unwrap();
+        history.push(json!({"role": "user", "content": "What about tomorrow?"}));
+        history.push(json!({"role": "developer", "content": "Be concise."}));
         assert_eq!(gateway.post(route, &body).await.status(), 200);
 
         let prepares = gateway.peers.prepares.lock().unwrap();
@@ -1082,24 +1081,41 @@ async fn headerless_requests_replay_preparation_within_each_turn() {
             assert_eq!(send["phase"], "before_send");
             assert_eq!(release["phase"], "before_release");
             assert_eq!(release["request_binding"], "test-before_send");
-            let location = &send["prepared_contexts"][0];
-            let preparation = if index == 2 { 2 } else { 1 };
-            assert_eq!(location["binding"], format!("reuse-{preparation}"));
             assert_eq!(
                 send["payload"]["body"].as_str().unwrap().as_bytes(),
                 sent[index].1.as_ref()
             );
             let outgoing: Value = serde_json::from_slice(&sent[index].1).unwrap();
-            let text = outgoing
-                .pointer(location["location"]["pointer"].as_str().unwrap())
-                .unwrap()
-                .as_str()
-                .unwrap();
-            let end = location["location"]["end_byte"].as_u64().unwrap() as usize;
-            assert_eq!(location["location"]["start_byte"], 0);
-            assert_eq!(&text[..end], format!("Prepared context {preparation}"));
+            let locations = send["prepared_contexts"].as_array().unwrap();
+            let preparations: &[u64] = if index == 2 { &[1, 2] } else { &[1] };
+            assert_eq!(
+                locations.len(),
+                preparations.len(),
+                "{format}: request {index} must restore recall for every retained user turn"
+            );
+            for (location, preparation) in locations.iter().zip(preparations) {
+                assert_eq!(location["binding"], format!("reuse-{preparation}"));
+                let text = outgoing
+                    .pointer(location["location"]["pointer"].as_str().unwrap())
+                    .unwrap()
+                    .as_str()
+                    .unwrap();
+                let end = location["location"]["end_byte"].as_u64().unwrap() as usize;
+                assert_eq!(location["location"]["start_byte"], 0);
+                assert_eq!(&text[..end], format!("Prepared context {preparation}"));
+            }
+            if index > 0 {
+                let initial: Value = serde_json::from_slice(&sent[0].1).unwrap();
+                assert_eq!(
+                    outgoing[list][1], initial[list][1],
+                    "{format}: the first user message is replayed verbatim"
+                );
+            }
             if index == 2 {
-                assert_eq!(outgoing[list][1], body[list][1]);
+                assert_eq!(
+                    outgoing[list].as_array().unwrap().last(),
+                    body[list].as_array().unwrap().last()
+                );
             }
         }
     }

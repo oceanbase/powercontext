@@ -15,14 +15,14 @@
 //! 会话内复用准备结果（RFC 2199：新用户消息最多触发一次准备，工具续写精确重放）。
 //!
 //! 状态按 Scope + 重放会话 ID 分区；没有会话 ID 的请求
-//! 不读也不写这里，不会继承任何旧注入。会话内用"消息锚点"（截至最后一条用户消息的原始消息摘要）
-//! 区分工具续写（锚点相同 → 重放同一内容与绑定）和新的用户消息（锚点变化 → 准备一次）。
+//! 不读也不写这里，不会继承任何旧注入。每条用户消息的锚点是截至该消息的原始消息摘要。
+//! 在后来请求中重放仍匹配的块，只有最新的用户消息可以触发准备。
 //! 锚点只在同一重放会话内比较，不用作会话身份。
 
-use pc_gateway_protocol::CanonicalRequest;
-use std::collections::hash_map::DefaultHasher;
+use pc_gateway_protocol::{CanonicalRequest, Role};
+use std::collections::hash_map::RandomState;
 use std::collections::VecDeque;
-use std::hash::{Hash, Hasher};
+use std::hash::{BuildHasher, Hash, Hasher};
 use std::sync::Mutex;
 
 /// 条目总上限与每个会话的锚点上限：超出后按写入顺序淘汰最旧的条目。
@@ -50,21 +50,43 @@ struct Entry {
 #[derive(Default)]
 pub(crate) struct ReplayCache {
     entries: Mutex<VecDeque<Entry>>,
-}
-
-/// 消息锚点：截至最后一条用户消息（含）的原始消息摘要；没有用户消息时为 `None`。
-pub(crate) fn message_anchor(request: &CanonicalRequest) -> Option<u64> {
-    let last_user = request
-        .messages
-        .iter()
-        .rposition(|m| matches!(m.role, pc_gateway_protocol::Role::User))?;
-    let prefix = serde_json::to_string(&request.messages[..=last_user]).ok()?;
-    let mut hasher = DefaultHasher::new();
-    prefix.hash(&mut hasher);
-    Some(hasher.finish())
+    anchor_hasher: RandomState,
 }
 
 impl ReplayCache {
+    /// Hash each original message once. A prefix identifies its position even
+    /// when the same user text appears several times in a conversation.
+    pub(crate) fn message_anchors(
+        &self,
+        request: &CanonicalRequest,
+        list_key: &str,
+    ) -> Vec<(usize, u64)> {
+        let Some(last_user) = request.messages.iter().rposition(|m| m.role == Role::User) else {
+            return Vec::new();
+        };
+        let mut hasher = self.anchor_hasher.build_hasher();
+        (
+            list_key,
+            &request.instructions,
+            &request.previous_response_id,
+            &request.conversation,
+        )
+            .hash(&mut hasher);
+        let mut anchors = Vec::new();
+        let mut encoded = Vec::new();
+        for (index, message) in request.messages[..=last_user].iter().enumerate() {
+            encoded.clear();
+            if serde_json::to_writer(&mut encoded, message).is_err() {
+                return Vec::new();
+            }
+            encoded.hash(&mut hasher);
+            if message.role == Role::User {
+                anchors.push((index, hasher.finish()));
+            }
+        }
+        anchors
+    }
+
     /// 同一会话、同一锚点、未过期的结果：`Some(None)` 表示已知为空，`None` 表示需要准备。
     pub(crate) fn get(
         &self,
@@ -81,6 +103,32 @@ impl ReplayCache {
                 e.scope_id == scope_id && e.conversation_id == conversation_id && e.anchor == anchor
             })
             .map(|e| e.prepared.clone())
+    }
+
+    /// Return the retained historical blocks in the order Core checks their locations.
+    pub(crate) fn history(
+        &self,
+        scope_id: &str,
+        conversation_id: &str,
+        anchors: &[(usize, u64)],
+        now_ms: u64,
+    ) -> Vec<(usize, PreparedBlock)> {
+        if anchors.is_empty() {
+            return Vec::new();
+        }
+        let mut entries = lock(&self.entries);
+        entries.retain(|e| e.expires_ms > now_ms);
+        let mut blocks: Vec<_> = entries
+            .iter()
+            .filter(|e| e.scope_id == scope_id && e.conversation_id == conversation_id)
+            .filter_map(|e| {
+                let prepared = e.prepared.as_ref()?;
+                let (index, _) = anchors.iter().find(|(_, anchor)| *anchor == e.anchor)?;
+                Some((*index, prepared.clone()))
+            })
+            .collect();
+        blocks.sort_unstable_by_key(|(index, _)| *index);
+        blocks
     }
 
     /// 丢弃一个锚点的结果，例如它的复用证明已不能通过 check；下一次请求重新准备。
