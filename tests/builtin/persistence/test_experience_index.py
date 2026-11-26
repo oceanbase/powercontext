@@ -248,6 +248,15 @@ def test_sqlite_experience_fts_tracks_only_approved_current_heads_and_rebuilds()
             current = await contexts.search_experience(scope_id, "falconcurrent", 8)
             assert tuple(hit.artifact_ref for hit in current) == (replaced.result_artifact,)
 
+            async with contexts.database.transaction() as connection:
+                await connection.exec_driver_sql(
+                    "INSERT INTO pc_artifact_fts (scope_id, family, artifact_id, revision, searchable_text) "
+                    "SELECT scope_id, family, artifact_id, revision, 'mismatchedprojection falsekeyword' "
+                    "FROM pc_artifact_heads WHERE scope_id = ? AND family = 'experience'",
+                    (scope_id,),
+                )
+            assert await contexts.search_experience(scope_id, "mismatchedprojection falsekeyword absent", 8) == ()
+
             skill_candidate = await review.propose_skill(
                 _skill(),
                 sources=(context.sources.catalog.as_ref(second_source),),
