@@ -355,6 +355,41 @@ export function App() {
     setPage(next);
     setMenu(false);
   }
+  async function activateConnection(profileId: string) {
+    const active = displayedDesktop?.active;
+    if (
+      contextPending ||
+      (active?.connectionId === profileId && active.scope) ||
+      !(await confirmSwitch())
+    )
+      return false;
+    if (previewMode && profileId.startsWith("preview-")) {
+      setPreviewConnectionId(profileId);
+      setPreviewScopeId(previewEmptyScopeId);
+      return true;
+    }
+    connectionPending(true);
+    setNativeError(null);
+    try {
+      const checked = await desktopApi.check(profileId, true);
+      if (!receiveState(checked)) return false;
+      if (
+        checked.active?.connectionId !== profileId ||
+        !checked.active.report.compatibilityVerified
+      )
+        throw { code: "compatibility_unverified" };
+      const generation = checked.active.generation;
+      const scope = await desktopApi.defaultScope(generation);
+      return receiveState(
+        await desktopApi.selectScope(generation, scope.scope_id),
+      );
+    } catch (error) {
+      setNativeError(error);
+      return false;
+    } finally {
+      connectionPending(false);
+    }
+  }
   const ready = activeReport?.readiness.value?.status === "ready";
   const localServiceReady =
     ready &&
@@ -510,38 +545,7 @@ export function App() {
             navigate("connections", { profileId })
           }
           onSelectConnection={(profileId) => {
-            if (profileId === displayedDesktop?.active?.connectionId) return;
-            if (previewMode && profileId.startsWith("preview-")) {
-              setPreviewConnectionId(profileId);
-              setPreviewScopeId(previewEmptyScopeId);
-              return;
-            }
-            connectionPending(true);
-            void (async () => {
-              try {
-                const checked = await desktopApi.check(profileId, true);
-                receiveState(checked);
-                if (
-                  !checked.active ||
-                  checked.active.connectionId !== profileId ||
-                  !checked.active.report.compatibilityVerified
-                )
-                  throw { code: "compatibility_unverified" };
-                const defaultScope = await desktopApi.defaultScope(
-                  checked.active.generation,
-                );
-                receiveState(
-                  await desktopApi.selectScope(
-                    checked.active.generation,
-                    defaultScope.scope_id,
-                  ),
-                );
-              } catch (error) {
-                setNativeError(error);
-              } finally {
-                connectionPending(false);
-              }
-            })();
+            void activateConnection(profileId);
           }}
           onSelectScope={(scope) => {
             if (previewMode && scope.scope_id.startsWith("preview-")) {
@@ -638,6 +642,11 @@ export function App() {
               state={displayedDesktop}
               language={language}
               onState={receiveState}
+              onActivateConnection={(id) => {
+                void activateConnection(id).then((activated) => {
+                  if (activated) void navigate("home");
+                });
+              }}
               model={serviceAgentModel}
               startOnLogin={startOnLogin}
               onStartOnLoginChange={(enabled) => {

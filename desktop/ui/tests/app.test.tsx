@@ -236,6 +236,42 @@ test("requires acknowledgement before resubmitting an uncertain save after navig
   expect(desktopApi.remember).toHaveBeenCalledTimes(1);
 });
 
+test("reactivates a saved connection from Services after losing the active context", async () => {
+  globalThis.localStorage.setItem("desktop-language", "en");
+  const connected = connectedMemoryState();
+  const active = connected.active!;
+  const disconnected = { ...connected, generation: 2, active: null };
+  vi.mocked(desktopApi.state).mockResolvedValueOnce(disconnected);
+  vi.mocked(desktopApi.check).mockResolvedValueOnce({
+    ...connected,
+    generation: 3,
+    active: { ...active, generation: 3, scope: null },
+  });
+  vi.mocked(desktopApi.defaultScope).mockResolvedValueOnce(active.scope!);
+  vi.mocked(desktopApi.selectScope).mockResolvedValueOnce({
+    ...connected,
+    generation: 4,
+    active: { ...active, generation: 4 },
+  });
+  const user = userEvent.setup();
+  render(<App />);
+  await user.click(screen.getByRole("button", { name: "Services & Agents" }));
+  await user.click(await screen.findByRole("button", { name: "More actions" }));
+  await user.click(
+    await screen.findByRole("menuitem", { name: "Use this connection" }),
+  );
+
+  expect(
+    await screen.findByRole("heading", { name: "Space overview" }),
+  ).toBeTruthy();
+  expect(screen.getByText("Original space")).toBeTruthy();
+  expect(desktopApi.check).toHaveBeenCalledWith(active.connectionId, true);
+  expect(desktopApi.selectScope).toHaveBeenCalledWith(
+    3,
+    active.scope!.scope_id,
+  );
+});
+
 test("restores a saved service directly into its default space", async () => {
   const profile = {
     id: "saved-service",

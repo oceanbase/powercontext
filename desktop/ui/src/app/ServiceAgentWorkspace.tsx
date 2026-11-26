@@ -187,6 +187,7 @@ const copy = {
     noLocalAgents: "暂无关联此服务的本机 Agent",
     connectLocalAgent: "连接本地 Agent",
     editConnection: "编辑连接",
+    useConnection: "使用此连接",
     moreActions: "更多操作",
     checkConnection: "检查连接状态",
     deleteConnection: "删除连接",
@@ -299,6 +300,7 @@ const copy = {
     noLocalAgents: "No local Agents are associated with this service",
     connectLocalAgent: "Connect local Agent",
     editConnection: "Edit connection",
+    useConnection: "Use this connection",
     moreActions: "More actions",
     checkConnection: "Check connection status",
     deleteConnection: "Delete connection",
@@ -385,6 +387,7 @@ type Props = {
   state: DesktopState | null;
   language: Language;
   onState: (state: DesktopState) => boolean | void;
+  onActivateConnection?: (profileId: string) => void;
   onDeployLocal?: () => void;
   onDeploymentComplete?: () => void;
   onCreateSpace?: (trigger: HTMLElement) => void;
@@ -404,6 +407,7 @@ export function ServiceAgentWorkspace({
   state,
   language,
   onState,
+  onActivateConnection,
   onDeployLocal,
   onDeploymentComplete,
   onCreateSpace,
@@ -1054,6 +1058,11 @@ export function ServiceAgentWorkspace({
                 language={language}
                 agents={service.agents}
                 simulated={service.simulated}
+                onActivate={
+                  onActivateConnection && !service.simulated
+                    ? () => onActivateConnection(service.profile.id)
+                    : undefined
+                }
                 onConnectAgent={() =>
                   setAgentDialog({
                     profileId: service.profile.id,
@@ -1304,6 +1313,7 @@ function SavedService({
   language,
   agents,
   simulated,
+  onActivate,
   onConnectAgent,
   onState,
   onDeleted,
@@ -1317,6 +1327,7 @@ function SavedService({
   language: Language;
   agents: ServiceAgent[];
   simulated: boolean;
+  onActivate?: () => void;
   onConnectAgent: () => void;
   onState: (state: DesktopState) => boolean | void;
   onDeleted: () => void;
@@ -1414,6 +1425,13 @@ function SavedService({
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
+                  {onActivate &&
+                    (state?.active?.connectionId !== profile.id ||
+                      !state.active.scope) && (
+                      <DropdownMenuItem disabled={!!busy} onSelect={onActivate}>
+                        {t.useConnection}
+                      </DropdownMenuItem>
+                    )}
                   {onCreateSpace && (
                     <>
                       <DropdownMenuItem

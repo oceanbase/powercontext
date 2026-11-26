@@ -196,3 +196,5 @@ Every example name, address, time, and count is design mock data. The product re
 This is a design and interaction description. The current mocks can show the interface completely. Memory listing, Agent management, model configuration, local service control, system notifications, and launch-at-login still need their formal interfaces or Tauri implementations. Accepting the screens does not accept those interfaces or the host behavior.
 
 Native connection management supports checking, editing, and removing saved local and remote connections. A connection check verifies reachability, identity, and compatibility. Readiness requires a separate probe. Service installation, Agent management, model configuration, service lifecycle, system notifications, and launch-at-login are unavailable in the corresponding native UI until wired to their owning interfaces.
+
+After disconnection, choose **Use this connection** in a saved service's action menu to check it again and enter its default space. **Check connection status** leaves the current service and space selection unchanged.
