@@ -66,7 +66,7 @@ Memory / Atomic Memory 与 Topic Memory 作为当前切片，按 operation 粒�
 | `atomic-memory.reconcile` | Output parsing | Partial | 与提取相同的 schema 映射。 |
 | `atomic-memory.reconcile` | Business validation | Covered | 对账输出与内容规则输出 `business_validation` / `invalid_output`。 |
 | Embedding（提取、对账、查询） | Embedding | Covered | provider 状态、向量数量/顺序/类型错误、profile/input 失败均已分类。 |
-| Publish / index | Persistence | Partial | `AtomicMemoryIndexError` 的 code 已映射；其他存储失败保持 unknown。 |
+| Publish / index | Persistence | Partial | `AtomicMemoryIndexError` 的 code 已映射。Source 窗口发布中的数据库驱动异常（包括事务退出时的异常）归为 `persistence` / `storage_failure`，位置为 `atomic-memory-publish-storage`。无法分类的异常保留未知原因。 |
 | Usage accounting | Usage accounting | Partial | 共享上报器和记录器分类用量失败。推理用量限制仍归生成或嵌入阶段。 |
 
 Topic Memory 的 operation 级覆盖：
@@ -77,7 +77,7 @@ Topic Memory 的 operation 级覆盖：
 | `topic-memory` 各阶段 | Output parsing | Partial | provider schema 失败走共享映射；语义拒绝归为 business validation。 |
 | `topic-memory` 各阶段 | Business validation | Covered | 每个 `TopicMemoryGenerationError` code 都有有界诊断：领域/模型拒绝携带 stage，并在有证据时给出 reason；控制流拒绝只携带 `failure_location`。输入预算失败携带输入计数、token 估算、estimator 标识和生效预算；window token 上限触发时携带已计费 token 与上限，attempt/request 上限通过 block details 报告。 |
 | `topic-memory.index` 与查询嵌入 | Embedding | Covered | 缺少 embedding adapter、向量数量错误均已分类。 |
-| Publish / persistence | Persistence | Partial | 投影内容及向量完整性规则归业务校验；存储不变量失败归 `persistence` / `storage_failure`；不支持的能力归 `configuration`；publisher 冲突保留既有领域结果，其他存储失败保持 unknown。Topic head 冲突将 `head_conflict` 记为该次尝试的最后错误，不消耗 window 尝试次数。 |
+| Publish / persistence | Persistence | Partial | 投影内容及向量完整性规则归业务校验。存储不变量失败与窗口发布中的数据库驱动异常（包括事务退出时的异常）归为 `persistence` / `storage_failure`。数据库驱动异常的位置为 `topic-memory-publish-storage`。不支持的能力归为 `configuration`，无法分类的异常保留未知原因。Topic head 冲突将 `head_conflict` 记为该次尝试的最后错误，不消耗 window 尝试次数。 |
 | Usage accounting | Usage accounting | Partial | 共享上报器和记录器分类用量失败。窗口 provider 预算仍归 `generation` / `usage_limit`。 |
 
 Experience、Profile 与 Skill 的 operation 级覆盖：
@@ -101,15 +101,17 @@ Handoff 与 Prompt 的 operation 级覆盖：
 | `handoff.finalize` / `handoff.commit` | Business validation | Partial | 证据、Scope 和来源校验保留原有领域错误。版本冲突保留原有结果，省略存储故障原因。 |
 | `handoff.commit` | Persistence | Partial | Handoff 提交路径中的数据库驱动错误归为 `persistence` / `storage_failure`。 |
 | `prompt.generate_demonstrations` | Generation / output parsing / business validation | Partial | Provider 和 schema 错误沿用共享分类，无效示例结果归业务校验。生成示例不会保存 Prompt 版本。 |
-| `prompt.create` / `prompt.replace` | Business validation / persistence | Partial | Scope 管理写入操作报告已知的 Prompt 拒绝和数据库驱动错误，覆盖事务退出时的故障。其他 Prompt 写入路径尚未纳入。 |
+| `prompt.create` / `prompt.replace` | Business validation / persistence | Partial | Scope 管理写入操作报告已知的 Prompt 拒绝和数据库驱动错误，覆盖事务退出时的故障。 |
+| `prompt.approve` | Business validation / persistence | Partial | Dream Candidate 批准在冲突恢复后报告已分类的拒绝和数据库驱动异常。Prompt 版本和 Candidate 决策在同一事务中提交，目标过期时保留原有领域结果。 |
 | Handoff / Prompt | Embedding | N/A | 这些处理路径不生成嵌入。 |
 | Handoff | Usage accounting | Covered | 模型用量上报和记录复用共享诊断。 |
 | Prompt 示例生成 | Usage accounting | N/A | 示例生成目前不向共享记录器提交用量记录。 |
 
-上述入口每次操作失败最多记录一次 `artifact.operation.failed`。对相同 Family、操作、错误码和失败原因，每个进程在任意一秒内最多记录 16 条。
+接入诊断的 Scope 内 Artifact 操作每次失败最多记录一次 `artifact.operation.failed`。对相同 Family、操作、错误码和失败原因，每个进程在任意一秒内最多记录 16 条。
 日志沿用已有 Scope 和已绑定的请求或追踪标识。
 日志复用共享诊断字段，省略回溯、异常原文、SQL 和业务内容。证据不足时省略未知字段。
 日志不影响返回的错误、事务结果或重试行为。
+Source 窗口发布将诊断附在原异常上，供 Worker 和 Supervisor 报告。
 
 矩阵描述分类覆盖情况，不表示整个 issue 已完成。Dream 失败记录只包含有界诊断字段，不含异常文本或证据正文。
 持久化 run 结果和重试规则仍是权威状态；日志属于观测，不新增持久化失败历史。当前 durable block 分类只覆盖
