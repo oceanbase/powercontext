@@ -2898,8 +2898,10 @@ async fn a_tool_continuation_without_a_conversation_id_is_not_prepared() {
 }
 
 #[tokio::test]
-async fn a_responses_developer_tail_without_a_replay_entry_does_not_prepare_or_inject() {
+async fn a_responses_developer_tail_still_prepares_and_injects() {
+    let block = "BEGIN_POWERCONTEXT_PREPARED_CONTEXT_V1\n{\"items\":[]}\nEND_POWERCONTEXT_PREPARED_CONTEXT_V1";
     let (executor, _renderer, _transport, gate) = harness(allow_runs(1), vec![raw_response()], 2);
+    *gate.prepare_result.lock().unwrap() = Some(Ok(reuse_result(block)));
     let evidence = BufferedEvidenceSink::new();
     let mut c = call(DegradePolicy::Pause);
     c.inject_context = true;
@@ -2912,7 +2914,7 @@ async fn a_responses_developer_tail_without_a_replay_entry_does_not_prepare_or_i
             tool_call_id: None,
             extra_fields: Default::default(),
         },
-        // 入口把非用户 Responses item 封装为 Role::Tool 承载；尾部 developer 仍不是工具续写。
+        // 入口把非用户 Responses item 封装为 Role::Tool 承载；尾部 developer 不隐藏该用户回合。
         CanonicalMessage {
             role: Role::Tool,
             content: vec![serde_json::json!({
@@ -2935,11 +2937,11 @@ async fn a_responses_developer_tail_without_a_replay_entry_does_not_prepare_or_i
         )
         .await;
 
-    assert!(gate.prepare_queries.lock().unwrap().is_empty());
-    assert!(sends(&gate)[0].1.is_empty());
+    assert_eq!(gate.prepare_queries.lock().unwrap().len(), 1);
+    assert_eq!(sends(&gate)[0].1.len(), 1);
     let call = evidence.calls().pop().unwrap();
-    assert_eq!(call.turn_kind, Some(TurnKind::Empty));
-    assert!(call.prepare_skipped);
+    assert_eq!(call.turn_kind, Some(TurnKind::UserTurn));
+    assert!(!call.prepare_skipped);
 }
 
 #[tokio::test]
