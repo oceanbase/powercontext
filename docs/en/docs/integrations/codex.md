@@ -318,9 +318,11 @@ developer messages and resends it with the thread history. The gateway omits com
 blocks from those messages before Core and the model receive the request. The request and response still go through
 Core's normal checks.
 
-Keep the plugin defaults where Codex calls its model directly or signs in with a subscription account, because the
-gateway does not carry that traffic. To route Codex through the gateway, configure Core, Codex, the plugin, and the
-gateway as follows.
+Keep the plugin defaults where Codex calls its model directly, because the gateway does not carry that traffic. With a
+ChatGPT subscription, the gateway can reuse the Codex CLI sign-in through an
+[OAuth subscription](../operate/deploy-server.md#gateway-oauth-subscriptions) (`PC_GATEWAY_SUBSCRIPTION=codex`) while
+Codex points at the gateway. To route Codex through the gateway, configure Core, Codex, the plugin, and the gateway as
+follows.
 
 ### Run Core in a non-enforcing mode
 

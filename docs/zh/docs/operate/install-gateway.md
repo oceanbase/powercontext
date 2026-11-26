@@ -35,6 +35,16 @@ Windows 用户可在 WSL2 中使用 Ubuntu 22.04 或更新版本，并**在 WSL2
 Core 和所需的提供方 CLI 也应运行在同一 Linux 环境中。这使用的是 Linux 包，并非原生 Windows 构建；
 分发 CI 验证的是 Ubuntu runner，尚未验证 WSL2 宿主集成。
 
+## 使用安装脚本
+
+安装 PowerContext 时传入 `--gateway`，脚本会安装版本相同的 Gateway，并完成下文的下载与校验：
+
+```bash
+curl -fsSL https://powercontext.oceanbase.io/install.sh | bash -s -- --gateway
+```
+
+`pc-gateway` 安装在 `powercontext` 所在的目录。`--version` 指定的版本同样适用于 Gateway；`POWERCONTEXT_GATEWAY_DOWNLOAD_URL` 可以指定存放同名压缩包和 `.sha256` 文件的 HTTPS 目录，例如内部镜像。平台不受支持时，脚本在安装任何内容之前退出。下载或校验失败时，CLI 已经安装，但脚本不会安装或替换 `pc-gateway`，并以非零状态退出。该选项需要本地 Server 安装，不能与 `--profile client` 同时使用。
+
 ## 下载与校验
 
 以下以 1.6.0 为例，请选择与 Core 相同的发布版本。无需 Rust 编译器或仓库源码。

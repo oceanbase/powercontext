@@ -96,9 +96,9 @@ struct Transcript {
     assistant: String,
 }
 
-/// 渲染后消息列表所在的顶层键决定线格式：`input` 为 Responses，其余为 Chat。
+/// 渲染后消息列表所在的顶层键决定线格式：Responses 的列表键，其余为 Chat。
 fn is_responses(list_key: &str) -> bool {
-    list_key == "input"
+    list_key == pc_gateway_protocol::RESPONSES_LIST_KEY
 }
 
 /// 回合的记录：放得下时是一段，否则按顺序拆成几段；以及投影的覆盖声明。

@@ -108,6 +108,12 @@ fits the current 5 MiB Skill archive limit, whose base64 representation takes at
 JSON envelope. Lower caps can reject otherwise valid operations. Both HTTP limits must be positive integers.
 Size them for available memory: 64 requests retaining 16 MiB each already represent 1 GiB of body data, before
 parsing and application overhead; replay briefly copies each accepted body once before releasing its input buffer.
+
+Public routes that do not use a request body, such as health probes and enabled Dashboard assets, still check a
+declared `Content-Length` and skip buffering. Dashboard login uses the smaller of the configured limit and 32 KiB.
+Remote Skill reconciliation, Receipts, and package downloads require a valid Receiver credential before the Server
+reads the body.
+
 Reverse proxies own request-rate quotas, upload timeouts, connection limits,
 and aggregate limits across Server processes.
 
