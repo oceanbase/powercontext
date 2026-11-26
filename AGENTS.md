@@ -16,6 +16,17 @@
 - `make docs`: serve the Fumadocs website locally.
 - `make gateway-tck`: run the pinned upstream protocol compatibility suites against the real gateway binary; requires Node, Go, Python 3.11, and network access.
 
+## CI Workflows and Runners
+
+Before adding or changing CI jobs, runner selection, or dependency/bootstrap setup, read the CI guide:
+[English](docs/en/development/ci-scope.md) / [中文](docs/zh/development/ci-scope.md).
+
+- Linux jobs in this repository, including pull requests opened from forks, use the existing internal Linux runner pools. Keep native macOS and Windows validation on GitHub-hosted runners. Reuse the relevant workflow's runner-selection pattern; document a concrete platform requirement for any hosted Linux exception. An existing `ubuntu-*` job is not a reason to copy that routing into a new job.
+- Reuse shared setup, cache, and mirror helpers. Preserve dependency versions and hashes, support cache misses and upstream fallback, and keep deliberate cold-install tests cold. General download caching belongs in the shared infrastructure, not a manual warm-up step copied into every job.
+- Size resource requests from measurements and account for the complete runner Pod without overselling. Let available capacity schedule independent work; do not add arbitrary `max-parallel`, `maxRunners`, fixed worker counts, or reserved capacity as a precaution. Preserve ordering or serialization required by the test's actual correctness contract.
+- Diagnose queue time, dependency downloads, process startup, and test execution separately. Preserve logs and browser traces, and reproduce runner-specific failures in an equivalent Pod or VM. Do not repeatedly consume hosted runners to seek a green result, weaken assertions, or raise timeouts without evidence of the cause and required budget.
+- Validate the current PR head and its tested merge result. Earlier green runs do not validate later changes; a selected job skipped because an upstream job failed has not passed. Report incomplete or skipped validation explicitly before recommending a merge.
+
 ## Rust Gateway
 
 `gateway/` is an independent Cargo workspace of seven crates behind its own manifest. Every command needs `--manifest-path gateway/Cargo.toml`; `gateway/Cargo.lock` is checked in, so add `--locked` to every build, test, and lint invocation. CI pins the toolchain to 1.95.0, and the workspace is edition 2021.
@@ -116,7 +127,7 @@ Read the migration guide before changing managed storage:
 
 ## Generated Integration Helpers
 
-`src/powercontext_integration_lifecycle/` is the source of the helpers that copy-installed Python plugins ship. The helpers may import only the standard library and must run on Python 3.9, because Claude Code runs its hooks with the `python3` on `PATH`. `integrations/lifecycle/` is the source of the TypeScript helpers that the DSH, OpenClaw, OpenCode, and Pi plugins ship. They may import only Node.js built-in modules, because the plugins do not share their dependencies. Their copies under `integrations/` are checked in; do not edit them by hand. After changing the source, run `make integration-lifecycle`; `make check` rejects a stale copy.
+`src/powercontext_integration_lifecycle/` is the source of the helpers that copy-installed Python plugins ship. The helpers may import only the standard library and must run on Python 3.9, because Claude Code runs its hooks with the `python3` on `PATH`. `integrations/lifecycle/` is the source of the TypeScript helpers that the DSH, OpenClaw, OpenCode, and Pi plugins ship. They may import only Node.js built-in modules, because the plugins do not share their dependencies. Kimi Code and ZCode run their hooks as plain JavaScript, so the generator writes them `.mjs` copies with the types removed; a helper they ship may use TypeScript only for parameter types made of names, arrays, and unions and for return types, both on one-line function signatures, and for `as const` after a closing bracket, and may not use template literals or non-ASCII characters, `\`, or `#` outside strings, regular expressions, and comments. The generator refuses other TypeScript that it recognizes, and any `/` it cannot classify. Their copies under `integrations/` are checked in; do not edit them by hand. After changing the source, run `make integration-lifecycle`; `make check` rejects a stale copy.
 
 ## Testing Guidelines
 

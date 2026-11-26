@@ -3456,6 +3456,10 @@ class RemoteSkillApplication:
             raise _RuntimeStateError("remote-skill-distribution")
         return service
 
+    async def authenticate_target(self, credential: str, /) -> None:
+        async with self._runtime._operation():
+            await self._service().authenticate_target(credential)
+
     async def list_targets(
         self,
         scope_id: str,
@@ -4432,6 +4436,7 @@ class BuiltinRuntime:
         *,
         provider: PowerContextProvider[BuiltinSources, BuiltinArtifacts, BuiltinTriggers],
         capabilities: RuntimeCapabilities,
+        source_processing_families: tuple[str, ...] | None = None,
         primary_database: AsyncDatabase | None = None,
         owner_write_transactions: bool = False,
         handoff_committer: Callable[..., Awaitable[Handoff]] | None = None,
@@ -4512,6 +4517,7 @@ class BuiltinRuntime:
         self._owner_write_transactions = owner_write_transactions
         self._handoff_committer = handoff_committer
         self._capabilities = capabilities
+        self._source_processing_families = source_processing_families
         self._extraction_diagnostics = extraction_diagnostics
         self._review_service = review_service
         self._catalog_change_service = catalog_change_service
@@ -4664,6 +4670,8 @@ class BuiltinRuntime:
                         statistics,
                         self._clock(),
                         self._records(),
+                        source_processing_families=self._source_processing_families,
+                        supervisors=self.artifact_processing_supervisor,
                     )
 
     async def __aexit__(self, exc_type: object, exc_value: object, traceback: object) -> None:

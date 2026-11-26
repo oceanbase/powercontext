@@ -341,6 +341,7 @@ def initial_context(request: Request, page: str) -> dict[str, Any]:
             "skill": None,
             "topic_memory": [],
             "topic_memory_selected": None,
+            "topic_processing": None,
             "prompts": [],
             "profile": None,
         },
@@ -374,6 +375,7 @@ def initial_context(request: Request, page: str) -> dict[str, Any]:
         "runtime_configuration": None,
         "runtime_checked_at": None,
         "processing_status": None,
+        "source_consumption": None,
         "processing_source": None,
         "processing_run": None,
         "processing_run_sources": [],
@@ -991,6 +993,10 @@ async def screen(request: Request, page: str) -> HTMLResponse:  # noqa: C901 -- 
                 await load_history(api, request, ctx)
             else:
                 await load_detail(api, request, ctx)
+        if page in {"notes", "profile", "methods", "experience"}:
+            from powercontext.server.dashboard.processing import load_source_consumption
+
+            await load_source_consumption(api, ctx)
         if page == "home" and ctx["scope_descriptor"]:
             from powercontext.server.dashboard.processing import load_topic_status
 

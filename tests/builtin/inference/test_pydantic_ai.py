@@ -1124,14 +1124,17 @@ def test_native_provider_context_errors_keep_their_classification(provider: str,
 
 
 @pytest.mark.parametrize("allow_continuations", [True, False])
-def test_structured_generator_classifies_a_length_finish_reason_as_truncated_output(allow_continuations: bool) -> None:
+@pytest.mark.parametrize("state", ["complete", "incomplete", "interrupted"])
+def test_structured_generator_classifies_a_length_finish_reason_as_truncated_output(
+    allow_continuations: bool, state: ModelResponseState
+) -> None:
     async def truncated(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
         del messages, info
         return ModelResponse(
-            parts=[TextPart("partial")],
+            parts=[TextPart("partial" if allow_continuations else '{"value":"partial"}')],
             provider_response_id="req-truncated",
             finish_reason="length",
-            state="complete" if allow_continuations else "incomplete",
+            state=state,
         )
 
     async def scenario() -> None:

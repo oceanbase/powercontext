@@ -43,6 +43,16 @@ pub trait WireRenderer: Send + Sync {
         request: &CanonicalRequest,
         cache_render_plan: Option<&serde_json::Value>,
     ) -> Result<RenderedPayload, RenderError>;
+
+    /// Restore caller-facing identities before release checking and client framing.
+    /// None withholds a response whose identities cannot be recovered safely.
+    fn restore_response(
+        &self,
+        _request: &CanonicalRequest,
+        body: bytes::Bytes,
+    ) -> Option<bytes::Bytes> {
+        Some(body)
+    }
 }
 
 /// OpenAI 兼容 chat-completions 渲染器。
@@ -216,6 +226,9 @@ fn merge_top_level(dst: &mut serde_json::Value, src: &serde_json::Value) -> Resu
 #[derive(Debug, Default, Clone, Copy)]
 pub struct OpenAiResponsesRenderer;
 
+/// Responses 渲染器的消息列表键。入口分类与 Core 契约共用这一个字面量。
+pub const RESPONSES_LIST_KEY: &str = "input";
+
 /// Responses API 的顶层 input item 类型（区别于消息内 content part 的
 /// input_text/output_text 等文本部件）。
 const RESPONSES_ITEM_TYPES: &[&str] = &[
@@ -249,7 +262,7 @@ impl WireRenderer for OpenAiResponsesRenderer {
     }
 
     fn message_list_key(&self) -> &'static str {
-        "input"
+        RESPONSES_LIST_KEY
     }
 
     fn render(

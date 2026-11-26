@@ -64,6 +64,9 @@ from powercontext.builtin.sources import SourceCursor
 from powercontext.sources import SourceRef
 from tests.e2e.dream_support import atomic_memory_pipeline, memory_source_text
 
+# Observe cold child imports, execution, and natural exit separately from fault deadlines.
+_WORKER_LIFECYCLE_TIMEOUT_SECONDS = 60
+
 
 def _open_sqlite(config: BuiltinConfig, *, tables):
     assert isinstance(config.database, SQLiteConfig)
@@ -123,11 +126,14 @@ class _HeldMemoryContexts(RelationalContexts):
         )
 
 
-async def prepare(profile, family):
+async def prepare(profile, family, *, runtime: RuntimeConfig | None = None):
+    runtime = runtime or RuntimeConfig()
     contexts = RelationalContexts(
         database=profile.database,
         candidate_pipeline=atomic_memory_pipeline(MemoryPipeline()),
         experience_pipeline=ExperiencePipeline(),
+        model_usage_write_timeout_seconds=runtime.model_usage_write_timeout_seconds,
+        model_usage_flush_timeout_seconds=runtime.model_usage_flush_timeout_seconds,
     )
     async with profile.database.transaction() as connection:
         await _initialize_atomic_memory_authority(connection)
@@ -298,9 +304,13 @@ def test_worker_records_existing_model_usage_purposes_and_replay_does_not_infer(
     monkeypatch.setattr(pipeline, method, generated)
 
     async def scenario():
-        config = BuiltinConfig(database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'usage.db'}"))
+        config = BuiltinConfig(
+            database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'usage.db'}"),
+            # Purpose and replay assertions need persisted counts; recorder tests cover short-budget drops.
+            runtime=RuntimeConfig(model_usage_write_timeout_seconds=5.0, model_usage_flush_timeout_seconds=10.0),
+        )
         async with _open_sqlite(config, tables=BUILTIN_TABLES) as profile:
-            contexts, assignment = await prepare(profile, family)
+            contexts, assignment = await prepare(profile, family, runtime=config.runtime)
             await process_family_invocation(contexts, assignment, config=config)
             await process_family_invocation(contexts, assignment, config=config)
             async with profile.database.transaction() as connection:
@@ -434,7 +444,7 @@ def test_spawned_family_restores_trusted_identity_and_persists_noop_ack(tmp_path
             launcher = SpawnArtifactProcessingWorkerLauncher(partial(run_family_worker, spec))
             worker = await launcher.start(assignment)
             try:
-                result = await asyncio.wait_for(worker.wait(), timeout=30)
+                result = await asyncio.wait_for(worker.wait(), timeout=_WORKER_LIFECYCLE_TIMEOUT_SECONDS)
                 assert result.outcome == "succeeded"
                 assert result.noop is True
             finally:
