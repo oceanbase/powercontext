@@ -848,6 +848,7 @@ class AtomicMemorySourceWindowProcessor:
                         workset,
                         created=batch,
                         unseen={label: unseen[label] for label in batch},
+                        extraction_input=extraction_input,
                     ),
                     operations,
                 )
