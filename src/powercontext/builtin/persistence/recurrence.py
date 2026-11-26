@@ -225,6 +225,33 @@ class RecurrenceRepository:
         ).mappings()
         return tuple(_decode_observation(row) for row in rows)
 
+    async def verdicts_for_target(
+        self,
+        connection: AsyncConnection,
+        scope_id: str,
+        artifact_ref: ArtifactRef,
+        signature_key: str,
+        /,
+    ) -> tuple[RecurrenceObservation, ...]:
+        """Return the ``recurred`` and ``avoided`` events of one bucket in journal order."""
+
+        scope = validate_scope_id(scope_id)
+        _require_normalized_key(signature_key)
+        rows = (
+            await connection.execute(
+                select(RECURRENCE_OBSERVATION_TABLE)
+                .where(
+                    *_bucket_conditions(scope, artifact_ref, signature_key),
+                    RECURRENCE_OBSERVATION_TABLE.c.event != "selected",
+                )
+                .order_by(
+                    RECURRENCE_OBSERVATION_TABLE.c.task_outcome_position,
+                    RECURRENCE_OBSERVATION_TABLE.c.observation_id,
+                )
+            )
+        ).mappings()
+        return tuple(_decode_observation(row) for row in rows)
+
     async def event_counts_for_target(
         self,
         connection: AsyncConnection,

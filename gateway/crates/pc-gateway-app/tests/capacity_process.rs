@@ -284,6 +284,7 @@ impl Gateway {
             });
             (task, path)
         });
+        command.env("PC_GATEWAY_STEERING", if steering { "on" } else { "off" });
         let steering = steering.then(|| {
             let path = std::env::temp_dir().join(format!(
                 "pc2464-{}-{}.txt",
@@ -509,7 +510,7 @@ async fn ingress_and_final_wire_bytes_obey_both_limits() {
     // Client bytes fit; renderer-added defaults and control-character escaping make final bytes larger.
     let gateway = Gateway::start(capabilities(json!(256)), 4096, false, false, false, false).await;
     let mut body = "{\"model\":\"test\",\"messages\":[{\"role\":\"user\",\"content\":\"".to_owned();
-    body.push_str(&"\\u0001".repeat(31));
+    body.push_str(&"\\^A".repeat(31));
     body.push_str("\"}]}");
     assert!(body.len() <= 256);
     let (status, result) = gateway.request(CHAT, body, false).await;
@@ -522,6 +523,7 @@ async fn ingress_and_final_wire_bytes_obey_both_limits() {
 async fn prepared_context_and_steering_cannot_bypass_final_capacity() {
     for (injection, steering, route, body) in [
         (true, false, CHAT, chat("hello")),
+        (false, true, CHAT, chat("hello")),
         (
             false,
             true,

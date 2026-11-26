@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 from pathlib import Path
 from subprocess import CompletedProcess
@@ -100,55 +101,411 @@ def test_config_agent_openclaw_keeps_connection_settings_consistent(
     assert json.loads(clients.read_text(encoding="utf-8"))["hosts"]["openclaw"]["server_url"] == expected
 
 
-def test_install_openclaw_plugin_builds_installs_and_configures(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    plugin = _write_openclaw_plugin(tmp_path / "checkout")
-    managed = tmp_path / "native-managed"
-    managed.mkdir()
+# A fake host with the native semantics of OpenClaw 2026.8.1 (ea80657) and 2026.8.1-beta.2: unless installation is
+# given --no-enable, it always removes the plugin from plugins.deny and appends it to a non-empty plugins.allow, and,
+# only while neither the entry nor all plugins are disabled, enables the entry and selects it for the memory slot.
+_FAKE_OPENCLAW = r"""
+import json
+import os
+import pathlib
+import sys
 
-    def native_command(*args):
-        output = (
-            json.dumps({"install": {"installPath": str(managed)}})
-            if "inspect" in args
-            else _openclaw_plugin_list_output()
-        )
-        return CompletedProcess([], 0, output, "")
+state = pathlib.Path(os.environ["OPENCLAW_STATE_DIR"])
+config_file = state / "openclaw.json"
+config = json.loads(config_file.read_text(encoding="utf-8")) if config_file.is_file() else {}
+arguments = sys.argv[1:]
+with (state / "commands.jsonl").open("a", encoding="utf-8") as log:
+    log.write(json.dumps(arguments) + "\n")
+plugin_id = "memory-powercontext"
+options = ["--force", "--link", "--pin"]
+options += ["--no-enable"] if os.environ.get("FAKE_OPENCLAW_NO_ENABLE") else ["--accept-capabilities"]
 
-    run_openclaw = Mock(side_effect=native_command)
-    monkeypatch.setattr(
-        openclaw_cli,
-        "read_config_value",
-        lambda _executable, path: (
-            {"entries": {"memory-powercontext": {"enabled": False}}} if path == "plugins" else "memory-powercontext"
-        ),
-    )
-    build = Mock()
 
-    def pack(command, **kwargs):
-        (Path(command[-1]) / "plugin.tgz").write_bytes(b"archive")
+def save():
+    config_file.write_text(json.dumps(config), encoding="utf-8")
 
-    monkeypatch.setattr(openclaw_cli, "run_process", pack)
-    monkeypatch.setattr(openclaw_cli, "pnpm_executable", lambda: "pnpm")
-    configure = Mock()
-    monkeypatch.setattr(openclaw_cli, "openclaw_executable", lambda: "/usr/bin/openclaw")
-    monkeypatch.setattr(openclaw_cli, "require_supported_openclaw", Mock())
-    monkeypatch.setattr("powercontext.cli.git_source.resolve_plugin_source", lambda *_args, **_kwargs: plugin)
-    monkeypatch.setattr(openclaw_cli, "build_openclaw_plugin", build)
-    monkeypatch.setattr(openclaw_cli, "run_openclaw", run_openclaw)
-    monkeypatch.setattr(openclaw_cli, "configure_openclaw", configure)
+
+def node(path, create=False):
+    current = config
+    for key in path:
+        if not isinstance(current, dict) or (key not in current and not create):
+            return None
+        current = current.setdefault(key, {}) if create else current[key]
+    return current
+
+
+if arguments == ["--version"]:
+    print(os.environ["FAKE_OPENCLAW_VERSION"])
+elif arguments == ["plugins", "install", "--help"]:
+    print("Usage: openclaw plugins install [options] <path-or-spec-or-plugin>\n\nOptions:")
+    print("\n".join("  " + option for option in sorted(options + ["-h, --help"])))
+elif arguments[:2] == ["config", "get"]:
+    value = node(arguments[2].split("."))
+    if value is None:
+        print(json.dumps({"ok": False, "error": {"message": f"Config path is valid but unset: {arguments[2]}."}}))
+        sys.exit(1)
+    print(json.dumps(value))
+elif arguments[:3] == ["config", "set", "--batch-json"]:
+    for update in json.loads(arguments[3]):
+        *parents, leaf = update["path"].split(".")
+        node(parents, create=True)[leaf] = update["value"]
+    save()
+elif arguments[:2] == ["plugins", "install"]:
+    *flags, archive = arguments[2:]
+    if not set(flags) <= set(options) or not pathlib.Path(archive).is_file():
+        sys.exit(f"unsupported install: {arguments}")
+    plugins = config.setdefault("plugins", {})
+    if "--no-enable" not in flags:
+        if "--accept-capabilities" not in flags:
+            sys.exit(f'Plugin "{plugin_id}" requires capability consent.')
+        if plugins.get("allow") and plugin_id not in plugins["allow"]:
+            plugins["allow"].append(plugin_id)
+        if plugin_id in plugins.get("deny", []):
+            plugins["deny"].remove(plugin_id)
+        entry = plugins.setdefault("entries", {}).setdefault(plugin_id, {})
+        if entry.get("enabled") is not False and plugins.get("enabled") is not False:
+            entry["enabled"] = True
+            plugins.setdefault("slots", {})["memory"] = plugin_id
+    (state / "extensions" / plugin_id).mkdir(parents=True, exist_ok=True)
+    # Lets a test change the policy as a user would between installation and activation.
+    for update in json.loads(os.environ.get("FAKE_OPENCLAW_USER_UPDATES_AFTER_INSTALL", "[]")):
+        *parents, leaf = update["path"].split(".")
+        node(parents, create=True)[leaf] = update["value"]
+    save()
+elif arguments[:3] == ["plugins", "inspect", plugin_id]:
+    print(json.dumps({"install": {"installPath": str(state / "extensions" / plugin_id)}}))
+elif arguments == ["plugins", "enable", plugin_id]:
+    node(["plugins", "entries", plugin_id], create=True)["enabled"] = True
+    save()
+elif arguments != ["gateway", "restart"]:
+    sys.exit(f"unexpected command: {arguments}")
+"""
+
+_FAKE_PNPM = r"""
+import json
+import os
+import pathlib
+import sys
+
+with (pathlib.Path(os.environ["OPENCLAW_STATE_DIR"]) / "commands.jsonl").open("a", encoding="utf-8") as log:
+    log.write(json.dumps(["pnpm", *sys.argv[1:]]) + "\n")
+plugin = pathlib.Path(sys.argv[sys.argv.index("--dir") + 1])
+if "build" in sys.argv:
+    (plugin / "dist").mkdir(exist_ok=True)
+    (plugin / "dist" / "index.js").write_text("export {};\n", encoding="utf-8")
+    # Lets a test change the OpenClaw policy as a user would while the plugin builds.
+    updates = json.loads(os.environ.get("FAKE_PNPM_USER_UPDATES_DURING_BUILD", "[]"))
+    if updates:
+        config_file = pathlib.Path(os.environ["OPENCLAW_STATE_DIR"]) / "openclaw.json"
+        config = json.loads(config_file.read_text(encoding="utf-8")) if config_file.is_file() else {}
+        for update in updates:
+            current = config
+            *parents, leaf = update["path"].split(".")
+            for key in parents:
+                current = current.setdefault(key, {})
+            current[leaf] = update["value"]
+        config_file.write_text(json.dumps(config), encoding="utf-8")
+if "pack" in sys.argv:
+    (pathlib.Path(sys.argv[-1]) / "plugin.tgz").write_bytes(b"archive")
+"""
+
+_OPENCLAW_2026_8_1 = "OpenClaw 2026.8.1 (ea80657)"
+
+
+def _install_executable(directory: Path, name: str, source: str) -> None:
+    directory.mkdir(parents=True, exist_ok=True)
+    script = directory / name
+    script.write_text("#!/usr/bin/env python3\n" + source, encoding="utf-8", newline="\n")
+    script.chmod(0o755)
+    if os.name == "nt":
+        (directory / f"{name}.cmd").write_text(f'@"{sys.executable}" "{script}" %*\n', encoding="utf-8")
+
+
+@pytest.fixture
+def openclaw_host(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """Put a fake OpenClaw host and pnpm on PATH and return the host's command log reader and state paths."""
+
+    state = tmp_path / "openclaw-state"
+    state.mkdir()
+    bin_dir = tmp_path / "bin"
+    _install_executable(bin_dir, "openclaw", _FAKE_OPENCLAW)
+    _install_executable(bin_dir, "pnpm", _FAKE_PNPM)
+    monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ.get('PATH', '')}")
+    monkeypatch.setenv("OPENCLAW_STATE_DIR", str(state))
+    monkeypatch.setenv("FAKE_OPENCLAW_VERSION", _OPENCLAW_2026_8_1)
     monkeypatch.setenv("POWERCONTEXT_HOME", str(tmp_path / "data"))
+    monkeypatch.delenv("FAKE_OPENCLAW_NO_ENABLE", raising=False)
+    monkeypatch.delenv("FAKE_OPENCLAW_USER_UPDATES_AFTER_INSTALL", raising=False)
+    monkeypatch.delenv("FAKE_PNPM_USER_UPDATES_DURING_BUILD", raising=False)
+    config = state / "openclaw.json"
 
-    result = install_plugin("openclaw", source=str(plugin), ref="tested-ref", server_url="http://127.0.0.1:8765/")
+    def commands() -> list[list[str]]:
+        log = state / "commands.jsonl"
+        lines = log.read_text(encoding="utf-8").splitlines() if log.is_file() else []
+        return [json.loads(line) for line in lines]
+
+    return config, commands
+
+
+@pytest.mark.parametrize(
+    ("version", "no_enable", "install_flags"),
+    [
+        (_OPENCLAW_2026_8_1, False, ["--force", "--accept-capabilities"]),
+        ("OpenClaw 2026.12.0", True, ["--force", "--no-enable"]),
+    ],
+    ids=["without-no-enable", "with-no-enable"],
+)
+def test_setup_openclaw_installs_the_archive_and_activates_it_on_supported_hosts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, openclaw_host, version, no_enable, install_flags
+) -> None:
+    config, commands = openclaw_host
+    monkeypatch.setenv("FAKE_OPENCLAW_VERSION", version)
+    if no_enable:
+        monkeypatch.setenv("FAKE_OPENCLAW_NO_ENABLE", "1")
+    plugin = _write_openclaw_plugin(tmp_path / "checkout")
+
+    result = install_plugin("openclaw", source=str(plugin), server_url="http://127.0.0.1:8765/")
 
     assert result == {
         "plugin": "memory-powercontext",
-        "plugin_path": result["plugin_path"],
+        "plugin_path": str(config.parent / "extensions" / "memory-powercontext"),
         "server_url": "http://127.0.0.1:8765",
         "data_dir": str(tmp_path / "data"),
     }
-    assert Path(result["plugin_path"]) == managed
+    installs = [command[2:] for command in commands() if command[:2] == ["plugins", "install"]]
+    installs.remove(["--help"])
+    assert [command[:-1] for command in installs] == [install_flags]
+    assert installs[0][-1].endswith(".tgz")
+    assert ["gateway", "restart"] in commands()
+    native = json.loads(config.read_text(encoding="utf-8"))
+    assert native["plugins"]["slots"] == {"memory": "memory-powercontext"}
+    assert native["plugins"]["entries"]["memory-powercontext"] == {
+        "enabled": True,
+        "config": {
+            "endpoint": "http://127.0.0.1:8765",
+            "allowInsecureHttp": False,
+            "autoRecall": True,
+            "autoCapture": True,
+        },
+        "hooks": {"allowConversationAccess": True},
+    }
+    assert native["tools"]["alsoAllow"] == list(openclaw_cli.POWERCONTEXT_TOOLS)
+
+
+@pytest.mark.parametrize(
+    ("plugins", "overridden"),
+    [
+        ({"deny": ["memory-powercontext"]}, "plugins.deny"),
+        ({"allow": ["memory-core"]}, "plugins.allow"),
+        ({"slots": {"memory": "memory-core"}}, "plugins.slots.memory"),
+        # Disabling the plugin stops installation from activating it, not from changing deny and allow.
+        ({"entries": {"memory-powercontext": {"enabled": False}}, "deny": ["memory-powercontext"]}, "plugins.deny"),
+        ({"entries": {"memory-powercontext": {"enabled": False}}, "allow": ["memory-core"]}, "plugins.allow"),
+        ({"enabled": False, "deny": ["memory-powercontext"]}, "plugins.deny"),
+        ({"enabled": False, "allow": ["memory-core"]}, "plugins.allow"),
+    ],
+)
+def test_setup_openclaw_without_no_enable_refuses_to_override_native_policy(
+    tmp_path: Path, openclaw_host, plugins, overridden
+) -> None:
+    config, commands = openclaw_host
+    config.write_text(json.dumps({"plugins": plugins}), encoding="utf-8")
+    before = config.read_text(encoding="utf-8")
+
+    with pytest.raises(SetupError, match=rf"would override {overridden}; setup changed nothing"):
+        install_plugin(
+            "openclaw", source=str(_write_openclaw_plugin(tmp_path / "checkout")), server_url="http://127.0.0.1:8765"
+        )
+
+    assert config.read_text(encoding="utf-8") == before
+    assert [command for command in commands() if command[0] == "pnpm" or command[:2] == ["plugins", "install"]] == [
+        ["plugins", "install", "--help"]
+    ]
+
+
+@pytest.mark.parametrize(
+    "plugins",
+    [
+        {"entries": {"memory-powercontext": {"enabled": False}}, "slots": {"memory": "memory-core"}},
+        {"enabled": False, "slots": {"memory": "memory-core"}},
+    ],
+)
+def test_setup_openclaw_without_no_enable_installs_a_disabled_plugin_without_activating_it(
+    tmp_path: Path, openclaw_host, plugins
+) -> None:
+    config, commands = openclaw_host
+    config.write_text(json.dumps({"plugins": plugins}), encoding="utf-8")
+
+    install_plugin(
+        "openclaw", source=str(_write_openclaw_plugin(tmp_path / "checkout")), server_url="http://127.0.0.1:8765"
+    )
+
+    native = json.loads(config.read_text(encoding="utf-8"))["plugins"]
+    assert native.get("enabled") == plugins.get("enabled")
+    assert native["slots"] == {"memory": "memory-core"}
+    assert native["entries"]["memory-powercontext"].get("enabled") is plugins.get("entries", {}).get(
+        "memory-powercontext", {}
+    ).get("enabled")
+    assert ["plugins", "enable", "memory-powercontext"] not in commands()
+    assert ["gateway", "restart"] not in commands()
+
+
+@pytest.mark.parametrize(
+    "plugins",
+    [
+        {"entries": {"memory-powercontext": {"enabled": False}}},
+        {"deny": ["memory-powercontext"]},
+        {"allow": ["memory-core"]},
+        {"slots": {"memory": "memory-core"}},
+    ],
+)
+def test_setup_openclaw_with_no_enable_installs_without_overriding_native_choices(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, openclaw_host, plugins
+) -> None:
+    config, commands = openclaw_host
+    monkeypatch.setenv("FAKE_OPENCLAW_VERSION", "OpenClaw 2026.12.0")
+    monkeypatch.setenv("FAKE_OPENCLAW_NO_ENABLE", "1")
+    config.write_text(json.dumps({"plugins": plugins}), encoding="utf-8")
+
+    install_plugin(
+        "openclaw", source=str(_write_openclaw_plugin(tmp_path / "checkout")), server_url="http://127.0.0.1:8765"
+    )
+
+    native = json.loads(config.read_text(encoding="utf-8"))["plugins"]
+    entry = native.pop("entries")["memory-powercontext"]
+    assert entry.pop("config") == {"endpoint": "http://127.0.0.1:8765", "allowInsecureHttp": False}
+    assert entry == plugins.get("entries", {}).get("memory-powercontext", {})
+    assert native == {key: value for key, value in plugins.items() if key != "entries"}
+    assert ["plugins", "enable", "memory-powercontext"] not in commands()
+    assert ["gateway", "restart"] not in commands()
+
+
+@pytest.mark.parametrize("no_enable", [False, True], ids=["without-no-enable", "with-no-enable"])
+@pytest.mark.parametrize(
+    "variable", ["FAKE_PNPM_USER_UPDATES_DURING_BUILD", "FAKE_OPENCLAW_USER_UPDATES_AFTER_INSTALL"]
+)
+def test_setup_openclaw_keeps_a_plugin_the_user_disabled_during_setup_inactive(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, openclaw_host, no_enable, variable
+) -> None:
+    config, commands = openclaw_host
+    if no_enable:
+        monkeypatch.setenv("FAKE_OPENCLAW_VERSION", "OpenClaw 2026.12.0")
+        monkeypatch.setenv("FAKE_OPENCLAW_NO_ENABLE", "1")
+    monkeypatch.setenv(variable, json.dumps([{"path": "plugins.entries.memory-powercontext.enabled", "value": False}]))
+
+    install_plugin(
+        "openclaw", source=str(_write_openclaw_plugin(tmp_path / "checkout")), server_url="http://127.0.0.1:8765"
+    )
+
+    native = json.loads(config.read_text(encoding="utf-8"))
+    assert native["plugins"]["entries"]["memory-powercontext"]["enabled"] is False
+    # Only an activating install that ran before the user's change selects the slot; setup itself never does.
+    installed_first = not no_enable and variable == "FAKE_OPENCLAW_USER_UPDATES_AFTER_INSTALL"
+    assert native["plugins"].get("slots") == ({"memory": "memory-powercontext"} if installed_first else None)
+    assert "tools" not in native
+    assert ["plugins", "enable", "memory-powercontext"] not in commands()
+    assert ["gateway", "restart"] not in commands()
+
+
+def test_setup_openclaw_without_no_enable_restarts_after_first_activation_with_preset_settings(
+    tmp_path: Path, openclaw_host
+) -> None:
+    config, commands = openclaw_host
+    preset = {
+        "slots": {"memory": "memory-powercontext"},
+        "entries": {
+            "memory-powercontext": {
+                "config": {"autoRecall": True, "autoCapture": True},
+                "hooks": {"allowConversationAccess": True},
+            }
+        },
+    }
+    config.write_text(json.dumps({"plugins": preset}), encoding="utf-8")
+
+    install_plugin(
+        "openclaw", source=str(_write_openclaw_plugin(tmp_path / "checkout")), server_url="http://127.0.0.1:8765"
+    )
+
+    # Installation enabled the plugin and setup has no absent setting to add, but the gateway must still load it.
+    assert json.loads(config.read_text(encoding="utf-8"))["plugins"]["entries"]["memory-powercontext"]["enabled"]
+    assert ["plugins", "enable", "memory-powercontext"] in commands()
+    assert ["gateway", "restart"] in commands()
+
+
+@pytest.mark.parametrize("no_enable", [False, True], ids=["without-no-enable", "with-no-enable"])
+def test_setup_openclaw_restarts_when_only_the_memory_slot_is_selected(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, openclaw_host, no_enable
+) -> None:
+    config, commands = openclaw_host
+    if no_enable:
+        monkeypatch.setenv("FAKE_OPENCLAW_VERSION", "OpenClaw 2026.12.0")
+        monkeypatch.setenv("FAKE_OPENCLAW_NO_ENABLE", "1")
+    preset = {
+        "tools": {"alsoAllow": list(openclaw_cli.POWERCONTEXT_TOOLS)},
+        "plugins": {
+            "entries": {
+                "memory-powercontext": {
+                    "enabled": True,
+                    "config": {"autoRecall": True, "autoCapture": True},
+                    "hooks": {"allowConversationAccess": True},
+                }
+            }
+        },
+    }
+    config.write_text(json.dumps(preset), encoding="utf-8")
+
+    install_plugin(
+        "openclaw", source=str(_write_openclaw_plugin(tmp_path / "checkout")), server_url="http://127.0.0.1:8765"
+    )
+
+    # Without --no-enable installation selects the slot and setup has nothing to write; the gateway must still load it.
+    assert json.loads(config.read_text(encoding="utf-8"))["plugins"]["slots"] == {"memory": "memory-powercontext"}
+    assert ["gateway", "restart"] in commands()
+    assert ["plugins", "enable", "memory-powercontext"] not in commands()
+
+
+def test_setup_openclaw_without_no_enable_rechecks_native_policy_after_building(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, openclaw_host
+) -> None:
+    config, commands = openclaw_host
+    monkeypatch.setenv(
+        "FAKE_PNPM_USER_UPDATES_DURING_BUILD", json.dumps([{"path": "plugins.slots.memory", "value": "memory-core"}])
+    )
+
+    with pytest.raises(SetupError, match=r"would override plugins.slots.memory; setup changed nothing"):
+        install_plugin(
+            "openclaw", source=str(_write_openclaw_plugin(tmp_path / "checkout")), server_url="http://127.0.0.1:8765"
+        )
+
+    assert json.loads(config.read_text(encoding="utf-8")) == {"plugins": {"slots": {"memory": "memory-core"}}}
+    assert [command for command in commands() if command[:2] == ["plugins", "install"]] == [
+        ["plugins", "install", "--help"]
+    ]
+
+
+@pytest.mark.parametrize(
+    ("plugins", "path"),
+    [
+        ({"entries": None}, "plugins.entries"),
+        ({"slots": ["memory-core"]}, "plugins.slots"),
+        ({"allow": "memory-powercontext-extra"}, "plugins.allow"),
+        ({"deny": None}, "plugins.deny"),
+        ({"entries": {"memory-powercontext": None}}, "plugins.entries.memory-powercontext"),
+        ({"entries": {"memory-powercontext": {"config": None}}}, "plugins.entries.memory-powercontext.config"),
+    ],
+)
+def test_setup_openclaw_rejects_malformed_native_plugin_policy_before_installing(
+    tmp_path: Path, openclaw_host, plugins, path
+) -> None:
+    config, commands = openclaw_host
+    config.write_text(json.dumps({"plugins": plugins}), encoding="utf-8")
+
+    with pytest.raises(SetupError, match=rf"OpenClaw {re.escape(path)} must be an"):
+        install_plugin(
+            "openclaw", source=str(_write_openclaw_plugin(tmp_path / "checkout")), server_url="http://127.0.0.1:8765"
+        )
+
+    assert not [command for command in commands() if command[0] == "pnpm" or command[:2] == ["plugins", "install"]]
 
 
 def test_build_openclaw_plugin_runs_pnpm_install_non_interactively(
@@ -353,6 +710,7 @@ def test_doctor_openclaw_exits_nonzero_when_plugin_is_missing(monkeypatch: pytes
         {"enabled": False},
         {"entries": {"memory-powercontext": {"enabled": False}}},
         {"deny": ["memory-powercontext"]},
+        {"allow": ["other-plugin"]},
         {"slots": {"memory": "other-memory-provider"}},
     ],
 )
@@ -373,17 +731,6 @@ def test_openclaw_activation_preserves_existing_native_choices(monkeypatch, plug
     monkeypatch.setattr(openclaw_cli, "run_openclaw", native)
     openclaw_cli.OpenClawInstaller().enable()
     assert plugins == before
-
-
-def test_openclaw_rejects_installers_without_policy_preserving_installation(monkeypatch):
-    def native(command, **options):
-        return CompletedProcess(
-            command, 0, "OpenClaw 2026.8.33" if command[-1] == "--version" else "plugins install", ""
-        )
-
-    monkeypatch.setattr(openclaw_cli, "run_process", native)
-    with pytest.raises(SetupError, match="--no-enable"):
-        openclaw_cli.require_supported_openclaw("openclaw")
 
 
 def test_openclaw_config_read_failure_is_not_an_absent_setting(monkeypatch):
