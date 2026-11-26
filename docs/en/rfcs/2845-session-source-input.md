@@ -1,11 +1,11 @@
 ---
-title: "RFC 0000: Session Source Input"
+title: "RFC 2845: Session Source Input"
 description: "Define role-aware Source input for live conversation turns and historical conversation imports."
 ---
 
 - Proposal Name: `session_source_input`
 - Start Date: 2026-11-26
-- RFC PR: To be created
+- RFC PR: [oceanbase/powercontext#2845](https://github.com/oceanbase/powercontext/pull/2845)
 
 # Summary
 

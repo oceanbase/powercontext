@@ -1,11 +1,11 @@
 ---
-title: "RFC 0000：Session Source 输入"
+title: "RFC 2845：Session Source 输入"
 description: "为实时对话轮次和历史对话补录定义有角色的 Source 输入。"
 ---
 
 - Proposal Name: `session_source_input`
 - Start Date: 2026-11-26
-- RFC PR: 待创建
+- RFC PR: [oceanbase/powercontext#2845](https://github.com/oceanbase/powercontext/pull/2845)
 
 # Summary
 
