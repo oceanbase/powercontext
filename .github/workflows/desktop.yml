@@ -290,6 +290,8 @@ jobs:
       - name: Prepare cached OpenAPI Generator
         uses: ./.github/actions/setup-openapi-generator
       - run: pnpm lint
+      # Regenerate on the reference platform; Tauri's resized ICO frames vary by host.
+      - run: pnpm icons:check
       - run: pnpm typecheck
       - run: pnpm test
       - run: pnpm build
