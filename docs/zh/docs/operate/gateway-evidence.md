@@ -103,11 +103,12 @@ null 表示分类不可得，不是 `success` 或 `noop`。销毁时存在取消
 `tool_continuation`（工具结果或工具调用条目）、`assistant_only`（不带工具调用的助手消息或其他助手侧条目）、
 `empty`（没有消息、system/developer 消息，或只有这类条目）。嵌入式宿主未判定该调用时为 `null`。
 
-Chat 请求按规范化角色与工具调用是否存在判定。Responses 请求把非用户 item 逐字放在 `tool` 承载里，因此类型取自
-item 自身的 `role` 与 `type`：客户端工具调用、其工具结果以及 MCP 审批往返为工具续写，助手消息、reasoning 一类
-条目以及服务商已在响应内执行完毕的工具为 assistant_only，system/developer 消息为 empty。判定本身不读取消息正文，
-不新增 provider 或 Core 请求；只有用户回合会向 Core 查询上下文，其他类型在存在重放结果时复用本回合已准备的块，
-否则跳过准备与重放。
+Chat 请求以最后一条用户消息为锚点，由其后的尾部判定。Responses 请求把非用户 item 逐字放在 `tool` 承载里，
+因此类型取自 item 自身的 `role` 与 `type`：客户端工具调用、其工具结果以及 MCP 审批往返为工具续写，助手消息、
+reasoning 一类条目以及服务商已在响应内执行完毕的工具为 assistant_only，没有用户消息且只有 system/developer
+条目时为 empty。客户端与网关固定指令会在用户提问之后追加 system/developer 提示，这类尾部不隐藏该用户回合。
+判定本身不读取消息正文，不新增 provider 或 Core 请求；只有用户回合会向 Core 查询上下文，其他类型在存在重放
+结果时复用本回合已准备的块，否则跳过准备与重放。
 
 执行器还为每次判定输出一条 debug 级结构化事件，字段为 `turn_kind`；需要记录时提高 core crate 的 `RUST_LOG`。
 各类型累计次数与跳过准备次数是进程内累计计数器（`Executor::turn_counters()`），不是指标标签或逐记录字段；它们

@@ -115,12 +115,14 @@ message), `tool_continuation` (a tool result or a tool-call item), `assistant_on
 assistant-side item without a tool call), or `empty` (no messages, a system/developer message, or only items of that
 kind). It is `null` when the embedding host did not classify the call.
 
-Chat requests classify by normalized role and tool-call presence. Responses requests keep non-user items verbatim in
-a `tool` carrier, so their kind comes from the item's own `role` and `type`: client tool calls, their outputs, and MCP
-approval round trips are tool continuations; assistant messages, reasoning-like items and tools the provider already
-completed are assistant-only; system/developer messages are empty. Classification itself reads no message content and
-adds no provider or Core request. Only a user turn queries Core for context; every other kind reuses the turn's
-prepared block when a replay entry exists and otherwise skips preparation and replay.
+Chat requests anchor on the last user message and classify from the tail after it. Responses requests keep non-user
+items verbatim in a `tool` carrier, so their kind comes from the item's own `role` and `type`: client tool calls,
+their outputs, and MCP approval round trips are tool continuations; assistant messages, reasoning-like items and
+tools the provider already completed are assistant-only; a request with no user message and only system/developer
+items is empty. Clients and the gateway's own instruction append system/developer items after the user query, and
+such a tail does not hide that user turn. Classification itself reads no message content and adds no provider or Core
+request. Only a user turn queries Core for context; every other kind reuses the turn's prepared block when a replay
+entry exists and otherwise skips preparation and replay.
 
 The executor also emits one debug-level structured event per decision with a `turn_kind` field; raise `RUST_LOG` for
 the core crate to record it. Per-kind totals are process-local cumulative counters (`Executor::turn_counters()`) that
