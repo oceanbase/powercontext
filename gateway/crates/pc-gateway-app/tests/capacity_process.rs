@@ -256,6 +256,7 @@ impl Gateway {
         if let Some(injection) = injection {
             command.env("PC_GATEWAY_INJECTION", if injection { "on" } else { "off" });
         }
+        command.env("PC_GATEWAY_STEERING", if steering { "on" } else { "off" });
         command.env("PC_GATEWAY_MAX_CONCURRENT", "1");
         let uds = combined.then(|| {
             let path = std::env::temp_dir().join(format!("pc2464-{}-{}.sock", std::process::id(), address.port()));
@@ -521,6 +522,7 @@ async fn ingress_and_final_wire_bytes_obey_both_limits() {
 async fn prepared_context_and_steering_cannot_bypass_final_capacity() {
     for (injection, steering, route, body) in [
         (true, false, CHAT, chat("hello")),
+        (false, true, CHAT, chat("hello")),
         (
             false,
             true,
