@@ -225,14 +225,23 @@ discovers the mode at startup. See [Context reuse and final admission](../operat
   the Scope this provider resolves for each workspace. Set `PC_GATEWAY_DEFAULT_SCOPE` to the Scope that
   `hermes powercontext status` prints as `scope_id`, or set the provider's `scope_id` and `PC_GATEWAY_DEFAULT_SCOPE` to
   the same existing Scope.
-- Set `PC_GATEWAY_INJECTION=on`. A combined deployment injects by default only into requests that carry
-  `X-PowerContext-Conversation-ID` or another recognized session header. Hermes 0.20.4 sends no per-session header to
-  a custom Responses endpoint, and a provider's `extra_headers` are the same for every session, so no Hermes request
-  names a conversation. With injection on, the gateway prepares each request separately, including tool-loop steps
-  and any auxiliary request, such as a title or compression summary, that Hermes sends to the same provider. With
-  `PC_GATEWAY_SEDIMENT=on`, the gateway also captures the completed response to such a request as a turn when the
-  request contains a user message. Do not put a fixed `X-PowerContext-Conversation-ID` in `extra_headers`, because the
-  gateway would then treat every session as one conversation.
+- Run the gateway in a combined deployment (`PC_GATEWAY_CORE_UDS`), which injects Hermes' requests by default.
+  Hermes 0.20.4 sends no per-session header to a custom Responses endpoint, and a provider's `extra_headers` are the
+  same for every session, so the gateway infers the conversation from the request instead. Hermes sends the whole
+  history on every request, without `previous_response_id` or `conversation`. It puts the system prompt, which it
+  builds once per session, in `instructions`, and the history starts with the first user message. The gateway
+  therefore prepares once per user message and replays that context to the tool-loop steps.
+- The inferred ID is local to the gateway process and serves only this replay. Sessions that open with the same
+  system prompt and first user message share one. The gateway still captures each completed turn. Without a
+  conversation header, capture has no conversation identity that survives a gateway restart, and prefix extraction is
+  not available. A compression rebuilds Hermes' system prompt and rewrites the history, so afterwards the gateway can
+  infer a new conversation and prepare again.
+- Auxiliary requests that Hermes sends to the same provider, such as a title or a compression summary, open with
+  their own system prompt and user message. The gateway infers a separate conversation for each and prepares it, and
+  with `PC_GATEWAY_SEDIMENT=on` it captures the completed response as a turn.
+- A standalone gateway (`PC_GATEWAY_CORE_BASE`) injects only with `PC_GATEWAY_INJECTION=on`. Do not put a fixed
+  `X-PowerContext-Conversation-ID` in `extra_headers`, because the gateway would then treat every session as one
+  conversation.
 
 See [Gateway context injection](../operate/deploy-server.md#gateway-context-injection) and [Gateway authentication
 boundaries](../operate/deploy-server.md#gateway-authentication-boundaries).

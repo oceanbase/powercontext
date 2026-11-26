@@ -215,13 +215,19 @@ gateway 在启动时发现 Core 的模式，修改模式后请重启 gateway。
   而不是 provider 为每个 workspace 解析的 Scope。
   请把 `PC_GATEWAY_DEFAULT_SCOPE` 设为 `hermes powercontext status` 输出的 `scope_id`，
   或把 provider 的 `scope_id` 和 `PC_GATEWAY_DEFAULT_SCOPE` 设为同一个已有的 Scope。
-- 设置 `PC_GATEWAY_INJECTION=on`。
-  组合部署默认只向带有 `X-PowerContext-Conversation-ID` 或其他可识别会话头的请求注入上下文。
+- 请以组合部署（`PC_GATEWAY_CORE_UDS`）运行 gateway，它默认会向 Hermes 的请求注入上下文。
   Hermes 0.20.4 不向自定义 Responses 端点发送按会话区分的请求头，而 provider 的 `extra_headers` 对每个会话都相同，
-  因此 Hermes 的请求不会标识会话。
-  开启注入后，gateway 为每个请求分别准备，包括工具循环步骤，以及 Hermes 发往同一 provider 的辅助请求，
-  例如标题或压缩摘要。
-  设置 `PC_GATEWAY_SEDIMENT=on` 后，如果这类请求含有用户消息，gateway 也会把它的完成响应作为一轮采集。
+  因此 gateway 改为从请求本身推导会话。
+  Hermes 在每个请求中发送完整历史，不使用 `previous_response_id` 或 `conversation`。
+  它把每个会话只构建一次的系统提示词放在 `instructions` 中，历史从第一条用户消息开始。
+  因此，gateway 每条用户消息只准备一次，并把该上下文重放给工具循环步骤。
+- 推导出的 ID 仅在当前 gateway 进程内用于重放准备结果。
+  系统提示词和第一条用户消息相同的会话共用同一个 ID。
+  gateway 仍会采集每个完成的回合。没有会话头时，采集没有在 gateway 重启后保持不变的会话标识，也无法使用前缀提取。
+  压缩会重建 Hermes 的系统提示词并改写历史，因此压缩之后，gateway 可能推导出一个新会话，并重新准备。
+- Hermes 发往同一 provider 的辅助请求（例如标题或压缩摘要）以各自的系统提示词和用户消息开头。
+  gateway 为每个这类请求推导一个单独的会话并准备上下文；设置 `PC_GATEWAY_SEDIMENT=on` 后，还会把它的完成响应作为一轮采集。
+- 独立部署的 gateway（`PC_GATEWAY_CORE_BASE`）只有在 `PC_GATEWAY_INJECTION=on` 时才注入。
   不要在 `extra_headers` 中放固定的 `X-PowerContext-Conversation-ID`，否则 gateway 会把所有会话当作同一个会话。
 
 见[网关上下文注入](../operate/deploy-server.md#网关上下文注入)和[网关认证边界](../operate/deploy-server.md#网关认证边界)。
