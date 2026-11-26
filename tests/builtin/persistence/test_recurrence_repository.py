@@ -81,10 +81,14 @@ async def _seed_scope(connection: AsyncConnection) -> None:
 
 
 def _item_ref(
-    *, kind: TaskOutcomeItemKind = "check", index: int = 0, digest: str = "sha256:" + "a" * 64
+    *,
+    kind: TaskOutcomeItemKind = "check",
+    index: int = 0,
+    digest: str = "sha256:" + "a" * 64,
+    outcome_ref: SourceRef = OUTCOME_REF,
 ) -> TaskOutcomeItemRef:
     return TaskOutcomeItemRef(
-        task_outcome_ref=OUTCOME_REF,
+        task_outcome_ref=outcome_ref,
         item_kind=kind,
         item_index=index,
         item_digest=digest,
@@ -150,28 +154,40 @@ def _observation(
 
 
 def _selected(
-    *, position: int = 1, artifact_ref: ArtifactRef = EXPERIENCE_REF, key: str = KEY
+    *,
+    position: int = 1,
+    artifact_ref: ArtifactRef = EXPERIENCE_REF,
+    key: str = KEY,
+    outcome_ref: SourceRef = OUTCOME_REF,
 ) -> RecurrenceObservation:
     return _observation(
         "selected",
         position=position,
         artifact_ref=artifact_ref,
         key=key,
+        outcome_ref=outcome_ref,
         handoff_receipt_ref=RECEIPT_REF,
         handoff_ref=HANDOFF_REF,
     )
 
 
-def _avoided(*, position: int = 1, artifact_ref: ArtifactRef = EXPERIENCE_REF, key: str = KEY) -> RecurrenceObservation:
+def _avoided(
+    *,
+    position: int = 1,
+    artifact_ref: ArtifactRef = EXPERIENCE_REF,
+    key: str = KEY,
+    outcome_ref: SourceRef = OUTCOME_REF,
+) -> RecurrenceObservation:
     return _observation(
         "avoided",
         position=position,
         artifact_ref=artifact_ref,
         key=key,
+        outcome_ref=outcome_ref,
         handoff_receipt_ref=RECEIPT_REF,
         handoff_ref=HANDOFF_REF,
-        condition_ref=_item_ref(kind="observation", index=0, digest="sha256:" + "b" * 64),
-        check_ref=_item_ref(kind="check", index=0, digest="sha256:" + "c" * 64),
+        condition_ref=_item_ref(kind="observation", index=0, digest="sha256:" + "b" * 64, outcome_ref=outcome_ref),
+        check_ref=_item_ref(kind="check", index=0, digest="sha256:" + "c" * 64, outcome_ref=outcome_ref),
     )
 
 
@@ -180,14 +196,16 @@ def _recurred(
     position: int = 1,
     artifact_ref: ArtifactRef = EXPERIENCE_REF,
     key: str = KEY,
+    outcome_ref: SourceRef = OUTCOME_REF,
     digest: str | None = None,
 ) -> RecurrenceObservation:
-    failure_ref = _item_ref(kind="check", index=1, digest="sha256:" + "d" * 64)
+    failure_ref = _item_ref(kind="check", index=1, digest="sha256:" + "d" * 64, outcome_ref=outcome_ref)
     return _observation(
         "recurred",
         position=position,
         artifact_ref=artifact_ref,
         key=key,
+        outcome_ref=outcome_ref,
         failure_ref=failure_ref,
         match_digest=digest if digest is not None else match_key(_match()),
     )
@@ -450,6 +468,55 @@ def test_unlinked_handoff_citations_counts_only_visible_but_unattached_citations
                 )
                 == 0
             )
+
+    asyncio.run(scenario())
+
+
+def test_verdicts_for_target_filters_bucket_and_excludes_selected_in_journal_order() -> None:
+    async def scenario() -> None:
+        repository = RecurrenceRepository()
+        other_key = signature_key("different failure cue")
+        async with SQLiteProfile.open(
+            SQLiteConfig(), tables=SCOPE_TABLES + SHARED_TABLES + RECURRENCE_TABLES
+        ) as profile:
+            async with profile.database.transaction() as connection:
+                await _seed_scope(connection)
+                await repository.append_observation(
+                    connection,
+                    _recurred(position=9, outcome_ref=SourceRef(source_type="task-outcome", source_id="outcome-9")),
+                )
+                await repository.append_observation(
+                    connection,
+                    _selected(position=2, outcome_ref=SourceRef(source_type="task-outcome", source_id="outcome-2")),
+                )
+                await repository.append_observation(
+                    connection,
+                    _avoided(position=5, outcome_ref=SourceRef(source_type="task-outcome", source_id="outcome-5")),
+                )
+                await repository.append_observation(
+                    connection,
+                    _recurred(
+                        position=3,
+                        artifact_ref=OTHER_EXPERIENCE_REF,
+                        outcome_ref=SourceRef(source_type="task-outcome", source_id="outcome-3"),
+                    ),
+                )
+                await repository.append_observation(
+                    connection,
+                    _recurred(
+                        position=4,
+                        key=other_key,
+                        outcome_ref=SourceRef(source_type="task-outcome", source_id="outcome-4"),
+                    ),
+                )
+                verdicts = await repository.verdicts_for_target(connection, SCOPE, EXPERIENCE_REF, KEY)
+                with pytest.raises(ValueError, match="normalized"):
+                    await repository.verdicts_for_target(connection, SCOPE, EXPERIENCE_REF, "  Unnormalized  Cue ")
+
+            assert [(item.task_outcome_position, item.event) for item in verdicts] == [
+                (5, "avoided"),
+                (9, "recurred"),
+            ]
 
     asyncio.run(scenario())
 
