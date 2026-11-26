@@ -21,7 +21,7 @@ import os
 from pathlib import Path
 from typing import NoReturn
 
-from pc_knowledge_base.content import ContentError, Snapshots, parse, relative_path
+from pc_knowledge_base.content import ContentError, Snapshots, parse, parser_profile, relative_path
 from pc_knowledge_base.embedding import Embedding
 from pc_knowledge_base.models import ChunkEdit, Chunking, Retrieve, canonical, identity
 from pc_knowledge_base.sources import FileEvidence, ProcessEvidence
@@ -31,6 +31,13 @@ from powercontext.plugins import AccessDenied, ApiError, InvalidContent, Renderi
 
 def fail(message: str, status: int = 409) -> NoReturn:
     raise ApiError(status, "knowledge_base_error", message)
+
+
+def reuse_parsed_result(pinned, content):
+    """Report whether published chunks can be reused; a missing profile predates versioning."""
+    pinned_profile = pinned.get("parser_profile")
+    current_profile = content.get("parser_profile")
+    return pinned_profile is None or current_profile is None or pinned_profile == current_profile
 
 
 def query(request, key, default=None):
@@ -242,6 +249,7 @@ class KnowledgeBase:
             **original,
             "chunking": config["value"]["chunking"],
             "embedding_profile": self.embedding.profile,
+            "parser_profile": parser_profile(path),
             "base_revision": base_revision,
             "manual_edits_policy": "replace" if replace else "reject",
             "force_reprocess": force,
@@ -497,6 +505,7 @@ class KnowledgeBase:
                     and not pinned.get("force_reprocess")
                     and current.content["content_digest"] == pinned["content_digest"]
                     and current.content["chunking"] == pinned["chunking"]
+                    and reuse_parsed_result(pinned, current.content)
                 ):
                     await self.store.observation(
                         request.scope_id, key, state="completed", error=None, unchanged_revision=current.ref.revision
@@ -725,11 +734,21 @@ class KnowledgeBase:
                 {"ref": ref, "score": row["score"], "passages": [], "chunks": []},
             )
             location = {
-                "chunk_id": row["chunk_id"],
-                "heading_path": row["heading_path"],
-                "source": row["source"],
-                "manually_modified": row["manually_modified"],
-                **row["locator"],
+                key: value
+                for key, value in {
+                    "chunk_id": row["chunk_id"],
+                    "heading_path": row["heading_path"],
+                    "source": row["source"],
+                    "manually_modified": row["manually_modified"],
+                    "block_char_start": row["locator"].get("block_char_start"),
+                    "block_char_end": row["locator"].get("block_char_end"),
+                    "line_start": row["locator"].get("line_start"),
+                    "line_end": row["locator"].get("line_end"),
+                    "span_start": row["locator"].get("span_start"),
+                    "span_end": row["locator"].get("span_end"),
+                    "span_unit": row["locator"].get("span_unit"),
+                }.items()
+                if value is not None
             }
             group["chunks"].append(location)
             # Context assembly retains text but not the structured locator.
