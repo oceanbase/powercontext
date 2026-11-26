@@ -154,10 +154,12 @@ impl ManagedOutcome {
 }
 
 /// 召回策略：用户回合总是准备；复用证明失效后的重试额外放行一次非用户回合的准备。
+/// `turn_start` 是本轮可注入的起点消息（Anthropic Messages 的纯工具结果尾部没有起点）。
 #[derive(Clone, Copy)]
 struct RecallPolicy {
     kind: TurnKind,
     reprepare: bool,
+    turn_start: Option<usize>,
 }
 
 impl RecallPolicy {
@@ -422,9 +424,12 @@ where
             if call.inject_context {
                 self.enrich(
                     &mut call,
-                    RecallPolicy { kind, reprepare },
+                    RecallPolicy {
+                        kind,
+                        reprepare,
+                        turn_start: start,
+                    },
                     replay,
-                    start,
                     renderer.message_list_key(),
                     recording,
                     execution,
@@ -939,7 +944,6 @@ where
         call: &mut ManagedCall,
         policy: RecallPolicy,
         replay: Option<(&str, u64)>,
-        start: Option<usize>,
         list_key: &str,
         recording: &mut CallRecorder<'_>,
         execution: &Execution,
@@ -958,7 +962,7 @@ where
             return;
         }
         // Anthropic Messages tails that are pure tool results have no injectable turn start.
-        let Some(index) = start else {
+        let Some(index) = policy.turn_start else {
             return;
         };
         let prepared = match cached {
