@@ -327,7 +327,7 @@ def test_prompt_page_shows_the_selected_revision(dashboard: TestClient, key: str
         headers={"If-Match": current.headers["etag"]},
     )
     assert replaced.status_code == 200, replaced.text
-    latest = dashboard.get("/dashboard/prompts", params={"scope": scope, "lang": "en"})
+    latest = dashboard.get("/dashboard/prompts", params={"scope": scope, "prompt_key": key, "lang": "en"})
     assert latest.status_code == 200
     assert "Keep a later prompt." in latest.text
     assert "Keep the approved prompt." not in latest.text

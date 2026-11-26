@@ -1,0 +1,96 @@
+<!--
+Copyright (c) 2026 OceanBase.
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+http://www.apache.org/licenses/LICENSE-2.0
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+-->
+{% set processing = data.topic_processing %}
+<section class="border-bottom pb-3 mb-4" aria-labelledby="topic-processing-heading">
+  <div class="d-flex flex-wrap align-items-center justify-content-between gap-2">
+    <h2 class="h3 mb-0" id="topic-processing-heading">{{ t.topic_processing_heading }}</h2>
+    {% if processing %}<button class="btn btn-sm" type="button" data-bs-toggle="offcanvas" data-bs-target="#topic-processing-details" aria-controls="topic-processing-details">{{ t.topic_processing_details }}</button>{% endif %}
+  </div>
+  {% if errors.get('topic_processing') %}
+    {{ read_error(errors.topic_processing, t.topic_processing_error) }}
+  {% elif processing %}
+    <p class="mt-2 mb-1"><strong>{{ t['topic_processing_' ~ processing.state] }}</strong></p>
+    <p class="mb-1">{{ t.topic_processing_cursor }}: {{ processing.source_cursor }} · {{ t.topic_processing_head }}: {{ processing.source_head }}</p>
+    <p class="text-secondary mb-0">{{ t.topic_processing_execution_unknown }} {{ t.topic_processing_publication_notice }}</p>
+  {% else %}
+    <p class="text-secondary mt-2 mb-0">{{ t.topic_processing_unavailable }}</p>
+  {% endif %}
+</section>
+{% if processing %}
+<div class="offcanvas offcanvas-end" tabindex="-1" id="topic-processing-details" aria-labelledby="topic-processing-details-heading">
+  <div class="offcanvas-header">
+    <h2 class="offcanvas-title" id="topic-processing-details-heading">{{ t.topic_processing_heading }}</h2>
+    <button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="{{ t.topic_processing_close }}"></button>
+  </div>
+  <div class="offcanvas-body">
+    <p>{{ t.topic_processing_origin }}</p>
+    <dl>
+      <dt>{{ t.scope_label }}</dt><dd><code>{{ scope }}</code></dd>
+      <dt>{{ t.topic_processing_read_at }}</dt><dd><time datetime="{{ processing.read_at }}">{{ processing.read_at }}</time></dd>
+      <dt>{{ t.topic_processing_cursor }}</dt><dd>{{ processing.source_cursor }}</dd>
+      <dt>{{ t.topic_processing_head }}</dt><dd>{{ processing.source_head }}</dd>
+      <dt>{{ t.topic_processing_target }}</dt><dd>{{ processing.target_source_through if processing.target_source_through is not none else t.topic_processing_no_target }}</dd>
+    </dl>
+    <p class="text-secondary">{{ t.topic_processing_execution_unknown }}</p>
+    <h3>{{ t.topic_processing_budget }}</h3>
+    {% if processing.budget %}{% set budget = processing.budget %}
+    <dl>
+      <dt>{{ t.topic_processing_after }}</dt><dd>{{ budget.source_after }}</dd>
+      <dt>{{ t.topic_processing_attempt_through }}</dt><dd>{{ budget.attempt_source_through if budget.attempt_source_through is not none else t.topic_processing_unknown }}</dd>
+      <dt>{{ t.topic_processing_budget_through }}</dt><dd>{{ budget.source_through }}</dd>
+      <dt>{{ t.topic_processing_attempts }}</dt><dd>{{ budget.attempts }}</dd>
+      <dt>{{ t.topic_processing_requests }}</dt><dd>{{ budget.requests }}</dd>
+      <dt>{{ t.topic_processing_tokens }}</dt><dd>{{ budget.tokens }}</dd>
+    </dl>
+    {% else %}<p>{{ t.topic_processing_no_budget }}</p>{% endif %}
+    <p class="text-secondary">{{ t.topic_processing_budget_notice }}</p>
+    <h3>{{ t.topic_processing_block }}</h3>
+    {% if processing.block %}{% set block = processing.block %}
+    <dl>
+      <dt>{{ t.topic_processing_reason }}</dt><dd><code>{{ block.error_code }}</code></dd>
+      <dt>{{ t.topic_processing_last_error }}</dt><dd><code>{{ block.last_error_code or t.topic_processing_unknown }}</code></dd>
+      <dt>{{ t.topic_processing_observed_at }}</dt><dd><time datetime="{{ block.blocked_at }}">{{ block.blocked_at }}</time></dd>
+      <dt>{{ t.topic_processing_after }}</dt><dd>{{ block.source_after }}</dd>
+      <dt>{{ t.topic_processing_attempt_through }}</dt><dd>{{ block.source_through if block.source_through is not none else t.topic_processing_unknown }}</dd>
+      <dt>{{ t.topic_processing_budget_through }}</dt><dd>{{ block.budget_source_through if block.budget_source_through is not none else t.topic_processing_unknown }}</dd>
+      <dt>{{ t.topic_processing_block_target }}</dt><dd>{{ block.target_source_through }}</dd>
+      <dt>{{ t.topic_processing_attempts }}</dt><dd>{{ block.attempts }}</dd>
+      <dt>{{ t.topic_processing_requests }}</dt><dd>{{ block.requests }}</dd>
+      <dt>{{ t.topic_processing_tokens }}</dt><dd>{{ block.tokens }}</dd>
+    </dl>
+    {% else %}<p>{{ t.topic_processing_no_block }}</p>{% endif %}
+  </div>
+  <script>
+    me().run(drawer => {
+      let cleaning = false;
+      drawer.on('htmx:beforeCleanupElement', event => {
+        if (event.detail.elt !== drawer || cleaning) return;
+        const instance = tabler.Offcanvas.getInstance(drawer);
+        if (!instance) return;
+        cleaning = true;
+        // Native dismissal restores scrolling before the detached instance is disposed.
+        const hide = () => instance.hide();
+        const dispose = () => {
+          drawer.off('shown.bs.offcanvas', hide);
+          drawer.off('hidden.bs.offcanvas', dispose);
+          instance.dispose();
+        };
+        drawer.on('hidden.bs.offcanvas', dispose);
+        if (drawer.classList.contains('showing')) drawer.on('shown.bs.offcanvas', hide);
+        instance.hide();
+        if (!drawer.hasAttribute('aria-modal')) dispose();
+      });
+    });
+  </script>
+</div>
+{% endif %}

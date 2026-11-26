@@ -32,6 +32,7 @@ from powercontext.builtin.inference.privacy import (
     PrivacyDecision,
     PrivacyPolicy,
 )
+from powercontext.builtin.inference.responses_stream import responses_stream_usage
 from powercontext.builtin.inference.usage import record_approved_usage
 
 
@@ -169,11 +170,14 @@ class ProtectedAsyncTransport(httpx2.AsyncBaseTransport):
                 endpoint=endpoint,
                 headers={"content-type": content_type},
             )
-        usage = (
-            chat_stream_usage(raw, profile.model)
-            if content_type == "text/event-stream"
-            else response_usage(raw, target_model=profile.model, protocol=profile.protocol)
-        )
+        if content_type == "text/event-stream":
+            usage = (
+                responses_stream_usage(raw, profile.model)
+                if profile.protocol == "openai-responses"
+                else chat_stream_usage(raw, profile.model)
+            )
+        else:
+            usage = response_usage(raw, target_model=profile.model, protocol=profile.protocol)
         self._assess(assessed, usage=usage)
         record_approved_usage(usage)
         # The SDK receives only the exact approved decoded response. Headers that

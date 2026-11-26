@@ -63,15 +63,52 @@ powercontext setup
 | ZCode | `UserPromptSubmit` 文本 | `POWERCONTEXT_ZCODE_CAPTURE_PROMPTS=false` |
 | Kimi Code（实验性） | `UserPromptSubmit` 中的文本部分 | setup `--no-capture-prompts` |
 
-自动捕获前，适配器识别常见凭据赋值（API/access key 和 token、client/private key、secret、password、
-passphrase、authorization、cookie）、至少八个 token 字符的 Bearer 值、常见服务商/GitHub/Slack token
-形状、包含未闭合情况的私钥块，以及当前 Server 凭据在输入中的精确出现。这是尽力识别：未知格式、混淆或
-没有可识别标记的秘密仍可能通过。保守匹配也会跳过 `password=example` 之类示例；“token budgets”这样的
-普通词语不属于赋值。共享合成用例位于 `tests/fixtures/automatic_prompt_privacy.json`，它定义已测试示例，
-不能证明任意凭据都能被识别。
+进程内 Python 适配器在自动路径上使用同样的识别和处理方式，不改变各自的捕获默认值：
 
-Authorization、Proxy-Authorization、Cookie 和 Set-Cookie 赋值会先匹配完整的 header 值，包含鉴权方案、
-Cookie 属性和折行续接内容，再匹配普通赋值。这种保守处理也会从自动查询中移除同一 header 行的其他说明文字。
+| 适配器 | 自动输入边界 | 受检查的自动捕获 | 捕获默认值 |
+| --- | --- | --- | --- |
+| Hermes | `prefetch` 的 query | 完成轮次的 Source | 开启；`POWERCONTEXT_HERMES_CAPTURE_TURNS=false` 关闭 |
+| LangChain | 最新的人类消息 | 完成轮次的 Source | 关闭；`PowerContextMiddleware(auto_capture=True)` 开启 |
+| Deep Agents | 主 agent 和每个 subagent 每次模型调用的最新人类消息 | 主 agent 完成轮次的 Source | 关闭；`create_powercontext_deep_agent(auto_capture=True)` 开启 |
+| LangGraph | 最新的人类消息 | 无；LangGraph 只通过显式工具写入 | 不适用 |
+| Pydantic AI | 最新的文本 User Prompt | `user_prompt` 事件 | 关闭；`POWERCONTEXT_PYDANTIC_AI_CAPTURE_EVENTS=true` 开启 |
+
+用户文本或助手回复中识别到凭据时，整轮跳过完成轮次捕获（Hermes、LangChain、Deep Agents），因为轮次 Source 同时保存两者；
+User Prompt 中识别到凭据时跳过 `user_prompt` 事件（Pydantic AI）。Pydantic AI 的模型响应和工具事件继续按键名和
+已知凭据值脱敏。Hermes 的压缩前捕获替换每条消息中识别到的凭据并保留该消息，
+所以凭据不会导致必需 checkpoint 失败。当前 Server 凭据指适配器配置的 token，或 Hermes 的
+Authorization 值。跳过时在 debug 日志中记录原因 `sensitive_content`，不包含被拒绝的文本；完成轮次的跳过还注明
+凭据所在的一侧（用户或助手）。
+
+自动捕获前，适配器识别常见凭据赋值（API/access key 和 token、AWS 风格的 access key ID、client/private key、
+secret、password、passphrase、authorization、cookie）、至少八个 token 字符的 Bearer 值、常见服务商/Stripe/
+GitHub/Slack token 形状、包含未闭合情况的私钥块，以及当前 Server 凭据在输入中的精确出现。这是尽力识别：
+未知格式、混淆或没有可识别标记的秘密仍可能通过。保守匹配也会跳过 `password=example` 之类示例；
+“token budgets”这样的普通词语不属于赋值。共享合成用例位于 `tests/fixtures/automatic_prompt_privacy.json`，
+它定义已测试示例，不能证明任意凭据都能被识别。
+
+赋值的键名必须以凭据标记结尾，前面可以带任意前缀，例如环境变量（`OPENAI_API_KEY=…`、
+`DATABASE_PASSWORD=…`）、请求头名（`X-Api-Key: …`）、命令行选项（`--password=…`）和驼峰字段
+（`dbPassword: …`）。键名两侧的 Markdown 强调或代码标记也算作键名的一部分，例如 `**Password:** …`、
+`- **OPENAI_API_KEY**: …` 和 `` `DB_PASSWORD`: … ``。标记之后还有字符的键名不属于赋值，例如 `max_tokens`、
+`num_tokens` 和 `password_min_length`；但单数形式的 `max_token=1024` 会被保守跳过。分词器的特殊 token
+（`bos_token`、`eos_token`、`pad_token`、`unk_token`、`sep_token`、`cls_token` 和 `mask_token`）是配置项，
+不是凭据。
+
+值从分隔符所在行开始，前面可以有任意水平空白（包括不换行空格和全角空格）；如果下一行有缩进（如 YAML），也可以从下一行开始。
+空值不属于赋值，例如 `.env` 模板里的 `OPENAI_API_KEY=`。以下值视为配置项而不是凭据：不带引号的布尔或空值
+（`true`、`false`、`yes`、`no`、`on`、`off`、`null` 或 `none`），例如 `reset_password=true` 或 `use_cookie=True`；
+以及尚未展开的占位符 `${NAME}` 或 `${{ expression }}`（可带引号），常见于 CI 和 Compose 文件。请求头的值只有在
+这类字面量或占位符之后（可带收尾标点）该行结束、且下一行不是缩进的续接行时才视为配置项，所以
+`Cookie: on; session=…`、`Cookie: ${THEME} session=…` 以及后面跟着缩进行的配置项仍会按 header 识别。带字面默认值的占位符
+（如 `${DB_PASSWORD:-…}`）和裸 `$value` 仍会被识别。赋值里的 `Bearer` 或 `Basic` 鉴权方案词会和后面的值一起
+移除。
+
+Authorization 和 Cookie 请求头，包括 Proxy-Authorization、Set-Cookie、X-Forwarded-Authorization 这类用连字符
+连接前缀的名称，以及 CGI 形式的 `HTTP_COOKIE`，会先匹配完整的 header 值，包含鉴权方案、Cookie 属性和折行
+续接内容，再匹配普通赋值。这种保守处理也会从自动查询中移除同一 header 行的其他说明文字。其他带前缀的名称，
+例如 `sessionCookie: …` 或 `--cookie=…`，按普通赋值处理：只替换到第一个空白、`,` 或 `;` 为止的值，但整条输入
+仍会跳过捕获。
 
 识别到凭据时整条跳过捕获，不会修改 Source 正文后继续沿用原事件身份或回执。接受的事件保留既有宿主文本
 规范化和身份语义，不同事件与重试继续遵守各自宿主契约。本地诊断或已配置的观测只报告有界原因
@@ -93,6 +130,7 @@ Cookie 属性和折行续接内容，再匹配普通赋值。这种保守处理�
 | --- | --- | --- |
 | [Pydantic AI](pydantic-ai.md) | Toolset：Memory 读写和上下文 | `experimental` |
 | [LangChain](langchain.md) | Middleware：上下文和可选 Source 采集 | `master_only` |
+| [Deep Agents](deepagents.md) | 薄适配层：为主 agent 与 subagent 增加召回 | `master_only` |
 | [LangGraph](langgraph.md) | Recall hook 和 Memory 工具 | `master_only` |
 
 ## 评测集成

@@ -39,6 +39,9 @@ from upgrade_release_matrix import STABLE, resolve_matrix
 
 ROOT = Path(__file__).resolve().parents[1]
 MANIFEST = Path("release/upgrade-support.json")
+# One acceptance process owns the shared upgrade fixtures and the final fresh
+# comparison. Its observation budget is separate from each command's guard.
+CONFIGURATION_ACCEPTANCE_TIMEOUT_SECONDS = 3600
 MANAGED_INPUTS = (
     "src/powercontext/builtin/persistence",
     "src/powercontext/builtin/code",
@@ -417,8 +420,11 @@ def run_case(root: Path, wheel: Path, case: dict[str, Any], output: Path) -> dic
                 log=output / f"{role}-venv.log",
             )
             python = venv / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
+            install = ["uv", "pip", "install", "--python", str(python), package, *engine_requirement]
+            if installer := environment.get("PC_CI_PYTHON_INSTALLER"):
+                install = [sys.executable, installer, "uv-pip", *install[2:]]
             run_owned(
-                ["uv", "pip", "install", "--python", str(python), package, *engine_requirement],
+                install,
                 environment=environment,
                 cwd=directory,
                 log=output / f"{role}-install.log",
@@ -461,6 +467,7 @@ def run_case(root: Path, wheel: Path, case: dict[str, Any], output: Path) -> dic
             environment=environment,
             cwd=directory,
             log=output / "acceptance.log",
+            timeout=CONFIGURATION_ACCEPTANCE_TIMEOUT_SECONDS,
         )
         backend = validate_case_output(case, output)
         return {"case": case, "installed": metadata, "database": backend, "status": "passed"}
@@ -509,6 +516,9 @@ def validate_target(root: Path, wheel: Path, *, release: bool, release_notes: st
     check_docs(root, policy)
     actual_version = wheel_version(wheel)
     if release:
+        from schema_release import check_release_wheel
+
+        check_release_wheel(wheel)
         require(actual_version == policy["target_version"], "Wheel version differs from upgrade policy target")
     return policy
 

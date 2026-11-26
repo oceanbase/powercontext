@@ -93,7 +93,7 @@ jobs:
         run: cargo run --locked --manifest-path src-tauri/Cargo.toml --example credential_probe
       - name: Set up Python fixture tooling
         timeout-minutes: 5
-        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
         with:
           version: "0.10.12"
           # Use the release source directly; a stalled mirror download can exhaust the job budget.
@@ -106,6 +106,7 @@ jobs:
             integrations/langchain/pyproject.toml
             integrations/langgraph/pyproject.toml
             integrations/opendal/pyproject.toml
+            integrations/deepagents/pyproject.toml
       - name: Install locked Server test dependencies
         working-directory: .
         run: uv sync --locked --python 3.12
@@ -195,7 +196,7 @@ jobs:
       - run: pnpm ipc:check
       - name: Set up Python for product resource bundle regression
         if: matrix.runner == 'macos-15'
-        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
         with:
           version: '0.13.5'
           enable-cache: true
@@ -216,7 +217,7 @@ jobs:
         run: python3 scripts/build_macos.py
       - name: Upload macOS build diagnostics
         if: ${{ failure() || steps.macos_build.outputs.retried == 'true' }}
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        uses: ./.github/actions/upload-ci-diagnostics
         with:
           name: desktop-macos-${{ matrix.runner }}-build-diagnostics
           include-hidden-files: true
@@ -304,7 +305,7 @@ jobs:
             cargo run --locked --manifest-path src-tauri/Cargo.toml --example credential_probe
           '
       - name: Set up Python fixture tooling
-        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
         with:
           version: "0.10.12"
           enable-cache: true
@@ -315,6 +316,7 @@ jobs:
             integrations/langchain/pyproject.toml
             integrations/langgraph/pyproject.toml
             integrations/opendal/pyproject.toml
+            integrations/deepagents/pyproject.toml
       - name: Install locked Server test dependencies
         working-directory: .
         run: uv sync --locked --python 3.12
@@ -361,7 +363,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
-      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+      - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
         with:
           version: "0.10.12"
           enable-cache: true
@@ -372,6 +374,7 @@ jobs:
             integrations/langchain/pyproject.toml
             integrations/langgraph/pyproject.toml
             integrations/opendal/pyproject.toml
+            integrations/deepagents/pyproject.toml
       - name: Install locked smoke test dependencies
         run: uv sync --locked --python 3.12 --no-dev --no-install-project
       - name: Retrieve and verify exact installer

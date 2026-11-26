@@ -48,7 +48,13 @@ from powercontext.server.dashboard.session import login_response, same_origin
 
 ROOT = Path(__file__).parent
 LABELS = CATALOGS["zh"]
-PARENTS = {"handoff-detail": "handoff", "experience": "methods", "skill": "methods", "handoff-download": "handoff"}
+PARENTS = {
+    "context-diagnostic-detail": "context-diagnostics",
+    "handoff-detail": "handoff",
+    "experience": "methods",
+    "skill": "methods",
+    "handoff-download": "handoff",
+}
 PAGES = {
     "home",
     "handoff",
@@ -63,6 +69,8 @@ PAGES = {
     "processing",
     "runtime",
     "observability",
+    "context-diagnostics",
+    "context-diagnostic-detail",
     "entry",
     *RECORDS,
 }
@@ -196,6 +204,11 @@ def links(request: Request, ctx: dict[str, Any]):
                     "processing_sources_history",
                     "processing_runs_cursor",
                     "processing_runs_history",
+                    "diagnostic",
+                    "diagnostic_status",
+                    "diagnostic_cursor",
+                    "diagnostic_since",
+                    "diagnostic_until",
                 }
             })
         if destination == "methods" and ctx["page"] in {"experience", "skill"}:
@@ -318,6 +331,7 @@ def initial_context(request: Request, page: str) -> dict[str, Any]:
             "skill": None,
             "topic_memory": [],
             "topic_memory_selected": None,
+            "topic_processing": None,
             "prompts": [],
             "profile": None,
         },
@@ -345,10 +359,13 @@ def initial_context(request: Request, page: str) -> dict[str, Any]:
         "source": None,
         "processing_kind": "sources",
         "processing_show_topic_status": False,
+        "automatic_status": [],
+        "context_diagnostic": None,
         "runtime_health": {},
         "runtime_configuration": None,
         "runtime_checked_at": None,
         "processing_status": None,
+        "source_consumption": None,
         "processing_source": None,
         "processing_run": None,
         "processing_run_sources": [],
@@ -832,6 +849,17 @@ async def screen(request: Request, page: str) -> HTMLResponse:  # noqa: C901 -- 
                 await load_content(api, request, ctx)
             if ctx["errors"] and not ctx["scope_descriptor"] and not ctx["record_only"]:
                 raise next(iter(ctx["errors"].values()))
+        if page in {"context-diagnostics", "context-diagnostic-detail"} and ctx["scope_descriptor"]:
+            from powercontext.server.dashboard.context_diagnostics import load_detail, load_history
+
+            if page == "context-diagnostics":
+                await load_history(api, request, ctx)
+            else:
+                await load_detail(api, request, ctx)
+        if page in {"notes", "profile", "methods", "experience"}:
+            from powercontext.server.dashboard.processing import load_source_consumption
+
+            await load_source_consumption(api, ctx)
         if page == "home" and ctx["scope_descriptor"]:
             from powercontext.server.dashboard.processing import load_topic_status
 

@@ -10,6 +10,10 @@ inputs:
     description: "uv version to use"
     required: true
     default: "0.10.12"
+  sync-args:
+    description: "Additional uv sync arguments, for example --extra seekdb or --group tracing-tests"
+    required: false
+    default: ''
   shared-cache:
     description: "Share and save root dependencies after installation. Leave disabled when later steps install additional Python dependencies."
     required: false
@@ -27,17 +31,18 @@ inputs:
       integrations/langchain/pyproject.toml
       integrations/langgraph/pyproject.toml
       integrations/opendal/pyproject.toml
+      integrations/deepagents/pyproject.toml
 
 outputs:
   cache-path:
     description: "The uv download cache directory"
-    value: ${{ steps.dependencies.outputs.cache-path }}
+    value: ${{ steps.path.outputs.cache-path }}
   cache-key:
     description: "The complete uv dependency cache key"
     value: ${{ steps.uv.outputs.cache-key }}
   cache-hit:
     description: "Whether the complete uv dependency cache was restored"
-    value: ${{ steps.uv.outputs.cache-hit }}
+    value: ${{ steps.internal-cache.outputs.cache-hit || steps.internal-restore.outputs.cache-hit || steps.uv.outputs.cache-hit }}
 
 runs:
   using: "composite"
@@ -46,27 +51,82 @@ runs:
       with:
         python-version: ${{ inputs.python-version }}
 
+    # Own automatic post actions in this scope. Nesting setup-uv here loses
+    # its inputs and step outputs during post cleanup (actions/runner#2009).
+    - id: backend
+      shell: bash
+      run: python3 "$GITHUB_ACTION_PATH/../../../scripts/ci_cache.py" backend
+
     - name: Install uv
       id: uv
       uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
       with:
         version: ${{ inputs.uv-version }}
         enable-cache: 'true'
-        save-cache: ${{ inputs.shared-cache == 'true' && 'false' || inputs.save-cache }}
+        restore-cache: ${{ steps.backend.outputs.backend != 's3' }}
+        save-cache: ${{ (steps.backend.outputs.backend == 's3' || inputs.shared-cache == 'true') && 'false' || inputs.save-cache }}
         cache-suffix: ${{ inputs.shared-cache == 'true' && 'shared' || github.job }}-py${{ inputs.python-version }}
         cache-dependency-glob: ${{ inputs.cache-dependency-glob }}
+        download-from-astral-mirror: 'true'
+
+    - name: Configure Python dependency mirror
+      shell: bash
+      run: python3 "$GITHUB_ACTION_PATH/../../../scripts/ci_python_mirror.py" configure
+
+    - id: path
+      shell: bash
+      run: echo "cache-path=$(uv cache dir)" >> "$GITHUB_OUTPUT"
+
+    - id: internal-cache
+      if: steps.backend.outputs.backend == 's3' && steps.uv.outputs.cache-key != '' && inputs.shared-cache != 'true' && inputs.save-cache != 'false' && github.event_name != 'merge_group'
+      uses: runs-on/cache@3c223729b4fda74ee12f4976048dd69b420fdd26
+      with:
+        path: ${{ steps.path.outputs.cache-path }}
+        key: ${{ steps.uv.outputs.cache-key }}
+      env:
+        AWS_ACCESS_KEY_ID: ${{ env.PC_CI_CACHE_ACCESS_KEY }}
+        AWS_SECRET_ACCESS_KEY: ${{ env.PC_CI_CACHE_SECRET_KEY }}
+        AWS_REGION: ${{ env.PC_CI_CACHE_REGION }}
+        RUNS_ON_S3_BUCKET_CACHE: ${{ env.PC_CI_CACHE_BUCKET }}
+        RUNS_ON_S3_BUCKET_ENDPOINT: ${{ env.PC_CI_CACHE_ENDPOINT }}
+        RUNS_ON_S3_FORCE_PATH_STYLE: 'true'
+        RUNS_ON_RUNNER_NAME: ''
+
+    - id: internal-restore
+      if: steps.backend.outputs.backend == 's3' && steps.uv.outputs.cache-key != '' && (inputs.shared-cache == 'true' || inputs.save-cache == 'false' || github.event_name == 'merge_group')
+      uses: runs-on/cache/restore@3c223729b4fda74ee12f4976048dd69b420fdd26
+      with:
+        path: ${{ steps.path.outputs.cache-path }}
+        key: ${{ steps.uv.outputs.cache-key }}
+      env:
+        AWS_ACCESS_KEY_ID: ${{ env.PC_CI_CACHE_ACCESS_KEY }}
+        AWS_SECRET_ACCESS_KEY: ${{ env.PC_CI_CACHE_SECRET_KEY }}
+        AWS_REGION: ${{ env.PC_CI_CACHE_REGION }}
+        RUNS_ON_S3_BUCKET_CACHE: ${{ env.PC_CI_CACHE_BUCKET }}
+        RUNS_ON_S3_BUCKET_ENDPOINT: ${{ env.PC_CI_CACHE_ENDPOINT }}
+        RUNS_ON_S3_FORCE_PATH_STYLE: 'true'
+        RUNS_ON_RUNNER_NAME: ''
 
     - name: Install Python dependencies
       id: dependencies
+      env:
+        PYTHON_SYNC_ARGS: ${{ inputs.sync-args }}
       run: |
-        uv sync --frozen
-        echo "cache-path=$UV_CACHE_DIR" >> "$GITHUB_OUTPUT"
+        read -r -a sync_args <<< "$PYTHON_SYNC_ARGS"
+        python3 "$GITHUB_ACTION_PATH/../../../scripts/ci_python_mirror.py" sync --frozen "${sync_args[@]}"
       shell: bash
+
+    - name: Use a writable cache directory for project tools
+      if: runner.os == 'Linux'
+      shell: bash
+      run: |
+        mkdir -p "$RUNNER_TEMP/project-cache"
+        echo "XDG_CACHE_HOME=$RUNNER_TEMP/project-cache" >> "$GITHUB_ENV"
 
     # Publish before tests so a later failure or timeout cannot discard the download cache.
     - name: Save Python dependencies
-      if: inputs.shared-cache == 'true' && steps.uv.outputs.cache-hit != 'true' && github.event_name != 'merge_group'
-      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+      if: inputs.shared-cache == 'true' && (steps.internal-restore.outputs.cache-hit || steps.uv.outputs.cache-hit) != 'true' && github.event_name != 'merge_group'
+      uses: ./.github/actions/cache-save
       with:
-        path: ${{ env.UV_CACHE_DIR }}
+        path: ${{ steps.path.outputs.cache-path }}
         key: ${{ steps.uv.outputs.cache-key }}

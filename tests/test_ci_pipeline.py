@@ -34,6 +34,89 @@ ROOT = Path(__file__).parents[1]
 RULES = tomllib.loads((ROOT / ".github/ci-paths.toml").read_text())
 
 
+def test_diagnostic_artifact_recovery_behaviors():
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("Node.js is required to execute the diagnostic artifact recovery tests")
+    result = subprocess.run(
+        [node, "--test", ".github/actions/upload-ci-diagnostics/artifact-state.test.cjs"],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=False,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="macOS bundling uses POSIX executables")
+@pytest.mark.parametrize(
+    ("failures", "expected_status", "expected_attempts"),
+    [
+        (['hdiutil: couldn\'t eject "disk2" - Resource busy'], 0, 2),
+        (["hdiutil: create failed - Resource busy"], 0, 2),
+        (["error: application compilation failed"], 17, 1),
+        (["another tool: Resource busy"], 17, 1),
+        (['hdiutil: couldn\'t eject "disk2" - Resource busy'] * 3, 17, 3),
+    ],
+)
+def test_macos_build_retries_only_busy_disk_images(tmp_path, monkeypatch, failures, expected_status, expected_attempts):
+    bash = shutil.which("bash")
+    if bash is None:
+        pytest.skip("Bash is required to execute the macOS build step")
+    scripts = tmp_path / "scripts"
+    scripts.mkdir()
+    shutil.copyfile(ROOT / "desktop/scripts/build_macos.py", scripts / "build_macos.py")
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    (bin_dir / "python3").symlink_to(sys.executable)
+    hdiutil = bin_dir / "hdiutil"
+    hdiutil.write_text("#!/bin/sh\nprintf '%s' '<plist><dict><key>images</key><array/></dict></plist>'\n")
+    hdiutil.chmod(0o755)
+    driver = bin_dir / "pnpm"
+    driver.write_text(
+        f"#!{sys.executable}\n"
+        "import json, os, sys\n"
+        "from pathlib import Path\n"
+        "if sys.argv[1:] == ['--version']:\n"
+        "    print('test-pnpm')\n"
+        "    sys.exit(0)\n"
+        "count = Path('build-attempts')\n"
+        "attempt = int(count.read_text()) + 1 if count.exists() else 1\n"
+        "count.write_text(str(attempt))\n"
+        "failures = json.loads(os.environ['TEST_BUILD_FAILURES'])\n"
+        "if attempt <= len(failures):\n"
+        "    failure = failures[attempt - 1]\n"
+        "    if 'couldn' in failure:\n"
+        "        image = Path('src-tauri/target/release/bundle/macos/rw.123.Preview.dmg').resolve()\n"
+        "        image.parent.mkdir(parents=True, exist_ok=True)\n"
+        "        image.write_bytes(b'fixture')\n"
+        "        print('created: ' + str(image))\n"
+        "    print(failure, file=sys.stderr)\n"
+        "    print('failed to bundle project: error running bundle_dmg.sh', file=sys.stderr)\n"
+        "    sys.exit(17)\n"
+    )
+    driver.chmod(0o755)
+    sleep = bin_dir / "sleep"
+    sleep.write_text("#!/bin/sh\nexit 0\n")
+    sleep.chmod(0o755)
+    monkeypatch.setenv("PATH", str(bin_dir) + os.pathsep + os.environ["PATH"])
+    monkeypatch.setenv("TEST_BUILD_FAILURES", json.dumps(failures))
+    monkeypatch.setenv("GITHUB_OUTPUT", str(tmp_path / "github-output"))
+    command = next(
+        step["run"]
+        for step in workflow("desktop.yml")["jobs"]["macos"]["steps"]
+        if step.get("name") == "Build unsigned macOS app and DMG"
+    )
+    result = subprocess.run(
+        [bash, "-c", command], cwd=tmp_path, capture_output=True, text=True, timeout=90, check=False
+    )
+    assert result.returncode == expected_status, result.stdout + result.stderr
+    # The external recovery budget is three builds; other build failures are terminal.
+    assert int((tmp_path / "build-attempts").read_text()) == expected_attempts
+    assert failures[0] in (tmp_path / ".artifacts" / "macos-build.log").read_text()
+
+
 def workflow(name):
     result = yaml.safe_load((ROOT / ".github/workflows" / name).read_text())
     result["on"] = result.pop(True)
@@ -96,7 +179,7 @@ def combinations(matrix):
     return {(version, suite) for version in matrix["python-version"] for suite in matrix["suite"]}
 
 
-def test_ordinary_pr_has_three_compatibility_jobs():
+def test_ordinary_pr_keeps_three_python_suite_pairs():
     assert combinations(ci_changes.test_matrix("pull_request", ["src/powercontext/server/settings.py"], RULES)) == {
         ("3.11", "unit"),
         ("3.14", "unit"),
@@ -127,6 +210,64 @@ def test_explicit_full_pr_profile_overrides_the_small_matrix():
     )
 
 
+@pytest.mark.parametrize(
+    ("event", "paths", "full", "versions", "unit_versions"),
+    [
+        ("pull_request", ["src/powercontext/server/settings.py"], False, ["3.12"], ["3.11", "3.14"]),
+        ("push", [], False, ["3.11", "3.12", "3.13", "3.14"], ["3.11", "3.12", "3.13", "3.14"]),
+        ("pull_request", ["uv.lock"], False, ["3.11", "3.12", "3.13", "3.14"], ["3.11", "3.12", "3.13", "3.14"]),
+        ("pull_request", [], True, ["3.11", "3.12", "3.13", "3.14"], ["3.11", "3.12", "3.13", "3.14"]),
+    ],
+)
+def test_linux_matrix_runs_each_unit_once_and_each_e2e_shard_once(event, paths, full, versions, unit_versions):
+    rows = ci_changes.test_matrix(event, paths, RULES, full=full)["include"]
+    assert [row for row in rows if row["suite"] == "unit"] == [
+        {"python-version": version, "suite": "unit"} for version in unit_versions
+    ]
+    assert [row for row in rows if row["suite"] == "e2e"] == [
+        {"python-version": version, "suite": "e2e", "shard-index": index, "shard-count": 2}
+        for version in versions
+        for index in range(2)
+    ]
+    assert len(rows) == len(unit_versions) + 2 * len(versions)
+
+
+def test_main_matrix_fallback_preserves_the_full_partitioned_coverage():
+    expression = workflow("master.yml")["jobs"]["tests"]["strategy"]["matrix"]
+    fallback = json.loads(expression.split(" || '", 1)[1].split("'", 1)[0])
+    assert fallback == ci_changes.test_matrix("push", [], RULES)
+
+
+def test_ci_runs_serial_e2e_once_and_keeps_the_local_full_e2e_entrypoint():
+    steps = workflow("master.yml")["jobs"]["tests"]["steps"]
+    serial = next(
+        step for step in steps if step.get("name") == "Run the ZCode service chain with native Hook deadlines"
+    )
+    parallel = next(step for step in steps if step.get("name") == "Run remaining end-to-end tests")
+    assert serial["if"] == "matrix.suite == 'e2e' && matrix.shard-index == 0"
+    assert "make e2e-test-serial " in serial["run"]
+    assert "--ci-shard" not in serial["run"]
+    assert parallel["if"] == "matrix.suite == 'e2e'"
+    assert parallel["env"]["PYTEST_ADDOPTS"] == (
+        "--ci-shard-index=${{ matrix.shard-index }} --ci-shard-count=${{ matrix.shard-count }}"
+    )
+    assert "make e2e-test-parallel " in parallel["run"]
+    make = shutil.which("make")
+    if make is None:
+        pytest.skip("make is required to inspect the local E2E entrypoint")
+    commands = subprocess.run(
+        [make, "--no-print-directory", "-n", "e2e-test"],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.splitlines()
+    pytest_commands = [line for line in commands if "python -m pytest" in line]
+    assert len(pytest_commands) == 2
+    assert "--ignore=tests/e2e/test_zcode_service_chain.py" in pytest_commands[0]
+    assert "-n 0 tests/e2e/test_zcode_service_chain.py" in pytest_commands[1]
+
+
 def test_selected_scopes_have_a_complete_terminal_result_contract():
     main = workflow("master.yml")["jobs"]
     assert RULES["checks"].keys() == RULES["suites"].keys()
@@ -147,7 +288,7 @@ def test_preflight_uses_one_runner_and_keeps_all_admission_checks_mandatory():
     assert len(checkouts) == 1
     assert checkouts[0]["with"]["fetch-depth"] == 0
     selection = next(step for step in steps if step.get("id") == "select")
-    license_check = next(step for step in steps if step.get("uses", "").startswith("apache/skywalking-eyes/header@"))
+    license_check = next(step for step in steps if step.get("uses") == "./.github/actions/check-license")
     quality = next(step for step in steps if step.get("run") == "make check")
     contract = next(step for step in steps if step.get("run") == "make contract-test")
     assert selection["env"]["CI_BASELINE_WORKFLOW"] == "master.yml"
@@ -172,18 +313,22 @@ def test_website_build_uses_the_standard_internal_runner():
 
 def test_all_end_to_end_suites_have_extended_timeout():
     timeout = workflow("master.yml")["jobs"]["tests"]["timeout-minutes"]
-    assert timeout == "${{ matrix.suite == 'e2e' && 55 || 50 }}"
+    assert timeout == "${{ matrix.suite == 'e2e' && 90 || 75 }}"
 
 
 def test_installation_roles_use_only_two_python_runners():
     job = workflow("master.yml")["jobs"]["isolated-installations"]
     assert job["strategy"]["matrix"] == {"python-version": ["3.11", "3.14"]}
-    build = [step for step in job["steps"] if "uv build --wheel" in step.get("run", "")]
+    build = [step for step in job["steps"] if "build --wheel" in step.get("run", "")]
     assert len(build) == 1
     verify = next(step for step in job["steps"] if "ci_installation_roles.py" in step.get("run", ""))
     assert not verify.get("continue-on-error")
     assert "if" not in verify
-    reports = next(step for step in job["steps"] if step.get("uses", "").startswith("actions/upload-artifact@"))
+    reports = next(
+        step
+        for step in job["steps"]
+        if step.get("with", {}).get("name") == "installation-roles-py${{ matrix.python-version }}-${{ github.sha }}"
+    )
     assert reports["if"] == "always()"
     assert "summary.json" in reports["with"]["path"]
     assert "logs/*.log" in reports["with"]["path"]
@@ -398,3 +543,14 @@ def test_workflow_event_routes_native_jobs_and_backend_matrices(event):
         assert resolve(harness[name]["if"]) is native, name
     plan = next(step for step in harness["validate"]["steps"] if step.get("id") == "plan")
     assert resolve(plan["env"]["NATIVE_DATABASES"]) is native
+
+
+def test_gateway_distribution_runs_only_manually_or_from_release():
+    distribution = workflow("gateway-distribution.yml")
+    assert set(distribution["on"]) == {"workflow_dispatch", "workflow_call"}
+    assert not any(
+        job.get("uses", "").endswith("/gateway-distribution.yml") for job in workflow("master.yml")["jobs"].values()
+    )
+    release = workflow("release.yml")["jobs"]
+    assert release["gateway-release-build"]["uses"].endswith("/gateway-distribution.yml")
+    assert release["gateway-release-verify"]["with"]["published"] is True
