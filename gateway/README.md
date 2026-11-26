@@ -14,6 +14,13 @@ The default upstream uses the same API format as the client. [Subscription adapt
 
 Blocked calls return HTTP 403. Withheld calls return HTTP 400 unless the executor marks them retryable, in which case they return HTTP 409. Currently, only a nonempty reason list containing exclusively `context-refresh-required` is retryable. Admission expiry also returns HTTP 409. A retry after upstream generation may spend provider quota again.
 
+## Observability
+
+Scrape OpenMetrics at `/gateway/metrics` or at `/metrics` in standalone mode. Set `PC_GATEWAY_OTLP=on`
+and configure the OTLP/HTTP endpoint to export sampled model-call traces. The reference Compose stack
+includes a Gateway scrape job and Grafana dashboard when configured with a Model Gateway target.
+See the [reference stack setup](../docs/en/docs/operate/reference-observability-stack.md#observe-an-existing-model-gateway).
+
 ## Memory
 
 In a combined UDS deployment, recall injection is enabled by default for requests with a conversation ID. The Gateway prepares context once per new user message and reuses it for tool continuations in that turn. Core verifies the injected text and its binding. Empty or failed preparation leaves the request uninjected.

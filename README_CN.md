@@ -75,6 +75,7 @@
 - **有据可查：** 每条记忆都能追溯到来源证据和精确版本，并可定位到来源中的具体位置。
 - **改动经过审核：** 生成的经验和技能经审核后才会被召回；Dream 的修订由你批准后生效；过时的记忆可以停用，历史版本保留。
 - **边界清晰：** 按 Scope 隔离数据和访问权限；运行遥测不包含提示词、正文和模型响应。
+- **模型网关观测**在参考监控栈中提供模型流量指标和采样调用的 trace。
 
 [审核候选内容 →](https://powercontext.oceanbase.io/zh/docs/workflows/review-candidates/) · [Scope 与访问控制 →](https://powercontext.oceanbase.io/zh/docs/workflows/scopes-and-access/)
 

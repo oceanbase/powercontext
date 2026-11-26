@@ -380,8 +380,24 @@ async fn ingress_common(
     let lifecycle = control.lifecycle();
     let observation = control.observation();
     let cancellation = control.cancellation();
+    let telemetry = state.telemetry.call(
+        state.evidence.clone(),
+        &headers,
+        match format {
+            Format::Chat => "chat_completions",
+            Format::Responses => "responses",
+        },
+        observation.call_id(),
+    );
     let mut response = match lifecycle
-        .run(ingress_model(state.clone(), headers, req, format, control))
+        .run(ingress_model(
+            state,
+            headers,
+            req,
+            format,
+            control,
+            telemetry.as_ref(),
+        ))
         .await
     {
         Ok(response) => response,
@@ -404,7 +420,7 @@ async fn ingress_common(
             crate::evidence_body::EvidenceBody::wrap(
                 body,
                 observation.clone(),
-                state.evidence.clone(),
+                telemetry,
                 first_content,
             ),
         );
@@ -425,6 +441,7 @@ async fn ingress_model(
     req: Request,
     format: Format,
     control: RequestControl,
+    telemetry: &crate::telemetry::ModelCall,
 ) -> Response {
     if let Some(rejected) = unauthorized(&state, &headers) {
         return rejected;
@@ -474,6 +491,8 @@ async fn ingress_model(
             },
         );
     }
+    use pc_gateway_evidence::{CallStage, StageTimer};
+    let classify = StageTimer::new(telemetry, CallStage::Classify);
     let mut client_stream = false;
     let canonical = match format {
         Format::Chat => {
@@ -539,6 +558,8 @@ async fn ingress_model(
             }
         }
     };
+    telemetry.classify(turn_kind(&canonical, &format));
+    drop(classify);
     // P1 review：未配置的上游禁用路由（不默认到任何第三方）。
     if (matches!(format, Format::Responses) && state.upstream_responses.is_empty())
         || (matches!(format, Format::Chat) && state.upstream_chat.is_empty())
@@ -652,13 +673,7 @@ async fn ingress_model(
     }
     let outcome = state
         .executor
-        .run_with_replay_identity(
-            control,
-            call,
-            &renderer,
-            state.evidence.as_ref(),
-            history_id.as_deref(),
-        )
+        .run_with_replay_identity(control, call, &renderer, telemetry, history_id.as_deref())
         .await;
     if client_stream {
         return respond_responses_sse(outcome);
@@ -670,6 +685,54 @@ async fn ingress_model(
             Format::Responses => OutputProtocol::OpenAiResponses,
         },
     )
+}
+
+/// Responses keeps native items in a Tool carrier even when they are messages or reasoning.
+fn turn_kind(request: &CanonicalRequest, format: &Format) -> &'static str {
+    request
+        .messages
+        .iter()
+        .rev()
+        .find_map(|message| match message.role {
+            Role::User => Some("user_turn"),
+            Role::System | Role::Developer => None,
+            Role::Assistant
+                if message
+                    .tool_calls
+                    .as_ref()
+                    .is_some_and(|calls| !calls.is_empty()) =>
+            {
+                Some("tool_continuation")
+            }
+            Role::Assistant => Some("assistant_only"),
+            Role::Tool if matches!(format, Format::Chat) => Some("tool_continuation"),
+            Role::Tool => {
+                let item = message.content.first()?;
+                match item.get("type").and_then(serde_json::Value::as_str) {
+                    Some(
+                        "function_call"
+                        | "function_call_output"
+                        | "custom_tool_call"
+                        | "custom_tool_call_output"
+                        | "computer_call"
+                        | "computer_call_output"
+                        | "local_shell_call"
+                        | "local_shell_call_output"
+                        | "shell_call"
+                        | "shell_call_output"
+                        | "apply_patch_call"
+                        | "apply_patch_call_output"
+                        | "mcp_call"
+                        | "mcp_approval_request"
+                        | "mcp_approval_response",
+                    ) => Some("tool_continuation"),
+                    Some("reasoning") => Some("assistant_only"),
+                    Some("message") | None if item["role"] == "assistant" => Some("assistant_only"),
+                    _ => None,
+                }
+            }
+        })
+        .unwrap_or("empty")
 }
 
 /// 流式 Responses 客户端：把放行（或允许降级直通）后的完整响应重放为 Responses SSE 事件。
@@ -1566,6 +1629,13 @@ pub(crate) mod tests {
     async fn lifecycle_router_with_evidence(
         evidence: Arc<dyn pc_gateway_evidence::EvidenceSink>,
     ) -> (axum::Router, tokio::task::JoinHandle<()>, Arc<Receivers>) {
+        lifecycle_router_with_telemetry(evidence, None).await
+    }
+
+    async fn lifecycle_router_with_telemetry(
+        evidence: Arc<dyn pc_gateway_evidence::EvidenceSink>,
+        exporter: Option<crate::otlp::Exporter>,
+    ) -> (axum::Router, tokio::task::JoinHandle<()>, Arc<Receivers>) {
         use axum::routing::post;
         use pc_gateway_core::{Executor, HttpGateClient};
         use pc_gateway_types::{CheckPhase, ContextCheckRequest};
@@ -1650,6 +1720,7 @@ pub(crate) mod tests {
                 std::num::NonZeroU32::new(2).unwrap(),
             )),
             evidence,
+            telemetry: Arc::new(crate::telemetry::Telemetry::new(exporter)),
             upstream_profile: "test".into(),
             upstream_chat: format!("{base}/v1/chat/completions"),
             upstream_responses: format!("{base}/v1/responses"),
@@ -2123,6 +2194,7 @@ pub(crate) mod tests {
                 std::num::NonZeroU32::new(1).unwrap(),
             )),
             evidence: Arc::new(pc_gateway_evidence::NoopEvidenceSink),
+            telemetry: Arc::new(crate::telemetry::Telemetry::default()),
             upstream_profile: "test".into(),
             upstream_chat: String::new(),
             upstream_responses: "https://chatgpt.com/backend-api/codex/responses".into(),
@@ -2785,6 +2857,175 @@ pub(crate) mod tests {
         fn flush(&mut self) -> std::io::Result<()> {
             Ok(())
         }
+    }
+
+    #[tokio::test]
+    async fn gateway_scrape_reports_model_traffic() {
+        use tower::ServiceExt;
+        let (router, server, _) = lifecycle_router().await;
+        for (route, body) in [
+            (
+                "chat/completions",
+                r#"{"model":"private-model","messages":[{"role":"user","content":"private-prompt"}]}"#,
+            ),
+            (
+                "responses",
+                r#"{"model":"private-model","input":"private-prompt","store":false}"#,
+            ),
+        ] {
+            let request = Request::builder()
+                .method("POST")
+                .uri(format!("/gateway/v1/{route}"))
+                .header(header::AUTHORIZATION, "Bearer gateway-key")
+                .body(axum::body::Body::from(body))
+                .unwrap();
+            let response = router.clone().oneshot(request).await.unwrap();
+            assert!(response.status().is_success());
+            axum::body::to_bytes(response.into_body(), 1024 * 1024)
+                .await
+                .unwrap();
+        }
+
+        let response = router
+            .oneshot(
+                Request::builder()
+                    .uri("/metrics")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            response.status(),
+            StatusCode::OK,
+            "Gateway must own its scrape endpoint"
+        );
+        assert!(response.headers()[header::CONTENT_TYPE]
+            .to_str()
+            .unwrap()
+            .starts_with("application/openmetrics-text"));
+        let bytes = axum::body::to_bytes(response.into_body(), 1024 * 1024)
+            .await
+            .unwrap();
+        let scrape = std::str::from_utf8(&bytes).unwrap();
+        for line in [
+            r#"powercontext_gateway_tokens_total{direction="input",completeness="known"} 180"#,
+            r#"powercontext_gateway_tokens_total{direction="cache_read",completeness="known"} 100"#,
+            r#"powercontext_gateway_tokens_missing_total{direction="cache_write"} 2"#,
+            "powercontext_gateway_response_first_byte_ms_count 2",
+            "powercontext_gateway_in_flight 0",
+        ] {
+            assert!(
+                scrape.lines().any(|sample| sample == line),
+                "missing {line} in {scrape}"
+            );
+        }
+        for excluded in [
+            "private-model",
+            "private-prompt",
+            "gateway-key",
+            "call_id=",
+            "127.0.0.1",
+        ] {
+            assert!(!scrape.contains(excluded), "{excluded} leaked in scrape");
+        }
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn gateway_exports_a_parented_trace_with_delivery_and_no_model_content() {
+        use tower::ServiceExt;
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let endpoint = format!("http://{}/v1/traces", listener.local_addr().unwrap());
+        let (capture, mut exports) = tokio::sync::mpsc::channel(1);
+        let receiver = tokio::spawn(async move {
+            let app = axum::Router::new().route(
+                "/v1/traces",
+                axum::routing::post(
+                    move |headers: HeaderMap, Json(payload): Json<serde_json::Value>| {
+                        let capture = capture.clone();
+                        async move {
+                            assert_eq!(headers[header::AUTHORIZATION], "Basic dGVzdA==");
+                            capture.send(payload).await.unwrap();
+                            StatusCode::SERVICE_UNAVAILABLE
+                        }
+                    },
+                ),
+            );
+            axum::serve(listener, app).await.unwrap();
+        });
+        let exporter =
+            crate::otlp::Exporter::new(&endpoint, "Authorization=Basic%20dGVzdA%3D%3D").unwrap();
+        let (router, server, _) = lifecycle_router_with_telemetry(
+            Arc::new(pc_gateway_evidence::NoopEvidenceSink),
+            Some(exporter),
+        )
+        .await;
+        let trace_id = "4bf92f3577b34da6a3ce929d0e0e4736";
+        let parent_id = "00f067aa0ba902b7";
+        let request = Request::builder()
+            .method("POST").uri("/gateway/v1/responses")
+            .header(header::AUTHORIZATION, "Bearer gateway-key")
+            .header("traceparent", format!("00-{trace_id}-{parent_id}-01"))
+            .body(axum::body::Body::from(
+                r#"{"model":"private-model","input":[{"role":"user","content":"private-prompt"},{"type":"function_call_output","call_id":"private-tool-id","output":"private-output"},{"role":"developer","content":"private-developer"}],"store":false}"#,
+            )).unwrap();
+        let response = router.clone().oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        axum::body::to_bytes(response.into_body(), 1024 * 1024)
+            .await
+            .unwrap();
+        let payload = tokio::time::timeout(std::time::Duration::from_secs(3), exports.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        let spans = payload["resourceSpans"][0]["scopeSpans"][0]["spans"]
+            .as_array()
+            .unwrap();
+        let names: Vec<_> = spans
+            .iter()
+            .map(|span| span["name"].as_str().unwrap())
+            .collect();
+        assert_eq!(
+            names,
+            [
+                "gateway.model_call",
+                "classify",
+                "enrich",
+                "check.before_send",
+                "upstream.send",
+                "check.before_release",
+                "delivery"
+            ]
+        );
+        assert_eq!(spans[0]["parentSpanId"], parent_id);
+        assert!(spans.iter().all(|span| span["traceId"] == trace_id));
+        assert!(spans[1..]
+            .iter()
+            .all(|span| span["parentSpanId"] == spans[0]["spanId"]));
+        let text = payload.to_string();
+        assert!(!text.contains("private-"));
+        assert!(!text.contains("gateway-key"));
+        assert!(!text.contains("SYNTHETIC_SENSITIVE"));
+        assert!(text.contains("tool_continuation"));
+        assert!(text.contains("body_completed"));
+        let scrape = router
+            .oneshot(
+                Request::builder()
+                    .uri("/gateway/metrics")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let body = axum::body::to_bytes(scrape.into_body(), 1024 * 1024)
+            .await
+            .unwrap();
+        assert!(std::str::from_utf8(&body)
+            .unwrap()
+            .contains(&format!(" # {{trace_id=\"{trace_id}\"}}")));
+        receiver.abort();
+        server.abort();
     }
 
     #[tokio::test]

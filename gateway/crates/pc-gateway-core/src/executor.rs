@@ -38,8 +38,7 @@ use crate::transcript::turn_transcript;
 const CONTEXT_REFRESH_REQUIRED: &str = "context-refresh-required";
 use crate::{GateClient, GateError};
 use crate::{LifecycleStopReason, ModelSendState, RequestControl};
-use pc_gateway_evidence::EvidenceSink;
-use pc_gateway_evidence::UsageMapping;
+use pc_gateway_evidence::{CallStage, EvidenceSink, PrepareResult, StageTimer, UsageMapping};
 use pc_gateway_protocol::{CanonicalRequest, WireRenderer};
 use pc_gateway_transport::{
     AdmittedSend, RawResponse, SendIndeterminateReason, SendOutcome, Transport,
@@ -252,7 +251,9 @@ where
         send: AdmittedSend,
         execution: &mut Execution,
         recording: &mut CallRecorder<'_>,
+        evidence: &dyn EvidenceSink,
     ) -> Result<SendOutcome, ManagedOutcome> {
+        let timer;
         let work = {
             let _handoff = self
                 .handoff
@@ -267,11 +268,14 @@ where
                     .cancel_with(LifecycleStopReason::GatewayShutdown);
                 execution.checkpoint()?;
             }
+            timer = StageTimer::new(evidence, CallStage::Upstream);
             recording.begin_attempt();
             execution.model_send(ModelSendState::PossiblySent);
             self.transport.send(send)
         };
-        Ok(work.await)
+        let result = work.await;
+        drop(timer);
+        Ok(result)
     }
 
     /// Apply the deployment/Core input intersection. Increasing configuration
@@ -353,6 +357,9 @@ where
                 model_send: lifecycle.observation().snapshot().model_send,
             },
         };
+        if let ManagedOutcome::Withheld { retryable, .. } = &outcome {
+            evidence.record_withhold(*retryable);
+        }
         recording.finish(&outcome);
         execution.finish(&outcome);
         outcome
@@ -386,6 +393,7 @@ where
             if let Err(stop) = execution.checkpoint() {
                 return stop;
             }
+            let enrich = StageTimer::new(evidence, CallStage::Enrich);
             if call.inject_context {
                 self.enrich(
                     &mut call,
@@ -395,7 +403,10 @@ where
                     execution,
                 )
                 .await;
+            } else {
+                evidence.record_prepare(PrepareResult::Skipped);
             }
+            drop(enrich);
 
             if let Err(stop) = execution.checkpoint() {
                 return stop;
@@ -439,7 +450,10 @@ where
             if let Err(stop) = execution.checkpoint() {
                 return stop;
             }
-            let checked = self.gate.check(check).await;
+            let checked = {
+                let _timer = StageTimer::new(evidence, CallStage::BeforeSend);
+                self.gate.check(check).await
+            };
             if let Err(stop) = execution.checkpoint() {
                 return stop;
             }
@@ -492,9 +506,10 @@ where
                         Err(outcome) => return outcome,
                     },
                     CheckDecision::Block => {
+                        evidence.record_core_block();
                         return ManagedOutcome::Blocked {
                             reason_codes: result.reason_codes,
-                        }
+                        };
                     }
                     // 复用证明的依赖已变化（例如 Agent 改了被引用的代码文件）：丢弃该会话的重放，从注入前的
                     // 请求重新准备一次再送检，不把可恢复的过期交给客户端。每个请求最多刷新一次。
@@ -507,6 +522,7 @@ where
                                 .any(|reason| reason == CONTEXT_REFRESH_REQUIRED) =>
                     {
                         refreshed = true;
+                        evidence.record_context_refresh();
                         if let Some((conversation, anchor)) = replay {
                             self.replays.forget(&call.scope_id, conversation, anchor);
                         }
@@ -519,6 +535,18 @@ where
                     }
                 },
             };
+            evidence.record_admission(
+                call.prepared_contexts.len(),
+                call.prepared_contexts
+                    .iter()
+                    .map(|context| {
+                        context
+                            .location
+                            .end_byte
+                            .saturating_sub(context.location.start_byte)
+                    })
+                    .fold(0, u64::saturating_add),
+            );
             break (payload, admission);
         };
 
@@ -544,7 +572,10 @@ where
                     stream: call.request.stream,
                 };
                 let sent_binding = current.binding.clone();
-                let outcome = match self.send_attempt(send, execution, recording).await {
+                let outcome = match self
+                    .send_attempt(send, execution, recording, evidence)
+                    .await
+                {
                     Ok(outcome) => outcome,
                     Err(stop) => return stop,
                 };
@@ -586,7 +617,10 @@ where
                             ),
                             prepared_contexts: call.prepared_contexts.clone(),
                         };
-                        let checked = self.gate.check(recheck).await;
+                        let checked = {
+                            let _timer = StageTimer::new(evidence, CallStage::BeforeSend);
+                            self.gate.check(recheck).await
+                        };
                         if let Err(stop) = execution.checkpoint() {
                             return stop;
                         }
@@ -607,9 +641,10 @@ where
                                 }
                             }
                             Ok(r) if r.decision == CheckDecision::Block => {
+                                evidence.record_core_block();
                                 return ManagedOutcome::Blocked {
                                     reason_codes: r.reason_codes,
-                                }
+                                };
                             }
                             Ok(r) => return ManagedOutcome::withheld(r.reason_codes),
                             Err(e) => return ManagedOutcome::GatePaused(classify_gate_error(e)),
@@ -669,7 +704,10 @@ where
             if let Err(stop) = execution.checkpoint() {
                 return stop;
             }
-            let verdict = self.gate.check(release_check).await;
+            let verdict = {
+                let _timer = StageTimer::new(evidence, CallStage::BeforeRelease);
+                self.gate.check(release_check).await
+            };
             recording.release_decision();
             if let Err(stop) = execution.checkpoint() {
                 return stop;
@@ -906,7 +944,10 @@ where
                 .get(&call.scope_id, conversation, anchor, now_ms())
         });
         let prepared = match cached {
-            Some(prepared) => prepared,
+            Some(prepared) => {
+                evidence.record_prepare(PrepareResult::Replay);
+                prepared
+            }
             None => {
                 let Some((prepared, expires_at)) =
                     self.prepare_turn(call, evidence, execution).await
@@ -946,10 +987,14 @@ where
         evidence: &dyn EvidenceSink,
         execution: &Execution,
     ) -> Option<(Option<PreparedBlock>, Option<String>)> {
-        let query = last_user_text(&call.request)?;
+        let Some(query) = last_user_text(&call.request) else {
+            evidence.record_prepare(PrepareResult::Skipped);
+            return None;
+        };
         if execution.checkpoint().is_err() {
             return None;
         }
+        let timer = StageTimer::new(evidence, CallStage::Prepare);
         let prepared = self
             .gate
             .prepare(PrepareContextRequest {
@@ -963,12 +1008,14 @@ where
                 assembly: Some(pc_gateway_types::ContextAssembly::memory_only()),
             })
             .await;
+        drop(timer);
         if execution.checkpoint().is_err() {
             return None;
         }
         let prepared = match prepared {
             Ok(p) => p,
             Err(_) => {
+                evidence.record_prepare(PrepareResult::Failed);
                 evidence.record_not_sent(0, "prepare_failed");
                 tracing::warn!("prepare failed; injecting nothing");
                 return None;
@@ -982,6 +1029,11 @@ where
             }),
             _ => None,
         };
+        evidence.record_prepare(if block.is_some() {
+            PrepareResult::Prepared
+        } else {
+            PrepareResult::Empty
+        });
         Some((block, expires_at))
     }
 
@@ -1091,7 +1143,10 @@ where
             headers: call.headers.clone(),
             stream: call.request.stream,
         };
-        let outcome = match self.send_attempt(send, execution, recording).await {
+        let outcome = match self
+            .send_attempt(send, execution, recording, evidence)
+            .await
+        {
             Ok(outcome) => outcome,
             Err(stop) => return stop,
         };

@@ -84,6 +84,11 @@ def load_state(directory: Path) -> dict[str, Any]:
         raise ObservabilityError("Deployment state is incomplete or invalid; restore its saved configuration")  # noqa: TRY003
     _server_url(state["server_url"])
     _metrics_target(state["server_url"], state["metrics_target"])
+    model_target = state.get("model_gateway_target")
+    if model_target is not None:
+        if not isinstance(model_target, str) or not model_target:
+            raise ObservabilityError("Invalid saved model Gateway metrics target")  # noqa: TRY003
+        _metrics_target(state["server_url"], model_target)
     if state.get("template_version") != TEMPLATE_VERSION:
         raise ObservabilityError("Deployment template version differs; use the matching PowerContext version")  # noqa: TRY003
     return state
@@ -252,6 +257,35 @@ def telemetry_environment(
     }
 
 
+def _configure_prometheus(directory: Path, *, scheme: str, token: str, model_gateway_target: str | None) -> None:
+    prometheus_file = directory / "prometheus" / "prometheus.yaml"
+    prometheus = yaml.safe_load(prometheus_file.read_text())
+    prometheus["scrape_configs"][0]["scheme"] = scheme
+    if not token:
+        prometheus["scrape_configs"][0].pop("authorization", None)
+    if model_gateway_target:
+        prometheus["scrape_configs"].append({
+            "job_name": "powercontext-gateway",
+            "metrics_path": "/gateway/metrics",
+            "scrape_protocols": ["OpenMetricsText1.0.0"],
+            "static_configs": [{"targets": [model_gateway_target]}],
+        })
+    prometheus_file.write_text(yaml.safe_dump(prometheus, sort_keys=False))
+
+
+def _write_model_gateway_profile(directory: Path, target: str | None, profile: dict[str, str]) -> None:
+    if target:
+        gateway_profile = {
+            "PC_GATEWAY_OTLP": "on",
+            "OTEL_EXPORTER_OTLP_ENDPOINT": profile["OTEL_EXPORTER_OTLP_ENDPOINT"],
+            "OTEL_EXPORTER_OTLP_HEADERS": profile["OTEL_EXPORTER_OTLP_HEADERS"],
+        }
+        _private_write(
+            directory / "model-gateway.env",
+            "".join(f"{key}={shlex.quote(value)}\n" for key, value in gateway_profile.items()),
+        )
+
+
 def initialize(
     directory: Path,
     *,
@@ -264,6 +298,7 @@ def initialize(
     server_uid: int = 10001,
     server_gid: int = 10001,
     background_target: str | None = None,
+    model_gateway_target: str | None = None,
     phoenix_port: int = 6006,
 ) -> dict[str, Any]:
     server_url = _server_url(server_url)
@@ -278,6 +313,7 @@ def initialize(
         target = "powercontext:8000"
     metrics_target = _metrics_target(server_url, target)
     background_metrics_target = _metrics_target(server_url, background_target) if background_target else None
+    model_gateway_target = _metrics_target(server_url, model_gateway_target) if model_gateway_target else None
     local = directory / ".local"
     local.mkdir(mode=0o700, exist_ok=True)
     (local / "logs").mkdir(exist_ok=True)
@@ -292,6 +328,7 @@ def initialize(
         "metrics_target": metrics_target,
         "server_mode": server_mode,
         "background_target": background_target,
+        "model_gateway_target": model_gateway_target,
         "phoenix_port": phoenix_port,
     }
     # Resources have one owner; editable deployment copies remain stable across repeated up/package upgrades.
@@ -314,12 +351,7 @@ def initialize(
     if background_metrics_target:
         targets.append({"targets": [background_metrics_target], "labels": {"role": "background"}})
     _private_write(local / "targets.json", json.dumps(targets), mode=0o644)
-    prometheus_file = directory / "prometheus" / "prometheus.yaml"
-    prometheus = yaml.safe_load(prometheus_file.read_text())
-    prometheus["scrape_configs"][0]["scheme"] = parsed.scheme
-    if not token:
-        prometheus["scrape_configs"][0].pop("authorization", None)
-    prometheus_file.write_text(yaml.safe_dump(prometheus, sort_keys=False))
+    _configure_prometheus(directory, scheme=parsed.scheme, token=token, model_gateway_target=model_gateway_target)
     compose_file = directory / "compose.yaml"
     manifest = yaml.safe_load(compose_file.read_text())
     manifest.pop("name", None)
@@ -336,6 +368,7 @@ def initialize(
         api_target=metrics_target,
         background_target=background_metrics_target,
     )
+    _write_model_gateway_profile(directory, model_gateway_target, profile)
     _private_write(directory / "server.env", "".join(f"{key}={shlex.quote(value)}\n" for key, value in profile.items()))
     profile["POWERCONTEXT_SERVER_LOGGING_DIRECTORY"] = "/var/log/powercontext"
     profile["OTEL_EXPORTER_OTLP_ENDPOINT"] = "http://gateway:8080"

@@ -86,6 +86,9 @@ def up(
     background_target: Annotated[
         str | None, typer.Option(help="Optional standalone background metrics host:port.")
     ] = None,
+    model_gateway_target: Annotated[
+        str | None, typer.Option(help="Optional Rust model Gateway metrics host:port reachable from Docker.")
+    ] = None,
     server_mode: Annotated[
         str | None, typer.Option(help="Existing Server deployment: local (default) or docker.")
     ] = None,
@@ -119,6 +122,7 @@ def up(
                         server_env,
                         metrics_target,
                         background_target,
+                        model_gateway_target,
                         grafana_port,
                         gateway_port,
                         phoenix,
@@ -142,6 +146,7 @@ def up(
                     phoenix_port=phoenix or 6006,
                     target=metrics_target,
                     background_target=background_target,
+                    model_gateway_target=model_gateway_target,
                     server_mode=server_mode or "local",
                     server_uid=10001 if server_uid is None else server_uid,
                     server_gid=10001 if server_gid is None else server_gid,
@@ -165,6 +170,9 @@ def up(
         _row("Config", BACKEND, "deployment files in:")
         _detail(directory)
         _server_instructions(directory, state)
+        if target := state.get("model_gateway_target"):
+            _row("Model Gateway metrics", target, "OTLP settings in:")
+            _detail(directory / "model-gateway.env")
     except (ObservabilityError, OSError, ValueError, subprocess.TimeoutExpired, httpx.HTTPError, ImportError) as error:
         _failure(error)
 
@@ -366,6 +374,8 @@ def check(
             return
         state = load_state(directory)
         with backend_client(directory, state) as client:
+            if target := state.get("model_gateway_target"):
+                _check_model_gateway(client, target, require_traffic=exercise)
             if exercise:
                 trace_id = secrets.token_hex(16)
                 token = (directory / ".local" / "observe-token").read_text().strip()
@@ -548,6 +558,28 @@ def _json(client: httpx.Client, path: str, **params):
     if response.status_code != 200:
         raise ObservabilityError("Backend query failed; check component health and gateway credentials")  # noqa: TRY003
     return response.json()
+
+
+def _check_model_gateway(client: httpx.Client, target: str, *, require_traffic: bool) -> None:
+    labels = f'job="powercontext-gateway",instance={json.dumps(target)}'
+    series = f"up{{{labels}}}"
+    result = _json(client, "/prometheus/api/v1/query", query=f"{series} and (time() - timestamp({series}) < 45)")[
+        "data"
+    ]["result"]
+    if not result or any(float(row["value"][1]) != 1 for row in result):
+        raise ObservabilityError("Model Gateway metrics target is unavailable or stale")  # noqa: TRY003
+    if require_traffic:
+        names = {
+            "powercontext_gateway_calls_total",
+            "powercontext_gateway_call_duration_ms_bucket",
+        }
+        selector = f'{{{labels},__name__=~"{"|".join(sorted(names))}"}}'
+        samples = _json(client, "/prometheus/api/v1/query", query=selector)["data"]["result"]
+        if not names.issubset(row["metric"]["__name__"] for row in samples):
+            raise ObservabilityError(  # noqa: TRY003
+                "Model Gateway traffic metrics are missing; send a model call and wait for a scrape"
+            )
+    typer.echo("Model Gateway metrics: current scrape is healthy")
 
 
 def _inspect(client: httpx.Client, state: dict[str, Any]) -> None:

@@ -184,6 +184,47 @@ three backups; startup prunes to at most 64 process file groups (nominally 2.5 G
 files, so this is not a strict disk quota). Write and OTLP log-export failures do not alter business results. The
 Collector receives approved structured fields over OTLP and drops arbitrary messages, exception stacks and paths.
 
+## Observe an existing Model Gateway
+
+Start the same reference stack with the Gateway address as seen from the Prometheus container. Use the original
+Server and Gateway configuration. The stack starts the monitoring containers and writes a private
+`model-gateway.env` file for the Gateway's outbound OTLP connection.
+
+```bash
+powercontext observability up --server-env /path/to/existing.env \
+  --model-gateway-target host.docker.internal:8787
+powercontext server run --env-file /path/to/existing.env --observability
+```
+
+Start the Server and Gateway in separate terminals. Before starting or restarting the Gateway, load the
+`model-gateway.env` file from the deployment directory printed by `up`.
+
+```bash
+set -a
+. /path/to/observability/model-gateway.env
+set +a
+pc-gateway
+```
+
+The Gateway HTTP listener must be reachable from Docker. For Linux host routing, use an appropriate
+`PC_GATEWAY_LISTEN` bind and restrict it with the host firewall. A non-loopback model listener requires
+`PC_GATEWAY_API_KEY`. The Gateway scrape endpoint is unauthenticated. Use the container name and port as the
+scrape target when the Gateway shares the monitoring network. Set `OTEL_EXPORTER_OTLP_ENDPOINT=http://gateway:8080`
+in that container when using the Compose telemetry proxy.
+
+Send a regular Chat Completions or Responses call through the Gateway and wait for a scrape before running the check.
+
+```bash
+powercontext observability check --exercise
+```
+
+The check verifies a current Gateway scrape and the model-call metric families used by Grafana. The exercise
+generates one read-only Server request. Supply Gateway model traffic separately. Open **PowerContext · Model Gateway**
+(`pc-gateway`) in Grafana. Select an exemplar on the call duration panel to open the sampled call in Tempo.
+The same Collector can deliver Gateway traces to Phoenix. See [Gateway telemetry](observability.md#gateway-telemetry)
+for units, label definitions, and sampling. To add the monitored Gateway to an existing managed deployment without
+overwriting its saved configuration, set a separate `POWERCONTEXT_OBSERVABILITY_HOME` and use unused monitoring ports.
+
 ## Start from a source checkout
 
 Install Docker Compose, OpenSSL and `uv`. Run from the repository root:

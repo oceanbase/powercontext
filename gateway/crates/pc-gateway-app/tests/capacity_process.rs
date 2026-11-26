@@ -220,6 +220,7 @@ impl Gateway {
                     "content": "准".repeat(128), "content_bytes": 384},
                 "reuse": {"schema": "powercontext.context-reuse.v1", "expires_at": "2999-01-01T00:00:00Z", "binding": "reuse"}
             })) }))
+            .route("/metrics", get(|| async { "fixture_core_metric 1\n" }))
             .route("/echo", post(echo))
             .route("/sse", get(|| async { axum::response::Response::builder()
                 .header("content-type", "text/event-stream").body(Body::new(OpenSse(false))).unwrap() }))
@@ -774,6 +775,35 @@ async fn echo(State(state): State<Arc<Receiver>>, mut body: Body) -> (StatusCode
         },
         size.to_string(),
     )
+}
+
+#[tokio::test]
+async fn combined_deployment_keeps_the_core_metrics_route() {
+    let gateway = Gateway::start(capabilities(json!(256)), 4096, false, false, false, true).await;
+    let client = reqwest::Client::new();
+    let core_metrics = client
+        .get(format!("{}/metrics", gateway.base))
+        .send()
+        .await
+        .unwrap()
+        .error_for_status()
+        .unwrap()
+        .text()
+        .await
+        .unwrap();
+    assert_eq!(core_metrics, "fixture_core_metric 1\n");
+
+    let gateway_metrics = client
+        .get(format!("{}/gateway/metrics", gateway.base))
+        .send()
+        .await
+        .unwrap()
+        .error_for_status()
+        .unwrap()
+        .text()
+        .await
+        .unwrap();
+    assert!(gateway_metrics.contains("powercontext_gateway_in_flight 0"));
 }
 
 #[tokio::test]

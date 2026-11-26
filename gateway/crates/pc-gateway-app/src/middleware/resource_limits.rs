@@ -99,7 +99,7 @@ impl GatewayMiddleware for ResourceLimits {
             }
 
             // 2) 并发上限：非阻塞获取；占满即拒（不排队——排队会把内存压力换成延迟压力）。
-            let is_health = req.uri().path() == "/healthz";
+            let is_health = matches!(req.uri().path(), "/healthz" | "/gateway/metrics");
             let mut permit = if is_health {
                 None
             } else {

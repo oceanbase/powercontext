@@ -54,6 +54,66 @@ def deployment(tmp_path, monkeypatch):
     return directory
 
 
+@pytest.mark.parametrize(
+    ("scraped", "has_traffic", "exercise", "expected"),
+    [
+        (False, False, False, "metrics target is unavailable or stale"),
+        (True, False, True, "traffic metrics are missing"),
+        (True, True, True, "matching trace stored in Phoenix"),
+    ],
+)
+def test_model_gateway_check_requires_scrape_and_traffic(
+    deployment, monkeypatch, scraped, has_traffic, exercise, expected
+):
+    from contextlib import nullcontext
+
+    import httpx
+
+    target = "host.docker.internal:8787"
+    initialize(
+        deployment,
+        server_url="http://127.0.0.1:8000",
+        token="",
+        grafana_port=13000,
+        gateway_port=14318,
+        model_gateway_target=target,
+    )
+    jobs = {
+        job["job_name"]: job
+        for job in yaml.safe_load((deployment / "prometheus/prometheus.yaml").read_text())["scrape_configs"]
+    }
+    assert jobs["powercontext-gateway"]["metrics_path"] == "/gateway/metrics"
+    assert jobs["powercontext-gateway"]["static_configs"] == [{"targets": [target]}]
+    assert "authorization" not in jobs["powercontext-gateway"]
+    assert (deployment / "model-gateway.env").is_file()
+
+    def prometheus(request):
+        query = request.url.params["query"]
+        assert request.url.path == "/prometheus/api/v1/query"
+        assert 'job="powercontext-gateway"' in query
+        assert f'instance="{target}"' in query
+        if query.startswith("up"):
+            data = [{"value": [time.time(), "1"]}] if scraped else []
+        else:
+            data = (
+                [
+                    {"metric": {"__name__": name}}
+                    for name in ("powercontext_gateway_calls_total", "powercontext_gateway_call_duration_ms_bucket")
+                ]
+                if has_traffic
+                else []
+            )
+        return httpx.Response(200, json={"data": {"result": data}})
+
+    with httpx.Client(transport=httpx.MockTransport(prometheus), base_url="http://backend") as client:
+        monkeypatch.setattr("powercontext.observability.cli.backend_client", lambda *_: nullcontext(client))
+        for name in ("_sampled_request", "_verify_delivery", "wait_for_phoenix"):
+            monkeypatch.setattr(f"powercontext.observability.cli.{name}", lambda *_: None)
+        result = CliRunner().invoke(app, ["check", *(["--exercise"] if exercise else [])])
+    assert result.exit_code == (0 if has_traffic else 1), result.output
+    assert expected in result.output
+
+
 def test_unsupported_backend_has_no_side_effects(tmp_path, monkeypatch):
     directory = tmp_path / "absent"
     monkeypatch.setenv("POWERCONTEXT_OBSERVABILITY_HOME", str(directory))

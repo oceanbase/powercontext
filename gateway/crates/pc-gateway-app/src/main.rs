@@ -30,10 +30,13 @@ mod evidence_body;
 mod evidence_diagnostics;
 mod ingress;
 mod link;
+mod metrics;
 mod middleware;
+mod otlp;
 mod proxy;
 mod shutdown;
 mod steering;
+mod telemetry;
 
 use crate::link::CoreLink;
 use axum::routing::{get, post};
@@ -49,6 +52,7 @@ pub struct AppState {
     /// 单一执行器；线格式渲染器按请求格式传入（同格式进出）。
     pub executor: Arc<Executor<CoreLink, GatewayTransport>>,
     pub evidence: Arc<dyn EvidenceSink>,
+    telemetry: Arc<telemetry::Telemetry>,
     pub upstream_profile: String,
     /// chat-completions 上游（含 key；老变量 PC_GATEWAY_UPSTREAM_URL 仍作缺省）。
     pub upstream_chat: String,
@@ -205,7 +209,7 @@ async fn main() {
     // stdout is reserved for body-free evidence JSONL; operational tracing uses stderr.
     let evidence: Arc<dyn EvidenceSink> =
         if matches!(std::env::var("PC_GATEWAY_EVIDENCE").as_deref(), Ok("off")) {
-            tracing::info!("gateway evidence disabled; usage and call coverage unavailable");
+            tracing::info!("gateway evidence disabled; JSONL output is off");
             Arc::new(NoopEvidenceSink)
         } else {
             match JsonEvidenceSink::new(
@@ -308,6 +312,7 @@ async fn main() {
             .with_core_enforcement(capabilities.as_ref().is_none_or(|caps| caps.enforcing)),
         ),
         evidence,
+        telemetry: Arc::new(telemetry::Telemetry::new(otlp::Exporter::from_env())),
         upstream_profile: std::env::var("PC_GATEWAY_UPSTREAM_PROFILE")
             .unwrap_or_else(|_| "default".into()),
         upstream_chat,
@@ -395,7 +400,11 @@ fn subscription_from_env(
 }
 
 fn router(state: Arc<AppState>, proxy_state: proxy::ProxyState) -> Router {
-    Router::new()
+    let mut routes = Router::new().route("/gateway/metrics", get(telemetry::scrape));
+    if !proxy_state.forwards_to_core() {
+        routes = routes.route("/metrics", get(telemetry::scrape));
+    }
+    routes
         .route("/healthz", get(healthz))
         .route(
             "/gateway/v1/chat/completions",

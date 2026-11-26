@@ -453,6 +453,46 @@ Provider and capability, then shows per-call duration, HTTP status or final mode
 trace. Exact-instance filtering requires `service_target` to match the Prometheus `instance`. Missing logs or traces
 remain an evidence gap; an ID alone does not establish sampling, export or retention as the cause.
 
+## Gateway telemetry [#gateway-telemetry]
+
+The Rust Gateway exports process-local OpenMetrics at `/gateway/metrics`, and at `/metrics` when running
+standalone. With Core forwarding over UDS, `/metrics` continues to use the Server's authentication and metrics
+handler. The [reference stack](reference-observability-stack.md) can scrape the Gateway under
+`job="powercontext-gateway"`.
+
+The `powercontext_gateway_` prefix identifies these metric families.
+
+- `calls_total` groups managed model calls by route, turn kind, execution terminal, and send outcome.
+  Turn kinds are `user_turn`, `tool_continuation`, `assistant_only`, and `empty`. Invalid ingress and extraction
+  requests are outside this counter. `attempts_total` counts executor handoffs by route and attempt outcome.
+- `in_flight` covers model ingress through framework body observation when available. `admitted_in_flight` counts
+  the subset with a validated Core send admission. These process gauges do not establish delivery to the client.
+- `tokens_total` sums provider-reported counts by direction and completeness. `tokens_missing_total` counts
+  complete upstream responses with a missing count for the given direction. Reported zero is a known count.
+  Input includes cache reads when reported under the OpenAI contract. Cache writes can remain unknown.
+- `call_duration_ms`, `attempt_duration_ms`, `response_first_byte_ms`, `release_decision_ms`,
+  `release_authorized_ms`, `prepare_duration_ms`, and both `check_before_*_duration_ms` are histograms in
+  milliseconds. Response first byte is the first nonempty upstream HTTP body chunk. Release milestones are elapsed
+  from request-control creation. Model time to first token remains unknown.
+- `prepare_total` counts preparation decisions as `hit_replay`, `prepared`, `skipped`, `failed`, or `empty`.
+  `injected_bytes_total` and `injected_contexts_total` count UTF-8 bytes and declared blocks at send admission.
+  `context_refresh_total` counts recovery after a stale prepared-context binding.
+- `blocked_total` groups blocks by `local`, `core_send`, or `core_release`. `withheld_total` groups withholds
+  by retryability. `degraded_total`, `send_indeterminate_total`, `evidence_dropped_total`, and
+  `evidence_write_failed_total` count degraded calls, calls possibly sent without a complete response, evidence
+  queue drops, and evidence write failures respectively.
+
+Set `PC_GATEWAY_OTLP=on` to enable OTLP/HTTP JSON traces and configure `OTEL_EXPORTER_OTLP_ENDPOINT` with the
+receiver base URL. For a full traces URL, set `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`. Use
+`OTEL_EXPORTER_OTLP_HEADERS` or `OTEL_EXPORTER_OTLP_TRACES_HEADERS` for export credentials.
+A valid version-00 `traceparent` supplies the parent and sampling flag. Calls without a valid parent start a
+Gateway trace when export is enabled. The `gateway.model_call` span uses the evidence `call_id` as an attribute.
+Child spans cover classification, enrichment, checks, upstream attempts, and framework delivery as observed.
+Export uses a bounded, best-effort queue. An exemplar identifies a sampled call whose trace may still be pending or
+may have been dropped. Metrics and spans exclude bodies, credentials, model names, raw URLs, and conversation IDs.
+Call identity appears in spans, and trace IDs appear in exemplars. These observations do not establish billing,
+token savings, or task success.
+
 ## Tracing
 
 Install the `tracing-otlp` extra, enable `POWERCONTEXT_SERVER_TRACING_ENABLED=true`, and configure an OTLP HTTP

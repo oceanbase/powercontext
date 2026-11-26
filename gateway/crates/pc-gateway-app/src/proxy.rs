@@ -51,6 +51,10 @@ struct ProxyInner {
 }
 
 impl ProxyState {
+    pub(crate) fn forwards_to_core(&self) -> bool {
+        self.inner.is_some()
+    }
+
     pub fn from_env() -> Self {
         match std::env::var("PC_GATEWAY_CORE_UDS") {
             Ok(sock) => {

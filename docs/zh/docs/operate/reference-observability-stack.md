@@ -191,6 +191,46 @@ Prometheus 对应 exemplar；不创建业务 Source 或 Memory。
 保留 3 个备份；启动时清理到最多 64 个进程文件组，约 2.5 GiB 的名义上限，活跃进程重新写入时可能超过，
 因此它不是严格的磁盘配额。Collector 不读取该目录；它使用 OTLP 字段白名单，移除任意消息正文、异常堆栈和路径。
 
+## 观测已有的模型网关
+
+使用 Prometheus 容器可访问的网关地址启动同一套参考栈。沿用原有的 Server 和网关配置。
+参考栈会启动监控容器，并生成私有的 `model-gateway.env` 文件，供网关连接 OTLP 接收端。
+
+```bash
+powercontext observability up --server-env /path/to/existing.env \
+  --model-gateway-target host.docker.internal:8787
+powercontext server run --env-file /path/to/existing.env --observability
+```
+
+在不同的终端分别启动 Server 和网关。启动或重启网关前，从 `up` 打印的部署目录加载
+`model-gateway.env` 文件。
+
+```bash
+set -a
+. /path/to/observability/model-gateway.env
+set +a
+pc-gateway
+```
+
+Docker 必须能够访问网关的 HTTP 监听地址。在 Linux 上通过宿主机路由时，使用合适的
+`PC_GATEWAY_LISTEN` 绑定，并使用宿主机防火墙限制访问。模型监听地址为非回环地址时需要
+`PC_GATEWAY_API_KEY`。网关抓取端点无需认证。如果网关与监控服务位于同一容器网络，
+将容器名称和端口用作抓取目标。使用 Compose 遥测代理时，在该容器中设置
+`OTEL_EXPORTER_OTLP_ENDPOINT=http://gateway:8080`。
+
+通过网关发送一个普通的 Chat Completions 或 Responses 请求，并等待抓取后执行检查。
+
+```bash
+powercontext observability check --exercise
+```
+
+该检查验证网关抓取当前可用，并确认 Grafana 使用的模型调用指标存在。演练只主动发送一个只读的
+Server 请求。网关模型流量需要单独发送。在 Grafana 中打开 **PowerContext · Model Gateway**
+（`pc-gateway`）。选择调用耗时面板上的 exemplar，即可在 Tempo 中打开该采样调用。
+同一个 Collector 也可以将网关 trace 发送至 Phoenix。单位、标签定义和采样见
+[网关遥测](observability.md#gateway-telemetry)。要为已有托管部署添加网关监控并保留其配置，
+请设置独立的 `POWERCONTEXT_OBSERVABILITY_HOME`，并选择空闲的监控端口。
+
 ## 从源码启动
 
 安装 Docker Compose、OpenSSL 和 `uv`，在仓库根目录执行：
