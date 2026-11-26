@@ -273,8 +273,9 @@ Codex 的模型请求经过 PowerContext gateway 时，gateway 为每一轮准�
 在 Core 和模型收到请求前，gateway 会移除这些消息中完整的 PowerContext prepared-context 块。请求和响应仍会经过
 Core 的常规检查。
 
-Codex 直接调用模型或使用订阅账号登录时，gateway 不承载这些流量，请保留插件的默认值。要让 Codex 经过 gateway，
-按下面的步骤配置 Core、Codex、插件和 gateway。
+Codex 直接调用模型时，gateway 不承载这些流量，请保留插件的默认值。使用 ChatGPT 订阅时，可以让 gateway 通过
+[OAuth 订阅](../operate/deploy-server.md#网关-oauth-订阅)（`PC_GATEWAY_SUBSCRIPTION=codex`）复用 Codex CLI 的登录，Codex 本身指向 gateway。
+要让 Codex 经过 gateway，按下面的步骤配置 Core、Codex、插件和 gateway。
 
 ### 让 Core 运行在非 enforcing 模式
 

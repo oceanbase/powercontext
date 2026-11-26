@@ -69,10 +69,11 @@ powercontext setup
 | --- | --- | --- | --- |
 | Hermes | `prefetch` 的 query | 完成轮次的 Source | 开启；`POWERCONTEXT_HERMES_CAPTURE_TURNS=false` 关闭 |
 | LangChain | 最新的人类消息 | 完成轮次的 Source | 关闭；`PowerContextMiddleware(auto_capture=True)` 开启 |
+| Deep Agents | 主 agent 和每个 subagent 每次模型调用的最新人类消息 | 主 agent 完成轮次的 Source | 关闭；`create_powercontext_deep_agent(auto_capture=True)` 开启 |
 | LangGraph | 最新的人类消息 | 无；LangGraph 只通过显式工具写入 | 不适用 |
 | Pydantic AI | 最新的文本 User Prompt | `user_prompt` 事件 | 关闭；`POWERCONTEXT_PYDANTIC_AI_CAPTURE_EVENTS=true` 开启 |
 
-用户文本或助手回复中识别到凭据时，整轮跳过完成轮次捕获（Hermes、LangChain），因为轮次 Source 同时保存两者；
+用户文本或助手回复中识别到凭据时，整轮跳过完成轮次捕获（Hermes、LangChain、Deep Agents），因为轮次 Source 同时保存两者；
 User Prompt 中识别到凭据时跳过 `user_prompt` 事件（Pydantic AI）。Pydantic AI 的模型响应和工具事件继续按键名和
 已知凭据值脱敏。Hermes 的压缩前捕获替换每条消息中识别到的凭据并保留该消息，
 所以凭据不会导致必需 checkpoint 失败。当前 Server 凭据指适配器配置的 token，或 Hermes 的

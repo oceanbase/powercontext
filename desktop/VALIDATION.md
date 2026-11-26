@@ -3928,3 +3928,33 @@ Reproduce with the recorded artifact (allow sufficient local startup time):
   --product-qualification sqlite-release-1-6-0-98a9b1f7-v1 \
   --wheel /data/codex-tmp/release-1.6.0/wheel/powercontext-1.5.3.dev327+g98a9b1f7f-py3-none-any.whl
 ```
+
+## Server c407025 source metadata protocol qualification
+
+`sqlite-source-metadata-c407025-v1` covers all thirteen Desktop protocol operations against Server source
+`c407025b05b18364848084412324acce7781dbc7`. The contract adds caller `metadata` to Source detail and list responses as
+an optional field: a current Server always sends an object (empty when the Source has no caller metadata), while a client
+talking to an earlier Server decodes the omission as null instead of failing.
+
+- Normalized OpenAPI SHA-256: `90571f6bb831c24996485e3527eb7b1ac1f41eb6921c015ff9daa8603a5f198a`.
+- Wheel: `powercontext-0.1.dev2+gc407025b0-py3-none-any.whl`.
+- Wheel SHA-256: `b436824a0bca98c950778a9599c141f65b19d3d5c1cc84f44ccfafced8c8486c`.
+
+On 2026-11-25, Linux x86_64 (WSL2) with Python 3.14 and that wheel passed static Bearer mode with an enforced token:
+unauthenticated requests returned 401, and the bundled Python client exercised all thirteen operations. A captured content
+Source round-tripped nested objects, Unicode and an empty metadata value through the list and detail responses.
+
+The native `server_probe` was not rebuilt for this record because the validation environment has no Rust toolchain. This
+record therefore establishes HTTP protocol compatibility between the new client contract and the exact wheel; it does not
+establish native-probe, installed-WebView, Windows/macOS or release acceptance. Mixed-version decoding of an omitted field
+is covered by a client `MockTransport` regression, not by this real-Server probe.
+
+Reproduce against the recorded artifact:
+
+```sh
+uv build --wheel --out-dir /tmp/pc-wheel-meta3
+uv pip install --python /tmp/pc-venv-meta3/bin/python \
+  "/tmp/pc-wheel-meta3/powercontext-0.1.dev2+gc407025b0-py3-none-any.whl[server,cli]"
+POWERCONTEXT_SERVER_ACCESS_MODE=enforced POWERCONTEXT_SERVER_AUTH_TOKEN=qualification-token \
+  /tmp/pc-venv-meta3/bin/powercontext server run --host 127.0.0.1 --port 8242 --no-env-file
+```

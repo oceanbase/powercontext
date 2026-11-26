@@ -1,0 +1,260 @@
+{
+  "scope": "24 original selected paired tasks; solving plus memory generation; excludes embedding, readiness and other auxiliary work",
+  "observed_memory_input": 846962,
+  "observed_memory_cached": 821504,
+  "missing_cache_input": 1171777,
+  "missing_cache_records": 55,
+  "memory_input": 2018739,
+  "memory_output": 23253,
+  "pc_solving_points": 352.2502,
+  "off_solving_points": 460.52434,
+  "points_per_million": {
+    "uncached_input": 100,
+    "cached_input": 10,
+    "output": 500
+  },
+  "assumption": "Apply observed input-weighted cache-hit rate to missing cache records; prefix and ordinary generation populations may differ",
+  "actual_bill": null,
+  "paired_case_bounds": [
+    {
+      "case": 22,
+      "powercontext_pass": false,
+      "off_pass": false,
+      "pc_solving_plus_memory": 1077155,
+      "off_solving": 2111875,
+      "pc_plus_memory_points_min": 24.97983,
+      "pc_plus_memory_points_max": 27.99942,
+      "off_solving_points": 32.8263
+    },
+    {
+      "case": 87,
+      "powercontext_pass": false,
+      "off_pass": false,
+      "pc_solving_plus_memory": 592152,
+      "off_solving": 940626,
+      "pc_plus_memory_points_min": 12.576450000000001,
+      "pc_plus_memory_points_max": 17.04864,
+      "off_solving_points": 17.22436
+    },
+    {
+      "case": 152,
+      "powercontext_pass": false,
+      "off_pass": false,
+      "pc_solving_plus_memory": 523485,
+      "off_solving": 565560,
+      "pc_plus_memory_points_min": 11.2917,
+      "pc_plus_memory_points_max": 22.83906,
+      "off_solving_points": 11.61192
+    },
+    {
+      "case": 202,
+      "powercontext_pass": true,
+      "off_pass": true,
+      "pc_solving_plus_memory": 528569,
+      "off_solving": 1286399,
+      "pc_plus_memory_points_min": 11.833829999999999,
+      "pc_plus_memory_points_max": 22.99554,
+      "off_solving_points": 22.5811
+    },
+    {
+      "case": 225,
+      "powercontext_pass": true,
+      "off_pass": true,
+      "pc_solving_plus_memory": 704668,
+      "off_solving": 1072738,
+      "pc_plus_memory_points_min": 14.91088,
+      "pc_plus_memory_points_max": 14.91088,
+      "off_solving_points": 17.87508
+    },
+    {
+      "case": 238,
+      "powercontext_pass": true,
+      "off_pass": true,
+      "pc_solving_plus_memory": 416628,
+      "off_solving": 408538,
+      "pc_plus_memory_points_min": 9.96735,
+      "pc_plus_memory_points_max": 15.442319999999999,
+      "off_solving_points": 9.60348
+    },
+    {
+      "case": 293,
+      "powercontext_pass": false,
+      "off_pass": false,
+      "pc_solving_plus_memory": 527715,
+      "off_solving": 1223398,
+      "pc_plus_memory_points_min": 11.33719,
+      "pc_plus_memory_points_max": 15.97102,
+      "off_solving_points": 20.53236
+    },
+    {
+      "case": 308,
+      "powercontext_pass": false,
+      "off_pass": false,
+      "pc_solving_plus_memory": 1148311,
+      "off_solving": 2238790,
+      "pc_plus_memory_points_min": 25.866619999999998,
+      "pc_plus_memory_points_max": 25.866619999999998,
+      "off_solving_points": 34.82916
+    },
+    {
+      "case": 336,
+      "powercontext_pass": true,
+      "off_pass": true,
+      "pc_solving_plus_memory": 529691,
+      "off_solving": 465307,
+      "pc_plus_memory_points_min": 10.93203,
+      "pc_plus_memory_points_max": 17.18766,
+      "off_solving_points": 10.48094
+    },
+    {
+      "case": 374,
+      "powercontext_pass": true,
+      "off_pass": true,
+      "pc_solving_plus_memory": 809057,
+      "off_solving": 940707,
+      "pc_plus_memory_points_min": 16.52846,
+      "pc_plus_memory_points_max": 25.45178,
+      "off_solving_points": 18.90686
+    },
+    {
+      "case": 388,
+      "powercontext_pass": true,
+      "off_pass": true,
+      "pc_solving_plus_memory": 749820,
+      "off_solving": 875990,
+      "pc_plus_memory_points_min": 14.57561,
+      "pc_plus_memory_points_max": 20.20304,
+      "off_solving_points": 15.6034
+    },
+    {
+      "case": 406,
+      "powercontext_pass": true,
+      "off_pass": true,
+      "pc_solving_plus_memory": 1074983,
+      "off_solving": 1035558,
+      "pc_plus_memory_points_min": 25.164949999999997,
+      "pc_plus_memory_points_max": 28.96358,
+      "off_solving_points": 18.9338
+    },
+    {
+      "case": 410,
+      "powercontext_pass": true,
+      "off_pass": true,
+      "pc_solving_plus_memory": 488550,
+      "off_solving": 432238,
+      "pc_plus_memory_points_min": 12.05355,
+      "pc_plus_memory_points_max": 19.8174,
+      "off_solving_points": 11.26972
+    },
+    {
+      "case": 456,
+      "powercontext_pass": true,
+      "off_pass": true,
+      "pc_solving_plus_memory": 840186,
+      "off_solving": 2301174,
+      "pc_plus_memory_points_min": 15.93044,
+      "pc_plus_memory_points_max": 21.54644,
+      "off_solving_points": 33.52836
+    },
+    {
+      "case": 464,
+      "powercontext_pass": true,
+      "off_pass": true,
+      "pc_solving_plus_memory": 529995,
+      "off_solving": 505046,
+      "pc_plus_memory_points_min": 10.279340000000001,
+      "pc_plus_memory_points_max": 10.279340000000001,
+      "off_solving_points": 9.71284
+    },
+    {
+      "case": 468,
+      "powercontext_pass": true,
+      "off_pass": true,
+      "pc_solving_plus_memory": 546090,
+      "off_solving": 979082,
+      "pc_plus_memory_points_min": 13.432960000000001,
+      "pc_plus_memory_points_max": 17.52868,
+      "off_solving_points": 16.7638
+    },
+    {
+      "case": 472,
+      "powercontext_pass": false,
+      "off_pass": false,
+      "pc_solving_plus_memory": 1684430,
+      "off_solving": 990635,
+      "pc_plus_memory_points_min": 32.48852,
+      "pc_plus_memory_points_max": 32.48852,
+      "off_solving_points": 19.07422
+    },
+    {
+      "case": 482,
+      "powercontext_pass": false,
+      "off_pass": false,
+      "pc_solving_plus_memory": 746889,
+      "off_solving": 1425415,
+      "pc_plus_memory_points_min": 16.464660000000002,
+      "pc_plus_memory_points_max": 19.07394,
+      "off_solving_points": 22.6227
+    },
+    {
+      "case": 492,
+      "powercontext_pass": true,
+      "off_pass": true,
+      "pc_solving_plus_memory": 625539,
+      "off_solving": 646014,
+      "pc_plus_memory_points_min": 14.84606,
+      "pc_plus_memory_points_max": 14.84606,
+      "off_solving_points": 11.921
+    },
+    {
+      "case": 501,
+      "powercontext_pass": true,
+      "off_pass": true,
+      "pc_solving_plus_memory": 735047,
+      "off_solving": 1883657,
+      "pc_plus_memory_points_min": 14.93148,
+      "pc_plus_memory_points_max": 19.43094,
+      "off_solving_points": 30.72954
+    },
+    {
+      "case": 505,
+      "powercontext_pass": true,
+      "off_pass": true,
+      "pc_solving_plus_memory": 621939,
+      "off_solving": 1160549,
+      "pc_plus_memory_points_min": 16.73242,
+      "pc_plus_memory_points_max": 23.23798,
+      "off_solving_points": 23.38274
+    },
+    {
+      "case": 627,
+      "powercontext_pass": true,
+      "off_pass": true,
+      "pc_solving_plus_memory": 1010904,
+      "off_solving": 909472,
+      "pc_plus_memory_points_min": 17.59382,
+      "pc_plus_memory_points_max": 21.91328,
+      "off_solving_points": 16.53504
+    },
+    {
+      "case": 698,
+      "powercontext_pass": false,
+      "off_pass": false,
+      "pc_solving_plus_memory": 695049,
+      "off_solving": 719405,
+      "pc_plus_memory_points_min": 16.37396,
+      "pc_plus_memory_points_max": 20.2625,
+      "off_solving_points": 13.11674
+    },
+    {
+      "case": 706,
+      "powercontext_pass": true,
+      "off_pass": true,
+      "pc_solving_plus_memory": 602126,
+      "off_solving": 1292048,
+      "pc_plus_memory_points_min": 15.2632,
+      "pc_plus_memory_points_max": 16.5106,
+      "off_solving_points": 20.85888
+    }
+  ]
+}

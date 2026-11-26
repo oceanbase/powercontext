@@ -55,6 +55,15 @@ to resolve the configured explicit Scope first, then an opaque stable binding ke
 and finally the Server default. Only the real Scope returned by the Server is cached and used for recall, capture, and
 tools.
 
+The recall query is the user's text, trimmed, with recognized credentials, such as `api_key=…` assignments, Bearer
+values, and common provider tokens, replaced by `[REDACTED]`. When a prompt longer than 8,192 characters or 8,192
+UTF-8 bytes is cut to its most recent text, the replacement happens first, so the cut cannot leave a bare credential.
+With capture enabled, an initial task that contains a recognized credential is not captured; the capture log records
+a `user_prompt` event with status `skipped` and reason `sensitive_content`, without the text. Bub applies the same
+recognition as the other automatic PowerContext integrations, described in the
+[automatic prompt privacy](../../docs/en/docs/integrations/index.md#automatic-prompt-privacy) guide. Recognition is
+best effort.
+
 Captured tool arguments redact values under credential-like keys. Known credential environment values are also
 removed from serialized event content. Keep the PowerContext scope and optional capture log protected because normal
 tool output can still contain sensitive project data.

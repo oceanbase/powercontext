@@ -16,9 +16,11 @@ Blocked calls return HTTP 403. Withheld calls return HTTP 400 unless the executo
 
 ## Memory
 
-In a combined UDS deployment, recall injection is enabled by default for requests with a conversation ID. The Gateway prepares context once per new user message and reuses it for tool continuations in that turn. Core verifies the injected text and its binding. Empty or failed preparation leaves the request uninjected.
+In a combined UDS deployment, recall injection is enabled by default. The Gateway prepares context on a user turn and reuses that turn's prepared block for the requests that follow, without querying again. A tool continuation without a conversation ID has nothing to reuse and is sent without recall. Core verifies the injected text and its binding. Empty or failed preparation leaves the request uninjected.
 
-Use `X-PowerContext-Conversation-ID` to identify a conversation. The Gateway also recognizes client session headers from OpenCode, Codex and translated Claude Code traffic. See [context injection settings](../docs/en/docs/operate/deploy-server.md#gateway-context-injection) for header precedence and subagent handling. Standalone deployments require `PC_GATEWAY_INJECTION=on` to enable injection.
+Use `X-PowerContext-Conversation-ID` to identify a conversation. The Gateway also recognizes client session headers from OpenCode, Codex and translated Claude Code traffic. Without a valid header, eligible full-history requests get a process-local identity for preparation replay from their opening messages. See [context injection settings](../docs/en/docs/operate/deploy-server.md#gateway-context-injection) for header precedence and fallback behavior. Standalone deployments require `PC_GATEWAY_INJECTION=on` to enable injection.
+
+The Gateway classifies each request tail as `user_turn`, `tool_continuation`, `assistant_only` or `empty`, and records it in call evidence and debug logs. Responses items are classified by their own role and type rather than the verbatim carrier. Every kind other than `user_turn` reuses the turn's prepared block when a replay entry exists and otherwise skips preparation and replay.
 
 Send `X-PowerContext-Scope-ID` on Chat or Responses requests to select the Scope for recall, both Core checks, and capture. Requests without the header use `PC_GATEWAY_DEFAULT_SCOPE`. Core applies its access rules using the Gateway's Core credentials. See [request Scope settings](../docs/en/docs/operate/deploy-server.md#gateway-request-scope).
 

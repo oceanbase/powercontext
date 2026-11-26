@@ -42,6 +42,10 @@ print(result.output)
 Each tool returns the complete public HTTP response as JSON, including citations, status, and revision fields. Client
 failures become Pydantic AI `ModelRetry` signals instead of empty search results. To install only the tools without
 automatic recall or capture, pass `PowerContextToolset()` through the Agent's `toolsets=` argument.
+`PowerContextToolset(include_context_tool=False)` leaves out `powercontext_context` and drops its line from the
+toolset instructions. Use it when the PowerContext gateway prepares prompt-time context: a `powercontext_context`
+result stays in the message history, and a request carrying a prepared-context block the gateway did not bind is
+rejected.
 
 ## Configuration
 
