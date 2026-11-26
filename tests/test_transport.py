@@ -19,6 +19,7 @@ from __future__ import annotations
 import asyncio
 import importlib.util
 import json
+import os
 import ssl
 import sys
 import threading
@@ -365,3 +366,28 @@ def test_vendored_plugin_matches_the_shared_plaintext_policy(plugin: ModuleType,
     except ValueError:
         plugin_rejects = True
     assert plugin_rejects == transport_rejects
+
+
+def test_setup_requires_plaintext_consent_for_ipv4_mapped_loopback(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Setup must not save an IPv4-mapped URL as loopback: the plugin transports refuse it as plaintext."""
+
+    from powercontext.cli.system import SetupError
+    from powercontext.cli.transport import prepare_setup_transport
+
+    for key in list(os.environ):
+        if key.startswith("POWERCONTEXT_"):
+            monkeypatch.delenv(key)
+    monkeypatch.setenv("POWERCONTEXT_CLIENT_CONFIG_FILE", str(tmp_path / "clients.json"))
+    monkeypatch.chdir(tmp_path)
+    server_url = "http://[::ffff:127.0.0.1]:18765"
+
+    with pytest.raises(SetupError, match="Remote HTTP requires explicit consent"):
+        prepare_setup_transport("zcode", server_url=server_url, json_output=True)
+    assert prepare_setup_transport(
+        "zcode", server_url=server_url, allow_insecure_http=True, json_output=True
+    ).allow_insecure_http
+    assert not prepare_setup_transport(
+        "zcode", server_url="http://127.0.0.2:18765", json_output=True
+    ).allow_insecure_http
