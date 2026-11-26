@@ -98,6 +98,9 @@ def test_document_context_keeps_all_matched_chunks_and_current_versions(tmp_path
                 assert "SERVICE_DRAINED" in prepared["content"]
                 for hit in hits:
                     assert hit["chunk_id"] in prepared["content"]
+                assert '"line_start"' in prepared["content"] and '"line_end"' in prepared["content"]
+                assert '"block_char_start"' in prepared["content"] and '"block_char_end"' in prepared["content"]
+                assert '"span_unit"' not in prepared["content"]
                 assert len(prepared["receipt"]["selected"]) == 1
                 assert not any(item["reason"] == "duplicate" for item in prepared["receipt"]["omitted"])
 

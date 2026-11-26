@@ -34,7 +34,7 @@ PLUGIN = Path(__file__).resolve().parents[2] / "plugins" / "knowledge-base"
 
 
 @pytest.mark.parametrize("real_model", [False, True], ids=["fixture-embedding", "real-embedding"])
-def test_knowledge_base_import_edit_forget_and_space_selection(tmp_path, real_model):
+def test_knowledge_base_import_edit_forget_and_space_selection(tmp_path, real_model):  # noqa: C901 - one end-to-end lifecycle
     if real_model and not os.environ.get("POWERCONTEXT_TEST_KB_MODELS"):
         pytest.skip("requires downloaded local embedding model")
     if real_model:
@@ -289,6 +289,39 @@ def test_knowledge_base_import_edit_forget_and_space_selection(tmp_path, real_mo
             assert hits and "Emergency shutdown procedure" in hits[0]["text"]
             assert hits[0]["document"]["artifact_id"] == html["document_id"]
 
+            guide = await call(
+                "POST",
+                base + "/uploads",
+                params={"relative_path": "guide.html", "idempotency_key": "html-guide"},
+                content=(
+                    b"<html><body><article><h1>Knowledge base guide</h1>"
+                    b"<p>Deployment requires checking the local backup before restarting the service.</p>"
+                    b"<h2>Verification</h2><p>Check the health endpoint after the restart completes.</p>"
+                    b"</article></body></html>"
+                ),
+            )
+
+            async def guide_status():
+                return await call("GET", base + "/imports/" + guide["request_id"])
+
+            outcome = await wait_for(
+                guide_status, lambda result: result["state"] in {"completed", "failed"}, log=tmp_path / "server.log"
+            )
+            assert outcome["state"] == "completed", outcome
+            hits = (await call("POST", base + "/retrieve", json={"query": "health endpoint", "mode": "fts"}))["hits"]
+            hit = next(item for item in hits if item["document"]["artifact_id"] == guide["document_id"])
+            assert hit["heading_path"] == ["Knowledge base guide", "Verification"]
+            assert hit["locator"]["span_unit"] == "char"
+            assert hit["locator"]["span_start"] <= hit["locator"]["span_end"]
+            assert hit["source"]["source_type"] == "knowledge-base-file"
+            assert hit["source"]["source_id"]
+            guide_chunks = base + f"/documents/{guide['document_id']}/revisions/1/chunks"
+            listing = await call("GET", guide_chunks)
+            assert listing["total"] >= 1
+            detail = await call("GET", guide_chunks + "/" + listing["items"][0]["chunk_id"])
+            assert detail["text"]
+            assert detail["locator"]["span_unit"] == "char"
+
     asyncio.run(scenario())
 
 
@@ -320,3 +353,56 @@ async def _interrupted_registration(self, scope, kind, key, value, space=None):
 _service.Store.add_resource = _interrupted_registration
 """
 )
+
+
+def test_parser_profile_change_reprocesses_unchanged_content(tmp_path):
+    plugins = tmp_path / "plugins"
+    shutil.copytree(PLUGIN, plugins / "knowledge-base")
+    entry = plugins / "knowledge-base" / "plugin.py"
+    entry.write_text(entry.read_text() + FIXTURE_EMBEDDING)
+    parser = plugins / "knowledge-base" / "pc_knowledge_base" / "content.py"
+    source = b"<html><body><article><h1>Guide</h1><p>Restart requires BACKUP_APPROVED.</p></article></body></html>"
+
+    async def scenario():
+        scope = None
+
+        async def import_again():
+            nonlocal scope
+            async with running_server(
+                tmp_path, plugins, extra_env={"POWERCONTEXT_KB_DATA_DIR": str(tmp_path / "data")}
+            ) as client:
+
+                async def call(method, path, **kwargs):
+                    response = await client.request(method, P + path, **kwargs)
+                    assert response.is_success, response.text
+                    return response.json()
+
+                if scope is None:
+                    space = await call("GET", "/me/default-space")
+                    body = {"title": "Parser", "space_scope_id": space["space_scope_id"], "idempotency_key": "kb"}
+                    scope = (await call("POST", "/knowledge-bases", json=body))["scope_id"]
+                base = f"/scopes/{scope}"
+                receipt = await call(
+                    "POST",
+                    base + "/uploads",
+                    params={"relative_path": "guide.html", "idempotency_key": uuid4().hex},
+                    content=source,
+                    headers={"Content-Type": "application/octet-stream"},
+                )
+                status = await wait_for(
+                    lambda: call("GET", base + "/imports/" + receipt["request_id"]),
+                    lambda r: r["state"] in {"completed", "failed"},
+                    log=tmp_path / "server.log",
+                )
+                assert status["state"] == "completed", status
+                artifact = f"/v1/scopes/{scope}/artifacts/document/{receipt['document_id']}"
+                return (await client.get(artifact)).json()["revision"]
+
+        assert await import_again() == 1
+        # Unchanged bytes and an unchanged profile reuse the published revision.
+        assert await import_again() == 1
+        parser.write_text(parser.read_text().replace('"mapping-v1"', '"mapping-v2"'))
+        # A moved parser profile republishes the document without any content change.
+        assert await import_again() == 2
+
+    asyncio.run(scenario())
