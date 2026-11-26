@@ -3456,6 +3456,10 @@ class RemoteSkillApplication:
             raise _RuntimeStateError("remote-skill-distribution")
         return service
 
+    async def authenticate_target(self, credential: str, /) -> None:
+        async with self._runtime._operation():
+            await self._service().authenticate_target(credential)
+
     async def list_targets(
         self,
         scope_id: str,
