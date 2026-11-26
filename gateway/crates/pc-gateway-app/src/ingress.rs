@@ -273,6 +273,7 @@ pub async fn extract(
         capture_prefix: false,
         conversation_id: Some(prefix.conversation_id.clone()),
         sediment: false,
+        internal: false,
         prepared_contexts: prefix.prepared_contexts.clone(),
     };
     // 期限从连接开始接收请求时起算，读取请求体的时间也在其中。
@@ -512,6 +513,20 @@ async fn ingress_model(
         return rejected;
     }
 
+    let internal = match internal_turn(&headers) {
+        Ok(value) => value,
+        Err(()) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({
+                    "error": "invalid_turn_header",
+                    "detail": "X-PowerContext-Turn only accepts internal"
+                })),
+            )
+                .into_response();
+        }
+    };
+
     if state.max_body_bytes == 0 {
         return respond(
             ManagedOutcome::GatePaused("input_capacity_unconfirmed".into()),
@@ -580,8 +595,10 @@ async fn ingress_model(
             }
             match to_canonical_chat(chat) {
                 Ok(mut canonical) => {
-                    if let Some(text) = &state.steering {
-                        crate::steering::insert_chat(&mut canonical.messages, text);
+                    if !internal {
+                        if let Some(text) = &state.steering {
+                            crate::steering::insert_chat(&mut canonical.messages, text);
+                        }
                     }
                     canonical
                 }
@@ -611,8 +628,10 @@ async fn ingress_model(
             if omit_responses_plugin_context(&mut r.input) {
                 tracing::warn!("{OMITTED_PLUGIN_CONTEXT}");
             }
-            if let Some(text) = &state.steering {
-                crate::steering::insert(&mut r.input, text);
+            if !internal {
+                if let Some(text) = &state.steering {
+                    crate::steering::insert(&mut r.input, text);
+                }
             }
             match to_canonical_responses(r) {
                 Ok(c) => c,
@@ -682,24 +701,30 @@ async fn ingress_model(
         return subscription_auth_failed();
     };
 
-    let conversation = header_conversation_id(&headers, &format);
-    let injection = if subscription_kind == Some(pc_gateway_auth::Subscription::Gemini) {
+    let conversation = if internal {
+        None
+    } else {
+        header_conversation_id(&headers, &format)
+    };
+    let injection = if internal || subscription_kind == Some(pc_gateway_auth::Subscription::Gemini)
+    {
         Injection::Off
     } else {
         state.injection
     };
-    let injection_enabled = injects(&format, injection, state.inject_responses, true);
+    let injection_enabled = !internal && injects(&format, injection, state.inject_responses, true);
     let history_id = if injection_enabled && conversation.is_none() {
         history_conversation_id(&canonical, &format)
     } else {
         None
     };
-    let inject_context = injects(
-        &format,
-        injection,
-        state.inject_responses,
-        conversation.is_some() || history_id.is_some(),
-    );
+    let inject_context = !internal
+        && injects(
+            &format,
+            injection,
+            state.inject_responses,
+            conversation.is_some() || history_id.is_some(),
+        );
     if injection_enabled && !inject_context {
         tracing::warn!("context injection skipped: no conversation identity");
     }
@@ -719,9 +744,11 @@ async fn ingress_model(
         },
         inject_context,
         include_code: state.inject_code,
-        capture_prefix: state.prefix_extraction,
+        capture_prefix: state.prefix_extraction && !internal,
         conversation_id: conversation,
-        sediment: state.sediment,
+        // An internal request is not a turn: it never prepares, replays or captures context.
+        sediment: state.sediment && !internal,
+        internal,
         prepared_contexts: Vec::new(),
     };
 
@@ -1016,6 +1043,28 @@ fn injects(format: &Format, injection: Injection, responses: bool, has_conversat
     enabled && (matches!(format, Format::Chat) || responses)
 }
 
+/// Returns `Ok(true)` for the internal marker, `Ok(false)` when absent, and `Err(())` for any
+/// other present value so an empty, garbled, repeated or misspelled marker cannot silently turn a
+/// non-turn request back into one.
+fn internal_turn(headers: &HeaderMap) -> Result<bool, ()> {
+    let mut values = headers.get_all(TURN_HEADER).iter();
+    let Some(value) = values.next() else {
+        return Ok(false);
+    };
+    if values.next().is_some() {
+        return Err(());
+    }
+    let value = value.to_str().map_err(|_| ())?;
+    if !valid_id(value) {
+        return Err(());
+    }
+    if value.eq_ignore_ascii_case("internal") {
+        Ok(true)
+    } else {
+        Err(())
+    }
+}
+
 /// 请求所属的会话，决定准备结果在哪些请求之间重放。依次取：
 /// - 宿主提供的 `X-PowerContext-Conversation-ID`（RFC 2199），优先于各客户端的原生头；
 /// - Claude Code 的 `x-claude-code-session-id`：主代理与子代理共享它，子代理的请求另带
@@ -1127,6 +1176,7 @@ fn upstream_session(headers: &HeaderMap, body: &[u8]) -> Option<String> {
 }
 
 const CONVERSATION_ID_HEADER: &str = "x-powercontext-conversation-id";
+const TURN_HEADER: &str = "x-powercontext-turn";
 const CLAUDE_CODE_SESSION_HEADER: &str = "x-claude-code-session-id";
 const CLAUDE_CODE_AGENT_HEADER: &str = "x-claude-code-agent-id";
 const OPENCODE_SESSION_HEADER: &str = "x-opencode-session-id";
@@ -2854,6 +2904,30 @@ pub(crate) mod tests {
             true,
             false
         ));
+    }
+
+    #[test]
+    fn only_the_internal_turn_value_opts_a_request_out() {
+        let mut headers = HeaderMap::new();
+        assert_eq!(internal_turn(&headers), Ok(false));
+        headers.insert(TURN_HEADER, "internal".parse().unwrap());
+        assert_eq!(internal_turn(&headers), Ok(true));
+        headers.insert(TURN_HEADER, "Internal".parse().unwrap());
+        assert_eq!(internal_turn(&headers), Ok(true));
+        headers.insert(TURN_HEADER, "true".parse().unwrap());
+        assert_eq!(internal_turn(&headers), Err(()));
+        headers.insert(TURN_HEADER, "user".parse().unwrap());
+        assert_eq!(internal_turn(&headers), Err(()));
+        headers.insert(TURN_HEADER, "".parse().unwrap());
+        assert_eq!(internal_turn(&headers), Err(()));
+        headers.insert(TURN_HEADER, "x".repeat(300).parse().unwrap());
+        assert_eq!(internal_turn(&headers), Err(()));
+        headers.insert(TURN_HEADER, "in ternal".parse().unwrap());
+        assert_eq!(internal_turn(&headers), Err(()));
+        headers.remove(TURN_HEADER);
+        headers.append(TURN_HEADER, "internal".parse().unwrap());
+        headers.append(TURN_HEADER, "user".parse().unwrap());
+        assert_eq!(internal_turn(&headers), Err(()));
     }
 
     #[test]

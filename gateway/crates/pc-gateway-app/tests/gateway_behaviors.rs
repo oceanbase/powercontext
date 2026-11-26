@@ -632,6 +632,101 @@ async fn chat_captures_a_streamed_turn_after_tool_continuation() {
 }
 
 #[tokio::test]
+async fn an_internal_request_skips_prepare_and_capture_but_still_checks() {
+    let reply = Reply::fixture("fantasy_chat_simple_streaming", 0);
+    let body = request("chat", "simple", true);
+    let settings = [
+        ("PC_GATEWAY_INJECTION", "on"),
+        ("PC_GATEWAY_SEDIMENT", "on"),
+    ];
+    let gateway = Gateway::start_with_env(vec![reply], None, &settings, true).await;
+    let response = gateway
+        .client
+        .post(format!("{}/chat/completions", gateway.base))
+        .bearer_auth("gateway-test-key")
+        .header("x-powercontext-conversation-id", "coding-client-001")
+        .header("x-powercontext-turn", "internal")
+        .json(&body)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200);
+    response.bytes().await.unwrap();
+
+    assert!(gateway.peers.prepares.lock().unwrap().is_empty());
+    assert!(gateway.peers.captures.lock().unwrap().is_empty());
+    assert!(!gateway.peers.checks.lock().unwrap().is_empty());
+    {
+        let sent = gateway.peers.sent.lock().unwrap();
+        assert!(!sent[0].0.contains_key("x-powercontext-turn"));
+        let steering = include_str!("../src/default_steering.txt").trim();
+        assert!(!std::str::from_utf8(&sent[0].1).unwrap().contains(steering));
+    }
+
+    // The motivating case has no conversation header at all: without the turn marker the
+    // gateway would infer an identity from the system+user opening and prepare context.
+    let reply = Reply::fixture("fantasy_chat_simple_streaming", 0);
+    let gateway = Gateway::start_with_env(vec![reply], None, &settings, true).await;
+    let response = gateway
+        .client
+        .post(format!("{}/chat/completions", gateway.base))
+        .bearer_auth("gateway-test-key")
+        .header("x-powercontext-turn", "internal")
+        .json(&body)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200);
+    response.bytes().await.unwrap();
+    assert!(gateway.peers.prepares.lock().unwrap().is_empty());
+    assert!(gateway.peers.captures.lock().unwrap().is_empty());
+    assert!(!gateway.peers.checks.lock().unwrap().is_empty());
+
+    let deadline = std::time::Instant::now() + Duration::from_secs(2);
+    loop {
+        let log = std::fs::read_to_string(&gateway.log).unwrap_or_default();
+        let recorded = log.lines().any(|line| {
+            serde_json::from_str::<Value>(line)
+                .ok()
+                .is_some_and(|value| value["evidence"]["internal"] == true)
+        });
+        if recorded {
+            break;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "internal call evidence was not exported: {log}"
+        );
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+}
+
+#[tokio::test]
+async fn an_unknown_turn_marker_is_rejected_instead_of_silently_captured() {
+    let reply = Reply::fixture("fantasy_chat_simple_streaming", 0);
+    let body = request("chat", "simple", true);
+    let settings = [
+        ("PC_GATEWAY_INJECTION", "on"),
+        ("PC_GATEWAY_SEDIMENT", "on"),
+    ];
+    let gateway = Gateway::start_with_env(vec![reply], None, &settings, true).await;
+    let response = gateway
+        .client
+        .post(format!("{}/chat/completions", gateway.base))
+        .bearer_auth("gateway-test-key")
+        .header("x-powercontext-turn", "true")
+        .json(&body)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 400);
+    let payload: Value = response.json().await.unwrap();
+    assert_eq!(payload["error"], "invalid_turn_header");
+    assert!(gateway.peers.sent.lock().unwrap().is_empty());
+    assert!(gateway.peers.checks.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
 async fn chat_does_not_capture_unfinished_or_withheld_streams() {
     let settings = [
         ("PC_GATEWAY_SEDIMENT", "on"),
