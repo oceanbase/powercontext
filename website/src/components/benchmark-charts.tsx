@@ -190,8 +190,13 @@ export function ColumnChart({ groups, label, max }: {
   max?: number;
 }) {
   const top = max ?? Math.max(...groups.flatMap((group) => group.columns.map((column) => column.value)));
+  // The drawing is hidden from assistive technology, so the name carries every reading.
+  const readings = groups.map((group) => {
+    const values = group.columns.map((column) => `${column.label} ${column.display}`).join(', ');
+    return group.label ? `${group.label}: ${values}` : values;
+  }).join('; ');
   return (
-    <figure aria-label={label} role="img">
+    <figure aria-label={`${label} ${readings}.`} role="img">
       <RevealOnView className={styles.chart}>
       {groups.map((group, index) => (
         <div aria-hidden="true" className={styles.group} key={group.label ?? index}>

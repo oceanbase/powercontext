@@ -238,7 +238,7 @@ export default async function BenchmarksPage({ params }: PageProps) {
             <ChartLegend base={plus.columns.baseline} result={plus.columns.jev} />
           </OverviewCard>
           <OverviewCard detail={`${text.sweScore} · ${text.higher}`} href="#swe-bench" title={boards.swe.tab}>
-            <ColumnChart groups={[{ columns: sweColumns }]} label={swe.scores.map((score) => score.accessible).join('. ')} max={100} />
+            <ColumnChart groups={[{ columns: sweColumns }]} label={`${boards.swe.tab} · ${text.sweScore}.`} max={100} />
           </OverviewCard>
         </div>
 
