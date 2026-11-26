@@ -702,9 +702,23 @@ def test_sqlite_pragmas_enforce_lineage_source_foreign_keys() -> None:
     asyncio.run(scenario())
 
 
-@pytest.mark.parametrize("operation", ["execute", "executemany"])
-def test_failed_statement_collection_does_not_block_another_writer(tmp_path, operation) -> None:
+@pytest.mark.parametrize(
+    ("statement", "parameters", "error_type", "message"),
+    [
+        pytest.param("INSERT INTO probe VALUES (?)", (1,), IntegrityError, "UNIQUE constraint failed", id="execute"),
+        pytest.param(
+            "INSERT INTO probe VALUES (?)", [(1,), (1,)], IntegrityError, "UNIQUE constraint failed", id="executemany"
+        ),
+        # A decoding failure leaves a native statement active even on Python
+        # versions that already clear it after a duplicate-key error.
+        pytest.param("SELECT CAST(x'ff' AS TEXT)", (), OperationalError, "Could not decode", id="fetchall"),
+    ],
+)
+def test_failed_statement_collection_does_not_block_another_writer(
+    tmp_path, statement, parameters, error_type, message
+) -> None:
     import gc
+    import weakref
 
     async def scenario() -> None:
         config = SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'cursor.db'}", busy_timeout_ms=2_000)
@@ -718,23 +732,22 @@ def test_failed_statement_collection_does_not_block_another_writer(tmp_path, ope
             await writer.commit()
 
             async def fail_statement():
-                try:
-                    parameters = [(1,), (1,)] if operation == "executemany" else (1,)
-                    await contender.exec_driver_sql("INSERT INTO probe VALUES (?)", parameters)
-                except IntegrityError as error:
-                    # Model an error retained by cyclic request/diagnostic state
-                    # so native cleanup cannot rely on immediate refcount disposal.
-                    retained = [error]
-                    retained.append(retained)
-                    return retained
-                pytest.fail("The duplicate key must remain an error")
+                with pytest.raises(error_type, match=message) as raised:
+                    await contender.exec_driver_sql(statement, parameters)
+                # Model an error retained by cyclic request/diagnostic state
+                # so native cleanup cannot rely on immediate refcount disposal.
+                retained = [raised.value]
+                retained.append(retained)
+                return retained, weakref.ref(raised.value)
 
-            collecting = gc.isenabled()
-            gc.disable()
             pending = None
             driver = cast(aiosqlite.Connection, (await contender.get_raw_connection()).driver_connection)
+            # Clear unrelated garbage before either connection holds a write lock.
+            gc.collect()
+            collecting = gc.isenabled()
+            gc.disable()
             try:
-                failed = await fail_statement()
+                failed, error_ref = await fail_statement()
                 await contender.rollback()
                 await writer.exec_driver_sql("INSERT INTO probe VALUES (2)")
                 started = asyncio.Event()
@@ -751,7 +764,8 @@ def test_failed_statement_collection_does_not_block_another_writer(tmp_path, ope
                 # waits for the other writer. Collection must leave the event
                 # loop free to release that writer, rather than await its lock.
                 del failed
-                gc.collect()
+                gc.collect(0)
+                assert error_ref() is None
                 await writer.commit()
                 await pending
                 await contender.commit()
