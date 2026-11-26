@@ -49,7 +49,7 @@ function isLocalProfile(profile: ProfileView) {
     const hostname = new URL(profile.endpoint).hostname;
     return (
       hostname === "localhost" ||
-      /^127\./.test(hostname) ||
+      /^127(?:\.\d{1,3}){3}$/.test(hostname) ||
       hostname === "[::1]"
     );
   } catch {
