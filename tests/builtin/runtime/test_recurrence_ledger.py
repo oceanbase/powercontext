@@ -24,7 +24,7 @@ from __future__ import annotations
 import asyncio
 
 import pytest
-from sqlalchemy import insert
+from sqlalchemy import event, insert
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from powercontext.artifacts import ArtifactRef
@@ -641,5 +641,54 @@ def test_effectiveness_reads_back_what_one_window_records() -> None:
         assert (projection.selected, projection.recurred, projection.avoided) == (5, 3, 2)
         assert projection.verdicts == 5
         assert projection.effectiveness == pytest.approx(0.4)
+
+    asyncio.run(scenario())
+
+
+def test_unlinked_non_failing_and_replayed_windows_skip_experience_head_reads() -> None:
+    async def scenario() -> None:
+        async with SQLiteProfile.open(
+            SQLiteConfig(), tables=SCOPE_TABLES + SHARED_TABLES + RECURRENCE_TABLES
+        ) as profile:
+            sources = SourceRepository((CONTENT_SOURCE_ADAPTER,))
+            repository = RecurrenceRepository()
+            async with profile.database.transaction() as connection:
+                await _seed_scope(connection)
+                artifacts = await _seed_artifacts(connection, sources)
+                await _add_source(
+                    sources,
+                    connection,
+                    "outcome-unlinked-pass",
+                    _passed_outcome().model_copy(update={"handoff_receipt_ref": None}).model_dump_json(),
+                )
+                await _add_source(
+                    sources,
+                    connection,
+                    "outcome-unlinked-fail",
+                    _failed_outcome().model_copy(update={"handoff_receipt_ref": None}).model_dump_json(),
+                )
+
+            executed: list[str] = []
+
+            def record_sql(_conn, _cursor, statement: str, _parameters, _context, _executemany) -> None:
+                executed.append(statement)
+
+            event.listen(profile.database.engine.sync_engine, "before_cursor_execute", record_sql)
+            try:
+                ledger = _ledger(profile.database, sources, artifacts, repository)
+                async with profile.database.transaction() as connection:
+                    passing_only = (await _window(sources, connection))[:1]
+                    executed.clear()
+                    assert await ledger.record_window(connection, passing_only) == ()
+                    assert not any("pc_artifact_heads" in sql or "pc_artifacts" in sql for sql in executed)
+
+                async with profile.database.transaction() as connection:
+                    full_window = await _window(sources, connection)
+                    assert await ledger.record_window(connection, full_window) == ()
+                    executed.clear()
+                    assert await ledger.record_window(connection, full_window) == ()
+                    assert not any("pc_artifact_heads" in sql or "pc_artifacts" in sql for sql in executed)
+            finally:
+                event.remove(profile.database.engine.sync_engine, "before_cursor_execute", record_sql)
 
     asyncio.run(scenario())

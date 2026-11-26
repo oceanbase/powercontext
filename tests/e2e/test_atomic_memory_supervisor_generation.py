@@ -22,6 +22,7 @@ import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, cast
 
+import pytest
 from pydantic import AnyHttpUrl
 
 from powercontext.builtin.persistence.cursors import SourceCursorRepository
@@ -96,9 +97,9 @@ class _GenerationHandler(BaseHTTPRequestHandler):
         pass
 
 
-def test_source_capture_is_generated_and_acknowledged_by_the_spawned_supervisor_worker(tmp_path, monkeypatch) -> None:
-    # Only the model's HTTP responses are controlled. The production composition
-    # owns automatic admission, assignments, leases, child processes and publication.
+@pytest.mark.parametrize("storage_failure", [False, True])
+def test_spawned_worker_reports_source_window_publication(tmp_path, monkeypatch, caplog, storage_failure: bool) -> None:
+    # The production composition owns admission, assignments, leases and child processes.
     monkeypatch.setenv("OPENAI_API_KEY", "hermetic-supervisor-key")
     server = _GenerationServer(("127.0.0.1", 0), _GenerationHandler)
     server.requests = []
@@ -127,9 +128,42 @@ def test_source_capture_is_generated_and_acknowledged_by_the_spawned_supervisor_
             scope = await runtime.scopes.create(
                 ScopeDraft(title="Supervisor", summary="Spawned generation acceptance", idempotency_key="supervisor")
             )
+            if storage_failure:
+                async with runtime.primary_database.transaction() as connection:
+                    await connection.exec_driver_sql(
+                        "CREATE TRIGGER fail_cursor_insert BEFORE INSERT ON pc_source_cursors "
+                        "BEGIN SELECT RAISE(ABORT, 'private-cursor-error'); END"
+                    )
             receipt = await runtime.sources.for_scope(scope.scope_id).capture(
                 CaptureSource(source_id="worker-preference", content=_MEMORY_TEXT, metadata={"kind": "preference"})
             )
+            if storage_failure:
+                async with asyncio.timeout(60):
+                    while supervisor.family_status["memory"]["failed"] == 0:
+                        status = supervisor.family_status["memory"]
+                        assert status["completed"] == 0 and status["timeouts"] == 0, status
+                        await asyncio.sleep(0.05)
+                await supervisor.close()
+                failures = [
+                    item
+                    for item in caplog.records
+                    if getattr(item, "event", None) == "artifact_processing.failed"
+                    and getattr(item, "scope", None) == scope.scope_id
+                ]
+                fields = vars(failures[0])
+                assert fields["processing_stage"] == "persistence"
+                assert fields["failure_reason"] == "storage_failure"
+                assert fields["failure_location"] == "atomic-memory-publish-storage"
+                assert fields["worker_id"]
+                assert "private-cursor-error" not in repr(fields)
+                assert _MEMORY_TEXT not in repr(fields)
+                assert supervisor.family_status["memory"]["completed"] == 0
+                assert (await runtime.atomic_memory.for_scope(scope.scope_id).list()).items == ()
+                async with runtime.primary_database.transaction() as connection:
+                    cursor = await SourceCursorRepository().load(connection, scope.scope_id, FAMILY_BINDINGS["memory"])
+                    assert cursor is None
+                assert server.requests
+                return
             async with asyncio.timeout(60):
                 while supervisor.family_status["memory"]["completed"] == 0:
                     status = supervisor.family_status["memory"]

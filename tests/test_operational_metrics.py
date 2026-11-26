@@ -271,6 +271,12 @@ def test_healthy_combined_api_exposes_idle_stalled_and_stopped_processing(  # no
                 _assert_no_exact_pending_age(stalled)
                 assert _value(stalled, "artifact_processing_oldest_observed_pending_age_seconds", family="memory") >= 0
 
+            # Discovery can time out and recover before the worker starts.
+            # Pending observation failures must preserve that extraction history.
+            diagnostics = ExtractionDiagnostics(pipeline_configured=True, external_worker=False)
+            failure_before = diagnostics.snapshot(runtime.artifact_processing_supervisor).observation.last_failure
+            assert failure_before is None or failure_before.code == "scope_discovery_failed"
+
             if prior_failure:
 
                 async def prepare_inflight_observation():
@@ -319,8 +325,9 @@ def test_healthy_combined_api_exposes_idle_stalled_and_stopped_processing(  # no
                 _value(failed, "artifact_processing_requested_snapshot_timestamp_seconds", family="memory")
                 == (previous["requested_snapshot_timestamp_seconds"])
             )
-            diagnostics = ExtractionDiagnostics(pipeline_configured=True, external_worker=False)
-            assert diagnostics.snapshot(runtime.artifact_processing_supervisor).observation.last_failure is None
+            assert (
+                diagnostics.snapshot(runtime.artifact_processing_supervisor).observation.last_failure == failure_before
+            )
             assert client.get("/v1/capabilities").status_code == 200
 
             async def recover_observation():
@@ -333,7 +340,9 @@ def test_healthy_combined_api_exposes_idle_stalled_and_stopped_processing(  # no
                         await asyncio.sleep(0.01)
 
             client.portal.call(recover_observation)
-            assert diagnostics.snapshot(runtime.artifact_processing_supervisor).observation.last_failure is None
+            assert (
+                diagnostics.snapshot(runtime.artifact_processing_supervisor).observation.last_failure == failure_before
+            )
             client.portal.call(supervisor.close)
             stopped = _samples(client.get("/metrics").text)
             assert _value(stopped, "artifact_processing_supervisor_running", family="memory") == 0

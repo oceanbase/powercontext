@@ -1,0 +1,65 @@
+<!--
+Copyright (c) 2026 OceanBase.
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+http://www.apache.org/licenses/LICENSE-2.0
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+-->
+
+{% if not record_only and scope_descriptor and (source_consumption or errors.get('source_consumption')) %}
+<section class="document-section mb-4" aria-labelledby="source-consumption-heading" data-source-consumption>
+  <h2 class="h3" id="source-consumption-heading">{{ t.source_consumption_heading }}</h2>
+  {% if source_consumption %}
+  {% set status = source_consumption %}
+  {% set invocation = status.invocation %}
+  {% set executor = status.executor %}
+  <p class="text-secondary small">{{ t['source_consumption_path_' ~ status.family] }} · {{ t.source_consumption_scope_notice }}</p>
+  <p data-input-state="{{ status.input_state }}">{{ t.source_consumption_input_unavailable if status.input_state == 'unavailable' else t['source_consumption_' ~ status.input_state] }}</p>
+  {% if status.configured is false %}<p>{{ t.source_consumption_unconfigured }}</p>{% elif status.configured is none %}<p>{{ t.source_consumption_configuration_unknown }}</p>{% endif %}
+  {% if status.family == 'profile' %}
+    {% if not status.profile_policy or not status.profile_policy.generation_enabled %}<p>{{ t.source_consumption_profile_disabled }}</p>{% endif %}
+    {% if status.profile_policy and status.profile_policy.pending_candidate_id %}<p>{{ t.source_consumption_review_pending }}</p>{% endif %}
+  {% endif %}
+  <p data-invocation-state="{{ invocation.state if invocation else 'unavailable' }}">{{ t['source_consumption_invocation_' ~ invocation.state] if invocation else t.source_consumption_invocation_unavailable }}</p>
+  <p data-execution-state="{{ executor.state if executor else 'unavailable' }}">{{ t['source_consumption_executor_' ~ executor.state] if executor else t.source_consumption_executor_unavailable }}</p>
+  <details class="supporting-details">
+    <summary>{{ t.source_consumption_details }}</summary>
+    <dl class="row small mt-3">
+      <dt class="col-sm-4">{{ t.scope_label }}</dt><dd class="col-sm-8"><code>{{ status.scope_id }}</code></dd>
+      <dt class="col-sm-4">{{ t.source_consumption_binding }}</dt><dd class="col-sm-8"><code>{{ status.binding }}</code></dd>
+      <dt class="col-sm-4">{{ t.source_consumption_processing_family }}</dt><dd class="col-sm-8"><code>{{ status.processing_family }}</code></dd>
+      <dt class="col-sm-4">{{ t.source_consumption_artifact_family }}</dt><dd class="col-sm-8"><code>{{ status.family }}</code></dd>
+      <dt class="col-sm-4">{{ t.source_consumption_cursor }}</dt><dd class="col-sm-8" data-fact="source_cursor">{{ status.progress.source_cursor }}</dd>
+      <dt class="col-sm-4">{{ t.source_consumption_head }}</dt><dd class="col-sm-8" data-fact="source_head">{{ status.progress.source_head }}</dd>
+      <dt class="col-sm-4">{{ t.source_consumption_progress_origin }}</dt><dd class="col-sm-8"><code>pc_source_cursors</code> / <code>pc_source_journal_heads</code>. {{ t.source_consumption_initial_position }}</dd>
+      {% if invocation %}
+      {% for field in ['dirty_generation', 'clean_generation', 'requested_generation', 'handled_generation'] %}
+      <dt class="col-sm-4">{{ t['source_consumption_' ~ field] }}</dt><dd class="col-sm-8" data-fact="{{ field }}">{{ invocation[field] }}</dd>
+      {% endfor %}
+      <dt class="col-sm-4">{{ t.source_consumption_intent_origin }}</dt><dd class="col-sm-8"><code>pc_artifact_processing_intents</code></dd>
+      {% endif %}
+      {% if status.family == 'profile' %}
+      <dt class="col-sm-4">{{ t.source_consumption_policy_origin }}</dt><dd class="col-sm-8"><code>pc_profile_policies</code>{% if status.profile_policy %} · {{ t['source_consumption_activation_' ~ status.profile_policy.activation_mode] }}{% else %} · {{ t.source_consumption_policy_absent }}{% endif %}</dd>
+      {% endif %}
+      <dt class="col-sm-4">{{ t.source_consumption_observed_at }}</dt><dd class="col-sm-8"><time datetime="{{ status.observed_at.isoformat() }}">{{ status.observed_at|display_time }}</time></dd>
+      <dt class="col-sm-4">{{ t.source_consumption_target_flush }}</dt><dd class="col-sm-8">{{ t.source_consumption_not_applicable }}</dd>
+      {% if executor %}
+      <dt class="col-sm-4">{{ t.source_consumption_executor_origin }}</dt><dd class="col-sm-8">{{ t.source_consumption_local }} · <time datetime="{{ executor.observed_at.isoformat() }}">{{ executor.observed_at|display_time }}</time></dd>
+      {% if executor.reason %}<dt class="col-sm-4">{{ t.source_consumption_executor_reason }}</dt><dd class="col-sm-8">{{ t['source_consumption_reason_' ~ executor.reason] }}</dd>{% endif %}
+      {% if executor.running_seconds is not none %}<dt class="col-sm-4">{{ t.source_consumption_running_seconds }}</dt><dd class="col-sm-8">{{ executor.running_seconds|round(1) }}</dd>{% endif %}
+      {% if executor.next_check_seconds is not none %}<dt class="col-sm-4">{{ t.source_consumption_next_check_seconds }}</dt><dd class="col-sm-8">{{ executor.next_check_seconds|round(1) }}</dd>{% endif %}
+      {% if executor.retry_failures is not none %}<dt class="col-sm-4">{{ t.source_consumption_retry_failures }}</dt><dd class="col-sm-8">{{ executor.retry_failures }}</dd>{% endif %}
+      {% endif %}
+      <dt class="col-sm-4">{{ t.source_consumption_result }}</dt><dd class="col-sm-8">{{ t.source_consumption_result_unavailable }}</dd>
+    </dl>
+    <p class="text-secondary small">{{ t.source_consumption_limits }}</p>
+    {% if status.family == 'experience' %}<p class="text-secondary small">{{ t.source_consumption_candidate_notice }}</p>{% endif %}
+  </details>
+  {% else %}<p role="status">{{ t.source_consumption_unsupported if errors['source_consumption'].code == 'operation_not_supported' else t.source_consumption_unavailable }}</p>{% endif %}
+</section>
+{% endif %}

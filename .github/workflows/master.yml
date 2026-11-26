@@ -1080,6 +1080,65 @@ jobs:
           POWERCONTEXT_HERMES_SOURCE: ${{ github.workspace }}/.hermes-native
         run: uv run pytest tests/e2e/test_hermes_skills.py
 
+  hermes-host:
+    needs: [quality, tests]
+    if: ${{ !cancelled() && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').hermes) }}
+    # Include cold checkouts of this repository and Hermes, environment setup, and cache publication.
+    timeout-minutes: 30
+    runs-on: powercontext-ci-light
+    env:
+      # The pinned Hermes revision requires Python 3.14; keep uv from choosing another installed interpreter.
+      UV_PYTHON: '3.14'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Set up the Python environment
+        uses: ./.github/actions/setup-python-env
+        with:
+          python-version: "3.14"
+
+      - name: Check out the pinned Hermes memory manager
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: NousResearch/hermes-agent
+          ref: 4131fd95700685444c3522bf1ea07578c4003523 # 2026-11-03, pinned by the conformance harness
+          # Under the ignored .powercontext/ so the evidence does not report a dirty PowerContext tree.
+          path: .powercontext/hermes-agent
+          persist-credentials: false
+
+      - name: Install the Hermes manager dependencies
+        # The YAML pins from the harness README are Hermes-only; its psutil pin already comes from uv.lock.
+        run: uv pip install 'ruamel.yaml==0.18.16' 'ruamel.yaml.clib==0.2.15'
+
+      - name: Run the real Hermes memory manager against a real Server
+        env:
+          # The case skips only when this is unset; with it set, a missing or modified checkout fails.
+          POWERCONTEXT_TEST_HERMES_CHECKOUT: ${{ github.workspace }}/.powercontext/hermes-agent
+        run: |
+          uv run --no-sync pytest tests/integration_conformance/hermes/test_real_manager.py -rs \
+            --hermes-conformance-output "$RUNNER_TEMP/hermes-conformance.json"
+          # Refuse a run that skipped, or that did not reach the real manager on Python 3.14.
+          uv run --no-sync python - "$RUNNER_TEMP/hermes-conformance.json" <<'PYTHON'
+          import json
+          import sys
+          report = json.load(open(sys.argv[1], encoding="utf-8"))
+          manager = report["evidence"]["real-manager"]
+          if report["status"] != "passed" or not manager["executed"] or not manager["python_version"].startswith("3.14."):
+              raise SystemExit(f"Hermes real-manager evidence is incomplete: {report['status']}")
+          print(f"Hermes {report['hermes']['version']} real-manager passed on Python {manager['python_version']}.")
+          PYTHON
+
+      - name: Upload Hermes conformance evidence
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: hermes-conformance-${{ github.run_id }}-${{ github.run_attempt }}
+          # Content-safe by design: counts, booleans and fixed failure categories only.
+          path: ${{ runner.temp }}/hermes-conformance.json
+          if-no-files-found: ignore
+          retention-days: 7
+
   dsh-package:
     needs: [quality, tests]
     if: ${{ !cancelled() && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').dsh) }}
@@ -1340,6 +1399,16 @@ jobs:
           persist-credentials: false
       - name: Set up the Python environment
         uses: ./.github/actions/setup-python-env
+        with:
+          cache-dependency-glob: |
+            pyproject.toml
+            uv.lock
+            integrations/langchain/pyproject.toml
+            integrations/langgraph/pyproject.toml
+            integrations/opendal/pyproject.toml
+            integrations/deepagents/pyproject.toml
+            integrations/codex/plugins/powercontext/pyproject.toml
+            integrations/codex/plugins/powercontext/uv.lock
 
       - uses: ./.github/actions/setup-mise
       - name: Restore Codex host downloads
@@ -1864,6 +1933,7 @@ jobs:
       - windows-unit-portability
       - dify-tools
       - hermes-skills
+      - hermes-host
       - dsh-package
       - cindy-package
       - pi-package

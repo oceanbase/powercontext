@@ -141,6 +141,8 @@ These rules reduce unnecessary work for local changes. Shared-runtime and CI-pol
 
 ## Dependency cache storage
 
+Harbor task containers have their own filesystems; restoring a dependency snapshot in the runner does not populate their apt, pip or uv caches. Internal runners can provide `PC_CI_PACKAGE_CACHE_ENDPOINT` for the shared [package download service](https://github.com/oceanbase/powercontext/blob/master/deploy/ci-package-cache/README.md). The harness forwards this endpoint through Compose and uses it for Debian repositories and the Python index. Fresh containers still run their real installers with empty client caches. The service retains complete package files on persistent storage, coalesces concurrent misses for the same file, and owns mirror-to-official fallback. Mutable package indexes revalidate with upstream ETag or Last-Modified values, reusing unchanged bodies and fetching changed indexes so new versions remain visible; package hashes and signed Debian metadata remain unchanged. This coverage applies to configured repository paths, not arbitrary downloads or installed environments.
+
 The shared cache actions select an S3-compatible backend when a self-hosted Linux runner provides `PC_CI_CACHE_ENDPOINT`. The runner Pod supplies the following configuration; workflow files do not contain service addresses or credentials.
 
 | Variable | Meaning |

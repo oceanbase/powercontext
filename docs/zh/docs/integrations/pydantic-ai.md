@@ -125,7 +125,8 @@ gateway 也会采集这一轮。Core 检查 gateway 转发的每个请求，拒�
 在每种隐私模式下都是如此：Core 返回 HTTP 422，gateway 返回 HTTP 503 `gate_paused`。本适配器有两处会产生这样的块：
 
 - `PowerContext` Capability 在每次运行中添加一个。请改用 `PowerContextToolset`，由 gateway 采集各轮。
-- `powercontext_context` 的工具结果带有一个，Core 会拒绝把它返回给模型的请求。请过滤掉这个工具。
+- `powercontext_context` 的工具结果带有一个，Core 会拒绝把它返回给模型的请求。
+  构造工具集时请设置 `include_context_tool=False`，这样既不提供这个工具，也会从工具集说明中去掉它的那一行。
 
 `openai:` 模型字符串本身就会选择 Responses 模型；要让它指向 gateway 的 `/gateway/v1`，请显式构造：
 
@@ -141,7 +142,7 @@ model = OpenAIResponsesModel(
     "approved-model",
     provider=OpenAIProvider(base_url="http://127.0.0.1:8787/gateway/v1", api_key=os.environ["PC_GATEWAY_KEY"]),
 )
-toolset = PowerContextToolset().filtered(lambda ctx, tool_def: tool_def.name != "powercontext_context")
+toolset = PowerContextToolset(include_context_tool=False)
 agent = Agent(model, toolsets=[toolset])
 
 result = await agent.run(
@@ -164,7 +165,8 @@ gateway（`PC_GATEWAY_CORE_BASE`）只有设置了这一项才会注入。
 
 请使用 Responses 路由。在这个路由上，gateway 以非流式方式调用模型，采集通过检查的响应，
 并以流式重放给发送流式请求的客户端。`openai-chat:` 模型使用 Chat Completions 路由，在那里，enforcing 模式的 Core
-会暂缓流式运行（`run_stream`）；非 enforcing 模式下，gateway 会放行它，但不采集它。
+会暂缓流式运行（`run_stream`），gateway 返回 HTTP 400。非 enforcing 模式下，gateway 原样放行流式响应；
+设置 `PC_GATEWAY_SEDIMENT=on` 后，还会从中采集完成的一轮。
 
 配置 Core 和 gateway 时还需要：
 
