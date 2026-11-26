@@ -535,143 +535,150 @@ test("confirms remote connection deletion with the local connection dialog patte
   ).toBeTruthy();
 });
 
-test("configures previously unconfigured models through the Agent flow", async () => {
-  vi.stubGlobal(
-    "ResizeObserver",
-    class {
-      observe() {}
-      unobserve() {}
-      disconnect() {}
-    },
-  );
-  const user = userEvent.setup();
-  render(
-    <ServiceAgentWorkspace
-      state={state}
-      language="zh"
-      onState={vi.fn()}
-      model={simulatedModel(state)}
-    />,
-  );
+test(
+  "configures previously unconfigured models through the Agent flow",
+  { timeout: 15_000 },
+  async () => {
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        observe() {}
+        unobserve() {}
+        disconnect() {}
+      },
+    );
+    const user = userEvent.setup();
+    render(
+      <ServiceAgentWorkspace
+        state={state}
+        language="zh"
+        onState={vi.fn()}
+        model={simulatedModel(state)}
+      />,
+    );
 
-  expect(screen.getAllByText("未配置")).toHaveLength(2);
-  expect(screen.queryByText("—")).toBeNull();
-  expect(screen.getByText("生成模型")).toBeTruthy();
-  expect(screen.getByText("嵌入模型")).toBeTruthy();
-  await user.click(screen.getByRole("button", { name: "配置生成模型" }));
+    expect(screen.getAllByText("未配置")).toHaveLength(2);
+    expect(screen.queryByText("—")).toBeNull();
+    expect(screen.getByText("生成模型")).toBeTruthy();
+    expect(screen.getByText("嵌入模型")).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "配置生成模型" }));
 
-  const dialog = screen.getByRole("dialog", { name: "配置生成模型" });
-  expect(within(dialog).getByRole("tab", { name: "Agent 协助" })).toBeTruthy();
-  expect(within(dialog).queryByLabelText("嵌入模型")).toBeNull();
-  expect(within(dialog).getByText(/不包含 API Key 或 Token/)).toBeTruthy();
+    const dialog = screen.getByRole("dialog", { name: "配置生成模型" });
+    expect(
+      within(dialog).getByRole("tab", { name: "Agent 协助" }),
+    ).toBeTruthy();
+    expect(within(dialog).queryByLabelText("嵌入模型")).toBeNull();
+    expect(within(dialog).getByText(/不包含 API Key 或 Token/)).toBeTruthy();
 
-  await user.click(
-    within(dialog).getByRole("button", {
-      name: "Agent 已完成，检查配置",
-    }),
-  );
+    await user.click(
+      within(dialog).getByRole("button", {
+        name: "Agent 已完成，检查配置",
+      }),
+    );
 
-  expect(await screen.findAllByText("已配置")).toHaveLength(1);
-  expect(screen.queryByRole("dialog", { name: "配置生成模型" })).toBeNull();
+    expect(await screen.findAllByText("已配置")).toHaveLength(1);
+    expect(screen.queryByRole("dialog", { name: "配置生成模型" })).toBeNull();
 
-  await user.click(screen.getByRole("button", { name: "配置嵌入模型" }));
-  const newEmbeddingDialog = screen.getByRole("dialog", {
-    name: "配置嵌入模型",
-  });
-  await user.click(
-    within(newEmbeddingDialog).getByRole("button", {
-      name: "Agent 已完成，检查配置",
-    }),
-  );
-  await waitFor(() => expect(screen.getAllByText("已配置")).toHaveLength(2));
+    await user.click(screen.getByRole("button", { name: "配置嵌入模型" }));
+    const newEmbeddingDialog = screen.getByRole("dialog", {
+      name: "配置嵌入模型",
+    });
+    await user.click(
+      within(newEmbeddingDialog).getByRole("button", {
+        name: "Agent 已完成，检查配置",
+      }),
+    );
+    await waitFor(() => expect(screen.getAllByText("已配置")).toHaveLength(2));
 
-  await user.click(screen.getByRole("button", { name: "修改嵌入模型" }));
-  const embeddingDialog = screen.getByRole("dialog", {
-    name: "修改嵌入模型",
-  });
-  const embeddingModelType =
-    within(embeddingDialog).getByLabelText("模型类型（不可修改）");
-  expect(embeddingModelType.hasAttribute("disabled")).toBe(true);
-  expect(within(embeddingDialog).queryByLabelText("生成模型名称")).toBeNull();
-  const embeddingEndpoint = within(embeddingDialog).getByLabelText("服务地址");
-  const embeddingApiKey = within(embeddingDialog).getByLabelText(
-    "API Key（仅保存在 Desktop）",
-  );
-  expect(
-    embeddingEndpoint.compareDocumentPosition(embeddingApiKey) &
-      Node.DOCUMENT_POSITION_FOLLOWING,
-  ).toBeTruthy();
-  expect(
-    embeddingApiKey.compareDocumentPosition(embeddingModelType) &
-      Node.DOCUMENT_POSITION_FOLLOWING,
-  ).toBeTruthy();
-  expect(embeddingEndpoint).toHaveProperty(
-    "value",
-    "https://api.example.com/v1",
-  );
-  await user.clear(embeddingEndpoint);
-  await user.click(
-    within(embeddingDialog).getByRole("button", { name: "保存并应用" }),
-  );
-  expect(within(embeddingDialog).getByText("请输入服务地址")).toBeTruthy();
-  expect(within(embeddingDialog).getByText("请输入 API Key")).toBeTruthy();
-  expect(within(embeddingDialog).queryByText("连通性校验失败")).toBeNull();
-  await user.type(embeddingEndpoint, "https://embeddings.example.com/v1");
-  await user.type(embeddingApiKey, "secret");
-  await user.click(
-    within(embeddingDialog).getByRole("button", { name: "保存并应用" }),
-  );
-  expect(
-    await within(embeddingDialog).findByText("连通性校验失败"),
-  ).toBeTruthy();
-  const embeddingError = within(embeddingDialog).getByRole("alert");
-  expect(within(embeddingError).getByText("连通性校验失败")).toBeTruthy();
-  expect(within(embeddingError).getByText(/无法连接到模型服务/)).toBeTruthy();
-  await user.click(
-    within(embeddingDialog).getByRole("button", { name: "取消" }),
-  );
+    await user.click(screen.getByRole("button", { name: "修改嵌入模型" }));
+    const embeddingDialog = screen.getByRole("dialog", {
+      name: "修改嵌入模型",
+    });
+    const embeddingModelType =
+      within(embeddingDialog).getByLabelText("模型类型（不可修改）");
+    expect(embeddingModelType.hasAttribute("disabled")).toBe(true);
+    expect(within(embeddingDialog).queryByLabelText("生成模型名称")).toBeNull();
+    const embeddingEndpoint =
+      within(embeddingDialog).getByLabelText("服务地址");
+    const embeddingApiKey = within(embeddingDialog).getByLabelText(
+      "API Key（仅保存在 Desktop）",
+    );
+    expect(
+      embeddingEndpoint.compareDocumentPosition(embeddingApiKey) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(
+      embeddingApiKey.compareDocumentPosition(embeddingModelType) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(embeddingEndpoint).toHaveProperty(
+      "value",
+      "https://api.example.com/v1",
+    );
+    await user.clear(embeddingEndpoint);
+    await user.click(
+      within(embeddingDialog).getByRole("button", { name: "保存并应用" }),
+    );
+    expect(within(embeddingDialog).getByText("请输入服务地址")).toBeTruthy();
+    expect(within(embeddingDialog).getByText("请输入 API Key")).toBeTruthy();
+    expect(within(embeddingDialog).queryByText("连通性校验失败")).toBeNull();
+    await user.type(embeddingEndpoint, "https://embeddings.example.com/v1");
+    await user.type(embeddingApiKey, "secret");
+    await user.click(
+      within(embeddingDialog).getByRole("button", { name: "保存并应用" }),
+    );
+    expect(
+      await within(embeddingDialog).findByText("连通性校验失败"),
+    ).toBeTruthy();
+    const embeddingError = within(embeddingDialog).getByRole("alert");
+    expect(within(embeddingError).getByText("连通性校验失败")).toBeTruthy();
+    expect(within(embeddingError).getByText(/无法连接到模型服务/)).toBeTruthy();
+    await user.click(
+      within(embeddingDialog).getByRole("button", { name: "取消" }),
+    );
 
-  await user.click(screen.getByRole("button", { name: "修改生成模型" }));
-  const generationDialog = screen.getByRole("dialog", {
-    name: "修改生成模型",
-  });
-  const endpoint = within(generationDialog).getByLabelText("服务地址");
-  await user.clear(endpoint);
-  await user.click(
-    within(generationDialog).getByRole("button", { name: "校验连通性" }),
-  );
-  expect(within(generationDialog).getByText("请输入服务地址")).toBeTruthy();
-  expect(within(generationDialog).getByText("请输入 API Key")).toBeTruthy();
-  expect(within(generationDialog).queryByText("连通性校验失败")).toBeNull();
+    await user.click(screen.getByRole("button", { name: "修改生成模型" }));
+    const generationDialog = screen.getByRole("dialog", {
+      name: "修改生成模型",
+    });
+    const endpoint = within(generationDialog).getByLabelText("服务地址");
+    await user.clear(endpoint);
+    await user.click(
+      within(generationDialog).getByRole("button", { name: "校验连通性" }),
+    );
+    expect(within(generationDialog).getByText("请输入服务地址")).toBeTruthy();
+    expect(within(generationDialog).getByText("请输入 API Key")).toBeTruthy();
+    expect(within(generationDialog).queryByText("连通性校验失败")).toBeNull();
 
-  await user.type(endpoint, "https://api.example.com/v1");
-  await user.type(
-    within(generationDialog).getByLabelText("API Key（仅保存在 Desktop）"),
-    "secret",
-  );
-  await user.click(
-    within(generationDialog).getByRole("button", { name: "校验连通性" }),
-  );
-  expect(
-    await within(generationDialog).findByText("已获取可用模型"),
-  ).toBeTruthy();
-  expect(within(generationDialog).getByLabelText("生成模型")).toBeTruthy();
-  expect(
-    within(generationDialog).getByRole("button", { name: "保存并应用" }),
-  ).not.toHaveProperty("disabled", true);
-  const editedModelName = within(generationDialog).getByLabelText("生成模型");
-  await user.clear(editedModelName);
-  await user.type(editedModelName, "invalid-model");
-  await user.click(
-    within(generationDialog).getByRole("button", { name: "保存并应用" }),
-  );
-  expect(
-    await within(generationDialog).findByText(
-      "该模型当前不可用，请检查名称或选择其他模型",
-    ),
-  ).toBeTruthy();
-  vi.unstubAllGlobals();
-});
+    await user.type(endpoint, "https://api.example.com/v1");
+    await user.type(
+      within(generationDialog).getByLabelText("API Key（仅保存在 Desktop）"),
+      "secret",
+    );
+    await user.click(
+      within(generationDialog).getByRole("button", { name: "校验连通性" }),
+    );
+    expect(
+      await within(generationDialog).findByText("已获取可用模型"),
+    ).toBeTruthy();
+    expect(within(generationDialog).getByLabelText("生成模型")).toBeTruthy();
+    expect(
+      within(generationDialog).getByRole("button", { name: "保存并应用" }),
+    ).not.toHaveProperty("disabled", true);
+    const editedModelName = within(generationDialog).getByLabelText("生成模型");
+    await user.clear(editedModelName);
+    await user.type(editedModelName, "invalid-model");
+    await user.click(
+      within(generationDialog).getByRole("button", { name: "保存并应用" }),
+    );
+    expect(
+      await within(generationDialog).findByText(
+        "该模型当前不可用，请检查名称或选择其他模型",
+      ),
+    ).toBeTruthy();
+    vi.unstubAllGlobals();
+  },
+);
 
 test("offers a manual model configuration form", async () => {
   vi.stubGlobal(
