@@ -31,6 +31,7 @@ limitations under the License.
 {% from 'components/search.html' import search_form with context %}
 {% from 'components/memory-search-evidence.html' import search_evidence %}
 {% if not record_only %}{{ page_heading(t.notes, t.notes_subtitle) }}
+{% include 'components/source-consumption.html' %}
 {{ search_form(t.search_notes, 8192, mode=search_mode) }}
 {% if not search_query %}<div class="d-flex flex-wrap justify-content-between align-items-start gap-2">
 <nav class="nav nav-pills mb-3" aria-label="{{ t.note_state }}">

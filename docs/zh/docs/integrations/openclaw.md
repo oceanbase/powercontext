@@ -25,16 +25,23 @@ powercontext setup openclaw
 powercontext setup openclaw --source .
 ```
 
-`setup openclaw` 会用 pnpm 构建插件，通过 `openclaw plugins install --link --force` 安装，把它启用为 `memory`
-插件槽，把 PowerContext 工具加入 `tools.alsoAllow`，并重启 OpenClaw gateway。它不会启动 Server。启动 Server 后，
-开启新的 OpenClaw 会话：
+`setup openclaw` 会用 pnpm 构建插件，用 `pnpm pack` 打包，再通过
+`openclaw plugins install --force --no-enable <archive>` 安装该归档。随后它只补充缺失的激活设置：启用插件，把它选为
+`memory` 插件槽，开启 `autoRecall`、`autoCapture` 和会话访问，在首次激活时把 PowerContext 工具加入
+`tools.alsoAllow`，并重启 OpenClaw gateway。如果你已禁用或拒绝该插件、在非空的 `plugins.allow` 中没有列出它，
+或选择了其他 memory 插件，setup 不会激活它。它不会启动 Server。启动 Server 后，开启新的 OpenClaw 会话：
 
 ```bash
 powercontext server run
 openclaw
 ```
 
-插件要求 OpenClaw 2026.8.1-beta.2 或更新版本。
+setup 和插件都要求 OpenClaw 2026.8.1-beta.2 或更新版本。`plugins install` 不支持 `--no-enable` 的版本（如
+2026.8.1）会在安装时启用插件。在这些版本上，setup 运行
+`openclaw plugins install --force --accept-capabilities <archive>`（仅当该版本列出 `--accept-capabilities` 时才传入），
+并先检查安装不会覆盖你的选择。如果 `plugins.deny` 列出了该插件、`plugins.allow` 非空且不含该插件，
+或在该插件和全部插件都未被禁用时 `plugins.slots.memory` 选择了其他插件，setup 会直接停止，不做任何改动。在这些版本上，
+插件在安装完成时即已激活，早于 setup 写入其 endpoint；如果之后的 setup 步骤失败，请排除原因后重新运行 setup。
 
 ## 数据流与捕获控制
 
@@ -204,7 +211,8 @@ memory 工具照常工作，它们都不准备上下文。关闭采集后，插�
 
 `PC_GATEWAY_KEY` 必须进入 OpenClaw Gateway 服务的环境，例如通过 `~/.openclaw/.env`。在 Responses 路由上，gateway
 以非流式方式调用模型，再把通过检查的响应以流式重放，因此流式的一轮能完成并被采集。使用 `api: "openai-completions"` 时，
-gateway 在 Chat Completions 路由上转发流式请求，不采集这一轮。
+gateway 在 Chat Completions 路由上转发流式请求，并原样放行流式响应；设置 `PC_GATEWAY_SEDIMENT=on` 后，
+还会从中采集完成的一轮。
 
 配置 Core 和 gateway 时还需要：
 

@@ -57,9 +57,9 @@ struct Peers {
     replies: Mutex<VecDeque<Reply>>,
     sent: Mutex<Vec<(HeaderMap, Bytes)>>,
     checks: Mutex<Vec<Value>>,
+    prepares: Mutex<Vec<Value>>,
     captures: Mutex<Vec<Value>>,
     deny: Option<(&'static str, &'static str)>,
-    prepares: Mutex<Vec<Value>>,
 }
 
 async fn upstream(
@@ -126,16 +126,16 @@ async fn capture(State(peers): State<Arc<Peers>>, Json(request): Json<Value>) ->
     Json(json!({}))
 }
 
-const PREPARED: &str = "BEGIN_POWERCONTEXT_MEMORY\n记忆\nEND_POWERCONTEXT_MEMORY";
-
 async fn prepare(State(peers): State<Arc<Peers>>, Json(request): Json<Value>) -> Json<Value> {
-    peers.prepares.lock().unwrap().push(request);
+    let mut prepares = peers.prepares.lock().unwrap();
+    prepares.push(request);
+    let content = format!("Prepared context {}", prepares.len());
     Json(json!({
-        "schema": "powercontext.context-prepare-reuse.v1",
+        "schema": "powercontext.prepared-context-with-reuse.v1",
         "context": {"schema": "powercontext.prepared-context.v1", "status": "ready",
-            "content": PREPARED, "content_bytes": PREPARED.len()},
-        "reuse": {"schema": "powercontext.context-reuse.v1", "binding": "test-memory",
-            "expires_at": "2999-01-01T00:00:00Z"}
+            "content": content, "content_bytes": content.len()},
+        "reuse": {"schema": "powercontext.context-reuse.v1", "expires_at": "2999-01-01T00:00:00Z",
+            "binding": format!("reuse-{}", prepares.len())}
     }))
 }
 
@@ -1005,6 +1005,96 @@ async fn responses_text_input_is_admitted_as_a_user_message() {
 }
 
 #[tokio::test]
+async fn headerless_requests_replay_preparation_within_each_turn() {
+    for (format, route, list) in [
+        ("chat", "chat/completions", "messages"),
+        ("responses", "responses", "input"),
+    ] {
+        let case = format!("fantasy_{format}_tool");
+        let gateway = Gateway::start_with_env(
+            vec![
+                Reply::fixture(&case, 0),
+                Reply::fixture(&case, 1),
+                Reply::fixture(&case, 1),
+            ],
+            None,
+            &[
+                ("PC_GATEWAY_INJECTION", "on"),
+                ("PC_GATEWAY_STEERING", "off"),
+            ],
+            true,
+        )
+        .await;
+        let mut body = request(format, "tool", false);
+        let response = gateway.post(route, &body).await;
+        assert_eq!(response.status(), 200);
+        let bytes = response.bytes().await.unwrap();
+        let history = body[list].as_array_mut().unwrap();
+        if format == "chat" {
+            let message = chat_message(&bytes, false);
+            let call = &message["tool_calls"][0];
+            history.push(message.clone());
+            history.push(json!({"role": "tool", "tool_call_id": call["id"], "content": "Sunny"}));
+        } else {
+            let response: Value = serde_json::from_slice(&bytes).unwrap();
+            let call = &response["output"][0];
+            assert_eq!(call["type"], "function_call");
+            history.push(call.clone());
+            history.push(json!({"type": "function_call_output", "call_id": call["call_id"], "output": "Sunny"}));
+        }
+        assert_eq!(gateway.post(route, &body).await.status(), 200);
+        body[list]
+            .as_array_mut()
+            .unwrap()
+            .push(json!({"role": "user", "content": "What about tomorrow?"}));
+        assert_eq!(gateway.post(route, &body).await.status(), 200);
+
+        let prepares = gateway.peers.prepares.lock().unwrap();
+        let queries: Vec<_> = prepares.iter().map(|request| &request["query"]).collect();
+        assert_eq!(
+            queries,
+            [
+                "What's the weather in Florence,Italy?",
+                "What about tomorrow?"
+            ],
+            "{format}: tool continuation must replay the turn's preparation"
+        );
+        let checks = gateway.peers.checks.lock().unwrap();
+        let sent = gateway.peers.sent.lock().unwrap();
+        assert_eq!(checks.len(), 6);
+        assert_eq!(sent.len(), 3);
+        for (index, (send, release)) in checks
+            .chunks_exact(2)
+            .map(|pair| (&pair[0], &pair[1]))
+            .enumerate()
+        {
+            assert_eq!(send["phase"], "before_send");
+            assert_eq!(release["phase"], "before_release");
+            assert_eq!(release["request_binding"], "test-before_send");
+            let location = &send["prepared_contexts"][0];
+            let preparation = if index == 2 { 2 } else { 1 };
+            assert_eq!(location["binding"], format!("reuse-{preparation}"));
+            assert_eq!(
+                send["payload"]["body"].as_str().unwrap().as_bytes(),
+                sent[index].1.as_ref()
+            );
+            let outgoing: Value = serde_json::from_slice(&sent[index].1).unwrap();
+            let text = outgoing
+                .pointer(location["location"]["pointer"].as_str().unwrap())
+                .unwrap()
+                .as_str()
+                .unwrap();
+            let end = location["location"]["end_byte"].as_u64().unwrap() as usize;
+            assert_eq!(location["location"]["start_byte"], 0);
+            assert_eq!(&text[..end], format!("Prepared context {preparation}"));
+            if index == 2 {
+                assert_eq!(outgoing[list][1], body[list][1]);
+            }
+        }
+    }
+}
+
+#[tokio::test]
 async fn upstream_errors_keep_their_status_and_body_for_streaming_clients() {
     for format in ["chat", "responses"] {
         for status in [400, 429] {
@@ -1498,7 +1588,14 @@ async fn messages_replays_injection_and_captures_only_completed_tool_turns() {
     let sent = gateway.peers.sent.lock().unwrap();
     let checks = gateway.peers.checks.lock().unwrap();
     assert_eq!(sent.len(), 3);
-    for ((_, body), phases) in sent.iter().zip(checks.chunks_exact(2)) {
+    // The child replays its preparation (send 2) while the other child prepares its own (send 3).
+    let expected_bindings = ["reuse-1", "reuse-1", "reuse-2"];
+    let expected_prepared = [
+        "Prepared context 1",
+        "Prepared context 1",
+        "Prepared context 2",
+    ];
+    for (index, ((_, body), phases)) in sent.iter().zip(checks.chunks_exact(2)).enumerate() {
         let upstream: Value = serde_json::from_slice(body).unwrap();
         assert_eq!(upstream["messages"][0], request["messages"][0]);
         assert_eq!(upstream["messages"][1], request["messages"][1]);
@@ -1511,7 +1608,7 @@ async fn messages_replays_injection_and_captures_only_completed_tool_turns() {
             include_str!("../src/default_steering.txt").trim()
         );
         let prepared = &phases[0]["prepared_contexts"][0];
-        assert_eq!(prepared["binding"], "test-memory");
+        assert_eq!(prepared["binding"], expected_bindings[index]);
         let pointer = prepared["location"]["pointer"].as_str().unwrap();
         assert_eq!(pointer, "/messages/3/content/0/text");
         let start = prepared["location"]["start_byte"].as_u64().unwrap() as usize;
@@ -1523,7 +1620,7 @@ async fn messages_replays_injection_and_captures_only_completed_tool_turns() {
                 .as_str()
                 .unwrap()
                 .as_bytes()[start..end],
-            PREPARED.as_bytes()
+            expected_prepared[index].as_bytes()
         );
         assert_eq!(
             phases[0]["payload"]["body"].as_str().unwrap().as_bytes(),
@@ -1546,7 +1643,7 @@ async fn messages_replays_injection_and_captures_only_completed_tool_turns() {
     assert_eq!(first["content"], second["content"]);
     assert!(!content.contains("opaque signature"));
     assert!(!content.contains("private thinking"));
-    assert!(!content.contains("BEGIN_POWERCONTEXT_MEMORY"));
+    assert!(!content.contains("Prepared context"));
     let transcript: Value = serde_json::from_str(content).unwrap();
     assert_eq!(transcript["user"], "Look it up");
     assert_eq!(

@@ -203,7 +203,7 @@ Do not route Core's own generation through automatic Gateway recall or capture w
 
 When the gateway connects to the Core over UDS (`PC_GATEWAY_CORE_UDS`, the combined deployment), it injects prepared context by default into Chat and Responses requests that belong to a conversation. Within a conversation it prepares once per new user message and replays the exact result for the rest of that turn, such as an agent's tool loop.
 
-The gateway identifies the conversation from the first of these request headers that is present:
+The gateway identifies the conversation from the first of these request headers with a valid value:
 
 | Header | Sent by | Conversation |
 | --- | --- | --- |
@@ -212,7 +212,11 @@ The gateway identifies the conversation from the first of these request headers 
 | `x-opencode-session-id` | OpenCode | the session; a child session has its own ID |
 | `thread-id` (Responses route only) | Codex | the thread; a subagent has its own thread ID |
 
-Headers that a client shares between a parent and its subagents, such as Codex `session-id` and `prompt_cache_key` or OpenCode `x-opencode-session` and `x-session-affinity`, do not identify a conversation. Claude Code can send these session headers directly on the Messages route. Set `PC_GATEWAY_INJECTION=on` to inject every request (requests without a conversation ID then prepare individually), `PC_GATEWAY_INJECTION=off` to turn injection off, or `PC_GATEWAY_INJECTION_RESPONSES=off` to keep only the Responses route uninjected. A standalone gateway (`PC_GATEWAY_CORE_BASE`) injects only with `PC_GATEWAY_INJECTION=on`. An empty or failed preparation sends the request without injection.
+Headers that a client shares between a parent and its subagents, such as Codex `session-id` and `prompt_cache_key` or OpenCode `x-opencode-session` and `x-session-affinity`, do not identify a conversation. Claude Code can send these session headers directly on the Messages route.
+
+When none of these headers supplies an ID, the gateway can identify a full-history Chat or Responses request using the route and a hash of the model, leading instructions, and first user message. The opening must contain a user message preceded only by system or developer messages. Responses requests linked through `previous_response_id` or `conversation` need a header for reuse. An inferred ID is local to the gateway process and applies only to preparation replay. Sessions with identical openings can share an inferred ID, so send an explicit conversation header when sessions must be distinct.
+
+The combined deployment default skips injection if no explicit or inferred ID is available and logs `context injection skipped: no conversation identity`. With `PC_GATEWAY_INJECTION=on`, requests with no ID prepare individually when they have a usable user message. `PC_GATEWAY_INJECTION=off` disables injection and `PC_GATEWAY_INJECTION_RESPONSES=off` disables it for Responses only. Standalone gateways (`PC_GATEWAY_CORE_BASE`) require `PC_GATEWAY_INJECTION=on`. An empty or failed preparation sends the request without injection. Only a user turn queries Core for context; later requests in the same turn reuse the prepared block instead of querying again, and a non-user tail with no replay identity is sent without recall. The gateway classifies every request tail for evidence and logs; see [Gateway call evidence](gateway-evidence.md#turn-classification).
 
 Set `PC_GATEWAY_INJECTION_CODE=on` to include code evidence from the Scope's code index in the prepared context; it is off by default and requires a configured repository for the Scope. When a replayed value no longer passes the check because a cited source changed (for example, the agent edited a cited file), the gateway discards that conversation's replay and prepares once more for the request instead of returning the withhold.
 

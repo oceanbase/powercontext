@@ -433,6 +433,7 @@ def test_source_create_persists_json_without_public_internal_fields() -> None:
                 "source_type",
                 "source_id",
                 "content",
+                "metadata",
                 "position",
                 "content_digest",
             }
