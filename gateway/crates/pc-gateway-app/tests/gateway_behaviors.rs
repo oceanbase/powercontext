@@ -1258,7 +1258,10 @@ async fn chat_cost_extraction_extends_the_admitted_chat_prefix() {
 
     let capture = gateway.peers.captures.lock().unwrap()[0].clone();
     let source = &capture["sources"][0];
-    assert!(!source["content"].as_str().unwrap().contains("Prepared context"));
+    assert!(!source["content"]
+        .as_str()
+        .unwrap()
+        .contains("Prepared context"));
     let metadata = &source["metadata"];
     let handle = metadata["prefix_handle"]
         .as_str()
