@@ -68,7 +68,7 @@ pub struct AppState {
     pub inject_code: bool,
     /// 过检后同步沉淀对话（默认关）。
     pub sediment: bool,
-    /// 默认内置固定指令，只插入 Responses 请求；文件可覆盖，`PC_GATEWAY_STEERING=off` 可关闭。
+    /// 默认内置固定指令，插入 Responses 和 Chat 请求；文件可覆盖，`PC_GATEWAY_STEERING=off` 可关闭。
     pub steering: Option<String>,
     /// 支持的上游默认保留记忆抽取前缀；`PC_GATEWAY_PREFIX_EXTRACTION=off` 可关闭（#2413）。
     pub prefix_extraction: bool,
