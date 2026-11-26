@@ -162,7 +162,8 @@ injection](../operate/deploy-server.md#gateway-context-injection).
 
 Use the Responses route (`use_responses_api=True`). There the gateway calls the model without streaming, captures the
 checked response, and replays it as a stream to a client that streams. On the Chat Completions route, an enforcing Core
-withholds a streamed turn, and with a non-enforcing Core the gateway releases it without capturing it.
+withholds a streamed response and the gateway returns HTTP 400. With a non-enforcing Core, the gateway releases the
+stream unchanged and, with `PC_GATEWAY_SEDIMENT=on`, captures the completed turn from it.
 
 Configure Core and the gateway as well:
 

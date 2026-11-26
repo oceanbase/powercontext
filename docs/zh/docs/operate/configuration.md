@@ -95,6 +95,11 @@ Server 在下游解析之前按实际收到的字节限制请求体，默认上�
 并为 JSON envelope 留出空间。调低上限可能拒绝原本符合领域约束的操作。两个 HTTP 上限都必须是正整数。
 应按可用内存调整：64 个请求各保留 16 MiB，请求体本身就需要 1 GiB，尚未包括解析和业务开销。
 交给下游时会短暂复制一次已接收的请求体，随后释放输入缓冲。
+
+健康检查和已启用的 Dashboard 静态资源等不使用请求体的公开路由仍检查声明的 `Content-Length`，并跳过请求体缓冲。
+Dashboard 登录采用配置上限和 32 KiB 中较小的值。远程 Skill reconciliation、Receipt 和包下载要求 Server 在读取
+请求体前验证 Receiver 凭据。
+
 按请求来源设置速率配额、上传超时、连接上限和跨 Server 进程的总额度由反向代理负责。
 
 MCP 使用 stateless Streamable HTTP，每次工具执行都采用当前请求的认证身份，不发放传输 Session ID，
