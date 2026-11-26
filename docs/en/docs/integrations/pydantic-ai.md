@@ -176,8 +176,8 @@ next run.
 
 Use the Responses route. There the gateway calls the model without streaming, captures the checked response, and replays
 it as a stream to a client that streams. An `openai-chat:` model uses the Chat Completions route, where an enforcing
-Core withholds a streamed run (`run_stream`), and with a non-enforcing Core the gateway releases it without capturing
-it.
+Core withholds a streamed run (`run_stream`) and the gateway returns HTTP 400. With a non-enforcing Core, the gateway
+releases the stream unchanged and, with `PC_GATEWAY_SEDIMENT=on`, captures the completed turn from it.
 
 Configure Core and the gateway as well:
 

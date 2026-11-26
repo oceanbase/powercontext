@@ -64,7 +64,7 @@ pub struct ManagedCall {
     pub inject_context: bool,
     /// 注入时同时请求代码证据（默认关）。
     pub include_code: bool,
-    /// 宿主提供的会话 ID（`X-PowerContext-Conversation-ID`）。只有带它的请求才在会话内重放准备结果。
+    /// 宿主提供的可信会话 ID，用于准备结果重放和沉淀。
     pub conversation_id: Option<String>,
     /// 沉淀时保留本回合的上游请求与响应输出，供 Core 复用前缀缓存抽取记忆（#2413，默认关）。
     pub capture_prefix: bool,
@@ -317,6 +317,20 @@ where
         renderer: &R,
         evidence: &dyn EvidenceSink,
     ) -> ManagedOutcome {
+        self.run_with_replay_identity(control, call, renderer, evidence, None)
+            .await
+    }
+
+    /// Use a fallback identity for preparation replay when the host supplies no conversation ID.
+    /// Capture and prefix extraction use the host identity in `call`.
+    pub async fn run_with_replay_identity<R: WireRenderer>(
+        &self,
+        control: RequestControl,
+        call: ManagedCall,
+        renderer: &R,
+        evidence: &dyn EvidenceSink,
+        replay_identity: Option<&str>,
+    ) -> ManagedOutcome {
         let mut recording = CallRecorder::new(
             evidence,
             control.observation(),
@@ -331,7 +345,14 @@ where
         let mut execution = control.start();
         let lifecycle = execution.lifecycle();
         let outcome = match lifecycle
-            .run(self.execute(call, renderer, evidence, &mut execution, &mut recording))
+            .run(self.execute(
+                call,
+                renderer,
+                evidence,
+                &mut execution,
+                &mut recording,
+                replay_identity,
+            ))
             .await
         {
             Ok(outcome) => outcome,
@@ -352,6 +373,7 @@ where
         evidence: &dyn EvidenceSink,
         execution: &mut Execution,
         recording: &mut CallRecorder<'_>,
+        replay_identity: Option<&str>,
     ) -> ManagedOutcome {
         if let Err(stop) = self.attempt_checkpoint(execution) {
             return stop;
@@ -360,10 +382,12 @@ where
         // 注入前的请求仅用于回合标识与沉淀，不能替代渲染后提交 Core 检查的载荷。
         let pristine_request = call.request.clone();
 
-        let anchor = call
-            .inject_context
-            .then(|| message_anchor(&pristine_request))
-            .flatten();
+        let conversation = call.conversation_id.clone();
+        let replay = conversation
+            .as_deref()
+            .or(replay_identity)
+            .filter(|_| call.inject_context)
+            .and_then(|id| Some((id, message_anchor(&pristine_request)?)));
         let mut refreshed = false;
         let (payload, admission, model_payload) = loop {
             if let Err(stop) = execution.checkpoint() {
@@ -372,7 +396,7 @@ where
             if call.inject_context {
                 self.enrich(
                     &mut call,
-                    anchor,
+                    replay,
                     renderer.message_list_key(),
                     evidence,
                     execution,
@@ -454,9 +478,7 @@ where
                                 .any(|reason| reason == CONTEXT_REFRESH_REQUIRED) =>
                     {
                         refreshed = true;
-                        if let Some((conversation, anchor)) =
-                            call.conversation_id.as_deref().zip(anchor)
-                        {
+                        if let Some((conversation, anchor)) = replay {
                             self.replays.forget(&call.scope_id, conversation, anchor);
                         }
                         call.request = pristine_request.clone();
@@ -832,21 +854,20 @@ where
         Some(fields)
     }
 
-    /// 有可信会话 ID 时：同一消息锚点（工具续写、重试）精确重放已准备的内容与绑定，不再检索；
+    /// 有重放会话 ID 时：同一消息锚点（工具续写、重试）精确重放已准备的内容与绑定，不再检索；
     /// 新锚点（新的用户消息）准备一次。没有会话 ID 时每个请求各自准备，不继承任何旧注入。
     /// 准备失败不写入，下一次请求重试，且不阻塞本次请求；空结果同样重放。
     async fn enrich(
         &self,
         call: &mut ManagedCall,
-        anchor: Option<u64>,
+        replay: Option<(&str, u64)>,
         list_key: &str,
         evidence: &dyn EvidenceSink,
         execution: &Execution,
     ) {
-        let replay = call.conversation_id.clone().zip(anchor);
-        let cached = replay.as_ref().and_then(|(conversation, anchor)| {
+        let cached = replay.and_then(|(conversation, anchor)| {
             self.replays
-                .get(&call.scope_id, conversation, *anchor, now_ms())
+                .get(&call.scope_id, conversation, anchor, now_ms())
         });
         let prepared = match cached {
             Some(prepared) => prepared,
@@ -856,7 +877,7 @@ where
                 else {
                     return;
                 };
-                match &replay {
+                match replay {
                     Some((conversation, anchor)) => {
                         let now = now_ms();
                         let expires = expires_at
@@ -866,7 +887,7 @@ where
                         self.replays.put_if_absent(
                             &call.scope_id,
                             conversation,
-                            *anchor,
+                            anchor,
                             prepared,
                             expires,
                         )

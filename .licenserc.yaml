@@ -75,6 +75,8 @@ header:
     - 'src/powercontext/builtin/artifacts/lexical_data/*.txt'
     # This prompt is sent verbatim to the model; a license header would change its instructions.
     - 'gateway/crates/pc-gateway-app/src/default_steering.txt'
+    # Frozen benchmark instructions must retain their exact bytes for reproducibility.
+    - 'docs/benchmarks/token-savings/steering.txt'
     - 'src/powercontext/server/dashboard/static/vendor/**'
     - '.gitattributes'
     - '**/*.service.in'

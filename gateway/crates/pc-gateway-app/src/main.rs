@@ -471,14 +471,14 @@ async fn healthz() -> axum::Json<serde_json::Value> {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Injection {
     Off,
-    /// 只注入带宿主会话 ID 的请求：一个回合只准备一次并精确重放（RFC 2199）。
+    /// 只注入有显式或推导会话 ID 的请求，按回合精确重放准备结果。
     ConversationsOnly,
     /// 所有请求都注入；没有会话 ID 的请求各自准备。
     All,
 }
 
 /// `PC_GATEWAY_INJECTION`：`on` 注入所有请求，`off` 关闭。未设置时，同机组合部署（经 UDS 连接已配置的 Core）
-/// 默认只注入带会话 ID 的请求，不会让工具循环的每一步都重新准备；独立部署默认关闭。
+/// 默认只注入有显式或推导会话 ID 的请求，不会让工具循环的每一步都重新准备；独立部署默认关闭。
 /// 其他取值按关闭处理并告警，拼写错误不会意外开启注入。
 fn injection_mode(setting: Option<&str>, combined: bool) -> Injection {
     match setting {

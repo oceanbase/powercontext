@@ -164,7 +164,8 @@ gateway（`PC_GATEWAY_CORE_BASE`）只有设置了这一项才会注入。
 
 请使用 Responses 路由。在这个路由上，gateway 以非流式方式调用模型，采集通过检查的响应，
 并以流式重放给发送流式请求的客户端。`openai-chat:` 模型使用 Chat Completions 路由，在那里，enforcing 模式的 Core
-会暂缓流式运行（`run_stream`）；非 enforcing 模式下，gateway 会放行它，但不采集它。
+会暂缓流式运行（`run_stream`），gateway 返回 HTTP 400。非 enforcing 模式下，gateway 原样放行流式响应；
+设置 `PC_GATEWAY_SEDIMENT=on` 后，还会从中采集完成的一轮。
 
 配置 Core 和 gateway 时还需要：
 
