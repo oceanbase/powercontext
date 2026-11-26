@@ -777,7 +777,9 @@ class AtomicMemorySourceWindowProcessor:
         basis = tuple(workset.items[key] for key in shown.values())
         await self._authorize_comparison_basis(scope_id, context, basis)
         operations = await conversation.turn(
-            message, lambda reply: apply_one_pass_operations(workset, reply, shown, extraction_input), entries
+            message,
+            lambda reply: apply_one_pass_operations(workset, reply, shown, extraction_input, entries.output),
+            entries,
         )
         workset, created = operations.output
 
