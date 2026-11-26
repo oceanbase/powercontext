@@ -82,6 +82,8 @@ export const desktopApi = {
     invoke<DesktopState>("remove_profile", { id, revision }),
   check: (id: string, activate: boolean) =>
     invoke<DesktopState>("check_connection", { id, activate }),
+  retryConnection: (generation: number) =>
+    invoke<DesktopState>("retry_connection", { generation }),
   probeReadiness: (id: string, revision: number) =>
     invoke<DesktopState>("probe_readiness", { id, revision }),
   disconnect: () => invoke<DesktopState>("disconnect"),

@@ -19,7 +19,11 @@ import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { App } from "../src/app/App";
 import { TooltipProvider } from "../src/components/ui/tooltip";
-import type { DesktopState, WriteRecord } from "../src/generated/ipc";
+import type {
+  DesktopState,
+  ExactScopeStatistics,
+  WriteRecord,
+} from "../src/generated/ipc";
 import { desktopApi } from "../src/shared/ipc";
 vi.mock("../src/shared/ipc", () => ({
   getFoundationInfo: vi.fn().mockResolvedValue(null),
@@ -34,6 +38,7 @@ vi.mock("../src/shared/ipc", () => ({
       lastWrite: null,
     }),
     check: vi.fn(),
+    retryConnection: vi.fn(),
     defaultScope: vi.fn(),
     selectScope: vi.fn(),
     stats: vi.fn(),
@@ -270,6 +275,80 @@ test("reactivates a saved connection from Services after losing the active conte
     3,
     active.scope!.scope_id,
   );
+});
+
+test("Retry read restores Home in the same space after a service outage", async () => {
+  globalThis.localStorage.setItem("desktop-language", "en");
+  const connected = connectedMemoryState();
+  const active = connected.active!;
+  active.report.supportedOperations.push("get_stats");
+  const restored = {
+    ...connected,
+    generation: 3,
+    active: { ...active, generation: 3 },
+  };
+  const period = {
+    preset: "30d",
+    start_date: "2026-11-01",
+    end_date: "2026-11-30",
+    timezone: "UTC",
+  } as const;
+  const scopeIds = [active.scope!.scope_id];
+  const modelUsage = { requests: 0, input_tokens: 0, output_tokens: 0 };
+  const statistics: ExactScopeStatistics = {
+    selection: { mode: "exact", scope_ids: scopeIds },
+    scope_ids: scopeIds,
+    as_of: "2026-11-30T00:00:00Z",
+    inventory: {
+      sources: { total: 0, memory_processed: 0, memory_pending: 0 },
+      artifacts: { total: 12, by_family: [] },
+      candidates: {
+        total: 0,
+        pending: 0,
+        approved: 0,
+        rejected: 0,
+        by_family: [],
+      },
+      memory: { entries: { total: 12, active: 12, inactive: 0, by_kind: [] } },
+    },
+    usage: {
+      period,
+      totals: { generation: modelUsage, embedding: modelUsage },
+      by_purpose: [],
+      daily: [],
+    },
+    recall: {
+      period,
+      estimator: null,
+      daily: [],
+      totals: {
+        preparations: 0,
+        ready_preparations: 0,
+        comparable_preparations: 0,
+        baseline_tokens: 0,
+        recalled_tokens: 0,
+        token_reduction: 0,
+      },
+    },
+    by_scope: [],
+  };
+  vi.mocked(desktopApi.state).mockResolvedValueOnce(connected);
+  vi.mocked(desktopApi.retryConnection).mockResolvedValueOnce(restored);
+  vi.mocked(desktopApi.stats)
+    .mockRejectedValueOnce({ code: "server" })
+    .mockImplementationOnce(async (generation) => {
+      if (generation !== restored.generation) throw { code: "not_connected" };
+      return statistics;
+    });
+
+  render(<App />);
+  await userEvent.click(
+    await screen.findByRole("button", { name: "Retry read" }),
+  );
+
+  expect(await screen.findByText("12")).toBeTruthy();
+  expect(screen.getByText("Original space")).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "Retry read" })).toBeNull();
 });
 
 test("restores a saved service directly into its default space", async () => {

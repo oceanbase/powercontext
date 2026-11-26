@@ -172,6 +172,11 @@ impl Fixture {
                             ),
                             "/v1/capabilities" => state.capabilities.clone(),
                             "/v1/scopes/default" | "/v1/scopes/scope-a" => (200, scope()),
+                            "/v1/scopes/scope-b" => {
+                                let mut selected = scope();
+                                selected["scope_id"] = json!("scope-b");
+                                (200, selected)
+                            }
                             path if path.starts_with("/v1/scopes?") => {
                                 (200, json!({"items":[scope()],"next_cursor":"old-cursor"}))
                             }
@@ -682,6 +687,52 @@ async fn changed_access_mode_or_unavailable_identity_invalidates_the_context_wit
                 .any(|path| path == "/health/ready")
         );
     }
+}
+
+#[tokio::test]
+async fn retry_reopens_the_original_scope_after_an_outage() {
+    let fixture = Fixture::new(true).await;
+    let generation = fixture
+        .manager
+        .select_scope(fixture.activate().await, "scope-b")
+        .await
+        .unwrap()
+        .generation;
+    fixture.state.lock().unwrap().identity_response = Some((502, json!({})));
+
+    let failed = fixture.manager.search_memory(generation, "query").await;
+    assert_eq!(failed.err().unwrap().code, SafeError::Server);
+    fixture.assert_disconnected(generation);
+    let still_down = fixture.manager.retry_connection(generation).await;
+    assert_eq!(still_down.err().unwrap().code, SafeError::Server);
+
+    fixture.state.lock().unwrap().identity_response = None;
+    let restored = fixture.manager.retry_connection(generation).await.unwrap();
+    let active = restored.active.unwrap();
+    assert_eq!(active.connection_id, fixture.id);
+    assert_eq!(active.scope.unwrap().scope_id, "scope-b");
+    assert!(restored.generation > generation);
+    let result = fixture
+        .manager
+        .search_memory(restored.generation, "result")
+        .await
+        .unwrap();
+    assert_eq!(result.hits[0].text, "private result");
+}
+
+#[tokio::test]
+async fn retry_never_reopens_a_scope_on_a_replacement_service() {
+    let fixture = Fixture::new(true).await;
+    let generation = fixture.select().await;
+    fixture.state.lock().unwrap().identity_response = Some((502, json!({})));
+    let failed = fixture.manager.search_memory(generation, "query").await;
+    assert_eq!(failed.err().unwrap().code, SafeError::Server);
+
+    fixture.state.lock().unwrap().identity_response = None;
+    fixture.replace();
+    let retry = fixture.manager.retry_connection(generation).await;
+    assert_eq!(retry.err().unwrap().code, SafeError::StaleContext);
+    fixture.assert_disconnected(generation);
 }
 
 #[tokio::test]

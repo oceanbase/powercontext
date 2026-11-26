@@ -1226,6 +1226,22 @@ function UsageDashboard({ state, language, contextPending, onState }: Props) {
     };
   }, [enabled, generation, period, preview, reload]);
 
+  async function retryRead() {
+    if (!enabled || generation === undefined || busy) return;
+    const ticket = ++request.current;
+    setBusy(true);
+    try {
+      const next = await desktopApi.retryConnection(generation);
+      if (onState?.(next) === false || ticket !== request.current) return;
+      if (next.active?.generation === generation)
+        setReload((value) => value + 1);
+    } catch (failure) {
+      if (ticket === request.current) setError(failure);
+    } finally {
+      if (ticket === request.current) setBusy(false);
+    }
+  }
+
   const summary = useMemo(() => {
     if (preview && active?.scope) {
       if (active.scope.scope_id === previewEmptyScopeId)
@@ -1311,7 +1327,8 @@ function UsageDashboard({ state, language, contextPending, onState }: Props) {
             <Button
               size="sm"
               variant="outline"
-              onClick={() => setReload((value) => value + 1)}
+              disabled={busy}
+              onClick={() => void retryRead()}
             >
               {messages[language].retryRead}
             </Button>

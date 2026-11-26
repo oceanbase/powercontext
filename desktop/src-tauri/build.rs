@@ -65,6 +65,7 @@ fn main() {
             "save_profile",
             "remove_profile",
             "check_connection",
+            "retry_connection",
             "probe_readiness",
             "disconnect",
             "invalidate_profile",
