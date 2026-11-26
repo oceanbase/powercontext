@@ -2692,7 +2692,7 @@ pub(crate) mod tests {
                     "content": [{"type": "input_text", "text": "s"}]}]),
                 TurnKind::Empty,
             ),
-            // 新用户提问之后跟一条 developer 提示：尾部不是工具续写。
+            // 新用户提问之后跟一条 developer 提示：尾部仍是该用户回合。
             (
                 serde_json::json!([
                     {"type": "message", "role": "user",
@@ -2700,7 +2700,7 @@ pub(crate) mod tests {
                     {"type": "message", "role": "developer",
                         "content": [{"type": "input_text", "text": "harness reminder"}]}
                 ]),
-                TurnKind::Empty,
+                TurnKind::UserTurn,
             ),
             (
                 serde_json::json!([{"type": "function_call", "call_id": "c1",

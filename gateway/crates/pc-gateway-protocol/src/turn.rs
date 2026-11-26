@@ -17,6 +17,9 @@
 //! 判定只使用规范化消息的角色、工具调用是否存在，以及 Responses 透传 item 自身的
 //! `role`/`type`；不读取正文，也不调用模型。Responses 入口把非用户 item 原样封装为
 //! `Role::Tool` 承载（渲染器依赖这一形态逐字透出），因此该形态必须回到 item 本身取语义角色。
+//!
+//! 判定锚点是最后一条用户消息，而不是整个列表的最后一条：客户端与网关固定指令会在用户
+//! 提问之后追加 developer/system 提示，这类尾部不构成新回合，也不应隐藏该用户回合。
 
 use crate::render::RESPONSES_LIST_KEY;
 use crate::{CanonicalMessage, CanonicalRequest, Role};
@@ -25,12 +28,33 @@ use serde_json::Value;
 
 /// 按请求尾部判定回合类型。
 ///
+/// 以最后一条用户消息为锚点，由其后的尾部决定类型：尾部只有 system/developer 时仍是该用户回合；
+/// 出现工具条目或助手消息时按它们判定。找不到用户消息时退回按最后一条消息判定。
+///
 /// `list_key` 取自实际使用的 renderer。入口 format 决定 renderer，二者目前一一对应；若 renderer
 /// 将来改为按上游协议选择，需要把入口协议显式传入，不能继续由渲染形态推断。
 pub fn turn_kind(request: &CanonicalRequest, list_key: &str) -> TurnKind {
-    let Some(message) = request.messages.last() else {
-        return TurnKind::Empty;
+    let Some(last_user) = request
+        .messages
+        .iter()
+        .rposition(|message| is_user_message(message, list_key))
+    else {
+        return request
+            .messages
+            .last()
+            .map_or(TurnKind::Empty, |message| classify(message, list_key));
     };
+    match request.messages[last_user + 1..]
+        .iter()
+        .rev()
+        .find(|message| !is_system_like(message, list_key))
+    {
+        Some(message) => classify(message, list_key),
+        None => TurnKind::UserTurn,
+    }
+}
+
+fn classify(message: &CanonicalMessage, list_key: &str) -> TurnKind {
     match message.role {
         Role::User => TurnKind::UserTurn,
         Role::Assistant if has_tool_calls(message) => TurnKind::ToolContinuation,
@@ -39,6 +63,35 @@ pub fn turn_kind(request: &CanonicalRequest, list_key: &str) -> TurnKind {
         Role::Tool if list_key == RESPONSES_LIST_KEY => responses_item_turn_kind(&message.content),
         Role::Tool => TurnKind::ToolContinuation,
     }
+}
+
+/// Responses 入口把 item 封装在 `Role::Tool` 里，用户消息同样需要回到 item 自身取角色。
+fn is_user_message(message: &CanonicalMessage, list_key: &str) -> bool {
+    match message.role {
+        Role::User => true,
+        Role::Tool if list_key == RESPONSES_LIST_KEY => {
+            responses_item_role(&message.content) == Some("user")
+        }
+        _ => false,
+    }
+}
+
+fn is_system_like(message: &CanonicalMessage, list_key: &str) -> bool {
+    match message.role {
+        Role::System | Role::Developer => true,
+        Role::Tool if list_key == RESPONSES_LIST_KEY => matches!(
+            responses_item_role(&message.content),
+            Some("system" | "developer")
+        ),
+        _ => false,
+    }
+}
+
+fn responses_item_role(content: &[Value]) -> Option<&str> {
+    let [Value::Object(item)] = content else {
+        return None;
+    };
+    item.get("role").and_then(Value::as_str)
 }
 
 fn has_tool_calls(message: &CanonicalMessage) -> bool {
@@ -155,6 +208,23 @@ mod tests {
             (vec![message(Role::System, None)], TurnKind::Empty),
             (vec![message(Role::Developer, None)], TurnKind::Empty),
             (vec![message(Role::User, None)], TurnKind::UserTurn),
+            (
+                // 用户提问之后追加的提示不隐藏该用户回合。
+                vec![message(Role::User, None), message(Role::Developer, None)],
+                TurnKind::UserTurn,
+            ),
+            (
+                vec![message(Role::User, None), message(Role::System, None)],
+                TurnKind::UserTurn,
+            ),
+            (
+                vec![
+                    message(Role::User, None),
+                    message(Role::Assistant, Some(vec![])),
+                    message(Role::Developer, None),
+                ],
+                TurnKind::AssistantOnly,
+            ),
             (vec![message(Role::Tool, None)], TurnKind::ToolContinuation),
             (
                 vec![message(Role::Assistant, Some(vec![tool_call.clone()]))],
@@ -206,12 +276,28 @@ mod tests {
                 TurnKind::Empty,
             ),
             (
-                // 新用户提问之后跟一条 developer 提示：尾部不是工具续写。
+                // 新用户提问之后跟一条 developer 提示：尾部仍是该用户回合。
                 vec![
                     message(Role::User, None),
                     item(serde_json::json!({"role": "developer", "content": "reminder"})),
                 ],
-                TurnKind::Empty,
+                TurnKind::UserTurn,
+            ),
+            (
+                vec![
+                    message(Role::User, None),
+                    item(serde_json::json!({"role": "system", "content": "s"})),
+                ],
+                TurnKind::UserTurn,
+            ),
+            (
+                // 提示之后出现工具条目时仍是工具续写。
+                vec![
+                    message(Role::User, None),
+                    item(serde_json::json!({"role": "developer", "content": "reminder"})),
+                    item(serde_json::json!({"type": "function_call_output", "output": "ok"})),
+                ],
+                TurnKind::ToolContinuation,
             ),
             (
                 vec![item(
