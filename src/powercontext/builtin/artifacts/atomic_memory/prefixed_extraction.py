@@ -270,7 +270,7 @@ class GatewayPrefixedConversation:
     def __post_init__(self) -> None:
         # Every turn sends at least one request, as the inference request limit requires.
         if self.max_requests < 1:
-            raise ValueError("max_requests must be at least 1")
+            raise ValueError("max_requests must be at least 1")  # noqa: TRY003
 
     async def generate(self, value: ConversationTurn[Any], /) -> GenerationResult[ConversationReply[Any]]:
         if not value.history or not isinstance(start := value.history[0], PrefixStart):
