@@ -3917,6 +3917,7 @@ def _source_record_response(value: RuntimeSourceRecord) -> SourceRecord:
         source_type=value.source_type,
         source_id=value.source_id,
         content=value.content,
+        metadata=value.metadata,
         position=value.position,
         content_digest=value.content_digest,
     )
