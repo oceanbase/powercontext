@@ -564,7 +564,10 @@ async fn chat_captures_a_streamed_turn_after_tool_continuation() {
     let gateway = Gateway::start_with_env(
         vec![tool, terminal, json_reply],
         None,
-        &[("PC_GATEWAY_SEDIMENT", "on")],
+        &[
+            ("PC_GATEWAY_SEDIMENT", "on"),
+            ("PC_GATEWAY_STEERING", "off"),
+        ],
         false,
     )
     .await;
@@ -619,7 +622,10 @@ async fn chat_captures_a_streamed_turn_after_tool_continuation() {
 
 #[tokio::test]
 async fn chat_does_not_capture_unfinished_or_withheld_streams() {
-    let settings = [("PC_GATEWAY_SEDIMENT", "on")];
+    let settings = [
+        ("PC_GATEWAY_SEDIMENT", "on"),
+        ("PC_GATEWAY_STEERING", "off"),
+    ];
     let body = request("chat", "simple", true);
     let unfinished = Reply {
         body: b"data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"partial answer\"},\"finish_reason\":null}]}\n\ndata: [DONE]\n\n".to_vec(),
@@ -1166,7 +1172,7 @@ async fn responses_stream_delivers_reasoning_summaries_and_citations() {
 }
 
 #[tokio::test]
-async fn default_steering_and_overrides_reach_only_responses() {
+async fn default_steering_and_overrides_reach_responses_and_chat() {
     let custom =
         std::env::temp_dir().join(format!("pc-default-steering-{}.txt", std::process::id()));
     std::fs::write(&custom, "Custom deployment guidance.").unwrap();
@@ -1229,7 +1235,17 @@ async fn default_steering_and_overrides_reach_only_responses() {
             None => assert!(developer.is_empty(), "settings: {settings:?}"),
         }
         let chat: Value = serde_json::from_slice(&sent[1].1).unwrap();
-        assert_eq!(chat["messages"].as_array().unwrap().len(), 2);
+        let messages = chat["messages"].as_array().unwrap();
+        let original = request("chat", "simple", false);
+        if let Some(text) = expected {
+            assert_eq!(messages.len(), 3);
+            assert_eq!(messages[0], original["messages"][0]);
+            assert_eq!(messages[1]["role"], "system");
+            assert!(messages[1]["content"].as_str().unwrap().starts_with(text));
+            assert_eq!(messages[2], original["messages"][1]);
+        } else {
+            assert_eq!(chat["messages"], original["messages"]);
+        }
         assert!(chat["messages"]
             .as_array()
             .unwrap()
