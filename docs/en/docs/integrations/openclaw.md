@@ -235,12 +235,14 @@ Configure Core and the gateway as well:
 - The gateway prepares and captures every conversation in the one Scope that `PC_GATEWAY_DEFAULT_SCOPE` names, not in
   the Scope this plugin resolves for each session or project. Set the plugin's `scopeId` and `PC_GATEWAY_DEFAULT_SCOPE`
   to the same existing Scope.
-- Set `PC_GATEWAY_INJECTION=on`. A combined deployment injects by default only into requests that carry
-  `X-PowerContext-Conversation-ID` or another recognized session header. OpenClaw 2026.8.1 sends its session headers
-  only to OpenAI's own endpoints, and a provider's `headers` are the same for every session, so no OpenClaw request
-  names a conversation. With injection on, the gateway prepares each request separately, tool-loop steps included. Do
-  not put a fixed `X-PowerContext-Conversation-ID` in the provider's `headers`, because the gateway would then treat
-  every session as one conversation.
+- OpenClaw 2026.8.1 sends its session headers only to OpenAI's own endpoints, and a provider's `headers` are the same
+  for every session, so no OpenClaw request names a conversation. A combined deployment (`PC_GATEWAY_CORE_UDS`) infers
+  it instead: on a custom provider OpenClaw sends the session's full history on every request, opening with its system
+  prompt and the first user message, so the gateway prepares once per user message and replays that context to the
+  tool-loop steps. Sessions that open with the same system prompt and first message share an inferred conversation. A
+  standalone gateway (`PC_GATEWAY_CORE_BASE`) injects only with `PC_GATEWAY_INJECTION=on`. Do not put a fixed
+  `X-PowerContext-Conversation-ID` in the provider's `headers`, because the gateway would then treat every session as
+  one conversation.
 
 See [Gateway context injection](../operate/deploy-server.md#gateway-context-injection) and [Gateway authentication
 boundaries](../operate/deploy-server.md#gateway-authentication-boundaries).
