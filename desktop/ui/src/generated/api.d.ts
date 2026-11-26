@@ -4559,6 +4559,11 @@ export interface components {
             /** @description Complete raw UTF-8 JSON text. Duplicate keys and non-finite numbers are unsupported. */
             body: string;
         };
+        UpstreamResponsePayload: {
+            content_type: string;
+            /** @description Complete raw UTF-8 provider JSON or Responses SSE before conversion. */
+            body: string;
+        };
         ModelJsonTextLocation: {
             /** @enum {string} */
             schema: "powercontext.model-json-text-location.v1";
@@ -4591,6 +4596,8 @@ export interface components {
             target_profile: string;
             request_binding: string;
             payload: components["schemas"]["ModelJsonPayload"];
+            /** @description Optional pre-conversion response evidence. Core inspects it in addition to the final payload; both bodies share the response byte limit. */
+            upstream_payload?: components["schemas"]["UpstreamResponsePayload"];
             /** @enum {string} */
             completion: "complete";
         };
@@ -4625,7 +4632,7 @@ export interface components {
              * @description Protocol of the Core-configured endpoint; present under the same condition as target_endpoint.
              * @enum {string}
              */
-            target_protocol?: "openai-chat" | "openai-responses" | "anthropic-messages" | "openai-embeddings" | "minimax-embeddings" | "jev-rerank";
+            target_protocol?: "openai-chat" | "openai-responses" | "anthropic-messages" | "openai-embeddings" | "minimax-embeddings" | "jev-rerank" | "google-codeassist" | "google-codeassist-chat" | "claude-cli-prompt";
         };
         ContextProtectionCapabilities: {
             check_versions: string[];
@@ -6005,6 +6012,10 @@ export interface components {
             source_id: string;
             /** @description Persisted canonical JSON content. */
             content: unknown;
+            /** @description Caller-supplied metadata for a Content Source, returned unchanged; an empty object for Sources that carry no caller metadata. Responses from servers that predate this field omit it, which clients report as null and must not treat as proof that the Source has no metadata. */
+            metadata?: {
+                [key: string]: unknown;
+            } | null;
             position: number;
             content_digest: string;
         };

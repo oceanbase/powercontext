@@ -15,12 +15,12 @@
  */
 
 import { copyFile, cp, mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
-import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { fetchRepositoryInfo } from 'fumadocs-ui/components/github-info';
 import { githubRepository } from '../src/lib/github-stars';
 import { repositoryUrl } from '../src/lib/urls';
+import { generatePythonApi } from './generate-python-api';
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const websiteDir = path.resolve(scriptDir, '..');
@@ -202,7 +202,6 @@ await Promise.all([
   ...['en', 'zh'].map(prepareDevelopmentContent),
 ]);
 
-const pythonPackage = path.join(websiteDir, 'node_modules', 'fumadocs-python');
 const pythonModules = [
   'powercontext.context',
   'powercontext.sources',
@@ -213,27 +212,7 @@ const pythonModules = [
   'powercontext.client',
 ];
 
-for (const moduleName of pythonModules) {
-  const result = spawnSync(
-    'uv',
-    [
-      'run',
-      '--project',
-      repositoryDir,
-      '--with',
-      pythonPackage,
-      'fumapy-generate',
-      moduleName,
-      '--dir',
-      pythonDir,
-    ],
-    { cwd: repositoryDir, stdio: 'inherit' },
-  );
-
-  if (result.status !== 0) {
-    throw new Error(`Python API generation for ${moduleName} failed with status ${result.status ?? 'unknown'}`);
-  }
-}
+generatePythonApi(path.join(repositoryDir, 'src'), pythonDir, pythonModules);
 
 await Promise.all([
   copyFile(

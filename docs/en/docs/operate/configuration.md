@@ -40,6 +40,7 @@ use the same secret and key ID:
 | `POWERCONTEXT_SERVER_RUNTIME_ATOMIC_MEMORY_RELATED_FTS_FALLBACK` | `false` | Explicitly permit full-text enumeration when the related query vector is unavailable, profiles mismatch or vector projections are incomplete; ordinary search error handling is unchanged |
 | `POWERCONTEXT_SERVER_RUNTIME_ATOMIC_MEMORY_COMPARISON_BATCH_SIZE` | `20` | Maximum related objects per comparison call, positive integer; it is not a total candidate limit |
 | `POWERCONTEXT_SERVER_RUNTIME_ATOMIC_MEMORY_INPUT_TOKENS_LIMIT` | `64000` | Estimated tokens per extraction/comparison input, including instructions and complete input, positive integer |
+| `POWERCONTEXT_SERVER_RUNTIME_ATOMIC_MEMORY_PROCESSING_MODE` | `per_candidate` | How Atomic Memory processes a Source window. `per_candidate` extracts candidates and compares each with its related memories; `one_pass` lists the memories to write and then returns every operation in one model conversation, which costs fewer model tokens. A window whose conversation input exceeds the token limit is still processed as `per_candidate` |
 
 An unset secret never generates a random process key. Changing the secret or key ID invalidates old tokens; preview
 again. A restoration with a token returns `preview_stale` on changes instead of reinterpreting the intent. The retry
@@ -107,6 +108,12 @@ fits the current 5 MiB Skill archive limit, whose base64 representation takes at
 JSON envelope. Lower caps can reject otherwise valid operations. Both HTTP limits must be positive integers.
 Size them for available memory: 64 requests retaining 16 MiB each already represent 1 GiB of body data, before
 parsing and application overhead; replay briefly copies each accepted body once before releasing its input buffer.
+
+Public routes that do not use a request body, such as health probes and enabled Dashboard assets, still check a
+declared `Content-Length` and skip buffering. Dashboard login uses the smaller of the configured limit and 32 KiB.
+Remote Skill reconciliation, Receipts, and package downloads require a valid Receiver credential before the Server
+reads the body.
+
 Reverse proxies own request-rate quotas, upload timeouts, connection limits,
 and aggregate limits across Server processes.
 
@@ -541,11 +548,7 @@ export POWERCONTEXT_SERVER_RUNTIME_MEMORY_RERANK_ENABLED=true
 export POWERCONTEXT_SERVER_RUNTIME_MEMORY_RERANK_CANDIDATE_LIMIT=30
 ```
 
-Reranking is disabled by default. When enabled, the Runtime retrieves and fuses the configured candidate pool, then
-uses the generation model at temperature zero to select no more than the search request's final `limit`. It does not
-change stored Memory or indexes. Provider and structured-output failures remain visible as inference errors; disable
-reranking when search must remain independent of model availability. See
-[RFC 0080](/en/rfcs/0080_memory_search_reranking/) for the algorithm, concurrency, and API boundaries.
+Reranking is disabled by default. When enabled, the Runtime retrieves and fuses the configured candidate pool, then uses the generation model at temperature zero to select up to the search request's final `limit`. Claude CLI uses its own sampling settings. Reranking leaves stored Memory and indexes intact. Provider and structured output failures surface as inference errors. Disable reranking when search must work independently of model availability. See [RFC 0080](/en/rfcs/0080_memory_search_reranking/) for the algorithm, concurrency, and API boundaries.
 
 The built-in reranker is an LLM listwise reranker, not a dedicated cross-encoder protocol. By default it reuses the
 generation model and its provider settings. Set `POWERCONTEXT_SERVER_INFERENCE_RERANK_MODEL` to give that LLM operation

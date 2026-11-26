@@ -23,6 +23,7 @@ import time
 from contextlib import contextmanager
 from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -42,11 +43,13 @@ from powercontext.server.worker_tracing import WorkerTracing
 class _UsageFaultWorker:
     entrypoint: WorkerEntrypoint
     failure: str
+    ready_path: str
 
     def __call__(self, assignment):
         from powercontext.builtin.persistence.statistics import StatisticsRepository
         from powercontext.builtin.runtime._model_usage import _ModelUsageRecorder
 
+        Path(self.ready_path).touch()
         if self.failure == "crash":
             os._exit(1)
 
@@ -141,8 +144,11 @@ def test_builtin_worker_usage_losses_reach_server_metrics(tmp_path, monkeypatch,
     if tracing:
         pytest.importorskip("opentelemetry.exporter.otlp.proto.http.trace_exporter")
     original_wrap = WorkerTracing.wrap
+    ready = tmp_path / "worker-ready"
     monkeypatch.setattr(
-        WorkerTracing, "wrap", lambda self, entrypoint: _UsageFaultWorker(original_wrap(self, entrypoint), failure)
+        WorkerTracing,
+        "wrap",
+        lambda self, entrypoint: _UsageFaultWorker(original_wrap(self, entrypoint), failure, str(ready)),
     )
     monkeypatch.setenv("OPENAI_API_KEY", "local-usage-fixture")
     with _model_server() as endpoint:
@@ -174,6 +180,15 @@ def test_builtin_worker_usage_losses_reach_server_metrics(tmp_path, monkeypatch,
                 ).status_code
                 == 202
             )
+            # Importing the spawned worker is setup, not the usage-reporting
+            # behavior exercised below. Keep its budget separate from the
+            # existing terminal-outcome deadline.
+            startup_deadline = time.monotonic() + 60
+            while not ready.exists() and time.monotonic() < startup_deadline:
+                time.sleep(0.01)
+            if not ready.exists():
+                log = log_directory / "all.log"
+                pytest.fail(f"Built-in worker did not finish startup\n{log.read_text() if log.exists() else ''}")
             terminal = "completed" if failure == "none" else "failed"
             deadline = time.monotonic() + 30
             while time.monotonic() < deadline:

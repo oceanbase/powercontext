@@ -1444,7 +1444,10 @@ class RelationalContexts:
     async def rebuild_portable_projections(self, scope_ids: tuple[str, ...], /) -> None:
         """Rebuild target-local search projections after a logical restore."""
 
-        from powercontext.builtin.runtime.atomic_memory_rebuild import rebuild_atomic_memory_evidence
+        from powercontext.builtin.runtime.atomic_memory_rebuild import (
+            _publish_rebuilt_record,
+            rebuild_atomic_memory_evidence,
+        )
 
         for scope_id in scope_ids:
             async with self.database.transaction() as connection:
@@ -1452,8 +1455,13 @@ class RelationalContexts:
                 await connection.execute(
                     self.atomic_memory_index.table.delete().where(self.atomic_memory_index.table.c.scope_id == scope_id)
                 )
+                await connection.execute(
+                    self.atomic_memory_index.alias_table.delete().where(
+                        self.atomic_memory_index.alias_table.c.scope_id == scope_id
+                    )
+                )
             after = ""
-            rebuilt = 0
+            rebuilt = aliases_rebuilt = 0
             while True:
                 async with self.database.transaction() as connection:
                     heads = ARTIFACT_HEADS_TABLE
@@ -1462,8 +1470,8 @@ class RelationalContexts:
                         .where(
                             heads.c.scope_id == scope_id,
                             heads.c.family == AtomicMemory.family,
-                            heads.c.lifecycle_state == "active",
-                            heads.c.merged_into_id.is_(None),
+                            (heads.c.lifecycle_state == "active")
+                            | ((heads.c.lifecycle_state == "deprecated") & heads.c.merged_into_id.is_not(None)),
                             heads.c.artifact_id > after,
                         )
                         .order_by(heads.c.artifact_id)
@@ -1475,10 +1483,23 @@ class RelationalContexts:
                 if not records:
                     break
                 for record in records:
-                    prepared = await self.atomic_memory.publisher.prepare(record.artifact.content)
+                    publisher = self.atomic_memory.publisher
+                    fingerprint = publisher.profile_fingerprint
+                    prepared = await publisher.prepare(record.artifact.content)
                     async with self.database.transaction() as connection:
-                        await self.atomic_memory.publisher.publish(connection, scope_id, record, prepared)
-                    rebuilt += 1
+                        await _publish_rebuilt_record(
+                            connection,
+                            self.atomic_memory_index,
+                            self.repositories.artifacts,
+                            publisher,
+                            scope_id,
+                            record,
+                            prepared,
+                            None,
+                            fingerprint,
+                        )
+                    aliases_rebuilt += int(record.state.state == "merged")
+                    rebuilt += int(record.state.state == "active")
                 after = records[-1].artifact.artifact_id
             async with self.database.transaction() as connection:
                 projected = int(
@@ -1489,7 +1510,15 @@ class RelationalContexts:
                     )
                     or 0
                 )
-                if projected != rebuilt:
+                aliases_projected = int(
+                    await connection.scalar(
+                        select(func.count())
+                        .select_from(self.atomic_memory_index.alias_table)
+                        .where(self.atomic_memory_index.alias_table.c.scope_id == scope_id)
+                    )
+                    or 0
+                )
+                if projected != rebuilt or aliases_projected != aliases_rebuilt:
                     raise RuntimeError("restored Atomic Memory projection is incomplete")  # noqa: TRY003
                 await rebuild_atomic_memory_evidence(
                     connection, self.atomic_memory_index, sources=self.repositories.sources, scope_id=scope_id

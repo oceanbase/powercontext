@@ -1,0 +1,101 @@
+name: Set up the locked bundle wheel builder
+description: Restore pinned build-tool downloads and create an isolated packaging environment
+inputs:
+  working-directory:
+    description: Directory containing the exported bundle requirements
+    default: build/artifact-input
+outputs:
+  python-path:
+    description: Python interpreter with the locked packaging tools
+    value: ${{ steps.plan.outputs.python-path }}
+  cache-path:
+    description: Raw build-tool wheel directory
+    value: ${{ steps.plan.outputs.cache-path }}
+  cache-key:
+    description: Build-tool lock fingerprint
+    value: ${{ steps.plan.outputs.cache-key }}
+  cache-hit:
+    description: Whether the exact raw build-tool snapshot was restored
+    value: ${{ steps.restore-s3.outputs.cache-hit || steps.restore-github.outputs.cache-hit }}
+runs:
+  using: composite
+  steps:
+    - id: backend
+      shell: bash
+      run: python3 "$GITHUB_ACTION_PATH/../../../scripts/ci_cache.py" backend
+
+    - name: Configure Python dependency mirror
+      shell: bash
+      run: python3 "$GITHUB_ACTION_PATH/../../../scripts/ci_python_mirror.py" configure
+
+    - id: plan
+      shell: bash
+      env:
+        BUNDLE_WORK: ${{ inputs.working-directory }}
+      run: python "$GITHUB_ACTION_PATH/../../../scripts/prepare_bundle_dependencies.py" tools-plan --work "$BUNDLE_WORK"
+
+    - id: restore-github
+      if: steps.backend.outputs.backend == 'github'
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+      with:
+        path: ${{ steps.plan.outputs.cache-path }}
+        key: ${{ steps.plan.outputs.cache-key }}
+
+    - id: restore-s3
+      if: steps.backend.outputs.backend == 's3'
+      uses: runs-on/cache/restore@3c223729b4fda74ee12f4976048dd69b420fdd26
+      with:
+        path: ${{ steps.plan.outputs.cache-path }}
+        key: ${{ steps.plan.outputs.cache-key }}
+      env:
+        AWS_ACCESS_KEY_ID: ${{ env.PC_CI_CACHE_ACCESS_KEY }}
+        AWS_SECRET_ACCESS_KEY: ${{ env.PC_CI_CACHE_SECRET_KEY }}
+        AWS_REGION: ${{ env.PC_CI_CACHE_REGION }}
+        RUNS_ON_S3_BUCKET_CACHE: ${{ env.PC_CI_CACHE_BUCKET }}
+        RUNS_ON_S3_BUCKET_ENDPOINT: ${{ env.PC_CI_CACHE_ENDPOINT }}
+        RUNS_ON_S3_FORCE_PATH_STYLE: 'true'
+        RUNS_ON_RUNNER_NAME: ''
+
+    - name: Download and verify pinned build-tool wheels
+      if: (steps.restore-s3.outputs.cache-hit || steps.restore-github.outputs.cache-hit) != 'true'
+      shell: bash
+      env:
+        TOOL_WHEELS: ${{ steps.plan.outputs.cache-path }}
+        TOOL_REQUIREMENTS: ${{ steps.plan.outputs.requirements }}
+      run: |
+        python "$GITHUB_ACTION_PATH/../../../scripts/ci_python_mirror.py" pip --python "$(command -v python)" download --no-deps --require-hashes --only-binary=:all: \
+          --dest "$TOOL_WHEELS" --requirement "$TOOL_REQUIREMENTS"
+
+    - name: Save build-tool downloads to GitHub before building
+      if: steps.backend.outputs.backend == 'github' && steps.restore-github.outputs.cache-hit != 'true'
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+      with:
+        path: ${{ steps.plan.outputs.cache-path }}
+        key: ${{ steps.plan.outputs.cache-key }}
+
+    - name: Save build-tool downloads to S3 before building
+      if: steps.backend.outputs.backend == 's3' && steps.restore-s3.outputs.cache-hit != 'true'
+      uses: runs-on/cache/save@3c223729b4fda74ee12f4976048dd69b420fdd26
+      with:
+        path: ${{ steps.plan.outputs.cache-path }}
+        key: ${{ steps.plan.outputs.cache-key }}
+      env:
+        AWS_ACCESS_KEY_ID: ${{ env.PC_CI_CACHE_ACCESS_KEY }}
+        AWS_SECRET_ACCESS_KEY: ${{ env.PC_CI_CACHE_SECRET_KEY }}
+        AWS_REGION: ${{ env.PC_CI_CACHE_REGION }}
+        RUNS_ON_S3_BUCKET_CACHE: ${{ env.PC_CI_CACHE_BUCKET }}
+        RUNS_ON_S3_BUCKET_ENDPOINT: ${{ env.PC_CI_CACHE_ENDPOINT }}
+        RUNS_ON_S3_FORCE_PATH_STYLE: 'true'
+        RUNS_ON_RUNNER_NAME: ''
+
+    - name: Install the pinned builder offline
+      shell: bash
+      env:
+        BUILDER_DIRECTORY: ${{ steps.plan.outputs.builder-directory }}
+        BUILDER_PYTHON: ${{ steps.plan.outputs.python-path }}
+        TOOL_WHEELS: ${{ steps.plan.outputs.cache-path }}
+        TOOL_REQUIREMENTS: ${{ steps.plan.outputs.requirements }}
+      run: |
+        python -m venv --clear "$BUILDER_DIRECTORY"
+        "$BUILDER_PYTHON" -m pip install --no-index --no-deps --require-hashes \
+          --find-links "$TOOL_WHEELS" --requirement "$TOOL_REQUIREMENTS"

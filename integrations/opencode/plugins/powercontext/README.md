@@ -46,6 +46,6 @@ reuse saved HTTP consent.
 
 Prompt-time recall is enabled by default. Set `POWERCONTEXT_OPENCODE_PROMPT_RECALL=false` when OpenCode's model
 traffic goes through the PowerContext gateway, which prepares and injects context for each turn; the plugin then sends
-no preparation request and adds no context.
+no preparation request, adds no context, and does not offer the `pc_prepare_context` tool.
 
 OpenCode 1.18.21 or newer in the 1.x line is required. Server failures are fail-open and never block normal work.

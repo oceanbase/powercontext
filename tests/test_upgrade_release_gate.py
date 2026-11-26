@@ -14,6 +14,7 @@
 
 """Release-blocking regressions, not evidence that any database upgrade works."""
 
+import inspect
 import json
 import os
 import re
@@ -572,6 +573,56 @@ def test_upgrade_cases_require_isolated_backends_and_always_clean_up():
     assert "/pc_upgrade_fresh?" in job["env"]["PC_UPGRADE_OCEANBASE_FRESH_URL"]
     cleanup = next(step for step in steps if "docker rm --force upgrade-oceanbase" in step.get("run", ""))
     assert cleanup["if"] == "always() && matrix.backend == 'oceanbase'"
+
+
+def test_upgrade_job_leaves_time_for_configuration_setup_and_evidence():
+    root = Path(__file__).parents[1]
+    job = yaml.safe_load((root / ".github/workflows/upgrade-release.yml").read_text())["jobs"]["cases"]
+    minutes = job["timeout-minutes"]
+    # Every backend needs setup/cleanup space beyond the complete acceptance
+    # process. One command guard also exceeds the declared cold OB startup path.
+    command_timeout = inspect.signature(gate.run_owned).parameters["timeout"].default
+    assert isinstance(minutes, int)
+    assert minutes * 60 > gate.CONFIGURATION_ACCEPTANCE_TIMEOUT_SECONDS + command_timeout
+
+
+def test_configuration_acceptance_has_its_own_budget_without_extending_installation(tmp_path, monkeypatch):
+    # Observe the process-owner boundary without installing wheels or claiming native acceptance.
+    signature = inspect.signature(gate.run_owned)
+    observed = {}
+
+    def execute(command, **options):
+        bound = signature.bind(command, **options)
+        bound.apply_defaults()
+        observed[options["log"].name] = bound.arguments["timeout"]
+
+    monkeypatch.setattr(gate.sys, "platform", "linux")
+    monkeypatch.setattr(gate, "run_owned", execute)
+    monkeypatch.setattr(
+        gate,
+        "installed",
+        lambda python, *_: {"powercontext": "1.3.0" if python.parent.parent.name == "source" else "2.0.0"},
+    )
+    monkeypatch.setattr(gate, "wheel_version", lambda _: "2.0.0")
+    monkeypatch.setattr(gate, "validate_case_output", lambda *_: {"backend": "sqlite"})
+    case = {
+        "backend": "sqlite",
+        "configuration": "full-server-no-vector",
+        "source_version": "1.3.0",
+        "source_artifact": {"url": "https://example.invalid/source.whl", "sha256": "a" * 64},
+        "suite": "tests/release_upgrades/test_example.py",
+    }
+
+    result = gate.run_case(tmp_path, tmp_path / "target.whl", case, tmp_path / "evidence")
+
+    assert result["status"] == "passed"
+    command_timeout = signature.parameters["timeout"].default
+    assert command_timeout == 1800
+    assert observed["acceptance.log"] > command_timeout
+    assert observed["acceptance.log"] == gate.CONFIGURATION_ACCEPTANCE_TIMEOUT_SECONDS
+    installation = [timeout for name, timeout in observed.items() if name.endswith("-install.log")]
+    assert installation and all(timeout == command_timeout for timeout in installation)
+    assert all(timeout == command_timeout for name, timeout in observed.items() if name != "acceptance.log")
 
 
 def test_oceanbase_sources_and_profiles_use_separate_provisioned_databases(tmp_path, monkeypatch):

@@ -103,7 +103,7 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
-      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+      - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
         with:
           version: '0.13.5'
           enable-cache: true
@@ -192,7 +192,7 @@ jobs:
           printf '%s\n' '{"status":"${{ job.status }}","target":"${{ matrix.target }}","qualification":"unqualified_candidate"}' > build/resource-evidence/workflow-status.json
       - name: Retain bounded diagnostics and input identities
         if: always()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        uses: ./.github/actions/upload-ci-diagnostics
         with:
           name: managed-resource-diagnostics-${{ matrix.target }}-${{ github.sha }}
           path: |
