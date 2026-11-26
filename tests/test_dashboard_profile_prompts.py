@@ -1877,3 +1877,45 @@ def test_prompt_history_pins_head_revision_and_oversized_413_preserves_scope(das
     push_url = oversized.headers.get("hx-push-url", "")
     assert parse_qs(urlsplit(push_url).query).get("scope") == [scope_other]
     assert scope_default not in push_url
+
+
+def test_invalid_prompt_saved_revision_query_returns_200_without_success_banner(dashboard: TestClient) -> None:
+    """Verify non-ASCII digits and oversized decimal prompt_saved_revision values return 200 instead of 500."""
+    _set_prompt_registry(dashboard, supported=frozenset({"profile.generate"}))
+    scope = create_scope(dashboard, "Bounded saved revision query")["scope_id"]
+    created = _post_profile_prompt(
+        dashboard,
+        scope=scope,
+        mode="custom",
+        instructions="Saved custom instructions.",
+        expected_etag="",
+        lang="en",
+    )
+    assert created.status_code == 303
+
+    valid = dashboard.get(
+        "/dashboard/prompts",
+        params={
+            "scope": scope,
+            "prompt_key": "profile.generate",
+            "prompt_saved": "1",
+            "prompt_saved_revision": "1",
+            "lang": "en",
+        },
+    )
+    assert valid.status_code == 200, valid.text
+    assert "alert-success" in valid.text
+
+    for bad_revision in ("\u00b2", "9" * 5000, "0", "-1", "abc"):
+        page = dashboard.get(
+            "/dashboard/prompts",
+            params={
+                "scope": scope,
+                "prompt_key": "profile.generate",
+                "prompt_saved": "1",
+                "prompt_saved_revision": bad_revision,
+                "lang": "en",
+            },
+        )
+        assert page.status_code == 200, f"failed for {bad_revision[:12]!r}: {page.text}"
+        assert "alert-success" not in page.text

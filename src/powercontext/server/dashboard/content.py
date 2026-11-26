@@ -319,12 +319,21 @@ async def _open_prompt_revision(
 def _profile_prompt_saved(request: Request, ctx: dict[str, Any], selected_key: str | None) -> bool:
     """Confirm a save only when the freshly read head is at or past the revision the save created."""
 
-    saved = request.query_params.get("prompt_saved_revision", "")
-    if request.query_params.get("prompt_saved") != "1" or selected_key != "profile.generate" or not saved.isdigit():
+    if request.query_params.get("prompt_saved") != "1" or selected_key != "profile.generate":
+        return False
+    try:
+        saved_revision = positive_revision(request.query_params.get("prompt_saved_revision"))
+    except ReadError:
         return False
     config = next((item for item in ctx["data"]["prompts"] if item["prompt_key"] == "profile.generate"), None)
     head = config.get("artifact") if config is not None else None
-    return isinstance(head, dict) and str(head.get("revision", "")).isdigit() and int(head["revision"]) >= int(saved)
+    if not isinstance(head, dict):
+        return False
+    try:
+        head_revision = positive_revision(str(head.get("revision", "")))
+    except ReadError:
+        return False
+    return head_revision >= saved_revision
 
 
 async def load_note_history(api: DashboardAPI, request: Request, ctx: dict[str, Any], *, snapshot=None) -> None:
