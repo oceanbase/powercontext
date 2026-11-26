@@ -1383,6 +1383,16 @@ jobs:
           persist-credentials: false
       - name: Set up the Python environment
         uses: ./.github/actions/setup-python-env
+        with:
+          cache-dependency-glob: |
+            pyproject.toml
+            uv.lock
+            integrations/langchain/pyproject.toml
+            integrations/langgraph/pyproject.toml
+            integrations/opendal/pyproject.toml
+            integrations/deepagents/pyproject.toml
+            integrations/codex/plugins/powercontext/pyproject.toml
+            integrations/codex/plugins/powercontext/uv.lock
 
       - uses: ./.github/actions/setup-mise
       - name: Restore Codex host downloads
