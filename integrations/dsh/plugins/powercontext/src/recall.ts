@@ -192,6 +192,12 @@ export async function runRecallPreStep(input: RecallInput): Promise<PreStepDecis
     }
     const userPrompt = messagesToUserPrompt(messages)
     const recalled = await recallThenCapture(automaticInput, query, userPrompt, observation)
+    // Behind a gateway the last user message is the turn: any appended message, even Scope routing, would replace
+    // the prompt as the gateway's recall query, injection target and captured user text.
+    if (!input.config.promptRecall) {
+      observation?.skip('injection', 'recall_disabled')
+      return downstream
+    }
     if (recalled.content) observation?.record('injection', { state: 'running' })
     // The automatic deadline only bounds waiting; host cancellation still withdraws results that settled in time.
     const cancelled = input.signal?.aborted === true
@@ -247,7 +253,8 @@ async function recallThenCapture(
     return {}
   }
   observation?.scope(scopeId)
-  const content = await recallContent(input, query, scopeId, observation)
+  if (!input.config.promptRecall) observation?.skip('prepare', 'recall_disabled')
+  const content = input.config.promptRecall ? await recallContent(input, query, scopeId, observation) : undefined
   // Preparation results are final once they settle before the deadline; later capture/flush cannot withdraw them.
   const settled = input.signal?.aborted ? {} : { scopeId, content: content ?? undefined }
   observation?.skip('capture', input.signal?.aborted ? cancellationReason(input.signal) : 'no_user_text')

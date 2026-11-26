@@ -3392,6 +3392,7 @@ const SKIP_REASONS = {
 	empty_input: "The supplied messages contain no non-empty text.",
 	no_user_text: "No non-empty user-authored text was eligible for capture.",
 	capture_disabled: "Automatic prompt capture is disabled in the running plugin.",
+	recall_disabled: "Automatic prompt-time recall is disabled in the running plugin.",
 	source_too_long: "The user text exceeds the Source length limit.",
 	sensitive_content: "The user text matched the secret exclusion rules.",
 	scope_unresolved: "No Scope was resolved for this attempt.",
@@ -3661,6 +3662,7 @@ const DEFAULTS = {
 	timeoutMs: 4e3,
 	requestTimeoutMs: 3e3,
 	maxBytes: 8e3,
+	promptRecall: true,
 	capturePrompts: true,
 	flushOnCapture: false,
 	flushMaxCalls: 4,
@@ -3742,6 +3744,7 @@ function resolveConfig(config = {}, env = process.env) {
 		timeoutMs: config.timeoutMs ?? DEFAULTS.timeoutMs,
 		requestTimeoutMs: config.requestTimeoutMs ?? DEFAULTS.requestTimeoutMs,
 		maxBytes,
+		promptRecall: envBoolean(env, "POWERCONTEXT_DSH_PROMPT_RECALL") ?? config.promptRecall ?? DEFAULTS.promptRecall,
 		capturePrompts: envBoolean(env, "POWERCONTEXT_DSH_CAPTURE_PROMPTS") ?? config.capturePrompts ?? DEFAULTS.capturePrompts,
 		flushOnCapture: envBoolean(env, "POWERCONTEXT_DSH_FLUSH_ON_CAPTURE") ?? config.flushOnCapture ?? DEFAULTS.flushOnCapture,
 		flushMaxCalls: config.flushMaxCalls ?? DEFAULTS.flushMaxCalls,
@@ -4301,6 +4304,10 @@ async function runRecallPreStep(input) {
 			return downstream;
 		}
 		const recalled = await recallThenCapture(automaticInput, query, messagesToUserPrompt(messages), observation);
+		if (!input.config.promptRecall) {
+			observation?.skip("injection", "recall_disabled");
+			return downstream;
+		}
 		if (recalled.content) observation?.record("injection", { state: "running" });
 		const cancelled = input.signal?.aborted === true;
 		if (!recalled.scopeId && !recalled.content || cancelled) {
@@ -4364,7 +4371,8 @@ async function recallThenCapture(input, query, userPrompt, observation) {
 		return {};
 	}
 	observation?.scope(scopeId);
-	const content = await recallContent(input, query, scopeId, observation);
+	if (!input.config.promptRecall) observation?.skip("prepare", "recall_disabled");
+	const content = input.config.promptRecall ? await recallContent(input, query, scopeId, observation) : void 0;
 	const settled = input.signal?.aborted ? {} : {
 		scopeId,
 		content: content ?? void 0
@@ -5714,6 +5722,22 @@ function registerRecall(ctx, runtime, createUserMessage, resolveSessionScope) {
 		});
 	}));
 }
+/** The gateway prepares once per user message and captures turns per conversation named by this header. */
+const CONVERSATION_HEADER = "X-PowerContext-Conversation-ID";
+const CONVERSATION_ID = /^[\x21-\x7e]{1,256}$/;
+/**
+* Name the gateway conversation on each model request of a session's agent loop. DSH marks its other model
+* requests in the session, such as compaction, session titles and auto review, with a `purpose`; they are not
+* turns of the conversation and carry no header. The hook is synchronous and must not throw.
+*/
+function registerConversationHeader(ctx) {
+	ctx.on("llm-pi-ai/request-headers", ((request$2, _headers, next) => {
+		const result = next();
+		const conversation = request$2.sessionId;
+		if (request$2.purpose === void 0 && typeof conversation === "string" && CONVERSATION_ID.test(conversation)) result.set(CONVERSATION_HEADER, conversation);
+		return result;
+	}));
+}
 function registerSkill(ctx) {
 	const skills = requireService(ctx, "skills");
 	const skillRoot = new URL("../skills/powercontext-project-context/", import.meta.url);
@@ -5738,8 +5762,9 @@ async function apply(ctx, config) {
 	registerSkill(ctx);
 	registerGuidance(ctx);
 	registerRecall(ctx, runtime, llmMod.createUserMessage, sessionScope.forPreStep);
+	if (!runtime.config.promptRecall) registerConversationHeader(ctx);
 	registerCommands(ctx, runtime);
-	registerCompanionMemory(ctx, runtime);
+	if (runtime.config.promptRecall) registerCompanionMemory(ctx, runtime);
 	registerStatusBridge(ctx, runtime);
 	registerUpdateBridge(ctx, runtime);
 	await registerMcp(ctx, runtime.config);

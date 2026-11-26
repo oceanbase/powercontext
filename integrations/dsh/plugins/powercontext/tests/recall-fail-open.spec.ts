@@ -29,6 +29,7 @@ const config: ResolvedConfig = {
   timeoutMs: 4000,
   requestTimeoutMs: 1000,
   maxBytes: 8000,
+  promptRecall: true,
   capturePrompts: true,
   flushOnCapture: false,
   flushMaxCalls: 4,

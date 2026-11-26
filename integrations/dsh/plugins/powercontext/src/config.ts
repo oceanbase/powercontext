@@ -28,6 +28,8 @@ export interface PluginConfig {
   timeoutMs?: number
   requestTimeoutMs?: number
   maxBytes?: number
+  /** Prepare and inject context before each model step; turn off when a gateway does this. */
+  promptRecall?: boolean
   capturePrompts?: boolean
   flushOnCapture?: boolean
   flushMaxCalls?: number
@@ -47,6 +49,7 @@ export interface ResolvedConfig {
   timeoutMs: number
   requestTimeoutMs: number
   maxBytes: number
+  promptRecall: boolean
   capturePrompts: boolean
   flushOnCapture: boolean
   flushMaxCalls: number
@@ -67,6 +70,7 @@ const DEFAULTS: ResolvedConfig = {
   timeoutMs: 4000,
   requestTimeoutMs: 3000,
   maxBytes: 8000,
+  promptRecall: true,
   capturePrompts: true,
   flushOnCapture: false,
   flushMaxCalls: 4,
@@ -164,6 +168,7 @@ export function resolveConfig(
     timeoutMs: config.timeoutMs ?? DEFAULTS.timeoutMs,
     requestTimeoutMs: config.requestTimeoutMs ?? DEFAULTS.requestTimeoutMs,
     maxBytes,
+    promptRecall: envBoolean(env, 'POWERCONTEXT_DSH_PROMPT_RECALL') ?? config.promptRecall ?? DEFAULTS.promptRecall,
     capturePrompts: envBoolean(env, 'POWERCONTEXT_DSH_CAPTURE_PROMPTS') ?? config.capturePrompts ?? DEFAULTS.capturePrompts,
     flushOnCapture: envBoolean(env, 'POWERCONTEXT_DSH_FLUSH_ON_CAPTURE') ?? config.flushOnCapture ?? DEFAULTS.flushOnCapture,
     flushMaxCalls: config.flushMaxCalls ?? DEFAULTS.flushMaxCalls,

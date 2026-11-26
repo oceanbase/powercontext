@@ -161,6 +161,31 @@ function registerRecall(
   }) as never)
 }
 
+/** The gateway prepares once per user message and captures turns per conversation named by this header. */
+const CONVERSATION_HEADER = 'X-PowerContext-Conversation-ID'
+// The gateway accepts 1-256 visible ASCII characters and ignores anything else.
+const CONVERSATION_ID = /^[\x21-\x7e]{1,256}$/
+
+/**
+ * Name the gateway conversation on each model request of a session's agent loop. DSH marks its other model
+ * requests in the session, such as compaction, session titles and auto review, with a `purpose`; they are not
+ * turns of the conversation and carry no header. The hook is synchronous and must not throw.
+ */
+function registerConversationHeader(ctx: Context): void {
+  ctx.on('llm-pi-ai/request-headers', ((
+    request: { sessionId?: unknown; purpose?: unknown },
+    _headers: Headers,
+    next: () => Headers,
+  ) => {
+    const result = next()
+    const conversation = request.sessionId
+    if (request.purpose === undefined && typeof conversation === 'string' && CONVERSATION_ID.test(conversation)) {
+      result.set(CONVERSATION_HEADER, conversation)
+    }
+    return result
+  }) as never)
+}
+
 function registerSkill(ctx: Context): void {
   const skills = requireService<{ register(skill: Record<string, unknown>): unknown }>(ctx, 'skills')
   const skillRoot = new URL('../skills/powercontext-project-context/', import.meta.url)
@@ -183,8 +208,12 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   registerSkill(ctx)
   registerGuidance(ctx)
   registerRecall(ctx, runtime, llmMod.createUserMessage, sessionScope.forPreStep)
+  // Prompt recall is off when the gateway injects context. Only then does the session id name a gateway
+  // conversation, so a provider that DSH calls directly while recall is on does not receive it.
+  if (!runtime.config.promptRecall) registerConversationHeader(ctx)
   registerCommands(ctx, runtime)
-  registerCompanionMemory(ctx, runtime)
+  // Its content carries a prepared-context block, which a gateway rejects unless the gateway injected it.
+  if (runtime.config.promptRecall) registerCompanionMemory(ctx, runtime)
   registerStatusBridge(ctx, runtime)
   registerUpdateBridge(ctx, runtime)
   await registerMcp(ctx, runtime.config)

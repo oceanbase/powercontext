@@ -17,7 +17,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import { existsSync } from 'node:fs'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { apply } from '../src/index.ts'
+import { apply, COMPANION_MEMORY_SERVICE } from '../src/index.ts'
 import type { PluginConfig } from '../src/config.ts'
 import type { PreStepDecision, PromptMessage } from '../src/recall.ts'
 import { shippedConfig } from './shipped-config.ts'
@@ -59,7 +59,10 @@ async function fixture(
   type ToolDecision = { kind: 'allow' } | { kind: 'deny'; reason: string } | { kind: 'ask'; reason?: string }
   type ToolHook = (payload: unknown, next: () => Promise<ToolDecision>) => Promise<ToolDecision>
   let toolHook: ToolHook | undefined
+  type HeaderHook = (request: unknown, headers: Headers, next: () => Headers) => Headers
+  let headerHook: HeaderHook | undefined
   const registered: Array<Record<string, unknown>> = []
+  const provided = new Map<string, unknown>()
   const registry = {
     register: (definition: Record<string, unknown>) => {
       registered.push(definition)
@@ -75,10 +78,13 @@ async function fixture(
   await apply({
     tools: registry,
     get: () => registry,
-    on: (name: string, listener: Hook & ToolHook) => {
+    on: (name: string, listener: Hook & ToolHook & HeaderHook) => {
       if (name === 'agent/pre-step') hook = listener
       if (name === 'tools/pre-execute') toolHook = listener
+      if (name === 'llm-pi-ai/request-headers') headerHook = listener
     },
+    provide: (name: string, service: unknown) => provided.set(name, service),
+    effect: () => {},
     logger,
   } as unknown as Context, {
     baseUrl: 'http://127.0.0.1:8765',
@@ -105,12 +111,19 @@ async function fixture(
     signal: new AbortController().signal,
     agent: { session: { header: { id: 'test-session' } } },
   }, async () => ({ kind: 'allow' }))
+  // Mirrors how llm-pi-ai runs the waterfall: the route's headers in, the final request headers out.
+  const providerHeaders = headerHook && ((request: Record<string, unknown>) => {
+    const headers = new Headers({ 'x-route': 'configured' })
+    return Object.fromEntries(headerHook!(Object.freeze(request), headers, () => headers))
+  })
   return {
     run,
     search,
+    providerHeaders,
     requests,
     logger,
     registered,
+    provided,
     diagnostics: () => logger.warn.mock.calls.map(([line]) => JSON.parse(line)),
   }
 }
@@ -137,6 +150,7 @@ function messageInSection(messages: unknown[] | undefined, sectionName: string) 
 }
 
 afterEach(() => {
+  vi.unstubAllEnvs()
   vi.unstubAllGlobals()
   vi.restoreAllMocks()
   peers.createUserMessage.mockReset().mockImplementation((input: unknown) => input)
@@ -476,6 +490,51 @@ describe('registered automatic path', () => {
     const rejected = await fixture(successfulRequest)
     expect(await rejected.run({ next: async () => ({ kind: 'reject' }) })).toEqual({ kind: 'reject' })
     expect(rejected.requests).toEqual([])
+  })
+
+  it('prepares, injects and offers companion memory by default', async () => {
+    const h = await fixture(successfulRequest)
+    const result = await h.run()
+    expect(h.requests.map(({ path }) => path)).toEqual([SCOPE, PREPARE, CAPTURE])
+    expect(messageInSection(result.messages, 'PowerContext').content[0].text).toContain(TEXT)
+    expect(h.provided.has(COMPANION_MEMORY_SERVICE)).toBe(true)
+  })
+
+  it.each([
+    ['plugin config', { promptRecall: false }, {}],
+    ['environment', { promptRecall: true }, { POWERCONTEXT_DSH_PROMPT_RECALL: 'false' }],
+  ] as const)('leaves prompt-time context to a gateway when recall is off through %s', async (_, config, env) => {
+    for (const [name, value] of Object.entries(env)) vi.stubEnv(name, value)
+    const h = await fixture(successfulRequest, config)
+    const result = await h.run()
+    if (!('messages' in result) || !result.messages) throw new Error('downstream step did not enter')
+    expect(h.requests.map(({ path }) => path)).toEqual([SCOPE, CAPTURE])
+    // The prompt stays the last user message, which the gateway treats as the turn.
+    expect(result.messages).toEqual([userMessage])
+    expect(h.provided.has(COMPANION_MEMORY_SERVICE)).toBe(false)
+    expect(await h.search()).toEqual({ kind: 'allow' })
+    expect(h.diagnostics()).toEqual([])
+  })
+
+  it('names the gateway conversation on agent-loop model requests only while recall is off', async () => {
+    expect((await fixture(successfulRequest)).providerHeaders).toBeUndefined()
+    const h = await fixture(successfulRequest, { promptRecall: false })
+    const route = { provider: 'powercontext-gateway', model: 'approved-model', baseURL: 'http://127.0.0.1:8787/gateway/v1' }
+    expect(h.providerHeaders!({ ...route, sessionId: 'session-01' })).toEqual({
+      'x-route': 'configured', 'x-powercontext-conversation-id': 'session-01',
+    })
+    for (const purpose of ['compaction', 'session-title', 'auto-review']) {
+      expect(h.providerHeaders!({ ...route, sessionId: 'session-01', purpose })).toEqual({ 'x-route': 'configured' })
+    }
+    for (const sessionId of [undefined, '', 'has space', 'x'.repeat(257), '会话']) {
+      expect(h.providerHeaders!({ ...route, sessionId })).toEqual({ 'x-route': 'configured' })
+    }
+  })
+
+  it('sends only Scope resolution for a prompt when recall and capture are both off', async () => {
+    const h = await fixture(successfulRequest, { promptRecall: false, capturePrompts: false })
+    await h.run()
+    expect(h.requests.map(({ path }) => path)).toEqual([SCOPE])
   })
 
   it('treats empty as normal and never captures injected content', async () => {
