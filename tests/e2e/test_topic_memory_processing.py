@@ -40,6 +40,7 @@ from powercontext.builtin.persistence.artifacts import RepositoryArtifactDraft
 from powercontext.builtin.persistence.cursors import SourceCursorRepository
 from powercontext.builtin.persistence.processing_intents import ArtifactProcessingIntentRepository
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
+from powercontext.builtin.records import ArtifactWrite
 from powercontext.builtin.runtime.artifact_processing import (
     ArtifactProcessingBinding,
     ArtifactProcessingSupervisor,
@@ -370,6 +371,17 @@ def test_source_capture_to_multi_window_create_update_noop(tmp_path) -> None:
                 ArtifactRef(family="topic-memory", artifact_id="topic-e2e", revision=1),
                 probe_ref,
             )
+
+            # A manual replace of the Worker head links that head only; its Prompt stays reachable through it.
+            manual = await contexts.records.replace_artifact(
+                "scope-a",
+                "topic-memory",
+                "topic-e2e",
+                '"revision:2"',
+                ArtifactWrite(content=_content("manual").model_dump()),
+            )
+            assert manual.revision == 3
+            assert manual.artifacts == (ArtifactRef(family="topic-memory", artifact_id="topic-e2e", revision=2),)
 
     asyncio.run(scenario())
 

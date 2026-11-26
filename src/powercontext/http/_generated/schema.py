@@ -15492,6 +15492,45 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     },
                     "source_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
                     "content": {"description": "Persisted canonical JSON content."},
+                    "metadata": {
+                        "additionalProperties": True,
+                        "type": "object",
+                        "description": "Caller-supplied "
+                        "metadata "
+                        "for a "
+                        "Content "
+                        "Source, "
+                        "returned "
+                        "unchanged; "
+                        "an empty "
+                        "object "
+                        "for "
+                        "Sources "
+                        "that "
+                        "carry no "
+                        "caller "
+                        "metadata. "
+                        "Responses "
+                        "from "
+                        "servers "
+                        "that "
+                        "predate "
+                        "this "
+                        "field "
+                        "omit it, "
+                        "which "
+                        "clients "
+                        "report as "
+                        "null and "
+                        "must not "
+                        "treat as "
+                        "proof "
+                        "that the "
+                        "Source "
+                        "has no "
+                        "metadata.",
+                        "nullable": True,
+                    },
                     "position": {"type": "integer", "minimum": 1.0},
                     "content_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
                 },

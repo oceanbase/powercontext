@@ -31,7 +31,8 @@ use pc_gateway_protocol::{
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
-use std::sync::Arc;
+use std::hash::{BuildHasher, RandomState};
+use std::sync::{Arc, LazyLock};
 
 #[derive(Debug, Deserialize)]
 struct OpenAiChatRequest {
@@ -681,7 +682,27 @@ async fn ingress_model(
         return subscription_auth_failed();
     };
 
-    let conversation = conversation_id(&headers, &format);
+    let conversation = header_conversation_id(&headers, &format);
+    let injection = if subscription_kind == Some(pc_gateway_auth::Subscription::Gemini) {
+        Injection::Off
+    } else {
+        state.injection
+    };
+    let injection_enabled = injects(&format, injection, state.inject_responses, true);
+    let history_id = if injection_enabled && conversation.is_none() {
+        history_conversation_id(&canonical, &format)
+    } else {
+        None
+    };
+    let inject_context = injects(
+        &format,
+        injection,
+        state.inject_responses,
+        conversation.is_some() || history_id.is_some(),
+    );
+    if injection_enabled && !inject_context {
+        tracing::warn!("context injection skipped: no conversation identity");
+    }
     let call = ManagedCall {
         scope_id: state.default_scope.clone(),
         target_profile: state.upstream_profile.clone(),
@@ -696,13 +717,7 @@ async fn ingress_model(
         } else {
             pc_gateway_core::DegradePolicy::Pause
         },
-        inject_context: subscription_kind != Some(pc_gateway_auth::Subscription::Gemini)
-            && injects(
-                &format,
-                state.injection,
-                state.inject_responses,
-                conversation.is_some(),
-            ),
+        inject_context,
         include_code: state.inject_code,
         capture_prefix: state.prefix_extraction,
         conversation_id: conversation,
@@ -724,7 +739,13 @@ async fn ingress_model(
     }
     let outcome = state
         .executor
-        .run(control, call, &renderer, state.evidence.as_ref())
+        .run_with_replay_identity(
+            control,
+            call,
+            &renderer,
+            state.evidence.as_ref(),
+            history_id.as_deref(),
+        )
         .await;
     if client_stream {
         return respond_responses_sse(outcome);
@@ -1005,9 +1026,8 @@ fn injects(format: &Format, injection: Injection, responses: bool, has_conversat
 ///   `session-id` 和 `prompt_cache_key` 不用作身份。`thread-id` 不带客户端前缀，所以只在 Responses
 ///   入口识别。
 ///
-/// 各来源加不同前缀，互不相同。值须为 1～256 个可见 ASCII 字符；都没有时按没有会话处理：
-/// 不在请求之间重放准备结果，请求照常处理。
-fn conversation_id(headers: &HeaderMap, format: &Format) -> Option<String> {
+/// 各来源加不同前缀，互不相同。值须为 1～256 个可见 ASCII 字符。
+fn header_conversation_id(headers: &HeaderMap, format: &Format) -> Option<String> {
     if let Some(id) = header_id(headers, CONVERSATION_ID_HEADER) {
         return Some(format!("powercontext:{id}"));
     }
@@ -1027,6 +1047,58 @@ fn conversation_id(headers: &HeaderMap, format: &Format) -> Option<String> {
         }
         Format::Chat => None,
     }
+}
+
+/// Infer a process-local replay identity from instructions and the opening user message.
+/// Provider-managed continuations carry only part of the conversation history.
+fn history_conversation_id(request: &CanonicalRequest, format: &Format) -> Option<String> {
+    if request.previous_response_id.is_some() || request.conversation.is_some() {
+        return None;
+    }
+    let first_user = request.messages.iter().position(|m| m.role == Role::User)?;
+    let (opening, instructions) = request.messages[..=first_user].split_last()?;
+    if opening.content.is_empty()
+        || matches!(opening.content.as_slice(), [serde_json::Value::String(text)] if text.trim().is_empty())
+    {
+        return None;
+    }
+    let route = match format {
+        Format::Chat => {
+            if !instructions
+                .iter()
+                .all(|m| matches!(m.role, Role::System | Role::Developer))
+            {
+                return None;
+            }
+            "chat"
+        }
+        Format::Responses => {
+            // Canonical Responses preserves non-user input items as opaque values.
+            if !instructions.iter().all(|m| {
+                let [item] = m.content.as_slice() else {
+                    return false;
+                };
+                matches!(
+                    item.get("role").and_then(|v| v.as_str()),
+                    Some("system" | "developer")
+                ) && matches!(
+                    item.get("type").and_then(|v| v.as_str()),
+                    None | Some("message")
+                )
+            }) {
+                return None;
+            }
+            "responses"
+        }
+    };
+    let prefix = serde_json::to_vec(&(
+        &request.model,
+        &request.instructions,
+        &request.messages[..=first_user],
+    ))
+    .ok()?;
+    static HASHER: LazyLock<RandomState> = LazyLock::new(RandomState::new);
+    Some(format!("history:{route}:{:016x}", HASHER.hash_one(prefix)))
 }
 
 fn header_id<'a>(headers: &'a HeaderMap, name: &str) -> Option<&'a str> {
@@ -2623,6 +2695,139 @@ pub(crate) mod tests {
         assert!(!injects(&Format::Chat, Injection::Off, true, true));
     }
 
+    fn chat_turn_kind(request: serde_json::Value) -> pc_gateway_types::TurnKind {
+        let parsed: OpenAiChatRequest = serde_json::from_value(request).unwrap();
+        pc_gateway_protocol::turn_kind(&to_canonical_chat(parsed).unwrap(), "messages")
+    }
+
+    fn responses_turn_kind(request: serde_json::Value) -> pc_gateway_types::TurnKind {
+        let parsed: OpenAiResponsesRequest = serde_json::from_value(request).unwrap();
+        pc_gateway_protocol::turn_kind(&to_canonical_responses(parsed).unwrap(), "input")
+    }
+
+    #[test]
+    fn chat_requests_are_classified_by_their_canonical_tail() {
+        use pc_gateway_types::TurnKind;
+        for (messages, expected) in [
+            (serde_json::json!([]), TurnKind::Empty),
+            (
+                serde_json::json!([{"role": "system", "content": "s"}]),
+                TurnKind::Empty,
+            ),
+            (
+                serde_json::json!([{"role": "user", "content": "hi"}]),
+                TurnKind::UserTurn,
+            ),
+            (
+                serde_json::json!([
+                    {"role": "user", "content": "hi"},
+                    {"role": "assistant", "content": "ok"}
+                ]),
+                TurnKind::AssistantOnly,
+            ),
+            (
+                serde_json::json!([{
+                    "role": "assistant",
+                    "content": null,
+                    "tool_calls": [{"id": "c1", "type": "function",
+                        "function": {"name": "run", "arguments": "{}"}}]
+                }]),
+                TurnKind::ToolContinuation,
+            ),
+            (
+                serde_json::json!([{"role": "tool", "tool_call_id": "c1", "content": "ok"}]),
+                TurnKind::ToolContinuation,
+            ),
+        ] {
+            assert_eq!(
+                chat_turn_kind(serde_json::json!({"model": "m", "messages": messages})),
+                expected,
+                "{messages}"
+            );
+        }
+    }
+
+    #[test]
+    fn responses_requests_are_classified_by_items_not_the_passthrough_role() {
+        use pc_gateway_types::TurnKind;
+        for (input, expected) in [
+            (serde_json::json!([]), TurnKind::Empty),
+            (
+                serde_json::json!([{"type": "message", "role": "user",
+                    "content": [{"type": "input_text", "text": "继续"}]}]),
+                TurnKind::UserTurn,
+            ),
+            (
+                serde_json::json!([{"type": "message", "role": "assistant",
+                    "content": [{"type": "output_text", "text": "ok"}]}]),
+                TurnKind::AssistantOnly,
+            ),
+            (
+                serde_json::json!([
+                    {"type": "message", "role": "user",
+                        "content": [{"type": "input_text", "text": "继续"}]},
+                    {"type": "message", "role": "assistant",
+                        "content": [{"type": "output_text", "text": "done"}]}
+                ]),
+                TurnKind::AssistantOnly,
+            ),
+            (
+                serde_json::json!([{"type": "message", "role": "developer",
+                    "content": [{"type": "input_text", "text": "reminder"}]}]),
+                TurnKind::Empty,
+            ),
+            (
+                serde_json::json!([{"type": "message", "role": "system",
+                    "content": [{"type": "input_text", "text": "s"}]}]),
+                TurnKind::Empty,
+            ),
+            // 新用户提问之后跟一条 developer 提示：尾部仍是该用户回合。
+            (
+                serde_json::json!([
+                    {"type": "message", "role": "user",
+                        "content": [{"type": "input_text", "text": "继续"}]},
+                    {"type": "message", "role": "developer",
+                        "content": [{"type": "input_text", "text": "harness reminder"}]}
+                ]),
+                TurnKind::UserTurn,
+            ),
+            (
+                serde_json::json!([{"type": "function_call", "call_id": "c1",
+                    "name": "run", "arguments": "{}"}]),
+                TurnKind::ToolContinuation,
+            ),
+            (
+                serde_json::json!([{"type": "function_call_output", "call_id": "c1",
+                    "output": "ok"}]),
+                TurnKind::ToolContinuation,
+            ),
+            (
+                serde_json::json!([{"type": "computer_call_output", "call_id": "c2",
+                    "output": "ok"}]),
+                TurnKind::ToolContinuation,
+            ),
+            (
+                serde_json::json!([{"type": "mcp_approval_request"}]),
+                TurnKind::ToolContinuation,
+            ),
+            (
+                serde_json::json!([{"type": "mcp_approval_response"}]),
+                TurnKind::ToolContinuation,
+            ),
+            // 类型省略的消息 item 走同一路径。
+            (
+                serde_json::json!([{"role": "developer", "content": "reminder"}]),
+                TurnKind::Empty,
+            ),
+        ] {
+            assert_eq!(
+                responses_turn_kind(serde_json::json!({"model": "m", "input": input})),
+                expected,
+                "{input}"
+            );
+        }
+    }
+
     #[test]
     fn the_default_injects_only_requests_with_a_conversation_id() {
         assert!(injects(
@@ -2652,18 +2857,18 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn conversation_id_comes_only_from_a_valid_header() {
+    fn header_conversation_id_requires_a_valid_header() {
         let mut headers = HeaderMap::new();
-        assert_eq!(conversation_id(&headers, &Format::Chat), None);
+        assert_eq!(header_conversation_id(&headers, &Format::Chat), None);
         headers.insert(CONVERSATION_ID_HEADER, "coding-client-001".parse().unwrap());
         assert_eq!(
-            conversation_id(&headers, &Format::Chat).as_deref(),
+            header_conversation_id(&headers, &Format::Chat).as_deref(),
             Some("powercontext:coding-client-001")
         );
         headers.insert(CONVERSATION_ID_HEADER, "has space".parse().unwrap());
-        assert_eq!(conversation_id(&headers, &Format::Chat), None);
+        assert_eq!(header_conversation_id(&headers, &Format::Chat), None);
         headers.insert(CONVERSATION_ID_HEADER, "x".repeat(257).parse().unwrap());
-        assert_eq!(conversation_id(&headers, &Format::Chat), None);
+        assert_eq!(header_conversation_id(&headers, &Format::Chat), None);
     }
 
     /// Codex 0.145 的请求头：同一会话的父线程与子代理线程共享 `session-id`，`thread-id` 不同。
@@ -2682,23 +2887,23 @@ pub(crate) mod tests {
     fn codex_threads_are_separate_conversations_on_the_responses_route() {
         let root = codex_headers("019a0000-0000-7000-8000-00000000000a");
         let child = codex_headers("019a0000-0000-7000-8000-00000000000b");
-        let root_id = conversation_id(&root, &Format::Responses);
+        let root_id = header_conversation_id(&root, &Format::Responses);
         assert_eq!(
             root_id.as_deref(),
             Some("codex-thread:019a0000-0000-7000-8000-00000000000a")
         );
         assert_eq!(
-            conversation_id(&root, &Format::Responses),
+            header_conversation_id(&root, &Format::Responses),
             root_id,
             "every request of a thread"
         );
-        assert_ne!(conversation_id(&child, &Format::Responses), root_id);
+        assert_ne!(header_conversation_id(&child, &Format::Responses), root_id);
         // 只在 Responses 入口识别 Codex 的线程头；宿主提供的会话 ID 优先。
-        assert_eq!(conversation_id(&root, &Format::Chat), None);
+        assert_eq!(header_conversation_id(&root, &Format::Chat), None);
         let mut hosted = root.clone();
         hosted.insert(CONVERSATION_ID_HEADER, "host-1".parse().unwrap());
         assert_eq!(
-            conversation_id(&hosted, &Format::Responses).as_deref(),
+            header_conversation_id(&hosted, &Format::Responses).as_deref(),
             Some("powercontext:host-1")
         );
     }
@@ -2714,14 +2919,14 @@ pub(crate) mod tests {
         nested.insert(CLAUDE_CODE_AGENT_HEADER, "agent-b".parse().unwrap());
         nested.insert("x-claude-code-parent-agent-id", "agent-a".parse().unwrap());
         for format in [Format::Chat, Format::Responses] {
-            let main_id = conversation_id(&main, &format);
+            let main_id = header_conversation_id(&main, &format);
             assert_eq!(main_id.as_deref(), Some("claude-code:session-1"));
             assert_eq!(
-                conversation_id(&subagent, &format).as_deref(),
+                header_conversation_id(&subagent, &format).as_deref(),
                 Some("claude-code:session-1 agent-a")
             );
             assert_eq!(
-                conversation_id(&nested, &format).as_deref(),
+                header_conversation_id(&nested, &format).as_deref(),
                 Some("claude-code:session-1 agent-b")
             );
         }
@@ -2732,8 +2937,8 @@ pub(crate) mod tests {
             "session-1/agent-a".parse().unwrap(),
         );
         assert_ne!(
-            conversation_id(&slash, &Format::Chat),
-            conversation_id(&subagent, &Format::Chat)
+            header_conversation_id(&slash, &Format::Chat),
+            header_conversation_id(&subagent, &Format::Chat)
         );
     }
 
@@ -2753,11 +2958,11 @@ pub(crate) mod tests {
         );
         for format in [Format::Chat, Format::Responses] {
             assert_eq!(
-                conversation_id(&parent, &format).as_deref(),
+                header_conversation_id(&parent, &format).as_deref(),
                 Some("opencode:ses_parent")
             );
             assert_eq!(
-                conversation_id(&child, &format).as_deref(),
+                header_conversation_id(&child, &format).as_deref(),
                 Some("opencode:ses_child")
             );
         }
@@ -2765,7 +2970,7 @@ pub(crate) mod tests {
         let mut affinity_only = HeaderMap::new();
         affinity_only.insert("x-opencode-session", affinity.parse().unwrap());
         affinity_only.insert("x-session-affinity", affinity.parse().unwrap());
-        assert_eq!(conversation_id(&affinity_only, &Format::Chat), None);
+        assert_eq!(header_conversation_id(&affinity_only, &Format::Chat), None);
     }
 
     #[test]
@@ -2776,7 +2981,7 @@ pub(crate) mod tests {
         headers.insert(CONVERSATION_ID_HEADER, "host-1".parse().unwrap());
         for format in [Format::Chat, Format::Responses] {
             assert_eq!(
-                conversation_id(&headers, &format).as_deref(),
+                header_conversation_id(&headers, &format).as_deref(),
                 Some("powercontext:host-1")
             );
         }
