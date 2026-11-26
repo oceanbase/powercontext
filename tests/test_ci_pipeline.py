@@ -346,7 +346,8 @@ def test_automatic_host_workflows_share_one_scope_and_admission_gate():
     for job in main.values():
         if not job.get("uses", "").endswith(".yml") or "ci-changes" in job["uses"] or "upgrade-release" in job["uses"]:
             continue
-        child = workflow(Path(job["uses"]).name)
+        child_name = Path(job["uses"]).name
+        child = workflow(child_name)
         assert "pull_request" not in child["on"]
         assert "schedule" not in child["on"]
         assert "master" not in child["on"].get("push", {}).get("branches", [])
@@ -354,7 +355,11 @@ def test_automatic_host_workflows_share_one_scope_and_admission_gate():
         assert {"quality", "tests"} <= set(job["needs"])
         assert "needs.quality.result == 'success'" in job["if"]
         assert "needs.tests.result" in job["if"]
-        assert child["jobs"]["changes"]["if"] == "${{ inputs.suites == '' }}"
+        scope_gate = "inputs.suites == ''"
+        if child_name == "desktop.yml":
+            # An explicit Desktop dispatch runs platform validation for the selected ref.
+            scope_gate += " && github.event_name != 'workflow_dispatch'"
+        assert child["jobs"]["changes"]["if"] == "${{ " + scope_gate + " }}"
         for child_job in child["jobs"].values():
             if "needs.changes.result" in child_job.get("if", ""):
                 assert "(inputs.suites == '' && needs.changes.result != 'success')" in child_job["if"]
