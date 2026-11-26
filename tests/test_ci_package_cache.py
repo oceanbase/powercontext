@@ -104,6 +104,49 @@ def make_service(module, path, upstream, events=None):
     return module.PackageCacheServer(("127.0.0.1", 0), cache)
 
 
+@pytest.mark.parametrize("prefix", ["/pypi/simple/", "/pypi/packages/", "/debian/", "/debian-security/"])
+def test_invalid_repository_paths_are_rejected_before_fetch_or_cache_write(
+    service_module, tmp_path, monkeypatch, prefix
+):
+    requests = []
+
+    def no_network(request, **kwargs):
+        requests.append(request.full_url)
+        message = "This validation test must not access an upstream"
+        raise OSError(message)
+
+    monkeypatch.setattr(service_module, "urlopen", no_network)
+    with serving(make_service(service_module, tmp_path, "https://repository.invalid")) as endpoint:
+        for suffix in (
+            "urn:artifact",
+            "https://repository.invalid/artifact.whl",
+            "//repository.invalid/artifact.whl",
+            "/artifact.whl",
+            "%2e%2e/artifact.whl",
+        ):
+            for method in ("GET", "HEAD"):
+                assert get(endpoint + prefix + suffix, method=method)[0] == 404
+    assert requests == []
+    assert list(tmp_path.iterdir()) == []
+
+
+@pytest.mark.parametrize(
+    ("route", "expected"),
+    [
+        ("/pypi/simple/", "/primary/simple/"),
+        ("/pypi/packages/aa/pkg%2Bbuild.whl?download=1", "/primary/packages/aa/pkg%2Bbuild.whl?download=1"),
+        ("/debian/pool/p/pkg_1%3a2_amd64.deb", "/primary/debian/pool/p/pkg_1%3a2_amd64.deb"),
+        ("/debian-security/dists/bookworm/InRelease", "/primary/security/dists/bookworm/InRelease"),
+    ],
+)
+def test_repository_paths_and_queries_keep_the_configured_origin(service_module, tmp_path, route, expected):
+    origin = Origin()
+    origin.responses[expected] = 200, b"repository content", {}
+    with serving(origin.server()) as upstream, serving(make_service(service_module, tmp_path, upstream)) as endpoint:
+        assert get(endpoint + route)[:2] == (200, b"repository content")
+    assert origin.counts == {expected: 1}
+
+
 def test_concurrent_cold_requests_and_restarted_service_reuse_one_object(service_module, tmp_path):
     origin = Origin()
     started, release = threading.Event(), threading.Event()

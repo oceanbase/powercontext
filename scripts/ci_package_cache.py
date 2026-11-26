@@ -172,6 +172,10 @@ class PackageCache:
         ):
             if parsed.path.startswith(prefix):
                 suffix = parsed.path[len(prefix) :]
+                relative = urlsplit(suffix)
+                if relative.scheme or relative.netloc or suffix.startswith("/"):
+                    message = "Invalid package path"
+                    raise ValueError(message)
                 immutable = kind == "pypi-packages" or (
                     kind.startswith("debian") and (suffix.startswith("pool/") or "/by-hash/" in suffix)
                 )
@@ -267,7 +271,16 @@ class PackageCache:
             if position:
                 self.event("fallback", route, source=source)
             try:
-                resource, size, status = self.fetch(kind, urljoin(base, suffix.lstrip("/")), target, previous)
+                origin, relative = urlsplit(base), urlsplit(suffix)
+                # The request supplies only a repository-relative path and query, never an origin.
+                url = urlunsplit((
+                    origin.scheme,
+                    origin.netloc,
+                    origin.path.rstrip("/") + "/" + relative.path,
+                    relative.query,
+                    "",
+                ))
+                resource, size, status = self.fetch(kind, url, target, previous)
             except (OSError, URLError, HTTPException, ValueError) as error:
                 statuses.append(error.code if isinstance(error, HTTPError) else 502)
                 self.event("origin_error", route, source=source, error_category=type(error).__name__)
