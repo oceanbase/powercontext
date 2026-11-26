@@ -1,11 +1,11 @@
 ---
-title: "RFC 0000: PowerContext Organizations, Teams, and Projects"
+title: "RFC 2857: PowerContext Organizations, Teams, and Projects"
 description: "Define how organizations, teams, and projects relate, and describe the data structures, interfaces, and permissions needed to manage an organization."
 ---
 
 - Proposal Name: `organization_team_and_project`
 - Start Date: 2026-11-26
-- RFC PR: Pending
+- RFC PR: [oceanbase/powercontext#2857](https://github.com/oceanbase/powercontext/pull/2857)
 
 # Summary
 

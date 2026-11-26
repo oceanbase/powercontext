@@ -1,11 +1,11 @@
 ---
-title: "RFC 0000：PowerContext 组织、团队与项目"
+title: "RFC 2857：PowerContext 组织、团队与项目"
 description: "定义组织、团队与项目的关系，并说明组织管理所需的数据结构、接口和权限。"
 ---
 
 - Proposal Name: `organization_team_and_project`
 - Start Date: 2026-11-26
-- RFC PR: 待分配
+- RFC PR: [oceanbase/powercontext#2857](https://github.com/oceanbase/powercontext/pull/2857)
 
 # Summary
 
