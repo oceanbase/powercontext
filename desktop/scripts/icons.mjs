@@ -96,6 +96,36 @@ function canonicalIcon(bytes) {
   }
   return Buffer.concat([bytes.subarray(0, 8), ...chunks.sort(Buffer.compare)]);
 }
+
+// The ICO encoder can compress the same PNG frames differently across platforms.
+async function icoPixels(bytes) {
+  const headerSize = 6;
+  const entrySize = 16;
+  const header = bytes.subarray(0, headerSize);
+  const count = header.readUInt16LE(4);
+  const directoryEnd = headerSize + count * entrySize;
+  if (directoryEnd > bytes.length) throw new Error("Truncated ICO directory");
+
+  const frames = [];
+  for (let entry = headerSize; entry < directoryEnd; entry += entrySize) {
+    const size = bytes.readUInt32LE(entry + 8);
+    const offset = bytes.readUInt32LE(entry + 12);
+    if (offset < directoryEnd || offset + size > bytes.length)
+      throw new Error("Invalid ICO image bounds");
+    const { data, info } = await sharp(bytes.subarray(offset, offset + size))
+      .ensureAlpha()
+      .raw()
+      .toBuffer({ resolveWithObject: true });
+    if (
+      info.width !== (bytes[entry] || 256) ||
+      info.height !== (bytes[entry + 1] || 256)
+    )
+      throw new Error("ICO image dimensions do not match the directory");
+    frames.push(bytes.subarray(entry, entry + 8), data);
+  }
+  return Buffer.concat([header, ...frames]);
+}
+
 for (const name of ["brand.png", "icon.png", "icon.ico", "icon.icns"]) {
   const expected =
     name === "brand.png"
@@ -104,8 +134,13 @@ for (const name of ["brand.png", "icon.png", "icon.ico", "icon.icns"]) {
   const destination = new URL(name, output);
   if (process.argv.includes("--check")) {
     const actual = await readFile(destination);
-    const normalize = name === "icon.icns" ? canonicalIcon : (bytes) => bytes;
-    if (!normalize(actual).equals(normalize(expected)))
+    const normalize =
+      name === "icon.ico"
+        ? icoPixels
+        : name === "icon.icns"
+          ? canonicalIcon
+          : (bytes) => bytes;
+    if (!(await normalize(actual)).equals(await normalize(expected)))
       throw new Error("Brand resource drift: " + name);
   } else {
     await writeFile(destination, expected);
