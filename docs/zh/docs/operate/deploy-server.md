@@ -227,14 +227,16 @@ Rust 可执行程序、联合 launcher、网关配置、私有通道认证、私
 
 ### 网关固定指令
 
-`PC_GATEWAY_STEERING_FILE` 指定一个文件，其中是一段简短的固定指令，网关把它加入 Responses 入口
-（`/gateway/v1/responses`）的每个请求；Chat 入口的请求不受影响。网关只在启动时读取一次该文件。文件必须是 UTF-8，
+`PC_GATEWAY_STEERING_FILE` 指定一个文件，其中是一段简短的固定指令，网关把它加入 Responses 和 Chat 入口
+（`/gateway/v1/responses` 和 `/gateway/v1/chat/completions`）的每个请求。网关只在启动时读取一次该文件。文件必须是 UTF-8，
 去掉首尾空白后不能为空，不超过 4096 字节，并且不能含有 PowerContext 保留的 `BEGIN_POWERCONTEXT_` 标记；否则网关在
 启动时退出，而不是不带指令运行。未设置该变量时不加入任何内容。
 
-指令文本成为客户端第一条 developer 消息之后那条 developer 消息的第一个内容块，也就是 Codex 放置自身
+对于 Responses，指令文本成为客户端第一条 developer 消息之后那条 developer 消息的第一个内容块，也就是 Codex 放置自身
 `developer_instructions` 的位置。没有这样的消息时，网关在客户端第一条 developer 消息之后插入一条新的 developer 消息；
-请求中没有 developer 消息时，插在第一条用户消息之前。每个请求中的文本都相同，因此它始终是缓存前缀的一部分。Core 把它
+请求中没有 developer 消息时，插在第一条用户消息之前。对于 Chat，网关在第一条 system 消息之后插入一条新的 system 消息；
+没有 system 消息时，插在消息数组开头。已有消息的顺序和内容保持不变。
+每个请求中的文本都相同，因此它始终是缓存前缀的一部分。Core 把它
 作为最终请求的一部分，像其他请求文本一样检查。它与上下文注入、沉淀和重放相互独立。
 
 ### Gateway 字节容量
@@ -256,7 +258,7 @@ check/payload 版本必须包含 v1，且 `limits.payload_bytes` 必须是正整
 Core 声明的输入容量和当前完整正文解析器 1 MiB 硬上限的最小值。
 部署上限为零时，模型输入禁用，返回 HTTP 503 和 `input_capacity_disabled`，不表示 Core 能力查询失败。
 Content-Length 预检和 chunked 正文实际读取都受限。执行器还会在 prepared context 注入/重放、
-Responses steering 和协议渲染后，检查最终 UTF-8 JSON 正文字节数。
+固定指令注入和协议渲染后，检查最终 UTF-8 JSON 正文字节数。
 入口正文超限返回 HTTP 413；最终正文超限返回 HTTP 403 和 `request_payload_too_large`，不会发送模型。
 放大配置不能绕过解析器硬上限。
 

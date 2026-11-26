@@ -96,8 +96,8 @@ PC_GATEWAY_UPSTREAM_API_KEY_CHAT=... \
 # PC_GATEWAY_INJECTION=on injects every request, PC_GATEWAY_INJECTION=off disables injection, and
 # PC_GATEWAY_INJECTION_RESPONSES=off keeps the Responses route uninjected, and PC_GATEWAY_INJECTION_CODE=on adds code
 # evidence from the Scope's code index (off by default).
-# Optional: PC_GATEWAY_STEERING_FILE (a fixed operator instruction added to Responses requests after the client's
-# base prompt; read and validated at startup), PC_GATEWAY_SEDIMENT=on (capture after release),
+# Optional: PC_GATEWAY_STEERING_FILE (a fixed operator instruction for Responses and Chat;
+# Chat inserts a system message after the first system message, or at the start when absent; read at startup), PC_GATEWAY_SEDIMENT=on (capture after release),
 # PC_GATEWAY_DEGRADE=passthrough (no-memory passthrough when Core is unreachable; never applies
 # to deployments with enforcing protection), PC_GATEWAY_MAX_CONCURRENT / PC_GATEWAY_MAX_BODY_BYTES,
 # PC_GATEWAY_CORE_TOKEN (bearer for Core when authentication is enabled).

@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! 运维配置的固定指令（`PC_GATEWAY_STEERING_FILE`），只插入 Responses 入口的请求。
+//! 运维配置的固定指令（`PC_GATEWAY_STEERING_FILE`），插入 Responses 和 Chat 入口的请求。
 //!
 //! 文本在启动时读取并校验一次；每个请求插入同一位置的同一文本，因此它是稳定前缀的一部分，
 //! 首个请求之后按缓存读取计费。它与上下文注入、沉淀和准备结果的重放相互独立。

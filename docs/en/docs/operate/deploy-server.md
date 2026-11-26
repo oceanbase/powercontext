@@ -252,15 +252,17 @@ replay and prepares once more for the request instead of returning the withhold.
 ### Gateway instruction
 
 `PC_GATEWAY_STEERING_FILE` names a file with a short, fixed instruction that the gateway adds to every request on the
-Responses route (`/gateway/v1/responses`); the Chat route is never changed. The gateway reads the file once at startup.
+Responses and Chat routes (`/gateway/v1/responses` and `/gateway/v1/chat/completions`). The gateway reads the file once at startup.
 It must be UTF-8, non-empty after trimming, at most 4,096 bytes, and free of PowerContext's reserved
 `BEGIN_POWERCONTEXT_` markers; otherwise the gateway exits at startup instead of running without it. Nothing is added
 when the variable is unset.
 
-The text becomes the first content block of the developer message that follows the client's first developer message,
+For Responses, the text becomes the first content block of the developer message that follows the client's first developer message,
 which is where Codex places its own `developer_instructions`. Without such a message, the gateway inserts a new developer
 message after the client's first developer message, or before the first user message when the request has no developer
-message. The text is identical on every request, so it stays part of the cached prefix. Core checks it as part of the
+message. For Chat, the gateway inserts a new system message immediately after the first system message, or at the
+start of the messages array when no system message exists. Existing messages retain their order and content.
+The text is identical on every request, so it stays part of the cached prefix. Core checks it as part of the
 final request like any other request text. It is independent of context injection, capture, and replay.
 
 ### Gateway byte capacity
@@ -284,7 +286,7 @@ limit is the minimum of that setting, the advertised input capacity, and the cur
 parser ceiling. A zero deployment limit disables model input with HTTP 503 and
 `input_capacity_disabled`; it does not indicate a Core discovery failure.
 Both Content-Length and consumed chunked request bytes are limited. The executor also
-measures the final UTF-8 JSON body after prepared-context injection/replay, Responses steering and protocol
+measures the final UTF-8 JSON body after prepared-context injection/replay, steering instructions and protocol
 rendering. Initial-body overflow returns HTTP 413; final-body overflow returns HTTP 403 with
 `request_payload_too_large`, before any model send. Enlarging configuration cannot bypass the parser ceiling.
 
