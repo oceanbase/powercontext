@@ -36,6 +36,14 @@ Run the PATH command printed at completion before using `powercontext` or starti
 
 The default installs the latest stable release and local Server dependencies. After installation, continue with the personal-service steps below. For a remote Server, use `--profile client` and follow the [remote connection guide](../operate/connect-remote-server.md).
 
+Pass `--gateway` to also install the [Gateway](../operate/install-gateway.md) with the same version as the CLI:
+
+```bash
+curl -fsSL https://powercontext.oceanbase.io/install.sh | bash -s -- --gateway
+```
+
+The script checks the platform before installing anything, downloads the archive from the matching GitHub Release, verifies its SHA256 and the version that `pc-gateway --version` reports, and places `pc-gateway` in the same directory as `powercontext`. The option applies only to a local Server installation (`--profile local`) and needs Linux glibc 2.28+ or macOS 15+; the Windows installer does not offer it. Installing the Gateway does not configure or start it.
+
 ## Configure and install a personal service
 
 On macOS or Linux, configure a local Server:
@@ -122,6 +130,8 @@ For a specific download problem, set the corresponding source. A package index s
 Existing uv settings take precedence over automatic mirrors. `--index-url` changes the default package index; additional uv indexes keep their priority. Store private-index credentials in uv's authentication configuration. uv does not read `PIP_INDEX_URL` or `PIP_EXTRA_INDEX_URL`. Existing Python mirror settings and `uv.toml` also suppress automatic Python mirrors. `UV_ASTRAL_MIRROR_URL` is passed to uv versions that support it.
 
 An unavailable automatic mirror can fall back to an official source. A reachable package mirror that lacks the requested version returns an installation error. Select `--region global` or an explicit index to retry elsewhere. Explicit sources stay selected when they fail.
+
+On macOS and Linux, file downloads through `curl` retry timeouts, connection refusals and temporary HTTP errors up to three times at the selected source. Each connection attempt allows up to 15 seconds for DNS, TCP and TLS setup. These retries fetch the file again; they do not rerun an installer that has already started.
 
 ## Recover a failed installation
 

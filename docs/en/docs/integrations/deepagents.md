@@ -103,11 +103,88 @@ final non-empty assistant response through `/v1/sources/content`; the normal Sou
 Failed, cancelled, interrupted, or resumed runs are not captured, and retries do not create a second Source for the
 same turn because the Source identity is derived from the scope and the turn text.
 
+The adapter inherits LangChain's [automatic prompt privacy](index.md#automatic-prompt-privacy) through
+`PowerContextMiddleware`. Each recall query, in the main agent and in every subagent, has recognized credentials
+replaced by `[REDACTED]`, and a captured turn whose user message or assistant response contains a recognized credential
+is skipped as a whole. Detection is best effort, so captured content is not guaranteed to be free of secrets.
+
 ## Failure behavior
 
 Recall and capture are best-effort. An unavailable Server, an invalid response, or request validation failure does not
 replace the model response or stop the agent. HTTP 401 and 403 are logged once at error level without content or token
 values; other failures are logged at debug level.
+
+## Leave prompt-time context to the gateway
+
+When the agent sends its model requests through the PowerContext gateway, the gateway prepares and injects context for
+each model call and, with `PC_GATEWAY_SEDIMENT=on`, captures the turn. Core checks every request the gateway forwards
+and rejects a prepared-context block that the gateway did not inject, in every privacy mode: Core answers HTTP 422 and
+the gateway returns HTTP 503 `gate_paused`. `create_powercontext_deep_agent` adds `PowerContextMiddleware` to the main
+agent, the built-in `general-purpose` subagent, and every declarative subagent, and the middleware adds such a block to
+each model call. The adapter has no option to leave recall out, so build an agent whose model goes through the gateway
+with Deep Agents' own `create_deep_agent`, and remove any `PowerContextMiddleware` from `middleware=` and from the
+subagent specifications. The middleware never stores recalled context in agent state, so an existing thread can
+continue behind the gateway.
+
+The application owns the model client. Point it at the gateway's Responses route, and name the conversation in an
+`X-PowerContext-Conversation-ID` header:
+
+```python
+import os
+
+from deepagents import create_deep_agent
+from langchain_openai import ChatOpenAI
+
+
+def gateway_agent(thread_id: str):
+    model = ChatOpenAI(
+        model="approved-model",
+        base_url="http://127.0.0.1:8787/gateway/v1",
+        api_key=os.environ["PC_GATEWAY_KEY"],
+        use_responses_api=True,
+        default_headers={"X-PowerContext-Conversation-ID": thread_id},
+    )
+    return create_deep_agent(model, tools=application_tools, subagents=subagents)
+```
+
+Without the adapter, the gateway takes over what the adapter did:
+
+- Recall: the gateway prepares context for every model request it carries. A declarative subagent without its own
+  `model` uses the main agent's model, so its requests carry the same header; its user message is the task
+  description, so the gateway prepares context for the task. A subagent that names its own `model`, and a compiled
+  subagent's graph, receive context only when their model also points at the gateway.
+- Capture: `auto_capture` no longer applies. The gateway captures each released response that does not call a tool
+  as one turn, from the request's last user message to that response. A subagent's final answer is therefore captured
+  as a turn of its own, beside the main agent's turn; the adapter's rule that only the main agent captures does not
+  apply.
+- Tools: neither this adapter nor `powercontext-langchain` offers Memory tools, so there is no tool to keep or remove.
+
+`PC_GATEWAY_KEY` holds the gateway's `PC_GATEWAY_API_KEY` value. Use one stable ID per conversation, such as the
+checkpointer's thread ID, of 1 to 256 visible ASCII characters; never one ID for every conversation. A combined
+deployment (`PC_GATEWAY_CORE_UDS`) injects by default only into requests that carry this header or another recognized
+session header. It then prepares once per user message and replays that context to the tool-loop steps of the message.
+An application that cannot send the header needs `PC_GATEWAY_INJECTION=on`, which prepares each request separately; a
+standalone gateway (`PC_GATEWAY_CORE_BASE`) injects only with that setting. See [Gateway context
+injection](../operate/deploy-server.md#gateway-context-injection).
+
+Use the Responses route (`use_responses_api=True`). There the gateway calls the model without streaming, captures the
+checked response, and replays it as a stream to a client that streams. On the Chat Completions route, an enforcing Core
+withholds a streamed response and the gateway returns HTTP 400. With a non-enforcing Core, the gateway releases the
+stream unchanged and, with `PC_GATEWAY_SEDIMENT=on`, captures the completed turn from it.
+
+Configure Core and the gateway as well:
+
+- Run Core in a non-enforcing privacy mode (`disabled`, `shadow`, or `advisory`) unless every request meets the
+  enforcing rules: an enforcing Core withholds a Responses request without `store: false` or without an output limit
+  within the target's token budget, and the gateway returns HTTP 400. Restart the gateway after changing the mode,
+  because it discovers the mode at startup.
+- Core needs a target for the profile that `PC_GATEWAY_UPSTREAM_PROFILE` names (`default` unless set), in every privacy
+  mode, including `disabled`. Without one, Core withholds each request with `target_unsupported` and the gateway
+  returns HTTP 400. See [Configure a supported target](../operate/inference-protection.md#configure-a-supported-target).
+- Set `PC_GATEWAY_UPSTREAM_URL_RESPONSES` and `PC_GATEWAY_UPSTREAM_API_KEY_RESPONSES` to the provider's Responses
+  endpoint and key, `PC_GATEWAY_SEDIMENT=on`, and `PC_GATEWAY_CORE_TOKEN` when Core enforces authentication.
+- The gateway prepares and captures every conversation in the one Scope that `PC_GATEWAY_DEFAULT_SCOPE` names. Set it to
+  the Scope the adapter used, so that the gateway recalls the Memory captured before.
 
 ## Runnable examples
 

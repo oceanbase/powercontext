@@ -153,6 +153,8 @@ Server 使用 UDS 时，设备上的 `powercontext source-agent` 通过 `--serve
 
 这一监听入口提供 [Rust 网关设计（RFC #2199）](https://github.com/oceanbase/powercontext/pull/2199)所需的 Core 传输能力。 Rust 可执行程序、联合 launcher、网关配置、私有通道认证、私有路由和网关状态表仍需单独实现。设计中的网关负责原有公开 TCP 端口，并携带通道认证与用户认证通过 UDS 调用 Core。
 
+可以[安装预编译 Gateway](install-gateway.md)，无需本地 Rust 工具链。Core 仍需单独安装和配置。
+
 ### 网关认证边界
 
 `PC_GATEWAY_API_KEY` 仅适用于 `/gateway/v1/chat/completions` 和 `/gateway/v1/responses`。非 loopback 网关监听要求配置有效的非空 key，但该启动校验不负责其他路由的认证。组合部署（`PC_GATEWAY_CORE_UDS`）转发到 Core 的请求会保留客户端凭据，Core API、MCP 和 Dashboard 请求继续遵循 Core 自身的认证与访问控制规则。Gateway key 不授予 Core API 权限，UDS 也不能替代 Core 认证。
@@ -187,7 +189,7 @@ Gemini 关闭 Gateway 上下文注入。Claude CLI 只接受新的单轮文本�
 
 网关通过 UDS 连接 Core（`PC_GATEWAY_CORE_UDS`，即同机组合部署）时，默认向属于某个会话的 Chat 和 Responses 请求注入准备好的上下文。在同一会话内，每条新的用户消息只准备一次，该回合的后续请求（例如 Agent 的工具循环）精确重放同一结果。
 
-网关按以下顺序，取第一个出现的请求头确定会话：
+网关按以下顺序，取第一个值有效的请求头确定会话：
 
 | 请求头 | 发送方 | 会话 |
 | --- | --- | --- |
@@ -196,7 +198,11 @@ Gemini 关闭 Gateway 上下文注入。Claude CLI 只接受新的单轮文本�
 | `x-opencode-session-id` | OpenCode | 会话；子会话有自己的 ID |
 | `thread-id`（仅 Responses 入口） | Codex | 线程；子代理有自己的线程 ID |
 
-客户端在父代理与子代理之间共享的头不用于确定会话，例如 Codex 的 `session-id` 和 `prompt_cache_key`，以及 OpenCode 的 `x-opencode-session` 和 `x-session-affinity`。Claude Code 使用 Anthropic Messages API，而网关不提供该接口，所以只有在网关前的代理把它的请求转换到 Chat 或 Responses 入口并转发这些头时，Claude Code 的头才会生效。设置 `PC_GATEWAY_INJECTION=on` 后，无论请求是否带会话 ID 都注入；设置 `PC_GATEWAY_INJECTION=off` 关闭注入，设置 `PC_GATEWAY_INJECTION_RESPONSES=off` 只关闭 Responses 入口的注入。独立运行的网关（`PC_GATEWAY_CORE_BASE`）只有设置 `PC_GATEWAY_INJECTION=on` 时才注入。准备结果为空或准备失败时，请求照常发送，不注入内容。只有用户回合会向 Core 查询上下文；同一回合的后续请求复用已准备的块，不再查询，没有会话 ID 的工具续写无可复用内容，直接发送、不召回。网关为证据与日志判定每个请求尾部的类型，见[Gateway 调用证据](gateway-evidence.md#回合类型)。
+客户端在父代理与子代理之间共享的头不用于确定会话，例如 Codex 的 `session-id` 和 `prompt_cache_key`，以及 OpenCode 的 `x-opencode-session` 和 `x-session-affinity`。Claude Code 使用 Anthropic Messages API，而网关不提供该接口，所以只有在网关前的代理把它的请求转换到 Chat 或 Responses 入口并转发这些头时，Claude Code 的头才会生效。
+
+如果这些头均未提供 ID，网关可以根据入口以及模型、开头的指令和第一条用户消息的哈希，识别携带完整历史的 Chat 或 Responses 请求。历史开头必须有用户消息，且其前面只能有 system 或 developer 消息。通过 `previous_response_id` 或 `conversation` 续接的 Responses 请求需要提供请求头才能复用准备结果。推导出的 ID 仅在当前网关进程内用于重放准备结果。开头完全相同的会话可能共享推导出的 ID，需要区分时请发送显式会话头。
+
+如果既没有显式 ID 也无法推导 ID，组合部署默认跳过注入，并记录 `context injection skipped: no conversation identity`。设置 `PC_GATEWAY_INJECTION=on` 后，没有 ID 的请求如果带有可用的用户消息，就会各自准备。设置 `PC_GATEWAY_INJECTION=off` 关闭注入，设置 `PC_GATEWAY_INJECTION_RESPONSES=off` 仅关闭 Responses 入口的注入。独立部署（`PC_GATEWAY_CORE_BASE`）必须设置 `PC_GATEWAY_INJECTION=on` 才会注入。准备结果为空或准备失败时，请求照常发送，不注入内容。只有用户回合会向 Core 查询上下文；同一回合的后续请求复用已准备的块，不再查询，没有可重放身份的非用户尾部直接发送、不召回。网关为证据与日志判定每个请求尾部的类型，见[Gateway 调用证据](gateway-evidence.md#回合类型)。
 
 设置 `PC_GATEWAY_INJECTION_CODE=on` 后，准备的上下文同时包含 Scope 代码索引中的代码证据；该选项默认关闭，并要求 Scope 已配置代码仓库。重放的内容因被引用的来源变化（例如 Agent 修改了被引用的文件）而不再通过检查时，网关丢弃该会话的重放，为该请求重新准备一次，而不是把 withhold 返回给客户端。
 

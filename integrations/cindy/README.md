@@ -31,7 +31,7 @@ owns worker startup and RPC forwarding; no additional bridge service is deployed
 | Contract | Cindy behavior |
 | --- | --- |
 | Scope ownership | Resolve on the Server, using an explicit ID or trusted Cindy session binding; no default fallback. DSH/Pi can also use workspace bindings and Server defaults. |
-| Recall | Use the shared HTTP operation and PreparedContext validator; retain the Server's exact bounded content. |
+| Recall | Use the shared HTTP operation, recall-query bound, and PreparedContext validator; a long prompt recalls with its end. Retain the Server's exact bounded content. |
 | Injection | Cindy rewrites the visible, persisted user message; DSH/Pi have separate context carriers. Explicit plugin recall returns tool results. |
 | Capture | Same Scope/session/event/original-text hash construction as DSH/Pi, with a Cindy prefix. Never capture this adapter's recalled history. |
 | Acceptance | Source acceptance and position are distinct from processing completion and Memory production. Cindy does not flush within the three-second hook window. |

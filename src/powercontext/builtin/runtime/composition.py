@@ -837,6 +837,15 @@ async def open_builtin_runtime(  # noqa: C901
                 provider=contexts,
                 primary_database=contexts.database,
                 owner_write_transactions=True,
+                source_processing_families=tuple(
+                    sorted(
+                        set(processing_capabilities(config))
+                        | {binding.artifact_family for binding in processing_bindings}
+                        | ({"memory"} if contexts.memory_extraction else set())
+                        | ({"experience"} if contexts.experience_incubation else set())
+                        | ({"profile"} if contexts.profiles.generator is not None else set())
+                    )
+                ),
                 handoff_committer=contexts.commit_handoff,
                 capabilities=RuntimeCapabilities(
                     memory_extraction=contexts.memory_extraction,

@@ -1,177 +1,153 @@
-# PowerContext
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme-hero-en-dark.gif" />
+    <img src="docs/assets/readme-hero-en-light.gif" width="100%" alt="PowerContext on 24 shared SWE-bench Pro tasks: both arms solved the same 16 tasks. Tokens fell from 26.41M to 17.81M (32.57% fewer), counting 15.77M for solving and 2.04M for memory generation. Solving only: 40.30% fewer tokens. Estimated model cost: 15.42% lower with memory generation. Best task: 63.49% fewer tokens." />
+  </picture>
+</p>
 
-**Context that stays with the work — across sessions, agents, and people.**
+<h3 align="center">The open-source context service for AI agents</h3>
+<p align="center">
+  Fewer detours. Fewer tokens.<br />
+  <a href="#use-cases">Handoffs</a> · <a href="#use-cases">shared memory across agents</a> · <a href="#use-cases">company knowledge bases</a> · <a href="#use-cases">per-user profiles</a> · <a href="https://powercontext.oceanbase.io/en/docs/workflows/review-dream-revisions/">Dream</a> · <a href="#traceable-and-governed">Scope isolation</a> · <a href="#memory-rules-for-every-scope">memory rules per Scope</a> · <a href="#use-your-existing-subscription">your existing subscription</a>, all in one service.
+</p>
 
-[![PyPI version](https://img.shields.io/pypi/v/powercontext)](https://pypi.org/project/powercontext/)
-[![License Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
-[![Discord](https://img.shields.io/badge/Discord-community-5865F2?logo=discord&logoColor=white)](https://discord.com/invite/74cF8vbNEs)
-[![Ask DeepWiki](https://img.shields.io/badge/Ask-DeepWiki-147DFF)](https://deepwiki.com/oceanbase/powercontext)
+<p align="center">
+  <a href="#what-is-powercontext">What</a> &nbsp;·&nbsp;
+  <a href="#why-powercontext">Why</a> &nbsp;·&nbsp;
+  <a href="#use-cases">Use cases</a> &nbsp;·&nbsp;
+  <a href="#architecture">Architecture</a> &nbsp;·&nbsp;
+  <a href="#quick-start"><b>Quick start</b></a> &nbsp;·&nbsp;
+  <a href="#ecosystem">Ecosystem</a> &nbsp;·&nbsp;
+  <a href="#news">News</a> &nbsp;·&nbsp;
+  <a href="https://powercontext.oceanbase.io/en/docs/">Docs</a> &nbsp;·&nbsp;
+  <a href="#community">Feishu</a> &nbsp;·&nbsp;
+  <a href="https://discord.com/invite/74cF8vbNEs">Discord</a>
+</p>
+<p align="center">
+  <a href="README.md">English</a> · <a href="README_CN.md">中文</a> · <a href="README_JP.md">日本語</a> &nbsp; / &nbsp;
+  <a href="https://pypi.org/project/powercontext/">Python package</a> · <a href="LICENSE">Apache 2.0</a>
+</p>
 
-*[English](README.md) · [中文](README_CN.md) · [日本語](README_JP.md)*
+## What is PowerContext
 
-[Website](https://powercontext.oceanbase.io/) · [Quickstart](https://powercontext.oceanbase.io/en/docs/get-started/quickstart/) · [Manual startup](https://powercontext.oceanbase.io/en/docs/get-started/manual-start/) · [Integrations](https://powercontext.oceanbase.io/en/docs/integrations/) · [Benchmarks](https://powercontext.oceanbase.io/en/benchmarks/) · [Interfaces](https://powercontext.oceanbase.io/en/docs/develop/interfaces/)
+**PowerContext helps agents and harnesses manage context.** It turns conversations, documents, and work records into knowledge that can be searched, updated, and traced to its sources, and brings it to the agent when needed:
 
-## New in 1.6.0
+- **Fewer tokens:** help agents find the right code and read the right lines, with fewer round trips to finish a task. [See the benchmark →](#fewer-tokens)
+- **Multi-agent collaboration:** agents, sessions, and teammates share memory in one Scope and pick up work through handoffs. [See use cases →](#use-cases)
+- **Self-improvement:** Dream proposes memory and prompt revisions from past evidence, applied after your review. [About Dream →](https://powercontext.oceanbase.io/en/docs/workflows/review-dream-revisions/)
+- **Traceable:** every memory traces back to its source evidence and exact revision. [Learn more →](#traceable-and-governed)
+- **Per-Scope rules:** every team, project, or user can have its own memory rules, with revisions. [Learn more →](#memory-rules-for-every-scope)
+- **Governed:** Scopes isolate data and access, and generated experiences and skills are recalled only after review. [Learn more →](#traceable-and-governed)
 
-**Knowledge bases debut, and the Gateway reaches its stable release.** Bring existing documents into searchable knowledge bases and spend less uncached input on turning Agent conversations into long-term memory.
+Run it as a service through HTTP, MCP, Python, or Agent integrations, or embed Core in your own application.
 
-- **Knowledge bases:** import Markdown and PNG/JPEG/WebP images, search with keyword and vector retrieval, and inspect, edit or reprocess revisioned document chunks in the Dashboard. Install the optional plugin and dependencies using the [knowledge-base guide](https://powercontext.oceanbase.io/en/docs/workflows/knowledge-base/). PDF/Office import and answer generation are not included.
-- **Gateway token savings:** optional prefix extraction appends memory instructions to the Agent's exact conversation prefix so the provider can reuse its prompt cache. Core selects it only when estimated to cost less than normal extraction. The Gateway enables prefix extraction by default; capture remains opt-in and the Server callback URL must be configured. Cache hits, conversation length and fallback requests determine actual savings. Codex subscriptions support it with a non-enforcing Core. See [Gateway setup](https://powercontext.oceanbase.io/en/docs/operate/deploy-server/#memory-extraction-over-the-cached-prefix).
-- **A more complete workflow:** plugin hot reload, Server/device Source runners, Deep Agents integration and clearer processing diagnostics.
+<!-- Video slot: a 30–60 second real recording of an agent continuing, in a second session, the work of the first. -->
 
-See the [1.6.0 release notes](https://powercontext.oceanbase.io/en/releases/) for setup, compatibility and database maintenance requirements.
+## Why PowerContext
 
-## What is PowerContext?
+### Fewer tokens
 
-**PowerContext is an open-source context service for AI agents.** It keeps the durable part of your work — decisions, constraints, evidence, progress — outside any single conversation, so the next session, the next agent, or the next person can pick up from the current state instead of rereading the transcript.
+**Every model call in an agent loop re-sends the accumulated context.** So PowerContext optimizes the round trips and total cost of finishing the whole task: helping the agent find the right code, read the right lines, batch independent work, and run focused tests, with less repeated exploration and fewer unproductive attempts.
 
-You can use it as a ready-to-run Server or embed the same contracts in another application:
+- **Same 24 tasks, memory generation included:** **32.57% fewer tokens** and **15.42% lower estimated model cost**, with both groups solving the same 16 tasks. Solving alone uses 40.30% fewer tokens; the best task uses 63.49% fewer.
+- **Fewer round trips:** in a separate run on the same task IDs (OFF vs. MS), main-model requests fell from 708 to 539, **23.87% fewer**. That run uses a different configuration, so its numbers do not combine with the ones above.
+- **Memory generation reuses the cache:** generating memories costs tokens, and the 32.57% above includes them. In gateway mode, memory extraction can reuse the context prefix of solving requests, on a Codex subscription too; 97% of input to memory-generation calls with recorded cache fields hit the cache.
 
-| Layer | What it owns | Use it when |
-| --- | --- | --- |
-| Core protocol | `Source`, `Artifact`, and `Trigger` contracts | Embedding PowerContext or adding a component |
-| Builtin runtime | Memory, Handoff, Experience, and Skill services, scheduling, inference, and supported storage backends | Running the standard local Server |
-| Server and integrations | HTTP/MCP, Python Client, CLI, Dashboard, and Agent plugins | Connecting an Agent or application |
+This benchmark runs in **gateway mode**, with code retrieval, working guidance, and project memory enabled together:
 
-Work rarely ends with whoever starts it. You hand a task to an agent, the agent gets part of the way, and later you or someone else takes over. The reasoning and current state often stay behind in that conversation. PowerContext moves them out of the conversation and into revisioned artifacts you can inspect:
+<img src="docs/assets/readme-capabilities-en.svg" width="100%" alt="CodeGraph: relevant code with freshness checks. Steering: targeted reads, batched work and focused tests. Memory: saved decisions and bounded recall for later sessions." />
 
-![You and agents hand work off and continue with stored context](https://raw.githubusercontent.com/oceanbase/powercontext/master/docs/assets/readme-workflow.svg)
+[24-task benchmark: results and methodology →](docs/benchmarks/token-savings/README.md) · [Main-model request counts →](docs/benchmarks/token-savings/request-counts.md) · [Memory-extraction cost and quality →](https://gist.github.com/jasper-yl/d02bfb7d9b45ca175bf74ad09cfa5ba4#file-00-report-en-md)
 
-Everything belongs to a **Scope** — one isolated Source journal, Memory lifecycle, review inbox, and Handoff history. A Scope ID selects data; it does not prove user identity, grant tool access, or authorize execution.
+### Memory rules for every Scope
 
-```text
-Scope
-├── Source journal    # evidence: prompts, documents, work contracts, task outcomes
-├── Memory            # atomic-memory/ARTIFACT_ID@REVISION — decisions, constraints, next steps
-├── Review Inbox      # pending Experience and Skill candidates awaiting a decision
-├── Handoff history   # handoff/ARTIFACT_ID@REVISION — work continuity across sessions
-└── Topic Memory      # extracted in the background from eligible Sources
-```
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme-prompt-rules-en-dark.svg" />
+  <img src="docs/assets/readme-prompt-rules-en-light.svg" width="100%" alt="In one PowerContext Server, a legal team, a personal sales Scope, and an R&D project customize the extraction, profile, and reconciliation prompts, each with its own revisions; output schema, permissions, evidence boundaries, and sensitive-data safeguards stay fixed by the server" />
+</picture>
 
-For Kubernetes deployments with external OceanBase, see the [Helm chart and deployment guide](deploy/helm/powercontext/README.md).
+Many memory services configure extraction rules for a whole service or project. PowerContext keeps the prompts for memory extraction, reconciliation, profile generation, and Topic Memory as Scope-level artifacts, so every team, project, or even individual user can have its own memory rules. Every change is kept as a revision you can restore, and Dream can propose revisions from past evidence for your review.
 
-*Recordings show the running Dashboard and native Desktop preview in their light themes, using synthetic demonstration records.*
+Rules decide only what to keep and how to organize it. The output schema, tools and permissions, evidence boundaries, and sensitive-data safeguards stay fixed by the server, so changing a rule cannot break the system. With access control enabled, changes need Scope admin rights. The Dashboard has no editor yet; applications can expose this to their own users through the API. [Manage prompts →](https://powercontext.oceanbase.io/en/docs/workflows/manage-prompts/)
 
-### Memory — decisions and constraints that outlive a session
+### Traceable and governed
 
-Memory is a revisioned Artifact family for reusable decisions, constraints, facts, state, and next steps. An entry is `active`, `forgotten`, `merged`, or `retired`. Forgetting one through `POST /v1/atomic-memory/lifecycle` takes it out of active recall while its content and history stay available and restorable, without advancing the content revision. Explicit Memory writes need no model at all; extraction from captured Sources needs a configured generation pipeline.
+- **Evidence behind every memory:** each memory traces back to its source evidence and exact revision, and can point to the precise location in the source.
+- **Reviewed changes:** generated experiences and skills are recalled only after review; Dream revisions take effect after your approval; outdated memories can be retired while their history is kept.
+- **Clear boundaries:** Scopes isolate data and access; operational telemetry excludes prompts, content, and model responses.
 
-> "Don't refactor the old auth module — mobile is still using it."
-> Context this expensive shouldn't depend on someone repeating it in every session.
+[Review candidates →](https://powercontext.oceanbase.io/en/docs/workflows/review-candidates/) · [Scopes and access →](https://powercontext.oceanbase.io/en/docs/workflows/scopes-and-access/)
 
-![Dashboard in light mode: search project memories and inspect a saved revision](https://raw.githubusercontent.com/oceanbase/powercontext/master/docs/assets/readme-dashboard-demo.gif)
+## Use cases
 
-### Handoff — the current state, not the whole transcript
+PowerContext works with coding agents, personal assistants, and office agents, and embeds into applications built by teams and companies.
 
-Handoff records work continuity as a four-step loop:
+<!-- Cards are generated by docs/assets/render_scenarios.py; keep the three READMEs aligned. -->
+**Coding agents**
 
-```text
-Work Contract → Prepared Handoff → Acknowledgement → Task Outcome
-```
+<p align="center">
+  <a href="https://powercontext.oceanbase.io/en/docs/workflows/memory-and-handoff/"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/scenarios/card-handoff-en-dark.svg" /><img src="docs/assets/scenarios/card-handoff-en-light.svg" width="49%" alt="Pick up where you left off: session 1 leaves verified progress and a next step, and session 2 continues from it" /></picture></a>
+  <a href="https://powercontext.oceanbase.io/en/docs/workflows/scopes-and-access/"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/scenarios/card-shared-en-dark.svg" /><img src="docs/assets/scenarios/card-shared-en-light.svg" width="49%" alt="One memory for every agent: Codex, Claude Code, and OpenCode share decisions, constraints, and progress in one Scope" /></picture></a>
+</p>
 
-`handoff_current_work` captures an inspected boundary and returns a temporary Prepared Handoff. Committing it creates a durable Revision only when the user wants a milestone. The receiver resolves the Handoff and records an Acknowledgement; a Task Outcome preserves the final status and checks as Source evidence. The [Handoff Report](https://powercontext.oceanbase.io/en/docs/workflows/use-handoff-report/) projects the latest Revision in each selected Scope — read-only, and it never rewrites Memory.
+**Personal assistants and office agents**
 
-![Dashboard in light mode: open a Handoff and inspect its saved revision](https://raw.githubusercontent.com/oceanbase/powercontext/master/docs/assets/readme-dashboard-handoff.gif)
+<p align="center">
+  <a href="https://powercontext.oceanbase.io/en/docs/integrations/openclaw/"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/scenarios/card-assistant-en-dark.svg" /><img src="docs/assets/scenarios/card-assistant-en-light.svg" width="49%" alt="An assistant that remembers: OpenClaw saves key points into memory before a long conversation is compacted, so a new chat the next day still knows them" /></picture></a>
+  <a href="https://powercontext.oceanbase.io/en/docs/workflows/experience-and-skill-lifecycle/"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/scenarios/card-office-en-dark.svg" /><img src="docs/assets/scenarios/card-office-en-light.svg" width="49%" alt="Office work, learned once: a monthly-report process that worked becomes a skill and is reused next month after review" /></picture></a>
+</p>
 
-### Experience — what worked, reviewed before it is reused
+**Team and business applications**
 
-An Experience records a situation, an action, an observed outcome, and a reusable lesson. It enters a scope-local Review Inbox as a pending Candidate. Review writes use `expected_version`, so a decision cannot silently apply after another writer changes the proposal. Approval writes an immutable Revision; rejection records a reason. Both are terminal, and only the approved current head takes part in recall — pending, rejected, and historical Revisions are excluded.
+<p align="center">
+  <a href="https://github.com/oceanbase/powercontext/blob/master/docs/en/docs/workflows/knowledge-base.md"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/scenarios/card-knowledge-en-dark.svg" /><img src="docs/assets/scenarios/card-knowledge-en-light.svg" width="49%" alt="Company docs your agent can search: Markdown and images become a knowledge base, and results point to the exact section" /></picture></a>
+  <a href="https://powercontext.oceanbase.io/en/docs/workflows/use-profiles/"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/scenarios/card-users-en-dark.svg" /><img src="docs/assets/scenarios/card-users-en-light.svg" width="49%" alt="Your app remembers every user: profiles build up per business user ID and are recalled in LangChain or LangGraph" /></picture></a>
+</p>
+<p align="center">
+  <a href="https://powercontext.oceanbase.io/en/blog/power-system-agent-memory/"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/scenarios/card-domain-en-dark.svg" /><img src="docs/assets/scenarios/card-domain-en-light.svg" width="49%" alt="Domain agents learn from every case: a diagnosis agent reuses experience from similar faults and resumes interrupted tasks" /></picture></a>
+  <a href="https://powercontext.oceanbase.io/en/docs/develop/plugins/"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/scenarios/card-plugins-en-dark.svg" /><img src="docs/assets/scenarios/card-plugins-en-light.svg" width="49%" alt="Tickets become searchable knowledge: a plugin captures tickets as Sources and generates ticket summaries in a custom format" /></picture></a>
+</p>
 
-### Skill — a reviewed procedure, exported on purpose
+[Handoffs](https://powercontext.oceanbase.io/en/docs/workflows/memory-and-handoff/) · [Scopes and sharing](https://powercontext.oceanbase.io/en/docs/workflows/scopes-and-access/) · [OpenClaw](https://powercontext.oceanbase.io/en/docs/integrations/openclaw/) · [Hermes](https://powercontext.oceanbase.io/en/docs/integrations/hermes/) · [Experience and skills](https://powercontext.oceanbase.io/en/docs/workflows/experience-and-skill-lifecycle/) · [Knowledge-base plugin](https://github.com/oceanbase/powercontext/blob/master/docs/en/docs/workflows/knowledge-base.md) · [Profiles](https://powercontext.oceanbase.io/en/docs/workflows/use-profiles/) · [Power-system diagnosis case](https://powercontext.oceanbase.io/en/blog/power-system-agent-memory/) · [Source and Artifact plugins](https://powercontext.oceanbase.io/en/docs/develop/plugins/)
 
-A managed Skill holds a name, a discovery description, instructions, validation checks, and lineage. Approval does not install or execute it: an exact approved Revision must be exported explicitly before an Agent host can discover the host-local projection.
+## Architecture
 
-### Desktop — inspect project memory from a connected workspace
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme-architecture-en-dark.svg" />
+  <img src="docs/assets/readme-architecture-en-light.svg" width="100%" alt="PowerContext architecture: agents and apps connect to PowerContext Server through hooks, MCP, SDKs, or an optional gateway. Within each Scope, the Server processes Sources into Artifacts such as memories, topics, profiles, experiences, skills, and handoffs, then recalls them into context for the next turn. Source and Artifact plugins extend the data sources and artifact types. Processing calls generation and embedding models, and data is stored in SQLite, OceanBase, or seekDB." />
+</picture>
 
-Connect to a Server, select an exact Scope, and search its memories. Open a result to read its saved revision, or save a note for the next session. The [Desktop preview](desktop/README.md) is intended for internal validation; signed distribution and platform release qualification remain separate work.
-
-![Native Desktop in light mode: search project memories and read an exact saved revision](https://raw.githubusercontent.com/oceanbase/powercontext/master/docs/assets/readme-desktop-demo.gif)
-
-[Operational metrics](https://powercontext.oceanbase.io/en/docs/operate/observability/) expose dependency observations, processing freshness, and attempt latency, including a protected metrics-only endpoint for standalone background deployments.
-
-## Why PowerContext?
-
-- **Context lives outside the conversation.** Memory, Handoff, Experience, and Skill are server-side artifacts, not files inside one agent's home directory. Switch from Codex to Claude Code — or hand the work to a teammate — and the work travels with you.
-- **Everything is revisioned and traceable.** Each Artifact is addressed as `FAMILY/ARTIFACT_ID@REVISION`. The Artifact ID stays stable while approved replacements create later Revisions, and reading an exact reference returns that historical snapshot even after the family head advances.
-- **Generation, review, and execution are separate steps.** A model proposes content, review approves a Revision, and export creates a host-local copy. None of those steps grants an Agent permission to execute instructions. See [Interfaces](https://powercontext.oceanbase.io/en/docs/develop/interfaces/) for what each surface exposes today.
-- **Recall is bounded, not dumped.** `PreparedContext` selects configured sections from active Memory and approved Experience, with optional Profile snapshots and Topic Memory, then applies a shared byte budget and returns `ready` content or `empty`. Recalled content is history, not an instruction authority: the receiving Agent still follows current instructions and checks live workspace state.
-- **Review before reuse.** Experience and Skill pass through a review decision that is terminal either way, and approval writes an immutable Revision. With access control enforced, approval requires `scope.review`. An authorized Agent can approve its own Candidate; [separate submission and review](https://powercontext.oceanbase.io/en/docs/workflows/review-candidates/#separate-agent-submission-from-review) with distinct identities and permissions when a person must decide.
-- **One Server, several views of the same contract.** HTTP is the complete remote application contract. The Python Client gives typed access, MCP is a curated Agent-facing projection, and Core protocols let an application assemble its own Source, Artifact, and Trigger implementations.
-
-### How it compares
-
-The comparison assumes typical single-agent or host-local setups; exact behavior depends on how each system is deployed.
-
-| | Re-reading chat history | RAG over transcripts | Host-local memory files | PowerContext |
-|---|---|---|---|---|
-| Survives a new session | manual | yes | yes | yes |
-| Survives switching agents | no | no | no | yes |
-| Handing work to a person | manual | manual | manual | Handoff, first-class |
-| Reusable procedure | no | no | prose only | Experience / Skill |
-| Earlier revisions kept | no | depends on the index | only via git | immutable Revisions |
-| Review before reuse | n/a | no | no | Review Inbox |
-| Bounded recall for one turn | no | partial | no | `PreparedContext` byte budget |
-| Inspectable outside the Agent | no | no | yes | yes |
-
-## Proof it works
-
-![LoCoMo accuracy and SWE-bench Pro input tokens per 100 tasks, comparing PowerContext with baselines](https://raw.githubusercontent.com/oceanbase/powercontext/master/docs/assets/readme-benchmark-summary.svg)
-
-- **Long-conversation memory (LoCoMo; 1,540 scored questions across categories 1–4): 90.78% accuracy**, against 52.9% for full-context replay — **+37.88 points** over full context.
-- **Coding tasks (SWE-bench Pro paired comparison): approximately 225.32 million input tokens per 100 tasks with PowerContext on, versus 302.18 million with it off** — approximately **25.4% fewer input tokens**, or 76.86 million fewer per 100 tasks.
-- **Retrieval quality (LoCoMo Plus)**, native PowerContext against PowerContext with Jev candidate filtering after retrieval. Each model is used for both Memory extraction and answering; embeddings use `qwen3.7-text-embedding` (1024 dimensions):
-
-  | Model | PowerContext | PowerContext + Jev | Difference |
-  |---|---|---|---|
-  | GPT-4o-mini | 40.855% | 49.78% | +8.925 points |
-  | Qwen3.7-plus | 60.37% | 68.947% | +8.577 points |
-  | GPT-4o | 65.082% | 69.28% | +4.198 points |
-
-Full methods, results, and limitations: [benchmarks](https://powercontext.oceanbase.io/en/benchmarks/). Two caveats we would rather state than bury: the six LoCoMo Plus scores above were supplied by the project owner, and their run artifacts are not publicly available for verification — the published instructions reproduce the harness, not those scores. Windows support is `experimental`.
+Agents connect to the Server through hooks, MCP, or SDKs, or send model requests through the gateway, which injects context and provides working guidance. The Server keeps source evidence (Sources) per Scope, processes it in the background into Artifacts such as memories, Topic Memory, profiles, experiences, and skills, and recalls them into context for the next turn. Source and Artifact plugins add new data sources and artifact types. [Architecture and responsibilities →](https://powercontext.oceanbase.io/en/docs/workflows/architecture/)
 
 ## Quick start
 
-If you want to manually configure and start PowerContext, see the [manual startup guide](https://powercontext.oceanbase.io/en/docs/get-started/manual-start/).
+### Let your agent install it
 
-PowerContext keeps durable project context outside any single chat. A first run follows this path:
+Send this to your coding agent, such as Codex, OpenCode or Claude Code. It detects your environment, asks a few questions, then installs PowerContext and checks that memory works. For personal use, Codex and OpenCode connect through the gateway by default; team administrators can use it to deploy as well.
 
 ```text
-Agent input → Source evidence → Memory / Topic Memory → PreparedContext → next session or Agent
+Install PowerContext on this machine by following https://powercontext.oceanbase.io/en/llms.mdx/docs/get-started/agent-install/content.md. Ask me before deciding anything on my behalf, don't guess, and never read or show any of my keys.
 ```
 
-PowerContext 1.6.0 includes an interactive setup wizard. You need Python 3.11+, Git, and [uv](https://docs.astral.sh/uv/getting-started/installation/); uv can provision Python when needed. To connect an Agent, also install its CLI. In the wizard, choose Basic memory for explicit saves and recall without model APIs; Full memory requires separate Generation and Embedding API credentials. For a local Server without model APIs, see [Install and run](https://powercontext.oceanbase.io/en/docs/get-started/install-and-run/). macOS and Linux are supported; Windows support is `experimental`. To provision Python and uv automatically, use the [installation script](https://powercontext.oceanbase.io/en/docs/get-started/install-and-run/#install-with-the-recommended-script).
+<details>
+<summary><b>Install it yourself</b></summary>
 
-To use an existing subscription for background generation, configure it manually in the saved `.env`; the wizard does not offer subscriptions yet. Embedding still needs its own connection, Topic Memory and Dream are unsupported on this path, and inference protection must remain disabled. See [subscription setup](https://powercontext.oceanbase.io/en/docs/get-started/configure-models/#use-an-existing-subscription).
+You need Python 3.11+, Git, and [uv](https://docs.astral.sh/uv/getting-started/installation/), plus the CLI of any Agent you want to connect. This setup pins **PowerContext 1.6.0** for macOS and Linux; Windows support is experimental. The [installation script](https://powercontext.oceanbase.io/en/docs/get-started/install-and-run/#install-with-the-recommended-script) can also provision Python and uv.
 
-Choose the path that matches your goal:
-
-| Goal | Choose | What you need |
-| --- | --- | --- |
-| Try explicit saves and recall | **Basic memory** | CLI and Server; no model API |
-| Process Sources automatically and use Topic Memory or semantic retrieval | **Full memory** | Separate Generation and Embedding API credentials; schedules and Scope policies still apply |
-| Learn the core workflows in Python | The first seven Jupyter tutorials | A repository checkout and `uv`; no model or API key |
-
-### 1. Install and run the wizard
+Choose **Basic memory** in the wizard to try explicit saves and recall without a separate Server model API. Automatic extraction requires **Full memory** with Generation and Embedding credentials. SQLite is a simple first storage choice.
 
 ```bash
 uv tool install --force "powercontext[cli,server]==1.6.0"
 mkdir -p powercontext-config && cd powercontext-config
 powercontext config init --language en --output .env
-```
-
-The wizard asks about storage, local or remote usage, memory capabilities, Dashboard/access, and Agent connections. SQLite is the simplest first storage choice; choose embedded seekdb only when you need it and can approve its dependency install.
-
-The wizard writes `.env` and `.env.next-steps.md`. These files can contain credentials; do not commit them. Linux needs an available `systemd --user` manager for the personal service.
-
-After saving `.env`, validate it and register the personal service:
-
-```bash
 powercontext config validate --env-file .env
 powercontext service install --env-file .env
 powercontext service status
 ```
 
-The service keeps the Server running after you close the terminal. Load the generated environment file and check the connection:
+The service keeps running after you close the terminal. Linux requires an available `systemd --user` manager. The generated `.env` and `.env.next-steps.md` may contain credentials; keep them out of Git.
+
+Load the generated configuration and check the service:
 
 ```bash
 set -a
@@ -181,104 +157,84 @@ powercontext ready
 powercontext capabilities
 ```
 
-Continue with `.env.next-steps.md` to create and bind the selected Scopes. Use the real `scope_id` returned by the creation request; a planned `codex-...` title is not an ID. Changing directories does not create isolation; use the same Server and Scope in the Dashboard and Agent. After editing `.env`, rerun `powercontext service install --env-file .env` to apply the updated settings. Then install the matching plugins and launch a new Agent session. The [complete walkthrough](https://powercontext.oceanbase.io/en/docs/get-started/quickstart/) covers Codex and Claude Code, Dashboard login, SSH forwarding, HTTPS prerequisites, and observable acceptance checks. For example, the matching Codex installation is:
+Follow **`.env.next-steps.md`** to create and bind your Scope, using the real `scope_id` returned by the creation request. Use the same Server and Scope in your Agent and Dashboard; changing directories does not create project isolation. After editing `.env`, reload it and rerun `powercontext service install --env-file .env` to apply the changes.
+
+For Codex, install the matching integration:
 
 ```bash
-powercontext setup codex --ref powercontext-v1.6.0
+powercontext setup codex --env-file .env --ref powercontext-v1.6.0
 powercontext doctor codex
 ```
 
-Before sending the first message in a new Codex session, open `/hooks` and, when prompted, trust the PowerContext hooks. Without an enabled `UserPromptSubmit` hook, automatic prompt capture and recall do not run, even if MCP connects. See [first-session checks and recovery](https://powercontext.oceanbase.io/en/docs/integrations/codex/#first-session-hook-trust). After the first check below, use the [capability and trigger guide](https://powercontext.oceanbase.io/en/docs/get-started/quickstart/#5-choose-your-next-workflow) to try all seven Artifact families, Source, and Tag. Basic memory needs no separate Server model API; the Agent still uses its own model.
+Before sending the first message in a new Codex session, open **`/hooks`** and trust the PowerContext hooks when prompted. The `UserPromptSubmit` hook must be enabled for automatic prompt capture and recall, even when MCP connects. [First-session checks and recovery →](https://powercontext.oceanbase.io/en/docs/integrations/codex/#first-session-hook-trust)
 
-### 2. Verify the first end-to-end result
+Verify the workflow you enabled:
 
-This checks the path that makes PowerContext useful: Source capture → background processing → cross-session recall. In the new Agent session bound to the same Scope, send a concrete decision such as:
+- **Basic memory:** explicitly ask the Agent to save a project decision, then start a new session in the same Scope and recall it with a source reference.
+- **Full memory:** confirm that an input appears as a Source, wait for configured processing to produce Topic Memory, then check that a related update is reflected and can be recalled in a new session.
 
-```text
-We are designing the Aurora acceptance project. Use uv for Python dependencies and .env for configuration.
-The first deployment runs on one Linux server, with a Mac connecting through an SSH tunnel.
-Restate these constraints without changing any code.
-```
+`doctor codex` checks installation and connectivity only. Source capture alone does not create memory; automatic processing also depends on configured schedules and model work. The Agent still uses its own model in Basic memory mode. [Full setup guide →](https://powercontext.oceanbase.io/en/docs/get-started/quickstart/)
 
-If you enabled Dashboard, open the URL printed by the wizard; an empty Dashboard before capture is expected. Then:
+<sub>This starts the context service. It does not automatically reproduce the benchmark's Gateway, CodeGraph, or Steering configuration; see the evidence report.</sub>
 
-1. Confirm that the prompt appears as a Source.
-2. After the configured inspection interval and model processing, confirm that a related Topic Memory appears.
-3. Send a related update and confirm that the new Source arrives and the topic content or revision history reflects it.
-4. Start a new Agent session with the same Scope and ask for the Aurora decisions with citations.
+</details>
 
-`doctor codex` checks installation and connectivity only. Source capture does not by itself create Memory or Topic Memory, and processing can wait for configured schedules and model work. In Basic memory mode, explicitly ask the Agent to save a decision, then search for it in a new session; that does not test automatic extraction.
+### Use your existing subscription
 
-### 3. Explore Python first — no API key
+Already subscribed to Codex, Claude Code, GitHub Copilot, Grok, Gemini, Qwen Code, or Kimi Code? Use it to generate memories, experiences, and profiles, without a separate generation model API:
 
-The tutorials run from a repository checkout and take their dependencies from a `uv` dependency group, so they are not part of the `powercontext` package. From the repository root:
+- **Background generation:** the Server generates memories, experiences, and profiles with your subscription. Inference protection must stay off; Topic Memory and Dream are not supported yet, and embedding still needs its own model.
+- **Agent requests through the gateway:** the agent sends its model requests through the gateway with your subscription, and the gateway injects context and captures the conversation. On a Codex subscription, memory extraction also reuses the prefix cache of the agent's session, counted against the same subscription. Support differs by subscription.
 
-```bash
-uv sync --locked --group notebooks
-uv run --locked --group notebooks jupyter lab --notebook-dir=examples/jupyter
-```
+[Configure background generation with a subscription →](https://powercontext.oceanbase.io/en/development/pydantic-ai-inference/#reuse-existing-subscription-credentials) · [Gateway OAuth subscriptions →](https://github.com/oceanbase/powercontext/blob/master/gateway/SUBSCRIPTIONS.md)
 
-Start with [01 · Memory across sessions](examples/jupyter/01_memory_across_sessions.ipynb), then work through the [22 Chinese Jupyter tutorials, including a complete team workflow](examples/jupyter/README.md) to run Memory, context preparation, Handoff, Experience, Skill, and a real Agent step by step. The first seven tutorials need no model or API key.
+## Ecosystem
 
-### Common issues
-
-- `doctor codex` verifies Codex installation and connectivity. To verify automatic memory, check that a real prompt becomes a Source, produces a Topic, evolves after a related prompt, and can be recalled in a new session using the same Scope.
-- If Python dependency downloads are slow or fail, configure a package index for [uv](https://docs.astral.sh/uv/configuration/indexes/) and retry.
-- Choose **Full memory capabilities** to test automatic Memory and Topic Memory; this requires separate Generation and Embedding API credentials. An Agent subscription does not provide those Server credentials. Choose **Basic memory** to save and retrieve memories explicitly without additional model APIs.
-- If seekdb needs installing, the wizard asks once and installs the dependency in the background.
-- The optional recall-sufficiency gate records scope-local daily search effort and budget omissions for later policy evaluation. See the [configuration reference](https://powercontext.oceanbase.io/en/docs/operate/configuration/) for its recording and failure behavior.
-- For a Server on another machine, use HTTPS or follow the [remote connection guide](https://powercontext.oceanbase.io/en/docs/operate/connect-remote-server/). Setup recognizes remote HTTP URLs from flags or environment variables and asks for explicit consent; automated setup uses `--allow-insecure-http`.
-
-## Connect your Agent
-
-Codex is `official`; other maintained hosts and Python Agent frameworks are `community`; Bub is `evaluation` only. These tags describe PowerContext integration maintenance and use. The [capability matrix](https://powercontext.oceanbase.io/en/docs/integrations/capabilities/) records which hosts are qualified, along with their supported features and availability.
-
-<table>
-<tr>
-<td align="center" width="120"><a href="docs/en/docs/integrations/codex.md"><img src="assets/codex.png" alt="Codex" width="48" height="48" /><br /><sub><b>Codex</b></sub></a></td>
-<td align="center" width="120"><a href="docs/en/docs/integrations/claude-code.md"><img src="assets/claude-code.png" alt="Claude Code" width="48" height="48" /><br /><sub><b>Claude Code</b></sub></a></td>
-<td align="center" width="120"><a href="integrations/minimax/README.md"><img src="assets/minimax-code.png" alt="MiniMax Code" width="48" height="48" /><br /><sub><b>MiniMax Code</b></sub></a></td>
-<td align="center" width="120"><a href="docs/en/docs/integrations/dsh.md"><img src="assets/deepseek.png" alt="DeepSeek Harness" width="48" height="48" /><br /><sub><b>DeepSeek Harness</b></sub></a></td>
-<td align="center" width="120"><a href="docs/en/docs/integrations/zcode.md"><img src="assets/zcode.png" alt="ZCode" width="48" height="48" /><br /><sub><b>ZCode</b></sub></a></td>
-<td align="center" width="120"><a href="docs/en/docs/integrations/kimi-code.md"><img src="https://github.com/MoonshotAI.png?size=120" alt="Kimi Code" width="48" height="48" /><br /><sub><b>Kimi Code</b></sub></a></td>
-<td align="center" width="120"><a href="integrations/hermes/README.md"><picture><source media="(prefers-color-scheme: dark)" srcset="assets/hermes-dark.png"><img src="assets/hermes.png" alt="Hermes Agent" width="48" height="48" /></picture><br /><sub><b>Hermes Agent</b></sub></a></td>
-<td align="center" width="120"><a href="docs/en/docs/integrations/pi.md"><picture><source media="(prefers-color-scheme: dark)" srcset="assets/pi-dark.png"><img src="assets/pi.png" alt="Pi Coding Agent" width="48" height="48" /></picture><br /><sub><b>Pi Coding Agent</b></sub></a></td>
-</tr>
-<tr>
-<td align="center" width="120"><a href="docs/en/docs/integrations/openclaw.md"><img src="assets/openclaw.png" alt="OpenClaw" width="48" height="48" /><br /><sub><b>OpenClaw</b></sub></a></td>
-<td align="center" width="120"><a href="docs/en/docs/integrations/opencode.md"><picture><source media="(prefers-color-scheme: dark)" srcset="assets/opencode-dark.png"><img src="assets/opencode.png" alt="OpenCode" width="48" height="48" /></picture><br /><sub><b>OpenCode</b></sub></a></td>
-<td align="center" width="120"><a href="integrations/workbuddy/README.md"><img src="https://thesvg.org/icons/workbuddy/default.svg?size=120" alt="WorkBuddy" width="48" height="48" /><br /><sub><b>WorkBuddy</b></sub></a></td>
-<td align="center" width="120"><a href="integrations/bub/README.md"><img src="https://github.com/bubbuild.png?size=120" alt="Bub" width="48" height="48" /><br /><sub><b>Bub</b></sub></a></td>
-<td align="center" width="120"><a href="docs/en/docs/integrations/pydantic-ai.md"><img src="https://thesvg.org/icons/pydantic/default.svg?size=120" alt="Pydantic AI" width="48" height="48" /><br /><sub><b>Pydantic AI</b></sub></a></td>
-<td align="center" width="120"><a href="docs/en/docs/integrations/langchain.md"><img src="assets/langchain.png" alt="LangChain" width="48" height="48" /><br /><sub><b>LangChain</b></sub></a></td>
-<td align="center" width="120"><a href="docs/en/docs/integrations/langgraph.md"><picture><source media="(prefers-color-scheme: dark)" srcset="assets/langgraph-dark.png"><img src="assets/langgraph.png" alt="LangGraph" width="48" height="48" /></picture><br /><sub><b>LangGraph</b></sub></a></td>
-</tr>
+<!-- Add integrations using an original logo asset, a product name, and a documentation link. -->
+<table width="100%">
+  <tr>
+    <td align="center" width="20%"><a href="https://powercontext.oceanbase.io/en/docs/integrations/codex/"><img src="docs/assets/codex.png" height="48" alt="Codex" /><br />Codex</a></td>
+    <td align="center" width="20%"><a href="https://powercontext.oceanbase.io/en/docs/integrations/claude-code/"><img src="docs/assets/claude-code.png" height="48" alt="Claude Code" /><br />Claude Code</a></td>
+    <td align="center" width="20%"><a href="https://github.com/oceanbase/powercontext/tree/master/integrations/minimax#readme"><img src="docs/assets/minimax-code.png" height="48" alt="MiniMax Code" /><br />MiniMax Code</a></td>
+    <td align="center" width="20%"><a href="https://powercontext.oceanbase.io/en/docs/integrations/dsh/"><img src="docs/assets/deepseek.png" height="48" alt="DeepSeek Harness" /><br />DeepSeek Harness</a></td>
+    <td align="center" width="20%"><a href="https://powercontext.oceanbase.io/en/docs/integrations/zcode/"><img src="docs/assets/zcode.png" height="48" alt="ZCode" /><br />ZCode</a></td>
+  </tr>
+  <tr>
+    <td align="center" width="20%"><a href="https://powercontext.oceanbase.io/en/docs/integrations/kimi-code/"><img src="docs/assets/kimi.png" height="48" alt="Kimi Code" /><br />Kimi Code</a></td>
+    <td align="center" width="20%"><a href="https://github.com/oceanbase/powercontext/tree/master/integrations/hermes#readme"><img src="docs/assets/hermes.png" height="48" alt="Hermes Agent" /><br />Hermes Agent</a></td>
+    <td align="center" width="20%"><a href="https://powercontext.oceanbase.io/en/docs/integrations/pi/"><img src="docs/assets/pi.png" height="48" alt="Pi Coding Agent" /><br />Pi Coding Agent</a></td>
+    <td align="center" width="20%"><a href="https://powercontext.oceanbase.io/en/docs/integrations/openclaw/"><img src="docs/assets/openclaw.png" height="48" alt="OpenClaw" /><br />OpenClaw</a></td>
+    <td align="center" width="20%"><a href="https://powercontext.oceanbase.io/en/docs/integrations/opencode/"><img src="docs/assets/opencode.png" height="48" alt="OpenCode" /><br />OpenCode</a></td>
+  </tr>
+  <tr>
+    <td align="center" width="20%"><a href="https://github.com/oceanbase/powercontext/tree/master/integrations/workbuddy#readme"><img src="docs/assets/workbuddy.svg" height="48" alt="WorkBuddy" /><br />WorkBuddy</a></td>
+    <td align="center" width="20%"><a href="https://github.com/oceanbase/powercontext/tree/master/integrations/bub#readme"><img src="docs/assets/bub.png" height="48" alt="Bub" /><br />Bub</a></td>
+    <td align="center" width="20%"><a href="https://powercontext.oceanbase.io/en/docs/integrations/pydantic-ai/"><img src="docs/assets/pydantic.png" height="48" alt="Pydantic AI" /><br />Pydantic AI</a></td>
+    <td align="center" width="20%"><a href="https://powercontext.oceanbase.io/en/docs/integrations/langchain/"><img src="docs/assets/langchain.png" height="48" alt="LangChain" /><br />LangChain</a></td>
+    <td align="center" width="20%"><a href="https://powercontext.oceanbase.io/en/docs/integrations/langgraph/"><img src="docs/assets/langgraph.png" height="48" alt="LangGraph" /><br />LangGraph</a></td>
+  </tr>
 </table>
 
-Applications can use PowerContext through the async Python client, HTTP API, MCP, or the in-process Core SDK. See the [interface reference](https://powercontext.oceanbase.io/en/docs/develop/interfaces/) to choose an entry point.
+Codex is officially maintained; other Agent and Python framework integrations are community-maintained. Bub is for evaluation only. See the capability matrix for supported features.
 
-## Build PowerContext
+[More integrations and capability comparison →](https://powercontext.oceanbase.io/en/docs/integrations/capabilities/)
 
-```bash
-make install
-make check
-make test
-```
+**Apps & teams** — [Python / HTTP / MCP](https://powercontext.oceanbase.io/en/docs/develop/interfaces/) · [Memory & Handoff](https://powercontext.oceanbase.io/en/docs/workflows/memory-and-handoff/) · [Deployment & access](https://powercontext.oceanbase.io/en/docs/workflows/scopes-and-access/)
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for the complete development workflow. Coding and memory evaluations, performance benchmarks, and Skill regressions live under [`evaluation/`](evaluation/README.md).
+## News
+
+- **2026-11-23 · [v1.6.0](https://powercontext.oceanbase.io/en/changelog/v1.6.0/)** — Knowledge bases debut: import Markdown and images, search with hybrid retrieval, and manage revisioned chunks in the Dashboard. The Gateway reaches its stable release with prebuilt binaries, and memory extraction can reuse the prompt cache of the Agent's conversation.
+- **2026-11-16 · [v1.5.2](https://powercontext.oceanbase.io/en/changelog/v1.5.2/)** — Batched writes and query optimizations: maintainer measurements report about 190% higher write throughput and 171% higher query throughput than v1.5.1. The Dashboard now shows processing progress, failure diagnostics, and token usage.
+- **2026-11-09 · [v1.5.1](https://powercontext.oceanbase.io/en/changelog/v1.5.1/)** — Trace memories to precise source locations, plus an optional monitoring stack for metrics, logs, and traces.
+- **2026-11-03 · [v1.5.0](https://powercontext.oceanbase.io/en/changelog/v1.5.0/)** — Source and Artifact plugins for custom ingestion and artifact types, and reversible encoding that removes repeated evidence from model input.
+
+[All releases →](https://github.com/oceanbase/powercontext/releases)
 
 ## Learn more
 
-- [Desktop preview: exact-Scope inventory and usage](desktop/README.md#current-scope-inventory-and-usage)
-- [Get started](https://powercontext.oceanbase.io/en/docs/get-started/quickstart/)
-- [Connect Agents](https://powercontext.oceanbase.io/en/docs/integrations/)
-- [Manage context](https://powercontext.oceanbase.io/en/docs/workflows/)
-- [Deploy and operate](https://powercontext.oceanbase.io/en/docs/operate/)
-- [Develop with APIs](https://powercontext.oceanbase.io/en/docs/develop/)
-- [Python API reference](https://powercontext.oceanbase.io/en/modules/)
-- [RFCs](https://powercontext.oceanbase.io/en/rfcs/)
-
-PowerContext is the successor to [PowerMem](https://www.powermem.ai/).
+- [Core concepts](https://powercontext.oceanbase.io/en/docs/get-started/core-concepts/) · [Architecture and responsibilities](https://powercontext.oceanbase.io/en/docs/workflows/architecture/) · [Plugins](https://powercontext.oceanbase.io/en/docs/develop/plugins/)
+- [Python / HTTP / MCP interfaces](https://powercontext.oceanbase.io/en/docs/develop/interfaces/) · [Deploy the Server](https://powercontext.oceanbase.io/en/docs/operate/deploy-server/)
+- [Token benchmark report](docs/benchmarks/token-savings/README.md) · [Blog](https://powercontext.oceanbase.io/en/blog/)
 
 ## Community
 
@@ -289,16 +245,6 @@ Scan the QR code below with Feishu to join the group.
   <img src="docs/assets/powercontext-group-qr.png" alt="QR code to join the PowerContext Feishu community" width="280" />
 </p>
 
-## Contributors
+[Discord](https://discord.com/invite/74cF8vbNEs) · [Issues](https://github.com/oceanbase/powercontext/issues) · [Contributing](https://github.com/oceanbase/powercontext/blob/master/CONTRIBUTING.md)
 
-Thank you to everyone who contributes to PowerContext. ❤️
-
-<a href="https://github.com/oceanbase/powercontext/graphs/contributors">
-  <img src="https://contrib.rocks/image?repo=oceanbase/powercontext&amp;max=100&amp;columns=12" alt="PowerContext contributors" />
-</a>
-
-[See all contributors](https://github.com/oceanbase/powercontext/graphs/contributors) · [Start contributing](CONTRIBUTING.md)
-
-## License
-
-PowerContext is licensed under the [Apache License 2.0](LICENSE).
+PowerContext is the successor to [PowerMem](https://www.powermem.ai/). Released under [Apache 2.0](LICENSE).

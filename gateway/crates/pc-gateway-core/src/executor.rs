@@ -77,7 +77,7 @@ pub struct ManagedCall {
     pub inject_context: bool,
     /// 注入时同时请求代码证据（默认关）。
     pub include_code: bool,
-    /// 宿主提供的会话 ID（`X-PowerContext-Conversation-ID`）。只有带它的请求才在会话内重放准备结果。
+    /// 宿主提供的可信会话 ID，用于准备结果重放和沉淀。
     pub conversation_id: Option<String>,
     /// 沉淀时保留本回合的上游请求与响应输出，供 Core 复用前缀缓存抽取记忆（#2413，默认关）。
     pub capture_prefix: bool,
@@ -330,6 +330,20 @@ where
         renderer: &R,
         evidence: &dyn EvidenceSink,
     ) -> ManagedOutcome {
+        self.run_with_replay_identity(control, call, renderer, evidence, None)
+            .await
+    }
+
+    /// Use a fallback identity for preparation replay when the host supplies no conversation ID.
+    /// Capture and prefix extraction use the host identity in `call`.
+    pub async fn run_with_replay_identity<R: WireRenderer>(
+        &self,
+        control: RequestControl,
+        call: ManagedCall,
+        renderer: &R,
+        evidence: &dyn EvidenceSink,
+        replay_identity: Option<&str>,
+    ) -> ManagedOutcome {
         let mut recording = CallRecorder::new(
             evidence,
             control.observation(),
@@ -344,7 +358,14 @@ where
         let mut execution = control.start();
         let lifecycle = execution.lifecycle();
         let outcome = match lifecycle
-            .run(self.execute(call, renderer, evidence, &mut execution, &mut recording))
+            .run(self.execute(
+                call,
+                renderer,
+                evidence,
+                &mut execution,
+                &mut recording,
+                replay_identity,
+            ))
             .await
         {
             Ok(outcome) => outcome,
@@ -365,6 +386,7 @@ where
         evidence: &dyn EvidenceSink,
         execution: &mut Execution,
         recording: &mut CallRecorder<'_>,
+        replay_identity: Option<&str>,
     ) -> ManagedOutcome {
         if let Err(stop) = self.attempt_checkpoint(execution) {
             return stop;
@@ -379,10 +401,12 @@ where
         self.turn_counters.record(kind);
         tracing::debug!(turn_kind = kind.as_str(), "gateway request turn classified");
 
-        let anchor = call
-            .inject_context
-            .then(|| message_anchor(&pristine_request))
-            .flatten();
+        let conversation = call.conversation_id.clone();
+        let replay = conversation
+            .as_deref()
+            .or(replay_identity)
+            .filter(|_| call.inject_context)
+            .and_then(|id| Some((id, message_anchor(&pristine_request)?)));
         let mut refreshed = false;
         // Core 使已重放的块失效后，本请求需要重新准备一次；`refreshed` 保证每个请求至多刷新一次。
         let mut reprepare = false;
@@ -394,7 +418,7 @@ where
                 self.enrich(
                     &mut call,
                     RecallPolicy { kind, reprepare },
-                    anchor,
+                    replay,
                     renderer.message_list_key(),
                     recording,
                     execution,
@@ -513,9 +537,7 @@ where
                     {
                         refreshed = true;
                         reprepare = true;
-                        if let Some((conversation, anchor)) =
-                            call.conversation_id.as_deref().zip(anchor)
-                        {
+                        if let Some((conversation, anchor)) = replay {
                             self.replays.forget(&call.scope_id, conversation, anchor);
                         }
                         call.request = pristine_request.clone();
@@ -707,12 +729,12 @@ where
                         }
                         // 同一回合的不同终止记录各自沉淀；工具循环的中间响应不沉淀。
                         // 记录取自注入前的请求，不含准备结果（防止旧记忆被当成新用户证据）。
-                        let transcript = call
-                            .sediment
+                        let transcript = (call.sediment && (200..300).contains(&raw.status))
                             .then(|| {
                                 turn_transcript(
                                     &pristine_request,
                                     &release_body,
+                                    &raw.content_type,
                                     renderer.message_list_key(),
                                     self.source_tokens,
                                 )
@@ -899,9 +921,9 @@ where
     }
 
     /// 用户回合准备并注入；非用户回合只复用本轮已准备的块，不发起新的查询。
-    /// 有可信会话 ID 时，同一消息锚点（工具续写、重试）精确重放已准备的内容与绑定，不再检索；
-    /// 新锚点（新的用户消息）准备一次。没有会话 ID 时每个用户回合各自准备，不继承任何旧注入，
-    /// 因此没有会话 ID 的工具续写既不准备也不注入。
+    /// 有重放会话 ID 时：同一消息锚点（工具续写、重试）精确重放已准备的内容与绑定，不再检索；
+    /// 新锚点（新的用户消息）准备一次。没有重放身份时每个用户回合各自准备，不继承任何旧注入，
+    /// 因此没有重放身份的工具续写既不准备也不注入。
     /// 复用证明失效后的重试由 `RecallPolicy::reprepare` 放行一次：非用户回合也重新准备，
     /// 不把可恢复的失效直接交给客户端；调用方保证每个请求至多放行一次。
     /// 准备失败不写入，下一次请求重试，且不阻塞本次请求；空结果同样重放。
@@ -909,15 +931,14 @@ where
         &self,
         call: &mut ManagedCall,
         policy: RecallPolicy,
-        anchor: Option<u64>,
+        replay: Option<(&str, u64)>,
         list_key: &str,
         recording: &mut CallRecorder<'_>,
         execution: &Execution,
     ) {
-        let replay = call.conversation_id.clone().zip(anchor);
-        let cached = replay.as_ref().and_then(|(conversation, anchor)| {
+        let cached = replay.and_then(|(conversation, anchor)| {
             self.replays
-                .get(&call.scope_id, conversation, *anchor, now_ms())
+                .get(&call.scope_id, conversation, anchor, now_ms())
         });
         if cached.is_none() && !policy.allows_prepare() {
             self.turn_counters.record_skipped_prepare();
@@ -936,7 +957,7 @@ where
                 else {
                     return;
                 };
-                match &replay {
+                match replay {
                     Some((conversation, anchor)) => {
                         let now = now_ms();
                         let expires = expires_at
@@ -946,7 +967,7 @@ where
                         self.replays.put_if_absent(
                             &call.scope_id,
                             conversation,
-                            *anchor,
+                            anchor,
                             prepared,
                             expires,
                         )

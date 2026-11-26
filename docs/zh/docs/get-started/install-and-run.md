@@ -36,6 +36,14 @@ powershell -ExecutionPolicy Bypass -c "& ([scriptblock]::Create((irm https://pow
 
 默认安装最新稳定版及本地 Server 依赖。完成后继续配置个人服务。连接远程 Server 时，使用 `--profile client`，再按[远程连接指南](../operate/connect-remote-server.md)设置。
 
+传入 `--gateway` 可同时安装与 CLI 版本相同的 [Gateway](../operate/install-gateway.md)：
+
+```bash
+curl -fsSL https://powercontext.oceanbase.io/install.sh | bash -s -- --gateway
+```
+
+脚本在安装前检查平台，再从对应的 GitHub Release 下载压缩包，校验 SHA256 和 `pc-gateway --version` 报告的版本后，把 `pc-gateway` 放在 `powercontext` 所在的目录。该选项只适用于本地 Server 安装（`--profile local`），需要 Linux glibc 2.28+ 或 macOS 15+，Windows 安装脚本不提供该选项。安装 Gateway 不会配置或启动它。
+
 ## 配置并安装个人服务
 
 在 macOS 或 Linux 上配置本地 Server：
@@ -122,6 +130,8 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1 --region cn
 已有 uv 设置优先于自动镜像。`--index-url` 更改默认包索引，额外 uv 索引保持原有优先级。私有索引凭据使用 uv 的认证配置。uv 不读取 `PIP_INDEX_URL` 或 `PIP_EXTRA_INDEX_URL`。已有 Python 镜像设置和 `uv.toml` 也会阻止自动选择 Python 镜像。支持 `UV_ASTRAL_MIRROR_URL` 的 uv 版本会接收该设置。
 
 自动镜像不可用时，可以回退官方源；可达包镜像缺少请求版本时，会返回安装错误。使用 `--region global` 或显式索引切换来源后重试。显式来源失败时仍保持选中。
+
+在 macOS 和 Linux 上，通过 `curl` 下载文件时，超时、连接被拒绝和暂时性 HTTP 错误会在选定来源最多重试三次。每次连接尝试为 DNS、TCP 和 TLS 建连保留最多 15 秒。这些重试仅重新获取文件，不会重新执行已经启动的安装器。
 
 ## 安装失败后恢复
 

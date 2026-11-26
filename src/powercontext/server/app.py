@@ -1226,6 +1226,8 @@ class _SkillApplication(Protocol):
 
 
 class _RemoteSkillApplication(Protocol):
+    async def authenticate_target(self, credential: str, /) -> None: ...
+
     async def list_targets(
         self,
         scope_id: str,
@@ -1585,10 +1587,7 @@ def create_app(
     @app.exception_handler(PowerContextError)
     @app.exception_handler(PersistenceError)
     async def application_error(request: Request, error: Exception) -> JSONResponse:
-        response_status, code, message, details = _map_error(error)
-        response = _error_response(response_status, code=code, message=message, details=details)
-        _set_error_headers(response, error)
-        return response
+        return _application_error_response(error)
 
     @app.exception_handler(Exception)
     async def unexpected_error(request: Request, error: Exception) -> JSONResponse:
@@ -3917,6 +3916,7 @@ def _source_record_response(value: RuntimeSourceRecord) -> SourceRecord:
         source_type=value.source_type,
         source_id=value.source_id,
         content=value.content,
+        metadata=value.metadata,
         position=value.position,
         content_digest=value.content_digest,
     )
@@ -5577,6 +5577,17 @@ def _remote_skill_publication(publication: SkillPublication) -> RemoteSkillPubli
     })
 
 
+async def _authenticate_remote_skill_request(request: Request) -> Response | None:
+    # The Receiver operation checks the credential again within its transaction.
+    try:
+        _require_secure_remote_transport(request)
+        credential = _target_credential(request)
+        await _require_application(request).remote_skills.authenticate_target(credential)
+    except (_RuntimeNotReadyError, PowerContextError, PersistenceError) as error:
+        return _application_error_response(error)
+    return None
+
+
 def _target_credential(request: Request) -> str:
     authorization = request.headers.get("authorization")
     if authorization is None:
@@ -6027,16 +6038,26 @@ async def approve_candidate(
         artifact = result.result_artifact
         if artifact is None:
             raise AccessUnavailableError("artifact_owner_pending")
-        await access.establish_artifact_owner(
-            ResourceRef.artifact(
-                request.scope_id,
-                family=artifact.family,
-                artifact_id=artifact.artifact_id,
-            ),
-            attestation.proposed_owner,
-            idempotency_key=bounded_idempotency_key("candidate-artifact-owner", request.scope_id, request.candidate_id),
-            context=_access_audit_context(APPROVE_CANDIDATE.operation_id),
-        )
+        try:
+            await access.establish_artifact_owner(
+                ResourceRef.artifact(
+                    request.scope_id,
+                    family=artifact.family,
+                    artifact_id=artifact.artifact_id,
+                ),
+                attestation.proposed_owner,
+                idempotency_key=bounded_idempotency_key(
+                    "candidate-artifact-owner", request.scope_id, request.candidate_id
+                ),
+                context=_access_audit_context(APPROVE_CANDIDATE.operation_id),
+            )
+        except AccessConflictError:
+            # Ownership migration may already have recorded this owner under its own idempotency key.
+            existing = await access.artifact_owner(
+                ResourceRef.artifact(request.scope_id, family=artifact.family, artifact_id=artifact.artifact_id)
+            )
+            if existing is None or existing.owner != attestation.proposed_owner:
+                raise
     return await _candidate_response(http_request, request.scope_id, result)
 
 
@@ -7290,6 +7311,13 @@ def _log_operation(
     if status_code is not None:
         extra["status_code"] = status_code
     log_safely(logger, level, message, exc_info=error, extra=extra)
+
+
+def _application_error_response(error: Exception) -> JSONResponse:
+    response_status, code, message, details = _map_error(error)
+    response = _error_response(response_status, code=code, message=message, details=details)
+    _set_error_headers(response, error)
+    return response
 
 
 def _error_response(

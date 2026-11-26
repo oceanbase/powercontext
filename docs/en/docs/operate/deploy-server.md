@@ -151,6 +151,8 @@ When the Server uses UDS, `powercontext source-agent` on a device connects to it
 
 This listener provides the Core transport for the [Rust Gateway design (RFC #2199)](https://github.com/oceanbase/powercontext/pull/2199). The Rust executable, joint launcher, gateway settings, private channel authentication, private routes, and gateway state tables remain separate work. The design assigns the original public TCP port to the gateway, which calls the Core over UDS with channel and user authentication.
 
+Install a [prebuilt Gateway](install-gateway.md) to use the Rust executable without a local Rust toolchain. Core remains a separately installed and configured service.
+
 ### Gateway authentication boundaries
 
 `PC_GATEWAY_API_KEY` applies only to `/gateway/v1/chat/completions` and `/gateway/v1/responses`. A non-loopback Gateway listener requires a valid, nonempty key; that startup check does not authenticate other routes. In a combined deployment (`PC_GATEWAY_CORE_UDS`), requests forwarded to Core retain the client's credentials. Core API, MCP and Dashboard requests follow Core's existing authentication and access-control rules. The Gateway key does not grant Core API access, and UDS does not replace Core authentication.
@@ -185,7 +187,7 @@ Do not route Core's own generation through automatic Gateway recall or capture w
 
 When the gateway connects to the Core over UDS (`PC_GATEWAY_CORE_UDS`, the combined deployment), it injects prepared context by default into Chat and Responses requests that belong to a conversation. Within a conversation it prepares once per new user message and replays the exact result for the rest of that turn, such as an agent's tool loop.
 
-The gateway identifies the conversation from the first of these request headers that is present:
+The gateway identifies the conversation from the first of these request headers with a valid value:
 
 | Header | Sent by | Conversation |
 | --- | --- | --- |
@@ -194,7 +196,11 @@ The gateway identifies the conversation from the first of these request headers 
 | `x-opencode-session-id` | OpenCode | the session; a child session has its own ID |
 | `thread-id` (Responses route only) | Codex | the thread; a subagent has its own thread ID |
 
-Headers that a client shares between a parent and its subagents, such as Codex `session-id` and `prompt_cache_key` or OpenCode `x-opencode-session` and `x-session-affinity`, do not identify a conversation. Claude Code speaks the Anthropic Messages API, which the gateway does not serve, so its headers apply only when a proxy in front of the gateway translates its requests to the Chat or Responses route and forwards them. Set `PC_GATEWAY_INJECTION=on` to inject regardless of whether the request carries a conversation ID, `PC_GATEWAY_INJECTION=off` to turn injection off, or `PC_GATEWAY_INJECTION_RESPONSES=off` to keep only the Responses route uninjected. A standalone gateway (`PC_GATEWAY_CORE_BASE`) injects only with `PC_GATEWAY_INJECTION=on`. An empty or failed preparation sends the request without injection. Only a user turn queries Core for context; later requests in the same turn reuse the prepared block instead of querying again, and a tool continuation without a conversation ID has nothing to reuse, so it is sent without recall. The gateway classifies every request tail for evidence and logs; see [Gateway call evidence](gateway-evidence.md#turn-classification).
+Headers that a client shares between a parent and its subagents, such as Codex `session-id` and `prompt_cache_key` or OpenCode `x-opencode-session` and `x-session-affinity`, do not identify a conversation. Claude Code speaks the Anthropic Messages API, which the gateway does not serve, so its headers apply only when a proxy in front of the gateway translates its requests to the Chat or Responses route and forwards them.
+
+When none of these headers supplies an ID, the gateway can identify a full-history Chat or Responses request using the route and a hash of the model, leading instructions, and first user message. The opening must contain a user message preceded only by system or developer messages. Responses requests linked through `previous_response_id` or `conversation` need a header for reuse. An inferred ID is local to the gateway process and applies only to preparation replay. Sessions with identical openings can share an inferred ID, so send an explicit conversation header when sessions must be distinct.
+
+The combined deployment default skips injection if no explicit or inferred ID is available and logs `context injection skipped: no conversation identity`. With `PC_GATEWAY_INJECTION=on`, requests with no ID prepare individually when they have a usable user message. `PC_GATEWAY_INJECTION=off` disables injection and `PC_GATEWAY_INJECTION_RESPONSES=off` disables it for Responses only. Standalone gateways (`PC_GATEWAY_CORE_BASE`) require `PC_GATEWAY_INJECTION=on`. An empty or failed preparation sends the request without injection. Only a user turn queries Core for context; later requests in the same turn reuse the prepared block instead of querying again, and a non-user tail with no replay identity is sent without recall. The gateway classifies every request tail for evidence and logs; see [Gateway call evidence](gateway-evidence.md#turn-classification).
 
 Set `PC_GATEWAY_INJECTION_CODE=on` to include code evidence from the Scope's code index in the prepared context; it is off by default and requires a configured repository for the Scope. When a replayed value no longer passes the check because a cited source changed (for example, the agent edited a cited file), the gateway discards that conversation's replay and prepares once more for the request instead of returning the withhold.
 

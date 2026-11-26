@@ -99,6 +99,44 @@ def test_client_reads_server_info_and_ignores_future_optional_fields() -> None:
     asyncio.run(scenario())
 
 
+def test_client_reports_omitted_source_metadata_as_unknown() -> None:
+    """A pre-metadata Server omits the field; that is unknown, not an empty object."""
+    responses = {
+        "legacy": {
+            "scope_id": "scope-a",
+            "source_type": "content",
+            "source_id": "legacy",
+            "content": "legacy body",
+            "position": 1,
+            "content_digest": "sha256:" + "0" * 64,
+        },
+        "empty": {
+            "scope_id": "scope-a",
+            "source_type": "content",
+            "source_id": "empty",
+            "content": "empty metadata body",
+            "metadata": {},
+            "position": 2,
+            "content_digest": "sha256:" + "1" * 64,
+        },
+    }
+
+    async def scenario() -> None:
+        def respond(request: httpx.Request) -> httpx.Response:
+            source_id = request.url.path.rsplit("/", 1)[-1]
+            return httpx.Response(200, json=responses[source_id], request=request)
+
+        async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as http_client:
+            client = PowerContextClient("https://memory.example", http_client=http_client)
+            legacy = await client.get_source("scope-a", "content", "legacy")
+            empty = await client.get_source("scope-a", "content", "empty")
+
+        assert legacy.metadata is None
+        assert empty.metadata == {}
+
+    asyncio.run(scenario())
+
+
 @pytest.mark.parametrize(
     "selection",
     [

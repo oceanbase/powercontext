@@ -259,6 +259,8 @@ extra-paths = [
 exclude = [
     # The plugin CI installs optional OCR/model dependencies and checks this directory explicitly.
     "plugins/knowledge-base",
+    # README asset renderers need Playwright and numpy, installed separately when regenerating images.
+    "docs/assets",
     # Optional Jupyter dependencies and notebook state are validated by notebooks-test.
     "examples/jupyter",
     "e2e/bub",
@@ -319,11 +321,11 @@ fix = true
 # fix that it applies to a copy makes the copy drift.
 "src/powercontext_integration_lifecycle/**/*.py" = "py39"
 "integrations/codex/plugins/powercontext/powercontext_lifecycle/**/*.py" = "py39"
-"integrations/hermes/plugins/powercontext/{powercontext_client_config,prepared_context}.py" = "py39"
+"integrations/hermes/plugins/powercontext/{powercontext_client_config,prepared_context,prompt_privacy}.py" = "py39"
 "integrations/workbuddy/plugins/powercontext/hooks/{powercontext_client_config,prepared_context,prompt_privacy}.py" = "py39"
-"integrations/langchain/src/powercontext_langchain/_prepared_context.py" = "py39"
-"integrations/langgraph/src/powercontext_langgraph/_prepared_context.py" = "py39"
-"integrations/pydantic-ai/src/powercontext_pydantic_ai/_prepared_context.py" = "py39"
+"integrations/langchain/src/powercontext_langchain/{_prepared_context,_prompt_privacy}.py" = "py39"
+"integrations/langgraph/src/powercontext_langgraph/{_prepared_context,_prompt_privacy}.py" = "py39"
+"integrations/pydantic-ai/src/powercontext_pydantic_ai/{_prepared_context,_prompt_privacy}.py" = "py39"
 
 [tool.ruff.lint]
 select = [
@@ -376,6 +378,9 @@ ignore = [
 [tool.ruff.lint.per-file-ignores]
 "examples/jupyter/*.ipynb" = ["S101", "RUF001", "TRY003"]
 "examples/jupyter/_tutorial.py" = ["RUF001"]
+# README asset renderers and benchmark checks assert on evidence and render CJK text.
+"docs/assets/*.py" = ["S101", "RUF001"]
+"docs/benchmarks/**/*.py" = ["S101"]
 "evaluation/**/tests/**/*.py" = ["S101"]
 "tests/**/*.py" = ["S101", "S603"]
 "tests/*.py" = ["S101", "S603"]

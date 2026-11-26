@@ -184,7 +184,9 @@ Success returns `changed`, exact resulting `restored` references, `retired` and 
 When `changed: true`, both `restored` and `retired` reference the newly appended revisions of the objects actually changed.
 A no-op returns `changed: false` and retains the current primary Artifact reference in `restored`, without appending a revision.
 To undo the merge that created C, use `operation: "undo_merge"` and `target: {"artifact_id": "C"}`.
-That operation cannot also select a content revision.
+That operation cannot also select a content revision. Its target must be a merge result: naming input A or B, or a
+memory that no merge created, returns `invalid_memory_state` and changes nothing. To reactivate an input, restore it
+instead.
 
 The public Python runtime can read the exact historical group result using the operation's primary new revision:
 
@@ -200,7 +202,7 @@ restoration outcome and requires read permission for every affected Artifact.
 | `invalid_preview` | 422 | Check the token, principal, Scope, operation, target and shared signing configuration |
 | `preview_expired` | 409 | Preview again |
 | `preview_stale` | 409 | Read the impact and preview again |
-| `invalid_memory_state` | 409 | Do not edit merged content directly or restore retired content |
+| `invalid_memory_state` | 409 | Do not edit merged content directly, restore retired content, or undo a merge on a memory that is not a merge result |
 | `atomic_memory_changed` | 409 | Read the changed content/state before deciding to retry |
 | `invalid_memory_relation` | 409 | Investigate inconsistent stored relationships |
 
