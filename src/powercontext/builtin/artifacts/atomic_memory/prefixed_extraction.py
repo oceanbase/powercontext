@@ -275,7 +275,8 @@ class GatewayPrefixedConversation:
         if len(messages) == 1:
             self._require_cheaper(start, instruction)
         usage: InferenceUsage | None = None
-        detail = "the reply does not satisfy the turn"
+        # The rule the last reply broke, raised as the check raised it once correction is exhausted.
+        rejected: InvalidInferenceOutputError | None = None
         for _ in range(self.max_requests):
             try:
                 text, spent = await self._send(start.handle, instruction, messages[1:])
@@ -286,19 +287,24 @@ class GatewayPrefixedConversation:
             usage = spent if usage is None else combine_inference_usage(usage, spent)
             if not text.strip():
                 # The gateway accepts no empty reply in a continuation, so this one cannot be corrected.
-                detail = "the reply is empty"
+                rejected = InvalidInferenceOutputError("atomic-memory-one-pass", "the reply is empty")
                 break
             messages.append(("assistant", text))
             try:
                 output = value.check(_unfenced(text))
             except InvalidInferenceOutputError as error:
-                detail = error.detail
-                messages.append(("user", f"{detail}\n\nFix the errors and try again."))
+                rejected = error
+                messages.append(("user", f"{error.detail}\n\nFix the errors and try again."))
                 continue
             history = (start, *messages)
             reply = ConversationReply(output=output, history=history, transcript=tuple(text for _, text in messages))
             return GenerationResult(output=reply, usage=usage)
-        failure = InvalidInferenceOutputError("atomic-memory-one-pass", detail)
+        # The caller recovers from some rules by their class, as it does with the conversation generator Core runs.
+        failure = (
+            InvalidInferenceOutputError("atomic-memory-one-pass", "the reply does not satisfy the turn")
+            if rejected is None
+            else rejected
+        )
         failure.usage = usage
         raise failure
 

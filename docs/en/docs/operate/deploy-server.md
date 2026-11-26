@@ -305,7 +305,9 @@ tokens at the cached rate plus the instruction and the final response's output t
 with the Server sending the Source evidence itself. Because the prefix is read at every step, the prefix that still
 pays off is about half as long as for prefixed extraction. When any step cannot complete, or a reply still fails
 validation after the corrections the request limit allows, nothing of that conversation is kept and the window starts
-again as a normal one-pass conversation. A gateway that does not accept `continuation` rejects the second step, so
+again as a normal one-pass conversation. A re-check reply that still revises a memory holding several published
+identities is handled as in a normal one-pass conversation instead: the created memories it lists are kept unchanged
+and the window does not start again. A gateway that does not accept `continuation` rejects the second step, so
 such a window pays for one extra first step; upgrade the gateway together with the Server.
 
 ## Run with Docker

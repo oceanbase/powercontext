@@ -19,7 +19,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from typing import cast
+from typing import Any, cast
 
 import httpx
 import pytest
@@ -47,7 +47,7 @@ from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.runtime import BuiltinConfig, RuntimeConfig, open_builtin_contexts
 from powercontext.server.factory import create_server_app
 from powercontext.server.settings import McpConfig, ServerSettings
-from tests.e2e.test_atomic_memory_one_pass import BUDGET_100, BUDGET_200, SCOPE, _Conversation, _facts, _write
+from tests.e2e.test_atomic_memory_one_pass import BUDGET_100, BUDGET_200, OWNER, SCOPE, _Conversation, _facts, _write
 
 # A turn whose tool output makes resending the transcript cost more than reading the cached prefix.
 TRANSCRIPT = json.dumps({
@@ -576,3 +576,123 @@ def test_a_prefixed_recheck_over_its_budget_does_not_restart_the_window(tmp_path
     assert len(limited.requests) == 2
     assert conversation.turns == []
     assert _prefixed_one_pass_events(caplog) == []
+
+
+def test_an_exhausted_correction_raises_the_check_error_with_its_usage() -> None:
+    class _RuleError(InvalidInferenceOutputError):
+        pass
+
+    def reject(_: str) -> None:
+        raise _RuleError("atomic-memory-reconcile", "the reply breaks a rule")
+
+    async def run() -> None:
+        status, payload = _text(ENTRIES)
+        transport = httpx.MockTransport(lambda request: httpx.Response(status, json=payload))
+        async with httpx.AsyncClient(base_url="http://gateway.local", transport=transport) as client:
+            conversation = GatewayPrefixedConversation(client=client, estimator=character_token_estimator())
+            start = PrefixStart("a" * 32, cached_tokens=10_000, uncached_tokens=50, normal_input_tokens=100_000)
+            await conversation.generate(
+                ConversationTurn(instructions="rules", message="records", check=reject, history=(start,))
+            )
+
+    # As with the conversation generator Core runs itself, the caller sees the rule the last reply broke.
+    with pytest.raises(_RuleError) as raised:
+        asyncio.run(run())
+
+    assert raised.value.detail == "the reply breaks a rule"
+    usage = raised.value.usage
+    assert usage is not None
+    assert (usage.requests, usage.input_tokens) == (3, 27_000)
+
+
+class _RecheckGateway(_Gateway):
+    """Answer step 1 and step 2 from a script, then every recheck request from the memories it lists."""
+
+    def __init__(self, entries: object, operations: object, recheck) -> None:
+        super().__init__(200, None)
+        self.script = [entries, operations]
+        self.recheck = recheck
+
+    def __call__(self, request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        if self.script:
+            reply = self.script.pop(0)
+        else:
+            # A correction request follows the recheck message it corrects, so answer the latest listed memories.
+            listed = next(
+                json.loads(message["text"].split("\n", 1)[0])
+                for message in reversed(body["continuation"])
+                if message["role"] == "user" and message["text"].startswith('{"recheck"')
+            )
+            reply = self.recheck(listed)
+        self.status, self.payload = _text(reply)
+        return super().__call__(request)
+
+
+def test_a_prefixed_split_recheck_keeps_created_memories_when_revise_identity_correction_is_exhausted(
+    tmp_path, caplog
+) -> None:
+    former_owner = "Rollout owner for the payments service is the infrastructure team."
+    merged = f"{BUDGET_200} {former_owner}"
+    # The long step 2 reply is resent by every recheck, so the recheck is the one request over the budget.
+    reason = " ".join(["Keep the new rollout facts."] * 200)
+    operations = {
+        "operations": [
+            {**_write(action, text), "reason": reason} for action, text in [("create", BUDGET_200), ("create", OWNER)]
+        ]
+    }
+
+    def merge_both(listed: dict[str, Any]) -> dict[str, Any]:
+        replies = []
+        for entry in listed["recheck"]:
+            labels = [item["id"] for item in entry["existing_memories"]]
+            if "budget" in entry["text"]:
+                replies.append({**_write("merge", merged, *labels), "id": entry["id"]})
+            else:
+                replies.append({**_write("revise", entry["text"], labels[0]), "id": entry["id"]})
+        return {"operations": replies}
+
+    async def prepare(contexts) -> None:
+        await contexts.records.create_atomic_memories(
+            SCOPE, ({"kind": "fact", "text": BUDGET_100}, {"kind": "fact", "text": former_owner})
+        )
+        await contexts.process_memory(SCOPE, 2)
+        await _capture_turn(contexts)
+
+    def noop_owner(listed: dict[str, Any]) -> dict[str, Any]:
+        first, second = listed["recheck"]
+        label = second["existing_memories"][0]["id"]
+        noop = {"id": second["id"], "action": "noop", "target_ids": [label], "reason": "The merge states it."}
+        return {"operations": [*merge_both({"recheck": [first]})["operations"], noop]}
+
+    measured = _RecheckGateway(_facts("unrelated words"), operations, noop_owner)
+
+    async def measure(contexts) -> None:
+        await prepare(contexts)
+        await contexts.process_memory(SCOPE, 1)
+
+    (tmp_path / "measure").mkdir()
+    _run_one_pass(tmp_path / "measure", measured, measure)
+    assert len(measured.requests) == 3
+    limited = _RecheckGateway(_facts("unrelated words"), operations, merge_both)
+    texts: set[str] = set()
+
+    async def scenario(contexts) -> None:
+        await prepare(contexts)
+        with caplog.at_level(logging.INFO):
+            cursor = await contexts.process_memory(SCOPE, 1)
+        assert cursor.current_cursor == cursor.high_watermark > cursor.previous_cursor
+        texts.update(
+            item.artifact.content.text for item in (await contexts.atomic_memory.for_scope(SCOPE).list()).items
+        )
+
+    conversation = _run_one_pass(
+        tmp_path, limited, scenario, input_tokens_limit=_request_estimate(measured.requests[2]) - 2
+    )
+
+    # The second recheck kept answering revise for the merged memory's two identities until correction ran out. Its
+    # created memory is kept in the same prefixed conversation; the window does not start again without the prefix.
+    assert len(limited.requests) == 2 + 1 + 3
+    assert conversation.turns == []
+    assert _prefixed_one_pass_events(caplog) == [("success", None)]
+    assert texts == {merged, OWNER}
