@@ -122,6 +122,63 @@ An explicit `PowerContextScope` value wins over environment configuration and mu
 If neither is set, the Server default Scope is used. The adapter never derives a Scope ID from Git, a path, the Agent,
 or the prompt. The token remains in Client configuration and never enters agent state or message content.
 
+## Leave prompt-time context to the gateway
+
+When the application sends its model requests through the PowerContext gateway, the gateway prepares and injects context
+for each model call and, with `PC_GATEWAY_SEDIMENT=on`, captures the turn. Core checks every request the gateway
+forwards and rejects a prepared-context block that the gateway did not inject, in every privacy mode: Core answers HTTP
+422 and the gateway returns HTTP 503 `gate_paused`. The middleware adds such a block to each model call, so leave
+`PowerContextMiddleware` out of an agent whose model goes through the gateway. The gateway captures the turns instead.
+The middleware never stores recalled context in agent state, so an existing thread can continue behind the gateway.
+
+The application owns the model client. Point it at the gateway's Responses route, and name the conversation in an
+`X-PowerContext-Conversation-ID` header:
+
+```python
+import os
+
+from langchain.agents import create_agent
+from langchain_openai import ChatOpenAI
+
+
+def gateway_agent(thread_id: str):
+    model = ChatOpenAI(
+        model="approved-model",
+        base_url="http://127.0.0.1:8787/gateway/v1",
+        api_key=os.environ["PC_GATEWAY_KEY"],
+        use_responses_api=True,
+        default_headers={"X-PowerContext-Conversation-ID": thread_id},
+    )
+    return create_agent(model, tools=application_tools)
+```
+
+`PC_GATEWAY_KEY` holds the gateway's `PC_GATEWAY_API_KEY` value. Use one stable ID per conversation, such as the
+checkpointer's thread ID, of 1 to 256 visible ASCII characters; never one ID for every conversation. A combined
+deployment (`PC_GATEWAY_CORE_UDS`) injects by default only into requests that carry this header or another recognized
+session header. It then prepares once per user message and replays that context to the tool-loop steps of the message.
+An application that cannot send the header needs `PC_GATEWAY_INJECTION=on`, which prepares each request separately; a
+standalone gateway (`PC_GATEWAY_CORE_BASE`) injects only with that setting. See [Gateway context
+injection](../operate/deploy-server.md#gateway-context-injection).
+
+Use the Responses route (`use_responses_api=True`). There the gateway calls the model without streaming, captures the
+checked response, and replays it as a stream to a client that streams. On the Chat Completions route, an enforcing Core
+withholds a streamed response and the gateway returns HTTP 400. With a non-enforcing Core, the gateway releases the
+stream unchanged and, with `PC_GATEWAY_SEDIMENT=on`, captures the completed turn from it.
+
+Configure Core and the gateway as well:
+
+- Run Core in a non-enforcing privacy mode (`disabled`, `shadow`, or `advisory`) unless every request meets the
+  enforcing rules: an enforcing Core withholds a Responses request without `store: false` or without an output limit
+  within the target's token budget, and the gateway returns HTTP 400. Restart the gateway after changing the mode,
+  because it discovers the mode at startup.
+- Core needs a target for the profile that `PC_GATEWAY_UPSTREAM_PROFILE` names (`default` unless set), in every privacy
+  mode. Without one, Core withholds each request with `target_unsupported` and the gateway returns HTTP 400. See
+  [Configure a supported target](../operate/inference-protection.md#configure-a-supported-target).
+- Set `PC_GATEWAY_UPSTREAM_URL_RESPONSES` and `PC_GATEWAY_UPSTREAM_API_KEY_RESPONSES` to the provider's Responses
+  endpoint and key, `PC_GATEWAY_SEDIMENT=on`, and `PC_GATEWAY_CORE_TOKEN` when Core enforces authentication.
+- The gateway prepares and captures every conversation in the one Scope that `PC_GATEWAY_DEFAULT_SCOPE` names. Set it to
+  the Scope the middleware used, so that the gateway recalls the Memory captured before.
+
 ## Failure behavior
 
 Recall and capture are best-effort. Server unavailability, an invalid response, or request validation failure does not

@@ -21,10 +21,12 @@ import hashlib
 import http.server
 import io
 import os
+import platform
 import shutil
 import ssl
 import subprocess
 import sys
+import tarfile
 import urllib.parse
 import zipfile
 from pathlib import Path
@@ -114,6 +116,7 @@ def installation(tmp_path, tls_certificate):  # noqa: C901 - one fixture owns th
         mirror_status = 200
         mirror_versions: ClassVar[list[str]] = ["1.0.0", "1.1.0", "1.2.0rc1"]
         requests: ClassVar[list[str]] = []
+        gateway_files: ClassVar[dict[str, bytes]] = {}
 
         # Keep this controlled fixture compatible with standalone Python 3.11.
         def log_message(self, format: str, *args: object) -> None:  # noqa: A002
@@ -140,6 +143,9 @@ def installation(tmp_path, tls_certificate):  # noqa: C901 - one fixture owns th
                     links.append(f'<a href="{href}#sha256={digest}">download</a>')
                 payload = ("<!doctype html>" + "\n".join(links)).encode()
                 content_type = "text/html"
+            elif path in self.gateway_files:
+                payload = self.gateway_files[path]
+                content_type = "application/octet-stream"
             elif path.endswith(".whl"):
                 payload = wheels[path.rsplit("/", 1)[-1].split("-")[1]]
                 content_type = "application/octet-stream"
@@ -169,6 +175,8 @@ def installation(tmp_path, tls_certificate):  # noqa: C901 - one fixture owns th
         "https://pypi.tuna.tsinghua.edu.cn/simple": base + "/cn/simple",
         "https://pypi.org/simple": base + "/global/simple",
         "https://explicit.invalid/simple": base + "/cn/simple",
+        "https://github.com/oceanbase/powercontext/releases/download": base + "/github",
+        "https://gateway-mirror.invalid/powercontext": base + "/mirror",
     }
     for name, executable in (("uv", UV), ("curl", shutil.which("curl"))):
         assert executable
@@ -354,6 +362,91 @@ def test_unrelated_config_preserved_and_region_does_not_override_index(installat
     assert "Using existing uv configuration" in output
     assert config.read_bytes() == original
     assert not any(path.startswith("/cn/") for path in index.requests)
+
+
+GATEWAY_TARGET = f"{'aarch64' if platform.machine() in {'aarch64', 'arm64'} else 'x86_64'}-unknown-linux-gnu"
+
+
+def publish_gateway(index, directory: str, version: str, *, reported: str | None = None, corrupt: bool = False) -> None:
+    """Serve a release-shaped Gateway archive whose executable reports its identity."""
+    line = reported or f"pc-gateway {version} ({'0' * 40}; {GATEWAY_TARGET})"
+    archive = io.BytesIO()
+    with tarfile.open(fileobj=archive, mode="w:gz") as packaged:
+        for name, content, mode in (
+            ("LICENSE", b"license\n", 0o644),
+            ("README.md", b"readme\n", 0o644),
+            ("manifest.json", b"{}\n", 0o644),
+            ("pc-gateway", f"#!/bin/sh\nprintf '%s\\n' '{line}'\n".encode(), 0o755),
+        ):
+            member = tarfile.TarInfo(name)
+            member.size, member.mode = len(content), mode
+            packaged.addfile(member, io.BytesIO(content))
+    name = f"powercontext-gateway-{version}-{GATEWAY_TARGET}.tar.gz"
+    payload = archive.getvalue()
+    digest = hashlib.sha256(b"other" if corrupt else payload).hexdigest()
+    index.gateway_files[f"/{directory}/{name}"] = payload
+    index.gateway_files[f"/{directory}/{name}.sha256"] = f"{digest}  {name}\n".encode()
+
+
+@pytest.mark.parametrize(
+    ("directory", "extra"),
+    [
+        ("github/powercontext-v1.1.0", {}),
+        ("mirror", {"POWERCONTEXT_GATEWAY_DOWNLOAD_URL": "https://gateway-mirror.invalid/powercontext/"}),
+    ],
+)
+def test_gateway_matches_the_installed_release(installation, directory, extra):
+    install, version, index, env = installation
+    publish_gateway(index, directory, "1.1.0")
+
+    output = install("--region", "global", "--gateway", extra=extra)
+
+    assert version() == "1.1.0"
+    gateway = Path(env["UV_TOOL_BIN_DIR"]) / "pc-gateway"
+    assert subprocess.check_output([str(gateway), "--version"], text=True).startswith("pc-gateway 1.1.0 (")
+    assert "Configure and start pc-gateway" in output
+
+
+@pytest.mark.parametrize(
+    ("published", "message"),
+    [
+        ({"corrupt": True}, "checksum verification failed"),
+        ({"reported": f"pc-gateway 1.0.0 ({'0' * 40}; {GATEWAY_TARGET})"}, "reports a different release"),
+        (None, "Could not download the Gateway archive"),
+    ],
+)
+def test_unverified_gateway_is_not_installed(installation, published, message):
+    install, version, index, env = installation
+    if published is not None:
+        publish_gateway(index, "github/powercontext-v1.1.0", "1.1.0", **published)
+
+    output = install("--region", "global", "--version", "1.1.0", "--gateway", success=False)
+
+    assert message in output
+    assert "Runtime installed, but Gateway installation did not complete" in output
+    assert version() == "1.1.0"
+    assert not (Path(env["UV_TOOL_BIN_DIR"]) / "pc-gateway").exists()
+
+
+@pytest.mark.parametrize(
+    ("arguments", "libc", "message"),
+    [
+        (("--profile", "client"), "glibc 2.39", "--gateway requires --profile local"),
+        ((), "glibc 2.17", "requires glibc 2.28 or later (found 2.17)"),
+        ((), "", "musl systems such as Alpine are not supported"),
+    ],
+)
+def test_unsupported_gateway_request_changes_nothing(installation, tmp_path, arguments, libc, message):
+    install, _version, index, env = installation
+    getconf = tmp_path / "utilities/getconf"
+    getconf.write_text(f"#!/bin/sh\n[ -n '{libc}' ] || exit 1\necho '{libc}'\n", encoding="utf-8")
+    getconf.chmod(0o755)
+
+    output = install("--region", "global", *arguments, "--gateway", success=False)
+
+    assert message in output
+    assert not (Path(env["UV_TOOL_BIN_DIR"]) / "powercontext").exists()
+    assert not index.requests
 
 
 def bootstrap_download(

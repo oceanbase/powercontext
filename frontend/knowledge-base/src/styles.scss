@@ -88,6 +88,23 @@ body {
 .file-path {
   max-width: 100%;
 }
+.import-spinner {
+  display: block;
+  width: 1em;
+  height: 1em;
+  border: 2px solid currentColor;
+  border-inline-end-color: transparent;
+  border-radius: 50%;
+
+  @media (prefers-reduced-motion: no-preference) {
+    animation: import-spin 1s linear infinite;
+  }
+}
+@keyframes import-spin {
+  to {
+    transform: rotate(1turn);
+  }
+}
 .settings-form {
   max-width: 480px;
 }

@@ -75,13 +75,15 @@ their capture defaults:
 | --- | --- | --- | --- |
 | Hermes | `prefetch` query | Completed-turn Source | On; `POWERCONTEXT_HERMES_CAPTURE_TURNS=false` |
 | LangChain | Latest human message | Completed-turn Source | Off; `PowerContextMiddleware(auto_capture=True)` |
+| Deep Agents | Latest human message of each model call, in the main agent and every subagent | Completed-turn Source of the main agent | Off; `create_powercontext_deep_agent(auto_capture=True)` |
 | LangGraph | Latest human message | None; LangGraph captures only through explicit tools | Not applicable |
 | Pydantic AI | Latest textual user prompt | `user_prompt` event | Off; `POWERCONTEXT_PYDANTIC_AI_CAPTURE_EVENTS=true` |
 
-A recognized credential in the user text or the assistant reply skips the whole completed turn (Hermes, LangChain),
+A recognized credential in the user text or the assistant reply skips the whole completed turn (Hermes, LangChain, Deep Agents),
 because the turn Source stores both; a recognized credential in the user prompt skips the `user_prompt` event
-(Pydantic AI). Pydantic AI model-response and tool events keep their key-based and known-credential redaction, and
-Hermes pre-compression capture keeps its own redaction. The configured Server credential is the adapter's token, or
+(Pydantic AI). Pydantic AI model-response and tool events keep their key-based and known-credential redaction.
+Hermes pre-compression capture replaces recognized credentials in each message and keeps the message, so a credential
+does not make a required checkpoint fail. The configured Server credential is the adapter's token, or
 Hermes's Authorization value. A skip is logged at debug level with the reason `sensitive_content` and without the
 rejected text; a completed-turn skip also names the side, user or assistant, that contained the credential.
 

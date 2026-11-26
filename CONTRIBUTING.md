@@ -124,6 +124,17 @@ git push origin name-of-your-bugfix-or-feature
 
 # Pull Request Guidelines
 
+## CI workflows and runner selection
+
+Read the [CI guide](docs/en/development/ci-scope.md) ([中文](docs/zh/development/ci-scope.md))
+before adding jobs or changing runner selection, dependency installation, caching, or test concurrency.
+Linux jobs for this repository use the internal runner pools, including CI for pull requests opened from forks;
+native macOS and Windows checks continue on GitHub-hosted runners. The guide explains the pool choices,
+documented exceptions, shared cache and mirror helpers, and failure diagnosis.
+
+When reporting validation, identify the tested commit and selected jobs. A successful run on an earlier
+commit or a job skipped after an upstream failure does not validate newly added behavior.
+
 ## OceanBase migration acceptance
 
 The E2E harness runs Scope search migrations, background listener lifecycle, clean

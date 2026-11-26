@@ -2186,6 +2186,25 @@ function validatePreparedContext(response, path = "/v1/context/prepare", maxByte
 		content_bytes: contentBytes
 	};
 }
+const MAX_QUERY_CHARACTERS = 8192;
+const MAX_QUERY_BYTES = 8192;
+/**
+* Reduce a prompt to the recall query. A prompt within both bounds is sent as submitted, trimmed.
+* A longer prompt keeps its most recent text, which holds the turn in hand, cut between characters
+* so that the query fits both bounds and splits no character.
+*/
+function boundedRecallQuery(prompt) {
+	const characters = Array.from(prompt.trim());
+	let start = characters.length;
+	let bytes = 0;
+	while (start > 0 && characters.length - start < MAX_QUERY_CHARACTERS) {
+		const size = Buffer.byteLength(characters[start - 1], "utf8");
+		if (bytes + size > MAX_QUERY_BYTES) break;
+		bytes += size;
+		start -= 1;
+	}
+	return characters.slice(start).join("").trim();
+}
 
 //#endregion
 //#region src/prompt-privacy.ts
@@ -2419,13 +2438,12 @@ async function runHook(input, credential, fetchImpl) {
 			};
 		}
 		const prepareMs = hookEnd - CAPTURE_RESERVE_MS - Date.now();
-		if (input.text.length > 8192) outcome.prepare = "query_too_long";
-		else if (prepareMs <= 0) outcome.prepare = "not_sent";
+		if (prepareMs <= 0) outcome.prepare = "not_sent";
 		else try {
 			const signal = combineSignals([controller.signal, AbortSignal.timeout(prepareMs)]);
 			const response = await client.request("prepare_context", {
 				scope_id: scopeId,
-				query: input.text,
+				query: boundedRecallQuery(input.text),
 				max_bytes: maxBytes
 			}, signal);
 			const prepared = validatePreparedContext(response.kind === "json" ? response.value : void 0, void 0, maxBytes);
