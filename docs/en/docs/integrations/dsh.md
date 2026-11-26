@@ -719,7 +719,9 @@ DSH sends the header to whichever provider serves the request, including one it 
 already carry the same ID as `prompt_cache_key` unless the provider sets `cacheRetention: "none"`. DSH's compaction,
 session-title, and auto-review requests carry no header, so the gateway does not count them as turns of the session's
 conversation. The gateway can still infer a conversation from such a request's opening and inject context into its
-prompt; Memory recalled for a compaction prompt can then appear in the summary that DSH stores in the session.
+prompt; Memory recalled for a compaction prompt can then appear in the summary that DSH stores in the session. With
+`PC_GATEWAY_SEDIMENT=on`, it also captures such a request as a turn of that inferred conversation, so each session
+title adds a Source whose user text is DSH's title prompt.
 
 DSH adds its own runtime-context reminder, a user message that holds only a `<system-reminder>` block, after the
 prompt on the first turn of a session and whenever that context changes, including inside a tool loop. On those
