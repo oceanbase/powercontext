@@ -324,6 +324,17 @@ impl Gateway {
             .unwrap()
     }
 
+    async fn post_turn(&self, request: &Value) -> reqwest::Response {
+        self.client
+            .post(format!("{}/chat/completions", self.base))
+            .bearer_auth("gateway-test-key")
+            .header("X-PowerContext-Conversation-ID", "chat-cost-test")
+            .json(request)
+            .send()
+            .await
+            .unwrap()
+    }
+
     fn assert_forwarded(&self, requests: &[Value], replies: &[Vec<u8>]) {
         let sent = self.peers.sent.lock().unwrap();
         let checks = self.peers.checks.lock().unwrap();
@@ -564,7 +575,10 @@ async fn chat_captures_a_streamed_turn_after_tool_continuation() {
     let gateway = Gateway::start_with_env(
         vec![tool, terminal, json_reply],
         None,
-        &[("PC_GATEWAY_SEDIMENT", "on")],
+        &[
+            ("PC_GATEWAY_SEDIMENT", "on"),
+            ("PC_GATEWAY_STEERING", "off"),
+        ],
         false,
     )
     .await;
@@ -619,7 +633,10 @@ async fn chat_captures_a_streamed_turn_after_tool_continuation() {
 
 #[tokio::test]
 async fn chat_does_not_capture_unfinished_or_withheld_streams() {
-    let settings = [("PC_GATEWAY_SEDIMENT", "on")];
+    let settings = [
+        ("PC_GATEWAY_SEDIMENT", "on"),
+        ("PC_GATEWAY_STEERING", "off"),
+    ];
     let body = request("chat", "simple", true);
     let unfinished = Reply {
         body: b"data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"partial answer\"},\"finish_reason\":null}]}\n\ndata: [DONE]\n\n".to_vec(),
@@ -1166,7 +1183,144 @@ async fn responses_stream_delivers_reasoning_summaries_and_citations() {
 }
 
 #[tokio::test]
-async fn default_steering_and_overrides_reach_only_responses() {
+async fn chat_cost_steering_preserves_the_client_messages() {
+    let guidance = include_str!("../src/default_steering.txt").trim();
+    let user = json!({"role": "user", "content": "hello"});
+    let developer = json!({"role": "developer", "content": "developer instructions"});
+    let parts = json!([{"type": "text", "text": "Original instructions"}]);
+    let gateway = Gateway::start_with_env(
+        (0..3)
+            .map(|_| Reply::fixture("fantasy_chat_simple", 0))
+            .collect(),
+        None,
+        &[],
+        true,
+    )
+    .await;
+    for (index, (messages, expected)) in [
+        (
+            json!([{"role": "system", "name": "agent", "content": "Original instructions"}, user]),
+            json!([{"role": "system", "name": "agent", "content": format!("Original instructions\n\n{guidance}")}, user]),
+        ),
+        (
+            json!([developer, {"role": "system", "content": parts}, user]),
+            json!([developer, {"role": "system", "content": [
+                parts[0], {"type": "text", "text": guidance}
+            ]}, user]),
+        ),
+        (
+            json!([developer, user]),
+            json!([developer, {"role": "system", "content": guidance}, user]),
+        ),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let mut body = request("chat", "simple", false);
+        body["messages"] = messages;
+        assert!(gateway.post("chat/completions", &body).await.status().is_success());
+        let sent: Value = serde_json::from_slice(&gateway.peers.sent.lock().unwrap()[index].1).unwrap();
+        assert_eq!(sent["messages"], expected, "Chat steering case {index}");
+    }
+}
+
+#[tokio::test]
+async fn chat_cost_extraction_extends_the_admitted_chat_prefix() {
+    let terminal = Reply::fixture("fantasy_chat_simple", 0);
+    let mut output: Value = serde_json::from_slice(&terminal.body).unwrap();
+    output["choices"][0]["message"]["content"] = json!("Extracted memory.");
+    output["usage"]["prompt_tokens_details"]["cached_tokens"] = json!(15);
+    let extracted = serde_json::to_vec(&output).unwrap();
+    let gateway = Gateway::start_with_env(
+        vec![
+            Reply::fixture("fantasy_chat_simple", 0),
+            Reply {
+                body: extracted.clone(),
+                content_type: "application/json",
+                status: 200,
+            },
+        ],
+        None,
+        &[
+            ("PC_GATEWAY_SEDIMENT", "on"),
+            ("PC_GATEWAY_INJECTION", "on"),
+        ],
+        true,
+    )
+    .await;
+    let mut body = request("chat", "tool", false);
+    body["prompt_cache_key"] = json!("agent-cache");
+    body["response_format"] = json!({"type": "json_object"});
+    body["stop"] = json!(["END"]);
+    let response = gateway.post_turn(&body).await;
+    assert_eq!(response.status(), 200);
+    assert_eq!(response.bytes().await.unwrap(), terminal.body);
+
+    let capture = gateway.peers.captures.lock().unwrap()[0].clone();
+    let source = &capture["sources"][0];
+    assert!(!source["content"]
+        .as_str()
+        .unwrap()
+        .contains("Prepared context"));
+    let metadata = &source["metadata"];
+    let handle = metadata["prefix_handle"]
+        .as_str()
+        .expect("captured Chat turn must carry a prefix handle");
+    assert_eq!(metadata["prefix_input_tokens"], 20);
+    assert_eq!(metadata["prefix_output_tokens"], 2);
+    let response = gateway
+        .post(
+            "extract",
+            &json!({
+                "handle": handle,
+                "instruction": "Extract memory.",
+                "continuation": [
+                    {"role": "assistant", "text": "First pass."},
+                    {"role": "user", "text": "Continue."},
+                ],
+                "max_output_tokens": 256,
+            }),
+        )
+        .await;
+    assert_eq!(response.status(), 200);
+    let callback: Value = response.json().await.unwrap();
+    assert_eq!(callback["text"], "Extracted memory.");
+    assert_eq!(callback["model"], output["model"]);
+    assert_eq!(callback["usage"]["input_tokens"], 20);
+    assert_eq!(callback["usage"]["output_tokens"], 2);
+    assert_eq!(
+        callback["usage"]["input_tokens_details"]["cached_tokens"],
+        15
+    );
+
+    let sent: Value = serde_json::from_slice(&gateway.peers.sent.lock().unwrap()[0].1).unwrap();
+    assert_eq!(
+        sent["messages"][1]["content"],
+        "Prepared context 1\n\nWhat's the weather in Florence,Italy?"
+    );
+    assert_eq!(sent["response_format"], body["response_format"]);
+    assert_eq!(sent["stop"], body["stop"]);
+    let mut expected = sent.clone();
+    expected["messages"].as_array_mut().unwrap().extend([
+        json!({"role": "assistant", "content": "Olá!"}),
+        json!({"role": "user", "content": "Extract memory."}),
+        json!({"role": "assistant", "content": "First pass."}),
+        json!({"role": "user", "content": "Continue."}),
+    ]);
+    expected["tool_choice"] = json!("none");
+    expected["max_completion_tokens"] = json!(256);
+    gateway.assert_forwarded(&[sent, expected], &[terminal.body, extracted]);
+    let checks = gateway.peers.checks.lock().unwrap();
+    let prepared = &checks[0]["prepared_contexts"];
+    assert_eq!(prepared[0]["binding"], "reuse-1");
+    assert_eq!(prepared[0]["location"]["pointer"], "/messages/1/content");
+    assert_eq!(prepared[0]["location"]["end_byte"], 18);
+    assert_eq!(checks[2]["prepared_contexts"], *prepared);
+    assert_eq!(gateway.peers.captures.lock().unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn default_steering_and_overrides_reach_both_routes() {
     let custom =
         std::env::temp_dir().join(format!("pc-default-steering-{}.txt", std::process::id()));
     std::fs::write(&custom, "Custom deployment guidance.").unwrap();
@@ -1229,12 +1383,14 @@ async fn default_steering_and_overrides_reach_only_responses() {
             None => assert!(developer.is_empty(), "settings: {settings:?}"),
         }
         let chat: Value = serde_json::from_slice(&sent[1].1).unwrap();
-        assert_eq!(chat["messages"].as_array().unwrap().len(), 2);
-        assert!(chat["messages"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .all(|message| message["role"] != "developer"));
+        let original = request("chat", "simple", false);
+        let mut messages = original["messages"].clone();
+        if expected.is_some() {
+            let base = original["messages"][0]["content"].as_str().unwrap();
+            let guidance = developer[0]["content"][0]["text"].as_str().unwrap();
+            messages[0]["content"] = json!(format!("{base}\n\n{guidance}"));
+        }
+        assert_eq!(chat["messages"], messages, "settings: {settings:?}");
     }
     std::fs::remove_file(custom).unwrap();
 }
