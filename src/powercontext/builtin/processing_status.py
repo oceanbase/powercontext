@@ -17,7 +17,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from typing import TYPE_CHECKING, Literal
 
@@ -25,6 +25,8 @@ from sqlalchemy import Text, and_, cast, func, or_, select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncConnection
 
+from powercontext.artifacts.search import ArtifactSearchExecutionContext
+from powercontext.builtin.artifacts.profile.models import ProfilePolicy
 from powercontext.builtin.artifacts.topic_memory import TOPIC_MEMORY_SOURCE_WINDOW_BINDING
 from powercontext.builtin.dream.bindings import DREAM_OPERATIONS, FAMILY_DREAM_BINDINGS
 from powercontext.builtin.dream.models import DreamCandidateRef, DreamOperation, DreamRecord, DreamRun, DreamStatus
@@ -32,6 +34,7 @@ from powercontext.builtin.persistence.codec import load_model, stored_bytes
 from powercontext.builtin.persistence.cursors import SourceCursorRepository
 from powercontext.builtin.persistence.errors import InvalidStoredColumnError, InvalidStoredPayloadError
 from powercontext.builtin.persistence.processing_intents import ArtifactProcessingIntentRepository
+from powercontext.builtin.persistence.profile import ProfilePolicyRepository
 from powercontext.builtin.persistence.supervision import ArtifactProcessingLeaseRepository, database_utc_now
 from powercontext.builtin.persistence.tables import (
     DREAM_RUNS_TABLE,
@@ -84,6 +87,7 @@ class ProcessingStatusBlock:
     source_through: int | None = None
     budget_source_through: int | None = None
     diagnostics: ProcessingDiagnostics | None = None
+    last_error_code: str | None = None
 
     @property
     def persisted(self) -> bool:
@@ -122,7 +126,94 @@ class ArtifactProcessingStatus:
 _SOURCE_FAMILIES = frozenset({"memory", "experience", "profile", "topic-memory"})
 
 
+@dataclass(frozen=True, slots=True)
+class SourceConsumptionStatus:
+    """Source progress and invocation evidence, independent of publication and Dream."""
+
+    scope_id: str
+    family: str
+    binding: str
+    observed_at: datetime
+    progress: ProcessingStatusProgress
+    invocation: ProcessingObservation | None
+    configured: bool | None
+    profile_policy: ProfilePolicy | None = None
+    executor: ProcessingObservation | None = None
+
+    @property
+    def processing_family(self) -> str:
+        return "memory" if self.family == "atomic-memory" else self.family
+
+    @property
+    def input_state(self) -> Literal["pending", "caught_up", "unavailable"]:
+        if self.progress.source_cursor > self.progress.source_head:
+            return "unavailable"
+        return "pending" if self.progress.pending_inputs else "caught_up"
+
+
 class ProcessingStatusInspector:
+    async def source_consumption(
+        self,
+        connection: AsyncConnection,
+        scope_id: str,
+        family: str,
+        /,
+        *,
+        configured: bool | None = None,
+        supervisors: ArtifactProcessingSupervisors | None = None,
+    ) -> SourceConsumptionStatus:
+        """Read one binding in the caller's authorized, consistent snapshot.
+
+        Topic pending/flush and recovery records do not govern these three paths.
+        Missing cursors use the processors' initial position; absent intents stay absent.
+        Unlike the composite status(), this projection reads Profile policy and
+        requires a fresh, exact executor sample without letting sampling failure
+        invalidate durable evidence. Both projections reuse the cursor reader and
+        retained-intent interpretation.
+        """
+        scope_id = validate_scope_id(scope_id)
+        processing_family = "memory" if family == "atomic-memory" else family
+        if processing_family not in {"memory", "profile", "experience"}:
+            raise ValueError("Source consumption requires Memory, Profile or Experience")  # noqa: TRY003
+        if await ScopeRepository().get(connection, scope_id) is None:
+            raise ScopeNotFoundError(scope_id)
+        binding = FAMILY_BINDINGS[processing_family]
+        observed_at = datetime.now(UTC)
+        progress = await self._source_progress(connection, scope_id, binding)
+        intent = await ArtifactProcessingIntentRepository().load(connection, scope_id, binding)
+        policy = await ProfilePolicyRepository().get(connection, scope_id) if processing_family == "profile" else None
+        executor = None
+        if supervisors is not None:
+            try:
+                sampled_at = datetime.now(UTC)
+                executor = next(
+                    (
+                        row
+                        for row in supervisors.observe_scope(scope_id)
+                        if row.binding == binding
+                        and row.family == processing_family
+                        and row.scheduler_observed
+                        and sampled_at - timedelta(seconds=5) <= row.observed_at <= datetime.now(UTC)
+                    ),
+                    None,
+                )
+            except Exception:
+                # Local observer failure cannot erase independently readable durable progress.
+                executor = None
+        return SourceConsumptionStatus(
+            scope_id=scope_id,
+            family="atomic-memory" if processing_family == "memory" else processing_family,
+            binding=binding,
+            observed_at=observed_at,
+            progress=progress,
+            invocation=None
+            if intent is None
+            else project_processing_observation(intent.model_dump(), processing_family, observed_at),
+            configured=configured,
+            profile_policy=policy,
+            executor=executor,
+        )
+
     async def status(
         self,
         connection: AsyncConnection,
@@ -132,6 +223,7 @@ class ProcessingStatusInspector:
         *,
         supervisors: ArtifactProcessingSupervisors | None = None,
         lease_time_floor: datetime | None = None,
+        include_dream: bool = True,
     ) -> ArtifactProcessingStatus:
         scope_id = validate_scope_id(scope_id)
         now = datetime.now(UTC)
@@ -166,10 +258,11 @@ class ProcessingStatusInspector:
         runs: tuple[DreamOperationStatus, ...] = ()
         pending: bool | None = None
         unavailable = None
-        try:
-            runs, pending = await self._dream_status(connection, scope_id, processing_family)
-        except (SQLAlchemyError, InvalidStoredColumnError, InvalidStoredPayloadError):
-            unavailable = "dream_query_failed"
+        if include_dream:
+            try:
+                runs, pending = await self._dream_status(connection, scope_id, processing_family)
+            except (SQLAlchemyError, InvalidStoredColumnError, InvalidStoredPayloadError):
+                unavailable = "dream_query_failed"
         executor = None
         if supervisors is not None:
             executor = next((row for row in supervisors.observe_scope(scope_id) if row.binding == binding), None)
@@ -259,6 +352,7 @@ class ProcessingStatusInspector:
                 source_through=row["source_through"],
                 budget_source_through=row["budget_source_through"],
                 diagnostics=classify_block_code("topic_memory", row["error_code"]),
+                last_error_code=row["last_error_code"],
             )
         if budget["started_at"] is not None and budget["finished_at"] is None:
             group = budget["supervisor_group"]
@@ -336,7 +430,19 @@ class ScopedProcessingStatusApplication:
         self._runtime = runtime
         self.scope_id = validate_scope_id(scope_id)
 
-    async def status(self, family: str, /) -> ArtifactProcessingStatus:
+    async def status(
+        self,
+        family: str,
+        /,
+        *,
+        include_dream: bool = True,
+        context: ArtifactSearchExecutionContext | None = None,
+    ) -> ArtifactProcessingStatus:
+        """Inspect existing records; a supplied request context is authorized in the read snapshot.
+
+        Source-only consumers exclude Dream work and history. Embedded callers
+        without a request context retain responsibility for their own authorization.
+        """
         async with self._runtime._operation():
             lease_time_floor = None
             if family == "topic-memory":
@@ -344,12 +450,20 @@ class ScopedProcessingStatusApplication:
                 async with self._runtime.primary_database.transaction() as connection:
                     lease_time_floor = await database_utc_now(connection)
             async with self._runtime.primary_database.transaction(consistent_snapshot=True) as connection:
+                if context is not None:
+                    from powercontext.builtin.records import BaseOperationNotSupportedError
+
+                    atomic = self._runtime.atomic_memory
+                    if atomic is None:
+                        raise BaseOperationNotSupportedError("artifact_family", family, "processing_status")
+                    await atomic._application.security.authorize(connection, self.scope_id, context, "read")
                 return await ProcessingStatusInspector().status(
                     connection,
                     self.scope_id,
                     family,
                     supervisors=self._runtime.artifact_processing_supervisor,
                     lease_time_floor=lease_time_floor,
+                    include_dream=include_dream,
                 )
 
 

@@ -12,10 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! 运维配置的固定指令（`PC_GATEWAY_STEERING_FILE`），插入 Responses 和 Chat 入口的请求。
+//! 默认内置固定指令，可由 `PC_GATEWAY_STEERING_FILE` 覆盖；插入 Responses 和 Chat 入口的请求。
 //!
 //! 文本在启动时读取并校验一次；每个请求插入同一位置的同一文本，因此它是稳定前缀的一部分，
-//! 首个请求之后按缓存读取计费。它与上下文注入、沉淀和准备结果的重放相互独立。
+//! 可复用上游前缀缓存，实际命中与计费取决于服务商。它与上下文注入、沉淀和准备结果的重放相互独立。
 
 use serde_json::Value;
 
@@ -26,14 +26,16 @@ pub const MAX_STEERING_BYTES: usize = 4096;
 /// 指令文本含有它时每个请求都会被拒绝，所以启动时就拒绝。
 const RESERVED_MARKER_PREFIX: &str = "BEGIN_POWERCONTEXT_";
 
-/// 读取并校验指令文件：未配置时返回 `None`；文件不可读、不是 UTF-8、去掉首尾空白后为空、超过
+/// 读取并校验固定指令：未配置文件时使用内置文本；文件不可读、不是 UTF-8、去掉首尾空白后为空、超过
 /// [`MAX_STEERING_BYTES`] 或含有 PowerContext 保留标记时返回错误，网关据此拒绝启动，而不是不带指令运行。
 pub fn load(path: Option<&str>) -> Result<Option<String>, String> {
-    let Some(path) = path else {
-        return Ok(None);
+    let text = match path {
+        Some(path) => {
+            let bytes = std::fs::read(path).map_err(|_| "file cannot be read".to_string())?;
+            String::from_utf8(bytes).map_err(|_| "file is not UTF-8".to_string())?
+        }
+        None => include_str!("default_steering.txt").to_owned(),
     };
-    let bytes = std::fs::read(path).map_err(|_| "file cannot be read".to_string())?;
-    let text = String::from_utf8(bytes).map_err(|_| "file is not UTF-8".to_string())?;
     let text = text.trim();
     if text.is_empty() {
         return Err("file is empty".into());
@@ -106,7 +108,9 @@ mod tests {
             std::fs::write(&path, bytes).unwrap();
             path.to_string_lossy().into_owned()
         };
-        assert_eq!(load(None), Ok(None));
+        let default = load(None).unwrap().unwrap();
+        assert!(default.starts_with("Cost guidance:"));
+        assert!(default.len() <= MAX_STEERING_BYTES);
         assert_eq!(
             load(Some(&file("ok", b"  Plan before acting.\n"))),
             Ok(Some("Plan before acting.".into()))

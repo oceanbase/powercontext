@@ -167,6 +167,36 @@ def _description_altered_projection_ddl(legacy_ddl: str) -> str:
         ).fetchone()[0]
 
 
+@lru_cache
+def _atomic_maintenance_layouts() -> tuple[dict[str, Any], ...]:
+    """Register old and alias-bearing pristine layouts without rewriting frozen resources."""
+    alias_layout = RESOURCE.with_name("atomic_maintenance_sqlite_v2.json")
+    layouts = (
+        recovery_resource()["atomic_maintenance_sqlite_v1"],
+        json.loads(alias_layout.read_text(encoding="utf-8")),
+    )
+    variants = []
+    for expected in layouts:
+        # The manifest adds only nullable metadata to the pristine Atomic projection.
+        # Recognize that exact additive layout without changing the frozen v1 resource
+        # or accepting arbitrary columns, FTS helpers, triggers or persisted evidence.
+        with_description = [list(row) for row in expected["schema"]]
+        altered_description = [list(row) for row in expected["schema"]]
+        for row in altered_description:
+            if row[:2] == ["table", "pc_atomic_memory_current"]:
+                row[3] = _description_altered_projection_ddl(row[3])
+        for row in with_description:
+            if row[:2] == ["table", "pc_atomic_memory_current"]:
+                row[3] = row[3].replace(
+                    "\ttext TEXT NOT NULL, \n", "\ttext TEXT NOT NULL, \n\tdescription VARCHAR(200), \n", 1
+                )
+        variants.extend(
+            {"schema": schema, "empty_tables": expected["empty_tables"]}
+            for schema in (expected["schema"], with_description, altered_description)
+        )
+    return tuple(variants)
+
+
 def _atomic_maintenance_initialization(connection: Connection) -> bool:
     """Recognize the complete, pristine SQLite output of Atomic maintenance.
 
@@ -176,7 +206,6 @@ def _atomic_maintenance_initialization(connection: Connection) -> bool:
     """
     if connection.dialect.name != "sqlite":
         return False
-    expected = recovery_resource()["atomic_maintenance_sqlite_v1"]
     ignored = _BOOTSTRAP_COMPANIONS | set(OBJECTS)
     actual = [
         list(row)
@@ -185,25 +214,13 @@ def _atomic_maintenance_initialization(connection: Connection) -> bool:
         )
         if row[2] not in ignored
     ]
-    # The manifest adds only nullable metadata to the pristine Atomic projection.
-    # Recognize that exact additive layout without changing the frozen v1 resource
-    # or accepting arbitrary columns, FTS helpers, triggers or persisted evidence.
-    with_description = [list(row) for row in expected["schema"]]
-    altered_description = [list(row) for row in expected["schema"]]
-    for row in altered_description:
-        if row[:2] == ["table", "pc_atomic_memory_current"]:
-            row[3] = _description_altered_projection_ddl(row[3])
-    for row in with_description:
-        if row[:2] == ["table", "pc_atomic_memory_current"]:
-            row[3] = row[3].replace(
-                "\ttext TEXT NOT NULL, \n", "\ttext TEXT NOT NULL, \n\tdescription VARCHAR(200), \n", 1
+    for expected in _atomic_maintenance_layouts():
+        if actual == expected["schema"]:
+            return all(
+                connection.exec_driver_sql(f'SELECT 1 FROM "{name}" LIMIT 1').first() is None  # noqa: S608 - registered identifiers
+                for name in expected["empty_tables"]
             )
-    if actual not in (expected["schema"], with_description, altered_description):
-        return False
-    return all(
-        connection.exec_driver_sql(f'SELECT 1 FROM "{name}" LIMIT 1').first() is None  # noqa: S608 - frozen identifiers
-        for name in expected["empty_tables"]
-    )
+    return False
 
 
 def recovery_layout(connection: Connection) -> str:

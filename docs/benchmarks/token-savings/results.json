@@ -1,0 +1,3854 @@
+{
+  "schema": 1,
+  "export_date": "2026-11-10",
+  "description": "Numeric evidence export for a frozen 24-task completed subset of SWE-bench Pro. No prompts, credentials, local paths or private traces. Not an official benchmark submission.",
+  "sources": [
+    {
+      "name": "three-arm-comparison",
+      "sha256": "34d7a901085531caf26825511a15a389bcfd52c018970245d6ffeffa39e38fa6"
+    },
+    {
+      "name": "mcs-common24-comparison",
+      "sha256": "a417da9a984f66e017de3cd6f8aaa92d163d7e39d61cfb9010d77f181b45eb31"
+    },
+    {
+      "name": "five-arm-initial-comparison",
+      "sha256": "f281a1ad9940e9a080b15e443c96a9ed6620094b64d9d8d59d78abe0ac82555d"
+    }
+  ],
+  "experiment": {
+    "dataset_count": 731,
+    "dataset_sha256": "b5b2462bfbf5aeb2cb7ba7d215778a1768b85f9d7ad7f748546c7f80a0ad1510",
+    "model": {
+      "name": "gpt-5.6-sol",
+      "reasoning_effort": "medium",
+      "codex_version": "codex-cli 0.162.1"
+    },
+    "tested_source": {
+      "base_commit": "28ba11dc26865b4bae1bd6d9bb483248886c4c74",
+      "upstream_fix_commit": "566834839821d026db1c116425ee9a9b5c0f4fe5",
+      "port_diff_sha256": "64a91de36436a840f76f04f795c9f2ebf11e8d99d034070255272367df2e6057",
+      "source_manifest_sha256": "e5dd70b13829f978043cdb9b0db1a52c39bb7733c6622c05f058fdcca00c7c92",
+      "gateway_sha256": "c07aa0efd9ea4433ae442ef42daf4762fa4f704164c7f3b6b45a0a37884d2f7d"
+    },
+    "resources": {
+      "cpus": "2",
+      "memory_limit": "6g",
+      "pids_limit": 512,
+      "task_timeout": 2400
+    },
+    "isolation": "Fresh DB, Scope, workspace, cache and home per arm, case and model attempt; technical finish recovery retains its attempt database.",
+    "baseline": "Earlier frozen Gateway OFF batch, same tasks; not simultaneous randomized A/B.",
+    "selection": "Initial: first settled valid scored selection. Merged: first successful conditional retry, else last of three valid failures.",
+    "metric": "input_tokens + output_tokens; input includes cached input, output includes reasoning; no double count.",
+    "full_system_cost_complete": false
+  },
+  "common24_ids": [
+    22,
+    87,
+    152,
+    202,
+    225,
+    238,
+    293,
+    308,
+    336,
+    374,
+    388,
+    406,
+    410,
+    456,
+    464,
+    468,
+    472,
+    482,
+    492,
+    501,
+    505,
+    627,
+    698,
+    706
+  ],
+  "initial_and_merged_24": [
+    {
+      "case": 22,
+      "instance_id": "instance_navidrome__navidrome-b65e76293a917ee2dfc5d4b373b1c62e054d0dca",
+      "repo": "navidrome/navidrome",
+      "arms": {
+        "CS": {
+          "initial": {
+            "resolved": false,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 1157508,
+              "cached_input_tokens": 1087616,
+              "uncached_input_tokens": 69892,
+              "output_tokens": 15154,
+              "total_tokens": 1172662
+            },
+            "outcome_sha256": "ecb30b3c6dc51800f127e18c7f3c2add6cfc9588b10375f3168d7b6a1e51251a",
+            "selection": "original_selected"
+          },
+          "merged": {
+            "resolved": false,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 1157508,
+              "cached_input_tokens": 1087616,
+              "uncached_input_tokens": 69892,
+              "output_tokens": 15154,
+              "total_tokens": 1172662
+            },
+            "outcome_sha256": "ecb30b3c6dc51800f127e18c7f3c2add6cfc9588b10375f3168d7b6a1e51251a",
+            "selection": "original_selected"
+          },
+          "additional_attempts": []
+        },
+        "S": {
+          "initial": {
+            "resolved": false,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 1458285,
+              "cached_input_tokens": 1402624,
+              "uncached_input_tokens": 55661,
+              "output_tokens": 12710,
+              "total_tokens": 1470995
+            },
+            "outcome_sha256": "6774de3fb4be66b9054ad141e5602080cbfba0e2e3c98db0c4b5cd175d728b76",
+            "selection": "original_selected"
+          },
+          "merged": {
+            "resolved": false,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 1458285,
+              "cached_input_tokens": 1402624,
+              "uncached_input_tokens": 55661,
+              "output_tokens": 12710,
+              "total_tokens": 1470995
+            },
+            "outcome_sha256": "6774de3fb4be66b9054ad141e5602080cbfba0e2e3c98db0c4b5cd175d728b76",
+            "selection": "original_selected"
+          },
+          "additional_attempts": []
+        },
+        "gateway_off": {
+          "initial": {
+            "resolved": false,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 2096258,
+              "cached_input_tokens": 2051200,
+              "uncached_input_tokens": 45058,
+              "output_tokens": 15617,
+              "total_tokens": 2111875
+            },
+            "outcome_sha256": "69dc5ebaa31d0835be0e95b5aca6c3a1ca396b5452582b0d361c2d2b23a2fcb5",
+            "selection": "original_selected"
+          },
+          "merged": {
+            "resolved": false,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 2096258,
+              "cached_input_tokens": 2051200,
+              "uncached_input_tokens": 45058,
+              "output_tokens": 15617,
+              "total_tokens": 2111875
+            },
+            "outcome_sha256": "69dc5ebaa31d0835be0e95b5aca6c3a1ca396b5452582b0d361c2d2b23a2fcb5",
+            "selection": "original_selected"
+          },
+          "additional_attempts": []
+        },
+        "C": {
+          "initial": {
+            "resolved": false,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 1494368,
+              "cached_input_tokens": 1415296,
+              "output_tokens": 13285,
+              "total_tokens": 1507653,
+              "uncached_input_tokens": 79072
+            },
+            "selection": "original_selected"
+          }
+        },
+        "native_off": {
+          "initial": {
+            "resolved": false,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 1771403,
+              "cached_input_tokens": 1695744,
+              "output_tokens": 13228,
+              "total_tokens": 1784631,
+              "uncached_input_tokens": 75659
+            },
+            "selection": "original_selected"
+          }
+        }
+      }
+    },
+    {
+      "case": 87,
+      "instance_id": "instance_navidrome__navidrome-97434c1789a6444b30aae5ff5aa124a96a88f504",
+      "repo": "navidrome/navidrome",
+      "arms": {
+        "CS": {
+          "initial": {
+            "resolved": false,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 486245,
+              "cached_input_tokens": 449536,
+              "uncached_input_tokens": 36709,
+              "output_tokens": 9556,
+              "total_tokens": 495801
+            },
+            "outcome_sha256": "ccd5d075bdd8e7975c6f901b4cbf47d56dd4fc4a2b2e4b80a3b6f3ef22fa31a6",
+            "selection": "original_selected"
+          },
+          "merged": {
+            "resolved": false,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 486245,
+              "cached_input_tokens": 449536,
+              "uncached_input_tokens": 36709,
+              "output_tokens": 9556,
+              "total_tokens": 495801
+            },
+            "outcome_sha256": "ccd5d075bdd8e7975c6f901b4cbf47d56dd4fc4a2b2e4b80a3b6f3ef22fa31a6",
+            "selection": "original_selected"
+          },
+          "additional_attempts": []
+        },
+        "S": {
+          "initial": {
+            "resolved": false,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 427941,
+              "cached_input_tokens": 404096,
+              "uncached_input_tokens": 23845,
+              "output_tokens": 8130,
+              "total_tokens": 436071
+            },
+            "outcome_sha256": "a019473cc7b5dbdb3744ad6640863ba8d3ded6b529239f20ba7fc6fffb360860",
+            "selection": "original_selected"
+          },
+          "merged": {
+            "resolved": false,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 427941,
+              "cached_input_tokens": 404096,
+              "uncached_input_tokens": 23845,
+              "output_tokens": 8130,
+              "total_tokens": 436071
+            },
+            "outcome_sha256": "a019473cc7b5dbdb3744ad6640863ba8d3ded6b529239f20ba7fc6fffb360860",
+            "selection": "original_selected"
+          },
+          "additional_attempts": []
+        },
+        "gateway_off": {
+          "initial": {
+            "resolved": false,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 929480,
+              "cached_input_tokens": 903296,
+              "uncached_input_tokens": 26184,
+              "output_tokens": 11146,
+              "total_tokens": 940626
+            },
+            "outcome_sha256": "dcdc27cbb320f9023698788ad5671b9205d0e268cea06c81891d44d989a898cb",
+            "selection": "original_selected"
+          },
+          "merged": {
+            "resolved": false,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 929480,
+              "cached_input_tokens": 903296,
+              "uncached_input_tokens": 26184,
+              "output_tokens": 11146,
+              "total_tokens": 940626
+            },
+            "outcome_sha256": "dcdc27cbb320f9023698788ad5671b9205d0e268cea06c81891d44d989a898cb",
+            "selection": "original_selected"
+          },
+          "additional_attempts": []
+        },
+        "C": {
+          "initial": {
+            "resolved": false,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 977460,
+              "cached_input_tokens": 928640,
+              "output_tokens": 9531,
+              "total_tokens": 986991,
+              "uncached_input_tokens": 48820
+            },
+            "selection": "original_selected"
+          }
+        },
+        "native_off": {
+          "initial": {
+            "resolved": false,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 680157,
+              "cached_input_tokens": 631936,
+              "output_tokens": 8728,
+              "total_tokens": 688885,
+              "uncached_input_tokens": 48221
+            },
+            "selection": "original_selected"
+          }
+        }
+      }
+    },
+    {
+      "case": 152,
+      "instance_id": "instance_navidrome__navidrome-89b12b34bea5687c70e4de2109fd1e7330bb2ba2",
+      "repo": "navidrome/navidrome",
+      "arms": {
+        "CS": {
+          "initial": {
+            "resolved": false,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 386961,
+              "cached_input_tokens": 363648,
+              "uncached_input_tokens": 23313,
+              "output_tokens": 6656,
+              "total_tokens": 393617
+            },
+            "outcome_sha256": "081ac4a0f93a9dec84bb942167d926806179c2457215a925701fb4129b2e7769",
+            "selection": "original_selected"
+          },
+          "merged": {
+            "resolved": false,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 386961,
+              "cached_input_tokens": 363648,
+              "uncached_input_tokens": 23313,
+              "output_tokens": 6656,
+              "total_tokens": 393617
+            },
+            "outcome_sha256": "081ac4a0f93a9dec84bb942167d926806179c2457215a925701fb4129b2e7769",
+            "selection": "original_selected"
+          },
+          "additional_attempts": []
+        },
+        "S": {
+          "initial": {
+            "resolved": false,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 279253,
+              "cached_input_tokens": 259712,
+              "uncached_input_tokens": 19541,
+              "output_tokens": 5273,
+              "total_tokens": 284526
+            },
+            "outcome_sha256": "d63b885948e0653413b3157a55d61c4b4bbde429cf91d903652ab2c0030ba675",
+            "selection": "original_selected"
+          },
+          "merged": {
+            "resolved": false,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 279253,
+              "cached_input_tokens": 259712,
+              "uncached_input_tokens": 19541,
+              "output_tokens": 5273,
+              "total_tokens": 284526
+            },
+            "outcome_sha256": "d63b885948e0653413b3157a55d61c4b4bbde429cf91d903652ab2c0030ba675",
+            "selection": "original_selected"
+          },
+          "additional_attempts": []
+        },
+        "gateway_off": {
+          "initial": {
+            "resolved": false,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 557565,
+              "cached_input_tokens": 534912,
+              "uncached_input_tokens": 22653,
+              "output_tokens": 7995,
+              "total_tokens": 565560
+            },
+            "outcome_sha256": "98b9c2e9098f32cba6bb192c04059c2b1fb8355f1587ab32f33e93063b2aea0d",
+            "selection": "original_selected"
+          },
+          "merged": {
+            "resolved": false,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 557565,
+              "cached_input_tokens": 534912,
+              "uncached_input_tokens": 22653,
+              "output_tokens": 7995,
+              "total_tokens": 565560
+            },
+            "outcome_sha256": "98b9c2e9098f32cba6bb192c04059c2b1fb8355f1587ab32f33e93063b2aea0d",
+            "selection": "original_selected"
+          },
+          "additional_attempts": []
+        },
+        "C": {
+          "initial": {
+            "resolved": false,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 646086,
+              "cached_input_tokens": 624128,
+              "output_tokens": 8656,
+              "total_tokens": 654742,
+              "uncached_input_tokens": 21958
+            },
+            "selection": "original_selected"
+          }
+        },
+        "native_off": {
+          "initial": {
+            "resolved": false,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 403531,
+              "cached_input_tokens": 362880,
+              "output_tokens": 5967,
+              "total_tokens": 409498,
+              "uncached_input_tokens": 40651
+            },
+            "selection": "original_selected"
+          }
+        }
+      }
+    },
+    {
+      "case": 202,
+      "instance_id": "instance_NodeBB__NodeBB-4327a09d76f10a79109da9d91c22120428d3bdb9-vnan",
+      "repo": "NodeBB/NodeBB",
+      "arms": {
+        "CS": {
+          "initial": {
+            "resolved": true,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 475466,
+              "cached_input_tokens": 441216,
+              "uncached_input_tokens": 34250,
+              "output_tokens": 6046,
+              "total_tokens": 481512
+            },
+            "outcome_sha256": "a5bebc0ac431bacdd6023fc2d3c46e7181bc82e669dc02403b37d7d021e0b6f9",
+            "selection": "original_selected"
+          },
+          "merged": {
+            "resolved": true,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 475466,
+              "cached_input_tokens": 441216,
+              "uncached_input_tokens": 34250,
+              "output_tokens": 6046,
+              "total_tokens": 481512
+            },
+            "outcome_sha256": "a5bebc0ac431bacdd6023fc2d3c46e7181bc82e669dc02403b37d7d021e0b6f9",
+            "selection": "original_selected"
+          },
+          "additional_attempts": []
+        },
+        "S": {
+          "initial": {
+            "resolved": true,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 469458,
+              "cached_input_tokens": 442368,
+              "uncached_input_tokens": 27090,
+              "output_tokens": 5785,
+              "total_tokens": 475243
+            },
+            "outcome_sha256": "008a4eb1fe0dcb853027a8ef22a5850a77840359d93f17e358a2bcbc4f00ae25",
+            "selection": "original_selected"
+          },
+          "merged": {
+            "resolved": true,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 469458,
+              "cached_input_tokens": 442368,
+              "uncached_input_tokens": 27090,
+              "output_tokens": 5785,
+              "total_tokens": 475243
+            },
+            "outcome_sha256": "008a4eb1fe0dcb853027a8ef22a5850a77840359d93f17e358a2bcbc4f00ae25",
+            "selection": "original_selected"
+          },
+          "additional_attempts": []
+        },
+        "gateway_off": {
+          "initial": {
+            "resolved": true,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 1276650,
+              "cached_input_tokens": 1221760,
+              "uncached_input_tokens": 54890,
+              "output_tokens": 9749,
+              "total_tokens": 1286399
+            },
+            "outcome_sha256": "81b6a4edf398dadaa528406759134a27dc19c14cecdd383bec7ef118ad61aa81",
+            "selection": "original_selected"
+          },
+          "merged": {
+            "resolved": true,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 1276650,
+              "cached_input_tokens": 1221760,
+              "uncached_input_tokens": 54890,
+              "output_tokens": 9749,
+              "total_tokens": 1286399
+            },
+            "outcome_sha256": "81b6a4edf398dadaa528406759134a27dc19c14cecdd383bec7ef118ad61aa81",
+            "selection": "original_selected"
+          },
+          "additional_attempts": []
+        },
+        "C": {
+          "initial": {
+            "resolved": true,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 643778,
+              "cached_input_tokens": 608768,
+              "output_tokens": 6679,
+              "total_tokens": 650457,
+              "uncached_input_tokens": 35010
+            },
+            "selection": "original_selected"
+          }
+        },
+        "native_off": {
+          "initial": {
+            "resolved": true,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 720473,
+              "cached_input_tokens": 633472,
+              "output_tokens": 7291,
+              "total_tokens": 727764,
+              "uncached_input_tokens": 87001
+            },
+            "selection": "original_selected"
+          }
+        }
+      }
+    },
+    {
+      "case": 225,
+      "instance_id": "instance_tutao__tutanota-de49d486feef842101506adf040a0f00ded59519-v10a26bfb45a064b93f4fc044a0254925037b88f1",
+      "repo": "tutao/tutanota",
+      "arms": {
+        "CS": {
+          "initial": {
+            "resolved": true,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 826647,
+              "cached_input_tokens": 767104,
+              "uncached_input_tokens": 59543,
+              "output_tokens": 6444,
+              "total_tokens": 833091
+            },
+            "outcome_sha256": "317bf0a4693d2ba8fff68ffaeda044ed25a47a6da6ee8ad0583796c0588055cc",
+            "selection": "original_selected"
+          },
+          "merged": {
+            "resolved": true,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 826647,
+              "cached_input_tokens": 767104,
+              "uncached_input_tokens": 59543,
+              "output_tokens": 6444,
+              "total_tokens": 833091
+            },
+            "outcome_sha256": "317bf0a4693d2ba8fff68ffaeda044ed25a47a6da6ee8ad0583796c0588055cc",
+            "selection": "original_selected"
+          },
+          "additional_attempts": []
+        },
+        "S": {
+          "initial": {
+            "resolved": true,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 1365966,
+              "cached_input_tokens": 1326336,
+              "uncached_input_tokens": 39630,
+              "output_tokens": 7144,
+              "total_tokens": 1373110
+            },
+            "outcome_sha256": "0d37406cf8dfa7176e769e311652bf3dc8f9bfa39641e4bdad85e87f667564b8",
+            "selection": "original_selected"
+          },
+          "merged": {
+            "resolved": true,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 1365966,
+              "cached_input_tokens": 1326336,
+              "uncached_input_tokens": 39630,
+              "output_tokens": 7144,
+              "total_tokens": 1373110
+            },
+            "outcome_sha256": "0d37406cf8dfa7176e769e311652bf3dc8f9bfa39641e4bdad85e87f667564b8",
+            "selection": "original_selected"
+          },
+          "additional_attempts": []
+        },
+        "gateway_off": {
+          "initial": {
+            "resolved": true,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 1065374,
+              "cached_input_tokens": 1026048,
+              "uncached_input_tokens": 39326,
+              "output_tokens": 7364,
+              "total_tokens": 1072738
+            },
+            "outcome_sha256": "e95186a27d798dc7b5a459ab41f12fda2cd90bffbf01d270e2c5259c14e74ab7",
+            "selection": "original_selected"
+          },
+          "merged": {
+            "resolved": true,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 1065374,
+              "cached_input_tokens": 1026048,
+              "uncached_input_tokens": 39326,
+              "output_tokens": 7364,
+              "total_tokens": 1072738
+            },
+            "outcome_sha256": "e95186a27d798dc7b5a459ab41f12fda2cd90bffbf01d270e2c5259c14e74ab7",
+            "selection": "original_selected"
+          },
+          "additional_attempts": []
+        },
+        "C": {
+          "initial": {
+            "resolved": true,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 1310162,
+              "cached_input_tokens": 1211264,
+              "output_tokens": 7855,
+              "total_tokens": 1318017,
+              "uncached_input_tokens": 98898
+            },
+            "selection": "original_selected"
+          }
+        },
+        "native_off": {
+          "initial": {
+            "resolved": true,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 1244623,
+              "cached_input_tokens": 1209728,
+              "output_tokens": 7834,
+              "total_tokens": 1252457,
+              "uncached_input_tokens": 34895
+            },
+            "selection": "original_selected"
+          }
+        }
+      }
+    },
+    {
+      "case": 238,
+      "instance_id": "instance_NodeBB__NodeBB-97c8569a798075c50e93e585ac741ab55cb7c28b-vf2cf3cbd463b7ad942381f1c6d077626485a1e9e",
+      "repo": "NodeBB/NodeBB",
+      "arms": {
+        "CS": {
+          "initial": {
+            "resolved": true,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 477913,
+              "cached_input_tokens": 443520,
+              "uncached_input_tokens": 34393,
+              "output_tokens": 7193,
+              "total_tokens": 485106
+            },
+            "outcome_sha256": "9a6823ec86815ec552e98fa3a2f9075c88cf8e4a99dee8c862be77cb9246ca81",
+            "selection": "original_selected"
+          },
+          "merged": {
+            "resolved": true,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 477913,
+              "cached_input_tokens": 443520,
+              "uncached_input_tokens": 34393,
+              "output_tokens": 7193,
+              "total_tokens": 485106
+            },
+            "outcome_sha256": "9a6823ec86815ec552e98fa3a2f9075c88cf8e4a99dee8c862be77cb9246ca81",
+            "selection": "original_selected"
+          },
+          "additional_attempts": []
+        },
+        "S": {
+          "initial": {
+            "resolved": true,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 385068,
+              "cached_input_tokens": 348032,
+              "uncached_input_tokens": 37036,
+              "output_tokens": 5040,
+              "total_tokens": 390108
+            },
+            "outcome_sha256": "9c1f0ba22f4047542ce8fd85d8f62149d42b62618ebc2a98c0b5655eccf350a0",
+            "selection": "original_selected"
+          },
+          "merged": {
+            "resolved": true,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 385068,
+              "cached_input_tokens": 348032,
+              "uncached_input_tokens": 37036,
+              "output_tokens": 5040,
+              "total_tokens": 390108
+            },
+            "outcome_sha256": "9c1f0ba22f4047542ce8fd85d8f62149d42b62618ebc2a98c0b5655eccf350a0",
+            "selection": "original_selected"
+          },
+          "additional_attempts": []
+        },
+        "gateway_off": {
+          "initial": {
+            "resolved": true,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 403403,
+              "cached_input_tokens": 370048,
+              "uncached_input_tokens": 33355,
+              "output_tokens": 5135,
+              "total_tokens": 408538
+            },
+            "outcome_sha256": "6efb54bed28cd77e1222d19ebcec2e655dbed26f60098f5f3b3a269441f1518f",
+            "selection": "original_selected"
+          },
+          "merged": {
+            "resolved": true,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 403403,
+              "cached_input_tokens": 370048,
+              "uncached_input_tokens": 33355,
+              "output_tokens": 5135,
+              "total_tokens": 408538
+            },
+            "outcome_sha256": "6efb54bed28cd77e1222d19ebcec2e655dbed26f60098f5f3b3a269441f1518f",
+            "selection": "original_selected"
+          },
+          "additional_attempts": []
+        },
+        "C": {
+          "initial": {
+            "resolved": true,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 682899,
+              "cached_input_tokens": 645632,
+              "output_tokens": 5986,
+              "total_tokens": 688885,
+              "uncached_input_tokens": 37267
+            },
+            "selection": "original_selected"
+          }
+        },
+        "native_off": {
+          "initial": {
+            "resolved": true,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 599629,
+              "cached_input_tokens": 559488,
+              "output_tokens": 4461,
+              "total_tokens": 604090,
+              "uncached_input_tokens": 40141
+            },
+            "selection": "original_selected"
+          }
+        }
+      }
+    },
+    {
+      "case": 293,
+      "instance_id": "instance_NodeBB__NodeBB-0e07f3c9bace416cbab078a30eae972868c0a8a3-vf2cf3cbd463b7ad942381f1c6d077626485a1e9e",
+      "repo": "NodeBB/NodeBB",
+      "arms": {
+        "CS": {
+          "initial": {
+            "resolved": false,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 660541,
+              "cached_input_tokens": 632320,
+              "uncached_input_tokens": 28221,
+              "output_tokens": 7986,
+              "total_tokens": 668527
+            },
+            "outcome_sha256": "b3869d4fdf610eb72e263e90fa91cd550a757bb0d91e2434bab2888302d639e9",
+            "selection": "original_selected"
+          },
+          "merged": {
+            "resolved": false,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 660541,
+              "cached_input_tokens": 632320,
+              "uncached_input_tokens": 28221,
+              "output_tokens": 7986,
+              "total_tokens": 668527
+            },
+            "outcome_sha256": "b3869d4fdf610eb72e263e90fa91cd550a757bb0d91e2434bab2888302d639e9",
+            "selection": "original_selected"
+          },
+          "additional_attempts": []
+        },
+        "S": {
+          "initial": {
+            "resolved": false,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 752035,
+              "cached_input_tokens": 718208,
+              "uncached_input_tokens": 33827,
+              "output_tokens": 6983,
+              "total_tokens": 759018
+            },
+            "outcome_sha256": "90a079ab09bff3351c0c6e18d0c409b766413d2942774a51a25fe1ef1bf33637",
+            "selection": "original_selected"
+          },
+          "merged": {
+            "resolved": false,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 752035,
+              "cached_input_tokens": 718208,
+              "uncached_input_tokens": 33827,
+              "output_tokens": 6983,
+              "total_tokens": 759018
+            },
+            "outcome_sha256": "90a079ab09bff3351c0c6e18d0c409b766413d2942774a51a25fe1ef1bf33637",
+            "selection": "original_selected"
+          },
+          "additional_attempts": []
+        },
+        "gateway_off": {
+          "initial": {
+            "resolved": false,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 1215203,
+              "cached_input_tokens": 1167616,
+              "uncached_input_tokens": 47587,
+              "output_tokens": 8195,
+              "total_tokens": 1223398
+            },
+            "outcome_sha256": "30c8585e4cf27a16f4be794d328c93ed4f2f2fde0404840673e2f1d9fe58bdaa",
+            "selection": "original_selected"
+          },
+          "merged": {
+            "resolved": false,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 1215203,
+              "cached_input_tokens": 1167616,
+              "uncached_input_tokens": 47587,
+              "output_tokens": 8195,
+              "total_tokens": 1223398
+            },
+            "outcome_sha256": "30c8585e4cf27a16f4be794d328c93ed4f2f2fde0404840673e2f1d9fe58bdaa",
+            "selection": "original_selected"
+          },
+          "additional_attempts": []
+        },
+        "C": {
+          "initial": {
+            "resolved": false,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 1321916,
+              "cached_input_tokens": 1234688,
+              "output_tokens": 10702,
+              "total_tokens": 1332618,
+              "uncached_input_tokens": 87228
+            },
+            "selection": "original_selected"
+          }
+        },
+        "native_off": {
+          "initial": {
+            "resolved": false,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 1898951,
+              "cached_input_tokens": 1840000,
+              "output_tokens": 8882,
+              "total_tokens": 1907833,
+              "uncached_input_tokens": 58951
+            },
+            "selection": "original_selected"
+          }
+        }
+      }
+    },
+    {
+      "case": 308,
+      "instance_id": "instance_navidrome__navidrome-6bd4c0f6bfa653e9b8b27cfdc2955762d371d6e9",
+      "repo": "navidrome/navidrome",
+      "arms": {
+        "CS": {
+          "initial": {
+            "resolved": false,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 1093267,
+              "cached_input_tokens": 1014528,
+              "uncached_input_tokens": 78739,
+              "output_tokens": 14075,
+              "total_tokens": 1107342
+            },
+            "outcome_sha256": "a88c58ce0b88f1464d575aba9a0dd294c0ae3358fde15ebb7d4756840562606e",
+            "selection": "original_selected"
+          },
+          "merged": {
+            "resolved": false,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 1093267,
+              "cached_input_tokens": 1014528,
+              "uncached_input_tokens": 78739,
+              "output_tokens": 14075,
+              "total_tokens": 1107342
+            },
+            "outcome_sha256": "a88c58ce0b88f1464d575aba9a0dd294c0ae3358fde15ebb7d4756840562606e",
+            "selection": "original_selected"
+          },
+          "additional_attempts": []
+        },
+        "S": {
+          "initial": {
+            "resolved": false,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 835002,
+              "cached_input_tokens": 798464,
+              "uncached_input_tokens": 36538,
+              "output_tokens": 10974,
+              "total_tokens": 845976
+            },
+            "outcome_sha256": "343200d812a1825168a4f4cbb520c3df8c4bbd42012e650dac2b2a516afa213d",
+            "selection": "original_selected"
+          },
+          "merged": {
+            "resolved": false,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 835002,
+              "cached_input_tokens": 798464,
+              "uncached_input_tokens": 36538,
+              "output_tokens": 10974,
+              "total_tokens": 845976
+            },
+            "outcome_sha256": "343200d812a1825168a4f4cbb520c3df8c4bbd42012e650dac2b2a516afa213d",
+            "selection": "original_selected"
+          },
+          "additional_attempts": []
+        },
+        "gateway_off": {
+          "initial": {
+            "resolved": false,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 2223197,
+              "cached_input_tokens": 2169856,
+              "uncached_input_tokens": 53341,
+              "output_tokens": 15593,
+              "total_tokens": 2238790
+            },
+            "outcome_sha256": "cc1c6a9a78700448e086d6be7a524b5163e1b5ed635387b62284c43827a5799b",
+            "selection": "original_selected"
+          },
+          "merged": {
+            "resolved": false,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 2223197,
+              "cached_input_tokens": 2169856,
+              "uncached_input_tokens": 53341,
+              "output_tokens": 15593,
+              "total_tokens": 2238790
+            },
+            "outcome_sha256": "cc1c6a9a78700448e086d6be7a524b5163e1b5ed635387b62284c43827a5799b",
+            "selection": "original_selected"
+          },
+          "additional_attempts": []
+        },
+        "C": {
+          "initial": {
+            "resolved": false,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 2217124,
+              "cached_input_tokens": 2124160,
+              "output_tokens": 17387,
+              "total_tokens": 2234511,
+              "uncached_input_tokens": 92964
+            },
+            "selection": "original_selected"
+          }
+        },
+        "native_off": {
+          "initial": {
+            "resolved": false,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 2081319,
+              "cached_input_tokens": 2033280,
+              "output_tokens": 17502,
+              "total_tokens": 2098821,
+              "uncached_input_tokens": 48039
+            },
+            "selection": "original_selected"
+          }
+        }
+      }
+    },
+    {
+      "case": 336,
+      "instance_id": "instance_NodeBB__NodeBB-cfc237c2b79d8c731bbfc6cadf977ed530bfd57a-v0495b863a912fbff5749c67e860612b91825407c",
+      "repo": "NodeBB/NodeBB",
+      "arms": {
+        "CS": {
+          "initial": {
+            "resolved": true,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 284476,
+              "cached_input_tokens": 260992,
+              "uncached_input_tokens": 23484,
+              "output_tokens": 3889,
+              "total_tokens": 288365
+            },
+            "outcome_sha256": "87a9f0e83b3d0aaa6ed8a95e1a7a4b331239a0f2028c5e21b4eb42ce038a0091",
+            "selection": "original_selected"
+          },
+          "merged": {
+            "resolved": true,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 284476,
+              "cached_input_tokens": 260992,
+              "uncached_input_tokens": 23484,
+              "output_tokens": 3889,
+              "total_tokens": 288365
+            },
+            "outcome_sha256": "87a9f0e83b3d0aaa6ed8a95e1a7a4b331239a0f2028c5e21b4eb42ce038a0091",
+            "selection": "original_selected"
+          },
+          "additional_attempts": []
+        },
+        "S": {
+          "initial": {
+            "resolved": true,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 628531,
+              "cached_input_tokens": 598400,
+              "uncached_input_tokens": 30131,
+              "output_tokens": 6050,
+              "total_tokens": 634581
+            },
+            "outcome_sha256": "123201d17fabcebf59a2143b706208f31a2b00d69b89b52991f9d72b43e50c12",
+            "selection": "original_selected"
+          },
+          "merged": {
+            "resolved": true,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 628531,
+              "cached_input_tokens": 598400,
+              "uncached_input_tokens": 30131,
+              "output_tokens": 6050,
+              "total_tokens": 634581
+            },
+            "outcome_sha256": "123201d17fabcebf59a2143b706208f31a2b00d69b89b52991f9d72b43e50c12",
+            "selection": "original_selected"
+          },
+          "additional_attempts": []
+        },
+        "gateway_off": {
+          "initial": {
+            "resolved": true,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 461025,
+              "cached_input_tokens": 419584,
+              "uncached_input_tokens": 41441,
+              "output_tokens": 4282,
+              "total_tokens": 465307
+            },
+            "outcome_sha256": "0e6ec9a82257ab0b50e96029ddd6a15c5e2486a185ce350b0fc3c41ccf8043ea",
+            "selection": "original_selected"
+          },
+          "merged": {
+            "resolved": true,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 461025,
+              "cached_input_tokens": 419584,
+              "uncached_input_tokens": 41441,
+              "output_tokens": 4282,
+              "total_tokens": 465307
+            },
+            "outcome_sha256": "0e6ec9a82257ab0b50e96029ddd6a15c5e2486a185ce350b0fc3c41ccf8043ea",
+            "selection": "original_selected"
+          },
+          "additional_attempts": []
+        },
+        "C": {
+          "initial": {
+            "resolved": true,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 869418,
+              "cached_input_tokens": 839936,
+              "output_tokens": 6450,
+              "total_tokens": 875868,
+              "uncached_input_tokens": 29482
+            },
+            "selection": "original_selected"
+          }
+        },
+        "native_off": {
+          "initial": {
+            "resolved": true,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 327997,
+              "cached_input_tokens": 296320,
+              "output_tokens": 3616,
+              "total_tokens": 331613,
+              "uncached_input_tokens": 31677
+            },
+            "selection": "original_selected"
+          }
+        }
+      }
+    },
+    {
+      "case": 374,
+      "instance_id": "instance_NodeBB__NodeBB-8168c6c40707478f71b8af60300830fe554c778c-vf2cf3cbd463b7ad942381f1c6d077626485a1e9e",
+      "repo": "NodeBB/NodeBB",
+      "arms": {
+        "CS": {
+          "initial": {
+            "resolved": true,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 942311,
+              "cached_input_tokens": 820480,
+              "uncached_input_tokens": 121831,
+              "output_tokens": 12514,
+              "total_tokens": 954825
+            },
+            "outcome_sha256": "da78822a42526694f941b64dfb79b0fff7b0b6af5cb9dbcddcc68edbe5f37769",
+            "selection": "original_selected"
+          },
+          "merged": {
+            "resolved": true,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 942311,
+              "cached_input_tokens": 820480,
+              "uncached_input_tokens": 121831,
+              "output_tokens": 12514,
+              "total_tokens": 954825
+            },
+            "outcome_sha256": "da78822a42526694f941b64dfb79b0fff7b0b6af5cb9dbcddcc68edbe5f37769",
+            "selection": "original_selected"
+          },
+          "additional_attempts": []
+        },
+        "S": {
+          "initial": {
+            "resolved": false,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 872764,
+              "cached_input_tokens": 833792,
+              "uncached_input_tokens": 38972,
+              "output_tokens": 10515,
+              "total_tokens": 883279
+            },
+            "outcome_sha256": "514637b3a485bb372c213761a0a95fc23126eba4a01481bdc1bc26e3cb937dfd",
+            "selection": "original_selected"
+          },
+          "merged": {
+            "resolved": true,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 690963,
+              "cached_input_tokens": 644480,
+              "uncached_input_tokens": 46483,
+              "output_tokens": 8260,
+              "total_tokens": 699223
+            },
+            "outcome_sha256": "4b162ca79aaa7013ad3ab5f7aed410ad94374670cfa52bb4be52882fdde70751",
+            "selection": "first_successful_retry"
+          },
+          "additional_attempts": [
+            {
+              "resolved": false,
+              "valid": true,
+              "tokens": {
+                "input_tokens": 407348,
+                "cached_input_tokens": 377088,
+                "uncached_input_tokens": 30260,
+                "output_tokens": 9994,
+                "total_tokens": 417342
+              },
+              "outcome_sha256": "90ba3425ea49349bad24fbdb2fdf18da54833897bcfc4b33dfbb474ca81525c0",
+              "selection": "frozen_completed"
+            },
+            {
+              "resolved": true,
+              "valid": true,
+              "tokens": {
+                "input_tokens": 690963,
+                "cached_input_tokens": 644480,
+                "uncached_input_tokens": 46483,
+                "output_tokens": 8260,
+                "total_tokens": 699223
+              },
+              "outcome_sha256": "4b162ca79aaa7013ad3ab5f7aed410ad94374670cfa52bb4be52882fdde70751",
+              "selection": "frozen_completed"
+            }
+          ]
+        },
+        "gateway_off": {
+          "initial": {
+            "resolved": true,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 930847,
+              "cached_input_tokens": 878976,
+              "uncached_input_tokens": 51871,
+              "output_tokens": 9860,
+              "total_tokens": 940707
+            },
+            "outcome_sha256": "58cf9e9c652abb56babcbab7100e5af5ae4dbbe2520001e1d1f20197c6bf14b5",
+            "selection": "original_selected"
+          },
+          "merged": {
+            "resolved": true,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 930847,
+              "cached_input_tokens": 878976,
+              "uncached_input_tokens": 51871,
+              "output_tokens": 9860,
+              "total_tokens": 940707
+            },
+            "outcome_sha256": "58cf9e9c652abb56babcbab7100e5af5ae4dbbe2520001e1d1f20197c6bf14b5",
+            "selection": "original_selected"
+          },
+          "additional_attempts": []
+        },
+        "C": {
+          "initial": {
+            "resolved": true,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 1615080,
+              "cached_input_tokens": 1497472,
+              "output_tokens": 12370,
+              "total_tokens": 1627450,
+              "uncached_input_tokens": 117608
+            },
+            "selection": "original_selected"
+          }
+        },
+        "native_off": {
+          "initial": {
+            "resolved": true,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 1309530,
+              "cached_input_tokens": 1252992,
+              "output_tokens": 10932,
+              "total_tokens": 1320462,
+              "uncached_input_tokens": 56538
+            },
+            "selection": "original_selected"
+          }
+        }
+      }
+    },
+    {
+      "case": 388,
+      "instance_id": "instance_NodeBB__NodeBB-84e065752f6d7fbe5c08cbf50cb173ffb866b8fa-vf2cf3cbd463b7ad942381f1c6d077626485a1e9e",
+      "repo": "NodeBB/NodeBB",
+      "arms": {
+        "CS": {
+          "initial": {
+            "resolved": true,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 944290,
+              "cached_input_tokens": 907264,
+              "uncached_input_tokens": 37026,
+              "output_tokens": 7453,
+              "total_tokens": 951743
+            },
+            "outcome_sha256": "92f532341aa8c569b3996b83cabc939f5abd400a05b7d01c0898af258f3c1e8b",
+            "selection": "original_selected"
+          },
+          "merged": {
+            "resolved": true,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 944290,
+              "cached_input_tokens": 907264,
+              "uncached_input_tokens": 37026,
+              "output_tokens": 7453,
+              "total_tokens": 951743
+            },
+            "outcome_sha256": "92f532341aa8c569b3996b83cabc939f5abd400a05b7d01c0898af258f3c1e8b",
+            "selection": "original_selected"
+          },
+          "additional_attempts": []
+        },
+        "S": {
+          "initial": {
+            "resolved": true,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 529494,
+              "cached_input_tokens": 503040,
+              "uncached_input_tokens": 26454,
+              "output_tokens": 5786,
+              "total_tokens": 535280
+            },
+            "outcome_sha256": "087d19f9b387e78e46112444bb0d5264fc5cd03d1512ce8386069c2da41fe387",
+            "selection": "original_selected"
+          },
+          "merged": {
+            "resolved": true,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 529494,
+              "cached_input_tokens": 503040,
+              "uncached_input_tokens": 26454,
+              "output_tokens": 5786,
+              "total_tokens": 535280
+            },
+            "outcome_sha256": "087d19f9b387e78e46112444bb0d5264fc5cd03d1512ce8386069c2da41fe387",
+            "selection": "original_selected"
+          },
+          "additional_attempts": []
+        },
+        "gateway_off": {
+          "initial": {
+            "resolved": true,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 869211,
+              "cached_input_tokens": 830080,
+              "uncached_input_tokens": 39131,
+              "output_tokens": 6779,
+              "total_tokens": 875990
+            },
+            "outcome_sha256": "bbbb2f2e1a26e69397082b9c90abfc33391e19d10185562d19c2707c2a6ca0d5",
+            "selection": "original_selected"
+          },
+          "merged": {
+            "resolved": true,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 869211,
+              "cached_input_tokens": 830080,
+              "uncached_input_tokens": 39131,
+              "output_tokens": 6779,
+              "total_tokens": 875990
+            },
+            "outcome_sha256": "bbbb2f2e1a26e69397082b9c90abfc33391e19d10185562d19c2707c2a6ca0d5",
+            "selection": "original_selected"
+          },
+          "additional_attempts": []
+        },
+        "C": {
+          "initial": {
+            "resolved": true,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 817767,
+              "cached_input_tokens": 778624,
+              "output_tokens": 6887,
+              "total_tokens": 824654,
+              "uncached_input_tokens": 39143
+            },
+            "selection": "original_selected"
+          }
+        },
+        "native_off": {
+          "initial": {
+            "resolved": true,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 724775,
+              "cached_input_tokens": 691328,
+              "output_tokens": 6755,
+              "total_tokens": 731530,
+              "uncached_input_tokens": 33447
+            },
+            "selection": "original_selected"
+          }
+        }
+      }
+    },
+    {
+      "case": 406,
+      "instance_id": "instance_NodeBB__NodeBB-a917210c5b2c20637094545401f85783905c074c-vf2cf3cbd463b7ad942381f1c6d077626485a1e9e",
+      "repo": "NodeBB/NodeBB",
+      "arms": {
+        "CS": {
+          "initial": {
+            "resolved": false,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 714998,
+              "cached_input_tokens": 684032,
+              "uncached_input_tokens": 30966,
+              "output_tokens": 8799,
+              "total_tokens": 723797
+            },
+            "outcome_sha256": "bad3e1b5ff3e3677f5dcaf59b586ee11ab57bc24bc81550bbd2fcaf65ff4a3d9",
+            "selection": "original_selected"
+          },
+          "merged": {
+            "resolved": true,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 500562,
+              "cached_input_tokens": 474240,
+              "uncached_input_tokens": 26322,
+              "output_tokens": 7303,
+              "total_tokens": 507865
+            },
+            "outcome_sha256": "e1b96c266f07094e9c8aae7419d067fdbfe7d71cdb4ecb5beb06177a87506cdf",
+            "selection": "first_successful_retry"
+          },
+          "additional_attempts": [
+            {
+              "resolved": true,
+              "valid": true,
+              "tokens": {
+                "input_tokens": 500562,
+                "cached_input_tokens": 474240,
+                "uncached_input_tokens": 26322,
+                "output_tokens": 7303,
+                "total_tokens": 507865
+              },
+              "outcome_sha256": "e1b96c266f07094e9c8aae7419d067fdbfe7d71cdb4ecb5beb06177a87506cdf",
+              "selection": "frozen_completed"
+            }
+          ]
+        },
+        "S": {
+          "initial": {
+            "resolved": true,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 1056885,
+              "cached_input_tokens": 1013376,
+              "uncached_input_tokens": 43509,
+              "output_tokens": 10155,
+              "total_tokens": 1067040
+            },
+            "outcome_sha256": "c94a95a9bb4e21ae8d0ac038cbeeabc1f7e7e8956fe3b7d864e9f4393c80ab33",
+            "selection": "original_selected"
+          },
+          "merged": {
+            "resolved": true,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 1056885,
+              "cached_input_tokens": 1013376,
+              "uncached_input_tokens": 43509,
+              "output_tokens": 10155,
+              "total_tokens": 1067040
+            },
+            "outcome_sha256": "c94a95a9bb4e21ae8d0ac038cbeeabc1f7e7e8956fe3b7d864e9f4393c80ab33",
+            "selection": "original_selected"
+          },
+          "additional_attempts": []
+        },
+        "gateway_off": {
+          "initial": {
+            "resolved": true,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 1025641,
+              "cached_input_tokens": 984320,
+              "uncached_input_tokens": 41321,
+              "output_tokens": 9917,
+              "total_tokens": 1035558
+            },
+            "outcome_sha256": "964d8eab90c74b1acd05404ddf7a089308d2e530ce9d78f2eaec5775204c529e",
+            "selection": "original_selected"
+          },
+          "merged": {
+            "resolved": true,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 1025641,
+              "cached_input_tokens": 984320,
+              "uncached_input_tokens": 41321,
+              "output_tokens": 9917,
+              "total_tokens": 1035558
+            },
+            "outcome_sha256": "964d8eab90c74b1acd05404ddf7a089308d2e530ce9d78f2eaec5775204c529e",
+            "selection": "original_selected"
+          },
+          "additional_attempts": []
+        },
+        "C": {
+          "initial": {
+            "resolved": true,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 2779411,
+              "cached_input_tokens": 2686592,
+              "output_tokens": 17626,
+              "total_tokens": 2797037,
+              "uncached_input_tokens": 92819
+            },
+            "selection": "original_selected"
+          }
+        },
+        "native_off": {
+          "initial": {
+            "resolved": true,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 644303,
+              "cached_input_tokens": 617344,
+              "output_tokens": 9244,
+              "total_tokens": 653547,
+              "uncached_input_tokens": 26959
+            },
+            "selection": "original_selected"
+          }
+        }
+      }
+    },
+    {
+      "case": 410,
+      "instance_id": "instance_navidrome__navidrome-8383527aaba1ae8fa9765e995a71a86c129ef626",
+      "repo": "navidrome/navidrome",
+      "arms": {
+        "CS": {
+          "initial": {
+            "resolved": true,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 490753,
+              "cached_input_tokens": 450176,
+              "uncached_input_tokens": 40577,
+              "output_tokens": 8496,
+              "total_tokens": 499249
+            },
+            "outcome_sha256": "35f96c4cc6ce82a57bb980a69bad8096bd840990bb6ca5de1d4147a7d2013628",
+            "selection": "original_selected"
+          },
+          "merged": {
+            "resolved": true,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 490753,
+              "cached_input_tokens": 450176,
+              "uncached_input_tokens": 40577,
+              "output_tokens": 8496,
+              "total_tokens": 499249
+            },
+            "outcome_sha256": "35f96c4cc6ce82a57bb980a69bad8096bd840990bb6ca5de1d4147a7d2013628",
+            "selection": "original_selected"
+          },
+          "additional_attempts": []
+        },
+        "S": {
+          "initial": {
+            "resolved": true,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 433658,
+              "cached_input_tokens": 416384,
+              "uncached_input_tokens": 17274,
+              "output_tokens": 8260,
+              "total_tokens": 441918
+            },
+            "outcome_sha256": "cb4a337c787b7d2f7de4ef4bd5da4feb2effde5b78ceff2cbc0fda9afdb44161",
+            "selection": "original_selected"
+          },
+          "merged": {
+            "resolved": true,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 433658,
+              "cached_input_tokens": 416384,
+              "uncached_input_tokens": 17274,
+              "output_tokens": 8260,
+              "total_tokens": 441918
+            },
+            "outcome_sha256": "cb4a337c787b7d2f7de4ef4bd5da4feb2effde5b78ceff2cbc0fda9afdb44161",
+            "selection": "original_selected"
+          },
+          "additional_attempts": []
+        },
+        "gateway_off": {
+          "initial": {
+            "resolved": true,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 424744,
+              "cached_input_tokens": 388352,
+              "uncached_input_tokens": 36392,
+              "output_tokens": 7494,
+              "total_tokens": 432238
+            },
+            "outcome_sha256": "0117043780bc8b063ed95b6fdd5862e01b65c04891dc5132e45119342fc54a63",
+            "selection": "original_selected"
+          },
+          "merged": {
+            "resolved": true,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 424744,
+              "cached_input_tokens": 388352,
+              "uncached_input_tokens": 36392,
+              "output_tokens": 7494,
+              "total_tokens": 432238
+            },
+            "outcome_sha256": "0117043780bc8b063ed95b6fdd5862e01b65c04891dc5132e45119342fc54a63",
+            "selection": "original_selected"
+          },
+          "additional_attempts": []
+        },
+        "C": {
+          "initial": {
+            "resolved": true,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 1356420,
+              "cached_input_tokens": 1298176,
+              "output_tokens": 10906,
+              "total_tokens": 1367326,
+              "uncached_input_tokens": 58244
+            },
+            "selection": "original_selected"
+          }
+        },
+        "native_off": {
+          "initial": {
+            "resolved": true,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 552046,
+              "cached_input_tokens": 526080,
+              "output_tokens": 8805,
+              "total_tokens": 560851,
+              "uncached_input_tokens": 25966
+            },
+            "selection": "original_selected"
+          }
+        }
+      }
+    },
+    {
+      "case": 456,
+      "instance_id": "instance_tutao__tutanota-40e94dee2bcec2b63f362da283123e9df1874cc1-vc4e41fd0029957297843cb9dec4a25c7c756f029",
+      "repo": "tutao/tutanota",
+      "arms": {
+        "CS": {
+          "initial": {
+            "resolved": true,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 821247,
+              "cached_input_tokens": 778624,
+              "uncached_input_tokens": 42623,
+              "output_tokens": 5951,
+              "total_tokens": 827198
+            },
+            "outcome_sha256": "7696660567837aa14b4fcc9c07e4bb05ed595b64fcc753b73667f45f80875723",
+            "selection": "original_selected"
+          },
+          "merged": {
+            "resolved": true,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 821247,
+              "cached_input_tokens": 778624,
+              "uncached_input_tokens": 42623,
+              "output_tokens": 5951,
+              "total_tokens": 827198
+            },
+            "outcome_sha256": "7696660567837aa14b4fcc9c07e4bb05ed595b64fcc753b73667f45f80875723",
+            "selection": "original_selected"
+          },
+          "additional_attempts": []
+        },
+        "S": {
+          "initial": {
+            "resolved": true,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 1322426,
+              "cached_input_tokens": 1281536,
+              "uncached_input_tokens": 40890,
+              "output_tokens": 7060,
+              "total_tokens": 1329486
+            },
+            "outcome_sha256": "b417121016cb512b9842fade854e37937235e3c179d7c4680ec0acb5141d6655",
+            "selection": "original_selected"
+          },
+          "merged": {
+            "resolved": true,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 1322426,
+              "cached_input_tokens": 1281536,
+              "uncached_input_tokens": 40890,
+              "output_tokens": 7060,
+              "total_tokens": 1329486
+            },
+            "outcome_sha256": "b417121016cb512b9842fade854e37937235e3c179d7c4680ec0acb5141d6655",
+            "selection": "original_selected"
+          },
+          "additional_attempts": []
+        },
+        "gateway_off": {
+          "initial": {
+            "resolved": true,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 2291613,
+              "cached_input_tokens": 2226816,
+              "uncached_input_tokens": 64797,
+              "output_tokens": 9561,
+              "total_tokens": 2301174
+            },
+            "outcome_sha256": "16abe557bba77bb9434bdf2c310bb52e7fe3c6b8a95a1d2440f357d9de620e73",
+            "selection": "original_selected"
+          },
+          "merged": {
+            "resolved": true,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 2291613,
+              "cached_input_tokens": 2226816,
+              "uncached_input_tokens": 64797,
+              "output_tokens": 9561,
+              "total_tokens": 2301174
+            },
+            "outcome_sha256": "16abe557bba77bb9434bdf2c310bb52e7fe3c6b8a95a1d2440f357d9de620e73",
+            "selection": "original_selected"
+          },
+          "additional_attempts": []
+        },
+        "C": {
+          "initial": {
+            "resolved": true,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 1752514,
+              "cached_input_tokens": 1655936,
+              "output_tokens": 9153,
+              "total_tokens": 1761667,
+              "uncached_input_tokens": 96578
+            },
+            "selection": "original_selected"
+          }
+        },
+        "native_off": {
+          "initial": {
+            "resolved": true,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 1809822,
+              "cached_input_tokens": 1752960,
+              "output_tokens": 7562,
+              "total_tokens": 1817384,
+              "uncached_input_tokens": 56862
+            },
+            "selection": "original_selected"
+          }
+        }
+      }
+    },
+    {
+      "case": 464,
+      "instance_id": "instance_tutao__tutanota-befce4b146002b9abc86aa95f4d57581771815ce-vee878bb72091875e912c52fc32bc60ec3760227b",
+      "repo": "tutao/tutanota",
+      "arms": {
+        "CS": {
+          "initial": {
+            "resolved": true,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 155128,
+              "cached_input_tokens": 140288,
+              "uncached_input_tokens": 14840,
+              "output_tokens": 1788,
+              "total_tokens": 156916
+            },
+            "outcome_sha256": "f5937e3d811ede7172af9f21f3d3892bcc15966d5d3a5765d40d892e36bc2262",
+            "selection": "original_selected"
+          },
+          "merged": {
+            "resolved": true,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 155128,
+              "cached_input_tokens": 140288,
+              "uncached_input_tokens": 14840,
+              "output_tokens": 1788,
+              "total_tokens": 156916
+            },
+            "outcome_sha256": "f5937e3d811ede7172af9f21f3d3892bcc15966d5d3a5765d40d892e36bc2262",
+            "selection": "original_selected"
+          },
+          "additional_attempts": []
+        },
+        "S": {
+          "initial": {
+            "resolved": true,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 867549,
+              "cached_input_tokens": 832896,
+              "uncached_input_tokens": 34653,
+              "output_tokens": 3714,
+              "total_tokens": 871263
+            },
+            "outcome_sha256": "ae0521343cffe88c4c2efa0ac9eed67c4e1300417f70a4f28565c34d36ae330a",
+            "selection": "original_selected"
+          },
+          "merged": {
+            "resolved": true,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 867549,
+              "cached_input_tokens": 832896,
+              "uncached_input_tokens": 34653,
+              "output_tokens": 3714,
+              "total_tokens": 871263
+            },
+            "outcome_sha256": "ae0521343cffe88c4c2efa0ac9eed67c4e1300417f70a4f28565c34d36ae330a",
+            "selection": "original_selected"
+          },
+          "additional_attempts": []
+        },
+        "gateway_off": {
+          "initial": {
+            "resolved": true,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 501819,
+              "cached_input_tokens": 467584,
+              "uncached_input_tokens": 34235,
+              "output_tokens": 3227,
+              "total_tokens": 505046
+            },
+            "outcome_sha256": "bb41298aa272b35527bddf59d11129358e97a192dbf6cda29c936122c7b6cd84",
+            "selection": "original_selected"
+          },
+          "merged": {
+            "resolved": true,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 501819,
+              "cached_input_tokens": 467584,
+              "uncached_input_tokens": 34235,
+              "output_tokens": 3227,
+              "total_tokens": 505046
+            },
+            "outcome_sha256": "bb41298aa272b35527bddf59d11129358e97a192dbf6cda29c936122c7b6cd84",
+            "selection": "original_selected"
+          },
+          "additional_attempts": []
+        },
+        "C": {
+          "initial": {
+            "resolved": true,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 788988,
+              "cached_input_tokens": 745984,
+              "output_tokens": 3376,
+              "total_tokens": 792364,
+              "uncached_input_tokens": 43004
+            },
+            "selection": "original_selected"
+          }
+        },
+        "native_off": {
+          "initial": {
+            "resolved": true,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 948329,
+              "cached_input_tokens": 913536,
+              "output_tokens": 3420,
+              "total_tokens": 951749,
+              "uncached_input_tokens": 34793
+            },
+            "selection": "original_selected"
+          }
+        }
+      }
+    },
+    {
+      "case": 468,
+      "instance_id": "instance_tutao__tutanota-12a6cbaa4f8b43c2f85caca0787ab55501539955-vc4e41fd0029957297843cb9dec4a25c7c756f029",
+      "repo": "tutao/tutanota",
+      "arms": {
+        "CS": {
+          "initial": {
+            "resolved": true,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 477873,
+              "cached_input_tokens": 426496,
+              "uncached_input_tokens": 51377,
+              "output_tokens": 8987,
+              "total_tokens": 486860
+            },
+            "outcome_sha256": "56a678bcc55c1cc0afef4236762c41b0f50062d924bce5fdb41e238db6283db5",
+            "selection": "original_selected"
+          },
+          "merged": {
+            "resolved": true,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 477873,
+              "cached_input_tokens": 426496,
+              "uncached_input_tokens": 51377,
+              "output_tokens": 8987,
+              "total_tokens": 486860
+            },
+            "outcome_sha256": "56a678bcc55c1cc0afef4236762c41b0f50062d924bce5fdb41e238db6283db5",
+            "selection": "original_selected"
+          },
+          "additional_attempts": []
+        },
+        "S": {
+          "initial": {
+            "resolved": true,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 395335,
+              "cached_input_tokens": 359936,
+              "uncached_input_tokens": 35399,
+              "output_tokens": 5568,
+              "total_tokens": 400903
+            },
+            "outcome_sha256": "0c53a7d5387916174aef98f2cfb2025ca61bbf41f3a3138707b018d54184ac3a",
+            "selection": "original_selected"
+          },
+          "merged": {
+            "resolved": true,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 395335,
+              "cached_input_tokens": 359936,
+              "uncached_input_tokens": 35399,
+              "output_tokens": 5568,
+              "total_tokens": 400903
+            },
+            "outcome_sha256": "0c53a7d5387916174aef98f2cfb2025ca61bbf41f3a3138707b018d54184ac3a",
+            "selection": "original_selected"
+          },
+          "additional_attempts": []
+        },
+        "gateway_off": {
+          "initial": {
+            "resolved": true,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 970551,
+              "cached_input_tokens": 939520,
+              "uncached_input_tokens": 31031,
+              "output_tokens": 8531,
+              "total_tokens": 979082
+            },
+            "outcome_sha256": "b81559e00cd2c6f9248509cd5d1c30f9192cd7e182d2978a9e48a9add1841c00",
+            "selection": "original_selected"
+          },
+          "merged": {
+            "resolved": true,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 970551,
+              "cached_input_tokens": 939520,
+              "uncached_input_tokens": 31031,
+              "output_tokens": 8531,
+              "total_tokens": 979082
+            },
+            "outcome_sha256": "b81559e00cd2c6f9248509cd5d1c30f9192cd7e182d2978a9e48a9add1841c00",
+            "selection": "original_selected"
+          },
+          "additional_attempts": []
+        },
+        "C": {
+          "initial": {
+            "resolved": true,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 1188996,
+              "cached_input_tokens": 1116800,
+              "output_tokens": 10956,
+              "total_tokens": 1199952,
+              "uncached_input_tokens": 72196
+            },
+            "selection": "original_selected"
+          }
+        },
+        "native_off": {
+          "initial": {
+            "resolved": true,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 639382,
+              "cached_input_tokens": 586496,
+              "output_tokens": 7073,
+              "total_tokens": 646455,
+              "uncached_input_tokens": 52886
+            },
+            "selection": "original_selected"
+          }
+        }
+      }
+    },
+    {
+      "case": 472,
+      "instance_id": "instance_tutao__tutanota-51818218c6ae33de00cbea3a4d30daac8c34142e-vc4e41fd0029957297843cb9dec4a25c7c756f029",
+      "repo": "tutao/tutanota",
+      "arms": {
+        "CS": {
+          "initial": {
+            "resolved": false,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 1368924,
+              "cached_input_tokens": 1288192,
+              "uncached_input_tokens": 80732,
+              "output_tokens": 14283,
+              "total_tokens": 1383207
+            },
+            "outcome_sha256": "2a95494c501b5403c8815c2841d21f3ec7e53b775e9769a0d4a8e8f02a91787c",
+            "selection": "original_selected"
+          },
+          "merged": {
+            "resolved": false,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 1368924,
+              "cached_input_tokens": 1288192,
+              "uncached_input_tokens": 80732,
+              "output_tokens": 14283,
+              "total_tokens": 1383207
+            },
+            "outcome_sha256": "2a95494c501b5403c8815c2841d21f3ec7e53b775e9769a0d4a8e8f02a91787c",
+            "selection": "original_selected"
+          },
+          "additional_attempts": []
+        },
+        "S": {
+          "initial": {
+            "resolved": false,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 895555,
+              "cached_input_tokens": 854400,
+              "uncached_input_tokens": 41155,
+              "output_tokens": 11717,
+              "total_tokens": 907272
+            },
+            "outcome_sha256": "700dc05cd328db3db5857f172b4d2be1f8c70c962f5be684c648181fecaf18b4",
+            "selection": "original_selected"
+          },
+          "merged": {
+            "resolved": false,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 895555,
+              "cached_input_tokens": 854400,
+              "uncached_input_tokens": 41155,
+              "output_tokens": 11717,
+              "total_tokens": 907272
+            },
+            "outcome_sha256": "700dc05cd328db3db5857f172b4d2be1f8c70c962f5be684c648181fecaf18b4",
+            "selection": "original_selected"
+          },
+          "additional_attempts": []
+        },
+        "gateway_off": {
+          "initial": {
+            "resolved": false,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 979533,
+              "cached_input_tokens": 938112,
+              "uncached_input_tokens": 41421,
+              "output_tokens": 11102,
+              "total_tokens": 990635
+            },
+            "outcome_sha256": "32e94a7f7584757be1bcec5165302de6bdc838697e8463d24b92ec891c884594",
+            "selection": "original_selected"
+          },
+          "merged": {
+            "resolved": false,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 979533,
+              "cached_input_tokens": 938112,
+              "uncached_input_tokens": 41421,
+              "output_tokens": 11102,
+              "total_tokens": 990635
+            },
+            "outcome_sha256": "32e94a7f7584757be1bcec5165302de6bdc838697e8463d24b92ec891c884594",
+            "selection": "original_selected"
+          },
+          "additional_attempts": []
+        },
+        "C": {
+          "initial": {
+            "resolved": false,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 784539,
+              "cached_input_tokens": 708352,
+              "output_tokens": 10571,
+              "total_tokens": 795110,
+              "uncached_input_tokens": 76187
+            },
+            "selection": "original_selected"
+          }
+        },
+        "native_off": {
+          "initial": {
+            "resolved": false,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 1776112,
+              "cached_input_tokens": 1731712,
+              "output_tokens": 13680,
+              "total_tokens": 1789792,
+              "uncached_input_tokens": 44400
+            },
+            "selection": "original_selected"
+          }
+        }
+      }
+    },
+    {
+      "case": 482,
+      "instance_id": "instance_navidrome__navidrome-874b17b8f614056df0ef021b5d4f977341084185",
+      "repo": "navidrome/navidrome",
+      "arms": {
+        "CS": {
+          "initial": {
+            "resolved": false,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 872926,
+              "cached_input_tokens": 798976,
+              "uncached_input_tokens": 73950,
+              "output_tokens": 8802,
+              "total_tokens": 881728
+            },
+            "outcome_sha256": "e1f31e79c50c8006e4ef14cbfa44249b6a44d434f1721134834b1a7df5a08b70",
+            "selection": "original_selected"
+          },
+          "merged": {
+            "resolved": false,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 872926,
+              "cached_input_tokens": 798976,
+              "uncached_input_tokens": 73950,
+              "output_tokens": 8802,
+              "total_tokens": 881728
+            },
+            "outcome_sha256": "e1f31e79c50c8006e4ef14cbfa44249b6a44d434f1721134834b1a7df5a08b70",
+            "selection": "original_selected"
+          },
+          "additional_attempts": []
+        },
+        "S": {
+          "initial": {
+            "resolved": false,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 1034719,
+              "cached_input_tokens": 998784,
+              "uncached_input_tokens": 35935,
+              "output_tokens": 11099,
+              "total_tokens": 1045818
+            },
+            "outcome_sha256": "b3742c4287308007f0cb1425adee76298dd39031f062a3fcac3c2a43ae20392e",
+            "selection": "original_selected"
+          },
+          "merged": {
+            "resolved": false,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 1034719,
+              "cached_input_tokens": 998784,
+              "uncached_input_tokens": 35935,
+              "output_tokens": 11099,
+              "total_tokens": 1045818
+            },
+            "outcome_sha256": "b3742c4287308007f0cb1425adee76298dd39031f062a3fcac3c2a43ae20392e",
+            "selection": "original_selected"
+          },
+          "additional_attempts": []
+        },
+        "gateway_off": {
+          "initial": {
+            "resolved": false,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 1416188,
+              "cached_input_tokens": 1373440,
+              "uncached_input_tokens": 42748,
+              "output_tokens": 9227,
+              "total_tokens": 1425415
+            },
+            "outcome_sha256": "4122bc5cdd68571da90c20e221457d608eccc5b68f4f2acd0070fb681c637479",
+            "selection": "original_selected"
+          },
+          "merged": {
+            "resolved": false,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 1416188,
+              "cached_input_tokens": 1373440,
+              "uncached_input_tokens": 42748,
+              "output_tokens": 9227,
+              "total_tokens": 1425415
+            },
+            "outcome_sha256": "4122bc5cdd68571da90c20e221457d608eccc5b68f4f2acd0070fb681c637479",
+            "selection": "original_selected"
+          },
+          "additional_attempts": []
+        },
+        "C": {
+          "initial": {
+            "resolved": false,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 1584135,
+              "cached_input_tokens": 1515264,
+              "output_tokens": 13784,
+              "total_tokens": 1597919,
+              "uncached_input_tokens": 68871
+            },
+            "selection": "original_selected"
+          }
+        },
+        "native_off": {
+          "initial": {
+            "resolved": false,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 1237525,
+              "cached_input_tokens": 1198208,
+              "output_tokens": 10440,
+              "total_tokens": 1247965,
+              "uncached_input_tokens": 39317
+            },
+            "selection": "original_selected"
+          }
+        }
+      }
+    },
+    {
+      "case": 492,
+      "instance_id": "instance_tutao__tutanota-219bc8f05d7b980e038bc1524cb021bf56397a1b-vee878bb72091875e912c52fc32bc60ec3760227b",
+      "repo": "tutao/tutanota",
+      "arms": {
+        "CS": {
+          "initial": {
+            "resolved": true,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 562452,
+              "cached_input_tokens": 517376,
+              "uncached_input_tokens": 45076,
+              "output_tokens": 5146,
+              "total_tokens": 567598
+            },
+            "outcome_sha256": "2f4ff209e88f573bbb1c4baa3643cc48a4121acbfd848ad84fb8552a2d253487",
+            "selection": "original_selected"
+          },
+          "merged": {
+            "resolved": true,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 562452,
+              "cached_input_tokens": 517376,
+              "uncached_input_tokens": 45076,
+              "output_tokens": 5146,
+              "total_tokens": 567598
+            },
+            "outcome_sha256": "2f4ff209e88f573bbb1c4baa3643cc48a4121acbfd848ad84fb8552a2d253487",
+            "selection": "original_selected"
+          },
+          "additional_attempts": []
+        },
+        "S": {
+          "initial": {
+            "resolved": true,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 411718,
+              "cached_input_tokens": 388096,
+              "uncached_input_tokens": 23622,
+              "output_tokens": 4251,
+              "total_tokens": 415969
+            },
+            "outcome_sha256": "a32a03acc5a86a363934972e01455fe008589625aabddeed779b7c7572582219",
+            "selection": "original_selected"
+          },
+          "merged": {
+            "resolved": true,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 411718,
+              "cached_input_tokens": 388096,
+              "uncached_input_tokens": 23622,
+              "output_tokens": 4251,
+              "total_tokens": 415969
+            },
+            "outcome_sha256": "a32a03acc5a86a363934972e01455fe008589625aabddeed779b7c7572582219",
+            "selection": "original_selected"
+          },
+          "additional_attempts": []
+        },
+        "gateway_off": {
+          "initial": {
+            "resolved": true,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 639763,
+              "cached_input_tokens": 613120,
+              "uncached_input_tokens": 26643,
+              "output_tokens": 6251,
+              "total_tokens": 646014
+            },
+            "outcome_sha256": "14aa0e8f71f1d7c72eb9b6192ccb487bd48712481ba8683b4bde249d581ab370",
+            "selection": "original_selected"
+          },
+          "merged": {
+            "resolved": true,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 639763,
+              "cached_input_tokens": 613120,
+              "uncached_input_tokens": 26643,
+              "output_tokens": 6251,
+              "total_tokens": 646014
+            },
+            "outcome_sha256": "14aa0e8f71f1d7c72eb9b6192ccb487bd48712481ba8683b4bde249d581ab370",
+            "selection": "original_selected"
+          },
+          "additional_attempts": []
+        },
+        "C": {
+          "initial": {
+            "resolved": true,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 588858,
+              "cached_input_tokens": 543872,
+              "output_tokens": 5916,
+              "total_tokens": 594774,
+              "uncached_input_tokens": 44986
+            },
+            "selection": "original_selected"
+          }
+        },
+        "native_off": {
+          "initial": {
+            "resolved": true,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 885996,
+              "cached_input_tokens": 858368,
+              "output_tokens": 5565,
+              "total_tokens": 891561,
+              "uncached_input_tokens": 27628
+            },
+            "selection": "original_selected"
+          }
+        }
+      }
+    },
+    {
+      "case": 501,
+      "instance_id": "instance_NodeBB__NodeBB-05f2236193f407cf8e2072757fbd6bb170bc13f0-vf2cf3cbd463b7ad942381f1c6d077626485a1e9e",
+      "repo": "NodeBB/NodeBB",
+      "arms": {
+        "CS": {
+          "initial": {
+            "resolved": true,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 771046,
+              "cached_input_tokens": 734080,
+              "uncached_input_tokens": 36966,
+              "output_tokens": 9947,
+              "total_tokens": 780993
+            },
+            "outcome_sha256": "025163544aa7fab19417a958a9a2fd9ce3181a0483a608e8f56100dc4c9c6492",
+            "selection": "original_selected"
+          },
+          "merged": {
+            "resolved": true,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 771046,
+              "cached_input_tokens": 734080,
+              "uncached_input_tokens": 36966,
+              "output_tokens": 9947,
+              "total_tokens": 780993
+            },
+            "outcome_sha256": "025163544aa7fab19417a958a9a2fd9ce3181a0483a608e8f56100dc4c9c6492",
+            "selection": "original_selected"
+          },
+          "additional_attempts": []
+        },
+        "S": {
+          "initial": {
+            "resolved": true,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 1135034,
+              "cached_input_tokens": 1099264,
+              "uncached_input_tokens": 35770,
+              "output_tokens": 10315,
+              "total_tokens": 1145349
+            },
+            "outcome_sha256": "8c39e1665820a09d645a5dc5016c9e4a303fc5d2087e08cb404ac216093a4085",
+            "selection": "original_selected"
+          },
+          "merged": {
+            "resolved": true,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 1135034,
+              "cached_input_tokens": 1099264,
+              "uncached_input_tokens": 35770,
+              "output_tokens": 10315,
+              "total_tokens": 1145349
+            },
+            "outcome_sha256": "8c39e1665820a09d645a5dc5016c9e4a303fc5d2087e08cb404ac216093a4085",
+            "selection": "original_selected"
+          },
+          "additional_attempts": []
+        },
+        "gateway_off": {
+          "initial": {
+            "resolved": true,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 1870861,
+              "cached_input_tokens": 1808384,
+              "uncached_input_tokens": 62477,
+              "output_tokens": 12796,
+              "total_tokens": 1883657
+            },
+            "outcome_sha256": "ce80105673e27e746a0130555f0763f9c9b93abd697a38c47f4a9b99b0187133",
+            "selection": "original_selected"
+          },
+          "merged": {
+            "resolved": true,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 1870861,
+              "cached_input_tokens": 1808384,
+              "uncached_input_tokens": 62477,
+              "output_tokens": 12796,
+              "total_tokens": 1883657
+            },
+            "outcome_sha256": "ce80105673e27e746a0130555f0763f9c9b93abd697a38c47f4a9b99b0187133",
+            "selection": "original_selected"
+          },
+          "additional_attempts": []
+        },
+        "C": {
+          "initial": {
+            "resolved": true,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 1300266,
+              "cached_input_tokens": 1206784,
+              "output_tokens": 9880,
+              "total_tokens": 1310146,
+              "uncached_input_tokens": 93482
+            },
+            "selection": "original_selected"
+          }
+        },
+        "native_off": {
+          "initial": {
+            "resolved": true,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 1363640,
+              "cached_input_tokens": 1310208,
+              "output_tokens": 11602,
+              "total_tokens": 1375242,
+              "uncached_input_tokens": 53432
+            },
+            "selection": "original_selected"
+          }
+        }
+      }
+    },
+    {
+      "case": 505,
+      "instance_id": "instance_tutao__tutanota-8513a9e8114a8b42e64f4348335e0f23efa054c4-vee878bb72091875e912c52fc32bc60ec3760227b",
+      "repo": "tutao/tutanota",
+      "arms": {
+        "CS": {
+          "initial": {
+            "resolved": true,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 695748,
+              "cached_input_tokens": 641792,
+              "uncached_input_tokens": 53956,
+              "output_tokens": 13342,
+              "total_tokens": 709090
+            },
+            "outcome_sha256": "02108cc4a8a5c0112eb5e72366ad92ced68ea51b9646ec3003371d9f72559e5a",
+            "selection": "original_selected"
+          },
+          "merged": {
+            "resolved": true,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 695748,
+              "cached_input_tokens": 641792,
+              "uncached_input_tokens": 53956,
+              "output_tokens": 13342,
+              "total_tokens": 709090
+            },
+            "outcome_sha256": "02108cc4a8a5c0112eb5e72366ad92ced68ea51b9646ec3003371d9f72559e5a",
+            "selection": "original_selected"
+          },
+          "additional_attempts": []
+        },
+        "S": {
+          "initial": {
+            "resolved": true,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 1210542,
+              "cached_input_tokens": 1169664,
+              "uncached_input_tokens": 40878,
+              "output_tokens": 14536,
+              "total_tokens": 1225078
+            },
+            "outcome_sha256": "b4cadb6aff33c73bf89bd2500338af005818720a6defa953fbe91fa416739ed1",
+            "selection": "original_selected"
+          },
+          "merged": {
+            "resolved": true,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 1210542,
+              "cached_input_tokens": 1169664,
+              "uncached_input_tokens": 40878,
+              "output_tokens": 14536,
+              "total_tokens": 1225078
+            },
+            "outcome_sha256": "b4cadb6aff33c73bf89bd2500338af005818720a6defa953fbe91fa416739ed1",
+            "selection": "original_selected"
+          },
+          "additional_attempts": []
+        },
+        "gateway_off": {
+          "initial": {
+            "resolved": true,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 1143743,
+              "cached_input_tokens": 1104384,
+              "uncached_input_tokens": 39359,
+              "output_tokens": 16806,
+              "total_tokens": 1160549
+            },
+            "outcome_sha256": "f905393587229e496995c96d801775b4d4bd523a411b72d07f053a0bdf3374e3",
+            "selection": "original_selected"
+          },
+          "merged": {
+            "resolved": true,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 1143743,
+              "cached_input_tokens": 1104384,
+              "uncached_input_tokens": 39359,
+              "output_tokens": 16806,
+              "total_tokens": 1160549
+            },
+            "outcome_sha256": "f905393587229e496995c96d801775b4d4bd523a411b72d07f053a0bdf3374e3",
+            "selection": "original_selected"
+          },
+          "additional_attempts": []
+        },
+        "C": {
+          "initial": {
+            "resolved": true,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 840378,
+              "cached_input_tokens": 777600,
+              "output_tokens": 13862,
+              "total_tokens": 854240,
+              "uncached_input_tokens": 62778
+            },
+            "selection": "original_selected"
+          }
+        },
+        "native_off": {
+          "initial": {
+            "resolved": true,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 900768,
+              "cached_input_tokens": 876544,
+              "output_tokens": 13829,
+              "total_tokens": 914597,
+              "uncached_input_tokens": 24224
+            },
+            "selection": "original_selected"
+          }
+        }
+      }
+    },
+    {
+      "case": 627,
+      "instance_id": "instance_navidrome__navidrome-66b74c81f115c78cb69910b0472eeb376750efc4",
+      "repo": "navidrome/navidrome",
+      "arms": {
+        "CS": {
+          "initial": {
+            "resolved": true,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 1018572,
+              "cached_input_tokens": 978048,
+              "uncached_input_tokens": 40524,
+              "output_tokens": 9080,
+              "total_tokens": 1027652
+            },
+            "outcome_sha256": "3f9edf4805b58a6b254dcc6ca857334a291efacc2538f73545df95afa62b871a",
+            "selection": "original_selected"
+          },
+          "merged": {
+            "resolved": true,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 1018572,
+              "cached_input_tokens": 978048,
+              "uncached_input_tokens": 40524,
+              "output_tokens": 9080,
+              "total_tokens": 1027652
+            },
+            "outcome_sha256": "3f9edf4805b58a6b254dcc6ca857334a291efacc2538f73545df95afa62b871a",
+            "selection": "original_selected"
+          },
+          "additional_attempts": []
+        },
+        "S": {
+          "initial": {
+            "resolved": true,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 824967,
+              "cached_input_tokens": 791040,
+              "uncached_input_tokens": 33927,
+              "output_tokens": 8421,
+              "total_tokens": 833388
+            },
+            "outcome_sha256": "c97886a5c9b4756512e0cfa8b6d7304fbb9c6ab970d8b9e62e2fd22506e12913",
+            "selection": "original_selected"
+          },
+          "merged": {
+            "resolved": true,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 824967,
+              "cached_input_tokens": 791040,
+              "uncached_input_tokens": 33927,
+              "output_tokens": 8421,
+              "total_tokens": 833388
+            },
+            "outcome_sha256": "c97886a5c9b4756512e0cfa8b6d7304fbb9c6ab970d8b9e62e2fd22506e12913",
+            "selection": "original_selected"
+          },
+          "additional_attempts": []
+        },
+        "gateway_off": {
+          "initial": {
+            "resolved": true,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 901016,
+              "cached_input_tokens": 864384,
+              "uncached_input_tokens": 36632,
+              "output_tokens": 8456,
+              "total_tokens": 909472
+            },
+            "outcome_sha256": "71422d89e7e375eb38f4622493ccf034c335b0bbdceb2958e32740abd8f77527",
+            "selection": "original_selected"
+          },
+          "merged": {
+            "resolved": true,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 901016,
+              "cached_input_tokens": 864384,
+              "uncached_input_tokens": 36632,
+              "output_tokens": 8456,
+              "total_tokens": 909472
+            },
+            "outcome_sha256": "71422d89e7e375eb38f4622493ccf034c335b0bbdceb2958e32740abd8f77527",
+            "selection": "original_selected"
+          },
+          "additional_attempts": []
+        },
+        "C": {
+          "initial": {
+            "resolved": true,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 1002784,
+              "cached_input_tokens": 963712,
+              "output_tokens": 8729,
+              "total_tokens": 1011513,
+              "uncached_input_tokens": 39072
+            },
+            "selection": "original_selected"
+          }
+        },
+        "native_off": {
+          "initial": {
+            "resolved": true,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 1177280,
+              "cached_input_tokens": 1133568,
+              "output_tokens": 9827,
+              "total_tokens": 1187107,
+              "uncached_input_tokens": 43712
+            },
+            "selection": "original_selected"
+          }
+        }
+      }
+    },
+    {
+      "case": 698,
+      "instance_id": "instance_navidrome__navidrome-b3980532237e57ab15b2b93c49d5cd5b2d050013",
+      "repo": "navidrome/navidrome",
+      "arms": {
+        "CS": {
+          "initial": {
+            "resolved": false,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 728345,
+              "cached_input_tokens": 618112,
+              "uncached_input_tokens": 110233,
+              "output_tokens": 6419,
+              "total_tokens": 734764
+            },
+            "outcome_sha256": "55d62a07c58386259a5cc24d4fed6c6c2b72fd110cb773b4fdbd6858f585b06c",
+            "selection": "original_selected"
+          },
+          "merged": {
+            "resolved": false,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 728345,
+              "cached_input_tokens": 618112,
+              "uncached_input_tokens": 110233,
+              "output_tokens": 6419,
+              "total_tokens": 734764
+            },
+            "outcome_sha256": "55d62a07c58386259a5cc24d4fed6c6c2b72fd110cb773b4fdbd6858f585b06c",
+            "selection": "original_selected"
+          },
+          "additional_attempts": []
+        },
+        "S": {
+          "initial": {
+            "resolved": false,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 675163,
+              "cached_input_tokens": 641408,
+              "uncached_input_tokens": 33755,
+              "output_tokens": 5761,
+              "total_tokens": 680924
+            },
+            "outcome_sha256": "c05887e9a067128e53313170efbe9db7dfa68963f5e671496a1f5566f50aa667",
+            "selection": "original_selected"
+          },
+          "merged": {
+            "resolved": false,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 675163,
+              "cached_input_tokens": 641408,
+              "uncached_input_tokens": 33755,
+              "output_tokens": 5761,
+              "total_tokens": 680924
+            },
+            "outcome_sha256": "c05887e9a067128e53313170efbe9db7dfa68963f5e671496a1f5566f50aa667",
+            "selection": "original_selected"
+          },
+          "additional_attempts": []
+        },
+        "gateway_off": {
+          "initial": {
+            "resolved": false,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 713738,
+              "cached_input_tokens": 678784,
+              "uncached_input_tokens": 34954,
+              "output_tokens": 5667,
+              "total_tokens": 719405
+            },
+            "outcome_sha256": "9cca337700cffdb78c668c6430e92564415d4ff2706aef42d3b2b01108dd5251",
+            "selection": "original_selected"
+          },
+          "merged": {
+            "resolved": false,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 713738,
+              "cached_input_tokens": 678784,
+              "uncached_input_tokens": 34954,
+              "output_tokens": 5667,
+              "total_tokens": 719405
+            },
+            "outcome_sha256": "9cca337700cffdb78c668c6430e92564415d4ff2706aef42d3b2b01108dd5251",
+            "selection": "original_selected"
+          },
+          "additional_attempts": []
+        },
+        "C": {
+          "initial": {
+            "resolved": false,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 1640111,
+              "cached_input_tokens": 1560064,
+              "output_tokens": 7908,
+              "total_tokens": 1648019,
+              "uncached_input_tokens": 80047
+            },
+            "selection": "original_selected"
+          }
+        },
+        "native_off": {
+          "initial": {
+            "resolved": false,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 1358077,
+              "cached_input_tokens": 1310976,
+              "output_tokens": 6765,
+              "total_tokens": 1364842,
+              "uncached_input_tokens": 47101
+            },
+            "selection": "original_selected"
+          }
+        }
+      }
+    },
+    {
+      "case": 706,
+      "instance_id": "instance_tutao__tutanota-4b4e45949096bb288f2b522f657610e480efa3e8-vee878bb72091875e912c52fc32bc60ec3760227b",
+      "repo": "tutao/tutanota",
+      "arms": {
+        "CS": {
+          "initial": {
+            "resolved": true,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 1062720,
+              "cached_input_tokens": 979840,
+              "uncached_input_tokens": 82880,
+              "output_tokens": 5803,
+              "total_tokens": 1068523
+            },
+            "outcome_sha256": "88bc55498cc78825fa9351a4bdf8361aa9c073f028a4c6eaf095ac676fd737b4",
+            "selection": "original_selected"
+          },
+          "merged": {
+            "resolved": true,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 1062720,
+              "cached_input_tokens": 979840,
+              "uncached_input_tokens": 82880,
+              "output_tokens": 5803,
+              "total_tokens": 1068523
+            },
+            "outcome_sha256": "88bc55498cc78825fa9351a4bdf8361aa9c073f028a4c6eaf095ac676fd737b4",
+            "selection": "original_selected"
+          },
+          "additional_attempts": []
+        },
+        "S": {
+          "initial": {
+            "resolved": true,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 789047,
+              "cached_input_tokens": 749440,
+              "uncached_input_tokens": 39607,
+              "output_tokens": 6331,
+              "total_tokens": 795378
+            },
+            "outcome_sha256": "ba5b6c1198da67c1fda51a2f640b682f7732a1292b5e018e0fe89b758e2593a5",
+            "selection": "original_selected"
+          },
+          "merged": {
+            "resolved": true,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 789047,
+              "cached_input_tokens": 749440,
+              "uncached_input_tokens": 39607,
+              "output_tokens": 6331,
+              "total_tokens": 795378
+            },
+            "outcome_sha256": "ba5b6c1198da67c1fda51a2f640b682f7732a1292b5e018e0fe89b758e2593a5",
+            "selection": "original_selected"
+          },
+          "additional_attempts": []
+        },
+        "gateway_off": {
+          "initial": {
+            "resolved": true,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 1284100,
+              "cached_input_tokens": 1239168,
+              "uncached_input_tokens": 44932,
+              "output_tokens": 7948,
+              "total_tokens": 1292048
+            },
+            "outcome_sha256": "3181039ac6791585049acebd66538c348fced676c2fe1eeea8fdc8dd5c80ee23",
+            "selection": "original_selected"
+          },
+          "merged": {
+            "resolved": true,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 1284100,
+              "cached_input_tokens": 1239168,
+              "uncached_input_tokens": 44932,
+              "output_tokens": 7948,
+              "total_tokens": 1292048
+            },
+            "outcome_sha256": "3181039ac6791585049acebd66538c348fced676c2fe1eeea8fdc8dd5c80ee23",
+            "selection": "original_selected"
+          },
+          "additional_attempts": []
+        },
+        "C": {
+          "initial": {
+            "resolved": true,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 2712160,
+              "cached_input_tokens": 2631296,
+              "output_tokens": 13346,
+              "total_tokens": 2725506,
+              "uncached_input_tokens": 80864
+            },
+            "selection": "original_selected"
+          }
+        },
+        "native_off": {
+          "initial": {
+            "resolved": true,
+            "valid": true,
+            "tokens": {
+              "input_tokens": 2040409,
+              "cached_input_tokens": 1992576,
+              "output_tokens": 11646,
+              "total_tokens": 2052055,
+              "uncached_input_tokens": 47833
+            },
+            "selection": "original_selected"
+          }
+        }
+      }
+    }
+  ],
+  "mcs_common24": [
+    {
+      "case": 22,
+      "instance_id": "instance_navidrome__navidrome-b65e76293a917ee2dfc5d4b373b1c62e054d0dca",
+      "repo": "navidrome/navidrome",
+      "arms": {
+        "MCS": {
+          "resolved": false,
+          "valid": true,
+          "tokens": {
+            "input_tokens": 970538,
+            "cached_input_tokens": 902528,
+            "uncached_input_tokens": 68010,
+            "output_tokens": 15282,
+            "total_tokens": 985820
+          },
+          "outcome_sha256": "d28163e2757fe96385e02291989bc92f5d461f3550ee7eac37a041b026ceab01",
+          "selection": "Frozen completed selection at closure; no later discordant retry replacement."
+        },
+        "gateway_off": {
+          "resolved": false,
+          "valid": true,
+          "tokens": {
+            "input_tokens": 2096258,
+            "cached_input_tokens": 2051200,
+            "uncached_input_tokens": 45058,
+            "output_tokens": 15617,
+            "total_tokens": 2111875
+          },
+          "outcome_sha256": "69dc5ebaa31d0835be0e95b5aca6c3a1ca396b5452582b0d361c2d2b23a2fcb5",
+          "selection": "Frozen completed selection at closure; no later discordant retry replacement."
+        }
+      }
+    },
+    {
+      "case": 87,
+      "instance_id": "instance_navidrome__navidrome-97434c1789a6444b30aae5ff5aa124a96a88f504",
+      "repo": "navidrome/navidrome",
+      "arms": {
+        "MCS": {
+          "resolved": false,
+          "valid": true,
+          "tokens": {
+            "input_tokens": 499253,
+            "cached_input_tokens": 476416,
+            "uncached_input_tokens": 22837,
+            "output_tokens": 8286,
+            "total_tokens": 507539
+          },
+          "outcome_sha256": "dbf0ff1190963ae5cd5c50ac51c30c99407b7c65318371ef796afebac1ec3c41",
+          "selection": "Frozen completed selection at closure; no later discordant retry replacement."
+        },
+        "gateway_off": {
+          "resolved": false,
+          "valid": true,
+          "tokens": {
+            "input_tokens": 929480,
+            "cached_input_tokens": 903296,
+            "uncached_input_tokens": 26184,
+            "output_tokens": 11146,
+            "total_tokens": 940626
+          },
+          "outcome_sha256": "dcdc27cbb320f9023698788ad5671b9205d0e268cea06c81891d44d989a898cb",
+          "selection": "Frozen completed selection at closure; no later discordant retry replacement."
+        }
+      }
+    },
+    {
+      "case": 152,
+      "instance_id": "instance_navidrome__navidrome-89b12b34bea5687c70e4de2109fd1e7330bb2ba2",
+      "repo": "navidrome/navidrome",
+      "arms": {
+        "MCS": {
+          "resolved": false,
+          "valid": true,
+          "tokens": {
+            "input_tokens": 386385,
+            "cached_input_tokens": 366976,
+            "uncached_input_tokens": 19409,
+            "output_tokens": 6278,
+            "total_tokens": 392663
+          },
+          "outcome_sha256": "97b3887f9e378775b04ef377f1c371dcdc211b5df3570a0df8d2d2a77c5b1bfc",
+          "selection": "Frozen completed selection at closure; no later discordant retry replacement."
+        },
+        "gateway_off": {
+          "resolved": false,
+          "valid": true,
+          "tokens": {
+            "input_tokens": 557565,
+            "cached_input_tokens": 534912,
+            "uncached_input_tokens": 22653,
+            "output_tokens": 7995,
+            "total_tokens": 565560
+          },
+          "outcome_sha256": "98b9c2e9098f32cba6bb192c04059c2b1fb8355f1587ab32f33e93063b2aea0d",
+          "selection": "Frozen completed selection at closure; no later discordant retry replacement."
+        }
+      }
+    },
+    {
+      "case": 202,
+      "instance_id": "instance_NodeBB__NodeBB-4327a09d76f10a79109da9d91c22120428d3bdb9-vnan",
+      "repo": "NodeBB/NodeBB",
+      "arms": {
+        "MCS": {
+          "resolved": true,
+          "valid": true,
+          "tokens": {
+            "input_tokens": 396605,
+            "cached_input_tokens": 367104,
+            "uncached_input_tokens": 29501,
+            "output_tokens": 6402,
+            "total_tokens": 403007
+          },
+          "outcome_sha256": "8994dec26075cde1e3f3b383aafb48d5d4619cb5b9cdc6e754401ae0dae401e2",
+          "selection": "Frozen completed selection at closure; no later discordant retry replacement."
+        },
+        "gateway_off": {
+          "resolved": true,
+          "valid": true,
+          "tokens": {
+            "input_tokens": 1276650,
+            "cached_input_tokens": 1221760,
+            "uncached_input_tokens": 54890,
+            "output_tokens": 9749,
+            "total_tokens": 1286399
+          },
+          "outcome_sha256": "81b6a4edf398dadaa528406759134a27dc19c14cecdd383bec7ef118ad61aa81",
+          "selection": "Frozen completed selection at closure; no later discordant retry replacement."
+        }
+      }
+    },
+    {
+      "case": 225,
+      "instance_id": "instance_tutao__tutanota-de49d486feef842101506adf040a0f00ded59519-v10a26bfb45a064b93f4fc044a0254925037b88f1",
+      "repo": "tutao/tutanota",
+      "arms": {
+        "MCS": {
+          "resolved": true,
+          "valid": true,
+          "tokens": {
+            "input_tokens": 660076,
+            "cached_input_tokens": 609920,
+            "uncached_input_tokens": 50156,
+            "output_tokens": 6436,
+            "total_tokens": 666512
+          },
+          "outcome_sha256": "8db12d4b2124144fe0c107f78f5ec5619891617d4c9ab762033d976f9fbc66f7",
+          "selection": "Frozen completed selection at closure; no later discordant retry replacement."
+        },
+        "gateway_off": {
+          "resolved": true,
+          "valid": true,
+          "tokens": {
+            "input_tokens": 1065374,
+            "cached_input_tokens": 1026048,
+            "uncached_input_tokens": 39326,
+            "output_tokens": 7364,
+            "total_tokens": 1072738
+          },
+          "outcome_sha256": "e95186a27d798dc7b5a459ab41f12fda2cd90bffbf01d270e2c5259c14e74ab7",
+          "selection": "Frozen completed selection at closure; no later discordant retry replacement."
+        }
+      }
+    },
+    {
+      "case": 238,
+      "instance_id": "instance_NodeBB__NodeBB-97c8569a798075c50e93e585ac741ab55cb7c28b-vf2cf3cbd463b7ad942381f1c6d077626485a1e9e",
+      "repo": "NodeBB/NodeBB",
+      "arms": {
+        "MCS": {
+          "resolved": true,
+          "valid": true,
+          "tokens": {
+            "input_tokens": 307040,
+            "cached_input_tokens": 277376,
+            "uncached_input_tokens": 29664,
+            "output_tokens": 5052,
+            "total_tokens": 312092
+          },
+          "outcome_sha256": "103df1a3d89b948dc54c146ba4af75e2ac93530b19659b0c23ae16c474c323e0",
+          "selection": "Frozen completed selection at closure; no later discordant retry replacement."
+        },
+        "gateway_off": {
+          "resolved": true,
+          "valid": true,
+          "tokens": {
+            "input_tokens": 403403,
+            "cached_input_tokens": 370048,
+            "uncached_input_tokens": 33355,
+            "output_tokens": 5135,
+            "total_tokens": 408538
+          },
+          "outcome_sha256": "6efb54bed28cd77e1222d19ebcec2e655dbed26f60098f5f3b3a269441f1518f",
+          "selection": "Frozen completed selection at closure; no later discordant retry replacement."
+        }
+      }
+    },
+    {
+      "case": 293,
+      "instance_id": "instance_NodeBB__NodeBB-0e07f3c9bace416cbab078a30eae972868c0a8a3-vf2cf3cbd463b7ad942381f1c6d077626485a1e9e",
+      "repo": "NodeBB/NodeBB",
+      "arms": {
+        "MCS": {
+          "resolved": false,
+          "valid": true,
+          "tokens": {
+            "input_tokens": 426359,
+            "cached_input_tokens": 395520,
+            "uncached_input_tokens": 30839,
+            "output_tokens": 5674,
+            "total_tokens": 432033
+          },
+          "outcome_sha256": "f2cbf132642babf97e865905d011cb3f3858ad017278863f4a4b02825ed3c7da",
+          "selection": "Frozen completed selection at closure; no later discordant retry replacement."
+        },
+        "gateway_off": {
+          "resolved": false,
+          "valid": true,
+          "tokens": {
+            "input_tokens": 1215203,
+            "cached_input_tokens": 1167616,
+            "uncached_input_tokens": 47587,
+            "output_tokens": 8195,
+            "total_tokens": 1223398
+          },
+          "outcome_sha256": "30c8585e4cf27a16f4be794d328c93ed4f2f2fde0404840673e2f1d9fe58bdaa",
+          "selection": "Frozen completed selection at closure; no later discordant retry replacement."
+        }
+      }
+    },
+    {
+      "case": 308,
+      "instance_id": "instance_navidrome__navidrome-6bd4c0f6bfa653e9b8b27cfdc2955762d371d6e9",
+      "repo": "navidrome/navidrome",
+      "arms": {
+        "MCS": {
+          "resolved": false,
+          "valid": true,
+          "tokens": {
+            "input_tokens": 1076846,
+            "cached_input_tokens": 986752,
+            "uncached_input_tokens": 90094,
+            "output_tokens": 12173,
+            "total_tokens": 1089019
+          },
+          "outcome_sha256": "dd41c9cccb223e4279c81a05c8f91a10c8765d3439b1d5b0cd5857fd1876b68e",
+          "selection": "Frozen completed selection at closure; no later discordant retry replacement."
+        },
+        "gateway_off": {
+          "resolved": false,
+          "valid": true,
+          "tokens": {
+            "input_tokens": 2223197,
+            "cached_input_tokens": 2169856,
+            "uncached_input_tokens": 53341,
+            "output_tokens": 15593,
+            "total_tokens": 2238790
+          },
+          "outcome_sha256": "cc1c6a9a78700448e086d6be7a524b5163e1b5ed635387b62284c43827a5799b",
+          "selection": "Frozen completed selection at closure; no later discordant retry replacement."
+        }
+      }
+    },
+    {
+      "case": 336,
+      "instance_id": "instance_NodeBB__NodeBB-cfc237c2b79d8c731bbfc6cadf977ed530bfd57a-v0495b863a912fbff5749c67e860612b91825407c",
+      "repo": "NodeBB/NodeBB",
+      "arms": {
+        "MCS": {
+          "resolved": true,
+          "valid": true,
+          "tokens": {
+            "input_tokens": 452524,
+            "cached_input_tokens": 431616,
+            "uncached_input_tokens": 20908,
+            "output_tokens": 6691,
+            "total_tokens": 459215
+          },
+          "outcome_sha256": "5376f7277541a5af7b6ab8baf639b499b1ccd8d9aebf0d0d97b017b2d42e6393",
+          "selection": "Frozen completed selection at closure; no later discordant retry replacement."
+        },
+        "gateway_off": {
+          "resolved": true,
+          "valid": true,
+          "tokens": {
+            "input_tokens": 461025,
+            "cached_input_tokens": 419584,
+            "uncached_input_tokens": 41441,
+            "output_tokens": 4282,
+            "total_tokens": 465307
+          },
+          "outcome_sha256": "0e6ec9a82257ab0b50e96029ddd6a15c5e2486a185ce350b0fc3c41ccf8043ea",
+          "selection": "Frozen completed selection at closure; no later discordant retry replacement."
+        }
+      }
+    },
+    {
+      "case": 374,
+      "instance_id": "instance_NodeBB__NodeBB-8168c6c40707478f71b8af60300830fe554c778c-vf2cf3cbd463b7ad942381f1c6d077626485a1e9e",
+      "repo": "NodeBB/NodeBB",
+      "arms": {
+        "MCS": {
+          "resolved": true,
+          "valid": true,
+          "tokens": {
+            "input_tokens": 698323,
+            "cached_input_tokens": 667648,
+            "uncached_input_tokens": 30675,
+            "output_tokens": 9610,
+            "total_tokens": 707933
+          },
+          "outcome_sha256": "97191d9fbb088448d169039df18ccabbcb35ab57364054dc1d8c466e4f189c8c",
+          "selection": "Frozen completed selection at closure; no later discordant retry replacement."
+        },
+        "gateway_off": {
+          "resolved": true,
+          "valid": true,
+          "tokens": {
+            "input_tokens": 930847,
+            "cached_input_tokens": 878976,
+            "uncached_input_tokens": 51871,
+            "output_tokens": 9860,
+            "total_tokens": 940707
+          },
+          "outcome_sha256": "58cf9e9c652abb56babcbab7100e5af5ae4dbbe2520001e1d1f20197c6bf14b5",
+          "selection": "Frozen completed selection at closure; no later discordant retry replacement."
+        }
+      }
+    },
+    {
+      "case": 388,
+      "instance_id": "instance_NodeBB__NodeBB-84e065752f6d7fbe5c08cbf50cb173ffb866b8fa-vf2cf3cbd463b7ad942381f1c6d077626485a1e9e",
+      "repo": "NodeBB/NodeBB",
+      "arms": {
+        "MCS": {
+          "resolved": true,
+          "valid": true,
+          "tokens": {
+            "input_tokens": 635482,
+            "cached_input_tokens": 600960,
+            "uncached_input_tokens": 34522,
+            "output_tokens": 6665,
+            "total_tokens": 642147
+          },
+          "outcome_sha256": "b3db7dd81206b5bc7cfae003538497a13261f29fe569af0f8a20ac6662f13b9d",
+          "selection": "Frozen completed selection at closure; no later discordant retry replacement."
+        },
+        "gateway_off": {
+          "resolved": true,
+          "valid": true,
+          "tokens": {
+            "input_tokens": 869211,
+            "cached_input_tokens": 830080,
+            "uncached_input_tokens": 39131,
+            "output_tokens": 6779,
+            "total_tokens": 875990
+          },
+          "outcome_sha256": "bbbb2f2e1a26e69397082b9c90abfc33391e19d10185562d19c2707c2a6ca0d5",
+          "selection": "Frozen completed selection at closure; no later discordant retry replacement."
+        }
+      }
+    },
+    {
+      "case": 406,
+      "instance_id": "instance_NodeBB__NodeBB-a917210c5b2c20637094545401f85783905c074c-vf2cf3cbd463b7ad942381f1c6d077626485a1e9e",
+      "repo": "NodeBB/NodeBB",
+      "arms": {
+        "MCS": {
+          "resolved": true,
+          "valid": true,
+          "tokens": {
+            "input_tokens": 962140,
+            "cached_input_tokens": 865792,
+            "uncached_input_tokens": 96348,
+            "output_tokens": 10763,
+            "total_tokens": 972903
+          },
+          "outcome_sha256": "0cd036dc556b0f38f1f2dc858ab2a26e5e3fccd445750a43614c60cfe7dd7460",
+          "selection": "Frozen completed selection at closure; no later discordant retry replacement."
+        },
+        "gateway_off": {
+          "resolved": true,
+          "valid": true,
+          "tokens": {
+            "input_tokens": 1025641,
+            "cached_input_tokens": 984320,
+            "uncached_input_tokens": 41321,
+            "output_tokens": 9917,
+            "total_tokens": 1035558
+          },
+          "outcome_sha256": "964d8eab90c74b1acd05404ddf7a089308d2e530ce9d78f2eaec5775204c529e",
+          "selection": "Frozen completed selection at closure; no later discordant retry replacement."
+        }
+      }
+    },
+    {
+      "case": 410,
+      "instance_id": "instance_navidrome__navidrome-8383527aaba1ae8fa9765e995a71a86c129ef626",
+      "repo": "navidrome/navidrome",
+      "arms": {
+        "MCS": {
+          "resolved": true,
+          "valid": true,
+          "tokens": {
+            "input_tokens": 364778,
+            "cached_input_tokens": 334208,
+            "uncached_input_tokens": 30570,
+            "output_tokens": 7302,
+            "total_tokens": 372080
+          },
+          "outcome_sha256": "1ebbf4d4a22596cd9be02955f39ae18b32023ba0d4322e9d3e56eac180395291",
+          "selection": "Frozen completed selection at closure; no later discordant retry replacement."
+        },
+        "gateway_off": {
+          "resolved": true,
+          "valid": true,
+          "tokens": {
+            "input_tokens": 424744,
+            "cached_input_tokens": 388352,
+            "uncached_input_tokens": 36392,
+            "output_tokens": 7494,
+            "total_tokens": 432238
+          },
+          "outcome_sha256": "0117043780bc8b063ed95b6fdd5862e01b65c04891dc5132e45119342fc54a63",
+          "selection": "Frozen completed selection at closure; no later discordant retry replacement."
+        }
+      }
+    },
+    {
+      "case": 456,
+      "instance_id": "instance_tutao__tutanota-40e94dee2bcec2b63f362da283123e9df1874cc1-vc4e41fd0029957297843cb9dec4a25c7c756f029",
+      "repo": "tutao/tutanota",
+      "arms": {
+        "MCS": {
+          "resolved": true,
+          "valid": true,
+          "tokens": {
+            "input_tokens": 722350,
+            "cached_input_tokens": 685568,
+            "uncached_input_tokens": 36782,
+            "output_tokens": 7157,
+            "total_tokens": 729507
+          },
+          "outcome_sha256": "d35deefc5f486e17e8c9860358d8df08c7542fccc854b658c77bfc70bc76771c",
+          "selection": "Frozen completed selection at closure; no later discordant retry replacement."
+        },
+        "gateway_off": {
+          "resolved": true,
+          "valid": true,
+          "tokens": {
+            "input_tokens": 2291613,
+            "cached_input_tokens": 2226816,
+            "uncached_input_tokens": 64797,
+            "output_tokens": 9561,
+            "total_tokens": 2301174
+          },
+          "outcome_sha256": "16abe557bba77bb9434bdf2c310bb52e7fe3c6b8a95a1d2440f357d9de620e73",
+          "selection": "Frozen completed selection at closure; no later discordant retry replacement."
+        }
+      }
+    },
+    {
+      "case": 464,
+      "instance_id": "instance_tutao__tutanota-befce4b146002b9abc86aa95f4d57581771815ce-vee878bb72091875e912c52fc32bc60ec3760227b",
+      "repo": "tutao/tutanota",
+      "arms": {
+        "MCS": {
+          "resolved": true,
+          "valid": true,
+          "tokens": {
+            "input_tokens": 494972,
+            "cached_input_tokens": 455040,
+            "uncached_input_tokens": 39932,
+            "output_tokens": 2388,
+            "total_tokens": 497360
+          },
+          "outcome_sha256": "211c66bb2b5dadce297f725a35948fad90b2c5123b76e0af45f1c215f07d1672",
+          "selection": "Frozen completed selection at closure; no later discordant retry replacement."
+        },
+        "gateway_off": {
+          "resolved": true,
+          "valid": true,
+          "tokens": {
+            "input_tokens": 501819,
+            "cached_input_tokens": 467584,
+            "uncached_input_tokens": 34235,
+            "output_tokens": 3227,
+            "total_tokens": 505046
+          },
+          "outcome_sha256": "bb41298aa272b35527bddf59d11129358e97a192dbf6cda29c936122c7b6cd84",
+          "selection": "Frozen completed selection at closure; no later discordant retry replacement."
+        }
+      }
+    },
+    {
+      "case": 468,
+      "instance_id": "instance_tutao__tutanota-12a6cbaa4f8b43c2f85caca0787ab55501539955-vc4e41fd0029957297843cb9dec4a25c7c756f029",
+      "repo": "tutao/tutanota",
+      "arms": {
+        "MCS": {
+          "resolved": true,
+          "valid": true,
+          "tokens": {
+            "input_tokens": 454487,
+            "cached_input_tokens": 409984,
+            "uncached_input_tokens": 44503,
+            "output_tokens": 6686,
+            "total_tokens": 461173
+          },
+          "outcome_sha256": "bd0ae9898e05d17d1e327da116be25c15d2900bef4c9c6b6f2a93a302a2ce4b4",
+          "selection": "Frozen completed selection at closure; no later discordant retry replacement."
+        },
+        "gateway_off": {
+          "resolved": true,
+          "valid": true,
+          "tokens": {
+            "input_tokens": 970551,
+            "cached_input_tokens": 939520,
+            "uncached_input_tokens": 31031,
+            "output_tokens": 8531,
+            "total_tokens": 979082
+          },
+          "outcome_sha256": "b81559e00cd2c6f9248509cd5d1c30f9192cd7e182d2978a9e48a9add1841c00",
+          "selection": "Frozen completed selection at closure; no later discordant retry replacement."
+        }
+      }
+    },
+    {
+      "case": 472,
+      "instance_id": "instance_tutao__tutanota-51818218c6ae33de00cbea3a4d30daac8c34142e-vc4e41fd0029957297843cb9dec4a25c7c756f029",
+      "repo": "tutao/tutanota",
+      "arms": {
+        "MCS": {
+          "resolved": false,
+          "valid": true,
+          "tokens": {
+            "input_tokens": 1601652,
+            "cached_input_tokens": 1505536,
+            "uncached_input_tokens": 96116,
+            "output_tokens": 13700,
+            "total_tokens": 1615352
+          },
+          "outcome_sha256": "5865af90b5966534437d5a16c6d1253194e6f935b3a709bc8a4acca91cb13797",
+          "selection": "Frozen completed selection at closure; no later discordant retry replacement."
+        },
+        "gateway_off": {
+          "resolved": false,
+          "valid": true,
+          "tokens": {
+            "input_tokens": 979533,
+            "cached_input_tokens": 938112,
+            "uncached_input_tokens": 41421,
+            "output_tokens": 11102,
+            "total_tokens": 990635
+          },
+          "outcome_sha256": "32e94a7f7584757be1bcec5165302de6bdc838697e8463d24b92ec891c884594",
+          "selection": "Frozen completed selection at closure; no later discordant retry replacement."
+        }
+      }
+    },
+    {
+      "case": 482,
+      "instance_id": "instance_navidrome__navidrome-874b17b8f614056df0ef021b5d4f977341084185",
+      "repo": "navidrome/navidrome",
+      "arms": {
+        "MCS": {
+          "resolved": false,
+          "valid": true,
+          "tokens": {
+            "input_tokens": 668295,
+            "cached_input_tokens": 619904,
+            "uncached_input_tokens": 48391,
+            "output_tokens": 8436,
+            "total_tokens": 676731
+          },
+          "outcome_sha256": "5edc7cb386576e251e88f724d2608454bd046fd2aaacbbf7f23cc6ca1c3a4074",
+          "selection": "Frozen completed selection at closure; no later discordant retry replacement."
+        },
+        "gateway_off": {
+          "resolved": false,
+          "valid": true,
+          "tokens": {
+            "input_tokens": 1416188,
+            "cached_input_tokens": 1373440,
+            "uncached_input_tokens": 42748,
+            "output_tokens": 9227,
+            "total_tokens": 1425415
+          },
+          "outcome_sha256": "4122bc5cdd68571da90c20e221457d608eccc5b68f4f2acd0070fb681c637479",
+          "selection": "Frozen completed selection at closure; no later discordant retry replacement."
+        }
+      }
+    },
+    {
+      "case": 492,
+      "instance_id": "instance_tutao__tutanota-219bc8f05d7b980e038bc1524cb021bf56397a1b-vee878bb72091875e912c52fc32bc60ec3760227b",
+      "repo": "tutao/tutanota",
+      "arms": {
+        "MCS": {
+          "resolved": true,
+          "valid": true,
+          "tokens": {
+            "input_tokens": 584338,
+            "cached_input_tokens": 518528,
+            "uncached_input_tokens": 65810,
+            "output_tokens": 5092,
+            "total_tokens": 589430
+          },
+          "outcome_sha256": "73c906181084b0feefd427ab1380b5b3d49475ac0ff66d2dbfdb566ee7118c4e",
+          "selection": "Frozen completed selection at closure; no later discordant retry replacement."
+        },
+        "gateway_off": {
+          "resolved": true,
+          "valid": true,
+          "tokens": {
+            "input_tokens": 639763,
+            "cached_input_tokens": 613120,
+            "uncached_input_tokens": 26643,
+            "output_tokens": 6251,
+            "total_tokens": 646014
+          },
+          "outcome_sha256": "14aa0e8f71f1d7c72eb9b6192ccb487bd48712481ba8683b4bde249d581ab370",
+          "selection": "Frozen completed selection at closure; no later discordant retry replacement."
+        }
+      }
+    },
+    {
+      "case": 501,
+      "instance_id": "instance_NodeBB__NodeBB-05f2236193f407cf8e2072757fbd6bb170bc13f0-vf2cf3cbd463b7ad942381f1c6d077626485a1e9e",
+      "repo": "NodeBB/NodeBB",
+      "arms": {
+        "MCS": {
+          "resolved": true,
+          "valid": true,
+          "tokens": {
+            "input_tokens": 676007,
+            "cached_input_tokens": 641024,
+            "uncached_input_tokens": 34983,
+            "output_tokens": 8169,
+            "total_tokens": 684176
+          },
+          "outcome_sha256": "04e025363f29a52d68b1120478bfc378bcd2b56564fa94b0629aa79ac5bdb0bf",
+          "selection": "Frozen completed selection at closure; no later discordant retry replacement."
+        },
+        "gateway_off": {
+          "resolved": true,
+          "valid": true,
+          "tokens": {
+            "input_tokens": 1870861,
+            "cached_input_tokens": 1808384,
+            "uncached_input_tokens": 62477,
+            "output_tokens": 12796,
+            "total_tokens": 1883657
+          },
+          "outcome_sha256": "ce80105673e27e746a0130555f0763f9c9b93abd697a38c47f4a9b99b0187133",
+          "selection": "Frozen completed selection at closure; no later discordant retry replacement."
+        }
+      }
+    },
+    {
+      "case": 505,
+      "instance_id": "instance_tutao__tutanota-8513a9e8114a8b42e64f4348335e0f23efa054c4-vee878bb72091875e912c52fc32bc60ec3760227b",
+      "repo": "tutao/tutanota",
+      "arms": {
+        "MCS": {
+          "resolved": true,
+          "valid": true,
+          "tokens": {
+            "input_tokens": 495416,
+            "cached_input_tokens": 451968,
+            "uncached_input_tokens": 43448,
+            "output_tokens": 11489,
+            "total_tokens": 506905
+          },
+          "outcome_sha256": "e69adf25b09b5eb1f731e8e414bc2826d1a54d32580ebcfd6c81965f3ae6b1a7",
+          "selection": "Frozen completed selection at closure; no later discordant retry replacement."
+        },
+        "gateway_off": {
+          "resolved": true,
+          "valid": true,
+          "tokens": {
+            "input_tokens": 1143743,
+            "cached_input_tokens": 1104384,
+            "uncached_input_tokens": 39359,
+            "output_tokens": 16806,
+            "total_tokens": 1160549
+          },
+          "outcome_sha256": "f905393587229e496995c96d801775b4d4bd523a411b72d07f053a0bdf3374e3",
+          "selection": "Frozen completed selection at closure; no later discordant retry replacement."
+        }
+      }
+    },
+    {
+      "case": 627,
+      "instance_id": "instance_navidrome__navidrome-66b74c81f115c78cb69910b0472eeb376750efc4",
+      "repo": "navidrome/navidrome",
+      "arms": {
+        "MCS": {
+          "resolved": true,
+          "valid": true,
+          "tokens": {
+            "input_tokens": 906853,
+            "cached_input_tokens": 873344,
+            "uncached_input_tokens": 33509,
+            "output_tokens": 8056,
+            "total_tokens": 914909
+          },
+          "outcome_sha256": "608705e2e025eda17bf99c140aaaf11c5324e1f9a97da12f514b422a889c2a98",
+          "selection": "Frozen completed selection at closure; no later discordant retry replacement."
+        },
+        "gateway_off": {
+          "resolved": true,
+          "valid": true,
+          "tokens": {
+            "input_tokens": 901016,
+            "cached_input_tokens": 864384,
+            "uncached_input_tokens": 36632,
+            "output_tokens": 8456,
+            "total_tokens": 909472
+          },
+          "outcome_sha256": "71422d89e7e375eb38f4622493ccf034c335b0bbdceb2958e32740abd8f77527",
+          "selection": "Frozen completed selection at closure; no later discordant retry replacement."
+        }
+      }
+    },
+    {
+      "case": 698,
+      "instance_id": "instance_navidrome__navidrome-b3980532237e57ab15b2b93c49d5cd5b2d050013",
+      "repo": "navidrome/navidrome",
+      "arms": {
+        "MCS": {
+          "resolved": false,
+          "valid": true,
+          "tokens": {
+            "input_tokens": 600417,
+            "cached_input_tokens": 532352,
+            "uncached_input_tokens": 68065,
+            "output_tokens": 5615,
+            "total_tokens": 606032
+          },
+          "outcome_sha256": "5e577691f1f3a5fa3911abb051c8f87e3e9c6e7cb2ed29eaa349d561f5b4ba27",
+          "selection": "Frozen completed selection at closure; no later discordant retry replacement."
+        },
+        "gateway_off": {
+          "resolved": false,
+          "valid": true,
+          "tokens": {
+            "input_tokens": 713738,
+            "cached_input_tokens": 678784,
+            "uncached_input_tokens": 34954,
+            "output_tokens": 5667,
+            "total_tokens": 719405
+          },
+          "outcome_sha256": "9cca337700cffdb78c668c6430e92564415d4ff2706aef42d3b2b01108dd5251",
+          "selection": "Frozen completed selection at closure; no later discordant retry replacement."
+        }
+      }
+    },
+    {
+      "case": 706,
+      "instance_id": "instance_tutao__tutanota-4b4e45949096bb288f2b522f657610e480efa3e8-vee878bb72091875e912c52fc32bc60ec3760227b",
+      "repo": "tutao/tutanota",
+      "arms": {
+        "MCS": {
+          "resolved": true,
+          "valid": true,
+          "tokens": {
+            "input_tokens": 536603,
+            "cached_input_tokens": 470016,
+            "uncached_input_tokens": 66587,
+            "output_tokens": 5845,
+            "total_tokens": 542448
+          },
+          "outcome_sha256": "ed0adce1dd1043f397976ece381460cbe493d27f33fff5244e039bbeb4decbfa",
+          "selection": "Frozen completed selection at closure; no later discordant retry replacement."
+        },
+        "gateway_off": {
+          "resolved": true,
+          "valid": true,
+          "tokens": {
+            "input_tokens": 1284100,
+            "cached_input_tokens": 1239168,
+            "uncached_input_tokens": 44932,
+            "output_tokens": 7948,
+            "total_tokens": 1292048
+          },
+          "outcome_sha256": "3181039ac6791585049acebd66538c348fced676c2fe1eeea8fdc8dd5c80ee23",
+          "selection": "Frozen completed selection at closure; no later discordant retry replacement."
+        }
+      }
+    }
+  ],
+  "mcs_extra": {
+    "memory_generation_input": 2018739,
+    "memory_generation_output": 23253,
+    "memory_generation_records": 74,
+    "missing_generation_cache_records": 55,
+    "memory_recall_embedding_input": 14737,
+    "memory_indexing_embedding_input": 7679,
+    "full_system_cost": null,
+    "memory_observation": {
+      "outcome_observed_cases": 24,
+      "primary_content_positive_cases": 0,
+      "primary_content_observation_missing_cases": 0,
+      "observed_primary_memory_content_sends": 0,
+      "posttask_atomic_memories": 54,
+      "nonempty_posttask_memory_cases": 21
+    }
+  }
+}

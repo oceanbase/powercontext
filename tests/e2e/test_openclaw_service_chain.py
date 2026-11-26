@@ -114,6 +114,11 @@ class OpenClawGateway:
         assert completed.returncode == 0, f"openclaw_chat_history_failed; see {self._stack.log}"
         return json.loads(completed.stdout)
 
+    def reset(self, session: str) -> None:
+        """Reset the session the way a chat client does, which ends its current OpenClaw session."""
+        completed = self._call("sessions.reset", {"key": self._stack.session_key(session)})
+        assert completed.returncode == 0, f"openclaw_session_reset_failed; see {self._stack.log}"
+
     def close(self) -> None:
         if self.process.poll() is None:
             self.process.terminate()
@@ -506,12 +511,14 @@ def test_openclaw_group_and_incognito_sessions_are_excluded(openclaw_stack: Open
 
 
 def test_openclaw_checkpoints_the_prompt_before_in_session_compaction(openclaw_stack: OpenClawStack) -> None:
-    agent_scope = _create_scope(openclaw_stack.server, "OpenClaw compaction")
+    agent_scope = _create_scope(openclaw_stack.server, "OpenClaw compaction agent")
+    project_scope = _create_scope(openclaw_stack.server, "OpenClaw compaction project")
     openclaw_stack.bind("agent", "main", agent_scope)
+    openclaw_stack.bind("project", f"path:{openclaw_stack.workspace}", project_scope)
     # OpenClaw's default `safeguard` mode turns off the built-in runner's in-session auto-compaction. In `default` mode
     # the runner starts a compaction once a reply reports more usage than the context window less its reserve, and it
-    # reports that compaction to `before_compaction` with only the session key. This transcript is too short for
-    # OpenClaw to compact anything, so the case covers the checkpoint, not the compaction itself.
+    # reports that compaction to `before_compaction` with only the session key and no active projects. This transcript
+    # is too short for OpenClaw to compact anything, so the case covers the checkpoint, not the compaction itself.
     openclaw_stack.config["agents"]["defaults"]["compaction"] = {"mode": "default"}
     openclaw_stack.config["models"]["providers"]["fixture"]["models"][0]["contextWindow"] = 32000
     openclaw_stack.model.streamed_prompt_tokens = 31000
@@ -519,17 +526,52 @@ def test_openclaw_checkpoints_the_prompt_before_in_session_compaction(openclaw_s
         gateway.turn("compact", FACT)
 
         # The checkpoint captures the prompt under its own event identity, beside the turn's `agent_end` capture, and
-        # flushes the agent's Scope while the Gateway is still running.
+        # flushes the project Scope that the turn's recall read while the Gateway is still running.
         def checkpointed() -> bool:
-            captured = openclaw_stack.sources(agent_scope).count(f"User: {FACT}")
-            return captured >= 2 and FACT in openclaw_stack.memories(agent_scope)
+            captured = openclaw_stack.sources(project_scope).count(f"User: {FACT}")
+            return captured >= 2 and FACT in openclaw_stack.memories(project_scope)
 
         deadline = time.monotonic() + 15
         while not checkpointed() and time.monotonic() < deadline:
             time.sleep(0.1)
         assert checkpointed()
+    # OpenClaw builds the prompt again after the compaction; every preparation reads the project Scope.
+    prepared = {record["request"]["scope_id"] for record in openclaw_stack.records("/v1/context/prepare")}
+    assert prepared == {project_scope}
     flushed = {record["request"]["scope_id"] for record in openclaw_stack.records("/v1/memory/flush")}
-    assert flushed == {agent_scope}
+    assert flushed == {project_scope}
+    assert openclaw_stack.sources(agent_scope) == []
+
+
+def test_openclaw_flushes_captured_prompts_when_a_session_ends_and_the_gateway_stops(
+    openclaw_stack: OpenClawStack,
+) -> None:
+    agent_scope = _create_scope(openclaw_stack.server, "OpenClaw session end")
+    openclaw_stack.bind("agent", "main", agent_scope)
+    later = "In the synthetic heron project, the verification color is amber-415."
+    with openclaw_stack.open(scopeId=None) as gateway:
+        gateway.turn("ended", FACT)
+        openclaw_stack.wait_for_sources([FACT], agent_scope)
+        assert openclaw_stack.records("/v1/memory/flush") == []
+
+        # OpenClaw runs a turn's hooks on the plugin registration of the run's registry, and reports the reset to
+        # `session_end` on the Gateway's own registration of the plugin. That registration flushes the turn's capture.
+        gateway.reset("ended")
+        deadline = time.monotonic() + 15
+        while FACT not in openclaw_stack.memories(agent_scope) and time.monotonic() < deadline:
+            time.sleep(0.1)
+        assert FACT in openclaw_stack.memories(agent_scope)
+        assert {record["request"]["scope_id"] for record in openclaw_stack.records("/v1/memory/flush")} == {agent_scope}
+
+        gateway.turn("stopped", later)
+        openclaw_stack.wait_for_sources([FACT, later], agent_scope)
+        flushed = len(openclaw_stack.records("/v1/memory/flush"))
+
+    # Stopping the Gateway reports `gateway_stop` and then `session_end` for each open session; both reach the Gateway's
+    # own registration, and the first one to run flushes the later capture.
+    assert len(openclaw_stack.records("/v1/memory/flush")) > flushed
+    assert {record["request"]["scope_id"] for record in openclaw_stack.records("/v1/memory/flush")} == {agent_scope}
+    assert later in openclaw_stack.memories(agent_scope)
 
 
 def test_openclaw_turn_proceeds_when_the_server_is_unavailable(openclaw_stack: OpenClawStack) -> None:

@@ -517,6 +517,8 @@ from powercontext.http import (
     Capabilities,
     CaptureContentSourceRequest,
     CaptureContentSourceResponse,
+    CaptureContentSourcesRequest,
+    CaptureContentSourcesResponse,
     CaptureWorkingNoteRequest,
     CheckContextRequest,
     ClearScopeBindingRequest,
@@ -808,6 +810,7 @@ from powercontext.http._generated.operations import (
     APPROVE_CANDIDATE,
     BIND_ARTIFACT_HANDLE,
     CAPTURE_CONTENT_SOURCE,
+    CAPTURE_CONTENT_SOURCES,
     CAPTURE_WORKING_NOTE,
     CHECK_ACCESS,
     CHECK_CONTEXT,
@@ -1001,6 +1004,8 @@ _ScopePathId = Annotated[str, PathParameter(min_length=1, max_length=256, patter
 class _ScopedSourceApplication(Protocol):
     async def capture(self, value: CaptureSource, /) -> SourceReceipt: ...
 
+    async def capture_many(self, values: Sequence[CaptureSource], /) -> tuple[SourceReceipt, ...]: ...
+
     async def capture_working_note(self, value: RuntimeCaptureWorkingNote, /) -> SourceReceipt: ...
 
 
@@ -1111,6 +1116,7 @@ class _ScopedContextApplication(Protocol):
         authorize_scopes: Callable[[tuple[str, ...]], Awaitable[None]] | None = None,
         atomic_context=None,
         binding_identity: str = "local",
+        diagnostic_sink: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
     ) -> RuntimePrepareContextResult: ...
 
     async def check(
@@ -1220,6 +1226,8 @@ class _SkillApplication(Protocol):
 
 
 class _RemoteSkillApplication(Protocol):
+    async def authenticate_target(self, credential: str, /) -> None: ...
+
     async def list_targets(
         self,
         scope_id: str,
@@ -1579,10 +1587,7 @@ def create_app(
     @app.exception_handler(PowerContextError)
     @app.exception_handler(PersistenceError)
     async def application_error(request: Request, error: Exception) -> JSONResponse:
-        response_status, code, message, details = _map_error(error)
-        response = _error_response(response_status, code=code, message=message, details=details)
-        _set_error_headers(response, error)
-        return response
+        return _application_error_response(error)
 
     @app.exception_handler(Exception)
     async def unexpected_error(request: Request, error: Exception) -> JSONResponse:
@@ -1672,6 +1677,7 @@ def create_app(
     _add_route(app, GET_PROMPT_CONFIGURATION, get_prompt_configuration)
     _add_route(app, REPLACE_ARTIFACT, replace_artifact)
     _add_route(app, CAPTURE_CONTENT_SOURCE, capture_content_source)
+    _add_route(app, CAPTURE_CONTENT_SOURCES, capture_content_sources)
     _add_route(app, CAPTURE_WORKING_NOTE, capture_working_note)
     add_atomic_memory_routes(
         app,
@@ -3910,6 +3916,7 @@ def _source_record_response(value: RuntimeSourceRecord) -> SourceRecord:
         source_type=value.source_type,
         source_id=value.source_id,
         content=value.content,
+        metadata=value.metadata,
         position=value.position,
         content_digest=value.content_digest,
     )
@@ -4029,6 +4036,16 @@ async def capture_content_source(
     _reject_reserved_handoff_receipt_content(request.content)
     result = await application.sources.for_scope(request.scope_id).capture(mapping.capture_request(request))
     return mapping.capture_response(result)
+
+
+async def capture_content_sources(
+    request: CaptureContentSourcesRequest,
+    application: Annotated[ServerApplication, Depends(_require_application)],
+) -> CaptureContentSourcesResponse:
+    for item in request.sources:
+        _reject_reserved_handoff_receipt_content(item.content)
+    results = await application.sources.for_scope(request.scope_id).capture_many(mapping.capture_requests(request))
+    return mapping.captures_response(results)
 
 
 async def capture_working_note(
@@ -4599,6 +4616,11 @@ async def prepare_context(
     )
     scoped = application.context.for_scope(request.scope_id)
     reuse_arguments = {"binding_identity": _context_binding_identity()} if request.include_reuse else {}
+    from powercontext.server.context_diagnostics import diagnostic_sink
+
+    sink = diagnostic_sink(application)
+    if sink is not None:
+        reuse_arguments["diagnostic_sink"] = sink
     access = access_control_for_mode(
         http_request.app.state.access_control,
         mode=http_request.app.state.access_mode,
@@ -5555,6 +5577,17 @@ def _remote_skill_publication(publication: SkillPublication) -> RemoteSkillPubli
     })
 
 
+async def _authenticate_remote_skill_request(request: Request) -> Response | None:
+    # The Receiver operation checks the credential again within its transaction.
+    try:
+        _require_secure_remote_transport(request)
+        credential = _target_credential(request)
+        await _require_application(request).remote_skills.authenticate_target(credential)
+    except (_RuntimeNotReadyError, PowerContextError, PersistenceError) as error:
+        return _application_error_response(error)
+    return None
+
+
 def _target_credential(request: Request) -> str:
     authorization = request.headers.get("authorization")
     if authorization is None:
@@ -6005,16 +6038,26 @@ async def approve_candidate(
         artifact = result.result_artifact
         if artifact is None:
             raise AccessUnavailableError("artifact_owner_pending")
-        await access.establish_artifact_owner(
-            ResourceRef.artifact(
-                request.scope_id,
-                family=artifact.family,
-                artifact_id=artifact.artifact_id,
-            ),
-            attestation.proposed_owner,
-            idempotency_key=bounded_idempotency_key("candidate-artifact-owner", request.scope_id, request.candidate_id),
-            context=_access_audit_context(APPROVE_CANDIDATE.operation_id),
-        )
+        try:
+            await access.establish_artifact_owner(
+                ResourceRef.artifact(
+                    request.scope_id,
+                    family=artifact.family,
+                    artifact_id=artifact.artifact_id,
+                ),
+                attestation.proposed_owner,
+                idempotency_key=bounded_idempotency_key(
+                    "candidate-artifact-owner", request.scope_id, request.candidate_id
+                ),
+                context=_access_audit_context(APPROVE_CANDIDATE.operation_id),
+            )
+        except AccessConflictError:
+            # Ownership migration may already have recorded this owner under its own idempotency key.
+            existing = await access.artifact_owner(
+                ResourceRef.artifact(request.scope_id, family=artifact.family, artifact_id=artifact.artifact_id)
+            )
+            if existing is None or existing.owner != attestation.proposed_owner:
+                raise
     return await _candidate_response(http_request, request.scope_id, result)
 
 
@@ -7268,6 +7311,13 @@ def _log_operation(
     if status_code is not None:
         extra["status_code"] = status_code
     log_safely(logger, level, message, exc_info=error, extra=extra)
+
+
+def _application_error_response(error: Exception) -> JSONResponse:
+    response_status, code, message, details = _map_error(error)
+    response = _error_response(response_status, code=code, message=message, details=details)
+    _set_error_headers(response, error)
+    return response
 
 
 def _error_response(

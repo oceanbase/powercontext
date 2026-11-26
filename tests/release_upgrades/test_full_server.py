@@ -626,7 +626,14 @@ def historical(case):
     if case["backend"] == "oceanbase":
         assert not snapshot(case, "source", "empty")["tables"], "Refusing to write into a nonempty test database"
         assert not snapshot(case, "target", "fresh-empty", fresh=True)["tables"]
-    with server(case["source"], environment_for(case), case["work"], case["report"] / "source-server.log") as client:
+    # Historical native releases create the full schema during their first startup.
+    with server(
+        case["source"],
+        environment_for(case),
+        case["work"],
+        case["report"] / "source-server.log",
+        readiness_timeout=360 if case["backend"] in {"seekdb", "oceanbase"} else 180,
+    ) as client:
         value = seed(client, candidate_prefix=SOURCE_ADAPTERS[case["source_version"]]["candidate_prefix"])
         if case["vector_dimension"]:
             value["topic_content"] = {

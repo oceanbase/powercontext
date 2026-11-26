@@ -83,46 +83,143 @@ Anthropic 兼容网关需要分别认证网关和上游时，配置网关的 `Au
 
 ## 复用已有订阅凭据
 
-在启动 Server 的环境中提供 Codex 或 GitHub Copilot 凭据，并确保 worker 也能读取。凭据文件的路径以 Server 所在主机及其运行用户为准，客户端机器上的登录不会自动带到 Server。
+在 Server 所在主机配置订阅，并确保 worker 能读取凭据或运行已登录的 CLI。不要设置 `POWERCONTEXT_SERVER_INFERENCE_GENERATION_BASE_URL` 和 `POWERCONTEXT_SERVER_INFERENCE_GENERATION_HEADERS`。将下面的模型占位符替换为账号可用的模型。
 
-下面的 Codex 和 Copilot 示例使用默认服务地址和认证方式。使用这些示例时，不要设置 `POWERCONTEXT_SERVER_INFERENCE_GENERATION_BASE_URL` 和 `POWERCONTEXT_SERVER_INFERENCE_GENERATION_HEADERS`。将 `<model-name>` 替换为对应订阅可用的模型 ID。
+| 订阅 | 模型配置 | 凭据续期 |
+| --- | --- | --- |
+| Codex CLI | `openai-codex:<model>` | CLI 负责续期；PowerContext 每次请求重读文件。 |
+| GitHub Copilot | `github-copilot:<model>` | 启动前导出 GitHub OAuth token；续期后更新环境并重启。 |
+| Grok CLI OAuth | `grok:<model>` | PowerContext 在 CLI 的 OS 锁下更新共享凭据文件。 |
+| Gemini CLI / Code Assist | `gemini-cli:<model>` | CLI 负责登录、初始化和续期。 |
+| Claude Code 订阅 | `claude-cli:<model>` | 已安装的 CLI 负责登录和续期。 |
+| Qwen Code Plus/Pro | `qwen:<model>` | PowerContext 持有独立设备授权并自动续期。 |
+| Kimi Code | `kimi:<model>` | PowerContext 持有独立设备授权并自动续期。 |
+| ChatGPT Plan Usage | 仅支持 SDK，见下文。 | 应用存储凭据，Pydantic AI 负责续期。 |
+
+Server 订阅适配器支持 Memory、Experience 和 Profile 的生成。切换前应关闭内置推理保护，并移除显式配置的 Topic Memory 处理或调度；Topic Memory 与 Dream 暂不支持。
 
 ### Codex CLI 凭据
 
-Codex CLI 已使用订阅账号登录，且凭据保存在 `auth.json` 时，使用 `openai-codex:` 模型前缀：
+在 Server 主机使用 Codex CLI 登录后选择模型：
 
 ```bash
 export POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL="openai-codex:<model-name>"
 ```
 
-Server 默认读取运行用户的 `~/.codex/auth.json`。凭据保存在其他 Codex home 目录时，通过环境变量指定目录：
+PowerContext 默认读取 `~/.codex/auth.json`。使用其他登录目录时配置：
 
 ```bash
 export CODEX_HOME="/path/to/existing/codex-home"
 ```
 
-`CODEX_HOME` 指向包含 `auth.json` 的目录。凭据续期由 CLI 负责。Server 和 worker 每次请求都会读取完整登录文件，不会兑换其中的刷新令牌或修改文件，避免与 CLI 或其他进程争用一次性刷新令牌。访问令牌过期或被拒绝时，推理会失败，直到原有 CLI 更新登录；下一次请求即可读取更新后的凭据，无需重启服务。此集成不提供无人值守的自动续期。详见 [Pydantic AI 的 Codex 凭据配置](https://github.com/pydantic/pydantic-ai/blob/v2.64.0/docs/models/openai-codex.md)。
+Server 和 worker 不修改该文件，也不兑换其中的刷新令牌。登录过期导致推理失败时，由原 CLI 续期；下一次请求会读取更新后的文件，无需重启 Server。详见 [Pydantic AI 的 Codex 配置](https://github.com/pydantic/pydantic-ai/blob/v2.64.0/docs/models/openai-codex.md)。
 
 ### GitHub Copilot 凭据
 
-已有 GitHub CLI OAuth 登录，且账号具有 Copilot 访问权限时，在启动 Server 前导出 token：
+使用具有 Copilot 权限的账号登录 GitHub CLI，在启动 Server 前导出 token：
 
 ```bash
 export GITHUB_COPILOT_API_KEY="$(gh auth token)"
 export POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL="github-copilot:<model-name>"
 ```
 
-请选择支持 Chat Completions 的 Copilot 模型。仅支持 Responses API 的模型不能使用 `github-copilot:` 前缀。
+请选择支持 Chat Completions 的模型。Server 也会依次读取备用变量 `GITHUB_COPILOT_API_TOKEN` 和 `COPILOT_GITHUB_TOKEN`，不使用 `GITHUB_TOKEN` 或 `GH_TOKEN`，也不自动读取 CLI 登录或续期导出的 token。续期后需要更新环境并重启。详见 [Pydantic AI 的 Copilot 配置](https://github.com/pydantic/pydantic-ai/blob/v2.64.0/docs/models/github-copilot.md)。
 
-也可以沿用环境中已有的 `GITHUB_COPILOT_API_TOKEN` 或 `COPILOT_GITHUB_TOKEN`，它们会依次作为备用变量读取。Server 使用这些专用变量，通用的 `GITHUB_TOKEN` 和 `GH_TOKEN` 不用于 Copilot 认证。示例中的 `gh auth token` 需要在启动服务前执行，Server 不会自动读取 CLI 配置或续期 token。token 更新后，更新服务进程的环境并重启 Server。详见 [Pydantic AI 的 Copilot 配置](https://github.com/pydantic/pydantic-ai/blob/v2.64.0/docs/models/github-copilot.md)。
+### Grok CLI OAuth 凭据
 
-这些配置支持 Memory、Experience 和 Profile 的生成。Codex 和 Copilot 暂不支持 Topic Memory 与 Dream。如果已经显式启用 Topic Memory 处理或自动调度，切换 provider 前需要移除对应配置。已启用内置推理保护时，切换到这两个 provider 会导致启动失败。
+在 Server 主机使用 Grok CLI 登录后配置：
+
+```bash
+export POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL="grok:<model-name>"
+export GROK_HOME="/path/to/existing/grok-home"
+```
+
+默认文件是 `~/.grok/auth.json`。`GROK_AUTH_PATH` 可指定文件，并优先于 `GROK_HOME`。PowerContext 要求 CLI 的 xAI OAuth 条目，将 Responses 请求发送到 `https://api.x.ai/v1/responses`。独立的 `xai:<model>` 前缀使用 API Key 认证。
+
+服务用户需要凭据目录的写权限。PowerContext 在距到期 60 秒内取得 `auth.json.lock`，续期后原子保存完整凭据并保留无关字段；续期失败不修改文件。资源返回 401 时不刷新或重放请求。这条 API 路径不提供 Magpie 独立的 SuperGrok 代理集成。
+
+### Gemini CLI / Code Assist
+
+在 Server 主机使用 Gemini CLI 完成登录和初始化后配置：
+
+```bash
+export POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL="gemini-cli:<model-name>"
+# Optional: override the default CLI credential file.
+export GEMINI_CLI_AUTH_PATH="/private/gemini/oauth_creds.json"
+```
+
+PowerContext 默认读取 `~/.gemini/oauth_creds.json`。过期凭据由原 CLI 续期；适配器不读取 keychain、加密缓存、ADC 或 Gemini API Key。组织账号可通过 `GOOGLE_CLOUD_PROJECT` 或 `GOOGLE_CLOUD_PROJECT_ID` 指定已配置的项目。
+
+适配器仅支持非流式 Code Assist 生成，在调用模型前检查账号的项目与 tier，不执行初始化或启用超额 credits。账号资格和额度取决于订阅。详见 [Gemini CLI 认证](https://github.com/google-gemini/gemini-cli/blob/main/docs/get-started/authentication.mdx)。
+
+### 通过真实 Claude Code CLI 使用订阅
+
+启动服务前，将 Claude Code CLI 登录到目标账号：
+
+```bash
+claude auth login
+export POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL="claude-cli:sonnet"
+# Optional: override the executable found on PATH.
+export CLAUDE_CLI_EXECUTABLE="/path/to/claude"
+```
+
+每次请求启动新的 print 进程，禁用工具、MCP 和会话持久化。支持文本与 prompted JSON；不支持图片、流式输出及 `max_tokens` 以外的模型参数。安装的 CLI 须支持适配器使用的参数。POSIX 上取消会终止其进程组。
+
+使用 CLI 的 `claude.ai` 登录，并移除 API Key、自定义 Anthropic endpoint、云后端和显式 OAuth token 的环境覆盖。CLI 自行控制内部 HTTP 调用及重试，因此该适配器要求关闭内置推理保护。详见 [Claude CLI 参数](https://code.claude.com/docs/en/cli-reference)。
+
+### Qwen Code 和 Kimi Code 设备授权
+
+创建 PowerContext 自有的独立设备授权，再选择模型：
+
+```bash
+uv run python -m powercontext.builtin.inference.coding_oauth qwen
+export POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL="qwen:<subscription-model>"
+
+uv run python -m powercontext.builtin.inference.coding_oauth kimi
+export POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL="kimi:<coding-model>"
+```
+
+按命令输出的验证 URL 和 user code 完成授权。凭据默认保存在 `~/.config/powercontext/oauth/` 下的 `qwen.json` 或 `kimi.json`，POSIX 权限为 `0600`。使用其他路径时，在登录和启动服务前设置 `POWERCONTEXT_QWEN_CREDENTIALS_PATH` 或 `POWERCONTEXT_KIMI_CREDENTIALS_PATH`。已有文件不会被覆盖，重新授权需要新路径。
+
+Qwen 对应当前 Code Plus/Pro 订阅，与旧版免费 OAuth 和 API Key 计划分开。Kimi 使用 `https://api.kimi.com/coding/v1`，账号和地区须与其匹配。不要将 CLI 的刷新令牌复制到这些文件后视为独立登录。
+
+两者在距到期 60 秒内持 OS 文件锁续期，并原子保存轮换凭据。续期失败或取消不修改文件，也不发送推理请求。Grok、Qwen 和 Kimi 均关闭 SDK 自动重试及认证层的模型重放。
+
+通过 SDK 接入时，`QwenProvider`、`KimiProvider` 使用 Pydantic AI 公开的 `OpenAICompatibleProvider(openai_client=...)` 接口。Authlib 处理 OAuth grant，PowerContext 维护凭据文件事务。Runtime 关闭自己创建的客户端；SDK 调用者负责关闭自行传入的客户端。
 
 ### 已有 ChatGPT Plan Usage 凭据
 
-已有 ChatGPT Plan Usage 授权可以通过 SDK 复用。Server 环境变量暂不支持加载这类凭据，只配置模型名称不足以启用服务。
+ChatGPT Plan Usage 可通过 SDK 使用，由应用提供凭据源。Server 不提供该凭据的加载器，Codex CLI 凭据也不能替代这项授权。
 
-将已有应用配置好的 Pydantic AI 模型用于下文的 SDK 示例。该模型需要使用 ChatGPT Plan Usage 授权，Codex CLI 凭据不能替代它。详见 [Pydantic AI 的已有凭据配置](https://github.com/pydantic/pydantic-ai/blob/v2.64.0/docs/models/openai-chatgpt.md#persisting-credentials)。
+```python
+from pydantic_ai.models.openai import OpenAIResponsesModel
+from pydantic_ai.providers.openai_chatgpt import OpenAIChatGPTProvider
+
+provider = OpenAIChatGPTProvider(credential_source=credential_source)
+generation_model = OpenAIResponsesModel("<model-name>", provider=provider)
+```
+
+凭据源实现异步 `load()` 和 `save(credentials)`，一起存储所有 `OpenAIChatGPTCredentials` 字段。授权须包含 `chatgpt.tokens.use.direct`。Pydantic AI 原生续期可在 401 后重放一次；多个进程共享存储时，应用需要协调续期所有权。详见[持久化 ChatGPT 凭据](https://github.com/pydantic/pydantic-ai/blob/v2.64.0/docs/models/openai-chatgpt.md#persisting-credentials)。
+
+### 验证边界
+
+[OAuth 测试夹具](https://github.com/oceanbase/powercontext/tree/master/tests/fixtures/oauth) 用合成数据和受控服务验证协议、凭据轮换及取消行为。真实账号资格、额度和已安装 CLI 的兼容性需要单独验收；该目录提供向量来源及许可说明。
+
+### Gateway 准入 profile
+
+选择与执行器最终请求和释放结果一致的协议：
+
+| 协议 | 请求与响应 |
+| --- | --- |
+| `google-codeassist` | 最终 Code Assist 请求与响应封装，候选结果位于 `response.candidates`。 |
+| `google-codeassist-chat` | 最终 Code Assist 请求及转换后的 Chat Completion JSON。 |
+| `claude-cli-prompt` | 送入 CLI stdin 的 Chat JSON 及规范化结果，逻辑目标固定为 `claude-cli://execute`。 |
+
+Code Assist profile 要求批准的目标与模型、项目，以及显式 `request.generationConfig.maxOutputTokens`。不透明图片、文件及 thought signature 会被暂缓。准备上下文必须定位到 `/request/contents/<index>/parts/<index>/text` 的用户文本。
+
+Responses profile 对流式请求要求 `allow_streaming=true`，执行器须缓冲完整终态后才能进行释放检查。Codex 不接受 `max_output_tokens`，因此要求该显式输出上限的 Core 策略会暂缓请求。Python 的 protected transport 不解析 Responses SSE。
+
+Core 在 enforcing 模式下始终以 `cli_http_unobservable` 暂缓 `claude-cli-prompt`，运行时切换策略后同样如此。prompt 检查不能覆盖 CLI 内部的 HTTP 调用或重试。
 
 ## 通过 SDK 使用生成模型
 

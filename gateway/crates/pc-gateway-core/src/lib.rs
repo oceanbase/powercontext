@@ -30,14 +30,20 @@ mod executor;
 mod gate_client;
 mod http_gate_client;
 mod lifecycle;
+mod prefix_store;
 mod replay_cache;
+pub mod replay_epoch;
 mod transcript;
+mod turn;
 mod uds_gate_client;
 
 pub use executor::*;
 pub use gate_client::*;
 pub use http_gate_client::*;
 pub use lifecycle::*;
+pub use prefix_store::{PrefixEntry, PREFIX_TTL_MS, UPSTREAM_SESSION_HEADER};
+pub use transcript::source_token_limit;
+pub use turn::TurnCounterSnapshot;
 pub use uds_gate_client::*;
 
 mod evidence;

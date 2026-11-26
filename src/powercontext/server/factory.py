@@ -86,7 +86,12 @@ from powercontext.http import (
 )
 from powercontext.paths import powercontext_data_dir
 from powercontext.server.access import HttpAccessLogMiddleware
-from powercontext.server.app import _bind_evidence_access, access_readiness_checks, create_app
+from powercontext.server.app import (
+    _authenticate_remote_skill_request,
+    _bind_evidence_access,
+    access_readiness_checks,
+    create_app,
+)
 from powercontext.server.authentication import (
     AuthenticationProvider,
     MultiBearerAuthenticationProvider,
@@ -100,6 +105,7 @@ from powercontext.server.http_limits import HttpAdmissionMiddleware, HttpRequest
 from powercontext.server.identity import ServerIdentityRepository
 from powercontext.server.info import server_info
 from powercontext.server.logging import worker_logging
+from powercontext.server.mapping import MAX_CAPTURE_BATCH_SOURCES
 from powercontext.server.mcp import mount_mcp
 from powercontext.server.metrics import HttpMetricsMiddleware, ServerMetrics, http_operations
 from powercontext.server.middleware import AuthenticationMiddleware
@@ -452,17 +458,18 @@ def create_server_app(  # noqa: C901
             HttpRequestBodyLimitMiddleware,
             max_request_body_bytes=resolved.http.max_request_body_bytes,
             plugin_api_max_body_bytes=resolved.plugin_api_max_body_bytes,
+            dashboard_enabled=resolved.dashboard.enabled,
         ),
     )
-    if configured_authentication is not None:
-        configured_middleware.insert(
-            0,
-            Middleware(
-                AuthenticationMiddleware,
-                provider=configured_authentication,
-                dashboard_enabled=resolved.dashboard.enabled,
-            ),
-        )
+    configured_middleware.insert(
+        0,
+        Middleware(
+            AuthenticationMiddleware,
+            provider=configured_authentication,
+            dashboard_enabled=resolved.dashboard.enabled,
+            authenticate_remote_skill=_authenticate_remote_skill_request,
+        ),
+    )
 
     app = create_app(
         lifespan=lifespan,
@@ -844,6 +851,12 @@ async def _server_capabilities(runtime: BuiltinRuntime) -> Capabilities:
                 "dependencies": MAX_REUSE_DEPENDENCIES,
                 "send_seconds": int(SEND_VALIDITY.total_seconds()),
                 "correlate_seconds": int(RESPONSE_CORRELATION.total_seconds()),
+                "capture_batch_sources": MAX_CAPTURE_BATCH_SOURCES,
+                **(
+                    {}
+                    if capabilities.atomic_memory_input_tokens_limit is None
+                    else {"atomic_memory_input_tokens": capabilities.atomic_memory_input_tokens_limit}
+                ),
             },
         }),
     )

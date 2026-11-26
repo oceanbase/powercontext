@@ -1,0 +1,43 @@
+name: Restore npm downloads
+description: Restore npm content downloads without reusing installed packages
+inputs:
+  packages:
+    description: Pinned npm package specifications, separated by whitespace
+    default: ''
+  cache-scope:
+    description: Optional namespace isolating downloads and restore fallbacks from other npm jobs
+    default: ''
+  cache-dependency-glob:
+    description: Dependency file globs relative to the source checkout, one per line
+    default: ''
+outputs:
+  cache-path:
+    description: npm content download cache
+    value: ${{ steps.snapshot.outputs.cache-path }}
+  cache-key:
+    description: Runtime and dependency fingerprint
+    value: ${{ steps.snapshot.outputs.cache-key }}
+  cache-hit:
+    description: Whether the exact dependency snapshot was restored
+    value: ${{ steps.restore.outputs.cache-hit }}
+runs:
+  using: composite
+  steps:
+    - name: Configure dependency downloads
+      shell: bash
+      run: node "$GITHUB_ACTION_PATH/../../../scripts/ci_node_mirror.mjs" configure
+
+    - id: snapshot
+      shell: bash
+      env:
+        CI_CACHE_PACKAGES: ${{ inputs.packages }}
+        CI_CACHE_SCOPE: ${{ inputs.cache-scope }}
+        CI_CACHE_DEPENDENCY_PATH: ${{ inputs.cache-dependency-glob }}
+      run: python3 "$GITHUB_ACTION_PATH/../../../scripts/ci_cache.py" npm
+
+    - id: restore
+      uses: ./.github/actions/cache-restore
+      with:
+        path: ${{ steps.snapshot.outputs.cache-path }}
+        key: ${{ steps.snapshot.outputs.cache-key }}
+        restore-keys: ${{ steps.snapshot.outputs.restore-key }}

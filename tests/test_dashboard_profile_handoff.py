@@ -293,7 +293,8 @@ def test_profile_compare_accepts_a_revision_outside_the_current_page(dashboard: 
     assert "That revision could not be compared." in missing.text
 
 
-def test_prompt_page_shows_the_selected_revision(dashboard: TestClient) -> None:
+@pytest.mark.parametrize("key", ["experience.generate", "topic_memory.probe", "profile.generate"])
+def test_prompt_page_shows_the_selected_revision(dashboard: TestClient, key: str) -> None:
     # This fixture has no generation model, so custom prompts are otherwise rejected.
     writer = cast(Any, dashboard.app).state.application._records()._family_writers.get("prompt")
     writer._registry = PromptRegistry(builtin_prompt_definitions(), supported=frozenset(PROMPT_KEYS))
@@ -302,7 +303,7 @@ def test_prompt_page_shows_the_selected_revision(dashboard: TestClient) -> None:
         f"/v1/scopes/{scope}/artifacts",
         json={
             "family": "prompt",
-            "prompt_key": "experience.generate",
+            "prompt_key": key,
             "content": {
                 "schema_version": "powercontext.prompt.v1",
                 "mode": "custom",
@@ -312,9 +313,9 @@ def test_prompt_page_shows_the_selected_revision(dashboard: TestClient) -> None:
         },
     )
     assert created.status_code == 201, created.text
-    current = dashboard.get(f"/v1/scopes/{scope}/artifacts/prompt/experience.generate")
+    current = dashboard.get(f"/v1/scopes/{scope}/artifacts/prompt/{key}")
     replaced = dashboard.put(
-        f"/v1/scopes/{scope}/artifacts/prompt/experience.generate",
+        f"/v1/scopes/{scope}/artifacts/prompt/{key}",
         json={
             "content": {
                 "schema_version": "powercontext.prompt.v1",
@@ -326,22 +327,131 @@ def test_prompt_page_shows_the_selected_revision(dashboard: TestClient) -> None:
         headers={"If-Match": current.headers["etag"]},
     )
     assert replaced.status_code == 200, replaced.text
+    latest = dashboard.get("/dashboard/prompts", params={"scope": scope, "prompt_key": key, "lang": "en"})
+    assert latest.status_code == 200
+    assert "Keep a later prompt." in latest.text
+    assert "Keep the approved prompt." not in latest.text
     opened = dashboard.get(
         "/dashboard/prompts",
-        params={"scope": scope, "prompt_key": "experience.generate", "prompt_revision": "1", "lang": "en"},
+        params={"scope": scope, "prompt_key": key, "prompt_revision": "1", "lang": "en"},
     )
     assert opened.status_code == 200
     assert "Keep the approved prompt." in opened.text
     assert "Keep a later prompt." not in opened.text
     missing = dashboard.get(
         "/dashboard/prompts",
-        params={"scope": scope, "prompt_key": "experience.generate", "prompt_revision": "99", "lang": "en"},
+        params={"scope": scope, "prompt_key": key, "prompt_revision": "99", "lang": "en"},
     )
     assert missing.status_code == 200
     assert 'role="alert"' in missing.text
     assert "Keep a later prompt." not in missing.text
     assert "/dashboard/rollback" not in missing.text
     assert 'id="compare-revision"' not in missing.text
+
+
+@pytest.mark.parametrize("revision", ["99", "0", "-1", "invalid", "²"])
+def test_prompt_history_never_falls_back_to_current_examples(dashboard: TestClient, revision: str) -> None:
+    writer = cast(Any, dashboard.app).state.application._records()._family_writers.get("prompt")
+    writer._registry = PromptRegistry(builtin_prompt_definitions(), supported=frozenset(PROMPT_KEYS))
+    scope = create_scope(dashboard, "Nonempty prompt history")["scope_id"]
+    for number, marker in enumerate(("Historical example", "Current example"), start=1):
+        content = {
+            "schema_version": "powercontext.prompt.v1",
+            "mode": "custom",
+            "instructions": f"Instructions for {marker}",
+            "demonstrations": [
+                {
+                    "input": {"query": marker, "max_results": 1, "candidates": [{"rank": 1, "text": marker}]},
+                    "expected_output": {"selected_ranks": [1]},
+                }
+            ],
+        }
+        if number == 1:
+            created = dashboard.post(
+                f"/v1/scopes/{scope}/artifacts",
+                json={"family": "prompt", "prompt_key": "memory.rerank", "content": content},
+            )
+            assert created.status_code == 201, created.text
+        else:
+            _put_content(dashboard, scope, "prompt", "memory.rerank", content)
+    for selected, expected, excluded in (
+        ("1", "Historical example", "Current example"),
+        ("2", "Current example", "Historical example"),
+        (revision, None, "Current example"),
+    ):
+        response = dashboard.get(
+            "/dashboard/prompts",
+            params={
+                "scope": scope,
+                "prompt_key": "memory.rerank",
+                "prompt_revision": selected,
+                "lang": "en",
+            },
+        )
+        assert response.status_code == 200, response.text
+        assert excluded not in response.text
+        if expected:
+            assert expected in response.text
+        else:
+            assert 'role="alert"' in response.text
+            assert "Historical example" not in response.text
+            card = next(card for card in response.text.split("</article>") if ">memory.rerank</code>" in card)
+            assert "Selected revision unavailable" in card
+            assert 'class="document-meta' not in card
+            assert 'class="page-body-pre' not in card
+            assert "Mode:" not in card
+
+
+def test_prompt_comparison_rejects_invalid_versions_without_losing_history(dashboard: TestClient) -> None:
+    writer = cast(Any, dashboard.app).state.application._records()._family_writers.get("prompt")
+    writer._registry = PromptRegistry(builtin_prompt_definitions(), supported=frozenset(PROMPT_KEYS))
+    scope = create_scope(dashboard, "Compare version validation")["scope_id"]
+    content = {
+        "schema_version": "powercontext.prompt.v1",
+        "mode": "custom",
+        "instructions": "Older comparison instructions.",
+        "demonstrations": [],
+    }
+    created = dashboard.post(
+        f"/v1/scopes/{scope}/artifacts",
+        json={"family": "prompt", "prompt_key": "memory.rerank", "content": content},
+    )
+    assert created.status_code == 201, created.text
+    _put_content(
+        dashboard, scope, "prompt", "memory.rerank", {**content, "instructions": "Newer comparison instructions."}
+    )
+    params = {"scope": scope, "prompt_key": "memory.rerank", "prompt_revision": "1", "lang": "en"}
+    for compare in ("invalid", "²", "0", "-1", "", "9" * 19, "9" * 4301):
+        response = dashboard.get("/dashboard/prompts", params={**params, "compare": compare})
+        assert response.status_code == 200, response.text
+        assert "That revision could not be compared." in response.text
+        assert "Older comparison instructions." in response.text
+        assert 'name="compare"' in response.text
+        assert "Newer comparison instructions." not in response.text
+    for compare in (None, "1", "2", "99"):
+        query = params if compare is None else {**params, "compare": compare}
+        response = dashboard.get("/dashboard/prompts", params=query)
+        assert response.status_code == 200, response.text
+        assert ("That revision could not be compared." in response.text) == (compare == "99")
+        assert ("Newer comparison instructions." in response.text) == (compare == "2")
+
+
+def test_prompt_history_without_saved_configuration_does_not_show_builtin(dashboard: TestClient) -> None:
+    scope = create_scope(dashboard, "Unsaved prompt history")["scope_id"]
+    response = dashboard.get(
+        "/dashboard/prompts",
+        params={
+            "scope": scope,
+            "prompt_key": "memory.rerank",
+            "prompt_revision": "1",
+            "lang": "en",
+        },
+    )
+    assert response.status_code == 200
+    card = next(card for card in response.text.split("</article>") if ">memory.rerank</code>" in card)
+    assert 'role="alert"' in card
+    assert "Selected revision unavailable" in card
+    assert 'class="page-body-pre' not in card
 
 
 @pytest.mark.parametrize(("historical_mode", "current_mode"), [("custom", "auto"), ("auto", "custom")])

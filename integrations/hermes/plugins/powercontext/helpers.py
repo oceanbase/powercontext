@@ -21,7 +21,7 @@ import json
 import logging
 import os
 import re
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from pathlib import Path
 from typing import Any
 
@@ -40,6 +40,7 @@ _CAPTURE_PROFILES = {
     "hermes-turn-text.v1": "user_assistant_text_pair",
     "hermes-precompress-text.v1": "new_user_assistant_window",
     "gateway-turn-text.v1": "gateway_turn_projection",
+    "gateway-turn-text.v2": "gateway_turn_projection",
 }
 _CAPTURE_REASONS = frozenset({"character_limit", "field_byte_limit", "transcript_byte_limit", "unmeasured_projection"})
 SCOPE_SAFE_RE = re.compile(r"[^\w:./@+-]+", re.UNICODE)
@@ -161,7 +162,9 @@ def redact_secrets(text: str) -> str:
     return text
 
 
-def precompress_entries(messages: list[dict[str, Any]]) -> list[tuple[str, dict[str, Any]]]:
+def precompress_entries(
+    messages: list[dict[str, Any]], *, redact: Callable[[str], str] = redact_secrets
+) -> list[tuple[str, dict[str, Any]]]:
     entries: list[tuple[str, dict[str, Any]]] = []
     for message in messages:
         role = str(message.get("role", "")).strip().lower()
@@ -176,7 +179,7 @@ def precompress_entries(messages: list[dict[str, Any]]) -> list[tuple[str, dict[
         fingerprint = hashlib.sha256(
             json.dumps(fingerprint_payload, ensure_ascii=False, sort_keys=True, default=str).encode("utf-8")
         ).hexdigest()
-        entries.append((fingerprint, {"role": role, "content": redact_secrets(text)}))
+        entries.append((fingerprint, {"role": role, "content": redact(text)}))
     return entries
 
 
