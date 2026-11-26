@@ -125,6 +125,10 @@ also clear any stale saved receipt.
 The Source pipeline may later extract Memory when a generation model is configured. Prompt capture does not call
 `remember_memory`, and the Hook never labels an ordinary prompt as `task-outcome`.
 
+With recall or capture enabled and a resolved Scope, `UserPromptSubmit` also gives Claude Code per-turn guidance.
+When a task is actually complete or explicitly interrupted, Claude Code can call the MCP tool `record_task_outcome`
+if available. Intermediate turns, `Stop`, and session end leave the task outcome open on their own.
+
 The plugin does not install a `Stop` Hook in v1. It does not read the transcript or automatically capture Claude's
 final response. Memory writes and durable Handoff milestones remain explicit MCP operations guided by the bundled
 Skill.

@@ -367,6 +367,9 @@ def test_claude_code_prompt_is_recalled_in_a_later_session(claude_stack: ClaudeS
     # The new session's first model request carries the prepared context unchanged, after the user's prompt.
     sent = claude_stack.model.texts(claude_stack.model.requests[start])
     assert 0 <= sent.find(QUESTION) < sent.find(prepared["content"])
+    assert 0 <= sent.find("PowerContext task outcome guidance") < sent.find(prepared["content"])
+    assert "actually complete or explicitly interrupted" in sent
+    assert "intermediate turns" in sent
 
     queries = [record["request"]["query"] for record in claude_stack.records("/v1/context/prepare")]
     assert queries == [FACT, "Deploy the synthetic heron project with [REDACTED] today.", QUESTION]

@@ -56,6 +56,9 @@ server 表下）设置 `mcp_optional_startup_grace_ms = 0`，改为最多等待�
 请关闭提示词时召回，由 gateway 准备上下文，见[把提示词时上下文交给 gateway](#把提示词时上下文交给-gateway)。
 插件还使用 `PreToolUse` 绑定 MCP 操作的 Scope。插件已加载或 MCP 工具可发现，都不能证明这些 Hook 已执行。
 
+启用召回或采集且 Scope 已解析时，`UserPromptSubmit` 也会向 Codex 提供每轮指引。任务实际完成或明确中断时，
+Codex 可以调用可用的 MCP 工具 `record_task_outcome`。中间回合、`Stop` 和会话结束本身都不足以触发记录。
+
 如果跳过或拒绝信任，进入 `/hooks` 检查 PowerContext 条目，按当前宿主提供的操作启用或信任它们。
 如宿主要求开启新会话，按提示操作，在重新验收采集前再次检查 Hook。不同 Codex 版本的控件和提示可能不同。
 如果找不到预期 Hook，按下文诊断安装与宿主支持情况；没有出现信任提示，不代表 Hook 已启用。

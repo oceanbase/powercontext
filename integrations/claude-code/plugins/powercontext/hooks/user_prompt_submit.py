@@ -62,7 +62,7 @@ def main(settings: ClaudeCodePluginSettings | None = None) -> int:
             deadline=monotonic() + settings.http_budget_seconds,
         )
         if submitted is not None:
-            _write_hook_output(context=submitted.context, diagnostic_events=submitted.diagnostics)
+            _write_hook_output(context=submitted.agent_context, diagnostic_events=submitted.diagnostics)
     except Exception:
         return 0
     return 0

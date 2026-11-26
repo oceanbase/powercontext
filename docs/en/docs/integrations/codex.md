@@ -67,6 +67,10 @@ traffic goes through the gateway, turn prompt-time recall off so the gateway pre
 [Leave prompt-time context to the gateway](#leave-prompt-time-context-to-the-gateway). The plugin also
 uses `PreToolUse` for MCP Scope binding. Loading the plugin or discovering MCP tools does not prove that these hooks ran.
 
+With recall or capture enabled and a resolved Scope, `UserPromptSubmit` also gives Codex per-turn guidance.
+When a task is actually complete or explicitly interrupted, Codex can call the MCP tool `record_task_outcome` if available.
+Intermediate turns, `Stop`, and session end leave the task outcome open on their own.
+
 If trust was skipped or denied, inspect the PowerContext entries in `/hooks` and follow the host's available controls
 to enable or trust them. Follow any instruction to open a new session; check the hooks again before retrying capture.
 Controls and prompts depend on the Codex build. If the expected hooks are absent, check plugin installation and host

@@ -114,6 +114,9 @@ exact Atomic Memory revisions；启动时被截短的 Artifact 和后续修订�
 配置 generation model 后，Source pipeline 可能进一步提取 Memory。提示词采集不会调用 `remember_memory`，
 Hook 也不会把普通 prompt 标记为 `task-outcome`。
 
+启用召回或采集且 Scope 已解析时，`UserPromptSubmit` 也会向 Claude Code 提供每轮指引。任务实际完成或明确中断时，
+Claude Code 可以调用可用的 MCP 工具 `record_task_outcome`。中间回合、`Stop` 和会话结束本身都不足以触发记录。
+
 v1 不安装 `Stop` Hook，不读取 transcript，也不自动采集 Claude 的最终回复。Memory 写入和持久化 Handoff
 里程碑仍然是由随附 Skill 指导的显式 MCP 操作。
 

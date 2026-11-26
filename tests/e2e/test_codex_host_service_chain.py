@@ -409,6 +409,9 @@ def test_codex_prompt_is_recalled_in_a_later_session(codex_stack: CodexStack) ->
     # The new session's first model request carries the prepared context unchanged, after the user's prompt.
     sent = codex_stack.model.texts(codex_stack.model.requests[start])
     assert 0 <= sent.find(QUESTION) < sent.find(prepared["content"])
+    assert 0 <= sent.find("PowerContext task outcome guidance") < sent.find(prepared["content"])
+    assert "actually complete or explicitly interrupted" in sent
+    assert "intermediate turns" in sent
 
     queries = [record["request"]["query"] for record in codex_stack.records("/v1/context/prepare")]
     assert queries == [FACT, "Deploy the synthetic orchid project with [REDACTED] today.", QUESTION]

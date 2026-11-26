@@ -512,3 +512,49 @@ def test_opencode_memory_writes_wait_for_permission(opencode_stack: OpenCodeStac
         hits = host.tool_output(session, "pc_search")
         assert hits["ok"] is True
         assert remembered in json.dumps(hits["data"])
+
+
+def test_opencode_task_outcome_uses_agent_tool_and_host_permission(opencode_stack: OpenCodeStack) -> None:
+    path = "/v1/work/outcomes/record"
+    with opencode_stack.open() as host:
+        session = host.session("Task outcome")["id"]
+        start = len(opencode_stack.model.requests)
+        host.prompt(session, "Continue working on the parser.")
+        request = opencode_stack.model.requests[start]
+        system_text = "\n".join(strings([message for message in request["messages"] if message["role"] == "system"]))
+        assert "pc_task_outcome" in system_text
+        assert "actually complete or explicitly interrupted" in system_text
+        assert "intermediate turns" in system_text
+        assert "pc_task_outcome" in _tool_names(request)
+        assert opencode_stack.records(path) == []
+
+        outcome = {
+            "schema": "powercontext.task-outcome.v1",
+            "trust": "untrusted_observation",
+            "objective": "Fix the parser",
+            "status": "succeeded",
+            "summary": "The parser fix passed validation.",
+            "observations": [{"text": "The parser tests passed.", "basis": "declared", "evidence": []}],
+            "checks": [],
+            "produced_artifacts": [],
+            "remaining_work": [],
+        }
+        opencode_stack.model.plan([("pc_task_outcome", {"source_id": "parser-fix-outcome", "outcome": outcome})])
+        turn = host.start(session, "The parser tests passed and the task is complete.")
+        permission = host.permission(turn)
+        assert (permission["permission"], permission["patterns"]) == ("powercontext", ["record_task_outcome"])
+        assert opencode_stack.records(path) == []
+        host.reply(permission, "once")
+        turn.result(timeout=30)
+
+        result = host.tool_output(session, "pc_task_outcome")
+        assert result["ok"] is True
+        assert result["status"] == 202
+        assert result["data"]["source"]["source_id"] == "parser-fix-outcome"
+        (recorded,) = opencode_stack.records(path)
+        assert recorded["request"] == {
+            "scope_id": opencode_stack.scope_id,
+            "source_id": "parser-fix-outcome",
+            "outcome": outcome,
+        }
+        assert any(outcome["summary"] in json.dumps(content) for content in opencode_stack.sources())

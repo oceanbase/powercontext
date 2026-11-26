@@ -262,7 +262,7 @@ def test_user_prompt_submit_injects_prepared_context_and_captures_prompt(
     )
 
     context = json.loads(output)["hookSpecificOutput"]["additionalContext"]
-    assert context == prepared_content
+    assert context.partition("\n\n")[2] == prepared_content
     assert captured == [("What decisions apply?", "git:github.com/oceanbase/powercontext")]
 
 
@@ -377,7 +377,10 @@ def test_user_prompt_submit_reads_utf8_stdin_on_windows_encodings(
 
     assert hook_module.main() == 0
     assert captured == ["查看当前记忆"]
-    assert json.loads(output.getvalue())["hookSpecificOutput"]["additionalContext"] == prepared_content
+    assert (
+        json.loads(output.getvalue())["hookSpecificOutput"]["additionalContext"].partition("\n\n")[2]
+        == prepared_content
+    )
 
 
 def test_user_prompt_compatibility_fallback_is_supported(
@@ -447,7 +450,7 @@ def test_unexpected_recall_failure_does_not_prevent_prompt_capture(
         },
     )
 
-    assert output == ""
+    assert "record_task_outcome" in json.loads(output)["hookSpecificOutput"]["additionalContext"]
     assert captured == ["Still capture this"]
 
 
@@ -483,7 +486,7 @@ def test_capture_failure_does_not_prevent_context_injection(
     )
 
     result = json.loads(output)
-    assert result["hookSpecificOutput"]["additionalContext"] == "prepared context"
+    assert result["hookSpecificOutput"]["additionalContext"].partition("\n\n")[2] == "prepared context"
     assert json.loads(result["systemMessage"]) == {
         "component": "powercontext.claude_code.recall",
         "event": "capture_source",
@@ -517,7 +520,9 @@ def test_host_diagnostic_is_throttled_across_hook_invocations(
         outputs.append(output)
 
     assert json.loads(outputs[0])["systemMessage"]
-    assert outputs[1] == ""
+    first, second = map(json.loads, outputs)
+    assert "systemMessage" not in second
+    assert second["hookSpecificOutput"] == first["hookSpecificOutput"]
 
 
 @pytest.mark.parametrize(("status", "body", "diagnostic"), _RESOLUTION_FAILURES)
@@ -862,10 +867,11 @@ def test_prompt_capture_can_be_disabled(
         "_prepare_context",
         lambda *_args, **_kwargs: _prepared(None, status="empty"),
     )
+    captured: list[str] = []
     monkeypatch.setattr(
         prompt_flow,
         "_capture_prompt",
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("capture must be disabled")),
+        lambda _host, _event, *, prompt, **_kwargs: captured.append(prompt) or {"position": 1},
     )
     monkeypatch.setattr(
         prompt_flow,
@@ -890,7 +896,10 @@ def test_prompt_capture_can_be_disabled(
     monkeypatch.setattr(sys, "stderr", errors)
 
     assert hook_module.main(hook_module.ClaudeCodePluginSettings(capture_prompts=False)) == 0
-    assert output.getvalue() == ""
+    guidance = json.loads(output.getvalue())["hookSpecificOutput"]["additionalContext"]
+    assert "record_task_outcome" in guidance
+    assert "\n\n" not in guidance
+    assert captured == []
 
 
 def test_capture_prompt_is_idempotent_and_is_not_a_task_outcome(
@@ -1055,7 +1064,7 @@ def test_capture_domain_errors_remain_visible_as_automatic_failures(
     )
 
     result = json.loads(output)
-    assert result["hookSpecificOutput"]["additionalContext"] == "prepared context"
+    assert result["hookSpecificOutput"]["additionalContext"].partition("\n\n")[2] == "prepared context"
     assert json.loads(result["systemMessage"]) == {
         "component": "powercontext.claude_code.recall",
         "event": "capture_source",
