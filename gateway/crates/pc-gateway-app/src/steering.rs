@@ -12,11 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! 默认内置固定指令，可由 `PC_GATEWAY_STEERING_FILE` 覆盖；用于 Responses 和 Messages 入口。
+//! 默认内置固定指令，可由 `PC_GATEWAY_STEERING_FILE` 覆盖；插入 Responses、Chat 与 Messages 入口的请求。
 //!
 //! 文本在启动时读取并校验一次；每个请求插入同一位置的同一文本，因此它是稳定前缀的一部分，
 //! 可复用上游前缀缓存，实际命中与计费取决于服务商。它与上下文注入、沉淀和准备结果的重放相互独立。
 
+use pc_gateway_protocol::{CanonicalMessage, Role};
 use serde_json::Value;
 
 /// 指令文本的字节上限。
@@ -72,6 +73,42 @@ pub fn insert(input: &mut Vec<Value>, text: &str) {
         return;
     }
     input.insert(base + 1, developer_message(block));
+}
+
+/// Append the guidance to the first system message, or insert it before the first user.
+pub fn insert_chat(messages: &mut Vec<CanonicalMessage>, text: &str) {
+    if let Some(system) = messages
+        .iter_mut()
+        .find(|message| message.role == Role::System)
+    {
+        if system.content_null {
+            system.content_null = false;
+            system.content = vec![Value::from(text)];
+        } else if let [Value::String(content)] = system.content.as_mut_slice() {
+            content.push_str("\n\n");
+            content.push_str(text);
+        } else {
+            system
+                .content
+                .push(serde_json::json!({"type": "text", "text": text}));
+        }
+        return;
+    }
+    let index = messages
+        .iter()
+        .position(|message| message.role == Role::User)
+        .unwrap_or(messages.len());
+    messages.insert(
+        index,
+        CanonicalMessage {
+            role: Role::System,
+            content: vec![Value::from(text)],
+            content_null: false,
+            tool_calls: None,
+            tool_call_id: None,
+            extra_fields: Default::default(),
+        },
+    );
 }
 
 fn is_message(item: &Value, role: &str) -> bool {

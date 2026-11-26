@@ -30,7 +30,7 @@
 
 use crate::evidence::CallRecorder;
 use crate::lifecycle::Execution;
-use crate::prefix_store::{PrefixEntry, PrefixStore};
+use crate::prefix_store::{PrefixEntry, PrefixOutput, PrefixStore};
 use crate::replay_cache::{message_anchor, PreparedBlock, ReplayCache, MAX_REPLAY_MS};
 use crate::transcript::{turn_start, turn_transcript};
 use crate::turn::{TurnCounterSnapshot, TurnCounters};
@@ -888,7 +888,7 @@ where
         self.prefixes.get(handle, scope_id, now_ms())
     }
 
-    /// 保留一个 Responses 回合的终止请求与响应输出，返回要写入 Source 元数据的句柄和前缀规模。只用于可信会话。
+    /// 保留一个回合的终止请求与响应输出，返回要写入 Source 元数据的句柄和前缀规模。只用于可信会话。
     /// 规模取自终止响应的用量：输入部分在抽取时命中缓存，输出部分作为新输入计费，Core 据此判断复用前缀是否比
     /// 普通抽取便宜。
     fn keep_prefix(
@@ -898,12 +898,38 @@ where
         release_body: &str,
         list_key: &str,
     ) -> Option<Vec<(&'static str, serde_json::Value)>> {
-        if !call.capture_prefix || list_key != "input" {
+        if !call.capture_prefix {
             return None;
         }
         let conversation_id = call.conversation_id.clone()?;
         let response: serde_json::Value = serde_json::from_str(release_body).ok()?;
-        let response_output = response.get("output")?.as_array()?.clone();
+        let (response_output, input_field, output_field) = match list_key {
+            "input" => (
+                PrefixOutput::Responses(response.get("output")?.as_array()?.clone()),
+                "input_tokens",
+                "output_tokens",
+            ),
+            "messages" => {
+                // Replay only a single completed text choice as a Chat assistant message.
+                let [choice] = response.get("choices")?.as_array()?.as_slice() else {
+                    return None;
+                };
+                let message = choice.get("message")?;
+                let text = message.get("content")?.as_str()?;
+                if choice.get("finish_reason")?.as_str()? != "stop"
+                    || message.get("role")?.as_str()? != "assistant"
+                    || text.trim().is_empty()
+                {
+                    return None;
+                }
+                (
+                    PrefixOutput::Chat(text.to_owned()),
+                    "prompt_tokens",
+                    "completion_tokens",
+                )
+            }
+            _ => return None,
+        };
         let usage = response.get("usage");
         let tokens = |field: &str| usage.and_then(|u| u.get(field)).and_then(|v| v.as_u64());
         let handle = self.prefixes.add(
@@ -925,7 +951,7 @@ where
             now_ms(),
         )?;
         let mut fields = vec![("prefix_handle", handle.into())];
-        if let (Some(input), Some(output)) = (tokens("input_tokens"), tokens("output_tokens")) {
+        if let (Some(input), Some(output)) = (tokens(input_field), tokens(output_field)) {
             fields.push(("prefix_input_tokens", input.into()));
             fields.push(("prefix_output_tokens", output.into()));
         }
