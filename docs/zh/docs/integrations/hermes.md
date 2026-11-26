@@ -225,8 +225,8 @@ gateway 在启动时发现 Core 的模式，修改模式后请重启 gateway。
   系统提示词和第一条用户消息相同的会话共用同一个 ID。
   gateway 仍会采集每个完成的回合。没有会话头时，采集没有在 gateway 重启后保持不变的会话标识，也无法使用前缀提取。
   压缩会重建 Hermes 的系统提示词并改写历史，因此压缩之后，gateway 可能推导出一个新会话，并重新准备。
-- Hermes 发往同一 provider 的辅助请求（例如标题或压缩摘要）以各自的系统提示词和用户消息开头。
-  gateway 为每个这类请求推导一个单独的会话并准备上下文；设置 `PC_GATEWAY_SEDIMENT=on` 后，还会把它的完成响应作为一轮采集。
+- Hermes 发往同一 provider 的辅助请求（例如标题或压缩摘要）带有各自的提示词，
+  因此 gateway 为每个这类请求推导一个单独的会话并准备上下文；设置 `PC_GATEWAY_SEDIMENT=on` 后，还会把它的完成响应作为一轮采集。
 - 独立部署的 gateway（`PC_GATEWAY_CORE_BASE`）只有在 `PC_GATEWAY_INJECTION=on` 时才注入。
   不要在 `extra_headers` 中放固定的 `X-PowerContext-Conversation-ID`，否则 gateway 会把所有会话当作同一个会话。
 

@@ -236,9 +236,9 @@ discovers the mode at startup. See [Context reuse and final admission](../operat
   conversation header, capture has no conversation identity that survives a gateway restart, and prefix extraction is
   not available. A compression rebuilds Hermes' system prompt and rewrites the history, so afterwards the gateway can
   infer a new conversation and prepare again.
-- Auxiliary requests that Hermes sends to the same provider, such as a title or a compression summary, open with
-  their own system prompt and user message. The gateway infers a separate conversation for each and prepares it, and
-  with `PC_GATEWAY_SEDIMENT=on` it captures the completed response as a turn.
+- Auxiliary requests that Hermes sends to the same provider, such as a title or a compression summary, carry their own
+  prompt, so the gateway infers a separate conversation for each and prepares it. With `PC_GATEWAY_SEDIMENT=on` it also
+  captures the completed response as a turn.
 - A standalone gateway (`PC_GATEWAY_CORE_BASE`) injects only with `PC_GATEWAY_INJECTION=on`. Do not put a fixed
   `X-PowerContext-Conversation-ID` in `extra_headers`, because the gateway would then treat every session as one
   conversation.
