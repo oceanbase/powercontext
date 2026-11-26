@@ -31,7 +31,7 @@ ci-fixtures = []
 tauri-build = { version = "=2.6.0", features = [] }
 
 [dependencies]
-tauri = { version = "=2.11.0", features = [] }
+tauri = { version = "=2.11.0", features = ["macos-private-api"] }
 serde = { version = "=1.0.228", features = ["derive"] }
 serde_json = "=1.0.149"
 serde_with = { version = "=3.22.0", default-features = false, features = ["std", "macros"] }
@@ -52,6 +52,7 @@ keyring = { version = "=3.6.3", default-features = false, features = ["windows-n
 
 [target.'cfg(target_os = "macos")'.dependencies]
 keyring = { version = "=3.6.3", default-features = false, features = ["apple-native"] }
+objc2-foundation = { version = "=0.3.2", default-features = false, features = ["NSProcessInfo", "NSString"] }
 
 [target.'cfg(unix)'.dependencies]
 libc = "=0.2.189"

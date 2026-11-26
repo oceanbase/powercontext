@@ -56,7 +56,7 @@ contains these fields:
 | Root | `format_version: 1`, `kind: "qualified-desktop-release"`, `release_tag`, Desktop `source_sha`, `candidate_run_id`, `candidate_artifact_id`, `candidate_manifest_sha256`, `targets` keyed by target ID. |
 | Each target | `assets` keyed by `desktop`, `server_archive`, `server_catalog`, `ops_archive`, `ops_provision`, `ops_bundle_manifest`; each has `name`, integer `size` in bytes, and lowercase `sha256`. `candidate_asset_sha256` has the same keys, with the original candidate digests. |
 | Each target's `qualification` | `kind: "installed-product"`, `signing` (`authenticode`, `developer-id-notarized-stapled`, or `linux-qualified`), `clean_machine_provisioning: "passed"`, `asset_sha256` for all final roles, `installed_catalog_sha256`, `installed_ops_provision_sha256`, `installed_ops_bundle_manifest_sha256`, `os_version`, `webview_version`, `server_version`, `runtime_version` (the pinned Python version), `limitations`, `report` (upstream issue/comment or Actions run URL), and `server`. |
-| `qualification.server` | `kind: "qualified-product-server"`, `id` from the candidate's matching product records, upstream `report` URL, `wheel_sha256`, `contract_sha256`, and exact Server `source_sha` (can differ from the Desktop commit). |
+| `qualification.server` | `kind: "qualified-product-server"`, `id` from the candidate's matching product records, `wheel_sha256`, `contract_sha256`, and exact Server `source_sha` (can differ from the Desktop commit). |
 
 The maintainer should check that the reported Windows signer and macOS Developer ID/notarization results cover
 the final installers and required executable resources. The workflow rejects Windows/macOS installers whose bytes still match the unsigned candidate.

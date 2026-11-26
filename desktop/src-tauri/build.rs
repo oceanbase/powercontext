@@ -15,6 +15,12 @@
  */
 
 fn main() {
+    // Tauri embeds platform icons in the native binary. Track the generated
+    // resources explicitly so `tauri dev` rebuilds after the brand icon changes.
+    for icon in ["icons/icon.icns", "icons/icon.ico", "icons/icon.png"] {
+        println!("cargo:rerun-if-changed={icon}");
+    }
+    build_sparkle_bridge();
     if std::env::var_os("CARGO_FEATURE_CI_FIXTURES").is_some() {
         let manifest = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../.artifacts/ci-compatibility.json");
@@ -34,6 +40,7 @@ fn main() {
     tauri_build::try_build(tauri_build::Attributes::new().app_manifest(
         tauri_build::AppManifest::new().commands(&[
             "foundation_info",
+            "set_menu_language",
             "local_diagnostics",
             "connect_local_server",
             "ops_references",
@@ -58,6 +65,7 @@ fn main() {
             "save_profile",
             "remove_profile",
             "check_connection",
+            "retry_connection",
             "probe_readiness",
             "disconnect",
             "invalidate_profile",
@@ -71,4 +79,57 @@ fn main() {
         ]),
     ))
     .expect("desktop build configuration is invalid");
+}
+
+fn build_sparkle_bridge() {
+    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() != Ok("macos") {
+        return;
+    }
+
+    println!("cargo:rerun-if-changed=src/sparkle_bridge.m");
+    println!("cargo:rerun-if-changed=src/sparkle_bridge_stub.c");
+    println!("cargo:rerun-if-changed=Sparkle.framework");
+
+    let manifest = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let framework = manifest.join("Sparkle.framework");
+    let profile = std::env::var("PROFILE").unwrap_or_default();
+    let out = std::path::PathBuf::from(std::env::var_os("OUT_DIR").unwrap());
+    let object = out.join("sparkle_bridge.o");
+    let archive = out.join("libpowercontext_sparkle_bridge.a");
+
+    let source = if framework.is_dir() {
+        println!("cargo:rustc-link-search=framework={}", manifest.display());
+        println!("cargo:rustc-link-lib=framework=Sparkle");
+        println!("cargo:rustc-link-arg=-Wl,-rpath,@executable_path/../Frameworks");
+        manifest.join("src/sparkle_bridge.m")
+    } else {
+        if profile == "release" {
+            panic!(
+                "Sparkle.framework is required for a macOS release; run `bash desktop/scripts/setup-sparkle.sh`"
+            );
+        }
+        println!(
+            "cargo:warning=Sparkle.framework is absent; native updates are disabled in this debug build"
+        );
+        manifest.join("src/sparkle_bridge_stub.c")
+    };
+
+    let mut clang = std::process::Command::new("xcrun");
+    clang.args(["clang", "-c", "-o"]).arg(&object).arg(&source);
+    if framework.is_dir() {
+        clang.args(["-fobjc-arc", "-mmacosx-version-min=12.0"]);
+        clang.arg(format!("-F{}", manifest.display()));
+    }
+    let status = clang.status().expect("failed to invoke Apple clang");
+    assert!(status.success(), "failed to compile the Sparkle bridge");
+
+    let status = std::process::Command::new("xcrun")
+        .args(["ar", "rcs"])
+        .arg(&archive)
+        .arg(&object)
+        .status()
+        .expect("failed to invoke Apple ar");
+    assert!(status.success(), "failed to archive the Sparkle bridge");
+    println!("cargo:rustc-link-search=native={}", out.display());
+    println!("cargo:rustc-link-lib=static=powercontext_sparkle_bridge");
 }

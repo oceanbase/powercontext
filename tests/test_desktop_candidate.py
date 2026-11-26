@@ -163,7 +163,6 @@ def legs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
         "contractSha256": OPERATIONS["contractSha256"],
         "artifactSha256": wheel_sha,
         "operations": list(OPERATIONS["operations"]),
-        "evidence": "desktop/VALIDATION.md",
     }
     profiles = [
         matching,
@@ -192,9 +191,7 @@ def test_assemble_without_linux_and_never_promote_a_candidate(legs: Path) -> Non
     assert manifest["publishable"] is False
     assert set(manifest["targets"]) == {"windows-x86_64", "macos-arm64", "macos-x86_64"}
     target = manifest["targets"]["macos-arm64"]
-    assert target["qualification"]["matching_product_records"] == [
-        {"id": "matching", "evidence": "desktop/VALIDATION.md"}
-    ]
+    assert target["qualification"]["matching_product_records"] == [{"id": "matching"}]
     assert target["assets"]["desktop"]["name"] == "macos-arm64/powercontext-desktop-1.0.0-macos-arm64.dmg"
 
 

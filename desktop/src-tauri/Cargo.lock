@@ -3028,6 +3028,7 @@ dependencies = [
  "keyring",
  "libc",
  "native-tls",
+ "objc2-foundation",
  "rcgen",
  "reqwest 0.12.28",
  "rustls",

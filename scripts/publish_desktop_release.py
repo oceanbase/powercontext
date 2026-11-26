@@ -399,9 +399,7 @@ def inspect(github: GitHub, dispatch: Dispatch, bundle: Bundle) -> None:
         f"- Release manifest: `{bundle.manifest_sha256}`",
     ]
     for target, report in sorted(bundle.qualification_reports.items()):
-        lines.append(
-            f"- `{target}`: [platform acceptance]({report}) · [Server qualification]({bundle.server_reports[target]})"
-        )
+        lines.append(f"- `{target}`: [platform acceptance]({report})")
         lines.extend(f"  - `{asset.name}`: `{asset.sha256}`" for asset in bundle.targets[target].values())
     if dispatch.promote:
         release = github.release(bundle.tag)

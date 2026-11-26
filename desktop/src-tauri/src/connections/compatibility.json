@@ -15,8 +15,7 @@
       "remember_memory",
       "search_memory",
       "get_memory_entry"
-    ],
-    "evidence": "desktop/VALIDATION.md"
+    ]
   },
   {
     "id": "sqlite-atomic-7bd5b85c-v1",
@@ -35,8 +34,7 @@
       "search_memory",
       "get_memory_entry",
       "get_artifact_revision"
-    ],
-    "evidence": "desktop/VALIDATION.md"
+    ]
   },
   {
     "id": "sqlite-legacy-58f7f4f6-v1",
@@ -54,8 +52,7 @@
       "remember_memory",
       "search_memory",
       "get_memory_entry"
-    ],
-    "evidence": "desktop/VALIDATION.md"
+    ]
   },
   {
     "id": "sqlite-atomic-f702c041-v1",
@@ -73,8 +70,7 @@
       "remember_memory",
       "search_memory",
       "get_artifact_revision"
-    ],
-    "evidence": "desktop/VALIDATION.md#atomic-memory-protocol-qualification"
+    ]
   },
   {
     "id": "sqlite-atomic-caf2a35a-v1",
@@ -92,8 +88,7 @@
       "list_scopes",
       "remember_memory",
       "search_memory"
-    ],
-    "evidence": "desktop/VALIDATION.md#current-server-protocol-qualification"
+    ]
   },
   {
     "id": "sqlite-atomic-683e2db0-v1",
@@ -111,8 +106,7 @@
       "list_scopes",
       "remember_memory",
       "search_memory"
-    ],
-    "evidence": "desktop/VALIDATION.md#server-683e2db0-protocol-qualification"
+    ]
   },
   {
     "id": "sqlite-atomic-cab054db-v1",
@@ -130,8 +124,7 @@
       "list_scopes",
       "remember_memory",
       "search_memory"
-    ],
-    "evidence": "desktop/VALIDATION.md#server-cab054db-protocol-qualification"
+    ]
   },
   {
     "id": "sqlite-atomic-d9a78567-v1",
@@ -149,8 +142,7 @@
       "list_scopes",
       "remember_memory",
       "search_memory"
-    ],
-    "evidence": "desktop/VALIDATION.md#server-d9a78567-protocol-qualification"
+    ]
   },
   {
     "id": "sqlite-atomic-1da99747-v1",
@@ -168,8 +160,7 @@
       "list_scopes",
       "remember_memory",
       "search_memory"
-    ],
-    "evidence": "desktop/VALIDATION.md#server-1da99747-protocol-qualification"
+    ]
   },
   {
     "id": "sqlite-atomic-1da99747-linux-v1",
@@ -187,8 +178,7 @@
       "list_scopes",
       "remember_memory",
       "search_memory"
-    ],
-    "evidence": "desktop/VALIDATION.md#server-1da99747-linux-protocol-qualification"
+    ]
   },
   {
     "id": "sqlite-atomic-8f10c560-v1",
@@ -206,8 +196,7 @@
       "list_scopes",
       "remember_memory",
       "search_memory"
-    ],
-    "evidence": "desktop/VALIDATION.md#server-8f10c560-protocol-qualification"
+    ]
   },
   {
     "id": "sqlite-atomic-98275dbb-v1",
@@ -225,8 +214,7 @@
       "list_scopes",
       "remember_memory",
       "search_memory"
-    ],
-    "evidence": "desktop/VALIDATION.md#server-98275dbb-protocol-qualification"
+    ]
   },
   {
     "id": "sqlite-atomic-777bfdb7-v1",
@@ -244,8 +232,7 @@
       "remember_memory",
       "search_memory",
       "get_artifact_revision"
-    ],
-    "evidence": "desktop/VALIDATION.md#server-777bfdb7-protocol-qualification"
+    ]
   },
   {
     "id": "sqlite-atomic-cc5980f0-v1",
@@ -263,8 +250,7 @@
       "list_scopes",
       "remember_memory",
       "search_memory"
-    ],
-    "evidence": "desktop/VALIDATION.md#server-cc5980f0-protocol-qualification"
+    ]
   },
   {
     "id": "sqlite-atomic-4ffdf4e9-v1",
@@ -282,8 +268,7 @@
       "list_scopes",
       "remember_memory",
       "search_memory"
-    ],
-    "evidence": "desktop/VALIDATION.md#server-4ffdf4e9-protocol-qualification"
+    ]
   },
   {
     "id": "sqlite-atomic-dd62723d-v1",
@@ -301,8 +286,7 @@
       "list_scopes",
       "remember_memory",
       "search_memory"
-    ],
-    "evidence": "desktop/VALIDATION.md#server-dd62723d-protocol-qualification"
+    ]
   },
   {
     "id": "sqlite-atomic-c535d816-v1",
@@ -321,8 +305,7 @@
       "list_scopes",
       "remember_memory",
       "search_memory"
-    ],
-    "evidence": "desktop/VALIDATION.md#server-c535d816-protocol-qualification"
+    ]
   },
   {
     "id": "sqlite-atomic-0d86e94b-v1",
@@ -340,8 +323,7 @@
       "list_scopes",
       "remember_memory",
       "search_memory"
-    ],
-    "evidence": "desktop/VALIDATION.md#server-0d86e94b-protocol-qualification"
+    ]
   },
   {
     "id": "sqlite-atomic-d3850bf6-v1",
@@ -360,8 +342,7 @@
       "list_scopes",
       "remember_memory",
       "search_memory"
-    ],
-    "evidence": "desktop/VALIDATION.md#server-d3850bf6-protocol-qualification"
+    ]
   },
   {
     "id": "sqlite-atomic-68491568-v1",
@@ -379,8 +360,7 @@
       "list_scopes",
       "remember_memory",
       "search_memory"
-    ],
-    "evidence": "desktop/VALIDATION.md#server-68491568-protocol-qualification"
+    ]
   },
   {
     "id": "sqlite-atomic-0a49db9b-v1",
@@ -399,8 +379,7 @@
       "list_scopes",
       "remember_memory",
       "search_memory"
-    ],
-    "evidence": "desktop/VALIDATION.md#server-0a49db9b-protocol-qualification"
+    ]
   },
   {
     "id": "sqlite-atomic-bbd7b1d8-v1",
@@ -419,8 +398,7 @@
       "list_scopes",
       "remember_memory",
       "search_memory"
-    ],
-    "evidence": "desktop/VALIDATION.md#server-bbd7b1d8-protocol-qualification"
+    ]
   },
   {
     "id": "sqlite-artifact-d6820d88-v1",
@@ -438,8 +416,7 @@
       "list_scopes",
       "remember_memory",
       "search_memory"
-    ],
-    "evidence": "desktop/VALIDATION.md#server-d6820d88-protocol-qualification"
+    ]
   },
   {
     "id": "sqlite-artifact-merge-e30479df-v1",
@@ -457,8 +434,7 @@
       "list_scopes",
       "remember_memory",
       "search_memory"
-    ],
-    "evidence": "desktop/VALIDATION.md#artifact-migration-merge-protocol-qualification"
+    ]
   },
   {
     "id": "sqlite-artifact-merge-87d01f68-v1",
@@ -476,8 +452,7 @@
       "list_scopes",
       "remember_memory",
       "search_memory"
-    ],
-    "evidence": "desktop/VALIDATION.md#artifact-framework-merge-87d01f68-protocol-qualification"
+    ]
   },
   {
     "id": "sqlite-source-artifact-87b6fae2-v1",
@@ -496,8 +471,7 @@
       "list_scopes",
       "remember_memory",
       "search_memory"
-    ],
-    "evidence": "desktop/VALIDATION.md#source-and-artifact-merge-87b6fae2-protocol-qualification"
+    ]
   },
   {
     "id": "sqlite-atomic-e4fbead8-v1",
@@ -516,8 +490,7 @@
       "list_scopes",
       "remember_memory",
       "search_memory"
-    ],
-    "evidence": "desktop/VALIDATION.md#server-e4fbead8-protocol-qualification"
+    ]
   },
   {
     "id": "sqlite-atomic-8252ebb5-v1",
@@ -535,8 +508,7 @@
       "list_scopes",
       "remember_memory",
       "search_memory"
-    ],
-    "evidence": "desktop/VALIDATION.md#server-8252ebb5-protocol-qualification"
+    ]
   },
   {
     "id": "sqlite-atomic-44f934e8-v1",
@@ -554,8 +526,7 @@
       "list_scopes",
       "remember_memory",
       "search_memory"
-    ],
-    "evidence": "desktop/VALIDATION.md#server-44f934e8-protocol-qualification"
+    ]
   },
   {
     "id": "sqlite-atomic-7f6b01ce-v1",
@@ -573,8 +544,7 @@
       "list_scopes",
       "remember_memory",
       "search_memory"
-    ],
-    "evidence": "desktop/VALIDATION.md#server-7f6b01ce-protocol-qualification"
+    ]
   },
   {
     "id": "sqlite-atomic-9357c2fe-v1",
@@ -593,8 +563,7 @@
       "list_scopes",
       "remember_memory",
       "search_memory"
-    ],
-    "evidence": "desktop/VALIDATION.md#server-9357c2fe-protocol-qualification"
+    ]
   },
   {
     "id": "sqlite-atomic-bae5d714-v1",
@@ -613,8 +582,7 @@
       "list_scopes",
       "remember_memory",
       "search_memory"
-    ],
-    "evidence": "desktop/VALIDATION.md#server-bae5d714-protocol-qualification"
+    ]
   },
   {
     "id": "sqlite-atomic-2d782c2a-v1",
@@ -633,8 +601,7 @@
       "list_scopes",
       "remember_memory",
       "search_memory"
-    ],
-    "evidence": "desktop/VALIDATION.md#server-2d782c2a-protocol-qualification"
+    ]
   },
   {
     "id": "sqlite-atomic-112db11e-v1",
@@ -654,15 +621,14 @@
       "remember_memory",
       "search_memory"
     ],
-    "evidence": "desktop/VALIDATION.md#server-112db11e-protocol-qualification",
-    "authenticatedClients": {
-      "32d75b58058ae0a9a3e159f47d67ab421649cefe86f662e12e75b4215f1f35d9": "desktop/VALIDATION.md#authenticated-server-112db11e-current-client-qualification",
-      "6d7cc69254c757895f82a5f71db1676f35fb85d97c268a806679180d38068f18": "desktop/VALIDATION.md#server-afa13bcb-current-client-qualification",
-      "9aabe2565d9cbd36075be03a83b7370e07e38e9f25232e20dd47812aba65e508": "desktop/VALIDATION.md#server-7d89a97a-identity-runtime-and-statistics-qualification",
-      "e54d69cdcbeef19a816e92670901aacda9c7e44df289c88c18ad5ae364a6efeb": "desktop/VALIDATION.md#server-63feca70-identity-and-statistics-product-qualification",
-      "ee13915c5a1d53a7d3f7b59416d37a22601b0bffd14430997708f19f68a8354f": "desktop/VALIDATION.md#gateway-contract-authenticated-legacy-qualification",
-      "0df224e7027e81be9e2f6d768a7d38c46ce36297a4b60b2ebb03031558b465fb": "desktop/VALIDATION.md#gateway-contract-0df224e7-authenticated-legacy-qualification"
-    }
+    "authenticatedClients": [
+      "32d75b58058ae0a9a3e159f47d67ab421649cefe86f662e12e75b4215f1f35d9",
+      "6d7cc69254c757895f82a5f71db1676f35fb85d97c268a806679180d38068f18",
+      "9aabe2565d9cbd36075be03a83b7370e07e38e9f25232e20dd47812aba65e508",
+      "e54d69cdcbeef19a816e92670901aacda9c7e44df289c88c18ad5ae364a6efeb",
+      "ee13915c5a1d53a7d3f7b59416d37a22601b0bffd14430997708f19f68a8354f",
+      "0df224e7027e81be9e2f6d768a7d38c46ce36297a4b60b2ebb03031558b465fb"
+    ]
   },
   {
     "id": "sqlite-atomic-9624761b-v1",
@@ -682,8 +648,7 @@
       "list_scopes",
       "remember_memory",
       "search_memory"
-    ],
-    "evidence": "desktop/VALIDATION.md#server-9624761b-connection-identity-qualification"
+    ]
   },
   {
     "id": "sqlite-atomic-0d89e591-v1",
@@ -703,8 +668,7 @@
       "list_scopes",
       "remember_memory",
       "search_memory"
-    ],
-    "evidence": "desktop/VALIDATION.md#server-0d89e591-connection-identity-qualification"
+    ]
   },
   {
     "id": "sqlite-atomic-15c9d932-v1",
@@ -723,8 +687,7 @@
       "list_scopes",
       "remember_memory",
       "search_memory"
-    ],
-    "evidence": "desktop/VALIDATION.md#server-15c9d932-protocol-qualification"
+    ]
   },
   {
     "id": "sqlite-atomic-db9c8d6e-v1",
@@ -743,8 +706,7 @@
       "list_scopes",
       "remember_memory",
       "search_memory"
-    ],
-    "evidence": "desktop/VALIDATION.md#server-db9c8d6e-protocol-qualification"
+    ]
   },
   {
     "id": "sqlite-atomic-581be595-v1",
@@ -763,8 +725,7 @@
       "list_scopes",
       "remember_memory",
       "search_memory"
-    ],
-    "evidence": "desktop/VALIDATION.md#server-581be595-protocol-qualification"
+    ]
   },
   {
     "id": "sqlite-atomic-f3a90b2f-v1",
@@ -783,8 +744,7 @@
       "list_scopes",
       "remember_memory",
       "search_memory"
-    ],
-    "evidence": "desktop/VALIDATION.md#server-f3a90b2f-protocol-qualification"
+    ]
   },
   {
     "id": "sqlite-atomic-3cefa45a-v1",
@@ -804,14 +764,13 @@
       "remember_memory",
       "search_memory"
     ],
-    "evidence": "desktop/VALIDATION.md#server-3cefa45a-protocol-qualification",
-    "authenticatedClients": {
-      "6d7cc69254c757895f82a5f71db1676f35fb85d97c268a806679180d38068f18": "desktop/VALIDATION.md#server-afa13bcb-current-client-qualification",
-      "9aabe2565d9cbd36075be03a83b7370e07e38e9f25232e20dd47812aba65e508": "desktop/VALIDATION.md#server-7d89a97a-identity-runtime-and-statistics-qualification",
-      "e54d69cdcbeef19a816e92670901aacda9c7e44df289c88c18ad5ae364a6efeb": "desktop/VALIDATION.md#server-63feca70-identity-and-statistics-product-qualification",
-      "ee13915c5a1d53a7d3f7b59416d37a22601b0bffd14430997708f19f68a8354f": "desktop/VALIDATION.md#gateway-contract-authenticated-legacy-qualification",
-      "0df224e7027e81be9e2f6d768a7d38c46ce36297a4b60b2ebb03031558b465fb": "desktop/VALIDATION.md#gateway-contract-0df224e7-authenticated-legacy-qualification"
-    }
+    "authenticatedClients": [
+      "6d7cc69254c757895f82a5f71db1676f35fb85d97c268a806679180d38068f18",
+      "9aabe2565d9cbd36075be03a83b7370e07e38e9f25232e20dd47812aba65e508",
+      "e54d69cdcbeef19a816e92670901aacda9c7e44df289c88c18ad5ae364a6efeb",
+      "ee13915c5a1d53a7d3f7b59416d37a22601b0bffd14430997708f19f68a8354f",
+      "0df224e7027e81be9e2f6d768a7d38c46ce36297a4b60b2ebb03031558b465fb"
+    ]
   },
   {
     "id": "sqlite-atomic-afa13bcb-v1",
@@ -831,8 +790,7 @@
       "list_scopes",
       "remember_memory",
       "search_memory"
-    ],
-    "evidence": "desktop/VALIDATION.md#server-afa13bcb-current-client-qualification"
+    ]
   },
   {
     "id": "sqlite-stats-1da99747-v1",
@@ -851,8 +809,7 @@
       "list_scopes",
       "remember_memory",
       "search_memory"
-    ],
-    "evidence": "desktop/VALIDATION.md#current-scope-statistics-qualification"
+    ]
   },
   {
     "id": "sqlite-stats-31ecdd61-v1",
@@ -871,8 +828,7 @@
       "list_scopes",
       "remember_memory",
       "search_memory"
-    ],
-    "evidence": "desktop/VALIDATION.md#server-31ecdd61-statistics-qualification"
+    ]
   },
   {
     "id": "sqlite-stats-bad4c0c2-v1",
@@ -891,8 +847,7 @@
       "list_scopes",
       "remember_memory",
       "search_memory"
-    ],
-    "evidence": "desktop/VALIDATION.md#server-bad4c0c2-statistics-qualification"
+    ]
   },
   {
     "id": "sqlite-stats-27404931-v1",
@@ -912,8 +867,7 @@
       "list_scopes",
       "remember_memory",
       "search_memory"
-    ],
-    "evidence": "desktop/VALIDATION.md#server-27404931-statistics-and-discovery-qualification"
+    ]
   },
   {
     "id": "sqlite-stats-0b0a1c71-v1",
@@ -933,8 +887,7 @@
       "list_scopes",
       "remember_memory",
       "search_memory"
-    ],
-    "evidence": "desktop/VALIDATION.md#server-0b0a1c71-statistics-product-qualification"
+    ]
   },
   {
     "id": "sqlite-stats-5032075a-v1",
@@ -954,8 +907,7 @@
       "list_scopes",
       "remember_memory",
       "search_memory"
-    ],
-    "evidence": "desktop/VALIDATION.md#server-5032075a-statistics-product-qualification"
+    ]
   },
   {
     "id": "sqlite-stats-9c8f061c-v1",
@@ -975,8 +927,7 @@
       "list_scopes",
       "remember_memory",
       "search_memory"
-    ],
-    "evidence": "desktop/VALIDATION.md#server-9c8f061c-statistics-product-qualification"
+    ]
   },
   {
     "id": "sqlite-stats-63e9665c-v1",
@@ -996,8 +947,7 @@
       "list_scopes",
       "remember_memory",
       "search_memory"
-    ],
-    "evidence": "desktop/VALIDATION.md#server-63e9665c-statistics-product-qualification"
+    ]
   },
   {
     "id": "sqlite-identity-stats-afa13bcb-v1",
@@ -1018,8 +968,7 @@
       "list_scopes",
       "remember_memory",
       "search_memory"
-    ],
-    "evidence": "desktop/VALIDATION.md#server-afa13bcb-identity-and-statistics-qualification"
+    ]
   },
   {
     "id": "sqlite-observability-9f279e4e-v1",
@@ -1038,8 +987,7 @@
       "list_scopes",
       "remember_memory",
       "search_memory"
-    ],
-    "evidence": "desktop/VALIDATION.md#managed-observability-protocol-qualification"
+    ]
   },
   {
     "id": "sqlite-observability-a9f6fd36-v1",
@@ -1058,8 +1006,7 @@
       "list_scopes",
       "remember_memory",
       "search_memory"
-    ],
-    "evidence": "desktop/VALIDATION.md#managed-observability-with-inference-privacy"
+    ]
   },
   {
     "id": "sqlite-observability-da44b918-v1",
@@ -1078,8 +1025,7 @@
       "list_scopes",
       "remember_memory",
       "search_memory"
-    ],
-    "evidence": "desktop/VALIDATION.md#server-da44b918-protocol-qualification"
+    ]
   },
   {
     "id": "sqlite-observability-4568b499-v1",
@@ -1098,8 +1044,7 @@
       "list_scopes",
       "remember_memory",
       "search_memory"
-    ],
-    "evidence": "desktop/VALIDATION.md#server-4568b499-protocol-qualification"
+    ]
   },
   {
     "id": "sqlite-observability-stats-4568b499-v1",
@@ -1119,8 +1064,7 @@
       "list_scopes",
       "remember_memory",
       "search_memory"
-    ],
-    "evidence": "desktop/VALIDATION.md#server-4568b499-statistics-product-qualification"
+    ]
   },
   {
     "id": "sqlite-identity-stats-7d89a97a-v1",
@@ -1141,8 +1085,7 @@
       "list_scopes",
       "remember_memory",
       "search_memory"
-    ],
-    "evidence": "desktop/VALIDATION.md#server-7d89a97a-identity-runtime-and-statistics-qualification"
+    ]
   },
   {
     "id": "sqlite-stats-1998909e-v1",
@@ -1162,8 +1105,7 @@
       "list_scopes",
       "remember_memory",
       "search_memory"
-    ],
-    "evidence": "desktop/VALIDATION.md#server-1998909e-statistics-product-qualification"
+    ]
   },
   {
     "id": "sqlite-identity-stats-63feca70-v1",
@@ -1184,8 +1126,7 @@
       "list_scopes",
       "remember_memory",
       "search_memory"
-    ],
-    "evidence": "desktop/VALIDATION.md#server-63feca70-identity-and-statistics-product-qualification"
+    ]
   },
   {
     "id": "sqlite-atomic-d9686bba-v1",
@@ -1204,8 +1145,7 @@
       "list_scopes",
       "remember_memory",
       "search_memory"
-    ],
-    "evidence": "desktop/VALIDATION.md#server-d9686bba-protocol-qualification"
+    ]
   },
   {
     "id": "sqlite-locators-ccfa6f4d-v1",
@@ -1226,8 +1166,7 @@
       "list_scopes",
       "remember_memory",
       "search_memory"
-    ],
-    "evidence": "desktop/VALIDATION.md#server-ccfa6f4d-protocol-qualification"
+    ]
   },
   {
     "id": "sqlite-source-plugins-c00dbf14-v1",
@@ -1248,8 +1187,7 @@
       "list_scopes",
       "remember_memory",
       "search_memory"
-    ],
-    "evidence": "desktop/VALIDATION.md#server-c00dbf14-source-plugin-protocol-qualification"
+    ]
   },
   {
     "id": "sqlite-gateway-target-961e1e5e-v1",
@@ -1269,8 +1207,7 @@
       "list_scopes",
       "remember_memory",
       "search_memory"
-    ],
-    "evidence": "desktop/VALIDATION.md#server-961e1e5e-protocol-qualification"
+    ]
   },
   {
     "id": "sqlite-rerank-target-960b299f-v1",
@@ -1290,8 +1227,7 @@
       "list_scopes",
       "remember_memory",
       "search_memory"
-    ],
-    "evidence": "desktop/VALIDATION.md#server-960b299f-protocol-qualification"
+    ]
   },
   {
     "id": "sqlite-core-target-identity-b6920bbf-v1",
@@ -1312,8 +1248,7 @@
       "list_scopes",
       "remember_memory",
       "search_memory"
-    ],
-    "evidence": "desktop/VALIDATION.md#server-b6920bbf-core-target-and-identity-qualification"
+    ]
   },
   {
     "id": "sqlite-core-target-identity-9e3d1f11-v1",
@@ -1334,8 +1269,7 @@
       "list_scopes",
       "remember_memory",
       "search_memory"
-    ],
-    "evidence": "desktop/VALIDATION.md#server-9e3d1f11-core-target-identity-and-statistics-qualification"
+    ]
   },
   {
     "id": "sqlite-core-target-4b5d34aa-v1",
@@ -1356,8 +1290,7 @@
       "list_scopes",
       "remember_memory",
       "search_memory"
-    ],
-    "evidence": "desktop/VALIDATION.md#server-4b5d34aa-core-target-qualification"
+    ]
   },
   {
     "id": "sqlite-release-1-5-1-bcc0d93a-v1",
@@ -1378,8 +1311,7 @@
       "list_scopes",
       "remember_memory",
       "search_memory"
-    ],
-    "evidence": "desktop/VALIDATION.md#server-bcc0d93a-v151-protocol-qualification"
+    ]
   },
   {
     "id": "sqlite-core-target-release-6a20aa88-v1",
@@ -1400,8 +1332,7 @@
       "list_scopes",
       "remember_memory",
       "search_memory"
-    ],
-    "evidence": "desktop/VALIDATION.md#server-6a20aa88-merged-contract-protocol-qualification"
+    ]
   },
   {
     "id": "sqlite-task-stop-reason-0b434770-v1",
@@ -1421,8 +1352,7 @@
       "list_scopes",
       "remember_memory",
       "search_memory"
-    ],
-    "evidence": "desktop/VALIDATION.md#task-stop-reason-contract-protocol-qualification"
+    ]
   },
   {
     "id": "sqlite-task-stop-reason-4cb70619-v1",
@@ -1443,8 +1373,7 @@
       "list_scopes",
       "remember_memory",
       "search_memory"
-    ],
-    "evidence": "desktop/VALIDATION.md#task-stop-reason-merged-contract-protocol-qualification"
+    ]
   },
   {
     "id": "sqlite-core-target-stop-reason-bf0e57f3-v1",
@@ -1465,8 +1394,7 @@
       "list_scopes",
       "remember_memory",
       "search_memory"
-    ],
-    "evidence": "desktop/VALIDATION.md#server-bf0e57f3-merged-contract-protocol-qualification"
+    ]
   },
   {
     "id": "sqlite-dashboard-c7492133-v1",
@@ -1487,8 +1415,7 @@
       "list_scopes",
       "remember_memory",
       "search_memory"
-    ],
-    "evidence": "desktop/VALIDATION.md#server-c7492133-dashboard-protocol-qualification"
+    ]
   },
   {
     "id": "sqlite-dashboard-74082534-v1",
@@ -1509,8 +1436,7 @@
       "list_scopes",
       "remember_memory",
       "search_memory"
-    ],
-    "evidence": "desktop/VALIDATION.md#server-74082534-dashboard-protocol-qualification"
+    ]
   },
   {
     "id": "sqlite-dashboard-e5465878-v1",
@@ -1531,8 +1457,7 @@
       "list_scopes",
       "remember_memory",
       "search_memory"
-    ],
-    "evidence": "desktop/VALIDATION.md#server-e5465878-dashboard-protocol-qualification"
+    ]
   },
   {
     "id": "sqlite-dashboard-stats-83bfee5d-v1",
@@ -1552,8 +1477,7 @@
       "list_scopes",
       "remember_memory",
       "search_memory"
-    ],
-    "evidence": "desktop/VALIDATION.md#server-83bfee5d-dashboard-protocol-qualification"
+    ]
   },
   {
     "id": "sqlite-recall-2d3fea1a-v1",
@@ -1573,8 +1497,7 @@
       "list_scopes",
       "remember_memory",
       "search_memory"
-    ],
-    "evidence": "desktop/VALIDATION.md#recall-ranking-source-snapshot-protocol-qualification"
+    ]
   },
   {
     "id": "sqlite-counts-e6f79326-v1",
@@ -1594,8 +1517,7 @@
       "list_scopes",
       "remember_memory",
       "search_memory"
-    ],
-    "evidence": "desktop/VALIDATION.md#stable-note-counts-source-snapshot-protocol-qualification"
+    ]
   },
   {
     "id": "sqlite-gateway-c527f3f6-v1",
@@ -1616,8 +1538,7 @@
       "list_scopes",
       "remember_memory",
       "search_memory"
-    ],
-    "evidence": "desktop/VALIDATION.md#server-c527f3f6-gateway-contract-qualification"
+    ]
   },
   {
     "id": "sqlite-gateway-58dda714-v1",
@@ -1638,8 +1559,7 @@
       "list_scopes",
       "remember_memory",
       "search_memory"
-    ],
-    "evidence": "desktop/VALIDATION.md#server-58dda714-gateway-contract-qualification"
+    ]
   },
   {
     "id": "sqlite-gateway-5fb2b2d1-v1",
@@ -1660,8 +1580,7 @@
       "list_scopes",
       "remember_memory",
       "search_memory"
-    ],
-    "evidence": "desktop/VALIDATION.md#server-5fb2b2d1-gateway-contract-qualification"
+    ]
   },
   {
     "id": "sqlite-gateway-deadline-a211ba84-v1",
@@ -1682,8 +1601,7 @@
       "list_scopes",
       "remember_memory",
       "search_memory"
-    ],
-    "evidence": "desktop/VALIDATION.md#server-a211ba84-merged-gateway-contract-protocol-qualification"
+    ]
   },
   {
     "id": "sqlite-plugin-interfaces-3427cee7-v1",
@@ -1704,8 +1622,7 @@
       "list_scopes",
       "remember_memory",
       "search_memory"
-    ],
-    "evidence": "desktop/VALIDATION.md#server-3427cee7-plugin-interfaces-protocol-qualification"
+    ]
   },
   {
     "id": "sqlite-release-1-5-2-be5f0f76-v1",
@@ -1726,30 +1643,7 @@
       "list_scopes",
       "remember_memory",
       "search_memory"
-    ],
-    "evidence": "desktop/VALIDATION.md#server-be5f0f76-v152-release-protocol-qualification"
-  },
-  {
-    "id": "sqlite-oauth-3dd72d45-v1",
-    "serverCommit": "3dd72d45f3e9e54743e9826615531c0e0262d51b",
-    "contractSha256": "c13b97964d250d91a60cbba7e1683e62a9ca7d847fafe8d5bd5a3df0a915f772",
-    "artifactSha256": "ee42ec54dc7ceb6821a0069a907cca956b8da2bac1bb440cef670e7a265e6c79",
-    "operations": [
-      "get_access_principal",
-      "get_artifact_revision",
-      "get_capabilities",
-      "get_connection_identity",
-      "get_default_scope",
-      "get_liveness",
-      "get_readiness",
-      "get_scope",
-      "get_server_info",
-      "get_stats",
-      "list_scopes",
-      "remember_memory",
-      "search_memory"
-    ],
-    "evidence": "desktop/VALIDATION.md#server-3dd72d45-oauth-protocol-qualification"
+    ]
   },
   {
     "id": "sqlite-plugin-reload-0d56ec37-v1",
@@ -1770,8 +1664,7 @@
       "list_scopes",
       "remember_memory",
       "search_memory"
-    ],
-    "evidence": "desktop/VALIDATION.md#server-0d56ec37-plugin-reload-protocol-qualification"
+    ]
   },
   {
     "id": "sqlite-source-plugins-9f113a72-v1",
@@ -1792,30 +1685,7 @@
       "list_scopes",
       "remember_memory",
       "search_memory"
-    ],
-    "evidence": "desktop/VALIDATION.md#server-9f113a72-source-plugins-protocol-qualification"
-  },
-  {
-    "id": "sqlite-oauth-6832af4e-v1",
-    "serverCommit": "6832af4e2ecc253566559c8b0d30ab9c1162dbe1",
-    "contractSha256": "463d5307d44c5d1ab7655f9379a207a768ac453fd75e51fff92527f292cf87ad",
-    "artifactSha256": "49d9e2fc932fd1b0c2ab6632e17259d6833983f4fbaa2dba6519e23646352ea5",
-    "operations": [
-      "get_access_principal",
-      "get_artifact_revision",
-      "get_capabilities",
-      "get_connection_identity",
-      "get_default_scope",
-      "get_liveness",
-      "get_readiness",
-      "get_scope",
-      "get_server_info",
-      "get_stats",
-      "list_scopes",
-      "remember_memory",
-      "search_memory"
-    ],
-    "evidence": "desktop/VALIDATION.md#server-6832af4e-merged-oauth-protocol-qualification"
+    ]
   },
   {
     "id": "sqlite-plugin-scope-listing-bc22089e-v1",
@@ -1836,30 +1706,7 @@
       "list_scopes",
       "remember_memory",
       "search_memory"
-    ],
-    "evidence": "desktop/VALIDATION.md#server-bc22089e-plugin-scope-listing-protocol-qualification"
-  },
-  {
-    "id": "sqlite-oauth-2cf3f1f8-v1",
-    "serverCommit": "2cf3f1f890790f7019ab5695fd411ae986c830f6",
-    "contractSha256": "02899c1bf22b602b9b8af3206546091e4b57f6196b3e42dc72f1e8c6585caa71",
-    "artifactSha256": "5ef4ab60946e58bef90144ad64e98c048a52170a715f438b476578d8461d3614",
-    "operations": [
-      "get_access_principal",
-      "get_artifact_revision",
-      "get_capabilities",
-      "get_connection_identity",
-      "get_default_scope",
-      "get_liveness",
-      "get_readiness",
-      "get_scope",
-      "get_server_info",
-      "get_stats",
-      "list_scopes",
-      "remember_memory",
-      "search_memory"
-    ],
-    "evidence": "desktop/VALIDATION.md#server-2cf3f1f8-merged-oauth-protocol-qualification"
+    ]
   },
   {
     "id": "sqlite-gateway-source-limit-1dd494f4-v1",
@@ -1880,8 +1727,7 @@
       "list_scopes",
       "remember_memory",
       "search_memory"
-    ],
-    "evidence": "desktop/VALIDATION.md#server-1dd494f4-gateway-source-limit-protocol-qualification"
+    ]
   },
   {
     "id": "sqlite-gateway-batch-capture-a777326a-v1",
@@ -1902,8 +1748,7 @@
       "list_scopes",
       "remember_memory",
       "search_memory"
-    ],
-    "evidence": "desktop/VALIDATION.md#server-a777326a-gateway-batch-capture-protocol-qualification"
+    ]
   },
   {
     "id": "sqlite-gateway-batch-capture-e4d72fd2-v1",
@@ -1924,8 +1769,7 @@
       "list_scopes",
       "remember_memory",
       "search_memory"
-    ],
-    "evidence": "desktop/VALIDATION.md#server-e4d72fd2-gateway-batch-capture-wording-protocol-qualification"
+    ]
   },
   {
     "id": "sqlite-gateway-batch-capture-3989ab67-v1",
@@ -1946,8 +1790,7 @@
       "list_scopes",
       "remember_memory",
       "search_memory"
-    ],
-    "evidence": "desktop/VALIDATION.md#server-3989ab67-gateway-batch-capture-and-plugin-reload-protocol-qualification"
+    ]
   },
   {
     "id": "sqlite-gateway-batch-capture-60d660af-v1",
@@ -1968,8 +1811,7 @@
       "list_scopes",
       "remember_memory",
       "search_memory"
-    ],
-    "evidence": "desktop/VALIDATION.md#server-60d660af-gateway-batch-capture-and-source-plugins-protocol-qualification"
+    ]
   },
   {
     "id": "sqlite-gateway-batch-capture-7d187e2f-v1",
@@ -1990,8 +1832,7 @@
       "list_scopes",
       "remember_memory",
       "search_memory"
-    ],
-    "evidence": "desktop/VALIDATION.md#server-7d187e2f-gateway-batch-capture-and-plugin-scope-listing-protocol-qualification"
+    ]
   },
   {
     "id": "sqlite-gateway-batch-capture-477a6c8b-v1",
@@ -2012,52 +1853,7 @@
       "list_scopes",
       "remember_memory",
       "search_memory"
-    ],
-    "evidence": "desktop/VALIDATION.md#server-477a6c8b-gateway-batch-capture-metadata-wording-protocol-qualification"
-  },
-  {
-    "id": "sqlite-oauth-10d47577-v1",
-    "serverCommit": "10d47577800a205a52f7e4e2b1934444d11b3512",
-    "contractSha256": "130bb849d1a4bd8fc4c1854d2bc3f5472da2f5dc37d399a88e87b187cb10aaf3",
-    "artifactSha256": "c7526b30851fd9b95128668faf3bf73299634ad5ce9b220fc4cbb05a96fef6bb",
-    "operations": [
-      "get_access_principal",
-      "get_artifact_revision",
-      "get_capabilities",
-      "get_connection_identity",
-      "get_default_scope",
-      "get_liveness",
-      "get_readiness",
-      "get_scope",
-      "get_server_info",
-      "get_stats",
-      "list_scopes",
-      "remember_memory",
-      "search_memory"
-    ],
-    "evidence": "desktop/VALIDATION.md#server-10d47577-oauth-and-batch-capture-protocol-qualification"
-  },
-  {
-    "id": "sqlite-release-1-6-0-98a9b1f7-v1",
-    "serverCommit": "98a9b1f7f58628ef8b7129b0d7c7cee7efe75daf",
-    "contractSha256": "dba1e669da2c38f0c52a5720a300ea43b7020c58c62f503e18b588237f870374",
-    "artifactSha256": "d6b4f64fee1a5b6d65ab99e0f9ec99edf26cae9e7d92ad828f5b6fd806082644",
-    "operations": [
-      "get_access_principal",
-      "get_artifact_revision",
-      "get_capabilities",
-      "get_connection_identity",
-      "get_default_scope",
-      "get_liveness",
-      "get_readiness",
-      "get_scope",
-      "get_server_info",
-      "get_stats",
-      "list_scopes",
-      "remember_memory",
-      "search_memory"
-    ],
-    "evidence": "desktop/VALIDATION.md#powercontext-160-release-protocol-qualification"
+    ]
   },
   {
     "id": "sqlite-source-metadata-c407025-v1",
@@ -2078,7 +1874,6 @@
       "list_scopes",
       "remember_memory",
       "search_memory"
-    ],
-    "evidence": "desktop/VALIDATION.md#server-c407025-source-metadata-protocol-qualification"
+    ]
   }
 ]

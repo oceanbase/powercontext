@@ -14,14 +14,25 @@
  * limitations under the License.
  */
 
+import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";
 import react from "@vitejs/plugin-react";
+import tailwindcss from "@tailwindcss/vite";
 export default defineConfig({
   root: "ui",
   base: "./",
-  plugins: [react()],
+  plugins: [react(), tailwindcss()],
+  resolve: {
+    alias: {
+      "@": fileURLToPath(new URL("./ui/src", import.meta.url)),
+    },
+  },
   clearScreen: false,
   server: { port: 1420, strictPort: true },
   build: { outDir: "../dist", emptyOutDir: true },
-  test: { environment: "jsdom", include: ["tests/**/*.test.tsx"] },
+  test: {
+    environment: "jsdom",
+    include: ["tests/**/*.test.tsx"],
+    setupFiles: ["./tests/setup.tsx"],
+  },
 });

@@ -87,9 +87,9 @@ impl Fixture {
         Self::with_profile(authenticated, None).await
     }
     async fn with_profile(authenticated: bool, compatibility: Option<&str>) -> Self {
-        Self::with_profile_evidence(authenticated, compatibility, true).await
+        Self::with_legacy_qualification(authenticated, compatibility, true).await
     }
-    async fn with_profile_evidence(
+    async fn with_legacy_qualification(
         authenticated: bool,
         compatibility: Option<&str>,
         qualify_legacy: bool,
@@ -172,6 +172,11 @@ impl Fixture {
                             ),
                             "/v1/capabilities" => state.capabilities.clone(),
                             "/v1/scopes/default" | "/v1/scopes/scope-a" => (200, scope()),
+                            "/v1/scopes/scope-b" => {
+                                let mut selected = scope();
+                                selected["scope_id"] = json!("scope-b");
+                                (200, selected)
+                            }
                             path if path.starts_with("/v1/scopes?") => {
                                 (200, json!({"items":[scope()],"next_cursor":"old-cursor"}))
                             }
@@ -230,13 +235,9 @@ impl Fixture {
             Some(LEGACY_PROFILE_ID) => {
                 let mut profile = common::compatibility_profile();
                 profile.id = LEGACY_PROFILE_ID.into();
-                // Exercise legacy-client evidence without qualifying a historical Server release.
                 let client_contract =
                     std::mem::replace(&mut profile.contract_sha256, "0".repeat(64));
-                profile.authenticated_clients = Some(std::collections::BTreeMap::from([(
-                    client_contract,
-                    "Synthetic authenticated legacy HTTP fixture; not release qualification".into(),
-                )]));
+                profile.authenticated_clients = Some([client_contract].into());
                 profile.operations.retain(|operation| {
                     !matches!(operation.as_str(), "get_connection_identity" | "get_stats")
                 });
@@ -246,7 +247,6 @@ impl Fixture {
                 if qualify_legacy
                     && ["sqlite-atomic-112db11e-v1", "sqlite-atomic-3cefa45a-v1"].contains(&id) =>
             {
-                // Only synthetic HTTP fixtures are qualified here; never alter bundled product evidence.
                 let mut records: Vec<CompatibilityProfile> =
                     serde_json::from_str(include_str!("../src/connections/compatibility.json"))
                         .unwrap();
@@ -258,10 +258,7 @@ impl Fixture {
                     .unwrap()
                     .authenticated_clients
                     .get_or_insert_with(Default::default)
-                    .insert(
-                        contract["contractSha256"].as_str().unwrap().into(),
-                        "Synthetic HTTP fixture; not product qualification".into(),
-                    );
+                    .insert(contract["contractSha256"].as_str().unwrap().into());
                 ConnectionManager::with_compatibility(repository, records)
             }
             Some(_) => ConnectionManager::new(repository),
@@ -366,7 +363,7 @@ async fn authenticated_legacy_profile_keeps_its_operations_and_principal_fence()
 }
 
 #[tokio::test]
-async fn historical_authenticated_evidence_cannot_authorize_an_unqualified_client() {
+async fn legacy_profile_requires_the_current_client_contract() {
     let directory = tempfile::tempdir().unwrap();
     let manager = ConnectionManager::new(
         ProfileRepository::open(
@@ -387,13 +384,13 @@ async fn historical_authenticated_evidence_cannot_authorize_an_unqualified_clien
                     .authenticated_clients
                     .as_ref()
                     .is_some_and(|clients| {
-                        !clients.is_empty() && !clients.contains_key(&current_contract)
+                        !clients.is_empty() && !clients.contains(&current_contract)
                     })
         })
         .collect();
     assert!(!historical.is_empty());
     for profile in historical {
-        let fixture = Fixture::with_profile_evidence(true, Some(&profile.id), false).await;
+        let fixture = Fixture::with_legacy_qualification(true, Some(&profile.id), false).await;
         let state = fixture.manager.check(&fixture.id, true).await.unwrap();
         let active = state.active.unwrap();
         assert!(active.report.identity.value.is_some());
@@ -413,9 +410,9 @@ async fn historical_authenticated_evidence_cannot_authorize_an_unqualified_clien
 }
 
 #[tokio::test]
-async fn bundled_legacy_profile_without_current_client_evidence_is_unavailable() {
+async fn bundled_legacy_profile_without_a_matching_client_contract_is_unavailable() {
     let fixture =
-        Fixture::with_profile_evidence(true, Some("sqlite-atomic-112db11e-v1"), false).await;
+        Fixture::with_legacy_qualification(true, Some("sqlite-atomic-112db11e-v1"), false).await;
     let state = fixture.manager.check(&fixture.id, true).await.unwrap();
     let report = state.active.unwrap().report;
     assert!(!report.compatibility_verified);
@@ -432,7 +429,7 @@ async fn bundled_legacy_profile_without_current_client_evidence_is_unavailable()
 }
 
 #[tokio::test]
-async fn authenticated_client_evidence_requires_bearer_mode_and_a_valid_principal() {
+async fn legacy_client_contract_requires_bearer_mode_and_a_valid_principal() {
     for bearer in [false, true] {
         let fixture = Fixture::with_profile(bearer, Some(LEGACY_PROFILE_ID)).await;
         fixture.state.lock().unwrap().principal = None;
@@ -690,6 +687,52 @@ async fn changed_access_mode_or_unavailable_identity_invalidates_the_context_wit
                 .any(|path| path == "/health/ready")
         );
     }
+}
+
+#[tokio::test]
+async fn retry_reopens_the_original_scope_after_an_outage() {
+    let fixture = Fixture::new(true).await;
+    let generation = fixture
+        .manager
+        .select_scope(fixture.activate().await, "scope-b")
+        .await
+        .unwrap()
+        .generation;
+    fixture.state.lock().unwrap().identity_response = Some((502, json!({})));
+
+    let failed = fixture.manager.search_memory(generation, "query").await;
+    assert_eq!(failed.err().unwrap().code, SafeError::Server);
+    fixture.assert_disconnected(generation);
+    let still_down = fixture.manager.retry_connection(generation).await;
+    assert_eq!(still_down.err().unwrap().code, SafeError::Server);
+
+    fixture.state.lock().unwrap().identity_response = None;
+    let restored = fixture.manager.retry_connection(generation).await.unwrap();
+    let active = restored.active.unwrap();
+    assert_eq!(active.connection_id, fixture.id);
+    assert_eq!(active.scope.unwrap().scope_id, "scope-b");
+    assert!(restored.generation > generation);
+    let result = fixture
+        .manager
+        .search_memory(restored.generation, "result")
+        .await
+        .unwrap();
+    assert_eq!(result.hits[0].text, "private result");
+}
+
+#[tokio::test]
+async fn retry_never_reopens_a_scope_on_a_replacement_service() {
+    let fixture = Fixture::new(true).await;
+    let generation = fixture.select().await;
+    fixture.state.lock().unwrap().identity_response = Some((502, json!({})));
+    let failed = fixture.manager.search_memory(generation, "query").await;
+    assert_eq!(failed.err().unwrap().code, SafeError::Server);
+
+    fixture.state.lock().unwrap().identity_response = None;
+    fixture.replace();
+    let retry = fixture.manager.retry_connection(generation).await;
+    assert_eq!(retry.err().unwrap().code, SafeError::StaleContext);
+    fixture.assert_disconnected(generation);
 }
 
 #[tokio::test]

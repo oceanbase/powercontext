@@ -25,24 +25,48 @@ mod diagnostic_process;
 pub mod diagnostics;
 pub mod error;
 pub mod ipc;
+pub mod native_menu;
 pub mod ops_bridge;
 pub mod session_observations;
 pub mod transport;
 
 use tauri::Manager;
 
+#[cfg(target_os = "macos")]
+fn set_macos_display_name() {
+    use objc2_foundation::{NSProcessInfo, NSString};
+
+    let display_name = NSString::from_str("PowerContext Desktop");
+    NSProcessInfo::processInfo().setProcessName(&display_name);
+}
+
 pub fn run() {
-    tauri::Builder::default()
-        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+    #[cfg(target_os = "macos")]
+    set_macos_display_name();
+
+    let builder =
+        tauri::Builder::default().plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             // A second launch only activates the existing editor; never replaces its context.
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.show();
                 let _ = window.unminimize();
                 let _ = window.set_focus();
             }
-        }))
+        }));
+    builder
+        .on_menu_event(|app, event| {
+            if event.id().as_ref() == native_menu::CHECK_FOR_UPDATES_ID
+                && let Some(window) = app.get_webview_window("main")
+            {
+                let _ = window.show();
+                let _ = window.unminimize();
+                let _ = window.set_focus();
+                native_menu::check_for_updates(app);
+            }
+        })
         .invoke_handler(tauri::generate_handler![
             ipc::foundation_info,
+            native_menu::set_menu_language,
             commands::local_diagnostics,
             commands::connect_local_server,
             commands::ops_references,
@@ -67,6 +91,7 @@ pub fn run() {
             commands::save_profile,
             commands::remove_profile,
             commands::check_connection,
+            commands::retry_connection,
             commands::probe_readiness,
             commands::disconnect,
             commands::invalidate_profile,
@@ -79,6 +104,10 @@ pub fn run() {
             commands::preview_session_diagnostics
         ])
         .setup(|app| {
+            native_menu::start_updater();
+            let menu = native_menu::build(app.handle(), "zh")
+                .map_err(|_| std::io::Error::other("failed to build the desktop menu"))?;
+            app.set_menu(menu)?;
             let manager = app
                 .path()
                 .app_data_dir()

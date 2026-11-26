@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-//! Operation availability requires discovery compatibility and explicit qualification evidence.
+//! Operation availability requires discovery compatibility and an explicit compatibility profile.
 //! A failed discovery observation gates operations until a successful recheck; health is not proof.
 use super::session::CompatibilityProfile;
 use crate::{
@@ -91,7 +91,7 @@ struct Requirements {
 }
 
 impl DiscoveryResult {
-    /// Evidence is selected and checked by the native manager; discovery never creates qualification.
+    /// The native manager selects and checks the compatibility profile.
     pub fn assess(
         response: Result<DiscoveryDocument, ApiFailure>,
         qualification: Option<&CompatibilityProfile>,

@@ -107,6 +107,15 @@ pub async fn check_connection<R: tauri::Runtime>(
 }
 
 #[tauri::command]
+pub async fn retry_connection<R: tauri::Runtime>(
+    window: tauri::WebviewWindow<R>,
+    state: tauri::State<'_, HostState>,
+    generation: u32,
+) -> Result<DesktopState, ApiFailure> {
+    manager(&window, &state)?.retry_connection(generation).await
+}
+
+#[tauri::command]
 pub async fn probe_readiness<R: tauri::Runtime>(
     window: tauri::WebviewWindow<R>,
     state: tauri::State<'_, HostState>,

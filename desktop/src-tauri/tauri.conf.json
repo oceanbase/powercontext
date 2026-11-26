@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "PowerContext Desktop Preview",
+  "productName": "PowerContext Desktop",
   "version": "0.1.0",
   "identifier": "com.powercontext.desktop.preview",
   "build": {
@@ -10,16 +10,19 @@
     "frontendDist": "../dist"
   },
   "app": {
+    "macOSPrivateApi": true,
     "windows": [
       {
         "label": "main",
         "title": "PowerContext Desktop",
-        "width": 1180,
+        "width": 1280,
         "height": 800,
         "minWidth": 400,
         "minHeight": 400,
         "dragDropEnabled": false,
-        "zoomHotkeysEnabled": true,
+        "zoomHotkeysEnabled": false,
+        "decorations": false,
+        "transparent": true,
         "create": false
       }
     ],

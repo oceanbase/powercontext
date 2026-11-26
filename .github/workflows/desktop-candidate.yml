@@ -117,14 +117,21 @@ jobs:
           working_directory: desktop
       - name: Install pinned Rust target
         run: rustup toolchain install "1.95.0-$RUST_TARGET" --profile minimal
+      - name: Prepare Sparkle for macOS packaging
+        if: runner.os == 'macOS'
+        working-directory: desktop
+        run: bash scripts/setup-sparkle.sh
       - name: Build the unsigned product configuration
         working-directory: desktop
         run: |
           pnpm install --frozen-lockfile
           # Fresh target directory, default product features and no signing secrets or updater artifacts.
           test ! -e src-tauri/target
-          pnpm tauri build --target "$RUST_TARGET" --ci --no-sign \
-            --config src-tauri/tauri.ops.conf.json --config .artifacts/candidate.conf.json -- --locked
+          set -- --config src-tauri/tauri.ops.conf.json --config .artifacts/candidate.conf.json
+          if [ "$RUNNER_OS" = macOS ]; then
+            set -- "$@" --config src-tauri/tauri.sparkle.conf.json
+          fi
+          pnpm tauri build --target "$RUST_TARGET" --ci --no-sign "$@" -- --locked
       - name: Collect the normal package and exact producer outputs
         run: |
           uv run --no-sync python scripts/desktop_candidate.py stage \

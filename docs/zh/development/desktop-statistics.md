@@ -42,11 +42,4 @@ generation 和 `today`、`7d`、`30d` 周期；原生层取得当前 Scope，构
 
 操作目录和可达 wire 类型通过 `pnpm --dir desktop generate` 生成；IPC 声明通过
 Rust `export_ipc` example 生成。原生的精确选择投影复用具体生成字段类型，同时
-保留可空估算器并禁止扩大 selection。不改变 Server API 或历史资格记录。
-
-已验证的 Server、合同、wheel 标识和实际验证边界见
-[资格记录](https://github.com/oceanbase/powercontext/blob/master/desktop/VALIDATION.md#current-scope-statistics-qualification)。
-模拟测试验证本地处理；构建 wheel 的独立夹具另行验证实际 SQLite 协议行为。
-记录另行列明已执行的 macOS ARM64 打包调试应用流程，以及仍待验证的 Windows
-安装界面、Intel、输入法和屏幕阅读器 gate。Windows 安装流程将页面表格与独立的
-真实 Server 响应进行比较。
+保留可空估算器并禁止扩大 selection。

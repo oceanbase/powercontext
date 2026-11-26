@@ -76,6 +76,7 @@ The operational field contract is documented in [Logs, metrics, and tracing](doc
 
 ## Design and Implementation
 
+- Follow [Desktop Design](desktop/DESIGN.md) when designing or implementing Desktop UI and UX, including component styling, interaction patterns, and accessibility.
 - Start from the current contract and relevant RFC. Change public APIs only as required by the task and avoid unrelated refactors. Do not weaken behavior tests to accommodate an implementation shortcut.
 - Keep domain rules in the runtime or Artifact service that owns them. Transport and host adapters should translate their inputs and outputs without inventing different domain behavior.
 - Extract helpers for cohesive responsibilities, such as an invariant, algorithm, protocol encoding, or state transition. Share code when callers have the same contract and failure semantics. Similar syntax or a few repeated lines is not enough; avoid forwarding helpers and intermediate types that only scatter an operation across files.

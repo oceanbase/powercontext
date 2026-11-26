@@ -26,7 +26,7 @@ use crate::{
 };
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     future::Future,
     sync::{Arc, Mutex},
 };
@@ -101,11 +101,10 @@ pub struct CompatibilityProfile {
     pub contract_sha256: String,
     pub artifact_sha256: String,
     pub operations: Vec<String>,
-    pub evidence: String,
-    /// Separate current-client evidence; the original Server qualification remains unchanged.
+    /// Additional client contract digests supported in Bearer mode.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
-    pub authenticated_clients: Option<BTreeMap<String, String>>,
+    pub authenticated_clients: Option<BTreeSet<String>>,
 }
 #[derive(Clone, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
@@ -217,6 +216,7 @@ struct ReadSnapshot {
     identity: NativeIdentity,
     cancelled: watch::Receiver<u32>,
 }
+#[derive(Clone)]
 struct Active {
     view: ActiveView,
     api: Arc<ServerApi>,
@@ -225,6 +225,7 @@ struct Inner {
     profiles: ProfileRepository,
     reports: BTreeMap<String, CheckReport>,
     active: Option<Active>,
+    interrupted: Option<Active>,
     generation: u32,
     last_write: Option<WriteRecord>,
 }
@@ -263,7 +264,7 @@ impl ConnectionManager {
         };
         Self::with_compatibility(profiles, compatibility)
     }
-    /// Supply explicit native qualification evidence, including synthetic test fixtures.
+    /// Supply explicit native compatibility profiles, including synthetic test fixtures.
     /// This constructor is never exposed through IPC or renderer configuration.
     pub fn with_compatibility(
         profiles: ProfileRepository,
@@ -276,6 +277,7 @@ impl ConnectionManager {
                 profiles,
                 reports: BTreeMap::new(),
                 active: None,
+                interrupted: None,
                 generation: 0,
                 last_write: None,
             }),
@@ -300,6 +302,7 @@ impl ConnectionManager {
     }
     fn invalidate(&self, inner: &mut Inner) -> Result<(), SafeError> {
         inner.generation = inner.generation.checked_add(1).ok_or(SafeError::Storage)?;
+        inner.interrupted = None;
         self.changed.send_replace(inner.generation);
         if let Some(active) = &mut inner.active {
             active.view.generation = inner.generation;
@@ -378,6 +381,59 @@ impl ConnectionManager {
     }
     pub async fn check(&self, id: &str, activate: bool) -> Result<DesktopState, ApiFailure> {
         self.check_expected(id, activate, None, None).await
+    }
+    /// Resume a temporarily interrupted selection after verifying its original identity and Scope.
+    pub async fn retry_connection(&self, generation: u32) -> Result<DesktopState, ApiFailure> {
+        let _permit = self.probes.try_acquire().map_err(|_| SafeError::Busy)?;
+        let (mut interrupted, expected, mut cancelled) = {
+            let inner = self.lock()?;
+            if inner.generation == generation && inner.active.is_some() {
+                return Ok(self.state_view(&inner));
+            }
+            let interrupted = inner
+                .interrupted
+                .as_ref()
+                .filter(|active| active.view.generation == generation)
+                .ok_or(SafeError::StaleContext)?
+                .clone();
+            (interrupted, inner.generation, self.changed.subscribe())
+        };
+        let scope_id = &interrupted
+            .view
+            .scope
+            .as_ref()
+            .ok_or(SafeError::ScopeRequired)?
+            .scope_id;
+        let report = &interrupted.view.report;
+        let identity = NativeIdentity::from_report(report)?;
+        let result = Self::cancellable(&mut cancelled, async {
+            Self::verify_identity(&interrupted.api, &identity, report.server_id()).await?;
+            let scope = interrupted.api.scope(scope_id).await?;
+            Self::verify_identity(&interrupted.api, &identity, report.server_id()).await?;
+            Ok(scope)
+        })
+        .await;
+        let mut inner = self.lock()?;
+        if inner.generation != expected {
+            return Err(SafeError::StaleContext.into());
+        }
+        match result {
+            Ok(scope) => interrupted.view.scope = Some(scope),
+            Err(error) => {
+                if !Self::retryable_interruption(error.code) {
+                    inner.interrupted = None;
+                }
+                return Err(error);
+            }
+        }
+        self.invalidate(&mut inner)?;
+        interrupted.view.generation = inner.generation;
+        inner.reports.insert(
+            interrupted.view.connection_id.clone(),
+            interrupted.view.report.clone(),
+        );
+        inner.active = Some(interrupted);
+        Ok(self.state_view(&inner))
     }
     /// Explicit local setup handoff. The endpoint comes from native Ops, never the renderer.
     pub async fn connect_local(
@@ -515,7 +571,7 @@ impl ConnectionManager {
                             && contract["contractSha256"].as_str().is_some_and(|digest| {
                                 c.authenticated_clients
                                     .as_ref()
-                                    .is_some_and(|clients| clients.contains_key(digest))
+                                    .is_some_and(|clients| clients.contains(digest))
                             })))
                     && !identity
                         .as_ref()
@@ -892,6 +948,29 @@ impl ConnectionManager {
                 .unwrap_or_else(|| SafeError::StaleContext.into()))
         }
     }
+    async fn verify_identity(
+        api: &ServerApi,
+        original: &NativeIdentity,
+        server_id: Option<&str>,
+    ) -> Result<(), ApiFailure> {
+        match original.verify(api).await {
+            Ok(()) if matches!(original, NativeIdentity::Principal(_)) => {
+                Self::deployment_unchanged(api, server_id).await
+            }
+            result => result,
+        }
+    }
+    fn retryable_interruption(code: SafeError) -> bool {
+        matches!(
+            code,
+            SafeError::Network
+                | SafeError::Timeout
+                | SafeError::Server
+                | SafeError::Busy
+                | SafeError::AuthenticationUnavailable
+                | SafeError::RuntimeNotReady
+        )
+    }
     async fn identity_unchanged(
         &self,
         api: &ServerApi,
@@ -899,21 +978,20 @@ impl ConnectionManager {
         server_id: Option<&str>,
         generation: u32,
     ) -> Result<(), ApiFailure> {
-        let result = match original.verify(api).await {
-            Ok(()) if matches!(original, NativeIdentity::Principal(_)) => {
-                Self::deployment_unchanged(api, server_id).await
-            }
-            result => result,
-        };
+        let result = Self::verify_identity(api, original, server_id).await;
         if result.is_ok() {
             return result;
         }
         let mut inner = self.lock()?;
         if inner.generation == generation {
-            if let Some(active) = inner.active.take() {
+            let active = inner.active.take();
+            if let Some(active) = &active {
                 inner.reports.remove(&active.view.connection_id);
             }
             self.invalidate(&mut inner)?;
+            if matches!(&result, Err(error) if Self::retryable_interruption(error.code)) {
+                inner.interrupted = active.filter(|active| active.view.scope.is_some());
+            }
         }
         result
     }
