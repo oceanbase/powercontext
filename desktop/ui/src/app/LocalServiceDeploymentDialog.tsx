@@ -1,4 +1,18 @@
-/* Copyright (c) 2026 OceanBase. Licensed under the Apache License, Version 2.0. */
+/*
+ * Copyright (c) 2026 OceanBase.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 
 import { useEffect, useRef, useState } from "react";
 import { LoaderCircle } from "lucide-react";
@@ -48,11 +62,13 @@ const copy = {
 
 export function LocalServiceDeploymentDialog({
   language,
+  available,
   run,
   onClose,
   onComplete,
 }: {
   language: Language;
+  available: boolean;
   run: (signal: AbortSignal) => Promise<void>;
   onClose: () => void;
   onComplete: () => void;
@@ -80,6 +96,7 @@ export function LocalServiceDeploymentDialog({
   }
 
   function start() {
+    if (!available) return;
     clearAttempt();
     const controller = new AbortController();
     controllerRef.current = controller;
@@ -125,7 +142,13 @@ export function LocalServiceDeploymentDialog({
           <DialogCloseButton label={t.close} />
         </DialogHeader>
         <DialogBody className="local-deployment-content">
-          {phase === "failed" ? (
+          {!available ? (
+            <p>
+              {language === "zh"
+                ? "当前版本暂不支持从 Desktop 安装本机服务。"
+                : "Installing a local service from Desktop is unavailable in this build."}
+            </p>
+          ) : phase === "failed" ? (
             <PageFeedback compact kind="error" title={t.failed}>
               <p>{t.failedHint}</p>
               <p>{reason}</p>
@@ -138,7 +161,7 @@ export function LocalServiceDeploymentDialog({
           <Button variant="outline" onClick={close}>
             {t.cancel}
           </Button>
-          <Button disabled={phase === "running"} onClick={start}>
+          <Button disabled={!available || phase === "running"} onClick={start}>
             {phase === "running" && (
               <LoaderCircle
                 className="motion-safe:animate-spin motion-reduce:animate-none"

@@ -1,5 +1,21 @@
+/*
+ * Copyright (c) 2026 OceanBase.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 import { Field, FieldError, FieldLabel } from "@/components/ui/field";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowDown,
   ArrowUp,
@@ -40,8 +56,15 @@ import {
 import { ActionNotification } from "@/components/ui/action-notification";
 import { PageFeedback } from "@/components/ui/feedback";
 import { ErrorFeedback } from "./ErrorFeedback";
+import { connectionErrorCode } from "./connection-messages";
+import { connectionPrincipal } from "./context";
+import type { MemorySubmissions } from "./memory-submissions";
 import { desktopApi } from "../shared/ipc";
-import type { ActiveView, ArtifactReference } from "../generated/ipc";
+import type {
+  ActiveView,
+  ArtifactReference,
+  DesktopState,
+} from "../generated/ipc";
 
 type MemoryState = "active" | "stopped";
 type MemorySource = "automatic" | "manual";
@@ -128,6 +151,7 @@ const copy = {
     serviceEndpoint: "服务地址",
     contentRequired: "请输入记忆内容",
     cancel: "取消",
+    closeEntry: "关闭记忆录入",
     save: "保存到当前空间",
     saved: "已保存到当前空间",
     searchPrompt: "输入关键词搜索当前空间的记忆",
@@ -135,8 +159,7 @@ const copy = {
     reading: "正在读取记忆…",
     unavailable: "当前连接暂不支持记忆检索",
     saving: "正在保存…",
-    saveUnknown: "保存结果未知。请先搜索当前空间，确认这条记忆是否已写入。",
-    allowRetry: "已核对，允许再次提交",
+    saveUnknown: "保存结果未知。请关闭对话框，并在恢复区域核对原提交。",
     backToTop: "回到顶部",
   },
   en: {
@@ -187,6 +210,7 @@ const copy = {
     serviceEndpoint: "Service address",
     contentRequired: "Enter memory content",
     cancel: "Cancel",
+    closeEntry: "Close memory entry",
     save: "Save to current space",
     saved: "Saved to the current space",
     searchPrompt: "Enter a keyword to search this space",
@@ -195,8 +219,7 @@ const copy = {
     unavailable: "Memory search is unavailable for this connection",
     saving: "Saving…",
     saveUnknown:
-      "The save outcome is unknown. Search this space before submitting the same text again.",
-    allowRetry: "I checked. Allow another submission",
+      "The save outcome is unknown. Close this dialog and review the original submission in the recovery section.",
     backToTop: "Back to top",
   },
 } as const;
@@ -523,6 +546,8 @@ export function MemoryWorkspaceContent({
   serviceEndpoint,
   initialCount = 0,
   nativeContext,
+  onState,
+  submissions,
 }: {
   language: Language;
   scopeTitle: string;
@@ -530,7 +555,9 @@ export function MemoryWorkspaceContent({
   serviceName: string;
   serviceEndpoint: string;
   initialCount?: number;
-  nativeContext?: Pick<ActiveView, "generation" | "report">;
+  nativeContext?: ActiveView;
+  onState?: (state: DesktopState) => void;
+  submissions?: MemorySubmissions;
 }) {
   const t = copy[language];
   const [memoriesByScope, setMemoriesByScope] = useState<
@@ -552,9 +579,14 @@ export function MemoryWorkspaceContent({
   const generation = nativeContext?.generation;
   const native = generation !== undefined;
   const operations = nativeContext?.report.supportedOperations;
-  const canSearch = !native || operations?.includes("search_memory");
-  const canRead = !native || operations?.includes("get_artifact_revision");
-  const canSave = !native || operations?.includes("remember_memory");
+  const [contextBlocked, setContextBlocked] = useState(false);
+  const canSearch =
+    !native || (!contextBlocked && operations?.includes("search_memory"));
+  const canRead =
+    !native ||
+    (!contextBlocked && operations?.includes("get_artifact_revision"));
+  const canSave =
+    !native || (!contextBlocked && operations?.includes("remember_memory"));
   const searchTerm = query.trim();
   const [search, setSearch] = useState<{
     term: string;
@@ -570,11 +602,56 @@ export function MemoryWorkspaceContent({
   const [saving, setSaving] = useState(false);
   const [savedNotice, setSavedNotice] = useState(false);
   const [saveError, setSaveError] = useState<unknown>(null);
-  const [unknownDraft, setUnknownDraft] = useState<string | null>(null);
+  const writePending = submissions?.drafts.some(
+    (submission) => submission.phase === "pending",
+  );
+  const retryBlocked = submissions?.drafts.some(
+    (submission) =>
+      submission.text.trim() === draft.trim() &&
+      !submission.acknowledged &&
+      (submission.phase === "unknown" || submission.phase === "unconfirmed"),
+  );
   const workspaceRef = useRef<HTMLDivElement>(null);
   const headingRef = useRef<HTMLHeadingElement>(null);
   const selectedTriggerRef = useRef<HTMLButtonElement | null>(null);
   const detailScrollRef = useRef<HTMLElement | null>(null);
+
+  const refreshAfterFailure = useCallback(
+    (error: unknown, current = true) => {
+      const code = connectionErrorCode(error);
+      if (
+        current &&
+        (code === "stale_context" ||
+          code === "not_connected" ||
+          code === "scope_required")
+      ) {
+        setContextBlocked(true);
+        setSavedItems([]);
+        setSearch((previous) => (previous?.error ? previous : undefined));
+        setDetail(undefined);
+        setSelectedId(null);
+        setDetailsExpanded(false);
+        setSavedNotice(false);
+      }
+      if (onState) {
+        void desktopApi.state().then(
+          (next) => {
+            onState(next);
+            if (
+              next.active &&
+              next.active.generation === generation &&
+              next.active.scope
+            )
+              setContextBlocked(false);
+          },
+          () => {
+            // Keep private results hidden until the context can be verified again.
+          },
+        );
+      }
+    },
+    [generation, onState],
+  );
 
   useEffect(() => {
     if (generation === undefined || !canSearch || !searchTerm) return;
@@ -593,6 +670,7 @@ export function MemoryWorkspaceContent({
         },
         (error: unknown) => {
           if (current) setSearch({ term: searchTerm, items: [], error });
+          refreshAfterFailure(error, current);
         },
       );
     }, 250);
@@ -600,7 +678,7 @@ export function MemoryWorkspaceContent({
       current = false;
       window.clearTimeout(timer);
     };
-  }, [canSearch, generation, searchTerm]);
+  }, [canSearch, generation, refreshAfterFailure, searchTerm]);
 
   useEffect(() => {
     setMemoriesByScope((current) =>
@@ -655,6 +733,7 @@ export function MemoryWorkspaceContent({
 
   const visible = useMemo(() => {
     if (native) {
+      if (contextBlocked) return [];
       if (!searchTerm) return savedItems;
       return search?.term === searchTerm ? search.items : [];
     }
@@ -672,6 +751,7 @@ export function MemoryWorkspaceContent({
         return Date.parse(right[field]) - Date.parse(left[field]);
       });
   }, [
+    contextBlocked,
     memories,
     native,
     query,
@@ -707,12 +787,13 @@ export function MemoryWorkspaceContent({
       },
       (error: unknown) => {
         if (current) setDetail({ id: selected.id, error });
+        refreshAfterFailure(error, current);
       },
     );
     return () => {
       current = false;
     };
-  }, [canRead, generation, selected]);
+  }, [canRead, generation, refreshAfterFailure, selected]);
 
   useEffect(() => {
     if (selectedId && selectedIndex < 0) {
@@ -777,25 +858,52 @@ export function MemoryWorkspaceContent({
   async function addMemory() {
     setAddSubmitted(true);
     const text = draft.trim();
-    if (!text || !canSave || saving || text === unknownDraft) return;
-    if (generation !== undefined) {
+    if (!text || !canSave || saving || writePending || retryBlocked) return;
+    if (nativeContext) {
+      if (new TextEncoder().encode(draft).length > 8192) {
+        setSaveError({ code: "invalid_input" });
+        return;
+      }
+      const finish = submissions?.begin(
+        draft,
+        {
+          connectionId: nativeContext.connectionId,
+          endpoint: serviceEndpoint,
+          serverId:
+            nativeContext.report.connectionIdentity?.value?.server_id ??
+            nativeContext.report.discovery?.server?.server_id ??
+            null,
+          principal: connectionPrincipal(nativeContext.report) ?? null,
+          generation: nativeContext.generation,
+          scopeId,
+        },
+        serviceName,
+        scopeTitle,
+      );
       setSaving(true);
       setSaveError(null);
       try {
-        const outcome = await desktopApi.remember(generation, draft);
+        const outcome = await desktopApi.remember(
+          nativeContext.generation,
+          draft,
+        );
+        finish?.(outcome.record);
         if (
           outcome.record.status === "unknown" ||
           outcome.record.status === "pending"
         ) {
-          setUnknownDraft(text);
+          refreshAfterFailure(outcome.record.error);
           return;
         }
         if (outcome.record.status === "failed") {
-          setSaveError(outcome.record.error ?? { code: "server" });
+          const failure = outcome.record.error ?? { code: "server" };
+          setSaveError(failure);
+          refreshAfterFailure(failure);
           return;
         }
         if (!outcome.result) {
-          setSaveError({ code: "stale_context" });
+          refreshAfterFailure({ code: "stale_context" });
+          closeEntry();
           return;
         }
         const recorded = outcome.result.records.map((record) =>
@@ -812,7 +920,16 @@ export function MemoryWorkspaceContent({
         setSavedNotice(true);
         closeEntry();
       } catch (error) {
+        const dispatched =
+          typeof error === "object" && error !== null && "dispatched" in error
+            ? error.dispatched
+            : undefined;
+        finish?.(
+          null,
+          typeof dispatched === "boolean" ? dispatched : undefined,
+        );
         setSaveError(error);
+        refreshAfterFailure(error);
       } finally {
         setSaving(false);
       }
@@ -1218,25 +1335,11 @@ export function MemoryWorkspaceContent({
             >
               <DialogHeader>
                 <DialogTitle>{t.newTitle}</DialogTitle>
-                {!saving && <DialogCloseButton label={t.cancel} />}
+                {!saving && <DialogCloseButton label={t.closeEntry} />}
               </DialogHeader>
               <DialogBody>
-                {unknownDraft === draft.trim() && (
-                  <PageFeedback
-                    compact
-                    kind="warning"
-                    title={t.saveUnknown}
-                    action={
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={() => setUnknownDraft(null)}
-                      >
-                        {t.allowRetry}
-                      </Button>
-                    }
-                  />
+                {retryBlocked && (
+                  <PageFeedback compact kind="warning" title={t.saveUnknown} />
                 )}
                 {saveError != null && (
                   <ErrorFeedback error={saveError} language={language} />
@@ -1252,7 +1355,14 @@ export function MemoryWorkspaceContent({
                   </div>
                   <div>
                     <dt>{t.currentSpace}</dt>
-                    <dd>{scopeTitle}</dd>
+                    <dd>
+                      {scopeTitle}
+                      {native && (
+                        <small className="block whitespace-normal break-all">
+                          {scopeId}
+                        </small>
+                      )}
+                    </dd>
                   </div>
                 </dl>
                 <Field>
@@ -1289,7 +1399,7 @@ export function MemoryWorkspaceContent({
                 </Button>
                 <Button
                   type="submit"
-                  disabled={saving || unknownDraft === draft.trim()}
+                  disabled={!canSave || saving || writePending || retryBlocked}
                 >
                   {saving ? t.saving : t.save}
                 </Button>

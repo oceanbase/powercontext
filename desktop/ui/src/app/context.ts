@@ -55,6 +55,15 @@ export function identityVerified(report: CheckReport | undefined): boolean {
     : !!report?.compatibilityVerified && !!report.identity.value;
 }
 
+export function connectionVerified(report: CheckReport | undefined): boolean {
+  return (
+    report?.liveness.value?.status === "ok" &&
+    !report.liveness.error &&
+    report.compatibilityVerified &&
+    identityVerified(report)
+  );
+}
+
 // Presentation only: operation authorization remains at the native boundary.
 export function activeCheckReport(state: DesktopState | null) {
   const active = state?.active;

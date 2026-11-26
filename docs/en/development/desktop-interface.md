@@ -98,6 +98,8 @@ Memories is a list. Search, status, source, sort, and record-memory stay fixed a
 
 Selecting a row opens a detail panel on the right and keeps the list on the left, so the user can move through items. The panel shows the memory content, source excerpts, and basic status. `Esc` or the close button returns to the list and restores focus to the original row.
 
+If the active connection no longer verifies its identity, clear the old memory list and details. When a save has an uncertain outcome, keep the submitted text and original service and space in a read-only recovery view for the current window. The user confirms a check of that target before sending the same text again. Display the space ID in both the picker and the save confirmation so spaces with the same name are distinguishable.
+
 ![Memory side detail with the list on the left and content plus source excerpts on the right](../../assets/desktop-interface/memories-detail-side.png)
 
 ### 5.3 Expanded detail
@@ -192,3 +194,5 @@ Every example name, address, time, and count is design mock data. The product re
 ## Implementation boundary
 
 This is a design and interaction description. The current mocks can show the interface completely. Memory listing, Agent management, model configuration, local service control, system notifications, and launch-at-login still need their formal interfaces or Tauri implementations. Accepting the screens does not accept those interfaces or the host behavior.
+
+Native connection management supports checking, editing, and removing saved local and remote connections. A connection check verifies reachability, identity, and compatibility. Readiness requires a separate probe. Service installation, Agent management, model configuration, service lifecycle, system notifications, and launch-at-login are unavailable in the corresponding native UI until wired to their owning interfaces.

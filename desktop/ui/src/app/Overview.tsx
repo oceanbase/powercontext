@@ -1,4 +1,18 @@
-/* Copyright (c) 2026 OceanBase. Licensed under the Apache License, Version 2.0. */
+/*
+ * Copyright (c) 2026 OceanBase.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 
 import {
   Field,
@@ -100,7 +114,7 @@ function AgentConnectionGuide({
 }: {
   language: Language;
   agent?: string;
-  onConnect: () => void;
+  onConnect?: () => void;
   onManage: () => void;
   onCaptureSaved: () => void;
   onDeleted: () => void;
@@ -189,8 +203,14 @@ function AgentConnectionGuide({
       </div>
       <div className="agent-setup-copy">
         <h2 id="agent-setup-title">{t.agentSetupTitle}</h2>
-        <p>{t.agentSetupHint}</p>
-        <Button size="sm" onClick={onConnect}>
+        <p>
+          {onConnect
+            ? t.agentSetupHint
+            : language === "zh"
+              ? "当前版本暂不支持在 Desktop 中连接 Agent。"
+              : "Connecting an Agent from Desktop is unavailable in this build."}
+        </p>
+        <Button size="sm" onClick={onConnect} disabled={!onConnect}>
           {t.configureAgent}
         </Button>
       </div>
@@ -1166,7 +1186,6 @@ function UsageDashboard({ state, language, contextPending, onState }: Props) {
   const [agentDialogMode, setAgentDialogMode] = useState<
     "connect" | "change" | null
   >(null);
-  const [agentBindings, setAgentBindings] = useState<AgentBinding[]>([]);
   const [agentSuccess, setAgentSuccess] = useState<
     "authorized" | "bindingChanged" | "captureSaved" | "deleted" | null
   >(null);
@@ -1179,11 +1198,7 @@ function UsageDashboard({ state, language, contextPending, onState }: Props) {
           scopeId: active.scope.scope_id,
         }
       : undefined
-    : agentBindings.find(
-        (binding) =>
-          binding.serviceId === active?.connectionId &&
-          binding.scopeId === active?.scope?.scope_id,
-      );
+    : undefined;
 
   useEffect(() => {
     setData(null);
@@ -1245,7 +1260,7 @@ function UsageDashboard({ state, language, contextPending, onState }: Props) {
         <AgentConnectionGuide
           language={language}
           agent={currentBinding?.agent}
-          onConnect={() => setAgentDialogMode("connect")}
+          onConnect={preview ? () => setAgentDialogMode("connect") : undefined}
           onManage={() => setAgentDialogMode("change")}
           onCaptureSaved={() => setAgentSuccess("captureSaved")}
           onDeleted={() => setAgentSuccess("deleted")}
@@ -1360,18 +1375,14 @@ function UsageDashboard({ state, language, contextPending, onState }: Props) {
           title={t.initial}
         />
       )}
-      {agentDialogMode && (
+      {preview && agentDialogMode && (
         <ConnectAgentDialog
           state={state}
           language={language}
           onState={onState}
           mode={agentDialogMode}
           onClose={() => setAgentDialogMode(null)}
-          onConnected={(binding) => {
-            setAgentBindings((current) => [
-              ...current.filter((item) => item.serviceId !== binding.serviceId),
-              binding,
-            ]);
+          onConnected={() => {
             setAgentSuccess(
               agentDialogMode === "change" ? "bindingChanged" : "authorized",
             );

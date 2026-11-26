@@ -1,4 +1,18 @@
-/* Copyright (c) 2026 OceanBase. Licensed under the Apache License, Version 2.0. */
+/*
+ * Copyright (c) 2026 OceanBase.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -19,7 +33,11 @@ import type {
 } from "../generated/ipc";
 import { desktopApi } from "../shared/ipc";
 import { connectionError } from "./connection-messages";
-import { activeCheckReport, connectionCheckReport } from "./context";
+import {
+  activeCheckReport,
+  connectionCheckReport,
+  connectionVerified,
+} from "./context";
 import { messages, type Language } from "./messages";
 import { previewScopes } from "./preview-data";
 
@@ -79,20 +97,20 @@ export function TopBar({
     ? "checking"
     : serviceUnavailable
       ? "unavailable"
-      : activeReport?.readiness.value?.status === "ready"
+      : connectionVerified(activeReport)
         ? "ready"
         : "unknown";
   const serviceStatusLabel =
     language === "zh"
       ? {
           checking: "正在检查",
-          ready: "服务正常",
+          ready: "连接可用",
           unavailable: "服务异常",
           unknown: "状态未知",
         }[serviceStatus]
       : {
           checking: "Checking",
-          ready: "Service ready",
+          ready: "Connection available",
           unavailable: "Service unavailable",
           unknown: "Status unknown",
         }[serviceStatus];
@@ -255,7 +273,7 @@ function ConnectionMenu({
         );
         const status = unavailable
           ? "unavailable"
-          : report?.readiness.value?.status === "ready"
+          : connectionVerified(report)
             ? "ready"
             : "unknown";
         const statusLabel =
@@ -367,7 +385,12 @@ function ScopeMenu({
             value={scope.scope_id}
             className="menu-item"
           >
-            {scope.title}
+            <span className="min-w-0">
+              <span className="block">{scope.title}</span>
+              {!preview && (
+                <small className="block break-all">{scope.scope_id}</small>
+              )}
+            </span>
           </DropdownMenuRadioItem>
         ))}
       </DropdownMenuRadioGroup>

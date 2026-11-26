@@ -1,4 +1,18 @@
-/* Copyright (c) 2026 OceanBase. Licensed under the Apache License, Version 2.0. */
+/*
+ * Copyright (c) 2026 OceanBase.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 
 import { FieldError } from "@/components/ui/field";
 import { useEffect, useRef, useState, type ReactNode } from "react";
@@ -49,6 +63,8 @@ import { useConfirmation } from "./useConfirmation";
 import { LocalServiceDeploymentDialog } from "./LocalServiceDeploymentDialog";
 import { AgentConnectionMenu } from "./AgentConnectionMenu";
 import { ConnectionRequiredGuide } from "./ConnectionRequiredGuide";
+import { connectionCheckReport, connectionVerified } from "./context";
+import { ErrorFeedback } from "./ErrorFeedback";
 import {
   buildServiceAgentWorkspaceModel,
   type ServiceAgent,
@@ -177,7 +193,7 @@ const copy = {
     confirmDeleteConnection: "确认删除连接",
     confirmDelete: "删除",
     deleteConfirmation:
-      "只删除 Desktop 中的连接配置，不停止远程服务，也不删除空间、Agent 或记忆。确定删除吗？",
+      "只删除 Desktop 中的连接配置，不停止服务，也不删除空间、Agent 或记忆。确定删除吗？",
     editTitle: "编辑连接",
     connectionName: "连接名称",
     serviceAddress: "服务地址",
@@ -192,8 +208,9 @@ const copy = {
     checkingConnection: "正在检查服务连接状态…",
     checkingLocalConnection: "正在检查本机服务连接状态…",
     connectionChecked: "连接状态正常",
-    connectionCheckedHint: "远程服务可访问，连接已准备就绪。",
-    localConnectionCheckedHint: "本机服务运行正常，连接已准备就绪。",
+    connectionCheckedHint:
+      "已验证服务可访问、连接身份和兼容性。尚未探测就绪状态。",
+    localConnectionCheckedHint: "已验证本机服务可访问。尚未探测就绪状态。",
     connectionIssueFound: "发现连接问题",
     connectionIssue: "当前无法正常连接到远程服务，请检查服务状态、网络或凭据。",
     localConnectionIssue: "当前无法连接到本机服务，请确认服务正在运行后重试。",
@@ -288,7 +305,7 @@ const copy = {
     confirmDeleteConnection: "Delete connection?",
     confirmDelete: "Delete",
     deleteConfirmation:
-      "This only removes the Desktop connection. It does not stop the remote service or delete spaces, Agents, or memories. Delete it?",
+      "This only removes the Desktop connection. It does not stop the service or delete spaces, Agents, or memories. Delete it?",
     editTitle: "Edit connection",
     connectionName: "Connection name",
     serviceAddress: "Service address",
@@ -304,9 +321,9 @@ const copy = {
     checkingLocalConnection: "Checking the local service connection…",
     connectionChecked: "Connection is healthy",
     connectionCheckedHint:
-      "The remote service is reachable and the connection is ready.",
+      "Desktop verified reachability, connection identity, and compatibility. Readiness has not been checked.",
     localConnectionCheckedHint:
-      "The local service is running and the connection is ready.",
+      "Desktop verified that the local service is reachable. Readiness has not been checked.",
     connectionIssueFound: "Connection issue found",
     connectionIssue:
       "Desktop cannot connect to the remote service. Check the service, network, or credential.",
@@ -399,13 +416,13 @@ export function ServiceAgentWorkspace({
   onModelConfigurationRequestHandled,
 }: Props) {
   const t = copy[language];
-  const localService = model.services.find(
-    (service) => service.kind === "local",
+  const localService = model.simulated
+    ? model.services.find((service) => service.kind === "local")
+    : undefined;
+  const savedServices = model.services.filter(
+    (service) => !model.simulated || service.kind === "remote",
   );
-  const remoteServices = model.services.filter(
-    (service) => service.kind === "remote",
-  );
-  const profiles = remoteServices.map((service) => service.profile);
+  const profiles = savedServices.map((service) => service.profile);
   const [connectOpen, setConnectOpen] = useState(false);
   const [deployOpen, setDeployOpen] = useState(false);
   const [agentDialog, setAgentDialog] = useState<{
@@ -495,9 +512,13 @@ export function ServiceAgentWorkspace({
 
   useEffect(() => {
     if (!modelConfigurationRequest) return;
-    setModelConfigTarget(modelConfigurationRequest);
+    if (model.simulated) setModelConfigTarget(modelConfigurationRequest);
     onModelConfigurationRequestHandled?.();
-  }, [modelConfigurationRequest, onModelConfigurationRequestHandled]);
+  }, [
+    model.simulated,
+    modelConfigurationRequest,
+    onModelConfigurationRequestHandled,
+  ]);
 
   useEffect(() => {
     setLocalServicePresent(!!localService);
@@ -530,10 +551,10 @@ export function ServiceAgentWorkspace({
   const [hiddenRemoteServiceIds, setHiddenRemoteServiceIds] = useState<
     string[]
   >([]);
-  const visibleRemoteServices = remoteServices.filter(
+  const visibleServices = savedServices.filter(
     (service) => !hiddenRemoteServiceIds.includes(service.profile.id),
   );
-  const hasAnyService = localServicePresent || visibleRemoteServices.length > 0;
+  const hasAnyService = localServicePresent || visibleServices.length > 0;
 
   async function startLocalService() {
     if (
@@ -640,384 +661,395 @@ export function ServiceAgentWorkspace({
           </header>
 
           <div className="service-accordion">
-            <section className="service-connection">
-              <ServiceHeader
-                name={localConnectionName}
-                actions={
-                  localServicePresent ? (
-                    <div className="service-header-actions">
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <span
-                            title={
-                              localRestarting
-                                ? t.restartingUnavailable
-                                : undefined
-                            }
-                          >
-                            <Button
-                              size="icon-sm"
-                              variant="outline"
-                              aria-label={t.moreActions}
-                              disabled={localRestarting}
+            {model.simulated && (
+              <section className="service-connection">
+                <ServiceHeader
+                  name={localConnectionName}
+                  actions={
+                    localServicePresent ? (
+                      <div className="service-header-actions">
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <span
+                              title={
+                                localRestarting
+                                  ? t.restartingUnavailable
+                                  : undefined
+                              }
                             >
-                              <Ellipsis aria-hidden="true" />
-                            </Button>
-                          </span>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          {localRunning ? (
-                            <>
-                              <DropdownMenuItem
-                                onSelect={(event) => {
-                                  if (
-                                    event.currentTarget instanceof HTMLElement
-                                  )
-                                    onCreateSpace?.(event.currentTarget);
-                                }}
+                              <Button
+                                size="icon-sm"
+                                variant="outline"
+                                aria-label={t.moreActions}
+                                disabled={localRestarting}
                               >
-                                {language === "zh"
-                                  ? "创建记忆空间"
-                                  : "Create memory space"}
-                              </DropdownMenuItem>
-                              <DropdownMenuSeparator className="service-menu-separator" />
-                              <DropdownMenuItem
-                                onSelect={() => setLocalEditOpen(true)}
-                              >
-                                {t.editConnection}
-                              </DropdownMenuItem>
-                              <DropdownMenuItem
-                                onSelect={() => void checkLocalConnection()}
-                              >
-                                {t.checkConnection}
-                              </DropdownMenuItem>
-                              <DropdownMenuSeparator className="service-menu-separator" />
-                              <DropdownMenuItem
-                                onSelect={() => void restartLocalService()}
-                              >
-                                {t.restartService}
-                              </DropdownMenuItem>
-                              <DropdownMenuItem
-                                onSelect={() => void stopLocalService()}
-                              >
-                                {t.stopService}
-                              </DropdownMenuItem>
-                            </>
-                          ) : (
-                            <>
-                              <DropdownMenuItem
-                                onSelect={() => setLocalEditOpen(true)}
-                              >
-                                {t.editConnection}
-                              </DropdownMenuItem>
-                              <DropdownMenuItem
-                                onSelect={() => void checkLocalConnection()}
-                              >
-                                {t.checkConnection}
-                              </DropdownMenuItem>
-                              <DropdownMenuSeparator className="service-menu-separator" />
-                              <DropdownMenuItem
-                                onSelect={() => void startLocalService()}
-                              >
-                                {t.startService}
-                              </DropdownMenuItem>
-                            </>
-                          )}
-                          <DropdownMenuSeparator className="service-menu-separator" />
-                          <DropdownMenuItem
-                            destructive
-                            onSelect={() => void deleteLocalConnection()}
-                          >
-                            {t.deleteConnection}
-                          </DropdownMenuItem>
-                          <DropdownMenuItem
-                            destructive
-                            onSelect={() => void deleteLocalService()}
-                          >
-                            {t.deleteLocalService}
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </div>
-                  ) : undefined
-                }
-              />
-              {localServicePresent ? (
-                <div className="local-service-cards">
-                  <ServiceMetadataCard
-                    type={t.localType}
-                    status={
-                      localRestarting
-                        ? t.restarting
-                        : localRunning
-                          ? t.running
-                          : t.stopped
-                    }
-                    address={localProfile.endpoint}
-                    statusTone={
-                      localRestarting
-                        ? "neutral"
-                        : localRunning
-                          ? "success"
-                          : "neutral"
-                    }
-                    labels={{
-                      type: t.serviceType,
-                      status: t.serviceStatus,
-                      address: t.serviceAddressLabel,
-                    }}
-                  />
-                  <section className="service-accordion-panel local-agent-panel">
-                    <header className="service-agent-list-heading">
-                      <p className="service-agent-list-description">
-                        {t.agentListDescription}
-                      </p>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        disabled={localRestarting}
-                        title={
-                          localRestarting ? t.restartingUnavailable : undefined
-                        }
-                        onClick={() =>
-                          setAgentDialog({
-                            profileId: localProfile.id,
-                            mode: "connect",
-                          })
-                        }
-                      >
-                        {t.connectLocalAgent}
-                      </Button>
-                    </header>
-                    {localAgentConnected ? (
-                      <ul className="connected-agent-list service-connected-agent-list">
-                        {visibleLocalAgents.map((agent) => (
-                          <li key={agent.name}>
-                            <span className="connected-agent-identity">
-                              <span className="connected-agent-name">
-                                <span className="connected-agent-name-line">
-                                  <strong>{agent.name}</strong>
-                                  <span className="connected-agent-status connected-agent-detail">
-                                    <span className="status-dot success" />
-                                    {language === "zh" ? "已连接" : "Connected"}
-                                    {localAgentsNotCapturing.includes(
-                                      agent.name,
-                                    ) &&
-                                      (language === "zh"
-                                        ? " | 未采集消息"
-                                        : " | Messages not captured")}
+                                <Ellipsis aria-hidden="true" />
+                              </Button>
+                            </span>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            {localRunning ? (
+                              <>
+                                <DropdownMenuItem
+                                  onSelect={(event) => {
+                                    if (
+                                      event.currentTarget instanceof HTMLElement
+                                    )
+                                      onCreateSpace?.(event.currentTarget);
+                                  }}
+                                >
+                                  {language === "zh"
+                                    ? "创建记忆空间"
+                                    : "Create memory space"}
+                                </DropdownMenuItem>
+                                <DropdownMenuSeparator className="service-menu-separator" />
+                                <DropdownMenuItem
+                                  onSelect={() => setLocalEditOpen(true)}
+                                >
+                                  {t.editConnection}
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
+                                  onSelect={() => void checkLocalConnection()}
+                                >
+                                  {t.checkConnection}
+                                </DropdownMenuItem>
+                                <DropdownMenuSeparator className="service-menu-separator" />
+                                <DropdownMenuItem
+                                  onSelect={() => void restartLocalService()}
+                                >
+                                  {t.restartService}
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
+                                  onSelect={() => void stopLocalService()}
+                                >
+                                  {t.stopService}
+                                </DropdownMenuItem>
+                              </>
+                            ) : (
+                              <>
+                                <DropdownMenuItem
+                                  onSelect={() => setLocalEditOpen(true)}
+                                >
+                                  {t.editConnection}
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
+                                  onSelect={() => void checkLocalConnection()}
+                                >
+                                  {t.checkConnection}
+                                </DropdownMenuItem>
+                                <DropdownMenuSeparator className="service-menu-separator" />
+                                <DropdownMenuItem
+                                  onSelect={() => void startLocalService()}
+                                >
+                                  {t.startService}
+                                </DropdownMenuItem>
+                              </>
+                            )}
+                            <DropdownMenuSeparator className="service-menu-separator" />
+                            <DropdownMenuItem
+                              destructive
+                              onSelect={() => void deleteLocalConnection()}
+                            >
+                              {t.deleteConnection}
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              destructive
+                              onSelect={() => void deleteLocalService()}
+                            >
+                              {t.deleteLocalService}
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </div>
+                    ) : undefined
+                  }
+                />
+                {localServicePresent ? (
+                  <div className="local-service-cards">
+                    <ServiceMetadataCard
+                      type={t.localType}
+                      status={
+                        localRestarting
+                          ? t.restarting
+                          : localRunning
+                            ? t.running
+                            : t.stopped
+                      }
+                      address={localProfile.endpoint}
+                      statusTone={
+                        localRestarting
+                          ? "neutral"
+                          : localRunning
+                            ? "success"
+                            : "neutral"
+                      }
+                      labels={{
+                        type: t.serviceType,
+                        status: t.serviceStatus,
+                        address: t.serviceAddressLabel,
+                      }}
+                    />
+                    <section className="service-accordion-panel local-agent-panel">
+                      <header className="service-agent-list-heading">
+                        <p className="service-agent-list-description">
+                          {t.agentListDescription}
+                        </p>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={localRestarting}
+                          title={
+                            localRestarting
+                              ? t.restartingUnavailable
+                              : undefined
+                          }
+                          onClick={() =>
+                            setAgentDialog({
+                              profileId: localProfile.id,
+                              mode: "connect",
+                            })
+                          }
+                        >
+                          {t.connectLocalAgent}
+                        </Button>
+                      </header>
+                      {localAgentConnected ? (
+                        <ul className="connected-agent-list service-connected-agent-list">
+                          {visibleLocalAgents.map((agent) => (
+                            <li key={agent.name}>
+                              <span className="connected-agent-identity">
+                                <span className="connected-agent-name">
+                                  <span className="connected-agent-name-line">
+                                    <strong>{agent.name}</strong>
+                                    <span className="connected-agent-status connected-agent-detail">
+                                      <span className="status-dot success" />
+                                      {language === "zh"
+                                        ? "已连接"
+                                        : "Connected"}
+                                      {localAgentsNotCapturing.includes(
+                                        agent.name,
+                                      ) &&
+                                        (language === "zh"
+                                          ? " | 未采集消息"
+                                          : " | Messages not captured")}
+                                    </span>
+                                  </span>
+                                  <span className="connected-agent-project connected-agent-detail">
+                                    {language === "zh" ? "项目" : "Project"}：
+                                    {agent.project}
                                   </span>
                                 </span>
-                                <span className="connected-agent-project connected-agent-detail">
-                                  {language === "zh" ? "项目" : "Project"}：
-                                  {agent.project}
+                              </span>
+                              <span className="connected-agent-basic-info">
+                                <span className="connected-agent-space connected-agent-detail">
+                                  {agent.space}
+                                </span>
+                                <span className="connected-agent-time connected-agent-detail">
+                                  {agent.lastWrite}
                                 </span>
                               </span>
-                            </span>
-                            <span className="connected-agent-basic-info">
-                              <span className="connected-agent-space connected-agent-detail">
-                                {agent.space}
-                              </span>
-                              <span className="connected-agent-time connected-agent-detail">
-                                {agent.lastWrite}
-                              </span>
-                            </span>
-                            <AgentConnectionMenu
-                              agent={agent.name}
-                              language={language}
-                              disabled={localRestarting}
-                              disabledReason={t.restartingUnavailable}
-                              onChangeBinding={() =>
-                                setAgentDialog({
-                                  profileId: localProfile.id,
-                                  mode: "change",
-                                })
-                              }
-                              onDelete={() =>
-                                setHiddenLocalAgents((current) => [
-                                  ...current,
-                                  agent.id,
-                                ])
-                              }
-                              onDeleted={() =>
-                                notifySuccess("agentConnectionDeleted")
-                              }
-                              onCaptureChange={(enabled) =>
-                                setLocalAgentsNotCapturing((current) =>
-                                  enabled
-                                    ? current.filter(
-                                        (name) => name !== agent.name,
-                                      )
-                                    : [...new Set([...current, agent.name])],
-                                )
-                              }
-                              onCaptureSaved={(enabled) =>
-                                notifySuccess(
-                                  "captureSettingsSaved",
-                                  localConnectionName,
-                                  agent.name,
-                                  enabled,
-                                )
-                              }
-                            />
-                          </li>
-                        ))}
-                      </ul>
-                    ) : (
-                      <div className="service-agent-list-empty">
-                        {t.noLocalAgents}
+                              <AgentConnectionMenu
+                                agent={agent.name}
+                                language={language}
+                                disabled={localRestarting}
+                                disabledReason={t.restartingUnavailable}
+                                onChangeBinding={() =>
+                                  setAgentDialog({
+                                    profileId: localProfile.id,
+                                    mode: "change",
+                                  })
+                                }
+                                onDelete={() =>
+                                  setHiddenLocalAgents((current) => [
+                                    ...current,
+                                    agent.id,
+                                  ])
+                                }
+                                onDeleted={() =>
+                                  notifySuccess("agentConnectionDeleted")
+                                }
+                                onCaptureChange={(enabled) =>
+                                  setLocalAgentsNotCapturing((current) =>
+                                    enabled
+                                      ? current.filter(
+                                          (name) => name !== agent.name,
+                                        )
+                                      : [...new Set([...current, agent.name])],
+                                  )
+                                }
+                                onCaptureSaved={(enabled) =>
+                                  notifySuccess(
+                                    "captureSettingsSaved",
+                                    localConnectionName,
+                                    agent.name,
+                                    enabled,
+                                  )
+                                }
+                              />
+                            </li>
+                          ))}
+                        </ul>
+                      ) : (
+                        <div className="service-agent-list-empty">
+                          {t.noLocalAgents}
+                        </div>
+                      )}
+                    </section>
+                    <section className="service-accordion-panel local-settings-panel">
+                      <div className="local-setting-row">
+                        <div>
+                          <strong>{t.startupTitle}</strong>
+                          <p>{t.startupDescription}</p>
+                        </div>
+                        <Switch
+                          checked={startOnLogin}
+                          disabled={localRestarting}
+                          title={
+                            localRestarting
+                              ? t.restartingUnavailable
+                              : undefined
+                          }
+                          onCheckedChange={setStartOnLogin}
+                          aria-label={t.startupTitle}
+                        />
                       </div>
-                    )}
-                  </section>
-                  <section className="service-accordion-panel local-settings-panel">
-                    <div className="local-setting-row">
-                      <div>
-                        <strong>{t.startupTitle}</strong>
-                        <p>{t.startupDescription}</p>
+                      <div
+                        className="local-model-settings"
+                        ref={modelListRef}
+                        tabIndex={-1}
+                      >
+                        <header>
+                          <div>
+                            <strong>{t.modelConfiguration}</strong>
+                            <p>{t.modelConfigurationDescription}</p>
+                          </div>
+                        </header>
+                        <dl>
+                          <div>
+                            <dt>{t.generationModel}</dt>
+                            <dd data-configured={configuredModels.generation}>
+                              {configuredModels.generation && (
+                                <span>{generationModelName}</span>
+                              )}
+                              <small
+                                data-configured={configuredModels.generation}
+                              >
+                                {configuredModels.generation
+                                  ? t.configured
+                                  : t.notConfigured}
+                              </small>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                aria-label={
+                                  configuredModels.generation
+                                    ? language === "zh"
+                                      ? "修改生成模型"
+                                      : "Edit generation model"
+                                    : language === "zh"
+                                      ? "配置生成模型"
+                                      : "Configure generation model"
+                                }
+                                disabled={localRestarting}
+                                title={
+                                  localRestarting
+                                    ? t.restartingUnavailable
+                                    : undefined
+                                }
+                                onClick={() =>
+                                  configuredModels.generation
+                                    ? setModelEditTarget("generation")
+                                    : setModelConfigTarget("generation")
+                                }
+                              >
+                                {configuredModels.generation
+                                  ? language === "zh"
+                                    ? "修改"
+                                    : "Edit"
+                                  : language === "zh"
+                                    ? "配置"
+                                    : "Configure"}
+                              </Button>
+                            </dd>
+                          </div>
+                          <div>
+                            <dt>{t.embeddingModel}</dt>
+                            <dd data-configured={configuredModels.embedding}>
+                              {configuredModels.embedding && (
+                                <span>text-embedding-v3</span>
+                              )}
+                              <small
+                                data-configured={configuredModels.embedding}
+                              >
+                                {configuredModels.embedding
+                                  ? t.configured
+                                  : t.notConfigured}
+                              </small>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                aria-label={
+                                  configuredModels.embedding
+                                    ? language === "zh"
+                                      ? "修改嵌入模型"
+                                      : "Edit embedding model"
+                                    : language === "zh"
+                                      ? "配置嵌入模型"
+                                      : "Configure embedding model"
+                                }
+                                disabled={localRestarting}
+                                title={
+                                  localRestarting
+                                    ? t.restartingUnavailable
+                                    : undefined
+                                }
+                                onClick={() =>
+                                  configuredModels.embedding
+                                    ? setModelEditTarget("embedding")
+                                    : setModelConfigTarget("embedding")
+                                }
+                              >
+                                {configuredModels.embedding
+                                  ? language === "zh"
+                                    ? "修改"
+                                    : "Edit"
+                                  : language === "zh"
+                                    ? "配置"
+                                    : "Configure"}
+                              </Button>
+                            </dd>
+                          </div>
+                        </dl>
                       </div>
-                      <Switch
-                        checked={startOnLogin}
-                        disabled={localRestarting}
-                        title={
-                          localRestarting ? t.restartingUnavailable : undefined
-                        }
-                        onCheckedChange={setStartOnLogin}
-                        aria-label={t.startupTitle}
-                      />
-                    </div>
-                    <div
-                      className="local-model-settings"
-                      ref={modelListRef}
-                      tabIndex={-1}
-                    >
-                      <header>
-                        <div>
-                          <strong>{t.modelConfiguration}</strong>
-                          <p>{t.modelConfigurationDescription}</p>
-                        </div>
-                      </header>
-                      <dl>
-                        <div>
-                          <dt>{t.generationModel}</dt>
-                          <dd data-configured={configuredModels.generation}>
-                            {configuredModels.generation && (
-                              <span>{generationModelName}</span>
-                            )}
-                            <small
-                              data-configured={configuredModels.generation}
-                            >
-                              {configuredModels.generation
-                                ? t.configured
-                                : t.notConfigured}
-                            </small>
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              aria-label={
-                                configuredModels.generation
-                                  ? language === "zh"
-                                    ? "修改生成模型"
-                                    : "Edit generation model"
-                                  : language === "zh"
-                                    ? "配置生成模型"
-                                    : "Configure generation model"
-                              }
-                              disabled={localRestarting}
-                              title={
-                                localRestarting
-                                  ? t.restartingUnavailable
-                                  : undefined
-                              }
-                              onClick={() =>
-                                configuredModels.generation
-                                  ? setModelEditTarget("generation")
-                                  : setModelConfigTarget("generation")
-                              }
-                            >
-                              {configuredModels.generation
-                                ? language === "zh"
-                                  ? "修改"
-                                  : "Edit"
-                                : language === "zh"
-                                  ? "配置"
-                                  : "Configure"}
-                            </Button>
-                          </dd>
-                        </div>
-                        <div>
-                          <dt>{t.embeddingModel}</dt>
-                          <dd data-configured={configuredModels.embedding}>
-                            {configuredModels.embedding && (
-                              <span>text-embedding-v3</span>
-                            )}
-                            <small data-configured={configuredModels.embedding}>
-                              {configuredModels.embedding
-                                ? t.configured
-                                : t.notConfigured}
-                            </small>
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              aria-label={
-                                configuredModels.embedding
-                                  ? language === "zh"
-                                    ? "修改嵌入模型"
-                                    : "Edit embedding model"
-                                  : language === "zh"
-                                    ? "配置嵌入模型"
-                                    : "Configure embedding model"
-                              }
-                              disabled={localRestarting}
-                              title={
-                                localRestarting
-                                  ? t.restartingUnavailable
-                                  : undefined
-                              }
-                              onClick={() =>
-                                configuredModels.embedding
-                                  ? setModelEditTarget("embedding")
-                                  : setModelConfigTarget("embedding")
-                              }
-                            >
-                              {configuredModels.embedding
-                                ? language === "zh"
-                                  ? "修改"
-                                  : "Edit"
-                                : language === "zh"
-                                  ? "配置"
-                                  : "Configure"}
-                            </Button>
-                          </dd>
-                        </div>
-                      </dl>
-                    </div>
-                  </section>
-                </div>
-              ) : (
-                <section className="service-accordion-panel local-empty-panel">
-                  <div className="service-agent-empty">
-                    <p>{t.localEmpty}</p>
-                    <Button
-                      size="sm"
-                      onClick={() => {
-                        if (model.simulated) {
-                          setLocalServicePresent(true);
-                          setLocalRunning(true);
-                        }
-                        onDeployLocal?.();
-                      }}
-                    >
-                      {t.deployLocal}
-                    </Button>
+                    </section>
                   </div>
-                </section>
-              )}
-            </section>
+                ) : (
+                  <section className="service-accordion-panel local-empty-panel">
+                    <div className="service-agent-empty">
+                      <p>{t.localEmpty}</p>
+                      <Button
+                        size="sm"
+                        onClick={() => {
+                          if (model.simulated) {
+                            setLocalServicePresent(true);
+                            setLocalRunning(true);
+                          }
+                          onDeployLocal?.();
+                        }}
+                      >
+                        {t.deployLocal}
+                      </Button>
+                    </div>
+                  </section>
+                )}
+              </section>
+            )}
 
-            {visibleRemoteServices.map((service) => (
-              <RemoteService
+            {visibleServices.map((service) => (
+              <SavedService
                 key={service.profile.id}
                 profile={service.profile}
+                kind={service.kind}
                 state={state}
                 language={language}
                 agents={service.agents}
@@ -1030,10 +1062,11 @@ export function ServiceAgentWorkspace({
                 }
                 onState={onState}
                 onDeleted={() => {
-                  setHiddenRemoteServiceIds((current) => [
-                    ...current,
-                    service.profile.id,
-                  ]);
+                  if (service.simulated)
+                    setHiddenRemoteServiceIds((current) => [
+                      ...current,
+                      service.profile.id,
+                    ]);
                   notifySuccess("deleteConnection", service.profile.name);
                 }}
                 onAgentDeleted={() =>
@@ -1070,15 +1103,10 @@ export function ServiceAgentWorkspace({
       {deployOpen && (
         <LocalServiceDeploymentDialog
           language={language}
+          available={model.simulated}
           onClose={() => setDeployOpen(false)}
           run={async (signal) => {
             if (signal.aborted) return;
-            if (!model.simulated)
-              throw new Error(
-                language === "zh"
-                  ? "当前构建尚未接入本机安装执行器。"
-                  : "This build is not connected to the local installer yet.",
-              );
             await new Promise<void>((resolve, reject) => {
               const timer = window.setTimeout(resolve, 650);
               signal.addEventListener(
@@ -1100,7 +1128,7 @@ export function ServiceAgentWorkspace({
           }}
         />
       )}
-      {agentDialog && (
+      {model.simulated && agentDialog && (
         <ConnectAgentDialog
           state={state}
           language={language}
@@ -1173,7 +1201,7 @@ export function ServiceAgentWorkspace({
           onClose={() => setLocalCheckResult("idle")}
         />
       )}
-      {modelConfigTarget && (
+      {model.simulated && modelConfigTarget && (
         <ModelConfigurationDialog
           language={language}
           target={modelConfigTarget}
@@ -1194,7 +1222,7 @@ export function ServiceAgentWorkspace({
           }}
         />
       )}
-      {modelEditTarget && (
+      {model.simulated && modelEditTarget && (
         <ModelEditDialog
           language={language}
           target={modelEditTarget}
@@ -1269,8 +1297,9 @@ function ServiceMetadataCard({
   );
 }
 
-function RemoteService({
+function SavedService({
   profile,
+  kind,
   state,
   language,
   agents,
@@ -1283,6 +1312,7 @@ function RemoteService({
   onCreateSpace,
 }: {
   profile: ProfileView;
+  kind: "local" | "remote";
   state: DesktopState | null;
   language: Language;
   agents: ServiceAgent[];
@@ -1301,18 +1331,17 @@ function RemoteService({
     "idle" | "checking" | "passed" | "failed"
   >("idle");
   const [editOpen, setEditOpen] = useState(false);
+  const [actionError, setActionError] = useState<unknown>(null);
   const [displayName, setDisplayName] = useState(profile.name);
   const [hiddenAgentIds, setHiddenAgentIds] = useState<string[]>([]);
   const [agentIdsNotCapturing, setAgentIdsNotCapturing] = useState<string[]>(
     [],
   );
-  const report = state?.reports.find(
-    (item) => item.connectionId === profile.id,
-  );
-  const hasError = !!report?.liveness.error || !!report?.readiness.error;
-  const ready = report?.readiness.value?.status === "ready";
-  const status = hasError ? t.attention : ready ? t.ready : t.unchecked;
-  const statusTone = hasError ? "danger" : ready ? "success" : "neutral";
+  const report = connectionCheckReport(state, profile.id);
+  const verified = connectionVerified(report);
+  const hasError = !!report && !verified;
+  const status = hasError ? t.attention : verified ? t.ready : t.unchecked;
+  const statusTone = hasError ? "danger" : verified ? "success" : "neutral";
   useEffect(() => setDisplayName(profile.name), [profile.name]);
 
   async function checkConnection() {
@@ -1327,13 +1356,8 @@ function RemoteService({
       }
       const next = await desktopApi.check(profile.id, false);
       onState(next);
-      const nextReport = next.reports.find(
-        (item) => item.connectionId === profile.id,
-      );
       setCheckResult(
-        !nextReport?.liveness.error &&
-          !nextReport?.readiness.error &&
-          nextReport?.readiness.value?.status === "ready"
+        connectionVerified(connectionCheckReport(next, profile.id))
           ? "passed"
           : "failed",
       );
@@ -1361,11 +1385,12 @@ function RemoteService({
       return;
     }
     setBusy("delete");
+    setActionError(null);
     try {
       onState(await desktopApi.remove(profile.id, profile.revision));
       onDeleted();
-    } catch {
-      // Keep the connection visible when removal fails.
+    } catch (error) {
+      setActionError(error);
     } finally {
       setBusy(null);
     }
@@ -1389,15 +1414,21 @@ function RemoteService({
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
-                  <DropdownMenuItem
-                    onSelect={(event) => {
-                      if (event.currentTarget instanceof HTMLElement)
-                        onCreateSpace?.(event.currentTarget);
-                    }}
-                  >
-                    {language === "zh" ? "创建记忆空间" : "Create memory space"}
-                  </DropdownMenuItem>
-                  <DropdownMenuSeparator className="service-menu-separator" />
+                  {onCreateSpace && (
+                    <>
+                      <DropdownMenuItem
+                        onSelect={(event) => {
+                          if (event.currentTarget instanceof HTMLElement)
+                            onCreateSpace?.(event.currentTarget);
+                        }}
+                      >
+                        {language === "zh"
+                          ? "创建记忆空间"
+                          : "Create memory space"}
+                      </DropdownMenuItem>
+                      <DropdownMenuSeparator className="service-menu-separator" />
+                    </>
+                  )}
                   <DropdownMenuItem onSelect={() => setEditOpen(true)}>
                     {t.editConnection}
                   </DropdownMenuItem>
@@ -1421,7 +1452,7 @@ function RemoteService({
           }
         />
         <ServiceMetadataCard
-          type={t.remote}
+          type={kind === "local" ? t.localType : t.remote}
           status={status}
           address={profile.endpoint}
           statusTone={statusTone}
@@ -1431,82 +1462,93 @@ function RemoteService({
             address: t.serviceAddressLabel,
           }}
         />
-        <section className="service-accordion-panel remote">
-          <header className="service-agent-list-heading">
-            <p className="service-agent-list-description">
-              {t.agentListDescription}
-            </p>
-            <Button size="sm" variant="outline" onClick={onConnectAgent}>
-              {t.connectLocalAgent}
-            </Button>
-          </header>
-          <section className="service-agent-list-section">
-            {agents.some((agent) => !hiddenAgentIds.includes(agent.id)) ? (
-              <ul className="connected-agent-list service-connected-agent-list">
-                {agents
-                  .filter((agent) => !hiddenAgentIds.includes(agent.id))
-                  .map((agent) => (
-                    <li key={agent.id}>
-                      <span className="connected-agent-identity">
-                        <span className="connected-agent-name">
-                          <span className="connected-agent-name-line">
-                            <strong>{agent.name}</strong>
-                            <span className="connected-agent-status connected-agent-detail">
-                              <span className="status-dot success" />
-                              {language === "zh" ? "已连接" : "Connected"}
-                              {agentIdsNotCapturing.includes(agent.id) &&
-                                (language === "zh"
-                                  ? " | 未采集消息"
-                                  : " | Messages not captured")}
+        {actionError != null && (
+          <ErrorFeedback error={actionError} language={language} />
+        )}
+        {simulated && (
+          <section className="service-accordion-panel remote">
+            <header className="service-agent-list-heading">
+              <p className="service-agent-list-description">
+                {t.agentListDescription}
+              </p>
+              <Button size="sm" variant="outline" onClick={onConnectAgent}>
+                {t.connectLocalAgent}
+              </Button>
+            </header>
+            <section className="service-agent-list-section">
+              {agents.some((agent) => !hiddenAgentIds.includes(agent.id)) ? (
+                <ul className="connected-agent-list service-connected-agent-list">
+                  {agents
+                    .filter((agent) => !hiddenAgentIds.includes(agent.id))
+                    .map((agent) => (
+                      <li key={agent.id}>
+                        <span className="connected-agent-identity">
+                          <span className="connected-agent-name">
+                            <span className="connected-agent-name-line">
+                              <strong>{agent.name}</strong>
+                              <span className="connected-agent-status connected-agent-detail">
+                                <span className="status-dot success" />
+                                {language === "zh" ? "已连接" : "Connected"}
+                                {agentIdsNotCapturing.includes(agent.id) &&
+                                  (language === "zh"
+                                    ? " | 未采集消息"
+                                    : " | Messages not captured")}
+                              </span>
+                            </span>
+                            <span className="connected-agent-project connected-agent-detail">
+                              {language === "zh" ? "项目" : "Project"}：
+                              {agent.project}
                             </span>
                           </span>
-                          <span className="connected-agent-project connected-agent-detail">
-                            {language === "zh" ? "项目" : "Project"}：
-                            {agent.project}
+                        </span>
+                        <span className="connected-agent-basic-info">
+                          <span className="connected-agent-space connected-agent-detail">
+                            {agent.space}
+                          </span>
+                          <span className="connected-agent-time connected-agent-detail">
+                            {agent.lastWrite}
                           </span>
                         </span>
-                      </span>
-                      <span className="connected-agent-basic-info">
-                        <span className="connected-agent-space connected-agent-detail">
-                          {agent.space}
-                        </span>
-                        <span className="connected-agent-time connected-agent-detail">
-                          {agent.lastWrite}
-                        </span>
-                      </span>
-                      <AgentConnectionMenu
-                        agent={agent.name}
-                        language={language}
-                        onChangeBinding={onConnectAgent}
-                        onDelete={() =>
-                          setHiddenAgentIds((current) => [...current, agent.id])
-                        }
-                        onDeleted={onAgentDeleted}
-                        onCaptureChange={(enabled) =>
-                          setAgentIdsNotCapturing((current) =>
-                            enabled
-                              ? current.filter((id) => id !== agent.id)
-                              : [...new Set([...current, agent.id])],
-                          )
-                        }
-                        onCaptureSaved={(enabled) =>
-                          onCaptureSaved(agent.name, enabled)
-                        }
-                      />
-                    </li>
-                  ))}
-              </ul>
-            ) : (
-              <div className="service-agent-list-empty">{t.noLocalAgents}</div>
-            )}
+                        <AgentConnectionMenu
+                          agent={agent.name}
+                          language={language}
+                          onChangeBinding={onConnectAgent}
+                          onDelete={() =>
+                            setHiddenAgentIds((current) => [
+                              ...current,
+                              agent.id,
+                            ])
+                          }
+                          onDeleted={onAgentDeleted}
+                          onCaptureChange={(enabled) =>
+                            setAgentIdsNotCapturing((current) =>
+                              enabled
+                                ? current.filter((id) => id !== agent.id)
+                                : [...new Set([...current, agent.id])],
+                            )
+                          }
+                          onCaptureSaved={(enabled) =>
+                            onCaptureSaved(agent.name, enabled)
+                          }
+                        />
+                      </li>
+                    ))}
+                </ul>
+              ) : (
+                <div className="service-agent-list-empty">
+                  {t.noLocalAgents}
+                </div>
+              )}
+            </section>
           </section>
-        </section>
+        )}
       </section>
       {editOpen && (
         <EditConnectionDialog
           profile={{ ...profile, name: displayName }}
           language={language}
           simulated={simulated}
+          lockIdentity={kind === "local"}
           onState={onState}
           onPreviewSave={({ name }) => setDisplayName(name)}
           onClose={() => setEditOpen(false)}
@@ -1516,6 +1558,7 @@ function RemoteService({
         <ConnectionCheckDialog
           result={checkResult}
           language={language}
+          serviceType={kind}
           onClose={() => setCheckResult("idle")}
         />
       )}

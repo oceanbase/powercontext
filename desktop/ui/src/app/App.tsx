@@ -15,7 +15,14 @@
  */
 
 import { Field, FieldError, FieldLabel } from "@/components/ui/field";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { isTauri } from "@tauri-apps/api/core";
 import { resolvePreviewMode } from "./preview-mode";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -28,6 +35,10 @@ import logo from "../../../src-tauri/icons/brand.png";
 import { TopBar } from "./TopBar";
 import { Overview, QuickConnectDialog } from "./Overview";
 import { MemoryWorkspace } from "./MemoryWorkspace";
+import {
+  MemoryWriteRecovery,
+  useMemorySubmissions,
+} from "./memory-submissions";
 import { SettingsPage } from "./SettingsPage";
 import {
   loadDesktopPreferences,
@@ -203,31 +214,35 @@ export function App() {
     // Pending operations may finish after their editor has unmounted.
     setPendingConnections((current) => current + (pending ? 1 : -1));
   }
-  function receiveState(next: DesktopState) {
-    if (
-      currentState.current &&
-      next.generation < currentState.current.generation
-    )
-      return false;
-    currentState.current = next;
-    setDesktop(next);
-    if (!previewMode && next.active?.scope) {
-      globalThis.localStorage?.setItem(
-        "active-connection-id",
-        next.active.connectionId,
-      );
-      globalThis.localStorage?.setItem(
-        "active-scope-id",
-        next.active.scope.scope_id,
-      );
-    }
-    if (previewMode && next.active?.connectionId.startsWith("preview-")) {
-      setPreviewConnected(true);
-      setPreviewConnectionId(next.active.connectionId);
-      setPreviewScopeId(next.active.scope?.scope_id ?? previewEmptyScopeId);
-    }
-    return true;
-  }
+  const receiveState = useCallback(
+    (next: DesktopState) => {
+      if (
+        currentState.current &&
+        next.generation < currentState.current.generation
+      )
+        return false;
+      currentState.current = next;
+      setDesktop(next);
+      if (!previewMode && next.active?.scope) {
+        globalThis.localStorage?.setItem(
+          "active-connection-id",
+          next.active.connectionId,
+        );
+        globalThis.localStorage?.setItem(
+          "active-scope-id",
+          next.active.scope.scope_id,
+        );
+      }
+      if (previewMode && next.active?.connectionId.startsWith("preview-")) {
+        setPreviewConnected(true);
+        setPreviewConnectionId(next.active.connectionId);
+        setPreviewScopeId(next.active.scope?.scope_id ?? previewEmptyScopeId);
+      }
+      return true;
+    },
+    [previewMode],
+  );
+  const memorySubmissions = useMemorySubmissions();
   const { confirm, confirmation } = useConfirmation(language);
   async function confirmSwitch() {
     if (dirty && !(await confirm(connectionMessages[language].discard)))
@@ -599,16 +614,24 @@ export function App() {
             />
           )}
           {page === "memories" && (
-            <MemoryWorkspace
-              key={`memory-${displayedDesktop?.active?.connectionId ?? "none"}`}
-              state={displayedDesktop}
-              language={language}
-              onManageConnections={() => navigate("connections")}
-              onOpenLocalServer={() => setDeploymentOpen(true)}
-              onOpenExistingServer={() => setQuickConnectOpen(true)}
-              contextPending={contextPending}
-              preview={previewMode}
-            />
+            <>
+              <MemoryWriteRecovery
+                submissions={memorySubmissions}
+                language={language}
+              />
+              <MemoryWorkspace
+                key={`memory-${displayedDesktop?.active?.connectionId ?? "none"}`}
+                state={displayedDesktop}
+                language={language}
+                onState={receiveState}
+                submissions={memorySubmissions}
+                onManageConnections={() => navigate("connections")}
+                onOpenLocalServer={() => setDeploymentOpen(true)}
+                onOpenExistingServer={() => setQuickConnectOpen(true)}
+                contextPending={contextPending}
+                preview={previewMode}
+              />
+            </>
           )}
           {page === "connections" && (
             <ServiceAgentWorkspace
@@ -677,6 +700,7 @@ export function App() {
             <SettingsPage
               preferences={preferences}
               onPreferenceChange={updatePreference}
+              preview={previewMode}
             />
           )}
         </main>
@@ -702,15 +726,10 @@ export function App() {
       {deploymentOpen && (
         <LocalServiceDeploymentDialog
           language={language}
+          available={previewMode}
           onClose={() => setDeploymentOpen(false)}
           run={async (signal) => {
             if (signal.aborted) return;
-            if (!previewMode)
-              throw new Error(
-                language === "zh"
-                  ? "当前构建尚未接入本机安装执行器。"
-                  : "This build is not connected to the local installer yet.",
-              );
             await new Promise<void>((resolve, reject) => {
               const timer = window.setTimeout(resolve, 650);
               signal.addEventListener(

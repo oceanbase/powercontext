@@ -2,7 +2,7 @@
 
 ## Native macOS updates
 
-The macOS **Check for Updates…** command uses Sparkle 2 for its native window, download lifecycle, Ed25519 verification, skipped versions, install-on-quit behavior and relaunch. Run `bash desktop/scripts/setup-sparkle.sh` to download and verify the pinned framework, then copy `desktop/src-tauri/Info.plist.example` to `Info.plist`, replace the HTTPS appcast URL and Sparkle public key, and build with `pnpm --dir desktop desktop:build:macos`. Keep the private key in the release Keychain or CI secret store; never commit it.
+The macOS **Check for Updates…** command uses Sparkle 2 for its native window, download lifecycle, Ed25519 verification, skipped versions, install-on-quit behavior and relaunch. Run `bash desktop/scripts/setup-sparkle.sh` to download and verify the pinned framework, then copy `desktop/src-tauri/Info.example.plist` to `Info.plist`, replace the HTTPS appcast URL and Sparkle public key, and build with `pnpm --dir desktop desktop:build:macos`. Keep the private key in the release Keychain or CI secret store; never commit it.
 
 Sparkle does not create an updater during `tauri dev` because that process is not running from an `.app` bundle. Qualify the flow with an older signed and notarized application against the real appcast.
 

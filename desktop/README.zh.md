@@ -2,7 +2,7 @@
 
 ## macOS 原生更新
 
-macOS 的“检查更新…”由 Sparkle 2 提供原生窗口、下载、Ed25519 校验、跳过版本、退出时安装与重启。开发机先运行 `bash desktop/scripts/setup-sparkle.sh` 下载并校验固定版本的原生框架，再将 `desktop/src-tauri/Info.plist.example` 复制为 `Info.plist`，填写 HTTPS appcast 地址和 Sparkle 公钥，最后用 `pnpm --dir desktop desktop:build:macos` 构建。私钥只保存在发布钥匙串或 CI 密钥系统中，不得提交到仓库。
+macOS 的“检查更新…”由 Sparkle 2 提供原生窗口、下载、Ed25519 校验、跳过版本、退出时安装与重启。开发机先运行 `bash desktop/scripts/setup-sparkle.sh` 下载并校验固定版本的原生框架，再将 `desktop/src-tauri/Info.example.plist` 复制为 `Info.plist`，填写 HTTPS appcast 地址和 Sparkle 公钥，最后用 `pnpm --dir desktop desktop:build:macos` 构建。私钥只保存在发布钥匙串或 CI 密钥系统中，不得提交到仓库。
 
 `tauri dev` 不在 `.app` 包内，Sparkle 不会显示更新窗口；请使用已签名、已公证的旧版本应用对真实 appcast 进行验收。
 

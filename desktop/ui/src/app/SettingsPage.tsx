@@ -3,6 +3,22 @@
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+/*
+ * Copyright (c) 2026 OceanBase.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
  */
 
 import { ArrowUpRight } from "lucide-react";
@@ -24,8 +40,10 @@ const docs = {
 export function SettingsPage({
   preferences,
   onPreferenceChange,
+  preview = false,
 }: {
   preferences: DesktopPreferences;
+  preview?: boolean;
   onPreferenceChange: <Key extends keyof DesktopPreferences>(
     key: Key,
     value: DesktopPreferences[Key],
@@ -34,6 +52,7 @@ export function SettingsPage({
   const { language, theme, notificationsEnabled, openDesktopAtLogin } =
     preferences;
   const zh = language === "zh";
+  const unavailable = zh ? "当前版本暂不可用" : "Unavailable in this build";
 
   return (
     <div className="settings-page">
@@ -112,13 +131,16 @@ export function SettingsPage({
             <span>
               <strong>{zh ? "系统通知" : "System notifications"}</strong>
               <small>
-                {zh
-                  ? "服务异常、Agent 接入异常或 Desktop 有新版本时提醒你"
-                  : "Get notified about service issues, Agent connection issues, and Desktop updates"}
+                {!preview
+                  ? unavailable
+                  : zh
+                    ? "服务异常、Agent 接入异常或 Desktop 有新版本时提醒你"
+                    : "Get notified about service issues, Agent connection issues, and Desktop updates"}
               </small>
             </span>
             <Switch
-              checked={notificationsEnabled}
+              checked={preview && notificationsEnabled}
+              disabled={!preview}
               onCheckedChange={(checked) =>
                 onPreferenceChange("notificationsEnabled", checked)
               }
@@ -131,13 +153,16 @@ export function SettingsPage({
                 {zh ? "登录时打开 Desktop" : "Open Desktop at login"}
               </strong>
               <small>
-                {zh
-                  ? "登录电脑后自动打开 Desktop，不会启动 PowerContext 服务"
-                  : "Open Desktop when you sign in without starting the PowerContext service"}
+                {!preview
+                  ? unavailable
+                  : zh
+                    ? "登录电脑后自动打开 Desktop，不会启动 PowerContext 服务"
+                    : "Open Desktop when you sign in without starting the PowerContext service"}
               </small>
             </span>
             <Switch
-              checked={openDesktopAtLogin}
+              checked={preview && openDesktopAtLogin}
+              disabled={!preview}
               onCheckedChange={(checked) =>
                 onPreferenceChange("openDesktopAtLogin", checked)
               }

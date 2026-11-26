@@ -1,4 +1,18 @@
-/* Copyright (c) 2026 OceanBase. Licensed under the Apache License, Version 2.0. */
+/*
+ * Copyright (c) 2026 OceanBase.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 
 import { afterEach, expect, test, vi } from "vitest";
 import {
@@ -117,7 +131,7 @@ test("shows onboarding in the disconnected development preview", () => {
   expect(screen.queryByText("暂无本机服务")).toBeNull();
 });
 
-test("opens local service installation from new-user onboarding", async () => {
+test("explains unavailable native local service installation from onboarding", async () => {
   const user = userEvent.setup();
   render(
     <ServiceAgentWorkspace
@@ -137,10 +151,14 @@ test("opens local service installation from new-user onboarding", async () => {
   const deployDialog = screen.getByRole("dialog", {
     name: "安装 PowerContext 服务",
   });
-  expect(within(deployDialog).getByText(/系统默认位置/)).toBeTruthy();
   expect(
-    within(deployDialog).getByRole("button", { name: "安装服务" }),
+    within(deployDialog).getByText(/暂不支持从 Desktop 安装本机服务/),
   ).toBeTruthy();
+  expect(
+    within(deployDialog)
+      .getByRole("button", { name: "安装服务" })
+      .hasAttribute("disabled"),
+  ).toBe(true);
 });
 
 test("closing the existing-service dialog restores focus without scrolling the page", async () => {
@@ -373,9 +391,7 @@ test("adds edit and status checks before restart in the local service menu", asy
     within(checkDialog).getByText("正在检查本机服务连接状态…"),
   ).toBeTruthy();
   expect(await within(checkDialog).findByText("连接状态正常")).toBeTruthy();
-  expect(
-    within(checkDialog).getByText("本机服务运行正常，连接已准备就绪。"),
-  ).toBeTruthy();
+  expect(within(checkDialog).getByText(/尚未探测就绪状态/)).toBeTruthy();
   expect(within(checkDialog).queryByText(/远程服务/)).toBeNull();
 });
 
@@ -483,7 +499,7 @@ test("checks a remote connection in the same result dialog pattern as Agent veri
       .hasAttribute("disabled"),
   ).toBe(true);
   expect(await within(dialog).findByText("连接状态正常")).toBeTruthy();
-  expect(within(dialog).getByText(/连接已准备就绪/)).toBeTruthy();
+  expect(within(dialog).getByText(/尚未探测就绪状态/)).toBeTruthy();
 });
 
 test("confirms remote connection deletion with the local connection dialog pattern", async () => {

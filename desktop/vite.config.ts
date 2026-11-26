@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 
+import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
@@ -23,7 +24,7 @@ export default defineConfig({
   plugins: [react(), tailwindcss()],
   resolve: {
     alias: {
-      "@": new URL("./ui/src", import.meta.url).pathname,
+      "@": fileURLToPath(new URL("./ui/src", import.meta.url)),
     },
   },
   clearScreen: false,
