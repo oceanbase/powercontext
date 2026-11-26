@@ -33,6 +33,7 @@ import {
   previewServiceAgents,
 } from "../src/app/preview-data";
 import { buildServiceAgentWorkspaceModel } from "../src/app/service-agent-model";
+import { desktopApi } from "../src/shared/ipc";
 
 afterEach(cleanup);
 
@@ -74,6 +75,52 @@ function simulatedModel(value: DesktopState, localRunning = true) {
     runningByServiceId: { [localProfile.id]: localRunning },
   });
 }
+
+test("requires the new address credential and keeps it in the session for a saved local connection", async () => {
+  const profile = {
+    ...state.profiles[0],
+    name: "Local fixture",
+    endpoint: "http://127.0.0.1:8000/",
+    credentialState: "session_only" as const,
+  };
+  const native = { ...state, profiles: [profile] };
+  const save = vi.spyOn(desktopApi, "save").mockResolvedValueOnce(native);
+  const user = userEvent.setup();
+  render(
+    <ServiceAgentWorkspace state={native} language="en" onState={vi.fn()} />,
+  );
+  await user.click(screen.getByRole("button", { name: "More actions" }));
+  await user.click(screen.getByRole("menuitem", { name: "Edit connection" }));
+  const dialog = screen.getByRole("dialog", { name: "Edit connection" });
+  const address = within(dialog).getByLabelText("Service address");
+  await user.clear(address);
+  await user.type(address, "http://127.0.0.1:9000");
+  await user.click(within(dialog).getByRole("button", { name: "Save" }));
+  expect(
+    within(dialog).getByText(
+      "Enter the credential for the new service address.",
+    ),
+  ).toBeTruthy();
+  expect(save).not.toHaveBeenCalled();
+  await user.type(
+    within(dialog).getByLabelText("Credential"),
+    "new-fixture-token",
+  );
+  await user.click(within(dialog).getByRole("button", { name: "Save" }));
+  await waitFor(() =>
+    expect(
+      screen.queryByRole("dialog", { name: "Edit connection" }),
+    ).toBeNull(),
+  );
+  expect(save).toHaveBeenCalledWith(
+    expect.objectContaining({
+      endpoint: "http://127.0.0.1:9000",
+      keepCredential: false,
+      credential: { secret: "new-fixture-token", storage: "session_only" },
+    }),
+  );
+  save.mockRestore();
+});
 
 test.each([
   ["zh", "暂无可用的服务与 Agent", "安装服务", "连接服务"],

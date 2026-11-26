@@ -198,3 +198,4 @@ This is a design and interaction description. The current mocks can show the int
 Native connection management supports checking, editing, and removing saved local and remote connections. A connection check verifies reachability, identity, and compatibility. Readiness requires a separate probe. Service installation, Agent management, model configuration, service lifecycle, system notifications, and launch-at-login are unavailable in the corresponding native UI until wired to their owning interfaces.
 
 After disconnection, choose **Use this connection** in a saved service's action menu to check it again and enter its default space. **Check connection status** leaves the current service and space selection unchanged.
+When changing the address of a Bearer connection, enter the credential for the new address. Desktop keeps the credential's existing storage mode.

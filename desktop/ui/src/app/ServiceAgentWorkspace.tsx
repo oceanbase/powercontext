@@ -58,7 +58,6 @@ import {
 } from "@/components/ui/dialog";
 import type { Language } from "./messages";
 import { ConnectAgentDialog, QuickConnectDialog } from "./Overview";
-import { PageFeedback } from "@/components/ui/feedback";
 import { useConfirmation } from "./useConfirmation";
 import { LocalServiceDeploymentDialog } from "./LocalServiceDeploymentDialog";
 import { AgentConnectionMenu } from "./AgentConnectionMenu";
@@ -204,6 +203,7 @@ const copy = {
     saveFailed: "保存连接失败，请稍后重试。",
     credential: "凭据",
     credentialHint: "留空将继续使用当前凭据",
+    credentialForNewAddress: "更改服务地址时，请输入该地址的凭据。",
     showCredential: "显示凭据",
     hideCredential: "隐藏凭据",
     checkingConnection: "正在检查服务连接状态…",
@@ -317,6 +317,8 @@ const copy = {
     saveFailed: "Could not save the connection. Try again.",
     credential: "Credential",
     credentialHint: "Leave blank to keep the current credential",
+    credentialForNewAddress:
+      "Enter the credential for the new service address.",
     showCredential: "Show credential",
     hideCredential: "Hide credential",
     checkingConnection: "Checking the remote service connection…",
@@ -2530,14 +2532,22 @@ function EditConnectionDialog({
   const [credential, setCredential] = useState("");
   const [credentialVisible, setCredentialVisible] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [failed, setFailed] = useState(false);
+  const [error, setError] = useState<unknown>(null);
+  const savedEndpoint = lockIdentity ? endpoint.trim() : profile.endpoint;
+  const addressChanged =
+    savedEndpoint.replace(/\/+$/, "") !== profile.endpoint.replace(/\/+$/, "");
+  const needsCredential =
+    !simulated && addressChanged && profile.authentication === "bearer";
 
   async function save() {
     const savedName = lockIdentity ? profile.name : name.trim();
-    const savedEndpoint = lockIdentity ? endpoint.trim() : profile.endpoint;
     if (busy || !savedName || !savedEndpoint) return;
+    if (needsCredential && !credential.trim()) {
+      setError({ code: "invalid_credential" });
+      return;
+    }
     setBusy(true);
-    setFailed(false);
+    setError(null);
     try {
       if (!simulated) {
         const next = await desktopApi.save({
@@ -2550,10 +2560,17 @@ function EditConnectionDialog({
           compatibility: profile.compatibility,
           keepCredential:
             !credential &&
+            !addressChanged &&
             (profile.credentialState === "stored" ||
               profile.credentialState === "session_only"),
           credential: credential
-            ? { secret: credential, storage: "persistent" }
+            ? {
+                secret: credential,
+                storage:
+                  profile.credentialState === "stored"
+                    ? "persistent"
+                    : "session_only",
+              }
             : null,
         });
         onState(next);
@@ -2565,8 +2582,8 @@ function EditConnectionDialog({
         });
       }
       onClose();
-    } catch {
-      setFailed(true);
+    } catch (cause) {
+      setError(cause);
     } finally {
       setBusy(false);
     }
@@ -2587,8 +2604,12 @@ function EditConnectionDialog({
             <DialogCloseButton label={t.closeDialog} />
           </DialogHeader>
           <DialogBody>
-            {failed && (
-              <PageFeedback compact kind="error" title={t.saveFailed} />
+            {error != null && (
+              <ErrorFeedback
+                error={error}
+                language={language}
+                title={t.saveFailed}
+              />
             )}
             <fieldset disabled={busy} className="form-fields">
               <div className="form-field">
@@ -2621,7 +2642,7 @@ function EditConnectionDialog({
                   />
                 </label>
               </div>
-              {(lockIdentity ||
+              {((simulated && lockIdentity) ||
                 profile.authentication !== "unauthenticated_loopback") && (
                 <div className="form-field">
                   <label>
@@ -2663,7 +2684,9 @@ function EditConnectionDialog({
                     className="form-hint"
                     id="edit-connection-credential-hint"
                   >
-                    {t.credentialHint}
+                    {needsCredential
+                      ? t.credentialForNewAddress
+                      : t.credentialHint}
                   </span>
                 </div>
               )}
