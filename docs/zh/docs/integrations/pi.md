@@ -182,12 +182,16 @@ pi
 `POWERCONTEXT_PI_CAPTURE_PROMPTS` 为 `true` 时 package 仍会采集提示词；两项都关闭时，它不会为提示词发送任何请求。其余
 `pc_*` 工具、`/pc` 命令和边界 flush 照常工作。
 
-关闭召回后，package 还会在每个模型请求上把 Pi 的会话 ID 作为 `X-PowerContext-Conversation-ID` 发送。gateway
-只向属于某个对话的请求注入上下文，因此这个请求头让 Pi 无需 `PC_GATEWAY_INJECTION=on` 就能获得注入。gateway
-随后对每条用户消息只准备一次，把同一份上下文重放给这条消息的工具循环步骤，并让一轮的重试使用同一个 Source ID，见
-[网关上下文注入](../operate/deploy-server.md#网关上下文注入)。Pi 会把这个请求头发给处理该请求的任何 provider，
+关闭召回后，package 还会在每个模型请求上把 Pi 的会话 ID 作为 `X-PowerContext-Conversation-ID` 发送。
+组合部署（`PC_GATEWAY_CORE_UDS`）在一个会话中每条用户消息准备一次，并把结果重放给这条消息的工具循环步骤。
+没有这个请求头时，它根据请求的历史开头推导会话：Pi 每次请求都发送会话的完整历史，开头是它的 system prompt
+和第一条用户消息，因此 Pi 的请求也能推导。请求头仍能区分开头相同的会话，并为采集和前缀提取提供在 gateway
+重启后保持不变的会话标识；推导出的 ID 仅在当前 gateway 进程内用于重放准备结果。
+见[网关上下文注入](../operate/deploy-server.md#网关上下文注入)。Pi 会把这个请求头发给处理该请求的任何 provider，
 包括它直接调用的 provider；除非 `PI_CACHE_RETENTION=none`，Pi 自己的 Responses 请求本来就以 `prompt_cache_key`
-携带同一个 ID。Pi 的压缩和分支摘要请求不带这个请求头，因此 gateway 不会向摘要注入上下文。
+携带同一个 ID。Pi 的压缩和分支摘要请求不带这个请求头，因此 gateway 不会把摘要算作该会话的一轮。gateway
+仍会根据摘要请求的开头推导会话，因此可能向摘要提示词注入上下文；为这个提示词召回的 Memory 随后可能出现在 Pi
+存入会话的摘要中。
 
 修改这些设置后请重启 Pi。已有会话可以继续：Pi 每一轮都重新构建 system prompt，不把 package 召回的上下文存进会话。
 模型调用过 `pc_prepare_context` 的会话也可以继续，因为 gateway 会把这个结果替换为占位文本。

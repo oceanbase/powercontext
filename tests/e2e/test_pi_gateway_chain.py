@@ -257,16 +257,19 @@ def test_pi_turns_take_context_and_capture_only_from_the_gateway(pi_gateway: PiG
     assert len(replies) == 2
     assert all(FINAL_ANSWER in reply and "errorMessage" not in reply for reply in replies), pi_gateway.recorder.statuses
 
-    # Every model request named the Pi session as the gateway conversation, which is what enables default injection.
+    # Every turn request named the Pi session as the gateway conversation.
     sent = pi_gateway.recorder.model_requests()
     # Compaction splits the second turn, so Pi asks for a history summary and a turn-prefix summary.
     assert len(sent) == len(pi_gateway.model.requests) == 5
     assert {headers.get("x-powercontext-conversation-id") for headers in sent[:3]} == {session}
-    # The summary requests name no conversation, so the gateway does not inject context into a summary.
+    # The summary requests carry no header, so the gateway does not count a summary as a turn of the session.
     assert all("x-powercontext-conversation-id" not in headers for headers in sent[3:])
     turn_requests, summary_requests = pi_gateway.model.requests[:3], pi_gateway.model.requests[3:]
+    # The gateway infers a conversation from a summary request's opening and injects context when preparation finds some.
     for request in summary_requests:
-        assert not any(marker in pi_gateway.model.texts(request) for marker in PREPARED_MARKERS)
+        text = pi_gateway.model.texts(request)
+        assert PLUGIN_LABEL not in text
+        assert sum(text.count(marker) for marker in PREPARED_MARKERS) <= 1, "gateway_block_count"
 
     for request in turn_requests:
         text = pi_gateway.model.texts(request)

@@ -192,14 +192,18 @@ in the session history with a placeholder before Core checks the request. The pa
 `POWERCONTEXT_PI_CAPTURE_PROMPTS` is `true`; with both off, it sends no request for a prompt. The other `pc_*` tools,
 `/pc` commands, and boundary flushes keep working.
 
-While recall is off, the package also sends Pi's session ID as `X-PowerContext-Conversation-ID` on every model
-request. The gateway injects context only into requests that belong to a conversation, so this header enables
-injection for Pi without `PC_GATEWAY_INJECTION=on`. The gateway then prepares once per user message, replays the same
-context to the tool-loop steps of that message, and gives a turn's retries the same Source ID; see
-[Gateway context injection](../operate/deploy-server.md#gateway-context-injection). Pi sends the header to whichever
-provider serves the request, including one it calls directly; Pi's own Responses requests already carry the same ID
-as `prompt_cache_key` unless `PI_CACHE_RETENTION=none`. Pi's compaction and branch-summary requests carry no header,
-so the gateway does not inject context into a summary.
+While recall is off, the package also sends Pi's session ID as `X-PowerContext-Conversation-ID` on every model request.
+A combined deployment (`PC_GATEWAY_CORE_UDS`) prepares once per user message of a conversation and replays that context
+to the tool-loop steps of the message. Without the header, it infers the conversation from the opening of the request:
+Pi sends the session's full history on every request, opening with its system prompt and the first user message, so its
+requests qualify. The header still keeps apart sessions that open the same way, and gives capture and prefix extraction
+a conversation identity that stays the same across gateway restarts; an inferred ID is local to the gateway process and
+serves only preparation replay. See [Gateway context injection](../operate/deploy-server.md#gateway-context-injection).
+Pi sends the header to whichever provider serves the request, including one it calls directly; Pi's own Responses
+requests already carry the same ID as `prompt_cache_key` unless `PI_CACHE_RETENTION=none`. Pi's compaction and
+branch-summary requests carry no header, so the gateway does not count a summary as a turn of the session's
+conversation. The gateway still infers a conversation from a summary request's opening, so it can inject context into
+the summary prompt, and Memory recalled for that prompt can then appear in the summary that Pi stores in the session.
 
 Restart Pi after changing these settings. An existing session can continue: Pi rebuilds the system prompt for every
 turn and does not store the package's recalled context in the session. A session in which the model called
