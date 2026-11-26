@@ -1279,6 +1279,13 @@ jobs:
       - name: Test Pi package
         run: make pi-test
 
+      # The gateway e2e builds with the `cargo` on PATH. Select the pinned toolchain as rustup's default
+      # rather than through RUSTUP_TOOLCHAIN, which the cargo cache identity hashes.
+      - name: Install pinned Rust toolchain
+        run: |
+          rustup toolchain install 1.95.0 --profile minimal
+          rustup default 1.95.0
+
       - name: Cache Gateway dependencies and compilation
         id: cargo-cache
         uses: ./.github/actions/setup-rust-cache
