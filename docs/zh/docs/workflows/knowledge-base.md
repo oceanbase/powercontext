@@ -1,6 +1,6 @@
 ---
 title: 知识库插件
-description: 导入 Markdown 和图片，维护文档版本，并跨知识库 Scope 检索。
+description: 导入 Markdown、HTML 和图片，维护文档版本，并跨知识库 Scope 检索。
 ---
 
 # 知识库插件
@@ -48,7 +48,7 @@ SQLite 使用框架管理的插件存储目录中的独立数据库文件。
 
 `POWERCONTEXT_KB_IMPORT_ROOTS` 使用操作系统路径分隔符列出允许的本地目录；空值禁用 Server 目录导入，仍允许浏览器上传。
 单文件上限 16 MiB，图片上限 2,500 万像素，每批最多 100 个明确路径，单文档最多 2,000 个 chunk。
-Server／Worker 必须共享本地文件系统。本期不包含远端对象存储、PDF／Office、恢复、永久清理和生成式问答。
+Server／Worker 必须共享本地文件系统。本期不包含远端对象存储、PDF／Office／EPUB、恢复、永久清理和生成式问答。
 
 ## 空间、创建与重试
 
@@ -78,7 +78,8 @@ Server／Worker 必须共享本地文件系统。本期不包含远端对象存�
 
 Dashboard 支持选择／拖拽上传，以及明确指定 Server 目录文件。Markdown 内图片保留引用；
 独立导入的 PNG／JPEG／WebP 图片使用 RapidOCR 和 ONNX Runtime，生成带原始文字框、阅读顺序、置信度的 Markdown 文本块。
-两条路径都按标题组织和合并块，再按句子／行及长度切分。默认最大 360 字符、重叠 40 字符；向量化前检查完整输入的 tokenizer 长度。
+HTML 由 trafilatura 抽取正文并清理导航、广告和页脚，按标题、段落、列表、表格、代码和引用生成结构化块，位置使用字符区间。
+Markdown 与 HTML 都按标题组织和合并块，OCR 文本按阅读顺序排列；三种格式随后统一按句子／行及长度切分。默认最大 360 字符、重叠 40 字符；向量化前检查完整输入的 tokenizer 长度。
 Markdown 中的 HTML 块（包括 HTML 表格）在 chunk 中保留原始内容和出处行号。
 
 浏览器上传把文件字节提交到：

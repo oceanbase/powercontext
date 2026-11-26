@@ -1,6 +1,6 @@
 # Knowledge-base plugin
 
-One installable business plugin owns document ingestion, Markdown/image OCR processing, chunks and retrieval.
+One installable business plugin owns document ingestion, Markdown/HTML/image OCR processing, chunks and retrieval.
 A knowledge base is a core Scope; spaces and their membership/defaults live only in plugin storage.
 
 - [English guide](../../docs/en/docs/workflows/knowledge-base.md)
