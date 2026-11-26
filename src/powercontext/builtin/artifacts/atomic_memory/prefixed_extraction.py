@@ -267,6 +267,11 @@ class GatewayPrefixedConversation:
     max_output_tokens: int | None = None
     max_requests: int = 3
 
+    def __post_init__(self) -> None:
+        # Every turn sends at least one request, as the inference request limit requires.
+        if self.max_requests < 1:
+            raise ValueError("max_requests must be at least 1")
+
     async def generate(self, value: ConversationTurn[Any], /) -> GenerationResult[ConversationReply[Any]]:
         if not value.history or not isinstance(start := value.history[0], PrefixStart):
             raise PrefixedExtractionUnavailable("no_prefix")
@@ -275,36 +280,34 @@ class GatewayPrefixedConversation:
         if len(messages) == 1:
             self._require_cheaper(start, instruction)
         usage: InferenceUsage | None = None
-        # The rule the last reply broke, raised as the check raised it once correction is exhausted.
-        rejected: InvalidInferenceOutputError | None = None
-        for _ in range(self.max_requests):
+        requests = 0
+        while True:
             try:
                 text, spent = await self._send(start.handle, instruction, messages[1:])
             except PrefixedExtractionUnavailable as error:
                 # The requests this turn already made stay accounted for.
                 error.usage = usage
                 raise
+            requests += 1
             usage = spent if usage is None else combine_inference_usage(usage, spent)
             if not text.strip():
                 # The gateway accepts no empty reply in a continuation, so this one cannot be corrected.
-                rejected = InvalidInferenceOutputError("atomic-memory-one-pass", "the reply is empty")
+                failure = InvalidInferenceOutputError("atomic-memory-one-pass", "the reply is empty")
                 break
             messages.append(("assistant", text))
             try:
                 output = value.check(_unfenced(text))
             except InvalidInferenceOutputError as error:
-                rejected = error
+                if requests >= self.max_requests:
+                    # Raised as the check raised it: the caller recovers from some rules by their class, as it does
+                    # with the conversation generator Core runs.
+                    failure = error
+                    break
                 messages.append(("user", f"{error.detail}\n\nFix the errors and try again."))
                 continue
             history = (start, *messages)
             reply = ConversationReply(output=output, history=history, transcript=tuple(text for _, text in messages))
             return GenerationResult(output=reply, usage=usage)
-        # The caller recovers from some rules by their class, as it does with the conversation generator Core runs.
-        failure = (
-            InvalidInferenceOutputError("atomic-memory-one-pass", "the reply does not satisfy the turn")
-            if rejected is None
-            else rejected
-        )
         failure.usage = usage
         raise failure
 
