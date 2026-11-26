@@ -23,7 +23,7 @@ from collections.abc import AsyncIterator, Awaitable, Callable, Iterable, Mappin
 from contextlib import AbstractAsyncContextManager, AbstractContextManager, asynccontextmanager, nullcontext
 from contextvars import ContextVar
 from dataclasses import dataclass, replace
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from functools import partial
 from hashlib import sha256
 from time import perf_counter
@@ -545,7 +545,7 @@ PackageSnapshotResolver = Callable[[str, SkillPackageRef], Awaitable[SkillPackag
 SkillPackageUploader = Callable[[str, bytes, str | None, ArtifactRef | None], Awaitable[SkillCandidate]]
 SkillUsageRecorder = Callable[[str, SkillUsageCapture], Awaitable[SourceReceipt]]
 StatisticsServiceFactory = Callable[[str], RelationalScopedStatistics]
-RecallTokenEstimator = Callable[[str, PreparedContextBuild], Awaitable[RecallTokenMeasurement | None]]
+RecallTokenOffer = Callable[[str, PreparedContextBuild, date], None]
 RecallEffortSink = Callable[[RecallEffort], Awaitable[None]]
 Clock = Callable[[], datetime]
 _MEMORY_SEARCH_ATTEMPTS = 3
@@ -1310,27 +1310,10 @@ class ScopedContextApplication:
                         "error_type": type(error).__name__,
                     },
                 )
-        if self._runtime._recall_token_estimator is not None:
-            try:
-                measurement = await self._runtime._recall_token_estimator(self.scope_id, build)
-            except InferencePrivacyError:
-                raise
-            except Exception as error:
-                log_safely(
-                    logger,
-                    logging.ERROR,
-                    "Recall token estimation failed",
-                    exc_info=error,
-                    extra={
-                        "event": "statistics.recall_tokens.estimation_failed",
-                        "outcome": "failure",
-                        "unit": "statistics",
-                    },
-                )
-            else:
-                if measurement is not None:
-                    await self._runtime.statistics.for_scope(self.scope_id).record_recall(measurement)
-        return await self._prepared_result(request, build, binding_identity, evidence)
+        result = await self._prepared_result(request, build, binding_identity, evidence)
+        if self._runtime._offer_recall_tokens is not None:
+            self._runtime._offer_recall_tokens(self.scope_id, build, self._runtime._clock().astimezone(UTC).date())
+        return result
 
     async def _prepared_result(
         self,
@@ -4480,7 +4463,7 @@ class BuiltinRuntime:
         atomic_memory_application=None,
         artifact_merge_application: ArtifactMergeApplication | None = None,
         prompt_service: PromptService | None = None,
-        recall_token_estimator: RecallTokenEstimator | None = None,
+        offer_recall_tokens: RecallTokenOffer | None = None,
         recall_effort_sink: RecallEffortSink | None = None,
         decision_model: DecisionModel | None = None,
         publication_application: ArtifactPublicationApplication | None = None,
@@ -4572,7 +4555,7 @@ class BuiltinRuntime:
             else ArtifactMergeRuntimeApplication(self, artifact_merge_application)
         )
         self._prompt_service = prompt_service
-        self._recall_token_estimator = recall_token_estimator
+        self._offer_recall_tokens = offer_recall_tokens
         self._recall_effort_sink = recall_effort_sink
         # Public read-only seam for the cross-family decision role; deterministic Runtime callers
         # (and tests) read it directly, and it is always fail-open wrapped before it gets here.
@@ -4655,7 +4638,7 @@ class BuiltinRuntime:
             with self._scope_cache.lease(scope), log_context({"scope": scope}):
                 statistics = self._statistics(scope)
                 if flush_usage:
-                    await statistics.flush_model_usage()
+                    await statistics.flush_accounting()
                 async with self.primary_database.transaction(consistent_snapshot=True) as connection:
                     yield ScopeReadSnapshot(
                         connection,

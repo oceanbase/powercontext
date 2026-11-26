@@ -216,6 +216,9 @@ still occupies an HTTP slot until it finishes; reserve other slots for concurren
 | `POWERCONTEXT_SERVER_RUNTIME_MODEL_USAGE_QUEUE_CAPACITY` | `256` | Queued model-usage records per Runtime, excluding its in-flight batch; further records are dropped with a diagnostic |
 | `POWERCONTEXT_SERVER_RUNTIME_MODEL_USAGE_WRITE_TIMEOUT_SECONDS` | `1` | Total write budget per usage batch; only provably unapplied attempts may retry within it |
 | `POWERCONTEXT_SERVER_RUNTIME_MODEL_USAGE_FLUSH_TIMEOUT_SECONDS` | `0.5` | Bounded wait for already-accepted local usage at statistics reads and explicit flush boundaries; ordinary requests do not wait |
+| `POWERCONTEXT_SERVER_RUNTIME_RECALL_TOKEN_QUEUE_CAPACITY` | `256` | Queued recall-token jobs per Runtime, excluding its in-flight job; further jobs are dropped with a diagnostic |
+| `POWERCONTEXT_SERVER_RUNTIME_RECALL_TOKEN_WRITE_TIMEOUT_SECONDS` | `1` | Total write budget per recall-token job; recall-token evidence reads have a separate budget of the same duration; only provably unapplied writes may retry within it |
+| `POWERCONTEXT_SERVER_RUNTIME_RECALL_TOKEN_FLUSH_TIMEOUT_SECONDS` | `0.5` | Bounded wait for already-accepted local recall-token jobs at statistics reads; ordinary requests do not wait |
 | `POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL` | unset | Pydantic AI model used by configured extraction, generation, Handoff, and reranking operations |
 | `POWERCONTEXT_SERVER_INFERENCE_GENERATION_BASE_URL` | provider default | Custom generation provider base URL |
 | `POWERCONTEXT_SERVER_INFERENCE_GENERATION_HEADERS` | `{}` | JSON object of static generation client headers; values are secrets |

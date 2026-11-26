@@ -50,6 +50,7 @@ from powercontext.builtin.persistence.statistics import (
 )
 from powercontext.builtin.persistence.tables import ARTIFACT_HEADS_TABLE
 from powercontext.builtin.runtime._model_usage import _ModelUsageRecorder
+from powercontext.builtin.runtime.recall import RecallTokenRecorder
 from powercontext.builtin.runtime.recall_sufficiency import RecallEffort, recall_effort_measurement
 from powercontext.builtin.runtime.recurrence import handoff_experience_citations
 from powercontext.builtin.scope import ScopeSelection
@@ -119,6 +120,7 @@ class RelationalScopedStatistics:
         artifacts: ArtifactRepository,
         token_estimator: TokenEstimatorProfile | None,
         model_usage: _ModelUsageRecorder,
+        recall_accounting: RecallTokenRecorder,
         write_timeout_seconds: float = 1.0,
     ) -> None:
         self._database = database
@@ -129,6 +131,7 @@ class RelationalScopedStatistics:
         self._artifacts = artifacts
         self._token_estimator = token_estimator
         self._model_usage = model_usage
+        self._recall_accounting = recall_accounting
         self._write_timeout_seconds = write_timeout_seconds
 
     async def overview(self, period: StatisticsPeriod, as_of: datetime, /) -> Statistics:
@@ -184,8 +187,8 @@ class RelationalScopedStatistics:
 
         self._model_usage.offer(self._scope_id, purpose, operation, usage, usage_date)
 
-    async def flush_model_usage(self) -> None:
-        """Wait, within a bounded budget, for the usage accepted so far.
+    async def flush_accounting(self) -> None:
+        """Wait, within a bounded budget, for the accounting accepted so far.
 
         Statistics reads explicitly flush before opening their snapshot. The wait
         covers only the prefix accepted at entry, and a batch still retrying a
@@ -193,7 +196,7 @@ class RelationalScopedStatistics:
         best-effort rather than becoming a durability barrier.
         """
 
-        await self._model_usage.flush()
+        await asyncio.gather(self._model_usage.flush(), self._recall_accounting.flush())
 
     async def record_recall(self, measurement: RecallTokenMeasurement, usage_date: date, /) -> None:
         if self._token_estimator != measurement.estimator:
@@ -419,9 +422,9 @@ async def overview_selection(
     captured_at = _as_utc(as_of)
     resolved_period = _resolve_period(period, captured_at.date())
     shared = services[0]
-    # Every service belongs to one Runtime and therefore shares one recorder.
+    # All services belong to one Runtime and share its accounting recorders.
     # Flush the accepted prefix once, before the shared read transaction opens.
-    await shared.flush_model_usage()
+    await shared.flush_accounting()
     scope_ids = tuple(service._scope_id for service in services)
     async with shared._database.transaction() as connection:
         inventories = await shared._repository.inventory_many(connection, scope_ids)

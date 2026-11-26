@@ -683,7 +683,7 @@ def test_cancelling_a_statistics_read_during_a_stalled_usage_write_leaves_the_ru
         settled = asyncio.Event()
         original_record = StatisticsRepository.record
         flushing = asyncio.Event()
-        original_flush = RelationalScopedStatistics.flush_model_usage
+        original_flush = RelationalScopedStatistics.flush_accounting
         record_write_budget = 30.0
 
         async def observed_flush(statistics):
@@ -723,7 +723,7 @@ def test_cancelling_a_statistics_read_during_a_stalled_usage_write_leaves_the_ru
             payload = {"family": "topic-memory", "content": _content("cancelled")}
             with monkeypatch.context() as injected:
                 injected.setattr(StatisticsRepository, "record", stalled_record)
-                injected.setattr(RelationalScopedStatistics, "flush_model_usage", observed_flush)
+                injected.setattr(RelationalScopedStatistics, "flush_accounting", observed_flush)
                 stats_payload = {"selection": {"mode": "exact", "scope_ids": [scope]}}
                 pending = None
                 try:

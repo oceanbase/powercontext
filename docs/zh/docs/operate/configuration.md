@@ -201,6 +201,9 @@ MCP 使用 stateless Streamable HTTP，每次工具执行都采用当前请求�
 | `POWERCONTEXT_SERVER_RUNTIME_MODEL_USAGE_QUEUE_CAPACITY` | `256` | 每个 Runtime 排队的模型用量记录数，不含正在写入的批次；超出的记录会被丢弃并留下诊断日志 |
 | `POWERCONTEXT_SERVER_RUNTIME_MODEL_USAGE_WRITE_TIMEOUT_SECONDS` | `1` | 每个用量批次的总写入预算；只有确认未应用的尝试才可在剩余预算内重试 |
 | `POWERCONTEXT_SERVER_RUNTIME_MODEL_USAGE_FLUSH_TIMEOUT_SECONDS` | `0.5` | 统计读取和显式 flush 等待本进程已接收用量的有界时长；普通请求不等待 |
+| `POWERCONTEXT_SERVER_RUNTIME_RECALL_TOKEN_QUEUE_CAPACITY` | `256` | 每个 Runtime 排队的召回 token 任务数，不含正在处理的任务；超出的任务会被丢弃并留下诊断日志 |
+| `POWERCONTEXT_SERVER_RUNTIME_RECALL_TOKEN_WRITE_TIMEOUT_SECONDS` | `1` | 每个召回 token 任务的总写入预算；召回 token 的证据读取有相同时长的独立预算；只有确认未应用的写入才可在剩余预算内重试 |
+| `POWERCONTEXT_SERVER_RUNTIME_RECALL_TOKEN_FLUSH_TIMEOUT_SECONDS` | `0.5` | 统计读取等待本进程已接收召回 token 任务的有界时长；普通请求不等待 |
 | `POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL` | 未设置 | 配置的 extraction、generation、Handoff 和 rerank 操作共用的 Pydantic AI 模型 |
 | `POWERCONTEXT_SERVER_INFERENCE_GENERATION_BASE_URL` | provider 默认值 | 自定义 generation provider base URL |
 | `POWERCONTEXT_SERVER_INFERENCE_GENERATION_HEADERS` | `{}` | generation client 静态 header JSON object；value 按 secret 处理 |
