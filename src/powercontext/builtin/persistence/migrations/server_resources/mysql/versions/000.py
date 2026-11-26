@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Add keyed Memory creation receipts."""
+"""Add the historical Atomic Memory alias projection and keyed creation receipts."""
 
 from alembic import context
 

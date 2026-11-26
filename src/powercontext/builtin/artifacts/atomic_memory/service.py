@@ -21,6 +21,7 @@ from contextlib import suppress
 from dataclasses import replace
 from typing import TYPE_CHECKING, Any, Protocol, cast
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncConnection
 from typing_extensions import override
 
@@ -74,6 +75,7 @@ from powercontext.builtin.persistence.atomic_memory import AtomicMemoryStateRepo
 from powercontext.builtin.persistence.atomic_memory_index import AtomicMemoryIndexHit, PreparedAtomicMemoryProjection
 from powercontext.builtin.persistence.errors import RepositoryNotFoundError
 from powercontext.builtin.persistence.sources import _SourceReadSet
+from powercontext.builtin.persistence.tables import ARTIFACT_HEADS_TABLE
 from powercontext.errors import ArtifactNotFoundError
 from powercontext.sources import SourceRef
 
@@ -98,6 +100,7 @@ class AtomicMemoryProjections(Protocol):
         records: Sequence[tuple[AtomicMemoryRecord, PreparedAtomicMemoryProjection]],
     ) -> None: ...
     async def remove(self, connection: AsyncConnection, scope_id: str, artifact_id: str) -> None: ...
+    async def retire(self, connection: AsyncConnection, scope_id: str, record: AtomicMemoryRecord) -> None: ...
     async def capture_evidence_many(
         self, connection: AsyncConnection, scope_id: str, records: Sequence[AtomicMemoryRecord]
     ) -> None: ...
@@ -304,7 +307,21 @@ class AtomicMemoryMergeAdapter:
         )
 
     async def remove(self, connection: AsyncConnection, scope_id: str, artifact_id: str) -> None:
-        await self.projections.remove(connection, scope_id, artifact_id)
+        heads = ARTIFACT_HEADS_TABLE
+        revision = await connection.scalar(
+            select(heads.c.revision).where(
+                heads.c.scope_id == scope_id, heads.c.family == AtomicMemory.family, heads.c.artifact_id == artifact_id
+            )
+        )
+        if revision is None:
+            raise RepositoryNotFoundError("artifact", (scope_id, AtomicMemory.family, artifact_id))
+        artifact = await ArtifactRepository((AtomicMemory,)).get(
+            connection, scope_id, ArtifactRef(family=AtomicMemory.family, artifact_id=artifact_id, revision=revision)
+        )
+        state = await AtomicMemoryStateRepository().get(connection, scope_id, artifact_id)
+        await self.projections.retire(
+            connection, scope_id, AtomicMemoryRecord(artifact=cast(AtomicMemory, artifact), state=state)
+        )
 
 
 class _AtomicPreviewAdapter:

@@ -41,6 +41,7 @@ from powercontext.client import ClientError
 from powercontext.client.capture import render_capture_event
 from powercontext.http import CaptureContentSourceRequest, FlushMemoryRequest, PrepareContextRequest, PreparedContext
 from powercontext_pydantic_ai._prepared_context import bounded_recall_query
+from powercontext_pydantic_ai._prompt_privacy import scrub_secrets
 from powercontext_pydantic_ai.scope import ScopeId
 from powercontext_pydantic_ai.settings import PowerContextSettings
 from powercontext_pydantic_ai.toolset import (
@@ -126,7 +127,11 @@ class PowerContext(AbstractCapability[AgentDepsT], Generic[AgentDepsT]):
             prompt_text = _content_text(ctx.prompt) or query
             if prompt_text:
                 state.prompt_captured = True
-                await self._capture_event(ctx, "user_prompt", {"text": prompt_text})
+                if scrub_secrets(prompt_text, self._authorization()) != prompt_text:
+                    # A recognized credential skips the event rather than storing a redacted copy of the prompt.
+                    logger.debug("PowerContext event capture skipped: sensitive_content")
+                else:
+                    await self._capture_event(ctx, "user_prompt", {"text": prompt_text})
 
         if state.context_injected or _has_current_run_context(request_context.messages, ctx.run_id):
             state.context_injected = True
@@ -227,7 +232,7 @@ class PowerContext(AbstractCapability[AgentDepsT], Generic[AgentDepsT]):
     async def _prepare_context(self, prompt: str) -> str | None:
         state = self._require_state()
         try:
-            query = bounded_recall_query(prompt)
+            query = bounded_recall_query(scrub_secrets(prompt, self._authorization()))
         except UnicodeEncodeError:
             # Unpaired surrogates, such as a file name decoded with ``surrogateescape``, have no UTF-8 form to send.
             logger.debug("PowerContext context preparation skipped: the query is not valid UTF-8 text")
@@ -351,6 +356,10 @@ class PowerContext(AbstractCapability[AgentDepsT], Generic[AgentDepsT]):
                 type(exc).__name__,
             )
             return
+
+    def _authorization(self) -> str | None:
+        token = self.settings.token
+        return f"Bearer {token.get_secret_value()}" if token is not None else None
 
     def _require_state(self) -> _RunState:
         if self._state is None:

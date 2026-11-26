@@ -996,11 +996,14 @@ def _source_record(
         if isinstance(stored.value, ContentSource)
         else cast(JsonValue, stored.value.model_dump(mode="json"))
     )
+    # Only a Content Source carries caller metadata; every other Source type reports an empty object.
+    metadata = dict(stored.value.metadata) if isinstance(stored.value, ContentSource) else {}
     return SourceRecord(
         scope_id=scope_id,
         source_type=stored.ref.source_type,
         source_id=stored.ref.source_id,
         content=content,
+        metadata=metadata,
         position=stored.journal_position,
         content_digest=_content_digest(content),
         handoff_receipt=isinstance(stored.value, ContentSource) and stored.value.handoff_receipt,

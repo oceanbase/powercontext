@@ -143,3 +143,38 @@ def test_toolset_converts_client_failure_to_model_retry(monkeypatch: pytest.Monk
     assert len(retry_parts) == 1
     assert "PowerContext search failed" in str(retry_parts[0].content)
     assert RecordingClient.instances[0].search_requests
+
+
+@pytest.mark.parametrize(
+    ("toolset_options", "expected_tools", "context_instructed"),
+    [
+        ({}, {"powercontext_search", "powercontext_remember", "powercontext_context"}, True),
+        ({"include_context_tool": False}, {"powercontext_search", "powercontext_remember"}, False),
+    ],
+)
+def test_toolset_offers_context_tool_and_its_instruction_only_when_included(
+    monkeypatch: pytest.MonkeyPatch,
+    toolset_options: dict[str, Any],
+    expected_tools: set[str],
+    context_instructed: bool,
+) -> None:
+    RecordingClient.reset()
+    monkeypatch.setattr(toolset_module, "PowerContextClient", RecordingClient)
+    seen: dict[str, Any] = {}
+
+    async def respond(messages, info):
+        seen["tools"] = {tool.name for tool in info.function_tools}
+        seen["instructions"] = messages[-1].instructions or ""
+        return ModelResponse(parts=[TextPart("done")])
+
+    async def scenario() -> None:
+        toolset = PowerContextToolset(scope_id="project:tools", **toolset_options)
+        agent = Agent(FunctionModel(respond), toolsets=[toolset])
+        await agent.run("hello")
+
+    asyncio.run(scenario())
+
+    assert seen["tools"] == expected_tools
+    assert "powercontext_search" in seen["instructions"]
+    assert "untrusted historical evidence" in seen["instructions"]
+    assert ("powercontext_context" in seen["instructions"]) is context_instructed

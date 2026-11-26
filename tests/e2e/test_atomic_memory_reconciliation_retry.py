@@ -148,17 +148,167 @@ def test_flush_publishes_the_decision_corrected_after_rule_feedback(monkeypatch,
     assert REVISE_RULE in provider.retry_feedback[0]
 
 
-def test_flush_reports_the_broken_rule_after_the_retry_budget_is_spent(monkeypatch, tmp_path):
+def test_exhausted_identity_correction_keeps_both_unpublished_candidates(monkeypatch, tmp_path):
     provider = _Provider(corrects=False)
 
     error, cursor, entries = asyncio.run(_flush(provider, monkeypatch, tmp_path))
 
-    assert isinstance(error, InvalidInferenceOutputError)
-    assert error.operation == "atomic-memory-reconcile"
-    assert REVISE_RULE in error.detail
-    assert (cursor, entries) == (0, ())
-    # The default generation_max_requests of 2 allows one corrected attempt.
+    # Keeping the proposal unchanged equals a create decision: both candidates publish and later Sources can proceed.
+    assert error is None
+    assert cursor == 1
+    assert sorted(entry.artifact.content.text for entry in entries) == [
+        "Billing no longer uses MySQL.",
+        "Billing uses PostgreSQL 16.",
+    ]
+    # The default generation_max_requests of 2 allows one corrected attempt before the proposal is retained.
     assert provider.comparisons == 2
+    assert len(provider.retry_feedback) == 1
+
+
+@pytest.mark.parametrize(
+    ("max_requests", "drops_date"),
+    [(1, False), (2, False), (2, True)],
+    ids=["one-request", "with-retry", "with-retry-and-date-loss"],
+)
+def test_exhausted_identity_correction_keeps_the_first_revision_and_processes_later_source(
+    monkeypatch, tmp_path, max_requests, drops_date
+):
+    date = "2026-05-01"
+    proposal_text = f"Effective {date}, Billing uses a dedicated production database."
+    revised_text = f"Effective {date}, Billing uses a dedicated PostgreSQL 16 production database."
+    rejected_text = "Billing uses a shared database."
+    later_text = "Billing publishes a monthly operations report."
+    targets: list[str] = []
+    retry_feedback: list[str] = []
+    extraction_count = 0
+
+    async def respond(messages: list[ModelMessage], _info: AgentInfo) -> ModelResponse:
+        nonlocal extraction_count
+        prompt = next(
+            part.content
+            for message in messages
+            if isinstance(message, ModelRequest)
+            for part in message.parts
+            if isinstance(part, UserPromptPart)
+        )
+        value = json.loads(str(prompt))
+        request = messages[-1]
+        assert isinstance(request, ModelRequest)
+        retry_feedback.extend(
+            str(part.content) for part in request.parts if isinstance(part, UserPromptPart) and part.content != prompt
+        )
+        if "proposal" not in value:
+            extraction_count += 1
+            return _json({
+                "candidates": [
+                    {
+                        "kind": "decision",
+                        "text": proposal_text if extraction_count == 1 else later_text,
+                        "description": "Billing decision",
+                        "evidence_ids": [value["evidence"][0]["evidence_id"]],
+                    }
+                ],
+            })
+
+        proposal = value["proposal"]
+        related = value["related"]
+        if proposal["text"] == later_text:
+            action, target_ids, text = "create", [], later_text
+        else:
+            (target,) = related
+            (origin,) = target["original_refs"]
+            targets.append(origin["ref"]["artifact_id"])
+            action, target_ids = "revise", [target["item_id"]]
+            if proposal["text"] == proposal_text:
+                assert proposal["original_refs"] == []
+                text = revised_text
+            else:
+                assert proposal["text"] == revised_text
+                assert [origin["ref"]["artifact_id"] for origin in proposal["original_refs"]] == targets[:1]
+                assert targets[0] != targets[-1]
+                text = rejected_text if drops_date else f"Effective {date}, {rejected_text}"
+        return _json({
+            "action": action,
+            "compared_ids": [item["item_id"] for item in related],
+            "target_ids": target_ids,
+            "content": {"kind": "decision", "text": text, "description": "Billing decision"},
+            "evidence_ids": proposal["evidence_ids"],
+            "reason": "Apply the Billing decision.",
+        })
+
+    monkeypatch.setattr("pydantic_ai.models.infer_model", lambda _name, **_kwargs: FunctionModel(respond))
+    monkeypatch.setattr(
+        "pydantic_ai.embeddings.infer_embedding_model", lambda _name, **_kwargs: TestEmbeddingModel(dimensions=3)
+    )
+    config = BuiltinConfig(
+        database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'published-identities.db'}"),
+        inference=InferenceConfig(
+            generation_model="provider:test-model",
+            generation_max_requests=max_requests,
+            embedding_model="test",
+            embedding_profile_id="billing-fixture",
+            embedding_dimension=3,
+        ),
+        runtime=RuntimeConfig(atomic_memory_related_mode="vector", atomic_memory_comparison_batch_size=1),
+    )
+
+    async def scenario():
+        async with open_builtin_runtime(config) as runtime:
+            assert runtime.scopes is not None and runtime.atomic_memory is not None
+            scope = await runtime.scopes.create(
+                ScopeDraft(title="Billing", summary="Decisions", idempotency_key="billing")
+            )
+            memory = runtime.atomic_memory.for_scope(scope.scope_id)
+            originals = {
+                entry.ref.artifact_id: entry
+                for entry in (
+                    await memory.create([
+                        AtomicMemoryContent(kind="decision", text="Billing uses PostgreSQL 16."),
+                        AtomicMemoryContent(kind="decision", text="Billing has a separate production database."),
+                    ])
+                ).records
+            }
+            # Explicit creates add non-generation records to the Source journal.
+            assert (await memory.flush()).source_count == 0
+            sources = runtime.sources.for_scope(scope.scope_id)
+            first = await sources.capture(
+                CaptureSource(
+                    source_id="database",
+                    content=json.dumps({"statement": proposal_text, "effective_at": date}),
+                    metadata={},
+                )
+            )
+            later = await sources.capture(CaptureSource(source_id="report", content=later_text, metadata={}))
+            assert (await memory.flush(limit=1)).current_cursor == first.sequence
+            revised_id, untouched_id, *retried_ids = targets
+            assert retried_ids == [untouched_id] * (max_requests - 1)
+            assert len(retry_feedback) == max_requests - 1
+            assert all(REVISE_RULE in feedback for feedback in retry_feedback)
+
+            revised = await memory.get(revised_id)
+            assert revised.ref.revision == originals[revised_id].ref.revision + 1
+            assert revised.artifact.content.text == revised_text
+            assert revised.artifact.lineage.sources == (
+                first.source_ref.model_copy(update={"locator": SourceSequenceLocator(sequence=first.sequence)}),
+            )
+            original = await memory.get(revised_id, revision=originals[revised_id].ref.revision)
+            assert original.artifact == originals[revised_id].artifact
+            untouched = originals[untouched_id]
+            assert await memory.get(untouched_id) == untouched
+            assert len((await memory.list()).items) == 2
+
+            assert (await memory.flush(limit=1)).current_cursor == later.sequence
+            current = (await memory.list()).items
+            assert {entry.artifact.content.text for entry in current} == {
+                revised_text,
+                untouched.artifact.content.text,
+                later_text,
+            }
+            assert not (await memory.flush(limit=1)).processed
+            assert (await memory.list()).items == current
+            assert extraction_count == 2
+
+    asyncio.run(scenario())
 
 
 def test_rule_feedback_names_the_rule_without_source_content(monkeypatch, tmp_path):
@@ -404,3 +554,138 @@ def test_changed_workflow_revises_published_fact_and_preserves_history(monkeypat
     assert current.artifact.lineage.artifacts == (original.ref,)
     assert len(history.items) == 2
     assert not provider.retry_feedback
+
+
+_DATABASE = "Billing uses PostgreSQL 16 since 2026-01-15."
+_REPLICA = "Billing reads from one PostgreSQL replica since 2026-03-01."
+_UPGRADE = "Billing uses PostgreSQL 17 since 2026-11-01."
+
+
+def _revised(published: str) -> str:
+    return f"{_UPGRADE} Before that: {published}"
+
+
+class _TwoIdentityProvider:
+    """Revise one published memory, then keep 'revising' a second published memory into that working item."""
+
+    def __init__(self) -> None:
+        self.retry_feedback: list[str] = []
+        self.revised: list[str] = []
+        self.rejected: list[str] = []
+
+    async def respond(self, messages: list[ModelMessage], _info: AgentInfo) -> ModelResponse:
+        request = messages[-1]
+        assert isinstance(request, ModelRequest)
+        self.retry_feedback.extend(
+            str(part.content)
+            for part in request.parts
+            if isinstance(part, UserPromptPart) and REVISE_RULE in str(part.content)
+        )
+        prompt = next(
+            part.content
+            for message in messages
+            if isinstance(message, ModelRequest)
+            for part in message.parts
+            if isinstance(part, UserPromptPart)
+        )
+        value = json.loads(str(prompt))
+        if "proposal" not in value:
+            return _json({
+                "candidates": [
+                    {
+                        "kind": "decision",
+                        "text": _UPGRADE,
+                        "description": "Billing database upgrade",
+                        "evidence_ids": [value["evidence"][0]["evidence_id"]],
+                    }
+                ]
+            })
+        (target,) = value["related"]
+        assert len(target["original_refs"]) == 1
+        proposal = value["proposal"]
+        if proposal["original_refs"]:
+            # The proposal already holds the first published identity; this revise combines two identities. Its text
+            # also drops the cited dates, so the identity rule must be reported ahead of the time-qualifier rule.
+            self.rejected.append(target["text"])
+            text = "Billing uses PostgreSQL."
+        else:
+            self.revised.append(target["text"])
+            text = _revised(target["text"])
+        return _json({
+            "action": "revise",
+            "compared_ids": [target["item_id"]],
+            "target_ids": [target["item_id"]],
+            "content": {"kind": "decision", "text": text, "description": "Billing database"},
+            "evidence_ids": list(dict.fromkeys([*proposal["evidence_ids"], *target["evidence_ids"]])),
+            "reason": "Same database decision.",
+        })
+
+
+@pytest.mark.parametrize("max_requests", [1, 2])
+def test_exhausted_identity_correction_keeps_the_absorbed_identity_and_leaves_the_other_published(
+    monkeypatch, tmp_path, max_requests
+):
+    provider = _TwoIdentityProvider()
+    monkeypatch.setattr("pydantic_ai.models.infer_model", lambda _name, **_kwargs: FunctionModel(provider.respond))
+    monkeypatch.setattr(
+        "pydantic_ai.embeddings.infer_embedding_model", lambda _name, **_kwargs: TestEmbeddingModel(dimensions=3)
+    )
+    config = BuiltinConfig(
+        database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'two-identities.db'}"),
+        inference=InferenceConfig(
+            generation_model="provider:test-model",
+            generation_max_requests=max_requests,
+            embedding_model="test",
+            embedding_profile_id="identity-fixture",
+            embedding_dimension=3,
+        ),
+        runtime=RuntimeConfig(atomic_memory_related_mode="vector", atomic_memory_comparison_batch_size=1),
+    )
+
+    async def scenario():
+        async with open_builtin_runtime(config) as runtime:
+            assert runtime.scopes is not None and runtime.atomic_memory is not None
+            scope = await runtime.scopes.create(
+                ScopeDraft(title="Billing", summary="Database decisions", idempotency_key="billing")
+            )
+            memory = runtime.atomic_memory.for_scope(scope.scope_id)
+            published = (
+                await memory.create([
+                    AtomicMemoryContent(kind="decision", text=_DATABASE, description="Billing database"),
+                    AtomicMemoryContent(kind="decision", text=_REPLICA, description="Billing replica"),
+                ])
+            ).records
+            by_text = {record.artifact.content.text: record for record in published}
+            receipt = await runtime.sources.for_scope(scope.scope_id).capture(
+                CaptureSource(source_id="upgrade", content=_UPGRADE, metadata={})
+            )
+
+            await memory.flush()
+
+            assert (await memory.cursor()).sequence == receipt.sequence
+            (revised_text,) = provider.revised
+            (untouched_text,) = set(provider.rejected)
+            assert {revised_text, untouched_text} == {_DATABASE, _REPLICA}
+            assert len(provider.rejected) == max_requests
+            assert len(provider.retry_feedback) == max_requests - 1
+            # The absorbed identity keeps the decision made before the rejected comparison.
+            first = by_text[revised_text]
+            current = await memory.get(first.ref.artifact_id)
+            assert current.ref.revision == first.ref.revision + 1
+            assert current.artifact.content.text == _revised(revised_text)
+            assert current.artifact.lineage.sources == (
+                receipt.source_ref.model_copy(update={"locator": SourceSequenceLocator(sequence=receipt.sequence)}),
+            )
+            # The second published identity is neither revised nor merged without an explicit merge decision.
+            other = by_text[untouched_text]
+            assert await memory.get(other.ref.artifact_id) == other
+            history = await runtime.records.for_scope(scope.scope_id).list_artifact_revisions(
+                "atomic-memory", other.ref.artifact_id, limit=10, cursor=None
+            )
+            assert len(history.items) == 1
+            entries = (await memory.list()).items
+            assert {entry.artifact.content.text for entry in entries} == {_revised(revised_text), untouched_text}
+            await memory.flush()
+            assert (await memory.list()).items == entries
+
+    asyncio.run(scenario())

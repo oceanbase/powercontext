@@ -45,6 +45,7 @@ class SourceRecord(_RecordModel):
     source_type: str
     source_id: str
     content: JsonValue
+    metadata: dict[str, JsonValue] = Field(default_factory=dict)
     position: int
     content_digest: str
     handoff_receipt: bool = Field(default=False, exclude=True)

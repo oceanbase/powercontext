@@ -6014,6 +6014,10 @@ export interface components {
             source_id: string;
             /** @description Persisted canonical JSON content. */
             content: unknown;
+            /** @description Caller-supplied metadata for a Content Source, returned unchanged; an empty object for Sources that carry no caller metadata. Responses from servers that predate this field omit it, which clients report as null and must not treat as proof that the Source has no metadata. */
+            metadata?: {
+                [key: string]: unknown;
+            } | null;
             position: number;
             content_digest: string;
         };

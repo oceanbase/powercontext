@@ -13940,6 +13940,14 @@ components:
           pattern: '.*\S.*'
         content:
           description: Persisted canonical JSON content.
+        metadata:
+          type: object
+          additionalProperties: true
+          nullable: true
+          description: >-
+            Caller-supplied metadata for a Content Source, returned unchanged; an empty object for Sources that
+            carry no caller metadata. Responses from servers that predate this field omit it, which clients report
+            as null and must not treat as proof that the Source has no metadata.
         position:
           type: integer
           minimum: 1
