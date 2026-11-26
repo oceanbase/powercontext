@@ -105,4 +105,22 @@ describe('Scope binding', () => {
       rmSync(root, { recursive: true, force: true })
     }
   })
+
+  it('sends only its own key from a checkout whose Git directory is separate', async () => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), 'pc-separate-')))
+    try {
+      const checkout = join(root, 'checkout')
+      mkdirSync(join(root, 'store'))
+      execFileSync('git', ['init', '-q', '--separate-git-dir', join(root, 'store', '.git'), checkout], {
+        stdio: 'ignore',
+      })
+      const request = vi.fn().mockResolvedValue({ value: { scope_id: 'default' } })
+      await resolveScopeId({ request } as never, checkout)
+      expect(request.mock.calls[0]?.[1].binding_keys).toEqual([
+        { integration: 'dsh', kind: 'workspace', external_id: pathHash(checkout) },
+      ])
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
 })

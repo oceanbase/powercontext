@@ -675,10 +675,7 @@ class PowerContextMemoryProvider(MemoryProvider):
         keys = []
         if self._session_id:
             keys.append({"integration": "hermes", "kind": "session", "external_id": self._session_id})
-        for path in workspace_paths(self._scope_binding_cwd, git_root=False):
-            key = _workspace_binding_key(path)
-            if key not in keys:
-                keys.append(key)
+        keys.extend(_workspace_binding_key(path) for path in workspace_paths(self._scope_binding_cwd, git_root=False))
         return keys
 
     def _bind_workspace_scope(self, scope_id: str) -> None:

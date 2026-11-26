@@ -102,6 +102,29 @@ def test_a_worktree_of_a_bare_repository_gets_no_second_path(helper: Helper, lay
     assert helper(layout.bare_worktree, False) == [str(layout.bare_worktree)]
 
 
+def test_a_checkout_with_a_separate_git_directory_gets_no_second_path(helper: Helper, layout: GitLayout) -> None:
+    assert helper(layout.separate_checkout, True) == [str(layout.separate_checkout)]
+    assert helper(layout.separate_checkout, False) == [str(layout.separate_checkout)]
+
+
+def test_a_linked_worktree_of_a_checkout_with_a_separate_git_directory_falls_back_to_that_directorys_parent(
+    helper: Helper, layout: GitLayout
+) -> None:
+    # Git records the parent of the separate Git directory as the main worktree, so that is the only path it offers.
+    assert helper(layout.separate_worktree, True) == [str(layout.separate_worktree), str(layout.separate_store)]
+
+
+@pytest.mark.skipif(os.name == "nt", reason="creating a symbolic link needs extra privileges on Windows")
+def test_a_main_checkout_path_that_links_back_to_the_working_directory_is_left_out(
+    helper: Helper, layout: GitLayout
+) -> None:
+    linked = layout.worktree / "linked"
+    linked.mkdir()
+    (layout.checkout / "linked").symlink_to(linked, target_is_directory=True)
+
+    assert helper(linked, False) == [str(linked)]
+
+
 def test_a_directory_outside_git_keeps_its_own_path(helper: Helper, layout: GitLayout) -> None:
     assert helper(layout.outside, True) == [str(layout.outside)]
     assert helper(layout.outside, False) == [str(layout.outside)]
@@ -113,7 +136,8 @@ def test_a_directory_outside_git_keeps_its_own_path(helper: Helper, layout: GitL
 def test_git_without_path_format_keeps_the_top_level_and_adds_nothing(
     helper: Helper, layout: GitLayout, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    fake_old_git(tmp_path / "bin", layout.worktree, layout.checkout / ".git", monkeypatch)
+    common = layout.checkout / ".git"
+    fake_old_git(tmp_path / "bin", layout.worktree, common / "worktrees" / layout.worktree.name, common, monkeypatch)
 
     assert helper(layout.worktree_sub, True) == [str(layout.worktree)]
     assert helper(layout.worktree_sub, False) == [str(layout.worktree_sub)]

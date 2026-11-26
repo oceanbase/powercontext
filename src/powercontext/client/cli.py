@@ -370,7 +370,7 @@ def _workspace_binding_external_ids(cwd: Path, integration: str) -> list[str]:
         identities = [os.path.abspath(path).encode("utf-8") for path in paths]
     else:
         identities = [os.fsencode(Path(path).resolve(strict=False)) for path in paths]
-    return list(dict.fromkeys(hashlib.sha256(identity).hexdigest() for identity in identities))
+    return [hashlib.sha256(identity).hexdigest() for identity in identities]
 
 
 def _binding_key(integration: str, kind: str, external_id: str) -> ScopeBindingKey:

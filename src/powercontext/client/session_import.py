@@ -568,13 +568,14 @@ def _session_binding_keys(session_id: str | None) -> tuple[ScopeBindingKey, ...]
 
 def _workspace_binding_keys(cwd: str) -> list[ScopeBindingKey]:
     # Codex keys the Git top level; in a linked worktree that still exists, its main checkout's key follows.
-    keys: list[ScopeBindingKey] = []
-    for path in workspace_paths(cwd, git_root=True):
-        external_id = sha256(os.fsencode(Path(path).resolve(strict=False))).hexdigest()
-        key = ScopeBindingKey(integration="codex", kind="workspace", external_id=external_id)
-        if key not in keys:
-            keys.append(key)
-    return keys
+    return [
+        ScopeBindingKey(
+            integration="codex",
+            kind="workspace",
+            external_id=sha256(os.fsencode(Path(path).resolve(strict=False))).hexdigest(),
+        )
+        for path in workspace_paths(cwd, git_root=True)
+    ]
 
 
 def _metadata(prompt: ImportedPrompt) -> dict[str, object]:

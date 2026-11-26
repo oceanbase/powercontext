@@ -33,7 +33,8 @@ class GitLayout:
     """A checkout with a linked worktree, a linked worktree of a bare repository, and a directory outside Git.
 
     Each path is real, so it equals what Git reports. ``checkout_sub`` and ``worktree_sub`` are the same subdirectory
-    in the checkout and in its linked worktree.
+    in the checkout and in its linked worktree. ``separate_checkout`` keeps its Git directory at
+    ``separate_store / ".git"``, and ``separate_worktree`` is a linked worktree of it.
     """
 
     checkout: Path
@@ -42,6 +43,9 @@ class GitLayout:
     worktree_sub: Path
     bare_worktree: Path
     outside: Path
+    separate_checkout: Path
+    separate_store: Path
+    separate_worktree: Path
 
 
 def _git(executable: str, *arguments: str | Path) -> None:
@@ -69,6 +73,13 @@ def make_git_layout(root: Path, monkeypatch: pytest.MonkeyPatch) -> GitLayout:
     _git(executable, "init", "-q", "--bare", bare)
     _git(executable, "-C", checkout, "push", "-q", bare, "HEAD:refs/heads/main")
     _git(executable, "-C", bare, "worktree", "add", "-q", bare_worktree, "main")
+    separate_checkout, separate_store, separate_worktree = (
+        root / name for name in ("separate", "store", "separate-wt")
+    )
+    separate_store.mkdir()
+    _git(executable, "init", "-q", "--separate-git-dir", separate_store / ".git", separate_checkout)
+    _git(executable, "-C", separate_checkout, "commit", "-q", "--allow-empty", "-m", "init")
+    _git(executable, "-C", separate_checkout, "worktree", "add", "-q", separate_worktree)
     for directory in (checkout / "sub", worktree / "sub", root / "outside"):
         directory.mkdir()
     return GitLayout(
@@ -78,15 +89,20 @@ def make_git_layout(root: Path, monkeypatch: pytest.MonkeyPatch) -> GitLayout:
         worktree_sub=worktree / "sub",
         bare_worktree=bare_worktree,
         outside=root / "outside",
+        separate_checkout=separate_checkout,
+        separate_store=separate_store,
+        separate_worktree=separate_worktree,
     )
 
 
-def fake_old_git(directory: Path, top: Path, common: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def fake_old_git(directory: Path, top: Path, git_dir: Path, common: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Put a Git that predates --path-format first on PATH; it prints that option back, as Git before 2.31 does."""
 
     directory.mkdir()
     script = directory / "git"
-    script.write_text(f"#!/bin/sh\nprintf '%s\\n' '{top}' '--path-format=absolute' '{common}'\n", encoding="utf-8")
+    script.write_text(
+        f"#!/bin/sh\nprintf '%s\\n' '{top}' '--path-format=absolute' '{git_dir}' '{common}'\n", encoding="utf-8"
+    )
     script.chmod(0o755)
     monkeypatch.setenv("PATH", f"{directory}{os.pathsep}{os.environ['PATH']}")
 

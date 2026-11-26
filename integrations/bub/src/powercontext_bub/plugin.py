@@ -41,7 +41,13 @@ from pydantic_settings import SettingsConfigDict
 from powercontext.client import InvalidResponseError, PowerContextClient, ServerResponseError, TransportError
 from powercontext.client.capture import render_capture_event
 from powercontext.client.transport_policy import ClientTransportSettings
-from powercontext.http import CaptureContentSourceRequest, FlushMemoryRequest, PrepareContextRequest, PreparedContext
+from powercontext.http import (
+    CaptureContentSourceRequest,
+    FlushMemoryRequest,
+    PrepareContextRequest,
+    PreparedContext,
+    ScopeBindingKey,
+)
 
 try:
     from powercontext.http import ContextAssembly
@@ -50,7 +56,7 @@ except ImportError:
     from types import NoneType as ContextAssembly
 
 from ._prompt_privacy import scrub_secrets
-from .scope import resolve_scope_id, workspace_binding_keys
+from .scope import resolve_scope_id, workspace_binding_key, workspace_binding_keys
 
 STATE_KEY = "_powercontext"
 CONTEXT_MARKER = "PowerContext host-supplied context"
@@ -148,11 +154,12 @@ class PowerContextPlugin:
         self._framework = framework
         self._scope_lock = asyncio.Lock()
         self._capture_lock = asyncio.Lock()
+        self._binding_keys: dict[str | None, list[ScopeBindingKey]] = {}
 
     @hookimpl
     def load_state(self, message: Any, session_id: str) -> TurnState:
         del message, session_id
-        binding_keys = workspace_binding_keys(getattr(self._framework, "workspace", None))
+        binding_keys = self._workspace_binding_keys(getattr(self._framework, "workspace", None))
         return {
             STATE_KEY: {
                 "base_url": self.base_url,
@@ -298,6 +305,18 @@ class PowerContextPlugin:
             return
         async with self._capture_lock:
             await self._flush_captured_sources(state, final=True)
+
+    def _workspace_binding_keys(self, workspace: str | Path | None) -> list[ScopeBindingKey]:
+        if self.settings.scope_id is not None:
+            # The Server resolves an explicit Scope without looking at the keys, so this asks Git nothing.
+            key = workspace_binding_key(workspace)
+            return [] if key is None else [key]
+        # Git runs once per workspace for the plugin's lifetime, not on every turn.
+        identity = None if workspace is None else str(workspace)
+        keys = self._binding_keys.get(identity)
+        if keys is None:
+            keys = self._binding_keys[identity] = workspace_binding_keys(workspace)
+        return list(keys)
 
     def _authorization(self) -> str | None:
         token = self.settings.api_token

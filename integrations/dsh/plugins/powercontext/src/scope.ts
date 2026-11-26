@@ -39,8 +39,7 @@ export function workspaceBindingKey(cwd: string): ScopeBindingKey {
 
 /** Return the workspace keys that resolution tries in order, with a linked worktree's main checkout after its own. */
 export async function workspaceBindingKeys(cwd: string): Promise<ScopeBindingKey[]> {
-  const keys = (await workspacePaths(cwd, false, GIT_TIMEOUT_MS)).map(workspaceBindingKey)
-  return keys.filter((key, index) => keys.findIndex(other => other.external_id === key.external_id) === index)
+  return (await workspacePaths(cwd, false, GIT_TIMEOUT_MS)).map(workspaceBindingKey)
 }
 
 export function formatScopeRouting(scopeId: string, cwd?: string): string {

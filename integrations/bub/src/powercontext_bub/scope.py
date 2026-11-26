@@ -30,12 +30,7 @@ def workspace_binding_key(workspace: str | Path | None) -> ScopeBindingKey | Non
 
     if workspace is None:
         return None
-    workspace_identity = str(Path(workspace).expanduser().resolve())
-    return ScopeBindingKey(
-        integration="bub",
-        kind="workspace",
-        external_id=hashlib.sha256(workspace_identity.encode()).hexdigest(),
-    )
+    return _workspace_key(workspace)
 
 
 def workspace_binding_keys(workspace: str | Path | None) -> list[ScopeBindingKey]:
@@ -47,12 +42,16 @@ def workspace_binding_keys(workspace: str | Path | None) -> list[ScopeBindingKey
 
     if workspace is None:
         return []
-    keys: list[ScopeBindingKey] = []
-    for path in workspace_paths(str(Path(workspace).expanduser()), git_root=False):
-        key = workspace_binding_key(path)
-        if key is not None and key not in keys:
-            keys.append(key)
-    return keys
+    return [_workspace_key(path) for path in workspace_paths(str(Path(workspace).expanduser()), git_root=False)]
+
+
+def _workspace_key(workspace: str | Path) -> ScopeBindingKey:
+    workspace_identity = str(Path(workspace).expanduser().resolve())
+    return ScopeBindingKey(
+        integration="bub",
+        kind="workspace",
+        external_id=hashlib.sha256(workspace_identity.encode()).hexdigest(),
+    )
 
 
 async def resolve_scope_id(

@@ -26,6 +26,7 @@ import pytest
 import republic
 from bub.hooks.interception import LLMCallRequest
 from powercontext_bub import plugin as plugin_module
+from powercontext_bub import scope as scope_module
 from powercontext_bub import tools as tools_module
 from powercontext_bub.plugin import STATE_KEY, PowerContextPlugin, PowerContextSettings
 from powercontext_bub.scope import workspace_binding_key
@@ -70,10 +71,12 @@ class RecordingClient:
         return SimpleNamespace(hits=[])
 
 
-def _plugin(monkeypatch, tmp_path: Path, *, capture_events: bool = False) -> PowerContextPlugin:
+def _plugin(
+    monkeypatch, tmp_path: Path, *, capture_events: bool = False, scope_id: str | None = "configured-scope"
+) -> PowerContextPlugin:
     settings = PowerContextSettings(
         base_url="http://127.0.0.1:8000",
-        scope_id="configured-scope",
+        scope_id=scope_id,
         capture_events=capture_events,
         capture_checkpoint_every=100,
     )
@@ -109,16 +112,35 @@ def test_a_linked_worktree_falls_back_to_the_same_directory_in_its_checkout(monk
     (checkout / "sub").mkdir()
     (worktree / "sub").mkdir()
 
-    def external_ids(workspace: Path) -> list[str]:
-        state = _plugin(monkeypatch, workspace).load_state(message=None, session_id="session-1")
+    git_calls: list[str] = []
+    workspace_paths = scope_module.workspace_paths
+
+    def recording_workspace_paths(cwd: str, **options: Any) -> list[str]:
+        git_calls.append(cwd)
+        return workspace_paths(cwd, **options)
+
+    monkeypatch.setattr(scope_module, "workspace_paths", recording_workspace_paths)
+
+    def external_ids(plugin: PowerContextPlugin) -> list[str]:
+        state = plugin.load_state(message=None, session_id="session-1")
         return [key.external_id for key in state[STATE_KEY]["binding_keys"]]
 
-    # The worktree's own key is still the hash of its resolved directory, so it wins over the checkout's key.
-    assert external_ids(worktree / "sub") == [
+    worktree_ids = [
         hashlib.sha256(str(worktree / "sub").encode()).hexdigest(),
         hashlib.sha256(str(checkout / "sub").encode()).hexdigest(),
     ]
-    assert external_ids(checkout / "sub") == [hashlib.sha256(str(checkout / "sub").encode()).hexdigest()]
+    # The worktree's own key is still the hash of its resolved directory, so it wins over the checkout's key.
+    in_worktree = _plugin(monkeypatch, worktree / "sub", scope_id=None)
+    assert external_ids(in_worktree) == worktree_ids
+    assert external_ids(in_worktree) == worktree_ids
+    assert external_ids(_plugin(monkeypatch, checkout / "sub", scope_id=None)) == [worktree_ids[1]]
+    # Later turns in the same workspace reuse the keys rather than ask Git again.
+    assert git_calls == [str(worktree / "sub"), str(checkout / "sub")]
+
+    # With an explicit Scope, the Server ignores the keys, so the plugin asks Git nothing.
+    git_calls.clear()
+    assert external_ids(_plugin(monkeypatch, worktree / "sub")) == worktree_ids[:1]
+    assert git_calls == []
 
 
 def test_recall_and_capture_use_only_the_server_resolved_scope(monkeypatch, tmp_path: Path) -> None:

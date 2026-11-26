@@ -25,7 +25,7 @@ from shutil import which
 
 # --path-format applies to the options after it, so the top level stays exactly what --show-toplevel alone prints.
 # It needs Git 2.31 or later.
-_ARGUMENTS = ("rev-parse", "--show-toplevel", "--path-format=absolute", "--git-common-dir")
+_ARGUMENTS = ("rev-parse", "--show-toplevel", "--path-format=absolute", "--git-dir", "--git-common-dir")
 # Older Git does not know --path-format and prints it back as an argument.
 _UNKNOWN_FORMAT = "\n--path-format=absolute"
 
@@ -39,22 +39,25 @@ def workspace_paths(cwd: str, *, git_root: bool, timeout: float = 2.0) -> list[s
     host keys both paths the way it keys the first, so the second matches a binding made in the main checkout, and
     resolves them in this order, so the worktree's own binding wins. Binding and clearing use only the first.
 
-    The main worktree is the parent of Git's common directory when that directory is named ``.git``; bare
-    repositories, submodules, and other layouts get no second path.
+    A linked worktree's Git directory differs from the common directory, and its main worktree is the parent of the
+    common directory when that directory is named ``.git``. A main checkout, including one whose Git directory is
+    separate, gets no second path, and neither do bare repositories and submodules. A linked worktree of a checkout
+    with a separate Git directory falls back to the parent of that directory, since Git records no other main
+    worktree. A second path that is the same directory as ``cwd`` is left out.
     """
 
-    top, common = _git_paths(cwd, timeout)
+    top, git_dir, common = _git_paths(cwd, timeout)
     first = (top or cwd) if git_root else cwd
-    main = _main_worktree_path(cwd, top, common, git_root=git_root)
+    main = _main_worktree_path(cwd, top, git_dir, common, git_root=git_root)
     return [first] if main is None else [first, main]
 
 
-def _git_paths(cwd: str, timeout: float) -> tuple[str | None, str | None]:
-    """Return the top level and the absolute common directory that Git reports for ``cwd``, each when it has one."""
+def _git_paths(cwd: str, timeout: float) -> tuple[str | None, str | None, str | None]:
+    """Return the top level and the absolute Git and common directories that Git reports for ``cwd``, when known."""
 
     executable = which("git")
     if executable is None:
-        return None, None
+        return None, None, None
     try:
         completed = subprocess.run(  # noqa: S603 - git executable and arguments are integration-owned.
             [executable, *_ARGUMENTS],
@@ -65,18 +68,21 @@ def _git_paths(cwd: str, timeout: float) -> tuple[str | None, str | None]:
             timeout=timeout,
         )
     except (OSError, subprocess.SubprocessError):
-        return None, None
-    head, _, common = completed.stdout.rstrip("\n").rpartition("\n")
+        return None, None, None
+    rest, _, common = completed.stdout.rstrip("\n").rpartition("\n")
+    head, _, git_dir = rest.rpartition("\n")
     if head.endswith(_UNKNOWN_FORMAT):
-        return head[: -len(_UNKNOWN_FORMAT)].strip() or None, None
-    return head.strip() or None, common or None
+        return head[: -len(_UNKNOWN_FORMAT)].strip() or None, None, None
+    return head.strip() or None, git_dir or None, common or None
 
 
-def _main_worktree_path(cwd: str, top: str | None, common: str | None, *, git_root: bool) -> str | None:
-    if top is None or common is None or not os.path.isabs(common):
+def _main_worktree_path(
+    cwd: str, top: str | None, git_dir: str | None, common: str | None, *, git_root: bool
+) -> str | None:
+    if top is None or git_dir is None or common is None or not (os.path.isabs(git_dir) and os.path.isabs(common)):
         return None
     common_directory = os.path.realpath(common)
-    if os.path.basename(common_directory) != ".git":
+    if os.path.realpath(git_dir) == common_directory or os.path.basename(common_directory) != ".git":
         return None
     main_root = os.path.dirname(common_directory)
     worktree_root = os.path.realpath(top)
@@ -91,4 +97,6 @@ def _main_worktree_path(cwd: str, top: str | None, common: str | None, *, git_ro
         return None
     if position == os.pardir or position.startswith(os.pardir + os.sep):
         return None
-    return os.path.normpath(os.path.join(main_root, position))
+    main = os.path.normpath(os.path.join(main_root, position))
+    # A symbolic link in the main checkout can lead back to the working directory itself.
+    return None if os.path.realpath(main) == os.path.realpath(cwd) else main

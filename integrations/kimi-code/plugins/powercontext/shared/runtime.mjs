@@ -131,12 +131,7 @@ export function workspaceKey(cwd) {
 // Resolution tries the workspace's own key, then, in a linked Git worktree, the same directory's in the main checkout.
 // Binding and clearing write only workspaceKey.
 export function workspaceKeys(cwd) {
-  const keys = [workspaceKey(cwd)]
-  for (const path of workspacePathsSync(cwd, false, GIT_TIMEOUT_MS).slice(1)) {
-    const key = workspaceKey(path)
-    if (!keys.some(other => other.external_id === key.external_id)) keys.push(key)
-  }
-  return keys
+  return [workspaceKey(cwd), ...workspacePathsSync(cwd, false, GIT_TIMEOUT_MS).slice(1).map(workspaceKey)]
 }
 
 export async function resolveScope(settings, signal, input = {}) {

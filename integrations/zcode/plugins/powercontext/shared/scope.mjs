@@ -43,8 +43,8 @@ function workspaces(cwd) {
   const directory = resolve(cwd)
   const [root, main] = workspacePathsSync(directory, true, 500)
   const own = realPath(root) ?? realPath(directory) ?? directory
-  const checkout = main === undefined ? undefined : realPath(main)
-  return checkout === undefined || checkout === own ? [own] : [own, checkout]
+  // The helper returns the main checkout's root as a real path.
+  return main === undefined ? [own] : [own, main]
 }
 
 function realPath(path) {

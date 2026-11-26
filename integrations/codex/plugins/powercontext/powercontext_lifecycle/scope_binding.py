@@ -163,10 +163,9 @@ def binding_keys(
     keys: list[dict[str, str]] = []
     if session_id is not None:
         keys.append(session_binding_key(host, session_id))
-    for path in workspace_paths(cwd, git_root=True, timeout=_git_timeout(deadline)):
-        key = _workspace_key(host, path)
-        if key not in keys:
-            keys.append(key)
+    keys.extend(
+        _workspace_key(host, path) for path in workspace_paths(cwd, git_root=True, timeout=_git_timeout(deadline))
+    )
     return keys
 
 

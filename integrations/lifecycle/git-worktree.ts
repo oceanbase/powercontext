@@ -24,7 +24,7 @@ import { promisify } from 'node:util'
 //
 // --path-format applies to the options after it, so the top level stays exactly what --show-toplevel alone prints.
 // It needs Git 2.31 or later.
-const GIT_ARGUMENTS = ['rev-parse', '--show-toplevel', '--path-format=absolute', '--git-common-dir']
+const GIT_ARGUMENTS = ['rev-parse', '--show-toplevel', '--path-format=absolute', '--git-dir', '--git-common-dir']
 // Older Git does not know --path-format and prints it back as an argument.
 const UNKNOWN_FORMAT = '\n--path-format=absolute'
 const runGit = promisify(execFile)
@@ -38,8 +38,11 @@ const runGit = promisify(execFile)
  * it. Each host keys both paths the way it keys the first, so the second matches a binding made in the main checkout,
  * and resolves them in this order, so the worktree's own binding wins. Binding and clearing use only the first.
  *
- * The main worktree is the parent of Git's common directory when that directory is named `.git`; bare repositories,
- * submodules, and other layouts get no second path.
+ * A linked worktree's Git directory differs from the common directory, and its main worktree is the parent of the
+ * common directory when that directory is named `.git`. A main checkout, including one whose Git directory is separate,
+ * gets no second path, and neither do bare repositories and submodules. A linked worktree of a checkout with a separate
+ * Git directory falls back to the parent of that directory, since Git records no other main worktree. A second path
+ * that is the same directory as `directory` is left out.
  */
 export async function workspacePaths(directory: string, gitRoot: boolean, timeout: number): Promise<string[]> {
   try {
@@ -65,31 +68,37 @@ export function workspacePathsSync(directory: string, gitRoot: boolean, timeout:
 }
 
 function pathsFromGit(directory: string, output: string, gitRoot: boolean): string[] {
-  const lines = output.replace(/\n+$/u, '')
-  const split = lines.lastIndexOf('\n')
-  let head = split < 0 ? '' : lines.slice(0, split)
-  let common = lines.slice(split + 1)
+  const lines = output.replace(/\r\n/gu, '\n').replace(/\n+$/u, '')
+  const commonSplit = lines.lastIndexOf('\n')
+  const rest = commonSplit < 0 ? '' : lines.slice(0, commonSplit)
+  const gitDirSplit = rest.lastIndexOf('\n')
+  let head = gitDirSplit < 0 ? '' : rest.slice(0, gitDirSplit)
+  let gitDir = rest.slice(gitDirSplit + 1)
+  let common = lines.slice(commonSplit + 1)
   if (head.endsWith(UNKNOWN_FORMAT)) {
     head = head.slice(0, -UNKNOWN_FORMAT.length)
+    gitDir = ''
     common = ''
   }
   const top = head.trim()
   const first = gitRoot && top ? top : directory
-  const main = mainWorktreePath(directory, top, common, gitRoot)
+  const main = mainPath(directory, top, gitDir, common, gitRoot)
   return main === undefined ? [first] : [first, main]
 }
 
-function mainWorktreePath(directory: string, top: string, common: string, gitRoot: boolean): string | undefined {
-  if (!top || !common || !isAbsolute(common)) return undefined
+function mainPath(directory: string, top: string, gitDir: string, common: string, gitRoot: boolean): string | undefined {
+  if (!top || !gitDir || !common || !isAbsolute(gitDir) || !isAbsolute(common)) return undefined
   const commonDirectory = realPath(common)
-  if (basename(commonDirectory) !== '.git') return undefined
+  if (realPath(gitDir) === commonDirectory || basename(commonDirectory) !== '.git') return undefined
   const mainRoot = dirname(commonDirectory)
   const worktreeRoot = realPath(top)
   if (mainRoot === worktreeRoot) return undefined
   if (gitRoot) return mainRoot
   const position = relative(worktreeRoot, realPath(directory))
   if (position === '..' || position.startsWith('..' + sep) || isAbsolute(position)) return undefined
-  return join(mainRoot, position)
+  const main = join(mainRoot, position)
+  // A symbolic link in the main checkout can lead back to the working directory itself.
+  return realPath(main) === realPath(directory) ? undefined : main
 }
 
 function realPath(path: string): string {
