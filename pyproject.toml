@@ -321,6 +321,7 @@ fix = true
 # fix that it applies to a copy makes the copy drift.
 "src/powercontext_integration_lifecycle/**/*.py" = "py39"
 "integrations/codex/plugins/powercontext/powercontext_lifecycle/**/*.py" = "py39"
+"integrations/bub/src/powercontext_bub/_prompt_privacy.py" = "py39"
 "integrations/hermes/plugins/powercontext/{powercontext_client_config,prepared_context,prompt_privacy}.py" = "py39"
 "integrations/workbuddy/plugins/powercontext/hooks/{powercontext_client_config,prepared_context,prompt_privacy}.py" = "py39"
 "integrations/langchain/src/powercontext_langchain/{_prepared_context,_prompt_privacy}.py" = "py39"

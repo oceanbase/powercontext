@@ -1226,6 +1226,8 @@ class _SkillApplication(Protocol):
 
 
 class _RemoteSkillApplication(Protocol):
+    async def authenticate_target(self, credential: str, /) -> None: ...
+
     async def list_targets(
         self,
         scope_id: str,
@@ -1585,10 +1587,7 @@ def create_app(
     @app.exception_handler(PowerContextError)
     @app.exception_handler(PersistenceError)
     async def application_error(request: Request, error: Exception) -> JSONResponse:
-        response_status, code, message, details = _map_error(error)
-        response = _error_response(response_status, code=code, message=message, details=details)
-        _set_error_headers(response, error)
-        return response
+        return _application_error_response(error)
 
     @app.exception_handler(Exception)
     async def unexpected_error(request: Request, error: Exception) -> JSONResponse:
@@ -3917,6 +3916,7 @@ def _source_record_response(value: RuntimeSourceRecord) -> SourceRecord:
         source_type=value.source_type,
         source_id=value.source_id,
         content=value.content,
+        metadata=value.metadata,
         position=value.position,
         content_digest=value.content_digest,
     )
@@ -5575,6 +5575,17 @@ def _remote_skill_publication(publication: SkillPublication) -> RemoteSkillPubli
         "observed_at": None if publication.observed_at is None else _aware_datetime(publication.observed_at),
         "generation": publication.generation,
     })
+
+
+async def _authenticate_remote_skill_request(request: Request) -> Response | None:
+    # The Receiver operation checks the credential again within its transaction.
+    try:
+        _require_secure_remote_transport(request)
+        credential = _target_credential(request)
+        await _require_application(request).remote_skills.authenticate_target(credential)
+    except (_RuntimeNotReadyError, PowerContextError, PersistenceError) as error:
+        return _application_error_response(error)
+    return None
 
 
 def _target_credential(request: Request) -> str:
@@ -7300,6 +7311,13 @@ def _log_operation(
     if status_code is not None:
         extra["status_code"] = status_code
     log_safely(logger, level, message, exc_info=error, extra=extra)
+
+
+def _application_error_response(error: Exception) -> JSONResponse:
+    response_status, code, message, details = _map_error(error)
+    response = _error_response(response_status, code=code, message=message, details=details)
+    _set_error_headers(response, error)
+    return response
 
 
 def _error_response(

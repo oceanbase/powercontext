@@ -112,6 +112,7 @@ from powercontext.builtin.processing_diagnostics import (
     ProcessingFailureReason,
     ProcessingStage,
     attach_diagnostics,
+    classify_processing_storage_failure,
 )
 from powercontext.builtin.runtime.atomic_memory import AtomicMemoryApplication, deferred_decision_audit
 from powercontext.builtin.runtime.decision_policy import emit_decision_observation
@@ -408,7 +409,10 @@ class AtomicMemorySourceWindowProcessor:
                 "powercontext.memory.commit.artifact_revision_count": sum(write.draft is not None for write in writes),
             },
         ):
-            async with application.database.transaction() as connection:
+            async with (
+                classify_processing_storage_failure("atomic-memory-publish-storage"),
+                application.database.transaction() as connection,
+            ):
                 # Every Atomic write uses journal -> heads. Source capture's journal
                 # reservation prevents the exact window changing under validation.
                 await connection.execute(

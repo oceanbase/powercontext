@@ -183,6 +183,25 @@ impl Gateway {
         chunked_response: bool,
         combined: bool,
     ) -> Self {
+        Self::start_with_injection(
+            caps,
+            deployment_limit,
+            Some(injection),
+            steering,
+            chunked_response,
+            combined,
+        )
+        .await
+    }
+
+    async fn start_with_injection(
+        caps: Value,
+        deployment_limit: usize,
+        injection: Option<bool>,
+        steering: bool,
+        chunked_response: bool,
+        combined: bool,
+    ) -> Self {
         let state = Arc::new(Receiver {
             caps,
             check_limit: AtomicUsize::new(CONTEXT_CHECK_BODY_LIMIT),
@@ -233,8 +252,10 @@ impl Gateway {
                 "PC_GATEWAY_UPSTREAM_URL_RESPONSES",
                 format!("http://{receiver_addr}/provider"),
             )
-            .env("PC_GATEWAY_MAX_BODY_BYTES", deployment_limit.to_string())
-            .env("PC_GATEWAY_INJECTION", if injection { "on" } else { "off" });
+            .env("PC_GATEWAY_MAX_BODY_BYTES", deployment_limit.to_string());
+        if let Some(injection) = injection {
+            command.env("PC_GATEWAY_INJECTION", if injection { "on" } else { "off" });
+        }
         command.env("PC_GATEWAY_MAX_CONCURRENT", "1");
         let uds = combined.then(|| {
             let path = std::env::temp_dir().join(format!("pc2464-{}-{}.sock", std::process::id(), address.port()));
@@ -262,6 +283,7 @@ impl Gateway {
             });
             (task, path)
         });
+        command.env("PC_GATEWAY_STEERING", if steering { "on" } else { "off" });
         let steering = steering.then(|| {
             let path = std::env::temp_dir().join(format!(
                 "pc2464-{}-{}.txt",
@@ -500,6 +522,7 @@ async fn ingress_and_final_wire_bytes_obey_both_limits() {
 async fn prepared_context_and_steering_cannot_bypass_final_capacity() {
     for (injection, steering, route, body) in [
         (true, false, CHAT, chat("hello")),
+        (false, true, CHAT, chat("hello")),
         (
             false,
             true,
@@ -520,6 +543,39 @@ async fn prepared_context_and_steering_cannot_bypass_final_capacity() {
         assert_eq!(status, 403, "{result}");
         assert!(result.contains("request_payload_too_large"));
         assert_eq!(gateway.state.sends.load(Ordering::SeqCst), 0);
+    }
+}
+
+#[tokio::test]
+async fn combined_default_injects_headerless_history_and_diagnoses_missing_identity() {
+    let mut gateway =
+        Gateway::start_with_injection(capabilities(json!(8192)), 8192, None, false, false, true)
+            .await;
+    let responses = "/gateway/v1/responses";
+    for (route, payload, injected) in [
+        (CHAT, chat("hello"), true),
+        (responses, json!({"model":"test", "input":"hello"}).to_string(), true),
+        (CHAT, json!({"model":"test", "messages":[{"role":"system", "content":"SYNTHETIC_INSTRUCTIONS"}]}).to_string(), false),
+        (responses, json!({"model":"test", "input":"hello", "previous_response_id":"resp_prior"}).to_string(), false),
+        (responses, json!({"model":"test", "input":"hello", "conversation":"conv_prior"}).to_string(), false),
+    ] {
+        let (status, response) = gateway
+            .request_when_model_capacity_available(route, payload, false)
+            .await;
+        assert_eq!(status, 200, "{response}");
+        let checked = gateway.state.checked.lock().unwrap();
+        assert_eq!(checked.last().unwrap().contains(&"准".repeat(128)), injected);
+    }
+    gateway.process.kill().unwrap();
+    gateway.process.wait().unwrap();
+    let logs = gateway.take_stderr();
+    assert_eq!(
+        logs.matches("context injection skipped: no conversation identity")
+            .count(),
+        3
+    );
+    for private in ["SYNTHETIC_INSTRUCTIONS", "resp_prior", "conv_prior", "准"] {
+        assert!(!logs.contains(private));
     }
 }
 

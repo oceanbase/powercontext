@@ -185,8 +185,8 @@ gateway（`PC_GATEWAY_CORE_BASE`）只有设置了这一项才会注入。
 见[网关上下文注入](../operate/deploy-server.md#网关上下文注入)。
 
 请使用 Responses 路由（`use_responses_api=True`）。在这个路由上，gateway 以非流式方式调用模型，采集通过检查的响应，
-并以流式重放给发送流式请求的客户端。在 Chat Completions 路由上，enforcing 模式的 Core 会暂缓流式的一轮；非 enforcing
-模式下，gateway 会放行这一轮，但不采集它。
+并以流式重放给发送流式请求的客户端。在 Chat Completions 路由上，enforcing 模式的 Core 会暂缓流式响应，gateway
+返回 HTTP 400。非 enforcing 模式下，gateway 原样放行流式响应；设置 `PC_GATEWAY_SEDIMENT=on` 后，还会从中采集完成的一轮。
 
 配置 Core 和 gateway 时还需要：
 

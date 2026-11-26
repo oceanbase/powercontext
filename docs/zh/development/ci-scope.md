@@ -141,6 +141,8 @@ Main 的 preflight 已检查全仓库的 lint 和格式；其 harness 验证运�
 
 ## 依赖缓存存储
 
+Harbor 任务容器有独立的文件系统；在 runner 中恢复依赖快照，不会填充内层的 apt、pip 或 uv 缓存。内部 runner 可通过 `PC_CI_PACKAGE_CACHE_ENDPOINT` 配置共享的[软件包下载服务](https://github.com/oceanbase/powercontext/blob/master/deploy/ci-package-cache/README.md)。Harness 将此地址经 Compose 传入，为 Debian 仓库和 Python 索引提供缓存。新容器仍从空的客户端缓存开始执行真实安装。服务将完整软件包持久保存，同一文件的并发未命中共用一次下载，并由服务负责镜像到官方源的回退。可变的软件包索引通过上游 ETag 或 Last-Modified 校验版本，未变化时复用本地内容，变化后重新获取，新增版本仍可发现；软件包哈希和 Debian 签名元数据保持不变。此覆盖范围限于已配置的仓库路径，不包括任意下载或已安装环境。
+
 自托管 Linux runner 提供 `PC_CI_CACHE_ENDPOINT` 时，共用缓存 action 会选择兼容 S3 的后端。以下配置由 runner Pod 提供，工作流文件不包含服务地址或凭据。
 
 | 变量 | 含义 |

@@ -90,6 +90,7 @@ class CaptureRecord(EvidenceModel):
     source_id: str | None = None
     source_position: int | None = None
     error: str | None = None
+    reason: str | None = None
     final: bool | None = None
     target_position: int | None = None
     previous_cursor: int | None = None
