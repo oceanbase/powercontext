@@ -38,6 +38,7 @@ from powercontext.http import (
     SetScopeBindingRequest,
     UpdateScopeRequest,
 )
+from tests.git_worktree_support import make_git_layout
 
 
 def _descriptor(scope_id: str = "scp_test", **overrides: object) -> ScopeDescriptor:
@@ -417,6 +418,33 @@ def test_scope_resolve_non_git_symlink_matches_host_rules(
     assert isinstance(request, ResolveScopeBindingRequest)
     expected = os.path.abspath(link) if integration in {"opencode", "pi"} else str(directory.resolve())
     assert request.binding_keys[0].external_id == hashlib.sha256(os.fsencode(expected)).hexdigest()
+
+
+@pytest.mark.parametrize("integration", ["opencode", "pi", "hermes", "kimi-code", "codex", "claude-code"])
+def test_scope_resolve_in_a_linked_worktree_falls_back_to_the_main_checkouts_key(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    integration: str,
+) -> None:
+    layout = make_git_layout(tmp_path, monkeypatch)
+    git_root = integration in {"codex", "claude-code"}
+
+    def external_ids(cwd: Path) -> list[str]:
+        client, _ = _invoke(
+            monkeypatch, _descriptor(), ["scope", "resolve", "--integration", integration, "--cwd", str(cwd)]
+        )
+        request = client.calls[0]
+        assert isinstance(request, ResolveScopeBindingRequest)
+        return [key.external_id for key in request.binding_keys]
+
+    worktree, checkout = (layout.worktree, layout.checkout) if git_root else (layout.worktree_sub, layout.checkout_sub)
+    # The worktree's own key comes first and is the one the plugin binds; the main checkout's key follows.
+    assert external_ids(layout.worktree_sub) == [
+        hashlib.sha256(os.fsencode(worktree)).hexdigest(),
+        hashlib.sha256(os.fsencode(checkout)).hexdigest(),
+    ]
+    assert external_ids(layout.checkout_sub) == [hashlib.sha256(os.fsencode(checkout)).hexdigest()]
+    assert len(external_ids(layout.bare_worktree)) == 1
 
 
 def test_scope_resolve_rejects_unknown_workspace_rules(monkeypatch: pytest.MonkeyPatch) -> None:

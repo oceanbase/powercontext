@@ -50,7 +50,7 @@ except ImportError:
     from types import NoneType as ContextAssembly
 
 from ._prompt_privacy import scrub_secrets
-from .scope import resolve_scope_id, workspace_binding_key
+from .scope import resolve_scope_id, workspace_binding_keys
 
 STATE_KEY = "_powercontext"
 CONTEXT_MARKER = "PowerContext host-supplied context"
@@ -152,8 +152,7 @@ class PowerContextPlugin:
     @hookimpl
     def load_state(self, message: Any, session_id: str) -> TurnState:
         del message, session_id
-        workspace_key = workspace_binding_key(getattr(self._framework, "workspace", None))
-        binding_keys = [workspace_key] if workspace_key is not None else []
+        binding_keys = workspace_binding_keys(getattr(self._framework, "workspace", None))
         return {
             STATE_KEY: {
                 "base_url": self.base_url,

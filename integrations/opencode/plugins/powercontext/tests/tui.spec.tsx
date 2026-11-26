@@ -426,8 +426,8 @@ describe('PowerContextTuiPlugin', () => {
       dispose = rootDispose
       slotPlugins[0].slots.session_prompt_right({}, { session_id: 'session-1' })
     })
-    await vi.advanceTimersByTimeAsync(50)
-    expect(resolveCount).toBeGreaterThan(0)
+    // Scope resolution first asks Git about the workspace, which no fake timer advances.
+    await vi.waitFor(() => expect(resolveCount).toBeGreaterThan(0))
     const before = resolveCount
 
     dispose()

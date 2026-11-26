@@ -37,6 +37,7 @@ from .client import (
     PowerContextInvalidResponseError,
     PowerContextTransportError,
 )
+from .git_worktree import workspace_paths
 from .helpers import (
     CAPTURE_COVERAGE_KEY,
     capture_coverage,
@@ -201,6 +202,11 @@ def _precompress_snapshot_after_capture(
         if entries[start : start + len(new_entries)] == new_entries:
             return current_fingerprints[: start + captured_count]
     return captured_fingerprints
+
+
+def _workspace_binding_key(path: str) -> dict[str, str]:
+    workspace_id = hashlib.sha256(os.fsencode(Path(path).resolve(strict=False))).hexdigest()
+    return {"integration": "hermes", "kind": "workspace", "external_id": workspace_id}
 
 
 def _definitive_rejection(error: PowerContextError) -> bool:
@@ -660,22 +666,30 @@ class PowerContextMemoryProvider(MemoryProvider):
                 self._accept_memory_writes = was_accepting
 
     def _scope_binding_keys(self) -> list[dict[str, str]]:
+        """Return the keys that resolution tries in order.
+
+        They are the session's, the workspace's, and, in a linked Git worktree, the same directory's in the main
+        checkout.
+        """
+
         keys = []
         if self._session_id:
             keys.append({"integration": "hermes", "kind": "session", "external_id": self._session_id})
-        workspace_id = hashlib.sha256(os.fsencode(Path(self._scope_binding_cwd).resolve(strict=False))).hexdigest()
-        keys.append({"integration": "hermes", "kind": "workspace", "external_id": workspace_id})
+        for path in workspace_paths(self._scope_binding_cwd, git_root=False):
+            key = _workspace_binding_key(path)
+            if key not in keys:
+                keys.append(key)
         return keys
 
     def _bind_workspace_scope(self, scope_id: str) -> None:
-        response = self._client.set_scope_binding(self._scope_binding_keys()[-1], scope_id)
+        response = self._client.set_scope_binding(_workspace_binding_key(self._scope_binding_cwd), scope_id)
         if response.get("scope_id") != scope_id:
             raise InvalidScopeBindingError
         self._bound_scope_id = scope_id
         self._switch_scope(scope_id)
 
     def _clear_workspace_scope(self) -> bool:
-        response = self._client.clear_scope_binding(self._scope_binding_keys()[-1])
+        response = self._client.clear_scope_binding(_workspace_binding_key(self._scope_binding_cwd))
         cleared = response.get("cleared")
         if not isinstance(cleared, bool):
             raise InvalidScopeBindingError

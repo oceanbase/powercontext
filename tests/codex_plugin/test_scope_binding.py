@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import io
 import json
 import os
@@ -34,6 +35,7 @@ from fastmcp import Client
 from powercontext.http._generated import operations as generated_operations
 from powercontext.server.app import create_app
 from powercontext.server.mcp import create_mcp_server
+from tests.git_worktree_support import ScopeBindings, check_worktree_fallback, make_git_layout
 
 
 def _operations_with_scope_mode(scope_mode: str) -> frozenset[str]:
@@ -645,6 +647,47 @@ def test_bind_scope_puts_the_codex_workspace_key(
     assert key["integration"] == "codex"
     assert key["kind"] == "workspace"
     assert key["external_id"] != str(tmp_path)
+
+
+def test_a_linked_worktree_resolves_to_its_checkouts_binding_until_it_has_its_own(
+    scope_module: ModuleType,
+    scope_binding_client: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    layout = make_git_layout(tmp_path, monkeypatch)
+    bindings = ScopeBindings()
+
+    def request(path, payload, *, host, settings, deadline, method="POST"):
+        if path == "/v1/scope-bindings/resolve":
+            return {"scope_id": bindings.resolve(payload["binding_keys"])}
+        if path == "/v1/scope-bindings":
+            bindings.set(payload["key"], payload["scope_id"])
+            return {"scope_id": payload["scope_id"]}
+        return {"cleared": bindings.clear(payload["key"])}
+
+    monkeypatch.setattr(scope_binding_client, "_request_json", request)
+    host = scope_module.CODEX
+    options = {"settings": scope_module.CodexPluginSettings().scope_binding_settings(), "deadline": float("inf")}
+
+    check_worktree_fallback(
+        checkout=layout.checkout,
+        worktree=layout.worktree_sub,
+        bare_worktree=layout.bare_worktree,
+        resolve=lambda cwd: scope_binding_client.resolve_scope_id(host, str(cwd), session_id=None, **options),
+        bind=lambda cwd, scope_id: scope_binding_client.bind_scope(host, str(cwd), scope_id, **options),
+        clear=lambda cwd: scope_binding_client.clear_scope_binding(host, str(cwd), **options),
+    )
+    # The first workspace key is still the hash of the resolved Git top level, so existing bindings keep matching.
+    keys = scope_binding_client.binding_keys(host, str(layout.worktree_sub), session_id="session-a")
+    assert [key["external_id"] for key in keys] == [
+        "session-a",
+        hashlib.sha256(os.fsencode(layout.worktree)).hexdigest(),
+        hashlib.sha256(os.fsencode(layout.checkout)).hexdigest(),
+    ]
+    assert scope_binding_client.binding_keys(host, str(layout.checkout_sub), session_id=None) == [
+        {"integration": host.integration, "kind": "workspace", "external_id": keys[2]["external_id"]}
+    ]
 
 
 def test_bind_scope_rejects_a_different_server_scope(

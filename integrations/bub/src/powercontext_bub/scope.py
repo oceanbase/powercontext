@@ -22,6 +22,8 @@ from pathlib import Path
 from powercontext.client import PowerContextClient
 from powercontext.http import ResolveScopeBindingRequest, ScopeBindingKey
 
+from ._git_worktree import workspace_paths
+
 
 def workspace_binding_key(workspace: str | Path | None) -> ScopeBindingKey | None:
     """Return an opaque binding key for the workspace identity exposed by Bub."""
@@ -34,6 +36,23 @@ def workspace_binding_key(workspace: str | Path | None) -> ScopeBindingKey | Non
         kind="workspace",
         external_id=hashlib.sha256(workspace_identity.encode()).hexdigest(),
     )
+
+
+def workspace_binding_keys(workspace: str | Path | None) -> list[ScopeBindingKey]:
+    """Return the workspace keys that resolution tries in order.
+
+    They are the workspace's own and, in a linked Git worktree, the same directory's in the main checkout, so a binding
+    made there applies until the worktree has its own.
+    """
+
+    if workspace is None:
+        return []
+    keys: list[ScopeBindingKey] = []
+    for path in workspace_paths(str(Path(workspace).expanduser()), git_root=False):
+        key = workspace_binding_key(path)
+        if key is not None and key not in keys:
+            keys.append(key)
+    return keys
 
 
 async def resolve_scope_id(

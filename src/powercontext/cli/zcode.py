@@ -115,7 +115,15 @@ def _check_zcode_modules(destination: Path) -> Diagnostic:
         *(destination / "hooks" / name for name in ("session_start.mjs", "stop.mjs")),
         *(
             destination / "shared" / name
-            for name in ("settings.mjs", "transport.mjs", "scope.mjs", "observations.mjs", "context.mjs", "pending.mjs")
+            for name in (
+                "settings.mjs",
+                "transport.mjs",
+                "git-worktree.mjs",
+                "scope.mjs",
+                "observations.mjs",
+                "context.mjs",
+                "pending.mjs",
+            )
         ),
         *(destination / "scripts" / name for name in ("scope.mjs", "status.mjs", "doctor.mjs", "pending.mjs")),
     ]

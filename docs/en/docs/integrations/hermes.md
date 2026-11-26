@@ -63,7 +63,10 @@ companion rejects gateway invocations; use the provider's Hermes tools in gatewa
 
 The provider uses `http://127.0.0.1:8000` by default. The Server resolves an explicit Scope first, then durable session
 and workspace bindings, and finally its default Scope. Hermes hashes the workspace path only as an external binding
-key; it does not generate Scope IDs from profiles, users, repositories, or directories.
+key; it does not generate Scope IDs from profiles, users, repositories, or directories. In a linked Git worktree that
+has no workspace binding of its own, resolution uses the binding of the same directory in the main checkout, so a
+checkout's binding also covers its linked worktrees. A binding made in the worktree takes precedence, and binding or
+clearing there changes only the worktree's own binding.
 
 ## Configure the connection
 

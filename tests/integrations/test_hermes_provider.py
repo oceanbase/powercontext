@@ -15,19 +15,24 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import importlib
 import importlib.util
 import json
 import logging
+import os
 import re
 import sys
 import threading
 import types
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
 import pytest
 from jsonschema import ValidationError, validate
+
+from tests.git_worktree_support import check_worktree_fallback, make_git_layout
 
 HERMES_ROOT = Path(__file__).parents[2] / "integrations" / "hermes"
 _HERMES_MODULE_NAMES = (
@@ -1638,6 +1643,46 @@ def test_scope_resolution_uses_session_workspace_and_server_default(tmp_path, he
     assert [key["kind"] for key in client.resolved_binding_keys] == ["session", "workspace"]
     assert all(key["integration"] == "hermes" for key in client.resolved_binding_keys)
     provider.shutdown()
+
+
+def test_a_linked_worktree_resolves_to_its_checkouts_binding_until_it_has_its_own(
+    tmp_path, hermes_modules, monkeypatch
+):
+    provider_module, _cli_module = hermes_modules
+    layout = make_git_layout(tmp_path, monkeypatch)
+    client = FakeClient()
+    client.default_scope_id = "default"
+
+    @contextmanager
+    def provider_in(cwd: Path):
+        provider = provider_module.PowerContextMemoryProvider({}, client_factory=lambda _config: client)
+        provider.initialize("session-1", hermes_home=str(tmp_path / "hermes"), cwd=str(cwd))
+        try:
+            yield provider
+        finally:
+            provider.shutdown()
+
+    def command(cwd: Path, text: str) -> dict[str, Any]:
+        with provider_in(cwd) as provider:
+            return json.loads(provider.handle_slash_command(text))
+
+    # Hermes keys the working directory, so the checkout's binding applies at the same place in the worktree.
+    check_worktree_fallback(
+        checkout=layout.checkout_sub,
+        worktree=layout.worktree_sub,
+        bare_worktree=layout.bare_worktree,
+        resolve=lambda cwd: command(cwd, "scope status")["active_scope_id"],
+        bind=lambda cwd, scope_id: command(cwd, f"scope bind {scope_id}"),
+        clear=lambda cwd: command(cwd, "scope clear"),
+    )
+    with provider_in(layout.worktree_sub):
+        pass
+    # The first workspace key is still the hash of the resolved working directory, so existing bindings keep matching.
+    assert [key["external_id"] for key in client.resolved_binding_keys] == [
+        "session-1",
+        hashlib.sha256(os.fsencode(layout.worktree_sub)).hexdigest(),
+        hashlib.sha256(os.fsencode(layout.checkout_sub)).hexdigest(),
+    ]
 
 
 def test_explicit_scope_precedes_server_bindings(tmp_path, hermes_modules):

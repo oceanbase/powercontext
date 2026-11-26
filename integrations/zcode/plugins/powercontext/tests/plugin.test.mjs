@@ -170,7 +170,8 @@ test('hook resolves Scope, injects prepared context and captures one Source', as
   assert.deepEqual(requests.map(request => request.path), [
     '/v1/scope-bindings/resolve', '/v1/context/prepare', '/v1/sources/content',
   ])
-  assert.deepEqual(requests[0].body.binding_keys.map(key => key.kind), ['session', 'workspace'])
+  // A checkout in a linked Git worktree also sends its main checkout's workspace key after these.
+  assert.deepEqual(requests[0].body.binding_keys.slice(0, 2).map(key => key.kind), ['session', 'workspace'])
   assert.equal(requests[1].body.scope_id, 'scope-test')
   assert.equal(requests[2].body.scope_id, 'scope-test')
   assert.match(requests[2].body.source_id, /^zcode-user-prompt:[0-9a-f]{64}$/)

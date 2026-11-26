@@ -15,10 +15,14 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import shutil
+import subprocess
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, ClassVar
 
+import pytest
 import republic
 from bub.hooks.interception import LLMCallRequest
 from powercontext_bub import plugin as plugin_module
@@ -87,6 +91,34 @@ def test_workspace_binding_key_is_stable_and_opaque(tmp_path: Path) -> None:
     assert key.integration == "bub"
     assert key.kind == "workspace"
     assert str(tmp_path) not in key.external_id
+
+
+def test_a_linked_worktree_falls_back_to_the_same_directory_in_its_checkout(monkeypatch, tmp_path: Path) -> None:
+    git = shutil.which("git")
+    if git is None:
+        pytest.skip("Git is not installed")
+    root = tmp_path.resolve()
+    checkout, worktree = root / "checkout", root / "worktree"
+    for arguments in (
+        ["init", "-q", str(checkout)],
+        ["-C", str(checkout), "commit", "-q", "--allow-empty", "-m", "init"],
+        ["-C", str(checkout), "worktree", "add", "-q", str(worktree)],
+    ):
+        identity = ["-c", "user.name=test", "-c", "user.email=test@example.com"]
+        subprocess.run([git, *identity, *arguments], check=True)  # noqa: S603 - fixed Git arguments.
+    (checkout / "sub").mkdir()
+    (worktree / "sub").mkdir()
+
+    def external_ids(workspace: Path) -> list[str]:
+        state = _plugin(monkeypatch, workspace).load_state(message=None, session_id="session-1")
+        return [key.external_id for key in state[STATE_KEY]["binding_keys"]]
+
+    # The worktree's own key is still the hash of its resolved directory, so it wins over the checkout's key.
+    assert external_ids(worktree / "sub") == [
+        hashlib.sha256(str(worktree / "sub").encode()).hexdigest(),
+        hashlib.sha256(str(checkout / "sub").encode()).hexdigest(),
+    ]
+    assert external_ids(checkout / "sub") == [hashlib.sha256(str(checkout / "sub").encode()).hexdigest()]
 
 
 def test_recall_and_capture_use_only_the_server_resolved_scope(monkeypatch, tmp_path: Path) -> None:

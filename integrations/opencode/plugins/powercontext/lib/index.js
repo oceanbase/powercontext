@@ -16,9 +16,11 @@
 import { createHash } from "node:crypto";
 import { writeFile } from "node:fs/promises";
 import { tool } from "@opencode-ai/plugin";
-import { readFileSync } from "node:fs";
+import { readFileSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
-import { join, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 
 //#region src/errors.ts
 const REQUEST_ID_HEADER = "X-PowerContext-Request-ID";
@@ -2436,7 +2438,80 @@ function boundedRecallQuery(prompt) {
 }
 
 //#endregion
+//#region src/git-worktree.ts
+const GIT_ARGUMENTS = [
+	"rev-parse",
+	"--show-toplevel",
+	"--path-format=absolute",
+	"--git-common-dir"
+];
+const UNKNOWN_FORMAT = "\n--path-format=absolute";
+const runGit = promisify(execFile);
+/**
+* Return the paths whose workspace bindings apply to `directory`, the worktree's own first.
+*
+* The first path is the one the host has always keyed: with `gitRoot`, the Git top level as Git prints it, or
+* `directory` outside a work tree; otherwise `directory` itself. In a linked worktree of a non-bare repository, a
+* second path follows from the main worktree: its root with `gitRoot`, otherwise the path at `directory`'s position in
+* it. Each host keys both paths the way it keys the first, so the second matches a binding made in the main checkout,
+* and resolves them in this order, so the worktree's own binding wins. Binding and clearing use only the first.
+*
+* The main worktree is the parent of Git's common directory when that directory is named `.git`; bare repositories,
+* submodules, and other layouts get no second path.
+*/
+async function workspacePaths(directory, gitRoot, timeout) {
+	try {
+		const { stdout } = await runGit("git", [
+			"-C",
+			directory,
+			...GIT_ARGUMENTS
+		], {
+			encoding: "utf8",
+			timeout,
+			windowsHide: true
+		});
+		return pathsFromGit(directory, stdout, gitRoot);
+	} catch {
+		return pathsFromGit(directory, "", gitRoot);
+	}
+}
+function pathsFromGit(directory, output, gitRoot) {
+	const lines = output.replace(/\n+$/u, "");
+	const split = lines.lastIndexOf("\n");
+	let head = split < 0 ? "" : lines.slice(0, split);
+	let common = lines.slice(split + 1);
+	if (head.endsWith(UNKNOWN_FORMAT)) {
+		head = head.slice(0, -23);
+		common = "";
+	}
+	const top = head.trim();
+	const first = gitRoot && top ? top : directory;
+	const main = mainWorktreePath(directory, top, common, gitRoot);
+	return main === void 0 ? [first] : [first, main];
+}
+function mainWorktreePath(directory, top, common, gitRoot) {
+	if (!top || !common || !isAbsolute(common)) return void 0;
+	const commonDirectory = realPath(common);
+	if (basename(commonDirectory) !== ".git") return void 0;
+	const mainRoot = dirname(commonDirectory);
+	const worktreeRoot = realPath(top);
+	if (mainRoot === worktreeRoot) return void 0;
+	if (gitRoot) return mainRoot;
+	const position = relative(worktreeRoot, realPath(directory));
+	if (position === ".." || position.startsWith(".." + sep) || isAbsolute(position)) return void 0;
+	return join(mainRoot, position);
+}
+function realPath(path) {
+	try {
+		return realpathSync(path);
+	} catch {
+		return resolve(path);
+	}
+}
+
+//#endregion
 //#region src/scope.ts
+const GIT_TIMEOUT_MS = 500;
 function sessionBindingKey(sessionID) {
 	return {
 		integration: "opencode",
@@ -2451,12 +2526,17 @@ function workspaceBindingKey(cwd) {
 		external_id: createHash("sha256").update(resolve(cwd)).digest("hex")
 	};
 }
+/** Return the workspace keys that resolution tries in order, with a linked worktree's main checkout after its own. */
+async function workspaceBindingKeys(cwd) {
+	const keys = (await workspacePaths(cwd, false, GIT_TIMEOUT_MS)).map(workspaceBindingKey);
+	return keys.filter((key, index) => keys.findIndex((other) => other.external_id === key.external_id) === index);
+}
 async function resolveScopeId(client, input, signal) {
 	const sessionID = input.sessionID?.trim();
 	const cwd = input.cwd?.trim();
 	const bindingKeys = [];
 	if (sessionID) bindingKeys.push(sessionBindingKey(sessionID));
-	if (cwd) bindingKeys.push(workspaceBindingKey(cwd));
+	if (cwd) bindingKeys.push(...await workspaceBindingKeys(cwd));
 	const value = (await client.request("resolve_scope_binding", {
 		explicit_scope_id: input.configuredScopeId,
 		binding_keys: bindingKeys

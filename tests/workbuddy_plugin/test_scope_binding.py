@@ -14,7 +14,9 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
+import os
 import subprocess
 import sys
 import threading
@@ -27,6 +29,8 @@ from types import ModuleType
 from typing import Any
 
 import pytest
+
+from tests.git_worktree_support import ScopeBindings, check_worktree_fallback, make_git_layout
 
 _SCOPE_BODY = json.dumps({"scope_id": "scope-1"}).encode()
 _DRIP_INTERVAL_SECONDS = 0.05
@@ -222,8 +226,9 @@ def test_workspace_discovery_obeys_the_operation_deadline(
             text=True,
         )
 
-    monkeypatch.setattr(scope_module, "which", lambda _name: sys.executable)
-    monkeypatch.setattr(scope_module.subprocess, "run", slow_git)
+    git_worktree = sys.modules[scope_module.workspace_paths.__module__]
+    monkeypatch.setattr(git_worktree, "which", lambda _name: sys.executable)
+    monkeypatch.setattr(git_worktree.subprocess, "run", slow_git)
     settings = _settings(scope_module, "http://127.0.0.1:1")
     started = time.monotonic()
     deadline = started + 0.15
@@ -236,3 +241,38 @@ def test_workspace_discovery_obeys_the_operation_deadline(
             scope_module.clear_scope_binding(str(tmp_path), settings=settings, deadline=deadline)
 
     assert time.monotonic() - started < 0.8
+
+
+def test_a_linked_worktree_resolves_to_its_checkouts_binding_until_it_has_its_own(
+    scope_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    layout = make_git_layout(tmp_path, monkeypatch)
+    bindings = ScopeBindings()
+
+    def request(path, payload, *, settings, deadline, method="POST"):
+        if path == "/v1/scope-bindings/resolve":
+            return {"scope_id": bindings.resolve(payload["binding_keys"])}
+        if path == "/v1/scope-bindings":
+            bindings.set(payload["key"], payload["scope_id"])
+            return {"scope_id": payload["scope_id"]}
+        return {"cleared": bindings.clear(payload["key"])}
+
+    monkeypatch.setattr(scope_module, "_request_json", request)
+    options = {"settings": _settings(scope_module, "http://127.0.0.1:1"), "deadline": float("inf")}
+
+    check_worktree_fallback(
+        checkout=layout.checkout,
+        worktree=layout.worktree_sub,
+        bare_worktree=layout.bare_worktree,
+        resolve=lambda cwd: scope_module.resolve_scope_id(str(cwd), session_id=None, **options),
+        bind=lambda cwd, scope_id: scope_module.bind_scope(str(cwd), scope_id, **options),
+        clear=lambda cwd: scope_module.clear_scope_binding(str(cwd), **options),
+    )
+    # The first workspace key is still the hash of the resolved Git top level, so existing bindings keep matching.
+    keys = scope_module.binding_keys(str(layout.worktree_sub), session_id=None)
+    assert [key["external_id"] for key in keys] == [
+        hashlib.sha256(os.fsencode(layout.worktree)).hexdigest(),
+        hashlib.sha256(os.fsencode(layout.checkout)).hexdigest(),
+    ]

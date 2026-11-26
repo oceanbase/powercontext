@@ -72,7 +72,7 @@ node "<Kimi home>/plugins/managed/powercontext/scripts/scope.mjs" unbind --cwd /
 
 Hook、Scope 脚本和 doctor 共用 Server 的解析顺序：显式 Scope、工作区绑定、Server 默认 Scope。绑定目标缺失或不可用时解析失败，客户端不自行回退或创建 Scope。显式 Scope 解析不要求工作区键，该模式下 `scope.mjs resolve` 可以省略 `--cwd`。工作区模式的解析和所有 bind/unbind 操作均要求绝对工作目录。
 
-绑定键使用 integration `kimi-code`、kind `workspace`，external_id 为绝对工作目录经原生真实路径解析后的 SHA-256，不含原始路径。对于已有目录，symlink/junction 别名和文件系统认可的大小写变体共用绑定。POSIX 先跟随符号链接，再解释后续 `..` 分量；Windows 遵循原生路径语义。请使用 Kimi 会话实际提交的工作目录；子目录保留独立身份，不查找 Git 根目录。真实路径解析失败时，使用词法规范化后的绝对路径。请绑定已存在且可访问的目录；解析身份变化后需要重新绑定。本接入不提供 session binding。
+绑定键使用 integration `kimi-code`、kind `workspace`，external_id 为绝对工作目录经原生真实路径解析后的 SHA-256，不含原始路径。对于已有目录，symlink/junction 别名和文件系统认可的大小写变体共用绑定。POSIX 先跟随符号链接，再解释后续 `..` 分量；Windows 遵循原生路径语义。请使用 Kimi 会话实际提交的工作目录；子目录保留独立身份，不查找 Git 根目录。在 linked Git worktree 中，解析先尝试 worktree 自己的键，再尝试主 checkout 中同一目录的键，所以在 worktree 自己绑定之前，checkout 的绑定也覆盖它；bind 和 unbind 仍只写 worktree 自己的键。真实路径解析失败时，使用词法规范化后的绝对路径。请绑定已存在且可访问的目录；解析身份变化后需要重新绑定。本接入不提供 session binding。
 
 bind/unbind 只修改该工作区在 Server 上的绑定。JSON 将 `binding` 写入结果与后续解析分开：绑定保存成功后仍可能被显式 Scope 遮盖（`bound_scope_is_current: false`），或在后续解析失败时继续保留。无法确认的写入为 `unknown`，不自动重试；重新 resolve 成功后才能宣称当前 Scope 已切换。
 

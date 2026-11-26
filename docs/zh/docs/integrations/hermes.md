@@ -61,7 +61,9 @@ Hermes tools。
 
 provider 默认连接 `http://127.0.0.1:8000`。Server 依次解析显式 Scope、持久 session binding、持久 workspace
 binding 和默认 Scope。Hermes 只把 workspace 路径哈希用作外部 binding key，不会根据 profile、user、repository
-或目录生成 Scope ID。
+或目录生成 Scope ID。在没有自己 workspace binding 的 linked Git worktree 中，解析会使用主 checkout 中同一目录的绑定，
+所以 checkout 的绑定也覆盖它的 linked worktree。在 worktree 中建立的绑定优先；在那里绑定或清除，
+只会改动该 worktree 自己的绑定。
 
 ## 配置连接
 

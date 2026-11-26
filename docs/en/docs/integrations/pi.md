@@ -47,7 +47,9 @@ response leaves Pi's prompt unchanged and never blocks ordinary work.
 
 The package resolves one Server-owned Scope in this order: `POWERCONTEXT_PI_SCOPE_ID`, a durable binding for the
 workspace, then the Server default. The workspace path is hashed only as an external binding key; it never becomes a
-Scope ID. Keep the explicit variable unset unless the host must force one existing Scope.
+Scope ID. In a linked Git worktree that has no workspace binding of its own, the binding of the same directory in the
+main checkout applies, so a checkout's binding also covers its linked worktrees. That fallback comes from the real path
+that Git reports, so it matches a checkout binding made from a path without symlinks. Keep the explicit variable unset unless the host must force one existing Scope.
 
 With these capabilities enabled, Pi satisfies the repository's Full core integration profile.
 
