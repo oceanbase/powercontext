@@ -33,6 +33,7 @@ use crate::lifecycle::Execution;
 use crate::prefix_store::{PrefixEntry, PrefixStore};
 use crate::replay_cache::{message_anchor, PreparedBlock, ReplayCache, MAX_REPLAY_MS};
 use crate::transcript::turn_transcript;
+use crate::turn::{TurnCounterSnapshot, TurnCounters};
 
 /// Core 的 before_send 在复用证明的依赖已变化或证明已失效时给出的 withhold 原因。
 const CONTEXT_REFRESH_REQUIRED: &str = "context-refresh-required";
@@ -40,14 +41,14 @@ use crate::{GateClient, GateError};
 use crate::{LifecycleStopReason, ModelSendState, RequestControl};
 use pc_gateway_evidence::EvidenceSink;
 use pc_gateway_evidence::UsageMapping;
-use pc_gateway_protocol::{CanonicalRequest, WireRenderer};
+use pc_gateway_protocol::{turn_kind, CanonicalRequest, WireRenderer};
 use pc_gateway_transport::{
     AdmittedSend, RawResponse, SendIndeterminateReason, SendOutcome, Transport,
 };
 use pc_gateway_types::{
     parse_rfc3339_ms, CaptureContentSource, CaptureContentSourcesRequest, CheckDecision,
     CheckPhase, ContextCheckRequest, ContextCheckResult, ModelJsonPayload, ModelJsonTextLocation,
-    PrepareContextRequest, PreparedContextLocation,
+    PrepareContextRequest, PreparedContextLocation, TurnKind,
 };
 use std::collections::BTreeMap;
 use std::num::NonZeroU32;
@@ -150,6 +151,19 @@ impl ManagedOutcome {
     }
 }
 
+/// 召回策略：用户回合总是准备；复用证明失效后的重试额外放行一次非用户回合的准备。
+#[derive(Clone, Copy)]
+struct RecallPolicy {
+    kind: TurnKind,
+    reprepare: bool,
+}
+
+impl RecallPolicy {
+    fn allows_prepare(self) -> bool {
+        self.kind == TurnKind::UserTurn || self.reprepare
+    }
+}
+
 pub struct Executor<G, T> {
     gate: G,
     transport: T,
@@ -163,6 +177,7 @@ pub struct Executor<G, T> {
     capture_batch: Option<usize>,
     require_privacy_coverage: bool,
     prefixes: PrefixStore,
+    turn_counters: TurnCounters,
 }
 
 /// One-way admission closure, also usable by a process signal handler. Closing
@@ -212,6 +227,7 @@ where
             capture_batch: Some(128),
             require_privacy_coverage: true,
             prefixes: PrefixStore::default(),
+            turn_counters: TurnCounters::default(),
         }
     }
 
@@ -302,6 +318,11 @@ where
         self
     }
 
+    /// 进程内累计的回合类型判定与跳过准备次数。
+    pub fn turn_counters(&self) -> TurnCounterSnapshot {
+        self.turn_counters.snapshot()
+    }
+
     pub async fn run<R: WireRenderer>(
         &self,
         control: RequestControl,
@@ -374,6 +395,11 @@ where
         // P1-3：enrich 之前快照原始请求。降级路径必须用这份（不含注入内容）
         // 重新渲染，否则 prepare 召回的私密记忆会在未经任何检查的情况下外发。
         let pristine_request = call.request.clone();
+        // 回合类型只由原始请求尾部决定；在重放与准备之前判定一次，供证据、计数与召回决策共用。
+        let kind = turn_kind(&pristine_request, renderer.message_list_key());
+        recording.turn_kind(kind);
+        self.turn_counters.record(kind);
+        tracing::debug!(turn_kind = kind.as_str(), "gateway request turn classified");
 
         let conversation = call.conversation_id.clone();
         let replay = conversation
@@ -382,6 +408,8 @@ where
             .filter(|_| call.inject_context)
             .and_then(|id| Some((id, message_anchor(&pristine_request)?)));
         let mut refreshed = false;
+        // Core 使已重放的块失效后，本请求需要重新准备一次；`refreshed` 保证每个请求至多刷新一次。
+        let mut reprepare = false;
         let (payload, admission) = loop {
             if let Err(stop) = execution.checkpoint() {
                 return stop;
@@ -389,9 +417,10 @@ where
             if call.inject_context {
                 self.enrich(
                     &mut call,
+                    RecallPolicy { kind, reprepare },
                     replay,
                     renderer.message_list_key(),
-                    evidence,
+                    recording,
                     execution,
                 )
                 .await;
@@ -507,6 +536,7 @@ where
                                 .any(|reason| reason == CONTEXT_REFRESH_REQUIRED) =>
                     {
                         refreshed = true;
+                        reprepare = true;
                         if let Some((conversation, anchor)) = replay {
                             self.replays.forget(&call.scope_id, conversation, anchor);
                         }
@@ -890,26 +920,40 @@ where
         Some(fields)
     }
 
+    /// 用户回合准备并注入；非用户回合只复用本轮已准备的块，不发起新的查询。
     /// 有重放会话 ID 时：同一消息锚点（工具续写、重试）精确重放已准备的内容与绑定，不再检索；
-    /// 新锚点（新的用户消息）准备一次。没有会话 ID 时每个请求各自准备，不继承任何旧注入。
+    /// 新锚点（新的用户消息）准备一次。没有重放身份时每个用户回合各自准备，不继承任何旧注入，
+    /// 因此没有重放身份的工具续写既不准备也不注入。
+    /// 复用证明失效后的重试由 `RecallPolicy::reprepare` 放行一次：非用户回合也重新准备，
+    /// 不把可恢复的失效直接交给客户端；调用方保证每个请求至多放行一次。
     /// 准备失败不写入，下一次请求重试，且不阻塞本次请求；空结果同样重放。
     async fn enrich(
         &self,
         call: &mut ManagedCall,
+        policy: RecallPolicy,
         replay: Option<(&str, u64)>,
         list_key: &str,
-        evidence: &dyn EvidenceSink,
+        recording: &mut CallRecorder<'_>,
         execution: &Execution,
     ) {
         let cached = replay.and_then(|(conversation, anchor)| {
             self.replays
                 .get(&call.scope_id, conversation, anchor, now_ms())
         });
+        if cached.is_none() && !policy.allows_prepare() {
+            self.turn_counters.record_skipped_prepare();
+            recording.prepare_skipped();
+            tracing::debug!(
+                turn_kind = policy.kind.as_str(),
+                "skipping prepare for a non-user turn without a replay entry"
+            );
+            return;
+        }
         let prepared = match cached {
             Some(prepared) => prepared,
             None => {
                 let Some((prepared, expires_at)) =
-                    self.prepare_turn(call, evidence, execution).await
+                    self.prepare_turn(call, recording, execution).await
                 else {
                     return;
                 };
@@ -943,7 +987,7 @@ where
     async fn prepare_turn(
         &self,
         call: &ManagedCall,
-        evidence: &dyn EvidenceSink,
+        recording: &mut CallRecorder<'_>,
         execution: &Execution,
     ) -> Option<(Option<PreparedBlock>, Option<String>)> {
         let query = last_user_text(&call.request)?;
@@ -969,7 +1013,7 @@ where
         let prepared = match prepared {
             Ok(p) => p,
             Err(_) => {
-                evidence.record_not_sent(0, "prepare_failed");
+                recording.prepare_failed();
                 tracing::warn!("prepare failed; injecting nothing");
                 return None;
             }

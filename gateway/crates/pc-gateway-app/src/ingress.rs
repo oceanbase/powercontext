@@ -2606,6 +2606,139 @@ pub(crate) mod tests {
         assert!(!injects(&Format::Chat, Injection::Off, true, true));
     }
 
+    fn chat_turn_kind(request: serde_json::Value) -> pc_gateway_types::TurnKind {
+        let parsed: OpenAiChatRequest = serde_json::from_value(request).unwrap();
+        pc_gateway_protocol::turn_kind(&to_canonical_chat(parsed).unwrap(), "messages")
+    }
+
+    fn responses_turn_kind(request: serde_json::Value) -> pc_gateway_types::TurnKind {
+        let parsed: OpenAiResponsesRequest = serde_json::from_value(request).unwrap();
+        pc_gateway_protocol::turn_kind(&to_canonical_responses(parsed).unwrap(), "input")
+    }
+
+    #[test]
+    fn chat_requests_are_classified_by_their_canonical_tail() {
+        use pc_gateway_types::TurnKind;
+        for (messages, expected) in [
+            (serde_json::json!([]), TurnKind::Empty),
+            (
+                serde_json::json!([{"role": "system", "content": "s"}]),
+                TurnKind::Empty,
+            ),
+            (
+                serde_json::json!([{"role": "user", "content": "hi"}]),
+                TurnKind::UserTurn,
+            ),
+            (
+                serde_json::json!([
+                    {"role": "user", "content": "hi"},
+                    {"role": "assistant", "content": "ok"}
+                ]),
+                TurnKind::AssistantOnly,
+            ),
+            (
+                serde_json::json!([{
+                    "role": "assistant",
+                    "content": null,
+                    "tool_calls": [{"id": "c1", "type": "function",
+                        "function": {"name": "run", "arguments": "{}"}}]
+                }]),
+                TurnKind::ToolContinuation,
+            ),
+            (
+                serde_json::json!([{"role": "tool", "tool_call_id": "c1", "content": "ok"}]),
+                TurnKind::ToolContinuation,
+            ),
+        ] {
+            assert_eq!(
+                chat_turn_kind(serde_json::json!({"model": "m", "messages": messages})),
+                expected,
+                "{messages}"
+            );
+        }
+    }
+
+    #[test]
+    fn responses_requests_are_classified_by_items_not_the_passthrough_role() {
+        use pc_gateway_types::TurnKind;
+        for (input, expected) in [
+            (serde_json::json!([]), TurnKind::Empty),
+            (
+                serde_json::json!([{"type": "message", "role": "user",
+                    "content": [{"type": "input_text", "text": "继续"}]}]),
+                TurnKind::UserTurn,
+            ),
+            (
+                serde_json::json!([{"type": "message", "role": "assistant",
+                    "content": [{"type": "output_text", "text": "ok"}]}]),
+                TurnKind::AssistantOnly,
+            ),
+            (
+                serde_json::json!([
+                    {"type": "message", "role": "user",
+                        "content": [{"type": "input_text", "text": "继续"}]},
+                    {"type": "message", "role": "assistant",
+                        "content": [{"type": "output_text", "text": "done"}]}
+                ]),
+                TurnKind::AssistantOnly,
+            ),
+            (
+                serde_json::json!([{"type": "message", "role": "developer",
+                    "content": [{"type": "input_text", "text": "reminder"}]}]),
+                TurnKind::Empty,
+            ),
+            (
+                serde_json::json!([{"type": "message", "role": "system",
+                    "content": [{"type": "input_text", "text": "s"}]}]),
+                TurnKind::Empty,
+            ),
+            // 新用户提问之后跟一条 developer 提示：尾部仍是该用户回合。
+            (
+                serde_json::json!([
+                    {"type": "message", "role": "user",
+                        "content": [{"type": "input_text", "text": "继续"}]},
+                    {"type": "message", "role": "developer",
+                        "content": [{"type": "input_text", "text": "harness reminder"}]}
+                ]),
+                TurnKind::UserTurn,
+            ),
+            (
+                serde_json::json!([{"type": "function_call", "call_id": "c1",
+                    "name": "run", "arguments": "{}"}]),
+                TurnKind::ToolContinuation,
+            ),
+            (
+                serde_json::json!([{"type": "function_call_output", "call_id": "c1",
+                    "output": "ok"}]),
+                TurnKind::ToolContinuation,
+            ),
+            (
+                serde_json::json!([{"type": "computer_call_output", "call_id": "c2",
+                    "output": "ok"}]),
+                TurnKind::ToolContinuation,
+            ),
+            (
+                serde_json::json!([{"type": "mcp_approval_request"}]),
+                TurnKind::ToolContinuation,
+            ),
+            (
+                serde_json::json!([{"type": "mcp_approval_response"}]),
+                TurnKind::ToolContinuation,
+            ),
+            // 类型省略的消息 item 走同一路径。
+            (
+                serde_json::json!([{"role": "developer", "content": "reminder"}]),
+                TurnKind::Empty,
+            ),
+        ] {
+            assert_eq!(
+                responses_turn_kind(serde_json::json!({"model": "m", "input": input})),
+                expected,
+                "{input}"
+            );
+        }
+    }
+
     #[test]
     fn the_default_injects_only_requests_with_a_conversation_id() {
         assert!(injects(
