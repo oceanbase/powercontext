@@ -348,8 +348,9 @@ codex
 修改这些设置后可以继续已有的 thread。gateway 移除重发的上下文时，会记录
 `PowerContext plugin prepared context omitted by the gateway.`。
 
-关闭召回后，`UserPromptSubmit` 不发送准备请求，也不添加上下文。`POWERCONTEXT_CODEX_CAPTURE_PROMPTS` 为 `true`
-时它仍会采集提示词；两项都关闭时，它不发送任何请求。Session binding、启动上下文、MCP 工具和诊断仍由各自的设置控制。
+关闭召回后，`UserPromptSubmit` 不发送准备请求。启用提示词采集且成功解析 Scope 时，仍会注入任务结果记录指引。
+`POWERCONTEXT_CODEX_CAPTURE_PROMPTS` 为 `true` 时它仍会采集提示词；两项都关闭时，它不发送任何请求，
+也不添加提示词 Hook 指引。Gateway 默认固定指令不包含此任务结果记录指引。Session binding、启动上下文、MCP 工具和诊断仍由各自的设置控制。
 
 ### 配置 gateway
 

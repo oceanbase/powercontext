@@ -239,14 +239,16 @@ capture does not remove valid recalled context. Both need the current Scope: whe
 neither recalls nor captures and reports the failure as a `scope_resolve` event. In every case Claude Code continues
 processing the current prompt.
 
+When Scope resolution succeeds, the hook still emits task-outcome guidance without recalled context, including on empty or failed preparation. If Scope resolution fails, it emits neither.
+
 | Condition | Hook behavior |
 | --- | --- |
-| Empty Prepared Context | Injects nothing and records the `empty` outcome |
-| HTTP 401 | Injects nothing and records `authentication_failed` |
-| HTTP 404 without an error code from a required route | Injects nothing and records `version_mismatch` |
-| HTTP 503 or unavailable Server | Injects nothing and records `server_unavailable` |
-| Another HTTP error, including a coded 404 such as `scope_not_found` | Injects nothing and records `invalid_response` with the status and any error code |
-| Unknown schema, malformed JSON, or oversized response | Injects nothing and records `invalid_response` |
+| Empty Prepared Context | Adds no recalled context and records the `empty` outcome |
+| HTTP 401 | Adds no recalled context and records `authentication_failed` |
+| HTTP 404 without an error code from a required route | Adds no recalled context and records `version_mismatch` |
+| HTTP 503 or unavailable Server | Adds no recalled context and records `server_unavailable` |
+| Another HTTP error, including a coded 404 such as `scope_not_found` | Adds no recalled context and records `invalid_response` with the status and any error code |
+| Unknown schema, malformed JSON, or oversized response | Adds no recalled context and records `invalid_response` |
 
 Diagnostics contain only the outcome, safe numeric metadata, and any error code the Server returned. They omit the
 prompt, scope, prepared content, Authorization value, and response body. The plugin rejects redirects and enforces

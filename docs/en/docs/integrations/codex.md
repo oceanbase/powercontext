@@ -401,8 +401,8 @@ codex
 You can continue an existing thread after changing these settings. When the gateway omits replayed context, it logs
 `PowerContext plugin prepared context omitted by the gateway.`
 
-With recall off, `UserPromptSubmit` sends no preparation request and adds no context. It still captures prompts while
-`POWERCONTEXT_CODEX_CAPTURE_PROMPTS` is `true`; with both off, it sends no request. The Session binding, bootstrap
+With recall off, `UserPromptSubmit` sends no preparation request. It adds task-outcome guidance when prompt capture is enabled and Scope resolution succeeds. It still captures prompts while
+`POWERCONTEXT_CODEX_CAPTURE_PROMPTS` is `true`; with both off, it sends no request and adds no prompt-hook guidance. The Gateway's default steering does not supply this task-outcome guidance. The Session binding, bootstrap
 context, MCP tools, and diagnostics keep their own settings.
 
 ### Configure the gateway

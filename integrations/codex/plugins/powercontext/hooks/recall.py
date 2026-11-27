@@ -63,7 +63,7 @@ def main(settings: CodexPluginSettings | None = None) -> int:
         if submitted is None:
             return 0
         agent_context = submitted.agent_context
-        if agent_context and submitted.context and submitted.scope_id is not None:
+        if agent_context and submitted.scope_id is not None:
             with suppress(Exception):
                 _record_evaluation_trace(
                     event,
