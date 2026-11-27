@@ -121,6 +121,10 @@ _COMPATIBILITY_OR_AVAILABILITY_PATHS = frozenset({
     "/v1/capabilities",
     "/v1/context/prepare",
 })
+# A prepare result carries a checked prepared-context marker. Behind the PowerContext gateway the tool result stays
+# in the conversation, and Core rejects every later request that carries a marker the gateway did not inject, so the
+# tool is offered only while prompt recall is on.
+_PREPARE_CONTEXT_TOOL = "powercontext_prepare_context"
 _AUTOMATIC_OPERATION_PATHS = {
     "context_prepare": frozenset({"/v1/context/prepare"}),
     "capture_source": frozenset({"/v1/sources/content"}),
@@ -390,6 +394,12 @@ class PowerContextMemoryProvider(MemoryProvider):
                 "default": str(int(_DEFAULT_TIMEOUT)),
                 "type": "number",
                 "minimum": 0.1,
+            },
+            {
+                "key": "prompt_recall",
+                "description": "Prepare and inject context for each prompt",
+                "default": "true",
+                "choices": ["true", "false"],
             },
             {
                 "key": "capture_turns",
@@ -852,11 +862,17 @@ class PowerContextMemoryProvider(MemoryProvider):
             raise PowerContextInvalidResponseError(error)
         return content
 
+    def _prompt_recall_enabled(self) -> bool:
+        return _as_bool(
+            _config_value(self._config, "prompt_recall", "POWERCONTEXT_HERMES_PROMPT_RECALL", True),
+            True,
+        )
+
     def prefetch(self, query: str, *, session_id: str = "") -> str:
         scope_id = self._scope_id
         client = self._client
         recall_query = _automatic_recall_query(query, getattr(client, "authorization", None))
-        if not client or not recall_query or not scope_id:
+        if not client or not recall_query or not scope_id or not self._prompt_recall_enabled():
             self._last_recall = None
             self._last_recall_scope_id = ""
             return ""
@@ -1403,13 +1419,19 @@ class PowerContextMemoryProvider(MemoryProvider):
         return commands.status_command(self)
 
     def get_tool_schemas(self) -> list[dict[str, Any]]:
-        return commands.get_tool_schemas()
+        schemas = commands.get_tool_schemas()
+        if self._prompt_recall_enabled():
+            return schemas
+        return [schema for schema in schemas if schema.get("name") != _PREPARE_CONTEXT_TOOL]
 
     @staticmethod
     def _citation_properties() -> dict[str, Any]:
         return commands.citation_properties()
 
     def handle_tool_call(self, tool_name: str, args: dict[str, Any], **kwargs: Any) -> str:
+        # Hermes indexes tool routes before initialize() merges the config file, so refuse the call here too.
+        if tool_name == _PREPARE_CONTEXT_TOOL and not self._prompt_recall_enabled():
+            return commands.tool_error(f"Unknown PowerContext tool: {tool_name}")
         return commands.handle_tool_call(self, tool_name, args, **kwargs)
 
     def _wait_for_background(self) -> None:
