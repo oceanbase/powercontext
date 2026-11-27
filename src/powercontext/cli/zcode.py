@@ -306,7 +306,7 @@ class ZCodeInstaller:
         )
         return {"server_url": endpoint}
 
-    def remove(self) -> list[str]:
+    def remove(self) -> dict[str, Any]:
         """Drop the plugin directory from ``plugins.dirs``, delete the owned copy, and forget the connection."""
         config_path, destination = zcode_config_file(), zcode_plugin_dir()
         config = _read_config(config_path)
@@ -321,7 +321,7 @@ class ZCodeInstaller:
             writes[destination] = None
             removed.append(str(destination))
         publish(writes=writes)
-        return removed + remove_connection("zcode")
+        return {"removed": removed + remove_connection("zcode")}
 
     def verify(self, *, runtime_data_dir: Path | None = None, prepare: bool = False) -> dict[str, Diagnostic]:
         """Check CLI, registration, Hook, MCP, and Server independently."""

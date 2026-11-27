@@ -218,10 +218,19 @@ def remove(host: str, **options: Any) -> dict[str, Any]:
         )
         raise SetupError(message)
     try:
-        removed = installer_type(**options).remove()
+        result = installer_type(**options).remove()
     except (OSError, ValueError) as error:
         failure = SetupError(f"Could not remove {host}: {error}")
         for note in getattr(error, "__notes__", ()):
             failure.add_note(note)
         raise failure from error
-    return {"status": "ok", "removal": "removed" if removed else "not_set_up", "result": {"removed": removed}}
+    # An installer reports "not_checked" when the host CLI that owns the registration is unavailable; PowerContext's
+    # own state is removed regardless, so the row still succeeds and the notes say what to check by hand.
+    registration = result.pop("host_registration", "checked")
+    result.setdefault("notes", [])
+    return {
+        "status": "ok",
+        "removal": "removed" if result["removed"] else "not_set_up",
+        "host_registration": registration,
+        "result": result,
+    }

@@ -628,7 +628,9 @@ the pet memory state in `.powercontext-dsh-pet`, including unsent dialogue, stay
 
 While another profile still registers the plugin, the shared Skill at `$DSH_HOME/skills/powercontext-project-context`,
 the credential at `$DSH_HOME/powercontext/credentials.json`, and the saved connection stay. Removing the plugin from the
-last profile deletes them. Fully quit DSH Desktop before removing the plugin from its profile. See [CLI](../develop/interfaces.md#cli) for what removal keeps.
+last profile deletes them. The saved connection names only the profile of the latest setup, so the result names each
+profile that still registers the plugin and the `powercontext setup dsh --remove --profile <profile>` command that
+removes it. Fully quit DSH Desktop before removing the plugin from its profile. See [CLI](../develop/interfaces.md#cli) for what removal keeps.
 
 ## Environment variables
 

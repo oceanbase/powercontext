@@ -157,7 +157,8 @@ powercontext setup pi --remove
 
 This runs `pi remove` for the package that setup registered and deletes its PowerContext-owned copy at `plugins/pi` in
 the PowerContext data directory. It also deletes the credential at `~/.pi/agent/powercontext/credentials.json` and the
-saved Pi connection. Other Pi packages stay. The Pi CLI must be on `PATH`. See [CLI](../develop/interfaces.md#cli) for what removal keeps.
+saved Pi connection. Other Pi packages stay. Without the Pi CLI on `PATH`, removal still deletes the owned copy, the
+credential, and the connection, and reports that the package registration was not checked. See [CLI](../develop/interfaces.md#cli) for what removal keeps.
 
 ## Environment variables
 

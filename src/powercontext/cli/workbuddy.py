@@ -435,8 +435,10 @@ class WorkBuddyInstaller:
             state = configure_connection(connection, writes={path: candidate.read_bytes()})
         return {"authorization_state": state}
 
-    def remove(self) -> list[str]:
+    def remove(self) -> dict[str, Any]:
         """Remove the hook entry and files, MCP server, and owned Skill; keep other hooks and servers."""
+        from powercontext.client.transport_policy import load_client_settings
+
         root = workbuddy_home()
         hooks, skill = root / WORKBUDDY_HOOKS_DIRNAME, root / WORKBUDDY_SKILLS_DIRNAME / WORKBUDDY_SKILL_NAME
         settings_file, mcp_file = root / "settings.json", root / "mcp.json"
@@ -459,15 +461,18 @@ class WorkBuddyInstaller:
         if isinstance(servers, dict) and servers.pop(WORKBUDDY_PLUGIN_NAME, None) is not None:
             writes[mcp_file] = (json.dumps(config, ensure_ascii=False, indent=2) + "\n").encode()
             removed.append(f"{mcp_file} mcpServers.{WORKBUDDY_PLUGIN_NAME}")
-        for name in (*WORKBUDDY_HOOK_MODULES, WORKBUDDY_SCOPE_RESOLVER):
-            if (hooks / name).is_file():
-                writes[hooks / name] = None
-                removed.append(str(hooks / name))
         if _owned_workbuddy_skill(skill) and not skill.is_symlink():
             writes[skill] = None
             removed.append(str(skill))
+        # The hooks directory is shared and its files carry no owner marker, so delete them by name only when the
+        # hook entry, MCP server, Skill, or saved connection shows that PowerContext set this WorkBuddy up.
+        if removed or load_client_settings("workbuddy"):
+            for name in (*WORKBUDDY_HOOK_MODULES, WORKBUDDY_SCOPE_RESOLVER):
+                if (hooks / name).is_file():
+                    writes[hooks / name] = None
+                    removed.append(str(hooks / name))
         publish(writes=writes)
-        return removed + remove_connection("workbuddy")
+        return {"removed": removed + remove_connection("workbuddy")}
 
     def verify(self) -> dict[str, Diagnostic]:
         """Collect diagnostics for the optional WorkBuddy integration."""

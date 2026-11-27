@@ -110,7 +110,23 @@ def test_workbuddy_remove_undoes_setup_and_keeps_user_configuration(
 
     assert code == 0
     assert payload["hosts"]["workbuddy"]["removal"] == "not_set_up"
-    assert payload["hosts"]["workbuddy"]["result"] == {"removed": []}
+    assert payload["hosts"]["workbuddy"]["host_registration"] == "checked"
+    assert payload["hosts"]["workbuddy"]["result"] == {"removed": [], "notes": []}
+
+
+def test_workbuddy_remove_keeps_same_named_hook_files_without_powercontext_setup(
+    tmp_path: Path, monkeypatch, client_config: Path
+) -> None:
+    home = tmp_path / "workbuddy"
+    monkeypatch.setenv("WORKBUDDY_HOME", str(home))
+    (home / "hooks").mkdir(parents=True)
+    (home / "hooks" / "prepared_context.py").write_text("# someone else's hook\n", encoding="utf-8")
+
+    code, payload = _remove("workbuddy")
+
+    assert code == 0
+    assert payload["hosts"]["workbuddy"]["removal"] == "not_set_up"
+    assert (home / "hooks" / "prepared_context.py").read_text(encoding="utf-8") == "# someone else's hook\n"
 
 
 def test_pi_remove_unregisters_the_owned_package(
@@ -379,7 +395,7 @@ def _register_dsh(profile: Path, *packages: str) -> None:
 def test_dsh_remove_keeps_shared_state_while_another_profile_uses_it(
     tmp_path: Path, monkeypatch, client_config: Path
 ) -> None:
-    from powercontext.cli import dsh
+    from powercontext.cli import dsh, dsh_runtime
     from powercontext.cli.authorization import credential_path, write_stored_authorization
 
     home = tmp_path / "dsh"
@@ -414,11 +430,19 @@ def test_dsh_remove_keeps_shared_state_while_another_profile_uses_it(
 
     monkeypatch.setattr(dsh, "_run_dsh", fake_dsh)
     monkeypatch.setattr(dsh, "dsh_executable", lambda: "/usr/bin/dsh")
+    # Desktop removal needs the Desktop-installed command, which this machine does not have.
+    monkeypatch.setattr(
+        dsh_runtime,
+        "resolve_dsh_target",
+        lambda profile, _command: dsh_runtime.DshTarget(profile, "/usr/bin/dsh" if profile == "desktop" else None),
+    )
 
-    code, payload = _remove("dsh")
+    result = CliRunner().invoke(create_cli([setup_app]), ["setup", "dsh", "--remove"])
 
-    assert code == 0
-    assert payload["hosts"]["dsh"]["removal"] == "removed"
+    assert result.exit_code == 0, result.output
+    assert "dsh: ok (removed)" in result.output
+    assert "note: PowerContext is still registered in DSH profile desktop" in result.output
+    assert "`powercontext setup dsh --remove --profile desktop`" in result.output
     assert removed_packages == [("web", "powercontext-dsh-pet"), ("web", "powercontext-dsh")]
     assert (web / "cordis.patch.yml").read_text(encoding="utf-8") == "user: patch\n"
     assert pet_state.is_file()
@@ -426,15 +450,98 @@ def test_dsh_remove_keeps_shared_state_while_another_profile_uses_it(
     assert credential_path("dsh").is_file()
     assert "dsh" in _saved_hosts(client_config)
 
-    _register_dsh(desktop)
     code, payload = _remove("dsh")
 
     assert code == 0
+    assert payload["hosts"]["dsh"]["removal"] == "not_set_up"
+    assert payload["hosts"]["dsh"]["result"]["remaining_profiles"] == ["desktop"]
+
+    code, payload = _remove("dsh", "--profile", "desktop")
+
+    assert code == 0
     assert payload["hosts"]["dsh"]["removal"] == "removed"
-    assert len(removed_packages) == 2
+    assert "remaining_profiles" not in payload["hosts"]["dsh"]["result"]
+    assert removed_packages[2:] == [("desktop", "powercontext-dsh")]
     assert not skill.exists()
     assert not credential_path("dsh").exists()
     assert "dsh" not in _saved_hosts(client_config)
+
+
+def _save_connection(client_config: Path, host: str) -> None:
+    from powercontext.cli.authorization import credential_path, write_stored_authorization
+
+    client_config.write_text(
+        json.dumps({"version": 1, "hosts": {host: {"server_url": "http://127.0.0.1:8000"}, "zcode": {}}}),
+        encoding="utf-8",
+    )
+    write_stored_authorization(credential_path(host), server_url="http://127.0.0.1:8000", value="test-token")
+
+
+def _unavailable(*arguments: object, **_options: object) -> Any:
+    raise AssertionError(arguments)  # The host CLI is not on PATH, so nothing may run it.
+
+
+@pytest.mark.parametrize(("agent", "cli"), [("codex", "Codex"), ("claude-code", "Claude Code"), ("pi", "Pi")])
+def test_remove_forgets_the_connection_when_the_host_cli_is_gone(
+    tmp_path: Path, monkeypatch, client_config: Path, agent: str, cli: str
+) -> None:
+    import powercontext.cli.pi as pi_cli
+    from powercontext.cli import system
+    from powercontext.cli.authorization import credential_path
+
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path / "codex"))
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "claude"))
+    monkeypatch.setenv("PI_CODING_AGENT_DIR", str(tmp_path / "pi"))
+    monkeypatch.setattr(system, "_codex_path_executable", lambda: None)
+    monkeypatch.setattr(system, "which", lambda _name: None)
+    monkeypatch.setattr(pi_cli, "which", lambda _name: None)
+    for module, name in ((system, "_run_codex_json"), (system, "_run_claude"), (pi_cli, "_run_pi")):
+        monkeypatch.setattr(module, name, _unavailable)
+    package = tmp_path / "data" / "plugins" / "pi"
+    package.mkdir(parents=True)
+    (package / ".powercontext-owned").write_text("", encoding="utf-8")
+    _save_connection(client_config, agent)
+
+    result = CliRunner().invoke(create_cli([setup_app]), ["setup", agent, "--remove"])
+
+    assert result.exit_code == 0, result.output
+    assert f"{agent}: ok (removed; host registration not checked)" in result.output
+    assert f"note: {cli} CLI is not on PATH" in result.output
+    assert not credential_path(agent).exists()
+    assert _saved_hosts(client_config) == {"zcode": {}}
+    assert package.exists() is (agent != "pi")
+
+    code, payload = _remove(agent)
+
+    assert code == 0
+    row = payload["hosts"][agent]
+    assert (row["removal"], row["host_registration"]) == ("not_set_up", "not_checked")
+    assert row["result"]["notes"][0].startswith(f"{cli} CLI is not on PATH")
+
+
+def test_claude_code_remove_without_its_cli_keeps_plugin_options(
+    tmp_path: Path, monkeypatch, client_config: Path, server_checks
+) -> None:
+    from powercontext.cli import system
+
+    claude_home = tmp_path / "claude"
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(claude_home))
+    monkeypatch.setenv("POWERCONTEXT_CLAUDE_AUTHORIZATION", "test-token")
+    monkeypatch.setattr(system, "which", lambda name: f"/usr/bin/{name}")
+    monkeypatch.setattr(system, "_run_claude", _FakeClaude(tmp_path / "powercontext" / "plugins" / "claude-code"))
+    setup = CliRunner().invoke(create_cli([setup_app]), ["setup", "claude-code", "--source", str(REPOSITORY)])
+    assert setup.exit_code == 0, setup.output
+    options = json.loads((claude_home / "settings.json").read_text(encoding="utf-8"))["pluginConfigs"]
+    monkeypatch.setattr(system, "which", lambda _name: None)
+    monkeypatch.setattr(system, "_run_claude", _unavailable)
+
+    code, payload = _remove("claude-code")
+
+    assert code == 0
+    assert payload["hosts"]["claude-code"]["host_registration"] == "not_checked"
+    settings = json.loads((claude_home / "settings.json").read_text(encoding="utf-8"))
+    assert "statusLine" not in settings
+    assert settings["pluginConfigs"] == options
 
 
 def test_unsupported_agent_fails_without_blocking_other_removals(
@@ -460,6 +567,9 @@ def test_unsupported_agent_fails_without_blocking_other_removals(
         ["setup", "--remove", "--json"],
         ["setup", "codex", "--remove", "--server-url", "https://memory.example"],
         ["setup", "codex", "--remove", "--source", "oceanbase/powercontext"],
+        ["setup", "codex", "--remove", "--no-capture-prompts"],
+        ["setup", "kimi-code", "--remove", "--workspace-scope"],
+        ["setup", "codex", "--remove", "--env-file", ".env"],
         ["setup", "codex", "--remove", "--profile", "web"],
         ["setup", "dsh", "--remove", "--profile", "mobile"],
     ],
@@ -468,4 +578,6 @@ def test_remove_rejects_missing_agents_and_setup_options(arguments: list[str], c
     result = CliRunner().invoke(create_cli([setup_app]), arguments)
 
     assert result.exit_code == 2
+    if "--no-capture-prompts" in arguments:
+        assert "--capture-prompts cannot be combined with --remove" in result.output
     assert not client_config.exists()

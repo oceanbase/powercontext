@@ -496,7 +496,8 @@ powercontext setup codex --remove
 且没有已安装插件使用它时，也会被移除。它还会删除 setup 保存在
 `$CODEX_HOME/powercontext/credentials.json` 的凭据和已保存的 Codex 连接。在 Windows 上，
 如果 setup 为 Codex Desktop 写入的用户环境变量 `POWERCONTEXT_CODEX_AUTHORIZATION` 仍是已保存的凭据，
-该值也会被删除。`PATH` 中必须有 Codex CLI。移除会保留哪些内容见 [CLI](../develop/interfaces.md#cli)。
+该值也会被删除。`PATH` 中没有 Codex CLI 时，移除仍会删除凭据、该 Windows 环境变量和已保存的连接，
+并报告未检查插件注册。移除会保留哪些内容见 [CLI](../develop/interfaces.md#cli)。
 
 ## 环境变量
 

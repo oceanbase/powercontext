@@ -26,7 +26,7 @@ import tempfile
 import time
 from pathlib import Path
 from shutil import which
-from typing import cast
+from typing import Any, cast
 from urllib.error import URLError
 from urllib.parse import urlparse
 from urllib.request import url2pathname, urlopen
@@ -581,7 +581,7 @@ class OpenCodeInstaller:
             raise SetupError("PowerContext is not installed in opencode; run powercontext setup opencode")  # noqa: TRY003
         return {"authorization_state": configure_connection(connection)}
 
-    def remove(self) -> list[str]:
+    def remove(self) -> dict[str, Any]:
         """Delete the owned plugin, manifest, and Skill, drop PowerContext TUI entries, and forget the connection."""
         from powercontext.cli.git_source import linked_checkout
 
@@ -614,7 +614,7 @@ class OpenCodeInstaller:
                         writes[checkout] = None
         publish(writes=writes)
         removed = [f"{config_path} plugin" if path == config_path else str(path) for path in writes]
-        return removed + remove_connection("opencode")
+        return {"removed": removed + remove_connection("opencode")}
 
     def verify(self) -> dict[str, Diagnostic]:
         """Collect model-free diagnostics for the optional OpenCode integration."""

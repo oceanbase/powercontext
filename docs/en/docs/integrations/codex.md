@@ -561,7 +561,8 @@ This uninstalls the plugin with `codex plugin remove` and removes the `powercont
 PowerContext and no installed plugin uses it. It also deletes the credential that setup saved at
 `$CODEX_HOME/powercontext/credentials.json` and the saved Codex connection. On Windows, it deletes the
 `POWERCONTEXT_CODEX_AUTHORIZATION` user environment value that setup wrote for Codex Desktop while that value still
-holds the saved credential. The Codex CLI must be on `PATH`. See [CLI](../develop/interfaces.md#cli) for what removal keeps.
+holds the saved credential. Without the Codex CLI on `PATH`, removal still deletes the credential, that Windows value,
+and the saved connection, and reports that the plugin registration was not checked. See [CLI](../develop/interfaces.md#cli) for what removal keeps.
 
 ## Environment variables
 

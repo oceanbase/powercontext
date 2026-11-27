@@ -183,9 +183,14 @@ def report_agents(selected: Sequence[str], action: Callable[[str], dict[str, Any
             suffix = " (setup complete)" if row.get("setup") == "complete" else ""
             if "removal" in row:
                 suffix = f" ({row['removal'].replace('_', ' ')})"
+                if row.get("host_registration") == "not_checked":
+                    suffix = f"{suffix[:-1]}; host registration not checked)"
             typer.echo(f"{name}: {row['status']}{suffix}")
             for item in row.get("result", {}).get("removed", ()):
                 typer.echo(f"  removed: {item}")
+            if "removal" in row:
+                for note in row["result"].get("notes", ()):
+                    typer.echo(f"  note: {note}")
             for key in (
                 "plugin_path",
                 "package_path",

@@ -22,6 +22,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 from shutil import which
+from typing import Any
 
 from powercontext.cli.guidance import HOST_GUIDANCE, SKILL_FILE, preserve_installed_guidance
 from powercontext.cli.installation import SetupError, publish
@@ -141,18 +142,30 @@ class PiInstaller:
                 "data_dir": str(powercontext_data_dir()),
             }
 
-    def remove(self) -> list[str]:
+    def remove(self) -> dict[str, Any]:
         """Unregister and delete the owned package copy, then forget the connection."""
-        pi_executable()
         destination = powercontext_data_dir() / "plugins" / "pi"
         removed: list[str] = []
-        if any(resolved.resolve() == destination.resolve() for _, resolved in _user_packages(_run_pi("list"))):
-            _run_pi("remove", str(destination))  # The source that setup passed to `pi install`.
-            removed.append(f"Pi package {destination}")
+        try:
+            pi_executable()
+        except SetupError:
+            # Pi may already be uninstalled; PowerContext's own copy and connection must still be removable.
+            outcome: dict[str, Any] = {
+                "host_registration": "not_checked",
+                "notes": [
+                    "Pi CLI is not on PATH, so the Pi package registration was not checked; if Pi is still installed, "
+                    f"run `pi remove {destination}`."
+                ],
+            }
+        else:
+            outcome = {}
+            if any(resolved.resolve() == destination.resolve() for _, resolved in _user_packages(_run_pi("list"))):
+                _run_pi("remove", str(destination))  # The source that setup passed to `pi install`.
+                removed.append(f"Pi package {destination}")
         if (destination / ".powercontext-owned").is_file() and not destination.is_symlink():
             publish(writes={destination: None})
             removed.append(str(destination))
-        return removed + remove_connection("pi")
+        return {"removed": removed + remove_connection("pi"), **outcome}
 
     def configure(self, connection):
         if not (powercontext_data_dir() / "plugins/pi/.powercontext-owned").is_file():

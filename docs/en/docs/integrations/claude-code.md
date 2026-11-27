@@ -269,7 +269,9 @@ powercontext setup claude-code --remove
 This uninstalls the user-scope plugin, removes the `powercontext` Marketplace when no installed plugin uses it, and
 removes the PowerContext status line. A status line that you configured yourself stays. It also deletes the credential
 that setup saved at `~/.claude/powercontext/credentials.json` and the saved Claude Code connection. Uninstalling the
-plugin from its last scope also removes its `${CLAUDE_PLUGIN_DATA}` directory. See [CLI](../develop/interfaces.md#cli) for what removal keeps.
+plugin from its last scope also removes its `${CLAUDE_PLUGIN_DATA}` directory. Without the Claude Code CLI on `PATH`,
+removal leaves the plugin, the Marketplace, and the plugin options in `pluginConfigs` alone, still removes the status
+line, credential, and connection, and reports that the plugin registration was not checked. See [CLI](../develop/interfaces.md#cli) for what removal keeps.
 
 ## Environment variables
 

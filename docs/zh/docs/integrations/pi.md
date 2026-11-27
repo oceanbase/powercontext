@@ -150,7 +150,8 @@ powercontext setup pi --remove
 
 该命令对 setup 注册的 package 运行 `pi remove`，并删除 PowerContext 数据目录中 `plugins/pi` 下由 PowerContext
 拥有的副本。它还会删除 `~/.pi/agent/powercontext/credentials.json` 中的凭据和已保存的 Pi 连接。
-其他 Pi package 会保留。`PATH` 中必须有 Pi CLI。移除会保留哪些内容见 [CLI](../develop/interfaces.md#cli)。
+其他 Pi package 会保留。`PATH` 中没有 Pi CLI 时，移除仍会删除 PowerContext 拥有的副本、凭据和连接，
+并报告未检查 package 注册。移除会保留哪些内容见 [CLI](../develop/interfaces.md#cli)。
 
 ## 环境变量
 

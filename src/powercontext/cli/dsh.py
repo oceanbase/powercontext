@@ -24,6 +24,7 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from shutil import which
+from typing import Any
 
 from powercontext.cli.dsh_runtime import DshProfile, DshTarget, dsh_home
 from powercontext.cli.guidance import SKILL_DIRECTORY, refresh_skill
@@ -324,7 +325,7 @@ class DshInstaller:
             )
         }
 
-    def remove(self) -> list[str]:
+    def remove(self) -> dict[str, Any]:
         """Unregister PowerContext from one profile; drop the shared Skill and connection once no profile uses it."""
         from powercontext.cli.dsh_pet import ADAPTER
         from powercontext.cli.dsh_runtime import resolve_dsh_target
@@ -354,11 +355,11 @@ class DshInstaller:
         )
         if checkout is not None and checkout.is_dir():
             writes[checkout] = None
-        others = [
-            path.parent
+        others = sorted(
+            path.parent.name
             for path in (dsh_home() / "profiles").glob("*/package.json")
             if path.parent.name != target.profile and DSH_PLUGIN_NAME in _profile_dependencies(path.parent)
-        ]
+        )
         skill = dsh_home() / SKILL_DIRECTORY
         if not others and not skill.is_symlink() and (skill / "SKILL.md").is_file():
             try:
@@ -369,7 +370,18 @@ class DshInstaller:
                 writes[skill] = None
         publish(writes=writes)
         removed.extend(str(path) for path in writes)
-        return removed if others else removed + remove_connection("dsh")
+        if not others:
+            return {"removed": removed + remove_connection("dsh")}
+        # The saved connection names only the latest profile, so say which ones still need their own removal.
+        return {
+            "removed": removed,
+            "remaining_profiles": others,
+            "notes": [
+                f"PowerContext is still registered in DSH profile {name}; the shared Skill, credential, and connection "
+                f"stay until it is removed with `powercontext setup dsh --remove --profile {name}`."
+                for name in others
+            ],
+        }
 
     def verify(self) -> dict[str, Diagnostic]:
         """Collect diagnostics for the optional DeepSeek Harness integration."""

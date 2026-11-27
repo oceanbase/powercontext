@@ -246,7 +246,9 @@ powercontext setup claude-code --remove
 该命令卸载 user scope 的插件；没有已安装插件使用 `powercontext` Marketplace 时，也会移除它，
 并移除 PowerContext 的状态栏。你自己配置的状态栏会保留。它还会删除 setup 保存在
 `~/.claude/powercontext/credentials.json` 的凭据和已保存的 Claude Code 连接。从最后一个 scope 卸载插件时，
-Claude Code 也会删除 `${CLAUDE_PLUGIN_DATA}`。移除会保留哪些内容见 [CLI](../develop/interfaces.md#cli)。
+Claude Code 也会删除 `${CLAUDE_PLUGIN_DATA}`。`PATH` 中没有 Claude Code CLI 时，
+移除不处理插件、Marketplace 和 `pluginConfigs` 中的插件选项，仍会移除状态栏、凭据和连接，
+并报告未检查插件注册。移除会保留哪些内容见 [CLI](../develop/interfaces.md#cli)。
 
 ## 环境变量
 

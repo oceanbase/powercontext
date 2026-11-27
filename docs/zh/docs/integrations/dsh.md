@@ -538,7 +538,9 @@ powercontext setup dsh --remove --profile desktop
 
 只要还有其他 profile 注册了插件，共享的 `$DSH_HOME/skills/powercontext-project-context` Skill、
 `$DSH_HOME/powercontext/credentials.json` 中的凭据和已保存的连接就会保留；从最后一个 profile 移除插件时，
-才会删除它们。从 Desktop profile 移除插件前，请完全退出 DSH Desktop。移除会保留哪些内容见 [CLI](../develop/interfaces.md#cli)。
+才会删除它们。已保存的连接只记录最近一次 setup 的 profile，因此结果会列出仍注册了插件的每个 profile，
+以及移除它所需的 `powercontext setup dsh --remove --profile <profile>` 命令。
+从 Desktop profile 移除插件前，请完全退出 DSH Desktop。移除会保留哪些内容见 [CLI](../develop/interfaces.md#cli)。
 
 ## 环境变量
 

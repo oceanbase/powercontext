@@ -335,7 +335,7 @@ class KimiInstaller:
         )
         return {"server_url": endpoint, "scope_id": scope, "profile": profile.value}
 
-    def remove(self) -> list[str]:
+    def remove(self) -> dict[str, Any]:
         """Unregister the managed plugin, delete its owned copy, and forget the connection."""
         home = kimi_home()
         registry_path, destination = home / "plugins/installed.json", home / "plugins/managed/powercontext"
@@ -357,7 +357,7 @@ class KimiInstaller:
             writes[destination] = None
             removed.append(str(destination))
         publish(writes=writes)
-        return removed + remove_connection("kimi-code")
+        return {"removed": removed + remove_connection("kimi-code")}
 
     def verify(  # noqa: C901 - installed declarations plus opt-in runtime and transport probes.
         self, *, runtime: bool = False, cwd: Path | None = None, session_id: str | None = None, mcp: bool = False
