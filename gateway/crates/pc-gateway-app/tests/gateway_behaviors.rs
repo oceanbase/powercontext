@@ -819,7 +819,19 @@ async fn responses_reminders_preserve_recall_and_turn_capture() {
         Reply::fixture(case, 1),
     ];
     let bodies: Vec<_> = replies.iter().map(|reply| reply.body.clone()).collect();
-    let gateway = Gateway::start_with_memory(replies, None, true).await;
+    let gateway = Gateway::start_with_env(
+        replies,
+        None,
+        &[
+            ("PC_GATEWAY_STEERING", "off"),
+            ("PC_GATEWAY_PREFIX_EXTRACTION", "on"),
+            ("PC_GATEWAY_INJECTION", "on"),
+            ("PC_GATEWAY_SEDIMENT", "on"),
+        ],
+        true,
+    )
+    .await;
+    *gateway.peers.fixed_preparation.lock().unwrap() = true;
     let mut baseline = request("responses", "tool", false);
     let prompt = baseline["input"][1]["content"][0]["text"].clone();
     let startup = json!({"role": "user", "content": "<system-reminder>Auto mode is active</system-reminder>"});
@@ -892,7 +904,18 @@ async fn responses_reminders_preserve_recall_and_turn_capture() {
 
     let captures = gateway.peers.captures.lock().unwrap();
     assert_eq!(captures.len(), 2);
-    assert_eq!(captures[0], captures[1]);
+    let reminder_source = &captures[0]["sources"][0];
+    let ordinary_source = &captures[1]["sources"][0];
+    assert!(
+        reminder_source["metadata"].get("prefix_handle").is_none(),
+        "a retained prefix would make the trailing reminder the evidence boundary"
+    );
+    assert!(
+        ordinary_source["metadata"]["prefix_handle"].is_string(),
+        "unaffected turns should still offer prefix extraction"
+    );
+    assert_eq!(reminder_source["source_id"], ordinary_source["source_id"]);
+    assert_eq!(reminder_source["content"], ordinary_source["content"]);
     let sources = captures[0]["sources"].as_array().unwrap();
     assert_eq!(sources.len(), 1);
     let transcript: Value = serde_json::from_str(sources[0]["content"].as_str().unwrap()).unwrap();
