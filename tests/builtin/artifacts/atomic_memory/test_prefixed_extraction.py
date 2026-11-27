@@ -605,6 +605,16 @@ def test_an_exhausted_correction_raises_the_check_error_with_its_usage() -> None
     assert (usage.requests, usage.input_tokens) == (3, 27_000)
 
 
+def test_a_conversation_that_may_send_no_request_is_rejected() -> None:
+    async def build() -> None:
+        async with httpx.AsyncClient(base_url="http://gateway.local") as client:
+            GatewayPrefixedConversation(client=client, estimator=character_token_estimator(), max_requests=0)
+
+    # The inference request limit is at least 1, and a turn always sends its first request.
+    with pytest.raises(ValueError, match="max_requests must be at least 1"):
+        asyncio.run(build())
+
+
 class _RecheckGateway(_Gateway):
     """Answer step 1 and step 2 from a script, then every recheck request from the memories it lists."""
 
