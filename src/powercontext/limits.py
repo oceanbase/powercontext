@@ -26,6 +26,11 @@ MAX_SCOPE_BINDING_EXTERNAL_ID_LENGTH = 256
 MAX_SOURCE_ID_LENGTH = 256
 MAX_SOURCE_TYPE_LENGTH = 128
 MAX_SOURCE_OBSERVATION_BYTES = 4 * 1024 * 1024
+# Default effective limit on one Content Source body, in characters.
+MAX_SOURCE_CONTENT_CHARS = 200_000
+# Storage ceiling for the deployment setting: a MEDIUMBLOB payload can hold the
+# JSON envelope even when every character escapes to six bytes.
+MAX_SOURCE_CONTENT_CHARS_CEILING = 1_000_000
 MAX_SOURCE_LOCATOR_LINES = 200
 MAX_SOURCE_HEADING_PATH_LENGTH = 1_024
 MAX_ARTIFACT_FAMILY_LENGTH = 128
