@@ -1686,16 +1686,19 @@ pub(crate) mod tests {
                     }
                     let refused = phase == CheckPhase::BeforeSend
                         && received.refuse_send.load(std::sync::atomic::Ordering::SeqCst);
-                    Json(serde_json::json!({
+                    let mut verdict = serde_json::json!({
                         "schema": pc_gateway_types::CONTEXT_CHECK_SCHEMA,
                         "phase": phase,
                         "decision": if refused { "block" } else { "allow" },
                         "reason_codes": if refused { vec!["forbidden_value"] } else { vec![] },
                         "coverage": {"profile": "text-and-tools.v1", "complete": true},
                         "policy_version": "test",
-                        "valid_until": "2999-01-01T00:00:00Z",
-                        "binding": "test-binding"
-                    }))
+                        "valid_until": "2999-01-01T00:00:00Z"
+                    });
+                    if !refused {
+                        verdict["binding"] = serde_json::json!("test-binding");
+                    }
+                    Json(verdict)
                 }),
             )
             .route(
