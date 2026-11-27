@@ -421,12 +421,17 @@
     "vault.png": "10b8aa84dcba51dcf09e7984f662bafd70d50c104d5c29ef2e8fe4a6c78f8555",
     "wind.pptx": "180fb4369633163bef378f0e6b61ad935a37902653d9d22433b048061fc65cff"
   },
+  "format_packages": {
+    "defusedxml": "0.7.1",
+    "pypdfium2": "5.15.2"
+  },
   "future_parser_stacks": {
     "docx/xlsx/pptx": "NOT_IMPLEMENTED; proposed bounded stdlib ZIP + defusedxml 0.7.1",
     "pdf": "NOT_IMPLEMENTED; proposed pypdfium2 5.15.2 / PDFium 159.0.8149.0",
     "txt/csv": "stdlib Python 3.12.14"
   },
-  "generator_sha256": "5a5e13adc5e2d55cacb8852496d7efa9a59c58c828f64e94be3878f2151d6497",
+  "generator_sha256": "b2454408a2f2df2baa46effa824de5d647539038e674c3de8af34417a94f327d",
+  "legacy_baseline_sha256": "27bd0671bc00bf780c92353eb3a5975828620c8d07ebeb3edd2b6b22a30b32c2",
   "license": "Apache-2.0",
   "ocr_assets": {
     "config.yaml": "06623941e188461a0bc263fe16175cb5e5f6f6b01f4387e546d3a741569fc021",
@@ -439,11 +444,16 @@
     "pillow": "12.3.0",
     "rapidocr": "3.10.0"
   },
+  "parsing_threshold_basis": {
+    "coverage": "Exact counts and warnings from authored extraction units and OCR unknown-total semantics.",
+    "min_text_similarity": "Exact normalized text in independent annotations for the legacy fixtures.",
+    "ordered_locations": "Exact ordered match to independently authored source anchors."
+  },
   "provisional_retrieval": {
     "basis": "Proposed policy for 11 independently labeled queries, allowing at most one top-three miss and requiring at least 7.7 reciprocal-rank points. No observed embedding scores informed these values.",
     "mrr_at_3": 0.7,
     "recall_at_3": 0.9,
-    "status": "BLOCKED_PENDING_THRESHOLD_APPROVAL"
+    "status": "PROVISIONAL_UNTIL_2856_MEASUREMENT"
   },
   "raster_assets_sha256": "256350ff40410fe1738c3e65d255aa3b668ee335a917724b91e4615a76a30896",
   "raster_toolchain": {
@@ -462,10 +472,10 @@
     "unicode": "15.0.0"
   },
   "schema_version": 1,
-  "scorer_sha256": "3287a2d86949fb7ffddd36b6cc93f300855fd59c07285ed1483195150e7a86ab",
+  "scorer_sha256": "0f29227c1fc8cbc11651f95178deec6c591cc56a91dff55d4503c0c1d952420a",
   "thresholds": {
     "coverage": 1.0,
-    "min_text_similarity": 0.98,
+    "min_text_similarity": 1.0,
     "ordered_locations": 1.0
   }
 }

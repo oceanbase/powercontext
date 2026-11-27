@@ -227,5 +227,6 @@ def test_image_formats_return_real_ocr_with_normalized_geometry(extension, image
     for parsed, chunk in zip(
         result.blocks, content.chunk_document(result, {"max_chars": 360, "overlap": 40}), strict=True
     ):
+        assert isinstance(parsed.locator, ImageLocator)
         assert chunk["locator"]["ocr_block"] == parsed.locator.index
         assert all(0 <= value <= 1 for point in parsed.locator.region.canonical_polygon for value in point)

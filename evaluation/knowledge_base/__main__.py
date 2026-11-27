@@ -27,8 +27,17 @@ from difflib import SequenceMatcher
 from importlib.metadata import distribution, version
 from pathlib import Path
 from time import perf_counter
+from typing import TypedDict, cast
 
-from evaluation.knowledge_base.fixtures import canonical_text_bytes, generate, json_bytes, manifest, sha256
+from evaluation.knowledge_base.fixtures import (
+    ExpectedFixture,
+    canonical_text_bytes,
+    generate,
+    json_bytes,
+    manifest,
+    sha256,
+)
+from evaluation.knowledge_base.legacy import RECORD
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parents[1] / "plugins" / "knowledge-base"))
@@ -37,18 +46,29 @@ from pc_knowledge_base.embedding import Embedding  # noqa: E402
 from pc_knowledge_base.parser_contract import ParsedDocument, context_locator  # noqa: E402
 
 THRESHOLDS = {
-    "min_text_similarity": 0.98,
+    "min_text_similarity": 1.0,
     "ordered_locations": 1.0,
     "coverage": 1.0,
 }
 PROVISIONAL_RETRIEVAL = {
-    "status": "BLOCKED_PENDING_THRESHOLD_APPROVAL",
+    "status": "PROVISIONAL_UNTIL_2856_MEASUREMENT",
     "recall_at_3": 0.90,
     "mrr_at_3": 0.70,
     "basis": "Proposed policy for 11 independently labeled queries, allowing at most one top-three miss and requiring at least 7.7 reciprocal-rank points. No observed embedding scores informed these values.",
 }
 REPLAY_TOOLCHAIN = {"implementation": "CPython", "python": "3.12.14", "unicode": "15.0.0"}
-EMBEDDING = {
+
+
+class EmbeddingBaseline(TypedDict):
+    model: str
+    repository: str
+    revision: str
+    fastembed: str
+    onnxruntime: str
+    files: dict[str, str]
+
+
+EMBEDDING: EmbeddingBaseline = {
     "model": "BAAI/bge-small-zh-v1.5",
     "repository": "Qdrant/bge-small-zh-v1.5",
     "revision": "46fbe35fd4374a00fee7de77dfddaeb6dd6a2c59",
@@ -67,6 +87,7 @@ PARSER_PACKAGES = {
     "rapidocr": "3.10.0",
     "pillow": "12.3.0",
 }
+FORMAT_PACKAGES = {"defusedxml": "0.7.1", "pypdfium2": "5.15.2"}
 FUTURE_PARSERS = {
     "txt/csv": "stdlib Python 3.12.14",
     "pdf": "NOT_IMPLEMENTED; proposed pypdfium2 5.15.2 / PDFium 159.0.8149.0",
@@ -78,12 +99,19 @@ def baseline_manifest(files, expected):
     return {
         **manifest(files, expected),
         "thresholds": THRESHOLDS,
+        "parsing_threshold_basis": {
+            "min_text_similarity": "Exact normalized text in independent annotations for the legacy fixtures.",
+            "ordered_locations": "Exact ordered match to independently authored source anchors.",
+            "coverage": "Exact counts and warnings from authored extraction units and OCR unknown-total semantics.",
+        },
         "provisional_retrieval": PROVISIONAL_RETRIEVAL,
         "embedding": EMBEDDING,
         "parser_packages": PARSER_PACKAGES,
+        "format_packages": FORMAT_PACKAGES,
         "future_parser_stacks": FUTURE_PARSERS,
         "ocr_assets": OCR_ASSETS,
         "replay_toolchain": REPLAY_TOOLCHAIN,
+        "legacy_baseline_sha256": sha256(canonical_text_bytes(RECORD)),
         "scorer_sha256": sha256(canonical_text_bytes(Path(__file__))),
     }
 
@@ -95,7 +123,12 @@ def verify():
         or unicodedata.unidata_version != REPLAY_TOOLCHAIN["unicode"]
     ):
         raise SystemExit(f"Expected {REPLAY_TOOLCHAIN}, got {platform.python_version()} on {platform.platform()}")  # noqa: TRY003
-    for name, expected_version in PARSER_PACKAGES.items():
+    for name, expected_version in {
+        **PARSER_PACKAGES,
+        **FORMAT_PACKAGES,
+        "fastembed": EMBEDDING["fastembed"],
+        "onnxruntime": EMBEDDING["onnxruntime"],
+    }.items():
         if version(name) != expected_version:
             raise SystemExit(f"Expected {name} {expected_version}")  # noqa: TRY003
     rapidocr = distribution("rapidocr")
@@ -119,28 +152,30 @@ def text_similarity(expected: str, actual: str) -> float:
     return SequenceMatcher(None, normalize(expected), normalize(actual), autojunk=False).ratio()
 
 
-def matches_locator(expected: dict, location: dict) -> bool:
-    if any(location.get(key) != value for key, value in expected["locator"].items()):
+def matches_locator(
+    expected: dict[str, object], location: dict[str, object], region_center: list[list[float]] | None = None
+) -> bool:
+    if any(location.get(key) != value for key, value in expected.items()):
         return False
-    if "region_center" not in expected:
+    if region_center is None:
         return True
-    polygon = location.get("polygon")
+    polygon = cast("list[list[float]] | None", location.get("polygon"))
     if not polygon:
         return False
     return all(
         lo <= sum(axis) / len(axis) <= hi
-        for axis, (lo, hi) in zip(zip(*polygon, strict=True), expected["region_center"], strict=True)
+        for axis, (lo, hi) in zip(zip(*polygon, strict=True), region_center, strict=True)
     )
 
 
-def score_parse(results: dict[str, ParsedDocument], expected: dict) -> bool:
+def score_parse(results: dict[str, ParsedDocument], expected: dict[str, ExpectedFixture]) -> bool:
     passed = True
     for name, parsed in results.items():
         target = expected[name]
         blocks = parsed.blocks
         expected_blocks = target["blocks"]
         ordered = len(blocks) == len(expected_blocks) and all(
-            matches_locator(label, context_locator(block.locator))
+            matches_locator(label["locator"], context_locator(block.locator), label.get("region_center"))
             for label, block in zip(expected_blocks, blocks, strict=True)
         )
         similarity = text_similarity(
@@ -172,10 +207,9 @@ def retrieval_metrics(ranks: list[int]) -> tuple[float, float]:
     return sum(rank > 0 for rank in reciprocal_ranks) / len(ranks), math.fsum(reciprocal_ranks) / len(ranks)
 
 
-async def score_retrieval(results: dict[str, ParsedDocument], expected: dict, cache: Path) -> None:
-    for package in ("fastembed", "onnxruntime"):
-        if version(package) != EMBEDDING[package]:
-            raise SystemExit(f"Expected {package} {EMBEDDING[package]}")  # noqa: TRY003
+async def score_retrieval(
+    results: dict[str, ParsedDocument], expected: dict[str, ExpectedFixture], cache: Path
+) -> None:
     embed = Embedding(EMBEDDING["model"], str(cache))
     model_dir = cache / "models--Qdrant--bge-small-zh-v1.5" / "snapshots" / EMBEDDING["revision"]
     for name, digest in EMBEDDING["files"].items():
@@ -204,14 +238,15 @@ async def score_retrieval(results: dict[str, ParsedDocument], expected: dict, ca
 
 
 def verify_metrics() -> None:
-    anchor = {"locator": {"kind": "page", "page": 0}, "region_center": [[0.4, 0.6], [0.4, 0.6]]}
-    location = {"kind": "page", "page": 0, "polygon": [[0.4, 0.4], [0.6, 0.6], [0.5, 0.5]]}
+    anchor: dict[str, object] = {"kind": "page", "page": 0}
+    center = [[0.4, 0.6], [0.4, 0.6]]
+    location: dict[str, object] = {**anchor, "polygon": [[0.4, 0.4], [0.6, 0.6], [0.5, 0.5]]}
     examples = (
         ("Unicode text", text_similarity("Cafe\u0301  note", "Café note"), 1),
         ("Missing text", text_similarity("ABC", "AC"), 0.8),
-        ("Known geometry", matches_locator(anchor, location), True),
-        ("Wrong page", matches_locator(anchor, {**location, "page": 1}), False),
-        ("Wrong position", matches_locator(anchor, {**location, "polygon": [[0, 0]] * 3}), False),
+        ("Known geometry", matches_locator(anchor, location, center), True),
+        ("Wrong page", matches_locator(anchor, {**location, "page": 1}, center), False),
+        ("Wrong position", matches_locator(anchor, {**location, "polygon": [[0, 0]] * 3}, center), False),
         ("Mixed ranks", retrieval_metrics([1, 2, 3, 4]), (0.75, 11 / 24)),
         ("All missed", retrieval_metrics([4, 0]), (0.0, 0.0)),
     )

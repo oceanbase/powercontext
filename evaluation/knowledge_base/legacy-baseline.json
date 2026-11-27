@@ -1,0 +1,34 @@
+{
+  "baseline": "e6e36a43b22240a827c9daec9798ccb256032608",
+  "cases": {
+    "filter.webp": {
+      "output_sha256": "cba5fca2bf0978cd9c9b0640923518d49f85b5dbaf9866a07c6e27bb05920657",
+      "source_sha256": "081353a7d60dfeb7e3f6d2aa9d5fed94cdf8192c8a09cbf19f87a0ae656571ce"
+    },
+    "meter.jpg": {
+      "output_sha256": "4a6de56e31486324417a7644c0ee5a1ddd32209c1ac423a29f7c2696d2862998",
+      "source_sha256": "f74267a38110565abd7619cc7402b044d021c454e11585c4d3f416e5ea561856"
+    },
+    "radio.jpeg": {
+      "output_sha256": "d23decc7b54be0e36e079a52c7af783af3145e1a943bb7bd8f6b58572f8094fc",
+      "source_sha256": "d293bfeaaa4770f0d37e3b43f9e2d00d77d181477b0551c82c43ae9c0336708e"
+    },
+    "service.markdown": {
+      "output_sha256": "8e9462c6b79ff6aae65deae826b4afe843a67b11a0b1cbcdee2be22a5d5e7449",
+      "source_sha256": "c870de2ea547718db27a2e0d7beb59ef929b169bc5d9f2c3e4e3b3f415283840"
+    },
+    "service.md": {
+      "output_sha256": "8e9462c6b79ff6aae65deae826b4afe843a67b11a0b1cbcdee2be22a5d5e7449",
+      "source_sha256": "c870de2ea547718db27a2e0d7beb59ef929b169bc5d9f2c3e4e3b3f415283840"
+    },
+    "vault.png": {
+      "output_sha256": "c0ea40b7bbdace90b0162c36efceabb2fc0d4ff6681a932f0be41edf954dc060",
+      "source_sha256": "10b8aa84dcba51dcf09e7984f662bafd70d50c104d5c29ef2e8fe4a6c78f8555"
+    }
+  },
+  "chunking": {
+    "max_chars": 360,
+    "overlap": 40
+  },
+  "output_sha256": "0eab4fa2a7636703dd7f15540d0027242242f251f680c5f42b0d447d34d2f3a1"
+}

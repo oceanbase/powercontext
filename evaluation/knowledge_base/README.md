@@ -2,8 +2,8 @@
 
 [Issue #2849](https://github.com/oceanbase/powercontext/issues/2849) defines this contract within
 [the parent acceptance matrix](https://github.com/oceanbase/powercontext/issues/2848). The evaluation
-manifest is proposed for maintainer freeze. It contains the dataset, generator, expected-output and
-scorer hashes, the pinned retrieval model, and the proposed thresholds.
+manifest is ready for maintainer freeze after validation. It contains the dataset, generator, expected-output and
+scorer hashes, the pinned retrieval model, and the threshold provenance.
 
 ## Results and reuse
 
@@ -18,9 +18,15 @@ requires a new locator version. Chunk size and overlap are independent of the pa
 The parse key includes the parser and model identity, locator mapping version, configuration,
 format and immutable source digest. Equal keys are eligible for reuse. Different or missing keys
 require parsing. Chunking and embedding settings are downstream inputs. The Worker integration in
-#2850 owns persistence and must verify the authoritative source and authorization before using a
-cached result. Existing revisions keep their original chunk positions and identities. A new profile
-takes effect through explicit reprocessing when the downstream integration consumes this protocol.
+#2850 owns persistent cache read, write and recovery.
+
+New processing requests pin the parser profile. A Worker rejects a pending request when its pinned
+profile differs from the installed one. Requests already accepted without a profile use the
+installed profile. Each new parsed revision records `parser_profile`, `parsed_result_id` and
+`parse_coverage`. Existing revisions keep their original chunk positions and identities.
+An ordinary import of identical bytes under a different recorded profile requires explicit
+reprocessing. A new explicit reprocess request uses the current profile and preserves the
+existing revision precondition and protections for manual edits.
 
 Markdown chunk output retains its one-based inclusive line fields. The legacy
 `block_char_start` and `block_char_end` address the packed block before appended references.
@@ -54,7 +60,9 @@ with existing clients, with the coverage report available on the published revis
   JSON, up to 1,024 bytes. It keeps the discriminator, type-specific bounded indices or spans,
   and up to 16 normalized polygon points rounded to eight decimals. Native geometry, transforms,
   confidence, and other metadata stay in the exact locator. The projection does not allocate a
-  context budget across hits. The public read and context integration is owned by #2856.
+  context budget across hits. The actual Prepared Context search projection belongs to `search_artifacts`. The v4
+  function allow-list names only `generate` and `prepare` for locator projection. Runtime
+  projection and legacy OCR normalization require that mismatch to be resolved.
 
 ## Adapter entry point
 
@@ -78,20 +86,21 @@ profile, locator, coverage and Prepared Context rules. The hard start gate for #
 requires #2849 to close and a maintainer-confirmed freeze record.
 [HTML pull request #2832](https://github.com/oceanbase/powercontext/pull/2832)
 
-## Dependency decisions
+## Locked dependencies
 
-| Format | Candidate stack | Runtime dependency and licence |
+| Format | Parser stack | Runtime dependency and licence |
 | --- | --- | --- |
 | Markdown and standalone images | Existing Markdown-It-Py 4.2.0, RapidOCR 3.10.0, Pillow 12.3.0 and ONNX Runtime 1.32.0 on the checked lock | Markdown-It-Py and mdurl MIT. RapidOCR and its bundled ONNX models Apache-2.0. Pillow MIT-CMU. ONNX Runtime MIT with bundled notices. |
 | TXT and CSV | Python standard library codecs and csv | PSF-2.0. |
 | PDF | `pypdfium2==5.15.2` with PDFium 159.0.8149.0 for text, geometry and page rasterization | No additional Python runtime packages. Wrapper Apache-2.0 or BSD-3-Clause, with separate permissive native notices. |
 | DOCX, XLSX, PPTX | Bounded standard-library ZIP reader and `defusedxml==0.7.1` for XML. DOCX requires a fixed renderer/font environment for page count. | No additional Python runtime packages for defusedxml. Its package includes the PSF license. Renderer and fonts are optional deployment dependencies. |
 
-The proposed `knowledge-base-formats` extra is **BLOCKED** pending the issue update and maintainer
-approval. [The candidate artifact list](dependency-proposal.json) records exact wheel URLs and
-SHA-256 hashes, including Linux x86-64/arm64, macOS x86-64/arm64 and Windows PDFium wheels.
+The root lock pins `knowledge-base-formats` to the two exact Python packages above.
+`knowledge-base` directly declares Markdown-It-Py. [The artifact list](dependencies.json)
+records exact wheel URLs and SHA-256 hashes, including Linux x86-64/arm64, macOS x86-64/arm64
+and Windows PDFium wheels.
 For a selected platform, download its compatible wheels and install from verified wheel bytes.
-This isolated check exercises only the proposed Python packages.
+This isolated check exercises the two format packages.
 
 ```sh
 uv lock --check
@@ -129,7 +138,7 @@ locked evaluation installation and its parse profile.
 | PP-OCRv6_rec_small.onnx | `6f327246b50388f3c176ae304bd95767ea6dc0c9ae92153ef8cbe210b3c14884` |
 | ch_ppocr_mobile_v2.0_cls_mobile.onnx | `e47acedf663230f8863ff1ab0e64dd2d82b838fceb5957146dab185a89d6215c` |
 
-The DOCX renderer remains a deployment blocker. LibreOffice 26.8.3 (MPL-2.0 distribution
+DOCX page-count execution requires a separate deployment environment. LibreOffice 26.8.3 (MPL-2.0 distribution
 with upstream third-party notices) has a Linux x86-64 DEB archive SHA-256 of
 `e7cd3538e85818ff9dd9bb65386769fde927011242aace5a144989f4000dcabf`. Review must still fix and
 execute the OS/renderer/font bundle together before DOCX page-count acceptance. The future Worker
@@ -164,37 +173,38 @@ The checked values below fall inside the authored ranges in the manifest.
 The visual checks verify source text and geometry. Coverage labels come from the authored source
 units and the protocol's explicit unknown-total rule for standalone OCR. Each retrieval query
 has one relevant source file, chosen by reading the source content. Exact order, locator anchors
-and coverage are acceptance requirements for these controlled samples. The 0.98 text threshold
-allows minor OCR character differences under the normalized text metric. The fixed retrieval
-targets remain provisional pending maintainer review.
+and coverage are acceptance requirements for these controlled samples. Text, locator and coverage scoring require an exact match against the independently authored
+label at the scorer's normalization and geometric tolerance. The six existing-format chunk cases
+are checked separately against exact output hashes exported from the original parser. Retrieval
+thresholds remain provisional until #2856 measures the fixed embedding model.
 
 ## Evaluation commands
 
 Run from the repository root with CPython 3.12.14 and Unicode 15.0.0. The verifier checks both,
-the installed Markdown-It-Py, Pillow and RapidOCR versions, and the bundled OCR configuration
+the installed Markdown-It-Py, Pillow and RapidOCR versions, the locked format and embedding package versions, and the bundled OCR configuration
 and model hashes. The manifest
 hashes the checked-in encoded raster assets, whose generation OS, architecture, Pillow, font
 renderer and codec versions are recorded. Replay copies the source image bytes and decodes the
 grayscale raster for the scan-only PDF page. This keeps the corpus bytes independent of the host
 Pillow build. The evaluator hashes UTF-8 text inputs with LF normalization, including on CRLF checkouts.
 
-The `dev` group supplies Markdown-It-Py via the Server extra. The proposed manifest covers
+The manifest covers
 eleven synthetic files under Apache-2.0, including
 one PDF with a rotated, cropped text page and a scanned page. Other anchors include UTF-8 BOM
 and Unicode character offsets, a DOCX table, an XLSX numeric cell, a hidden slide and quoted CSV.
 
 ```sh
-uv run --locked --python 3.12.14 --group dev --extra knowledge-base python -m evaluation.knowledge_base dry-run
-uv run --locked --python 3.12.14 --group dev --extra knowledge-base python -m evaluation.knowledge_base generate /tmp/kb-fixtures
-uv run --locked --python 3.12.14 --group dev --extra knowledge-base python -m evaluation.knowledge_base export-existing /tmp/kb-results
-uv run --locked --python 3.12.14 --group dev --extra knowledge-base python -m evaluation.knowledge_base parse /tmp/kb-results --subset
-uv run --locked --python 3.12.14 --group dev --extra knowledge-base python -m evaluation.knowledge_base parse /tmp/kb-results
-uv run --locked --python 3.12.14 --group dev --extra knowledge-base python -m evaluation.knowledge_base retrieve /tmp/kb-results --model-cache /path/to/offline/model-cache
+uv run --locked --python 3.12.14 --no-default-groups --extra knowledge-base --extra knowledge-base-formats python -m evaluation.knowledge_base dry-run
+uv run --locked --python 3.12.14 --no-default-groups --extra knowledge-base --extra knowledge-base-formats python -m evaluation.knowledge_base generate /tmp/kb-fixtures
+uv run --locked --python 3.12.14 --no-default-groups --extra knowledge-base --extra knowledge-base-formats python -m evaluation.knowledge_base export-existing /tmp/kb-results
+uv run --locked --python 3.12.14 --no-default-groups --extra knowledge-base --extra knowledge-base-formats python -m evaluation.knowledge_base parse /tmp/kb-results --subset
+uv run --locked --python 3.12.14 --no-default-groups --extra knowledge-base --extra knowledge-base-formats python -m evaluation.knowledge_base parse /tmp/kb-results
+uv run --locked --python 3.12.14 --no-default-groups --extra knowledge-base --extra knowledge-base-formats python -m evaluation.knowledge_base retrieve /tmp/kb-results --model-cache /path/to/offline/model-cache
 ```
 
 Each later adapter writes `<fixture-name>.json` containing its real `ParsedDocument` to the results
-directory. For the complete corpus, omit `--subset`. Parsing is scored per fixture with Unicode
-normalized text similarity of at least 0.98, complete ordered locator matches including expected
+directory. For the complete corpus, omit `--subset`. Parsing is scored per fixture with an exact
+match after Unicode and whitespace normalization, complete ordered locator matches including expected
 geometry anchors, and exact coverage counts and structured warnings. The scorer reports active profiles.
 It checks exact installed profiles for existing adapters and format for the proposed adapters.
 The export command reports wall time for existing adapters. The fixture set does not establish
@@ -203,10 +213,26 @@ maximum-size resource performance.
 Retrieval embeds nonempty blocks and fixed queries separately with the pinned offline BGE model,
 groups by source file and ranks files by their best block cosine similarity. The manifest records provisional policy targets.
 Recall@3 ≥ 0.90 allows one miss over eleven independently labeled queries, and MRR@3 ≥ 0.70
-requires at least 7.7 aggregate reciprocal-rank points. These are proposed
-acceptance targets pending maintainer approval. The command reports scores without an acceptance
+requires at least 7.7 aggregate reciprocal-rank points. The targets remain provisional until #2856 runs the fixed model. The command reports scores without an acceptance
 verdict. `dry-run` checks the metric formulas against hand-calculated cases. Fixed-model execution
 is NOT_RUN for #2849 and belongs to #2856. The retrieval command verifies the five model files
 before inference and requires all eleven results. This score measures ranking with fixed embeddings. Publication,
 permissions and backend retrieval have their own acceptance tests.
 [Embedding model revision](https://huggingface.co/Qdrant/bge-small-zh-v1.5/tree/46fbe35fd4374a00fee7de77dfddaeb6dd6a2c59)
+
+## Existing-format compatibility
+
+Export the original parser from the Issue's reference commit into a separate directory, then
+run the compatibility command against that directory with `--export` and against the current
+checkout in comparison mode. The six samples cover both Markdown extensions and all four image
+extensions. The outputs contain text, heading paths, source coordinates and chunk identities.
+
+```sh
+mkdir -p /tmp/kb-original
+git archive e6e36a43b22240a827c9daec9798ccb256032608 plugins/knowledge-base | tar -x -C /tmp/kb-original
+uv run --locked --python 3.12.14 --no-default-groups --extra knowledge-base --extra knowledge-base-formats \
+  python -m evaluation.knowledge_base.legacy /tmp/kb-original --export /tmp/kb-original.json
+cmp /tmp/kb-original.json evaluation/knowledge_base/legacy-baseline.json
+uv run --locked --python 3.12.14 --no-default-groups --extra knowledge-base --extra knowledge-base-formats \
+  python -m evaluation.knowledge_base.legacy .
+```

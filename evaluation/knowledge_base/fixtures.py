@@ -22,6 +22,7 @@ import json
 import zlib
 from base64 import b64decode
 from pathlib import Path
+from typing import NotRequired, TypedDict
 from xml.sax.saxutils import escape
 from zipfile import ZIP_STORED, ZipFile, ZipInfo
 
@@ -199,11 +200,23 @@ def span(start: int, end: int) -> dict[str, int]:
     return {"start": start, "end": end}
 
 
-def label(text: str, kind: str, **location: object) -> dict[str, object]:
+class ExpectedBlock(TypedDict):
+    text: str
+    locator: dict[str, object]
+    region_center: NotRequired[list[list[float]]]
+
+
+class ExpectedFixture(TypedDict):
+    coverage: dict[str, object]
+    blocks: list[ExpectedBlock]
+    query: str
+
+
+def label(text: str, kind: str, **location: object) -> ExpectedBlock:
     return {"text": text, "locator": {"kind": kind, **location}}
 
 
-def expected(unit: str, blocks: list[dict], query: str, total: int | None = None) -> dict:
+def expected(unit: str, blocks: list[ExpectedBlock], query: str, total: int | None = None) -> ExpectedFixture:
     return {
         "coverage": {
             "unit": unit,
@@ -216,7 +229,7 @@ def expected(unit: str, blocks: list[dict], query: str, total: int | None = None
     }
 
 
-def generate() -> tuple[dict[str, bytes], dict[str, dict]]:
+def generate() -> tuple[dict[str, bytes], dict[str, ExpectedFixture]]:
     raster_assets = json.loads(RASTER_ASSETS.read_bytes())["base64"]
     text = "检查😀冷却泵。\n"
     files = {
@@ -313,7 +326,7 @@ def generate() -> tuple[dict[str, bytes], dict[str, dict]]:
     return files, labels
 
 
-def manifest(files: dict[str, bytes], labels: dict[str, dict]) -> dict:
+def manifest(files: dict[str, bytes], labels: dict[str, ExpectedFixture]) -> dict[str, object]:
     digests = {name: sha256(data) for name, data in files.items()}
     return {
         "schema_version": 1,
