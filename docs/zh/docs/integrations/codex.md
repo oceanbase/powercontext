@@ -358,8 +358,10 @@ codex
 - `PC_GATEWAY_UPSTREAM_API_KEY_RESPONSES` 设为该获准目标的供应商密钥。
 - `PC_GATEWAY_API_KEY` 设为 Codex 以 `PC_GATEWAY_KEY` 发送的非空密钥。
 - `PC_GATEWAY_CORE_TOKEN` 必须代表经过 Core 认证的服务身份，且与面向客户端的 Key 不同。即使推理隐私保护不是
-  enforcing，Core 访问控制也必须设为 `enforced`。在目标 Scope 上为该身份授予 `gateway.user`（`gateway.invoke`）和
-  `scope.viewer`（`scope.read`）。`/v1/access/me` 与绑定请求见[网关认证与目标要求](../operate/deploy-server.md#网关模型目标)。
+  enforcing，Core 访问控制也必须设为 `enforced`。在目标 Scope 上授予 `gateway.user`（`gateway.invoke`），并在
+  `POWERCONTEXT_SERVER_ACCESS_DEPLOYMENT_ID` 对应的 Server resource 上授予 `server.observer`（默认 ID 为
+  `powercontext`）。本指南开启了采集，因此还要授予 `scope.contributor`（包含 `scope.read`）来替代 `scope.viewer`。
+  `/v1/access/me` 与绑定请求见[网关认证与目标要求](../operate/deploy-server.md#网关模型目标)。
 - `PC_GATEWAY_SEDIMENT=on`，让 gateway 把每个完成的轮次采集为 Source。
 - `PC_GATEWAY_DEFAULT_SCOPE` 设为插件为该 workspace 解析的 Scope。按[一句话交接当前工作](#一句话交接当前工作)中的
   说明，不带 `--bind-scope` 运行 `scope_binding.py`，即可打印这个 Scope。

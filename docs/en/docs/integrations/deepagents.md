@@ -183,7 +183,9 @@ Configure Core and the gateway as well:
   `responses_route_disabled`. Set `PC_GATEWAY_UPSTREAM_API_KEY_RESPONSES` to the provider key and
   `PC_GATEWAY_SEDIMENT=on`. Do not set `PC_GATEWAY_UPSTREAM_URL*`; these legacy variables prevent startup.
 - Set a nonempty `PC_GATEWAY_API_KEY` even on loopback, and set `PC_GATEWAY_CORE_TOKEN` to an authenticated service
-  identity. Core access control must be `enforced`; grant it `gateway.user` and `scope.viewer` on the selected Scope.
+  identity. Core access control must be `enforced`; grant it `gateway.user` on the selected Scope and `server.observer`
+  on the Server resource for `POWERCONTEXT_SERVER_ACCESS_DEPLOYMENT_ID` (default `powercontext`). Because this guide
+  enables capture, grant `scope.contributor` (which includes `scope.read`) rather than `scope.viewer`.
   See [Gateway authentication and target requirements](../operate/deploy-server.md#gateway-model-destination).
 - The gateway prepares and captures every conversation in the one Scope that `PC_GATEWAY_DEFAULT_SCOPE` names. Set it to
   the Scope the adapter used, so that the gateway recalls the Memory captured before.

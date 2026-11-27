@@ -169,7 +169,9 @@ gateway（`PC_GATEWAY_CORE_BASE`）只有设置了这一项才会注入。
   将 `PC_GATEWAY_UPSTREAM_API_KEY_RESPONSES` 设为该目标的服务商 Key，并设置 `PC_GATEWAY_SEDIMENT=on`。
   不要设置 `PC_GATEWAY_UPSTREAM_URL*`；这些旧变量会导致启动失败。
 - 即使监听回环地址也必须设置非空 `PC_GATEWAY_API_KEY`，并将 `PC_GATEWAY_CORE_TOKEN` 设为已认证的服务身份。
-  Core 访问控制必须为 `enforced`；在所选 Scope 上为该身份授予 `gateway.user` 和 `scope.viewer`。
+  Core 访问控制必须为 `enforced`；在所选 Scope 上授予 `gateway.user`，并在 `POWERCONTEXT_SERVER_ACCESS_DEPLOYMENT_ID`
+  对应的 Server resource 上授予 `server.observer`（默认 deployment ID 为 `powercontext`）。本指南开启了采集，
+  因此还要授予 `scope.contributor`（包含 `scope.read`）来替代 `scope.viewer`。
   详见[Gateway 认证与目标要求](../operate/deploy-server.md#网关模型目标)。
 - gateway 在 `PC_GATEWAY_DEFAULT_SCOPE` 指定的同一个 Scope 中准备和采集所有会话。请把它设为适配层使用过的 Scope，
   使 gateway 能召回之前采集的 Memory。

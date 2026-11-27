@@ -1331,6 +1331,68 @@ async fn chat_cost_extraction_extends_the_admitted_chat_prefix() {
 }
 
 #[tokio::test]
+async fn chat_prefix_extraction_works_without_a_responses_profile() {
+    let terminal = Reply::fixture("fantasy_chat_simple", 0);
+    let mut output: Value = serde_json::from_slice(&terminal.body).unwrap();
+    output["choices"][0]["message"]["content"] = json!("Extracted memory.");
+    let extracted = serde_json::to_vec(&output).unwrap();
+    let gateway = Gateway::start_with_env(
+        vec![
+            Reply::fixture("fantasy_chat_simple", 0),
+            Reply {
+                body: extracted,
+                content_type: "application/json",
+                status: 200,
+            },
+        ],
+        None,
+        &[
+            ("PC_GATEWAY_SEDIMENT", "on"),
+            ("PC_GATEWAY_INJECTION", "on"),
+            // The harness normally enables both profiles. An empty Responses value models a
+            // Chat-only deployment, where extraction must continue to use the Chat profile.
+            ("PC_GATEWAY_UPSTREAM_PROFILE_RESPONSES", ""),
+        ],
+        true,
+    )
+    .await;
+
+    let mut body = request("chat", "tool", false);
+    body["prompt_cache_key"] = json!("chat-only-cache");
+    let response = gateway.post_turn(&body).await;
+    assert_eq!(response.status(), 200);
+    assert_eq!(response.bytes().await.unwrap(), terminal.body);
+
+    let capture = gateway.peers.captures.lock().unwrap()[0].clone();
+    let handle = capture["sources"][0]["metadata"]["prefix_handle"]
+        .as_str()
+        .expect("captured Chat turn must carry a prefix handle");
+    let response = gateway
+        .post(
+            "extract",
+            &json!({
+                "handle": handle,
+                "instruction": "Extract memory.",
+                "continuation": [
+                    {"role": "assistant", "text": "First pass."},
+                    {"role": "user", "text": "Continue."},
+                ],
+                "max_output_tokens": 256,
+            }),
+        )
+        .await;
+    assert_eq!(response.status(), 200);
+    assert_eq!(
+        response.json::<Value>().await.unwrap()["text"],
+        "Extracted memory."
+    );
+
+    let checks = gateway.peers.checks.lock().unwrap();
+    assert_eq!(checks[2]["target_profile"], "chat");
+    assert_eq!(gateway.peers.sent.lock().unwrap().len(), 2);
+}
+
+#[tokio::test]
 async fn default_steering_and_overrides_reach_both_routes() {
     let custom =
         std::env::temp_dir().join(format!("pc-default-steering-{}.txt", std::process::id()));

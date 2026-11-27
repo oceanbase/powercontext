@@ -203,10 +203,18 @@ Chat 入口选择 `PC_GATEWAY_UPSTREAM_PROFILE`；需要启用 Responses 入口�
 请求其他模型会在发送前被拒绝。此前按请求选择模型的部署需要为这些模型分别配置 Gateway 实例。
 `PC_GATEWAY_CORE_TOKEN` 必须代表 Gateway 服务身份，且不能与面向客户端的必填 `PC_GATEWAY_API_KEY` 相同。
 所有 Gateway 部署（包括组合 UDS 和非 enforcing 推理隐私模式）都要求 Core 将访问控制设为 `enforced`；
-关闭认证/访问控制的 Core 无法授权模型发送。请为 Gateway 服务身份在选定 Scope 上授予 `gateway.user`
-（`gateway.invoke`）和 `scope.viewer`（`scope.read`）。使用内置可写 Access Provider 时，先携带 Gateway Token
-调用 `GET /v1/access/me` 确认 Principal，再由 Access 管理员调用 `POST /v1/access/bindings/create` 创建两项绑定。
-将下面的 `server-token` 替换为 `/v1/access/me` 返回的 `service` 主体；POST 请求使用 Access 管理员的凭据：
+关闭认证/访问控制的 Core 无法授权模型发送。专用 Gateway 服务主体需要在选定 Scope 上获得
+`gateway.user`（`gateway.invoke`），并在该部署的 Server resource 上获得 `server.observer`（`server.observe`）。
+若设置 `PC_GATEWAY_SEDIMENT=on`，还要授予 `scope.contributor`，替代 `scope.viewer`；前者同时包含准备所需的
+`scope.read` 和 Source 采集所需的 `scope.contribute`。关闭采集时，`scope.viewer`（`scope.read`）即可。
+
+引导阶段生成的 Server Token 会映射为内置管理员，并获得静态 Scope 角色。单 Token 部署仍需在所选 Scope 上为它
+授予 `gateway.user`；管理员权限覆盖 Server observer 检查，静态 Scope preset 已包含 viewer/contributor 角色。
+托管部署建议为 Gateway 使用最小权限的专用服务身份。使用内置可写 Access Provider 时，先携带 Gateway Token 调用
+`GET /v1/access/me`
+确认 Principal，再由 Access 管理员为启用的功能创建所需绑定。将下面的 `server-token` 替换为该接口返回的
+`service` 主体；POST 请求使用 Access 管理员的凭据。Server resource 的 deployment ID 来自
+`POWERCONTEXT_SERVER_ACCESS_DEPLOYMENT_ID`，默认值为 `powercontext`：
 
 ```bash
 curl --fail "$CORE_URL/v1/access/me" -H "Authorization: Bearer $PC_GATEWAY_CORE_TOKEN"
@@ -215,8 +223,16 @@ curl --fail "$CORE_URL/v1/access/bindings/create" -H "Authorization: Bearer $ACC
   -d '{"subject":{"type":"service","id":"server-token"},"resource":{"type":"scope","scope_id":"<scope_id>"},"role":"gateway.user","idempotency_key":"gateway-user-<scope_id>"}'
 curl --fail "$CORE_URL/v1/access/bindings/create" -H "Authorization: Bearer $ACCESS_ADMIN_TOKEN" \
   -H 'Content-Type: application/json' \
-  -d '{"subject":{"type":"service","id":"server-token"},"resource":{"type":"scope","scope_id":"<scope_id>"},"role":"scope.viewer","idempotency_key":"gateway-viewer-<scope_id>"}'
+  -d '{"subject":{"type":"service","id":"server-token"},"resource":{"type":"server","deployment_id":"powercontext"},"role":"server.observer","idempotency_key":"gateway-observer-powercontext"}'
+
+# 仅在 PC_GATEWAY_SEDIMENT=on 时需要；它替代 scope.viewer。
+curl --fail "$CORE_URL/v1/access/bindings/create" -H "Authorization: Bearer $ACCESS_ADMIN_TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"subject":{"type":"service","id":"server-token"},"resource":{"type":"scope","scope_id":"<scope_id>"},"role":"scope.contributor","idempotency_key":"gateway-contributor-<scope_id>"}'
 ```
+
+关闭采集时，请改为创建 `scope.viewer` 绑定。若 deployment ID 不是默认值，请替换 Server resource 中的
+`powercontext`。引导 Server Token 不需要为独立服务身份说明中的 `server.observer` 或 Scope reader 绑定。
 
 非内置可写 Provider 请使用其对应的角色绑定方式。网关只使用获准 `before_send` 返回的 endpoint 和协议；Core
 不可用、缺少目标解析或协议不匹配时不发送。

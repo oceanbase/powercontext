@@ -153,8 +153,13 @@ printf 'PC_GATEWAY_API_KEY=%s\n' "$(python3 -c 'import secrets; print(secrets.to
 chmod 600 "$HOME/powercontext/gateway.env"
 ```
 
-Grant the Gateway service identity `gateway.user` and `scope.viewer` on `<scope_id>` before starting it; use the
-`/v1/access/me` and binding procedure in [Gateway authentication and target requirements](../operate/deploy-server.md#gateway-model-destination).
+This personal flow reuses the Server token created above: `CORE_URL` is the value of `PC_GATEWAY_CORE_BASE`, and
+`PC_GATEWAY_CORE_BASE` and `PC_GATEWAY_CORE_TOKEN` are in `gateway.env`; `ACCESS_ADMIN_TOKEN` is the
+`POWERCONTEXT_SERVER_AUTH_TOKEN` in `.env`. The Server token is the
+bootstrap administrator and has static Scope roles. Grant it `gateway.user` on `<scope_id>` before starting the
+Gateway. A separate least-privilege Gateway identity instead needs `gateway.user`, `server.observer` on the Server
+resource, and—because this setup enables capture—`scope.contributor` on the Scope. See [Gateway authentication and
+target requirements](../operate/deploy-server.md#gateway-model-destination) for `/v1/access/me` and binding commands.
 
 Create the launch script `<HOME>/powercontext/run-gateway.sh` and run `chmod 755` on it. It starts the Gateway after the Server is ready:
 
@@ -452,6 +457,11 @@ PC_GATEWAY_UPSTREAM_API_KEY_RESPONSES=
 
 - When listening on a network address, also append `PC_GATEWAY_LISTEN=0.0.0.0:8787`.
 
+In this flow, `CORE_URL` is `PC_GATEWAY_CORE_BASE` from `gateway.env`, `PC_GATEWAY_CORE_TOKEN` is also in that file,
+and `ACCESS_ADMIN_TOKEN` is the Server token in `.env`; that token is the bootstrap administrator credential. If you
+replace it with a dedicated Gateway identity, bind `gateway.user`, `server.observer` and (because capture is enabled)
+`scope.contributor` as described in [Gateway authentication and target requirements](../operate/deploy-server.md#gateway-model-destination).
+
 With prefix extraction enabled, set the callback header from the Gateway key and reload the Server:
 
 ```bash
@@ -460,7 +470,7 @@ powercontext config validate --env-file "$HOME/powercontext/.env"
 powercontext service install --env-file "$HOME/powercontext/.env"
 ```
 
-Grant the Gateway service identity `gateway.user` and `scope.viewer` on `<scope_id>`; use the `/v1/access/me` and binding procedure in [Gateway authentication and target requirements](../operate/deploy-server.md#gateway-model-destination). Core clients and plugins need their own Core credentials; the Gateway API key only authenticates model-route requests.
+This team flow also uses the bootstrap Server token as the Gateway credential. Grant it `gateway.user` on `<scope_id>`; a dedicated Gateway identity instead needs the grants described above. The Gateway API key only authenticates model-route requests, while Core clients and plugins need their own Core credentials.
 
 Run `chmod 600 "$HOME/powercontext/gateway.env"`, then create `run-gateway.sh` and start the Gateway automatically as in [step 3a](#start-the-gateway-automatically).
 

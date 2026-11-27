@@ -153,7 +153,12 @@ printf 'PC_GATEWAY_API_KEY=%s\n' "$(python3 -c 'import secrets; print(secrets.to
 chmod 600 "$HOME/powercontext/gateway.env"
 ```
 
-启动前，需在 `<scope_id>` 上为 Gateway 服务身份授予 `gateway.user` 和 `scope.viewer`；`/v1/access/me` 与绑定流程见[网关认证与目标要求](../operate/deploy-server.md#网关模型目标)。
+本个人安装流程复用上面生成的 Server Token：`CORE_URL` 对应 `gateway.env` 中的 `PC_GATEWAY_CORE_BASE`；
+`PC_GATEWAY_CORE_BASE` 和 `PC_GATEWAY_CORE_TOKEN` 均写入该文件，`ACCESS_ADMIN_TOKEN` 则是 `.env` 中的
+`POWERCONTEXT_SERVER_AUTH_TOKEN`。该 Server Token 是引导阶段的
+管理员凭据，并拥有静态 Scope 角色。启动 Gateway 前，请在 `<scope_id>` 上为它授予 `gateway.user`。若改用独立的
+最小权限 Gateway 身份，则需授予 `gateway.user`、Server resource 上的 `server.observer`，并且由于此配置开启了采集，
+还要在 Scope 上授予 `scope.contributor`。`/v1/access/me` 与绑定流程见[网关认证与目标要求](../operate/deploy-server.md#网关模型目标)。
 
 创建启动脚本 `<HOME>/powercontext/run-gateway.sh`，并执行 `chmod 755`。它等待 Server 就绪后再启动网关：
 
@@ -451,6 +456,11 @@ PC_GATEWAY_UPSTREAM_API_KEY_RESPONSES=
 
 - 直接监听网络地址时，再追加 `PC_GATEWAY_LISTEN=0.0.0.0:8787`。
 
+在本流程中，`CORE_URL` 对应 `gateway.env` 中的 `PC_GATEWAY_CORE_BASE`，`PC_GATEWAY_CORE_TOKEN` 也在该文件中，
+而 `ACCESS_ADMIN_TOKEN` 是 `.env` 中的 Server Token；它同时是引导管理员凭据。若替换为专用 Gateway 身份，则按
+[网关认证与目标要求](../operate/deploy-server.md#网关模型目标)授予 `gateway.user`、`server.observer`，以及（开启采集时）
+`scope.contributor`。
+
 开启前缀抽取时，用 Gateway Key 设置回调请求头并重新加载 Server：
 
 ```bash
@@ -459,7 +469,7 @@ powercontext config validate --env-file "$HOME/powercontext/.env"
 powercontext service install --env-file "$HOME/powercontext/.env"
 ```
 
-为 Gateway 服务身份在 `<scope_id>` 上授予 `gateway.user` 和 `scope.viewer`；`/v1/access/me` 与绑定流程见[网关认证与目标要求](../operate/deploy-server.md#网关模型目标)。Core 客户端和插件要使用各自的 Core 凭据；Gateway API Key 只认证模型路由请求。
+本团队流程同样使用引导 Server Token 作为 Gateway 凭据，请在 `<scope_id>` 上为它授予 `gateway.user`。若改用专用 Gateway 身份，则按上文授予所需权限；Gateway API Key 只认证模型路由请求，Core 客户端和插件仍须使用各自的 Core 凭据。
 
 执行 `chmod 600 "$HOME/powercontext/gateway.env"`，然后按[第 3a 步](#让网关自动启动)创建 `run-gateway.sh` 并让网关自动启动。
 

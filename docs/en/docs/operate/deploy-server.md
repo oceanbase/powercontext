@@ -205,9 +205,17 @@ instances for those models.
 `PC_GATEWAY_CORE_TOKEN` must identify the Gateway service principal and differ from the mandatory client-facing
 `PC_GATEWAY_API_KEY`. Core access control must be `enforced` in every Gateway deployment, including combined UDS and
 non-enforcing inference privacy modes. A Core with authentication/access control disabled cannot authorize model sends.
-Grant the service principal `gateway.user` (`gateway.invoke`) and `scope.viewer` (`scope.read`) on the selected Scope.
-For the built-in writable Access Provider, first use the Gateway token to confirm its Principal, then have an Access
-administrator create both bindings:
+Every dedicated Gateway service principal needs `gateway.user` (`gateway.invoke`) on the selected Scope and
+`server.observer` (`server.observe`) on the Server resource for that deployment. If `PC_GATEWAY_SEDIMENT=on`, grant
+`scope.contributor` instead of `scope.viewer`; contributor includes both `scope.read` and `scope.contribute`, which
+are needed for preparation and Source capture. With capture off, `scope.viewer` (`scope.read`) is sufficient.
+
+The Server token generated during bootstrap is mapped to the built-in administrator and receives static Scope roles.
+In the single-token setup, grant it `gateway.user` on the selected Scope; its administrator authority covers the Server
+observer check and its static Scope preset includes the viewer/contributor roles. Prefer a dedicated, least-privilege
+service identity for the Gateway in managed deployments. For
+the built-in writable Access Provider, use the Gateway token to identify its Principal, then have an Access
+administrator create the bindings required by the enabled features:
 
 ```bash
 curl --fail "$CORE_URL/v1/access/me" \
@@ -215,7 +223,8 @@ curl --fail "$CORE_URL/v1/access/me" \
 ```
 
 Replace `server-token` below with the `service` identity returned by `/v1/access/me`, and use an Access administrator's
-credential for these `POST /v1/access/bindings/create` requests:
+credential for these `POST /v1/access/bindings/create` requests. `POWERCONTEXT_SERVER_ACCESS_DEPLOYMENT_ID` supplies
+the deployment ID (default `powercontext`):
 
 ```bash
 curl --fail "$CORE_URL/v1/access/bindings/create" \
@@ -224,8 +233,17 @@ curl --fail "$CORE_URL/v1/access/bindings/create" \
 
 curl --fail "$CORE_URL/v1/access/bindings/create" \
   -H "Authorization: Bearer $ACCESS_ADMIN_TOKEN" -H 'Content-Type: application/json' \
-  -d '{"subject":{"type":"service","id":"server-token"},"resource":{"type":"scope","scope_id":"<scope_id>"},"role":"scope.viewer","idempotency_key":"gateway-viewer-<scope_id>"}'
+  -d '{"subject":{"type":"service","id":"server-token"},"resource":{"type":"server","deployment_id":"powercontext"},"role":"server.observer","idempotency_key":"gateway-observer-powercontext"}'
+
+# Required only when PC_GATEWAY_SEDIMENT=on; this replaces scope.viewer.
+curl --fail "$CORE_URL/v1/access/bindings/create" \
+  -H "Authorization: Bearer $ACCESS_ADMIN_TOKEN" -H 'Content-Type: application/json' \
+  -d '{"subject":{"type":"service","id":"server-token"},"resource":{"type":"scope","scope_id":"<scope_id>"},"role":"scope.contributor","idempotency_key":"gateway-contributor-<scope_id>"}'
 ```
+
+When capture is off, create the `scope.viewer` binding instead of `scope.contributor`. Replace `powercontext` in the
+Server resource with the configured deployment ID. The bootstrap Server token does not need the dedicated
+`server.observer` or Scope-reader bindings described for a separate service identity.
 
 Use the configured identity provider's corresponding role-binding mechanism when it is not the built-in writable
 provider. The Gateway uses only the endpoint and protocol returned on an authorized `before_send`. Core absence,

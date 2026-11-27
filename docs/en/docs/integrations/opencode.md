@@ -111,18 +111,21 @@ OpenCode always streams. Configure the OpenCode provider that points at the gate
 `@ai-sdk/openai`, which uses the Responses route. The gateway requests a Responses result from the upstream model
 without streaming and replays the released result as a stream, so streaming does not stop these turns or their
 capture in any Core [privacy mode](../operate/inference-protection.md#configure-a-supported-target). An enforcing
-Core still applies its other request and response rules. `@ai-sdk/openai-compatible` uses the Chat Completions route.
+Core still applies its other request and response rules. `@ai-sdk/openai-compatible` uses the Chat Completions route
+and requires a Core target profile with the `openai-chat` protocol.
 An enforcing Core withholds streamed Chat Completions responses, and the gateway returns HTTP 400. With a
 non-enforcing Core, including the default `disabled` mode, the gateway releases the stream unchanged. With
 `PC_GATEWAY_SEDIMENT=on`, it also assembles the assistant's text from a terminal stream and captures the completed turn.
 
-The `@ai-sdk/openai` provider uses the Responses route. Set `PC_GATEWAY_UPSTREAM_PROFILE_RESPONSES` to the Core
-target profile with the matching endpoint, `openai-responses` protocol and model; `PC_GATEWAY_UPSTREAM_PROFILE` only
-selects the Chat route and does not enable Responses. Without the Responses setting, requests return HTTP 501
-`responses_route_disabled`. Do not set `PC_GATEWAY_UPSTREAM_URL*`; these legacy variables prevent startup. Core access
-control must be `enforced`, `PC_GATEWAY_CORE_TOKEN` must identify an authenticated service principal, and a nonempty
-`PC_GATEWAY_API_KEY` is mandatory even on loopback. Grant the service principal `gateway.user` and `scope.viewer` on the
-selected Scope. See [Gateway authentication and target requirements](../operate/deploy-server.md#gateway-model-destination).
+`@ai-sdk/openai-compatible` uses the Chat route and requires `PC_GATEWAY_UPSTREAM_PROFILE` to select a Core target
+whose endpoint, `openai-chat` protocol and model match the request. `@ai-sdk/openai` uses Responses and requires
+`PC_GATEWAY_UPSTREAM_PROFILE_RESPONSES` to select the corresponding `openai-responses` target; the Chat setting does
+not enable Responses. Without the Responses setting, requests return HTTP 501 `responses_route_disabled`. Do not set
+`PC_GATEWAY_UPSTREAM_URL*`; these legacy variables prevent startup. Core access control must be `enforced`,
+`PC_GATEWAY_CORE_TOKEN` must identify an authenticated service principal, and a nonempty `PC_GATEWAY_API_KEY` is
+mandatory even on loopback. Grant the service principal `gateway.user` on the selected Scope and `server.observer` on
+the Server resource for `POWERCONTEXT_SERVER_ACCESS_DEPLOYMENT_ID` (default `powercontext`). Because capture is
+enabled, grant `scope.contributor` instead of `scope.viewer`. See [Gateway authentication and target requirements](../operate/deploy-server.md#gateway-model-destination).
 
 ## Verify the installation
 

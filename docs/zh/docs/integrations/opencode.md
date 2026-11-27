@@ -100,17 +100,20 @@ OpenCode 的每一轮准备并注入上下文；独立运行的 gateway 需要�
 OpenCode 总是发送流式请求。指向 gateway `/gateway/v1` 的 OpenCode provider 请使用 `@ai-sdk/openai`，它使用
 Responses 路由。gateway 以非流式方式向上游模型请求 Responses 结果，再把放行的结果以流式重放，因此在 Core 的任何
 [隐私模式](../operate/inference-protection.md#配置受支持的目标)下，流式都不会阻止这一轮完成或被采集。enforcing 模式的
-Core 仍会执行它的其他请求和响应规则。`@ai-sdk/openai-compatible` 使用 Chat Completions 路由。
+Core 仍会执行它的其他请求和响应规则。`@ai-sdk/openai-compatible` 使用 Chat Completions 路由，需要单独配置包含
+`openai-chat` 协议的 Core target profile。
 enforcing 模式的 Core 会扣留流式 Chat Completions 响应，gateway 返回 HTTP 400。非 enforcing 模式的 Core
 （包括默认的 `disabled` 模式）下，gateway 会原样放行流式响应。设置 `PC_GATEWAY_SEDIMENT=on` 后，
 gateway 还会拼接终止流式响应中的助手文本，并采集已完成的回合。
 
-`@ai-sdk/openai` 使用 Responses 路由。将 `PC_GATEWAY_UPSTREAM_PROFILE_RESPONSES` 设为 Core 中 endpoint、
-`openai-responses` 协议和模型均匹配的 target profile；`PC_GATEWAY_UPSTREAM_PROFILE` 只选择 Chat 路由，不会启用
-Responses。未设置 Responses profile 时，请求返回 HTTP 501 `responses_route_disabled`。不要设置
-`PC_GATEWAY_UPSTREAM_URL*`，这些旧变量会导致启动失败。Core 访问控制必须为 `enforced`，`PC_GATEWAY_CORE_TOKEN`
-必须代表已认证的服务主体；即使监听回环地址也必须配置非空 `PC_GATEWAY_API_KEY`。在所选 Scope 上为服务主体授予
-`gateway.user` 和 `scope.viewer`。详见[网关认证与目标要求](../operate/deploy-server.md#网关模型目标)。
+`@ai-sdk/openai-compatible` 使用 Chat 路由，需要将 `PC_GATEWAY_UPSTREAM_PROFILE` 设为 Core 中 endpoint、
+`openai-chat` 协议和模型均匹配的目标 profile。`@ai-sdk/openai` 使用 Responses 路由，需要将
+`PC_GATEWAY_UPSTREAM_PROFILE_RESPONSES` 设为对应的 `openai-responses` 目标；Chat 设置不会启用 Responses。未设置
+Responses profile 时，请求返回 HTTP 501 `responses_route_disabled`。不要设置 `PC_GATEWAY_UPSTREAM_URL*`，这些旧变量会导致
+启动失败。Core 访问控制必须为 `enforced`，`PC_GATEWAY_CORE_TOKEN` 必须代表已认证的服务主体；即使监听回环地址也必须
+配置非空 `PC_GATEWAY_API_KEY`。在所选 Scope 上授予 `gateway.user`，并在 `POWERCONTEXT_SERVER_ACCESS_DEPLOYMENT_ID`
+对应的 Server resource 上授予 `server.observer`（默认 ID 为 `powercontext`）。本指南开启了采集，因此还需授予
+`scope.contributor` 替代 `scope.viewer`。详见[网关认证与目标要求](../operate/deploy-server.md#网关模型目标)。
 
 ## 验证安装
 

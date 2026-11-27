@@ -412,8 +412,9 @@ default. Set:
 - `PC_GATEWAY_API_KEY` to a nonempty key that Codex sends as `PC_GATEWAY_KEY`.
 - `PC_GATEWAY_CORE_TOKEN` to an authenticated Core service identity, distinct from the client-facing key. Core access
   control must be `enforced` even when inference privacy protection is non-enforcing. Grant the identity `gateway.user`
-  (`gateway.invoke`) and `scope.viewer` (`scope.read`) on the selected Scope. See [Gateway authentication and target
-  requirements](../operate/deploy-server.md#gateway-model-destination) for the `/v1/access/me` and binding requests.
+  (`gateway.invoke`) on the selected Scope, `server.observer` (`server.observe`) on the Server resource for
+  `POWERCONTEXT_SERVER_ACCESS_DEPLOYMENT_ID` (default `powercontext`), and `scope.contributor` instead of
+  `scope.viewer` because capture is enabled. See [Gateway authentication and target requirements](../operate/deploy-server.md#gateway-model-destination) for the `/v1/access/me` and binding requests.
 - `PC_GATEWAY_SEDIMENT=on`, so that the gateway captures each completed turn as a Source.
 - `PC_GATEWAY_DEFAULT_SCOPE` to the Scope this plugin resolves for the workspace. Running `scope_binding.py` without
   `--bind-scope`, as described in [Hand off the current work in one turn](#hand-off-the-current-work-in-one-turn),
