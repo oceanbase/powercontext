@@ -242,20 +242,23 @@ pub async fn extract(
     let Some(prefix) = state.executor.prefix(&request.handle, &state.default_scope) else {
         return error(StatusCode::NOT_FOUND, "prefix_unavailable");
     };
-    let Some(profile) = state.responses_profile_name.as_ref() else {
-        return error(StatusCode::NOT_IMPLEMENTED, "responses_route_disabled");
+    let (format, profile, target_protocol) = match &prefix.response_output {
+        PrefixOutput::Chat(_) => (Format::Chat, &state.chat_profile_name, "openai-chat"),
+        PrefixOutput::Responses(_) => {
+            let Some(profile) = state.responses_profile_name.as_ref() else {
+                return error(StatusCode::NOT_IMPLEMENTED, "responses_route_disabled");
+            };
+            (Format::Responses, profile, "openai-responses")
+        }
     };
     if prefix.target_profile != *profile {
         return error(StatusCode::CONFLICT, "target_mismatch");
     }
-    let (format, canonical) = match &prefix.response_output {
-        PrefixOutput::Chat(text) => (Format::Chat, prefixed_chat_request(&prefix, text, &request)),
-        PrefixOutput::Responses(_) => (
-            Format::Responses,
-            prefixed_request(&prefix, &request)
-                .and_then(|body| serde_json::from_value::<OpenAiResponsesRequest>(body).ok())
-                .and_then(|parsed| to_canonical_responses(parsed).ok()),
-        ),
+    let canonical = match &prefix.response_output {
+        PrefixOutput::Chat(text) => prefixed_chat_request(&prefix, text, &request),
+        PrefixOutput::Responses(_) => prefixed_request(&prefix, &request)
+            .and_then(|body| serde_json::from_value::<OpenAiResponsesRequest>(body).ok())
+            .and_then(|parsed| to_canonical_responses(parsed).ok()),
     };
     let Some(canonical) = canonical else {
         return error(StatusCode::INTERNAL_SERVER_ERROR, "prefix_invalid");
@@ -267,7 +270,7 @@ pub async fn extract(
         scope_id: state.default_scope.clone(),
         target_profile: profile.clone(),
         request: canonical,
-        target_protocol: "openai-responses".into(),
+        target_protocol: target_protocol.into(),
         credential_target: state.subscription.as_ref().map(|_| channel.target_url),
         headers: channel.headers,
         inject_context: false,
