@@ -12,13 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Add Source collection runners and targets through the shared DDL executor."""
+ARG BASE_IMAGE=python:3.12-slim-bookworm
+FROM ${BASE_IMAGE}
 
-from alembic import context
-
-revision = "v1_5_2_pr2639"
-down_revision = "v1_5_0_005"
-
-
-def upgrade() -> None:
-    context.config.attributes["execute_revision"](revision)
+USER root
+COPY scripts/ci_package_cache.py /opt/ci-package-cache/server.py
+EXPOSE 8080
+ENTRYPOINT ["python3", "/opt/ci-package-cache/server.py"]
+CMD ["--host", "0.0.0.0", "--port", "8080", "--cache-dir", "/cache"]

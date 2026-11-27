@@ -99,10 +99,81 @@ result = await agent.ainvoke(
 非空回答；正常的 Source 到 Memory 提取稍后由调度器执行。失败、取消、中断或恢复的运行不会被采集；重试也不会为
 同一轮生成第二个 Source，因为 Source 标识由 scope 与该轮文本派生。
 
+适配层通过 `PowerContextMiddleware` 继承 LangChain 的[自动 prompt 隐私策略](index.md#自动-prompt-隐私策略)。
+主 agent 和每个 subagent 的召回 query 中，识别到的凭据都会替换为 `[REDACTED]`；用户消息或助手回复中识别到凭据时，
+整轮跳过采集。识别是尽力而为的，因此无法保证采集的内容不含机密。
+
 ## 失败行为
 
 召回和采集都是尽力而为。Server 不可用、响应非法或请求校验失败都不会替换模型响应，也不会中断 agent。HTTP 401
 和 403 会以 error 级别记录一次，且不包含内容或 token 值；其他失败以 debug 级别记录。
+
+## 把提示词时上下文交给 gateway
+
+agent 的模型请求经过 PowerContext gateway 时，gateway 为每次模型调用准备并注入上下文；设置 `PC_GATEWAY_SEDIMENT=on`
+后，gateway 也会采集这一轮。Core 检查 gateway 转发的每个请求，拒绝不是 gateway 注入的 prepared-context 块，
+在每种隐私模式下都是如此：Core 返回 HTTP 422，gateway 返回 HTTP 503 `gate_paused`。
+`create_powercontext_deep_agent` 会给主 agent、内置的 `general-purpose` subagent 和每个声明式 subagent 加入
+`PowerContextMiddleware`，而 middleware 会向每次模型调用添加这样的块。适配层没有关闭召回的选项，因此模型经过
+gateway 的 agent 请改用 Deep Agents 自带的 `create_deep_agent` 创建，并从 `middleware=` 和各 subagent 定义中移除
+`PowerContextMiddleware`。middleware 从不把召回内容保存到 agent state，因此已有的 thread 可以继续经过 gateway。
+
+模型客户端由应用持有。让它指向 gateway 的 Responses 路由，并在 `X-PowerContext-Conversation-ID` 请求头中标识会话：
+
+```python
+import os
+
+from deepagents import create_deep_agent
+from langchain_openai import ChatOpenAI
+
+
+def gateway_agent(thread_id: str):
+    model = ChatOpenAI(
+        model="approved-model",
+        base_url="http://127.0.0.1:8787/gateway/v1",
+        api_key=os.environ["PC_GATEWAY_KEY"],
+        use_responses_api=True,
+        default_headers={"X-PowerContext-Conversation-ID": thread_id},
+    )
+    return create_deep_agent(model, tools=application_tools, subagents=subagents)
+```
+
+不使用适配层时，由 gateway 接管适配层原来做的事：
+
+- 召回：gateway 为它承载的每个模型请求准备上下文。没有单独设置 `model` 的声明式 subagent 使用主 agent 的模型，
+  因此它的请求带有同一个请求头；它的用户消息是任务描述，所以 gateway 为该任务准备上下文。单独设置了 `model` 的
+  subagent 和编译好的 subagent graph，只有当它们的模型也指向 gateway 时才能得到上下文。
+- 采集：`auto_capture` 不再生效。gateway 把每个放行的、不调用工具的响应采集为一轮，
+  范围从请求中最后一条用户消息到该响应。因此 subagent 的最终回答会作为单独的一轮被采集，与主 agent 的一轮并存；
+  “只由主 agent 采集”的适配层规则不再适用。
+- 工具：本适配层和 `powercontext-langchain` 都不提供 Memory 工具，因此没有需要保留或移除的工具。
+
+`PC_GATEWAY_KEY` 保存 gateway 的 `PC_GATEWAY_API_KEY` 值。这个请求头标识会话：每个会话使用一个稳定的 ID，例如
+checkpointer 的 thread ID，长度为 1～256 个可见 ASCII 字符；不要让所有会话共用一个 ID。组合部署（`PC_GATEWAY_CORE_UDS`）
+在一个会话中每条用户消息准备一次，并把结果重放给这条消息的工具循环步骤。没有这个请求头时，它根据请求的历史开头推导会话：
+除非设置 `use_previous_response_id=True`，`ChatOpenAI` 每次调用都发送 thread 的完整历史；
+以 system 消息和一条用户消息开头的历史即可推导。没有这个请求头时，subagent 任务从新的历史开始，
+因此有自己推导出的会话；`mode: "fork"` 的 subagent 带着父 agent 的历史，与父 agent 共用推导出的会话。请求头仍能区分开头相同的会话，
+并为采集和前缀提取提供在 gateway 重启后保持不变的会话标识；推导出的 ID 仅在当前 gateway 进程内用于重放准备结果。
+独立运行的 gateway（`PC_GATEWAY_CORE_BASE`）只有设置 `PC_GATEWAY_INJECTION=on` 才会注入。
+见[网关上下文注入](../operate/deploy-server.md#网关上下文注入)。
+
+请使用 Responses 路由（`use_responses_api=True`）。在这个路由上，gateway 以非流式方式调用模型，采集通过检查的响应，
+并以流式重放给发送流式请求的客户端。在 Chat Completions 路由上，enforcing 模式的 Core 会暂缓流式响应，gateway
+返回 HTTP 400。非 enforcing 模式下，gateway 原样放行流式响应；设置 `PC_GATEWAY_SEDIMENT=on` 后，还会从中采集完成的一轮。
+
+配置 Core 和 gateway 时还需要：
+
+- 除非每个请求都满足 enforcing 规则，否则请让 Core 运行在非 enforcing 隐私模式（`disabled`、`shadow` 或 `advisory`）：
+  enforcing 模式的 Core 会暂缓没有 `store: false`、或没有不超过目标 token 预算的输出上限的 Responses 请求，gateway 返回
+  HTTP 400。gateway 在启动时发现 Core 的模式，修改模式后请重启 gateway。
+- 任何隐私模式下（包括 `disabled`），Core 都需要为 `PC_GATEWAY_UPSTREAM_PROFILE` 指定的 profile（未设置时为
+  `default`）配置目标。没有目标时，Core 以 `target_unsupported` 暂缓每个请求，gateway 返回 HTTP 400。
+  见[配置受支持的目标](../operate/inference-protection.md#配置受支持的目标)。
+- 把 `PC_GATEWAY_UPSTREAM_URL_RESPONSES` 和 `PC_GATEWAY_UPSTREAM_API_KEY_RESPONSES` 设为供应商的 Responses 端点和密钥，
+  设置 `PC_GATEWAY_SEDIMENT=on`；Core 启用鉴权时还要设置 `PC_GATEWAY_CORE_TOKEN`。
+- gateway 在 `PC_GATEWAY_DEFAULT_SCOPE` 指定的同一个 Scope 中准备和采集所有会话。请把它设为适配层使用过的 Scope，
+  使 gateway 能召回之前采集的 Memory。
 
 ## 可运行示例
 

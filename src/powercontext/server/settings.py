@@ -39,6 +39,7 @@ from powercontext.builtin.runtime.config import (
     InferenceConfig,
     RuntimeConfig,
 )
+from powercontext.limits import MAX_SOURCE_CONTENT_CHARS, MAX_SOURCE_CONTENT_CHARS_CEILING
 from powercontext.paths import default_database_path, default_seekdb_path, powercontext_data_dir, sqlite_url
 from powercontext.transport import is_loopback_host
 
@@ -260,6 +261,8 @@ class ServerSettings(BaseSettings):
     plugin_total_host_processes: int | None = Field(default=None, ge=1)
     database: DatabaseConfig = Field(default_factory=_default_database, discriminator="kind")
     handoff_report: HandoffReportConfig = Field(default_factory=HandoffReportConfig)
+    # Effective maximum characters accepted in one Content Source capture on this deployment.
+    source_content_max_chars: int = Field(default=MAX_SOURCE_CONTENT_CHARS, ge=1, le=MAX_SOURCE_CONTENT_CHARS_CEILING)
     inference: InferenceConfig = Field(default_factory=InferenceConfig)
     external_skills: ExternalSkillsConfig = Field(default_factory=ExternalSkillsConfig)
 
@@ -279,6 +282,10 @@ class ServerSettings(BaseSettings):
                 # BaseSettings serializes nested model defaults before validation. Keep an
                 # omitted name implicit so legacy detection and environment selection work.
                 init_settings.init_kwargs["database"] = database.model_dump(exclude={"database"})
+            runtime = init_settings.init_kwargs.get("runtime")
+            if isinstance(runtime, RuntimeConfig) and "atomic_memory_processing_mode" not in runtime.model_fields_set:
+                # Preserve an omitted mode for environment overrides and the Gateway deployment default.
+                init_settings.init_kwargs["runtime"] = runtime.model_dump(exclude={"atomic_memory_processing_mode"})
         return super().settings_customise_sources(
             settings_cls, init_settings, env_settings, dotenv_settings, file_secret_settings
         )
@@ -309,6 +316,15 @@ class ServerSettings(BaseSettings):
     def configure_default_local_skill_targets(self) -> ServerSettings:
         if "external_skills" not in self.model_fields_set:
             self.external_skills = _default_local_external_skills(self.workspace)
+        return self
+
+    @model_validator(mode="after")
+    def configure_gateway_memory_processing(self) -> ServerSettings:
+        if (
+            self.inference.prefix_extraction_gateway_url is not None
+            and "atomic_memory_processing_mode" not in self.runtime.model_fields_set
+        ):
+            self.runtime = self.runtime.model_copy(update={"atomic_memory_processing_mode": "one_pass"})
         return self
 
     @field_validator("public_url")

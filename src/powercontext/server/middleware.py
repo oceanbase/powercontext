@@ -17,13 +17,20 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Awaitable, Callable
 
 from starlette.requests import Request
-from starlette.responses import JSONResponse
+from starlette.responses import JSONResponse, Response
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from powercontext.builtin.authz import PrincipalRef
 from powercontext.http import ErrorDetail, ErrorResponse
+from powercontext.http._generated.operations import (
+    DOWNLOAD_REMOTE_SKILL_PACKAGE,
+    ENROLL_REMOTE_SKILL_TARGET,
+    RECONCILE_REMOTE_SKILLS,
+    RECORD_REMOTE_SKILL_RECEIPT,
+)
 from powercontext.server.authentication import (
     AuthenticationProvider,
     AuthenticationRejectedError,
@@ -34,15 +41,12 @@ from powercontext.server.authentication import (
 from powercontext.server.context import bind_authentication, is_internal_bridge, reset_authentication
 from powercontext.server.dashboard.session import authentication_headers, login_response
 
-_PUBLIC_PATHS = frozenset({
-    "/",
-    "/docs",
-    "/health/live",
-    "/health/ready",
-    "/v1/skill/remote/target/enroll",
-    "/v1/skill/remote/reconcile",
-    "/v1/skill/remote/package/download",
-    "/v1/skill/remote/receipt",
+_BODYLESS_PUBLIC_PATHS = frozenset({"/", "/docs", "/health/live", "/health/ready"})
+_REMOTE_SKILL_TARGET_PATHS = frozenset({
+    ENROLL_REMOTE_SKILL_TARGET.path,
+    RECONCILE_REMOTE_SKILLS.path,
+    DOWNLOAD_REMOTE_SKILL_PACKAGE.path,
+    RECORD_REMOTE_SKILL_RECEIPT.path,
 })
 
 
@@ -52,13 +56,43 @@ _PLUGIN_ASSET = re.compile(r"^/dashboard/plugins/[a-z][a-z0-9-]*/ui/")
 class AuthenticationMiddleware:
     """Authenticate every protected external HTTP request through one Provider."""
 
-    def __init__(self, app: ASGIApp, *, provider: AuthenticationProvider, dashboard_enabled: bool = False) -> None:
+    def __init__(
+        self,
+        app: ASGIApp,
+        *,
+        provider: AuthenticationProvider | None,
+        dashboard_enabled: bool = False,
+        authenticate_remote_skill: Callable[[Request], Awaitable[Response | None]] | None = None,
+    ) -> None:
         self.app = app
         self._provider = provider
         self._dashboard_enabled = dashboard_enabled
+        self._authenticate_remote_skill = authenticate_remote_skill
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        if is_internal_bridge() or _is_public(scope):
+        if scope["type"] != "http" or is_internal_bridge():
+            await self.app(scope, receive, send)
+            return
+        path = scope["path"]
+        if path == ENROLL_REMOTE_SKILL_TARGET.path and scope["method"] != ENROLL_REMOTE_SKILL_TARGET.method:
+            response = JSONResponse(
+                {"detail": "Method Not Allowed"}, status_code=405, headers={"Allow": ENROLL_REMOTE_SKILL_TARGET.method}
+            )
+            await response(scope, receive, send)
+            return
+        if scope["method"] == "POST" and path in _REMOTE_SKILL_TARGET_PATHS:
+            if self._authenticate_remote_skill is not None:
+                rejection = await self._authenticate_remote_skill(Request(scope))
+                if rejection is not None:
+                    await rejection(scope, receive, send)
+                    return
+            await self.app(scope, receive, send)
+            return
+        if (
+            self._provider is None
+            or (self._dashboard_enabled and scope["method"] == "POST" and path == "/dashboard/session")
+            or is_bodyless_public_request(scope, dashboard_enabled=self._dashboard_enabled)
+        ):
             await self.app(scope, receive, send)
             return
         try:
@@ -117,15 +151,18 @@ class StaticBearerMiddleware(AuthenticationMiddleware):
         super().__init__(app, provider=StaticBearerAuthenticationProvider(token, resolved))
 
 
-def _is_public(scope: Scope) -> bool:
-    return (
-        scope["type"] != "http"
-        or scope["path"] in _PUBLIC_PATHS
-        or scope["path"] == "/dashboard/session"
-        or scope["path"].startswith("/dashboard/static/")
-        # Plugin page files are plugin code and assets, never user data.
-        or scope["path"] == "/dashboard/plugins/_client.js"
-        or _PLUGIN_ASSET.match(scope["path"]) is not None
+def is_bodyless_public_request(scope: Scope, *, dashboard_enabled: bool) -> bool:
+    if scope["method"] not in {"GET", "HEAD"}:
+        return False
+    path = scope["path"]
+    return path in _BODYLESS_PUBLIC_PATHS or (
+        dashboard_enabled
+        and (
+            path.startswith("/dashboard/static/")
+            # Plugin page files are plugin code and assets, never user data.
+            or path == "/dashboard/plugins/_client.js"
+            or _PLUGIN_ASSET.match(path) is not None
+        )
     )
 
 

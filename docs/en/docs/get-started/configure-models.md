@@ -20,8 +20,8 @@ interface, not which Coding Agent you use.
 | Embedding | Semantic retrieval and vector indexing | Embedding endpoint, credentials, model, and a supported output dimension |
 | Rerank (optional) | Reorder retrieval candidates | Reuse generation or configure a separate reranking connection as prompted |
 
-Background capabilities share the configured Generation Provider by default; they do not automatically reuse your
-Codex/Claude subscription session or sign-in credentials. Basic memory needs no separate Generation API:
+Background capabilities share the configured Generation Provider. To use an existing Codex, Claude Code, or other
+subscription instead of an API key, see [Use an existing subscription](#use-an-existing-subscription). Basic memory needs no separate Generation API:
 an Agent can explicitly save content it has prepared through MCP, but that does not automatically process ordinary Sources.
 
 OpenAI-compatible Chat Completions, OpenAI Responses, and Anthropic-compatible Messages are different protocols.
@@ -43,6 +43,57 @@ Embedding can share an endpoint and credentials with Generation, but usually use
 Its dimension must match an output size the selected model supports. The Embedding Profile ID names that combination
 of model, dimension, and vector conventions; it is not another API key. For a new database, you can use the suggested ID.
 With existing vectors, preserve their model/Profile/dimension relationship rather than changing it to suppress an error.
+
+## Add generation models to an initialized deployment
+
+A deployment that first started without models keeps its Scopes, Sources, and Memories when you add Generation later.
+The Server adopts the new capabilities through one offline Processing configuration switch. Until the switch runs,
+startup refuses with `incompatible_processing_configuration` instead of changing the recorded declaration on its own.
+A deployment that stays model-free keeps its recorded declaration unchanged.
+
+Back up the database and stop the old Server, Workers, and writes. Then run `plan`, `apply` and `verify` in that
+order. Every step must load the new configuration, through `--env-file` or a discovered `.env`, and all three must use
+the same new migration ID: the plan is bound to both.
+
+```shell
+powercontext server processing-migrate --action plan --env-file powercontext.env \
+  --migration-id add-generation-1 --backup auto
+powercontext server processing-migrate --action apply --env-file powercontext.env \
+  --migration-id add-generation-1 --plan-id <plan_id> --backup auto --maintenance-confirmed --yes
+powercontext server processing-migrate --action verify --env-file powercontext.env \
+  --migration-id add-generation-1
+```
+
+`plan` prints the `plan_id` that `apply` accepts. Without `--plan-id`, `--backup` and `--yes`, a non-interactive `apply`
+stops with `confirmation_required`; a migration ID other than the one `plan` used stops with `plan_changed`. Start the
+new configuration only after `verify` reports `"state": "ready"`. For interactive confirmation, other backup choices and
+resuming an interrupted `apply`, see [Artifact processing migration](../operate/artifact-processing-migration.md).
+
+A database that stores vectors has no registered Processing configuration switch. `processing-migrate` refuses it, and
+startup keeps the plain refusal.
+
+## Use an existing subscription
+
+The Server can generate Memory, Experience, and Profile with a subscription you already have instead of a Generation
+API key: Codex CLI, Claude Code, GitHub Copilot, Grok CLI, Gemini CLI, Qwen Code, or Kimi Code. Make the subscription's
+sign-in available on the Server host, then set the generation model to that subscription's provider prefix. For Codex CLI:
+
+```dotenv
+POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL=openai-codex:<model-name>
+```
+
+Leave `POWERCONTEXT_SERVER_INFERENCE_GENERATION_BASE_URL` and `POWERCONTEXT_SERVER_INFERENCE_GENERATION_HEADERS` unset.
+The wizard does not offer subscriptions yet, so edit these values in the saved `.env`.
+
+Check the scope before you switch:
+
+- Topic Memory and Dream are not supported. Remove explicit Topic Memory processing or scheduling first.
+- Keep built-in [inference protection](../operate/inference-protection.md) in its default `disabled` mode.
+- Embedding still needs its own connection.
+- Generation counts against the subscription's usage limits, and the account must have access to the selected model.
+
+[Reuse existing subscription credentials](../../development/pydantic-ai-inference.md#reuse-existing-subscription-credentials)
+lists the model prefix, sign-in, and credential renewal for each subscription.
 
 ## Full capabilities do not generate every Artifact from every message
 

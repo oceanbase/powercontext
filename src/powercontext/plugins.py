@@ -79,6 +79,27 @@ class Cron(BaseModel):
     # An IANA time zone name; None uses the time zone of the machine running the Server.
     timezone: str | None = None
 
+    @model_validator(mode="after")
+    def validate_schedule(self) -> Cron:
+        from datetime import UTC
+        from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+        from apscheduler.triggers.cron import CronTrigger
+
+        # Mirrors ArtifactProcessingBinding.__post_init__: reject an invalid cron
+        # expression or IANA time zone at declaration time, so a broken schedule
+        # fails plugin load instead of silently stopping collection at runtime.
+        # Pass a zone explicitly so the load never depends on this machine having a
+        # discoverable local zone: the declared zone when one is set, otherwise a
+        # neutral zone. The runners resolve the local zone themselves at schedule time.
+        try:
+            zone = UTC if self.timezone is None else ZoneInfo(self.timezone)
+        except (ZoneInfoNotFoundError, ValueError) as exc:
+            message = f"Unknown IANA time zone: {self.timezone!r}"
+            raise ValueError(message) from exc
+        CronTrigger.from_crontab(self.expression, timezone=zone)
+        return self
+
 
 _PROJECTION = r"^[^@\s]+@[^@\s]+$"
 

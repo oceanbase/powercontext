@@ -123,12 +123,12 @@ jobs:
       # class of failure visible.
       - name: Verify dependencies resolve from scratch
         if: steps.plan.outputs.replay == 'true'
-        run: uv lock --upgrade --dry-run
+        run: python3 scripts/ci_python_mirror.py lock --upgrade --dry-run
 
       - name: Install harness validation dependencies
         if: steps.plan.outputs.replay == 'true'
         run: |
-          uv sync --frozen
+          python3 scripts/ci_python_mirror.py sync --frozen
           make harness-sync
 
       - name: Save harness validation dependencies
@@ -397,6 +397,7 @@ jobs:
       - name: Set up the environment
         uses: ./.github/actions/setup-python-env
         with:
+          sync-args: "--extra server"
           python-version: "3.12"
 
       - name: Pull the OceanBase image
@@ -695,6 +696,10 @@ jobs:
         with:
           version: ${{ env.UV_VERSION }}
 
+      - name: Install native acceptance dependencies
+        if: matrix.native
+        run: python3 scripts/ci_python_mirror.py sync --locked --extra server
+
       - name: Start and configure the shared OceanBase instance
         id: oceanbase_setup
         timeout-minutes: 15
@@ -796,9 +801,12 @@ jobs:
           # Keep an explicitly configured task-reachable proxy; otherwise use the runner's route.
           # The harness passes this secret by reference to Harbor, including during agent setup.
           export POWERCONTEXT_E2E_AGENT_PROXY_URL="${POWERCONTEXT_E2E_AGENT_PROXY_URL:-${https_proxy:-${HTTPS_PROXY:-${http_proxy:-${HTTP_PROXY:-}}}}}"
-          # Use the task-reachable package mirror for the complete pip/uv/Bub installation chain.
-          export POWERCONTEXT_E2E_PYTHON_INDEX_URL="${POWERCONTEXT_E2E_PYTHON_INDEX_URL:-https://mirrors.aliyun.com/pypi/simple/}"
-          export POWERCONTEXT_E2E_DEBIAN_MIRROR_URL="${POWERCONTEXT_E2E_DEBIAN_MIRROR_URL:-https://mirrors.aliyun.com}"
+          # Share package downloads across fresh task containers; keep explicit task mirror overrides.
+          package_cache_endpoint="${PC_CI_PACKAGE_CACHE_ENDPOINT:-}"
+          package_cache_endpoint="${package_cache_endpoint%/}"
+          python_index="${package_cache_endpoint:+${package_cache_endpoint}/pypi/simple/}"
+          export POWERCONTEXT_E2E_PYTHON_INDEX_URL="${POWERCONTEXT_E2E_PYTHON_INDEX_URL:-${python_index:-https://mirrors.aliyun.com/pypi/simple/}}"
+          export POWERCONTEXT_E2E_DEBIAN_MIRROR_URL="${POWERCONTEXT_E2E_DEBIAN_MIRROR_URL:-${package_cache_endpoint:-https://mirrors.aliyun.com}}"
           make harness-compose-acceptance
 
       - name: Upload OceanBase native reports

@@ -12,7 +12,8 @@ uv run pytest tests/integration_conformance -q -rs
 
 Without `POWERCONTEXT_TEST_HERMES_CHECKOUT`, the external-host test explicitly skips.
 This means external Hermes acceptance has **not executed**. The default regression suite
-does not need a Hermes installation or network access.
+does not need a Hermes installation or network access. The `hermes-host` CI job runs the
+pinned real manager below on Linux and Python 3.14, and fails unless the JSON reports a pass.
 
 ## Run the pinned real manager
 
@@ -86,7 +87,7 @@ The JSON distinguishes three evidence levels:
 | Level | Executed path and claim |
 | --- | --- |
 | `adapter-only` | HTTP barriers verify Scope A's late capture stays in A, B's capture and recall use B, and shutdown's active failed write and dropped queued write are not persisted. The default provider tests exercise this same scenario. |
-| `real-manager` | Real Hermes manager dispatch → current provider → actual HTTP Server → SQLite → new Server/runtime → authorized exact Scope/Source readback. Covers sync, session end, pre-compress, required capture failure/oversize propagation and durable capture surviving an HTTP extraction failure. |
+| `real-manager` | Real Hermes manager dispatch → current provider → actual HTTP Server → SQLite → new Server/runtime → authorized exact Scope/Source readback. Covers sync (a turn that still carries a credential assignment after Hermes' masking sends nothing), session end, pre-compress, required capture failure/oversize propagation and durable capture surviving an HTTP extraction failure. |
 | `real-compaction` | The real `AIAgent._compress_context` entry with `compression.checkpoint_required` enabled. A controlled HTTP capture rejection must preserve the live/SessionDB transcript and session identity, without a summary-model request. The same entry then accepts capture, calls the local summary-model stub, replaces the returned transcript and active SessionDB transcript, and reads back that replacement after reopening SessionDB. |
 
 Hermes `pre_compaction` remains `unsupported` in the capability manifest. The compression

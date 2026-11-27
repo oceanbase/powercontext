@@ -1551,8 +1551,8 @@ class CaptureContentSourceRequest(BaseModel):
     content: Annotated[
         StrictStr,
         Field(
-            description="Raw integration content. Server-reserved payload schemas, including handoff receipts, are rejected on this generic capture operation and must be created through their dedicated workflow.",
-            max_length=200000,
+            description="Raw integration content. Server-reserved payload schemas, including handoff receipts, are rejected on this generic capture operation and must be created through their dedicated workflow. The deployment's effective limit is reported by `GET /v1/source-limits` as `source_content_max_chars`.",
+            max_length=1000000,
             min_length=1,
         ),
     ]
@@ -1573,7 +1573,7 @@ class CaptureContentSourceItem(BaseModel):
         StrictStr,
         Field(
             description="Raw integration content, under the rules of the single ContentSource capture operation.",
-            max_length=200000,
+            max_length=1000000,
             min_length=1,
         ),
     ]
@@ -1608,7 +1608,7 @@ class CaptureWorkingNoteRequest(BaseModel):
     )
     scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
     source_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
-    content: Annotated[StrictStr, Field(max_length=200000, min_length=1, pattern=".*\\S.*")]
+    content: Annotated[StrictStr, Field(max_length=1000000, min_length=1, pattern=".*\\S.*")]
     session_id: Annotated[
         StrictStr,
         Field(
@@ -3608,7 +3608,7 @@ class CreateSourceRequest(BaseModel):
     content: Annotated[
         Any,
         Field(
-            description="JSON value persisted by the built-in content Source adapter, or the input of a plugin Source type. Server-reserved payload schemas, including handoff receipts, are rejected and must be created through their dedicated workflow. String values that are empty or whitespace-only are rejected."
+            description="JSON value persisted by the built-in content Source adapter, or the input of a plugin Source type. For the built-in content type, the size counts toward `source_content_max_chars` as raw characters for strings and canonical JSON characters for other values. Server-reserved payload schemas, including handoff receipts, are rejected and must be created through their dedicated workflow. String values that are empty or whitespace-only are rejected."
         ),
     ]
 
@@ -3982,6 +3982,28 @@ class SourceSequenceLocator(BaseModel):
     )
     kind: Literal["sequence"]
     sequence: Annotated[StrictInt, Field(ge=0)]
+
+
+class SourceLimits(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    source_content_max_chars: Annotated[
+        StrictInt,
+        Field(
+            description="Effective maximum characters accepted in one Content Source write on this deployment. String content counts raw characters; other JSON values count their canonical JSON characters.",
+            ge=1,
+            le=1000000,
+        ),
+    ]
+    source_content_max_chars_ceiling: Annotated[
+        StrictInt,
+        Field(
+            description="Largest limit this build accepts as configuration. Requests above the ceiling fail schema validation before the deployment limit applies.",
+            ge=1,
+            le=1000000,
+        ),
+    ]
 
 
 class Kind11(StrEnum):
@@ -6046,6 +6068,12 @@ class SourceRecord(BaseModel):
     ]
     source_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
     content: Annotated[Any, Field(description="Persisted canonical JSON content.")]
+    metadata: Annotated[
+        dict[str, Any] | None,
+        Field(
+            description="Caller-supplied metadata for a Content Source, returned unchanged; an empty object for Sources that carry no caller metadata. Responses from servers that predate this field omit it, which clients report as null and must not treat as proof that the Source has no metadata."
+        ),
+    ] = None
     position: Annotated[StrictInt, Field(ge=1)]
     content_digest: Annotated[StrictStr, Field(pattern="^sha256:[0-9a-f]{64}$")]
 

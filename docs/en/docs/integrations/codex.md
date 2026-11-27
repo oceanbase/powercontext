@@ -313,15 +313,16 @@ This adds inference latency to each prompt and is not the normal interactive set
 ## Leave prompt-time context to the gateway
 
 When Codex sends its model requests through the PowerContext gateway, the gateway prepares and injects context for
-each turn and, with `PC_GATEWAY_SEDIMENT=on`, captures the turn. Core checks every request the gateway forwards and
-rejects a prepared-context block that the gateway did not inject. Codex adds the plugin's prepared context to the
-thread as a developer message, so once the plugin's recall adds context to a thread, Core rejects the check for that
-request and every later request in the thread with HTTP 422, even in a non-enforcing mode. The gateway returns HTTP
-503 `gate_paused`, and the turn fails before the model receives it.
+each turn and, with `PC_GATEWAY_SEDIMENT=on`, captures the turn. Codex stores the plugin's prepared context in
+developer messages and resends it with the thread history. The gateway omits complete PowerContext prepared-context
+blocks from those messages before Core and the model receive the request. The request and response still go through
+Core's normal checks.
 
-Keep the plugin defaults where Codex calls its model directly or signs in with a subscription account, because the
-gateway does not carry that traffic. To route Codex through the gateway, configure Core, Codex, the plugin, and the
-gateway as follows.
+Keep the plugin defaults where Codex calls its model directly, because the gateway does not carry that traffic. With a
+ChatGPT subscription, the gateway can reuse the Codex CLI sign-in through an
+[OAuth subscription](../operate/deploy-server.md#gateway-oauth-subscriptions) (`PC_GATEWAY_SUBSCRIPTION=codex`) while
+Codex points at the gateway. To route Codex through the gateway, configure Core, Codex, the plugin, and the gateway as
+follows.
 
 ### Run Core in a non-enforcing mode
 
@@ -393,8 +394,8 @@ export POWERCONTEXT_CODEX_CAPTURE_PROMPTS=false
 codex
 ```
 
-Start a new thread after changing these settings. Codex resends the thread's history with each request, so a thread
-that already carries the plugin's context keeps failing through the gateway after recall is turned off.
+You can continue an existing thread after changing these settings. When the gateway omits replayed context, it logs
+`PowerContext plugin prepared context omitted by the gateway.`
 
 With recall off, `UserPromptSubmit` sends no preparation request and adds no context. It still captures prompts while
 `POWERCONTEXT_CODEX_CAPTURE_PROMPTS` is `true`; with both off, it sends no request. The Session binding, bootstrap
@@ -411,9 +412,10 @@ default. Set:
 - `PC_GATEWAY_API_KEY` to the key that Codex sends as `PC_GATEWAY_KEY`. A non-loopback listener requires it.
 - `PC_GATEWAY_CORE_TOKEN` when Core enforces authentication.
 - `PC_GATEWAY_SEDIMENT=on`, so that the gateway captures each completed turn as a Source.
-- `PC_GATEWAY_DEFAULT_SCOPE` to the Scope this plugin resolves for the workspace. Running `scope_binding.py` without
+- `PC_GATEWAY_DEFAULT_SCOPE` to the fallback Scope. To use the Scope this plugin resolves for the workspace,
+  run `scope_binding.py` without
   `--bind-scope`, as described in [Hand off the current work in one turn](#hand-off-the-current-work-in-one-turn),
-  prints that Scope.
+  to print that Scope.
 
 The gateway reads these settings at startup. For its authentication and injection settings, see
 [Deploy the Server](../operate/deploy-server.md#gateway-authentication-boundaries). A model request body through the
@@ -422,8 +424,9 @@ gateway is limited to at most 1 MiB, so a long thread can be refused before it i
 
 With recall off, prompt-time context comes only from the gateway, with two differences:
 
-- The gateway prepares and captures every conversation in the one Scope set by `PC_GATEWAY_DEFAULT_SCOPE`, not in
-  the Scope this plugin resolves for each Session or workspace.
+- The gateway prepares and captures in the Scope selected by `X-PowerContext-Scope-ID` and uses the fallback Scope
+  when the header is absent. The plugin's Session and workspace bindings are independent. See
+  [Gateway request Scope](../operate/deploy-server.md#gateway-request-scope).
 - The gateway does not send the bootstrap receipt, so Memory already injected by
   [Session bootstrap context](#opt-in-to-session-bootstrap-context) can appear again in the gateway's context.
 

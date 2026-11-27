@@ -65,7 +65,9 @@ instead of calling a synchronous method inside its event loop.
 For every model step, the middleware:
 
 1. reads the latest human message without changing state;
-2. calls `/v1/context/prepare` with the resolved scope and configured byte limit. The query is the message, trimmed;
+2. calls `/v1/context/prepare` with the resolved scope and configured byte limit. The query is the message, trimmed,
+   with recognized credentials replaced by `[REDACTED]` as described in
+   [automatic prompt privacy](index.md#automatic-prompt-privacy);
    a message longer than 8,192 characters or 8,192 UTF-8 bytes recalls from its most recent text, cut to the last
    8,192 characters and then to the last 8,192 bytes;
 3. appends a separate text block to the current system message;
@@ -90,8 +92,9 @@ not store the recalled system block, tool outputs, or intermediate tool-calling 
 
 Capture creates Source evidence, not an inferred Memory entry. The configured scheduler or an explicit
 `flush_memory` operation performs the normal Source-to-Memory extraction later. This keeps lineage intact and avoids
-treating raw model output as an already reviewed durable fact. Captured content is bounded but is not guaranteed to be
-free of secrets, so applications must apply their own input and output policy before opting in.
+treating raw model output as an already reviewed durable fact. A turn whose user message or assistant response
+contains a recognized credential is skipped as a whole. Detection is best effort, so captured content is not
+guaranteed to be free of secrets; applications must apply their own input and output policy before opting in.
 
 LangChain does not run `after_agent` when a model or tool aborts the run, so a failed run without a final response is
 not captured.
@@ -118,6 +121,66 @@ validation stays enabled. Common environment settings and endpoint-bound saved c
 An explicit `PowerContextScope` value wins over environment configuration and must identify an existing Server Scope.
 If neither is set, the Server default Scope is used. The adapter never derives a Scope ID from Git, a path, the Agent,
 or the prompt. The token remains in Client configuration and never enters agent state or message content.
+
+## Leave prompt-time context to the gateway
+
+When the application sends its model requests through the PowerContext gateway, the gateway prepares and injects context
+for each model call and, with `PC_GATEWAY_SEDIMENT=on`, captures the turn. Core checks every request the gateway
+forwards and rejects a prepared-context block that the gateway did not inject, in every privacy mode: Core answers HTTP
+422 and the gateway returns HTTP 503 `gate_paused`. The middleware adds such a block to each model call, so leave
+`PowerContextMiddleware` out of an agent whose model goes through the gateway. The gateway captures the turns instead.
+The middleware never stores recalled context in agent state, so an existing thread can continue behind the gateway.
+
+The application owns the model client. Point it at the gateway's Responses route, and name the conversation in an
+`X-PowerContext-Conversation-ID` header:
+
+```python
+import os
+
+from langchain.agents import create_agent
+from langchain_openai import ChatOpenAI
+
+
+def gateway_agent(thread_id: str):
+    model = ChatOpenAI(
+        model="approved-model",
+        base_url="http://127.0.0.1:8787/gateway/v1",
+        api_key=os.environ["PC_GATEWAY_KEY"],
+        use_responses_api=True,
+        default_headers={"X-PowerContext-Conversation-ID": thread_id},
+    )
+    return create_agent(model, tools=application_tools)
+```
+
+`PC_GATEWAY_KEY` holds the gateway's `PC_GATEWAY_API_KEY` value. Use one stable ID per conversation, such as the
+checkpointer's thread ID, of 1 to 256 visible ASCII characters; never one ID for every conversation. A combined
+deployment (`PC_GATEWAY_CORE_UDS`) prepares once per user message of a conversation and replays that context to the
+tool-loop steps of the message. Without the header, it infers the conversation from the opening of the request:
+`ChatOpenAI` sends the thread's full history on every call unless `use_previous_response_id=True`, and a history that
+opens with system messages and a user message qualifies. The header still keeps apart conversations that open the same
+way, and gives capture and prefix extraction a conversation identity that stays the same across gateway restarts; an
+inferred ID is local to the gateway process and serves only preparation replay. A standalone gateway
+(`PC_GATEWAY_CORE_BASE`) injects only with `PC_GATEWAY_INJECTION=on`. See [Gateway context
+injection](../operate/deploy-server.md#gateway-context-injection).
+
+Use the Responses route (`use_responses_api=True`). There the gateway calls the model without streaming, captures the
+checked response, and replays it as a stream to a client that streams. On the Chat Completions route, an enforcing Core
+withholds a streamed response and the gateway returns HTTP 400. With a non-enforcing Core, the gateway releases the
+stream unchanged and, with `PC_GATEWAY_SEDIMENT=on`, captures the completed turn from it.
+
+Configure Core and the gateway as well:
+
+- Run Core in a non-enforcing privacy mode (`disabled`, `shadow`, or `advisory`) unless every request meets the
+  enforcing rules: an enforcing Core withholds a Responses request without `store: false` or without an output limit
+  within the target's token budget, and the gateway returns HTTP 400. Restart the gateway after changing the mode,
+  because it discovers the mode at startup.
+- Core needs a target for the profile that `PC_GATEWAY_UPSTREAM_PROFILE` names (`default` unless set), in every privacy
+  mode. Without one, Core withholds each request with `target_unsupported` and the gateway returns HTTP 400. See
+  [Configure a supported target](../operate/inference-protection.md#configure-a-supported-target).
+- Set `PC_GATEWAY_UPSTREAM_URL_RESPONSES` and `PC_GATEWAY_UPSTREAM_API_KEY_RESPONSES` to the provider's Responses
+  endpoint and key, `PC_GATEWAY_SEDIMENT=on`, and `PC_GATEWAY_CORE_TOKEN` when Core enforces authentication.
+- The gateway prepares and captures every conversation in the one Scope that `PC_GATEWAY_DEFAULT_SCOPE` names. Set it to
+  the Scope the middleware used, so that the gateway recalls the Memory captured before.
 
 ## Failure behavior
 

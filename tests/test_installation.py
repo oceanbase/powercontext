@@ -44,6 +44,7 @@ def test_failed_openclaw_rebuild_keeps_the_native_managed_bundle(tmp_path, monke
     (source / "package.json").write_text('{"name":"@oceanbase/openclaw-memory-powercontext"}', encoding="utf-8")
     monkeypatch.setattr(openclaw, "openclaw_executable", lambda: "openclaw")
     monkeypatch.setattr(openclaw, "require_supported_openclaw", lambda _executable: None)
+    monkeypatch.setattr(openclaw, "openclaw_install_flags", lambda *_args: ("--force", "--no-enable"))
     monkeypatch.setattr(openclaw, "configure_openclaw", lambda **_kwargs: None)
     monkeypatch.setattr(
         openclaw,

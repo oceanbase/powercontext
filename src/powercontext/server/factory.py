@@ -86,7 +86,12 @@ from powercontext.http import (
 )
 from powercontext.paths import powercontext_data_dir
 from powercontext.server.access import HttpAccessLogMiddleware
-from powercontext.server.app import _bind_evidence_access, access_readiness_checks, create_app
+from powercontext.server.app import (
+    _authenticate_remote_skill_request,
+    _bind_evidence_access,
+    access_readiness_checks,
+    create_app,
+)
 from powercontext.server.authentication import (
     AuthenticationProvider,
     MultiBearerAuthenticationProvider,
@@ -453,17 +458,18 @@ def create_server_app(  # noqa: C901
             HttpRequestBodyLimitMiddleware,
             max_request_body_bytes=resolved.http.max_request_body_bytes,
             plugin_api_max_body_bytes=resolved.plugin_api_max_body_bytes,
+            dashboard_enabled=resolved.dashboard.enabled,
         ),
     )
-    if configured_authentication is not None:
-        configured_middleware.insert(
-            0,
-            Middleware(
-                AuthenticationMiddleware,
-                provider=configured_authentication,
-                dashboard_enabled=resolved.dashboard.enabled,
-            ),
-        )
+    configured_middleware.insert(
+        0,
+        Middleware(
+            AuthenticationMiddleware,
+            provider=configured_authentication,
+            dashboard_enabled=resolved.dashboard.enabled,
+            authenticate_remote_skill=_authenticate_remote_skill_request,
+        ),
+    )
 
     app = create_app(
         lifespan=lifespan,
@@ -477,6 +483,7 @@ def create_server_app(  # noqa: C901
         authentication_provider=configured_authentication,
         allow_insecure_remote_http=resolved.allow_insecure_http,
     )
+    app.state.source_content_max_chars = resolved.source_content_max_chars
     # Admission must see the outward send; only non-buffering instrumentation
     # wraps it so early rejections retain the same correlation and observations.
     app.add_middleware(HttpAdmissionMiddleware, max_concurrent_requests=resolved.http.max_concurrent_requests)

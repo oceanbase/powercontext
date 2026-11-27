@@ -21,6 +21,7 @@ services:
       dockerfile: docker/Dockerfile
       args:
         POWERCONTEXT_VERSION: ${POWERCONTEXT_VERSION:-}
+        PC_CI_PYTHON_MIRROR: ${PC_CI_PYTHON_MIRROR:-}
     environment:
       - ANTHROPIC_API_KEY
       - DEEPSEEK_API_KEY
@@ -58,6 +59,7 @@ services:
       dockerfile: e2e/bub/Dockerfile
       args:
         POWERCONTEXT_VERSION: ${POWERCONTEXT_VERSION:-}
+        PC_CI_PYTHON_MIRROR: ${PC_CI_PYTHON_MIRROR:-}
         POWERCONTEXT_E2E_DEBIAN_MIRROR_URL: ${POWERCONTEXT_E2E_DEBIAN_MIRROR_URL:-}
     depends_on:
       powercontext:
@@ -70,6 +72,11 @@ services:
       - BUB_MODEL_TIMEOUT_SECONDS
       - CODEX_HOME=/codex
       - GITHUB_SHA
+      - PC_CI_PACKAGE_CACHE_ENDPOINT
+      - PC_CI_PYTHON_MIRROR=${PC_CI_PYTHON_MIRROR:-}
+      - PIP_DEFAULT_TIMEOUT
+      - PIP_TIMEOUT
+      - UV_HTTP_TIMEOUT
       - POWERCONTEXT_E2E_DATABASE
       - POWERCONTEXT_E2E_AGENT_PROXY_URL
       - POWERCONTEXT_E2E_PIP_INDEX_URL

@@ -151,6 +151,8 @@ When the Server uses UDS, `powercontext source-agent` on a device connects to it
 
 This listener provides the Core transport for the [Rust Gateway design (RFC #2199)](https://github.com/oceanbase/powercontext/pull/2199). The Rust executable, joint launcher, gateway settings, private channel authentication, private routes, and gateway state tables remain separate work. The design assigns the original public TCP port to the gateway, which calls the Core over UDS with channel and user authentication.
 
+Install a [prebuilt Gateway](install-gateway.md) to use the Rust executable without a local Rust toolchain. Core remains a separately installed and configured service.
+
 ### Gateway authentication boundaries
 
 `PC_GATEWAY_API_KEY` applies only to `/gateway/v1/chat/completions` and `/gateway/v1/responses`. A non-loopback Gateway listener requires a valid, nonempty key; that startup check does not authenticate other routes. In a combined deployment (`PC_GATEWAY_CORE_UDS`), requests forwarded to Core retain the client's credentials. Core API, MCP and Dashboard requests follow Core's existing authentication and access-control rules. The Gateway key does not grant Core API access, and UDS does not replace Core authentication.
@@ -181,11 +183,17 @@ Gemini disables Gateway context injection. Claude CLI accepts fresh text-only tu
 
 Do not route Core's own generation through automatic Gateway recall or capture without a separate recursion boundary.
 
+### Gateway request Scope
+
+Send `X-PowerContext-Scope-ID` on `/gateway/v1/chat/completions` or `/gateway/v1/responses` to select the Scope for recall, both Core checks, and turn capture. Send one Scope ID of 1–256 visible ASCII characters, excluding commas. An invalid or repeated value returns HTTP 400 with `invalid_scope_id`. When the header is absent, the Gateway uses `PC_GATEWAY_DEFAULT_SCOPE` (defaults to `gateway:default`). Clients should send the same Scope on every request in a conversation. The Gateway partitions prepared context replay by Scope and conversation ID.
+
+Use a Gateway with clients trusted to select the Scopes available to its Core credential. Core checks access under that credential according to its configured access mode. A client or a trusted proxy can set the header on each request.
+
 ### Gateway context injection
 
 When the gateway connects to the Core over UDS (`PC_GATEWAY_CORE_UDS`, the combined deployment), it injects prepared context by default into Chat and Responses requests that belong to a conversation. Within a conversation it prepares once per new user message and replays the exact result for the rest of that turn, such as an agent's tool loop.
 
-The gateway identifies the conversation from the first of these request headers that is present:
+The gateway identifies the conversation from the first of these request headers with a valid value:
 
 | Header | Sent by | Conversation |
 | --- | --- | --- |
@@ -194,21 +202,29 @@ The gateway identifies the conversation from the first of these request headers 
 | `x-opencode-session-id` | OpenCode | the session; a child session has its own ID |
 | `thread-id` (Responses route only) | Codex | the thread; a subagent has its own thread ID |
 
-Headers that a client shares between a parent and its subagents, such as Codex `session-id` and `prompt_cache_key` or OpenCode `x-opencode-session` and `x-session-affinity`, do not identify a conversation. Claude Code speaks the Anthropic Messages API, which the gateway does not serve, so its headers apply only when a proxy in front of the gateway translates its requests to the Chat or Responses route and forwards them. Set `PC_GATEWAY_INJECTION=on` to inject every request (requests without a conversation ID then prepare individually), `PC_GATEWAY_INJECTION=off` to turn injection off, or `PC_GATEWAY_INJECTION_RESPONSES=off` to keep only the Responses route uninjected. A standalone gateway (`PC_GATEWAY_CORE_BASE`) injects only with `PC_GATEWAY_INJECTION=on`. An empty or failed preparation sends the request without injection.
+Headers that a client shares between a parent and its subagents, such as Codex `session-id` and `prompt_cache_key` or OpenCode `x-opencode-session` and `x-session-affinity`, do not identify a conversation. Claude Code speaks the Anthropic Messages API, which the gateway does not serve, so its headers apply only when a proxy in front of the gateway translates its requests to the Chat or Responses route and forwards them.
+
+When none of these headers supplies an ID, the gateway can identify a full-history Chat or Responses request using the route and a hash of the model, leading instructions, and first user message. The opening must contain a user message preceded only by system or developer messages. Responses requests linked through `previous_response_id` or `conversation` need a header for reuse. An inferred ID is local to the gateway process and applies only to preparation replay. Sessions with identical openings can share an inferred ID, so send an explicit conversation header when sessions must be distinct.
+
+A request that carries `X-PowerContext-Turn: internal` is not a conversation turn: the gateway does not infer an ID, prepare, inject or replay context, does not add steering guidance, and does not capture the response as a turn. The before-send check still runs, and the gateway does not forward the header upstream. Only a single, case-insensitive `internal` is accepted; an empty, repeated or other value is rejected with `400 invalid_turn_header` instead of silently treating the request as a turn.
+
+The combined deployment default skips injection if no explicit or inferred ID is available and logs `context injection skipped: no conversation identity`. With `PC_GATEWAY_INJECTION=on`, requests with no ID prepare individually when they have a usable user message. `PC_GATEWAY_INJECTION=off` disables injection and `PC_GATEWAY_INJECTION_RESPONSES=off` disables it for Responses only. Standalone gateways (`PC_GATEWAY_CORE_BASE`) require `PC_GATEWAY_INJECTION=on`. An empty or failed preparation sends the request without injection. Only a user turn queries Core for context; later requests in the same turn reuse the prepared block instead of querying again, and a non-user tail with no replay identity is sent without recall. The gateway classifies every request tail for evidence and logs; see [Gateway call evidence](gateway-evidence.md#turn-classification).
 
 Set `PC_GATEWAY_INJECTION_CODE=on` to include code evidence from the Scope's code index in the prepared context; it is off by default and requires a configured repository for the Scope. When a replayed value no longer passes the check because a cited source changed (for example, the agent edited a cited file), the gateway discards that conversation's replay and prepares once more for the request instead of returning the withhold.
 
 ### Gateway instruction
 
-`PC_GATEWAY_STEERING_FILE` names a file with a short, fixed instruction that the gateway adds to every request on the Responses route (`/gateway/v1/responses`); the Chat route is never changed. The gateway reads the file once at startup. It must be UTF-8, non-empty after trimming, at most 4,096 bytes, and free of PowerContext's reserved `BEGIN_POWERCONTEXT_` markers; otherwise the gateway exits at startup instead of running without it. Nothing is added when the variable is unset.
+The gateway adds a built-in cost-guidance instruction (S) to every request on the Chat (`/gateway/v1/chat/completions`) and Responses (`/gateway/v1/responses`) routes by default, except requests marked `X-PowerContext-Turn: internal`. The text encourages targeted searches, batched reads, concise edits, and focused validation. `PC_GATEWAY_STEERING=off` disables it; unset or `on` enables it. Other values prevent startup.
 
-The text becomes the first content block of the developer message that follows the client's first developer message, which is where Codex places its own `developer_instructions`. Without such a message, the gateway inserts a new developer message after the client's first developer message, or before the first user message when the request has no developer message. The text is identical on every request, so it stays part of the cached prefix. Core checks it as part of the final request like any other request text. It is independent of context injection, capture, and replay.
+`PC_GATEWAY_STEERING_FILE` replaces the built-in text with a custom instruction. When steering is enabled, the gateway reads the file once at startup. It must be UTF-8, non-empty after trimming, at most 4,096 bytes, and free of PowerContext's reserved `BEGIN_POWERCONTEXT_` markers; otherwise the gateway exits at startup instead of running with a different instruction. `PC_GATEWAY_STEERING=off` takes precedence and does not read the file.
+
+On Responses, the text becomes the first content block of the developer message that follows the client's first developer message, which is where Codex places its own `developer_instructions`. Without such a message, the gateway inserts a new developer message after the client's first developer message, or before the first user message when the request has no developer message. On Chat, the gateway appends the guidance to the first system message, or inserts a system message before the first user message. The text is identical on every request, so it stays part of the cached prefix. Core checks it as part of the final request like any other request text. It is independent of context injection, capture, and replay.
 
 ### Gateway byte capacity
 
 The Rust gateway discovers `context_protection` once at startup through `/v1/capabilities`. Model routes require the complete `ContextProtectionCapabilities` DTO defined by OpenAPI: `check_versions`, `payload_versions`, `reuse_versions`, `reuse_families`, `enforcing`, and `limits` with `payload_bytes`, `binding_bytes`, `prepared_contexts`, `dependencies`, `send_seconds`, and `correlate_seconds`. Missing or mistyped required fields pause admission even when the input capacity is present. The check/payload versions must include v1, and `limits.payload_bytes` must be a positive integer. A failed query, incompatible version, incomplete DTO, or invalid capacity pauses both model routes with HTTP 503; `/healthz` and configured Core/MCP forwarding remain available. Restore the Core contract and restart this gateway to rediscover capacity. Every model send and response release still requires its own Core check. If Core lowers a limit before the gateway restarts, that check can reject the call; increasing a Core limit does not enlarge this gateway's startup allowance until restart. Startup diagnostics distinguish transport failure, query rejection, malformed/incomplete responses, unsupported versions, and invalid capacity using fixed messages without Core error values.
 
-`PC_GATEWAY_MAX_BODY_BYTES` defaults to 16 MiB (1 MiB = 1,048,576 bytes). The effective model input limit is the minimum of that setting, the advertised input capacity, and the current 1 MiB complete-body parser ceiling. A zero deployment limit disables model input with HTTP 503 and `input_capacity_disabled`; it does not indicate a Core discovery failure. Both Content-Length and consumed chunked request bytes are limited. The executor also measures the final UTF-8 JSON body after prepared-context injection/replay, Responses steering and protocol rendering. Initial-body overflow returns HTTP 413; final-body overflow returns HTTP 403 with `request_payload_too_large`, before any model send. Enlarging configuration cannot bypass the parser ceiling.
+`PC_GATEWAY_MAX_BODY_BYTES` defaults to 16 MiB (1 MiB = 1,048,576 bytes). The effective model input limit is the minimum of that setting, the advertised input capacity, and the current 1 MiB complete-body parser ceiling. A zero deployment limit disables model input with HTTP 503 and `input_capacity_disabled`; it does not indicate a Core discovery failure. Both Content-Length and consumed chunked request bytes are limited. The executor also measures the final UTF-8 JSON body after prepared-context injection/replay, steering instructions and protocol rendering. For both Chat and Responses, steering instructions count toward the effective input limit. A client body that fits before injection can exceed that limit after steering is added. Initial-body overflow returns HTTP 413; final-body overflow returns HTTP 403 with `request_payload_too_large`, before any model send. Enlarging configuration cannot bypass the parser ceiling.
 
 Provider response buffering defaults to at most 1 MiB for both fixed-length and chunked/SSE responses. The transport's explicit buffer limit can reduce this ceiling. Input `payload_bytes` does **not** declare an output allowance. Core's response configuration, content checks and the JSON/RPC envelope impose their own limits, so even a body below 1 MiB may be refused. The UDS client's 8 MiB RPC-response parser ceiling is a separate direction and is not model-body capacity.
 
@@ -221,13 +237,14 @@ These are per-body and per-class concurrency limits. They do not measure retaine
 ### Memory extraction over the cached prefix
 
 When the gateway runs on the same host as the Server, Atomic Memory extraction for a captured turn can reuse the
-provider's prompt cache for the agent's conversation instead of sending the transcript again. OAuth subscription traffic uses normal extraction. Prefix extraction is off by default and needs both sides:
+provider's prompt cache for the agent's conversation instead of sending the transcript again. The gateway enables prefix extraction by default for supported upstreams; `PC_GATEWAY_PREFIX_EXTRACTION=off` disables it, and `on` explicitly enables it. Other values prevent startup. With an OAuth subscription, only `codex` supports it, and only when the Server is confirmed as non-enforcing: the extraction request goes out with the subscription's credentials like the agent's own requests, counts against that account's usage limits, and cannot carry an output limit, which that endpoint rejects. Traffic of the other subscriptions uses normal extraction. Capture and the Server callback must also be configured:
 
-- **Gateway:** `PC_GATEWAY_PREFIX_EXTRACTION=on` together with capture (`PC_GATEWAY_SEDIMENT=on`). For a Responses
-  conversation, the gateway keeps the exact request it sent and the response output of each turn's final response in
+- **Gateway:** Enable capture with `PC_GATEWAY_SEDIMENT=on`; capture remains off by default. The gateway keeps
+  the exact request it sent and the terminal response output in
   memory, for at most 30 minutes, at most 64 turns and at most 64 MiB in total; the oldest are dropped first, and a
   turn dropped before extraction goes through normal extraction. It records an opaque handle in the captured Source's metadata,
-  with the input and output token counts of that final response.
+  with the input and output token counts of that final response. Chat prefix extraction applies to non-streaming Chat
+  Completions with a conversation ID and a single completed text reply.
   The request and response never enter the Source, evidence, or logs. The captured Source records the turn in full
   (projection `gateway-turn-text.v2`): no field is truncated and no step is omitted, and every argument field of a tool
   call, tool outputs and errors, other messages, and unrecognized items are included. Only the provider's encrypted
@@ -251,6 +268,8 @@ provider's prompt cache for the agent's conversation instead of sending the tran
   `POWERCONTEXT_SERVER_INFERENCE_PREFIX_EXTRACTION_GATEWAY_HEADERS` set to `{"Authorization": "Bearer <PC_GATEWAY_API_KEY>"}`
   when the gateway requires a key. A generation model is still required, because normal extraction is the fallback.
 
+With `POWERCONTEXT_SERVER_INFERENCE_PREFIX_EXTRACTION_GATEWAY_URL` configured, the Server defaults Atomic Memory processing to `one_pass` unless a mode was explicitly supplied. Set `POWERCONTEXT_SERVER_RUNTIME_ATOMIC_MEMORY_PROCESSING_MODE=per_candidate` to retain per-candidate extraction, or `one_pass` to select one-pass explicitly. A Server without the callback URL and direct SDK configurations keep their existing `per_candidate` default. The gateway cannot discover or configure this URL for a separately started Server.
+
 Cached input is not free: the provider still bills it at a reduced rate. When a processing window holds exactly one
 such turn, the Server first estimates both requests. The prefixed request costs Core's instruction plus the final
 response's output tokens at the full rate, plus the cached input tokens multiplied by
@@ -262,9 +281,9 @@ and the window shrinks, and later attempts process the parts one at a time; auto
 backoff. The Server uses the prefix only when that estimate is lower. This usually
 holds for turns with substantial tool output, and stops holding as a long conversation's prefix grows. It then sends its extraction instruction, the output schema,
 and the Source's provenance to `POST /gateway/v1/extract`. The gateway appends them as one user message after the
-kept request and response, sets `tool_choice` to `none`, and sends it to the agent's own target and account. Fields
-that would change the cached prefix, such as tools, `prompt_cache_key`, reasoning settings, and a response format, are
-not changed. The request passes the Server's normal `before_send` and `before_release` checks. The prefix holds the
+kept request and response, disables tool selection for the extraction, and sends it to the agent's own target and account.
+The request preserves cache-related fields such as tools, `prompt_cache_key`, reasoning settings, and response format.
+The request passes the Server's normal `before_send` and `before_release` checks. The prefix holds the
 memory blocks the gateway injected; the extraction instruction states that content between `BEGIN_POWERCONTEXT_*` and
 `END_POWERCONTEXT_*` markers is not evidence for the turn. An enforcing Server withholds a
 request that replays the provider's encrypted reasoning, so with Codex and similar clients extraction then falls back
@@ -280,6 +299,23 @@ handle, a target mismatch, a withheld or blocked check, a provider or gateway er
 Each attempt is logged as `atomic_memory.prefixed_extraction`; see
 [Logs, metrics, and tracing](observability.md#operational-fields-and-correlation). Model usage, including cached input
 tokens, is reported like any other generation.
+
+With `POWERCONTEXT_SERVER_RUNTIME_ATOMIC_MEMORY_PROCESSING_MODE=one_pass`, the whole one-pass conversation of such a
+window runs after the prefix. The first request carries the one-pass instructions and the Source's provenance. Each
+later step sends the same instruction again with a `continuation`: the model's earlier replies and the Server's later
+messages, in order, which the gateway appends after the instruction. Every step therefore repeats the prefix and the
+earlier steps unchanged, which lets the provider read them from its prompt cache; whether a step is read from the
+cache, and its token usage, are decided by the provider and shown in the usage it reports. The conversation runs on
+the agent's target and account, not on the Server's generation model: the existing memories that the later steps
+compare, and the texts they write, are sent to that target. The one-pass instructions arrive as a user message after
+the agent's conversation instead of as system instructions; the Server checks each reply as it does in a normal
+one-pass conversation. The estimate compares the first two steps, which every window has: twice the cached input
+tokens at the cached rate plus the instruction and the final response's output tokens, against the same two steps
+with the Server sending the Source evidence itself. Because the prefix is read at every step, the prefix that still
+pays off is about half as long as for prefixed extraction. When any step cannot complete, or a reply still fails
+validation after the corrections the request limit allows, nothing of that conversation is kept and the window starts
+again as a normal one-pass conversation. A gateway that does not accept `continuation` rejects the second step, so
+such a window pays for one extra first step; upgrade the gateway together with the Server.
 
 ## Run with Docker
 

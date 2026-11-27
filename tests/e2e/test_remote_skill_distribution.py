@@ -15,6 +15,8 @@
 import asyncio
 import base64
 import logging
+from collections.abc import AsyncIterator
+from contextlib import AsyncExitStack
 from pathlib import Path
 from typing import cast
 
@@ -45,6 +47,8 @@ from powercontext.http import (
     UpdateSkillLifecycleRequest,
 )
 from powercontext.server.app import ServerApplication, create_app
+from powercontext.server.factory import create_server_app
+from powercontext.server.settings import McpConfig, ServerSettings
 
 
 class _CommitThenLoseReceiptClient:
@@ -102,10 +106,16 @@ def test_https_remote_receiver_http_vertical_slice_is_exact_isolated_and_reversi
                 validation=("The stricter report passes.",),
             )
         )
-        async with open_builtin_runtime(BuiltinConfig(database=SQLiteConfig())) as runtime:
-            app = create_app(application=cast(ServerApplication, runtime))
+        app = create_server_app(
+            settings=ServerSettings(
+                database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'runtime.db'}"),
+                mcp=McpConfig(enabled=False),
+            )
+        )
+        async with app.router.lifespan_context(app):
+            asgi_transport = httpx.ASGITransport(app=app)
             async with httpx.AsyncClient(
-                transport=httpx.ASGITransport(app=app),
+                transport=asgi_transport,
                 base_url="https://testserver",
             ) as transport:
                 admin = PowerContextClient("https://testserver", http_client=transport)
@@ -347,20 +357,24 @@ def test_https_remote_receiver_http_vertical_slice_is_exact_isolated_and_reversi
                 current = await admin.list_remote_skill_targets(
                     ListRemoteSkillTargetsRequest(scope_id=scope_id, target_id=activated.target_id)
                 )
-                await admin.revoke_remote_skill_target(
-                    RevokeRemoteSkillTargetRequest(
-                        scope_id=scope_id,
-                        target_id=activated.target_id,
-                        expected_generation=current.targets[0].target.generation,
+                reconcile = ReconcileRemoteSkillsRequest(observations=[], receiver_version="0.1.0")
+
+                async def revoke_during_body_read() -> AsyncIterator[bytes]:
+                    await admin.revoke_remote_skill_target(
+                        RevokeRemoteSkillTargetRequest(
+                            scope_id=scope_id,
+                            target_id=activated.target_id,
+                            expected_generation=current.targets[0].target.generation,
+                        )
                     )
-                )
+                    yield reconcile.model_dump_json().encode()
+
                 caplog.clear()
-                with (
-                    caplog.at_level(logging.WARNING, logger="powercontext.server.app"),
-                    pytest.raises(ServerResponseError) as rejected,
-                ):
-                    await target_client.reconcile_remote_skills(
-                        ReconcileRemoteSkillsRequest(observations=[], receiver_version="0.1.0")
+                with caplog.at_level(logging.WARNING, logger="powercontext.server.app"):
+                    revoked_during_request = await transport.post(
+                        "/v1/skill/remote/reconcile",
+                        headers={"Authorization": f"Bearer {activated.credential}", "Content-Type": "application/json"},
+                        content=revoke_during_body_read(),
                     )
 
                 record = next(
@@ -368,10 +382,16 @@ def test_https_remote_receiver_http_vertical_slice_is_exact_isolated_and_reversi
                     for record in caplog.records
                     if getattr(record, "operation", None) == "reconcile_remote_skills"
                 )
-                assert rejected.value.status_code == 401
+                assert revoked_during_request.status_code == 401
+                assert revoked_during_request.json()["error"]["code"] == "invalid_target_credential"
                 assert getattr(record, "error_code", None) == "invalid_target_credential"
                 assert record.exc_info is None
                 assert "Traceback" not in caplog.text
+
+                with pytest.raises(ServerResponseError) as rejected:
+                    await target_client.reconcile_remote_skills(reconcile)
+                assert rejected.value.status_code == 401
+                assert rejected.value.code == "invalid_target_credential"
 
     asyncio.run(scenario())
 
@@ -410,13 +430,24 @@ def test_remote_enrollment_rejects_non_loopback_cleartext_http() -> None:
     asyncio.run(scenario())
 
 
-def test_remote_enrollment_allows_non_loopback_cleartext_http_only_after_server_opt_in() -> None:
+@pytest.mark.parametrize("configured_server", [False, True], ids=["http-adapter", "configured-server"])
+def test_remote_enrollment_allows_non_loopback_cleartext_http_only_after_server_opt_in(
+    configured_server: bool, tmp_path: Path
+) -> None:
     async def scenario() -> None:
-        async with open_builtin_runtime(BuiltinConfig(database=SQLiteConfig())) as runtime:
-            app = create_app(
-                application=cast(ServerApplication, runtime),
-                allow_insecure_remote_http=True,
-            )
+        async with AsyncExitStack() as stack:
+            if configured_server:
+                app = create_server_app(
+                    settings=ServerSettings(
+                        database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'runtime.db'}"),
+                        mcp=McpConfig(enabled=False),
+                        allow_insecure_http=True,
+                    )
+                )
+                await stack.enter_async_context(app.router.lifespan_context(app))
+            else:
+                runtime = await stack.enter_async_context(open_builtin_runtime(BuiltinConfig(database=SQLiteConfig())))
+                app = create_app(application=cast(ServerApplication, runtime), allow_insecure_remote_http=True)
             async with httpx.AsyncClient(
                 transport=httpx.ASGITransport(app=app, client=("203.0.113.10", 43120)),
                 base_url="http://localhost",

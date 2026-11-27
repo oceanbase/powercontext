@@ -245,6 +245,7 @@ if TYPE_CHECKING:
     from pydantic_ai.providers import Provider
     from pydantic_ai.settings import ModelSettings
 
+    from powercontext.builtin.inference.models import ConversationReply, ConversationTurn
     from powercontext.builtin.inference.pydantic_ai import InferenceLimits
 
 ValueT = TypeVar("ValueT")
@@ -836,6 +837,15 @@ async def open_builtin_runtime(  # noqa: C901
                 provider=contexts,
                 primary_database=contexts.database,
                 owner_write_transactions=True,
+                source_processing_families=tuple(
+                    sorted(
+                        set(processing_capabilities(config))
+                        | {binding.artifact_family for binding in processing_bindings}
+                        | ({"memory"} if contexts.memory_extraction else set())
+                        | ({"experience"} if contexts.experience_incubation else set())
+                        | ({"profile"} if contexts.profiles.generator is not None else set())
+                    )
+                ),
                 handoff_committer=contexts.commit_handoff,
                 capabilities=RuntimeCapabilities(
                     memory_extraction=contexts.memory_extraction,
@@ -1545,14 +1555,26 @@ async def _dream_generator(
     )
 
 
-def _prefixed_extractor(
-    settings: InferenceConfig, runtime: RuntimeConfig, resources: AsyncExitStack, estimator: TokenEstimator
-) -> UsageReportingStructuredGenerator[AtomicMemoryExtractionInput, AtomicMemoryExtractionOutput] | None:
+def _prefixed_generators(
+    settings: InferenceConfig,
+    runtime: RuntimeConfig,
+    resources: AsyncExitStack,
+    estimator: TokenEstimator,
+    limits: InferenceLimits,
+) -> tuple[
+    UsageReportingStructuredGenerator[AtomicMemoryExtractionInput, AtomicMemoryExtractionOutput] | None,
+    UsageReportingStructuredGenerator[ConversationTurn[Any], ConversationReply[Any]] | None,
+]:
+    """The extraction and one-pass conversation generators that read the agent's prefix through one gateway client."""
+
     if settings.prefix_extraction_gateway_url is None:
-        return None
+        return None, None
     import httpx
 
-    from powercontext.builtin.artifacts.atomic_memory.prefixed_extraction import GatewayPrefixedExtractor
+    from powercontext.builtin.artifacts.atomic_memory.prefixed_extraction import (
+        GatewayPrefixedConversation,
+        GatewayPrefixedExtractor,
+    )
 
     client = httpx.AsyncClient(
         base_url=str(settings.prefix_extraction_gateway_url),
@@ -1567,6 +1589,13 @@ def _prefixed_extractor(
             instructions=atomic_memory_extraction_instructions(runtime.memory_extraction_profile),
             estimator=estimator,
             cached_input_ratio=settings.prefix_extraction_cached_input_ratio,
+        )
+    ), UsageReportingStructuredGenerator(
+        GatewayPrefixedConversation(
+            client=client,
+            estimator=estimator,
+            cached_input_ratio=settings.prefix_extraction_cached_input_ratio,
+            max_requests=limits.max_requests,
         )
     )
 
@@ -1808,13 +1837,17 @@ async def _generation_pipelines(
             name="handoff_generation",
             prompt_key="handoff.generate",
         )
+        prefixed, prefixed_conversation = _prefixed_generators(
+            settings, runtime, resources, memory_estimator, generation_limits
+        )
         generated_memory = AtomicMemoryGenerationPipeline(
             extractor=UsageReportingStructuredGenerator(memory_generator),
             reconciler=UsageReportingStructuredGenerator(memory_reconciler),
             estimator=memory_estimator,
             extraction_instructions=atomic_memory_extraction_instructions(runtime.memory_extraction_profile),
             input_renderer=memory_input_renderer,
-            prefixed=_prefixed_extractor(settings, runtime, resources, memory_estimator),
+            prefixed=prefixed,
+            prefixed_conversation=prefixed_conversation,
             conversation=UsageReportingStructuredGenerator(
                 PydanticAIConversationGenerator(
                     model=generation_model,

@@ -36,6 +36,7 @@ from powercontext.builtin.artifacts.atomic_memory.extraction import (
     AtomicMemoryEvidence,
     AtomicMemoryExtractionInput,
     AtomicMemoryGenerationPipeline,
+    log_prefixed_extraction,
     project_atomic_memory_evidence,
     require_atomic_memory_pipeline,
 )
@@ -50,10 +51,17 @@ from powercontext.builtin.artifacts.atomic_memory.one_pass import (
     render_existing_memories,
     render_recheck,
 )
+from powercontext.builtin.artifacts.atomic_memory.prefixed_extraction import (
+    PrefixedExtractionUnavailable,
+    prefix_handle,
+    prefix_start,
+    source_records,
+)
 from powercontext.builtin.artifacts.atomic_memory.reconciliation import (
     ATOMIC_MEMORY_RECONCILIATION_INSTRUCTIONS,
     AtomicMemoryArtifactEvidence,
     AtomicMemoryReconciliationOutput,
+    AtomicMemoryRevisionIdentityError,
     AtomicMemoryWindowWorkset,
     AtomicMemoryWorkingItem,
     RedundantAtomicMemoryRevisionError,
@@ -76,6 +84,7 @@ from powercontext.builtin.inference import (
     embed_query,
 )
 from powercontext.builtin.inference.models import ConversationReply, ConversationTurn
+from powercontext.builtin.inference.protocols import StructuredGenerator
 from powercontext.builtin.persistence.atomic_memory_index import (
     DEFAULT_ATOMIC_MEMORY_RELATED_PAGE_SIZE,
     AtomicMemoryIndexError,
@@ -103,6 +112,7 @@ from powercontext.builtin.processing_diagnostics import (
     ProcessingFailureReason,
     ProcessingStage,
     attach_diagnostics,
+    classify_processing_storage_failure,
 )
 from powercontext.builtin.runtime.atomic_memory import AtomicMemoryApplication, deferred_decision_audit
 from powercontext.builtin.runtime.decision_policy import emit_decision_observation
@@ -126,6 +136,7 @@ class AtomicMemoryProcessingConfig:
     related_max_distance: float = 1.0
     related_page_size: int = DEFAULT_ATOMIC_MEMORY_RELATED_PAGE_SIZE
     related_fts_fallback: bool = False
+    alias_recall: bool = True
     comparison_batch_size: int = 20
     input_tokens_limit: int = 64_000
     processing_mode: Literal["per_candidate", "one_pass"] = "per_candidate"
@@ -153,6 +164,7 @@ class AtomicMemoryProcessingConfig:
             related_max_distance=runtime.atomic_memory_related_max_distance,
             related_page_size=runtime.atomic_memory_related_page_size,
             related_fts_fallback=runtime.atomic_memory_related_fts_fallback,
+            alias_recall=runtime.atomic_memory_alias_recall,
             comparison_batch_size=runtime.atomic_memory_comparison_batch_size,
             input_tokens_limit=runtime.atomic_memory_input_tokens_limit,
             processing_mode=runtime.atomic_memory_processing_mode,
@@ -397,7 +409,10 @@ class AtomicMemorySourceWindowProcessor:
                 "powercontext.memory.commit.artifact_revision_count": sum(write.draft is not None for write in writes),
             },
         ):
-            async with application.database.transaction() as connection:
+            async with (
+                classify_processing_storage_failure("atomic-memory-publish-storage"),
+                application.database.transaction() as connection,
+            ):
                 # Every Atomic write uses journal -> heads. Source capture's journal
                 # reservation prevents the exact window changing under validation.
                 await connection.execute(
@@ -496,7 +511,7 @@ class AtomicMemorySourceWindowProcessor:
             await project_atomic_memory_evidence(item, self.sources, evidence_id=f"source:{item.journal_position}")
             for item in eligible
         ])
-        extraction_input = AtomicMemoryExtractionInput(evidence=evidence)
+        extraction_input = AtomicMemoryExtractionInput(evidence=evidence, scope_id=scope_id)
         self._require_budget(pipeline, extraction_input, "atomic_memory.extract")
         extraction_prompt = current_prompt("atomic_memory.extract")
         prompt_refs = (
@@ -619,6 +634,10 @@ class AtomicMemorySourceWindowProcessor:
                         )
                     except RedundantAtomicMemoryRevisionError as error:
                         key = workset.recover_redundant_revision(key, related, error)
+                    except AtomicMemoryRevisionIdentityError:
+                        # Correction could not label the combination. Keeping the proposal's current content,
+                        # identities and evidence equals create; the batch's items stay unchanged and compared.
+                        pass
                     del pending[:selected_count]
                     compared_keys.update(workset.resolve(item) for item in looked)
                     reconciled = True
@@ -661,19 +680,21 @@ class AtomicMemorySourceWindowProcessor:
             for prompt in (extraction_prompt, reconciliation_prompt)
             if prompt is not None and prompt.artifact is not None
         )
+        extraction_rules = (
+            pipeline.extraction_instructions if extraction_prompt is None else extraction_prompt.compiled_instructions
+        )
+        # The compiled reconciliation Prompt describes the per-candidate reply; only its Scope-owned text applies here.
+        guidance = (
+            reconciliation_prompt.instructions
+            if reconciliation_prompt is not None and reconciliation_prompt.selection == "artifact"
+            else None
+        )
+        metadata = None if extraction_prompt is None else extraction_prompt.trace_attributes()
         conversation = _OnePassConversation(
             pipeline,
-            one_pass_instructions(
-                pipeline.extraction_instructions
-                if extraction_prompt is None
-                else extraction_prompt.compiled_instructions,
-                # The compiled reconciliation Prompt describes the per-candidate reply; only its Scope-owned text
-                # applies here.
-                reconciliation_prompt.instructions
-                if reconciliation_prompt is not None and reconciliation_prompt.selection == "artifact"
-                else None,
-            ),
-            None if extraction_prompt is None else extraction_prompt.trace_attributes(),
+            pipeline.conversation,
+            one_pass_instructions(extraction_rules, guidance),
+            metadata,
             self.config.input_tokens_limit,
         )
         evidence = (
@@ -684,9 +705,47 @@ class AtomicMemorySourceWindowProcessor:
         if not conversation.fits(evidence):
             _log_one_pass("fallback", conversation, "entries_input_over_budget", conversation.estimate(evidence))
             return None
+
+        async def converse(conversation: _OnePassConversation, first: str):
+            return await self._converse_one_pass(
+                scope_id, eligible, context, conversation, first, extraction_input, prompt_refs, local_policy
+            )
+
+        if pipeline.prefixed_conversation is not None and prefix_handle(extraction_input) is not None:
+            # The agent's conversation already holds the evidence, so the first message only lists the Sources.
+            try:
+                prefixed = _OnePassConversation(
+                    pipeline,
+                    pipeline.prefixed_conversation,
+                    one_pass_instructions(extraction_rules, guidance, evidence_in_prefix=True),
+                    metadata,
+                    self.config.input_tokens_limit,
+                    (prefix_start(extraction_input, conversation.estimate(evidence)),),
+                )
+                prepared = await converse(prefixed, source_records(extraction_input.evidence))
+            except PrefixedExtractionUnavailable as error:
+                reason = error.reason
+            except InvalidInferenceOutputError as error:
+                # Sending the evidence the normal way only adds to an input that is already over its budget.
+                if error.operation == "atomic-memory-input-budget":
+                    raise
+                reason = "invalid_output"
+            else:
+                # An over-budget second step is reported as the one-pass fallback and leaves nothing prepared here.
+                if prepared is not None:
+                    log_prefixed_extraction("success", operation="atomic_memory.one_pass")
+                return prepared
+            # Nothing from the prefixed conversation was kept; the window starts again with its evidence sent by Core.
+            log_prefixed_extraction("fallback", reason, operation="atomic_memory.one_pass")
+        return await converse(conversation, evidence)
+
+    async def _converse_one_pass(
+        self, scope_id, eligible, context, conversation, first, extraction_input, prompt_refs, local_policy
+    ):
+        """Run the steps of one conversation whose first message is ``first``; ``None`` when step 2 is over budget."""
         workset = AtomicMemoryWindowWorkset()
         await self._authorize_model_input(scope_id, context, eligible, prompt_refs)
-        entries = await conversation.turn(evidence, parse_one_pass_entries)
+        entries = await conversation.turn(first, parse_one_pass_entries)
         await self._authorize_model_input(scope_id, context, eligible, prompt_refs)
 
         async def recall(query: str) -> tuple[str, ...]:
@@ -722,7 +781,9 @@ class AtomicMemorySourceWindowProcessor:
         basis = tuple(workset.items[key] for key in shown.values())
         await self._authorize_comparison_basis(scope_id, context, basis)
         operations = await conversation.turn(
-            message, lambda reply: apply_one_pass_operations(workset, reply, shown, extraction_input), entries
+            message,
+            lambda reply: apply_one_pass_operations(workset, reply, shown, extraction_input, entries.output),
+            entries,
         )
         workset, created = operations.output
 
@@ -785,17 +846,23 @@ class AtomicMemorySourceWindowProcessor:
                     *(workset.items[workset.resolve(item)] for label in batch for item in unseen[label].values()),
                 ),
             )
-            rechecked = await conversation.turn(
-                message,
-                partial(
-                    apply_one_pass_recheck,
-                    workset,
-                    created=batch,
-                    unseen={label: unseen[label] for label in batch},
-                ),
-                operations,
-            )
-            workset = rechecked.output
+            try:
+                rechecked = await conversation.turn(
+                    message,
+                    partial(
+                        apply_one_pass_recheck,
+                        workset,
+                        created=batch,
+                        unseen={label: unseen[label] for label in batch},
+                    ),
+                    operations,
+                )
+            except AtomicMemoryRevisionIdentityError:
+                # A memory merged by an earlier batch holds several identities. Once correction is exhausted, keep
+                # this batch's created memories unchanged, as a create for each; the rejected reply is not applied.
+                pass
+            else:
+                workset = rechecked.output
             for label in batch:
                 del pending[label]
         return workset
@@ -871,7 +938,10 @@ class AtomicMemorySourceWindowProcessor:
         Compared pages are released from the workset. With ``limit``, only the closest memories are read and they
         stay in the workset for the caller.
         """
-        request, ranks = await self._related_rank_snapshot(scope_id, request)
+        if self.config.alias_recall:
+            request, ranks = await self._aliased_rank_snapshot(scope_id, request)
+        else:
+            request, ranks = await self._related_rank_snapshot(scope_id, request)
         ranks = ranks[:limit]
         if not ranks:
             return
@@ -888,6 +958,34 @@ class AtomicMemorySourceWindowProcessor:
                 workset.release(() if limit is not None else loaded, keep=key)
             if cursor is None:
                 break
+            del page, loaded
+
+    async def _aliased_rank_snapshot(self, scope_id, request):
+        application = self.application
+        while True:
+            async with application.database.transaction(consistent_snapshot=True) as connection:
+                try:
+                    direct = await application.index.related_ranks(connection, scope_id, request)
+                except AtomicMemoryIndexError as error:
+                    if error.code == "stale-recall":
+                        _conflict("Related channels returned different memory versions")
+                    if not self.config.related_fts_fallback or error.code not in {
+                        "incomplete-vector",
+                        "embedding-profile",
+                    }:
+                        raise
+                    request = replace(request, mode="fts")
+                    continue
+                try:
+                    # Roll back alias-only SQL failures without invalidating direct
+                    # results or the surrounding read/authorization snapshot.
+                    async with connection.begin_nested():
+                        aliases = await application.index.aliased_related_ranks(connection, scope_id, request)
+                except (AtomicMemoryIndexError, OperationalError) as error:
+                    _require_alias_snapshot(connection, error)
+                    aliases = ()
+                ranks = _combine_related_ranks(direct, aliases)
+            return request, ranks
 
     async def _read_related_page(self, scope_id, context, workset, request, cursor, *, local_policy):
         application = self.application
@@ -1305,9 +1403,12 @@ class _OnePassConversation:
     """
 
     pipeline: AtomicMemoryGenerationPipeline
+    generator: StructuredGenerator[ConversationTurn[Any], ConversationReply[Any]]
     instructions: str
     metadata: dict[str, str | int] | None
     input_tokens_limit: int
+    # The history the first turn continues; a prefixed conversation starts from the agent's prefix.
+    start: tuple[object, ...] = ()
 
     def estimate(self, message: str, previous: ConversationReply[Any] | None = None) -> int:
         transcript = () if previous is None else previous.transcript
@@ -1317,14 +1418,12 @@ class _OnePassConversation:
         return self.estimate(message, previous) <= self.input_tokens_limit
 
     async def turn(self, message, check, previous: ConversationReply[Any] | None = None):
-        generator = self.pipeline.conversation
-        assert generator is not None  # noqa: S101 - one-pass preparation requires it before the first turn
-        result = await generator.generate(
+        result = await self.generator.generate(
             ConversationTurn(
                 instructions=self.instructions,
                 message=message,
                 check=check,
-                history=() if previous is None else previous.history,
+                history=self.start if previous is None else previous.history,
                 metadata=self.metadata,
             )
         )
@@ -1404,6 +1503,32 @@ def _input_item_count(value: object) -> int | None:
     if isinstance(evidence, (tuple, list)):
         return len(evidence)
     return None
+
+
+def _combine_related_ranks(direct, aliases):
+    """Preserve direct order, then append alias-only successors with their observed versions."""
+    ranks = {rank.artifact_ref.artifact_id: rank for rank in direct}
+    for rank in aliases:
+        identity = rank.artifact_ref.artifact_id
+        previous = ranks.get(identity)
+        if previous is None:
+            ranks[identity] = rank
+        elif previous.artifact_ref != rank.artifact_ref or previous.state_version != rank.state_version:
+            _conflict("Related channels returned different memory versions")
+    return tuple(ranks.values())
+
+
+def _require_alias_snapshot(connection, error: AtomicMemoryIndexError | OperationalError):
+    """Only operational failures with a valid owner snapshot can fall back."""
+    if isinstance(error, AtomicMemoryIndexError):
+        if error.code == "stale-recall":
+            _conflict("Related channels returned different memory versions")
+        raise error
+    if connection.invalidated or getattr(error, "connection_invalidated", False):
+        raise error
+    message = str(error).lower()
+    if "savepoint" in message and ("no such" in message or "does not exist" in message):
+        raise error
 
 
 def _log_one_pass(

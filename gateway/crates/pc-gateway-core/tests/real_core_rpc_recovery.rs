@@ -490,6 +490,7 @@ async fn subscription_wire_evidence_blocks_release_through_real_core_and_http() 
                 capture_prefix: false,
                 conversation_id: None,
                 sediment: false,
+                internal: false,
                 prepared_contexts: vec![],
             };
             let outcome = executor

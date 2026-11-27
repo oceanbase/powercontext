@@ -20,6 +20,16 @@ import { fileURLToPath } from 'node:url';
 const projectDir = fileURLToPath(new URL('../python/', import.meta.url));
 
 export function generatePythonApi(sourceDir: string, outputDir: string, modules: string[]) {
+  if (process.env.PC_CI_PYTHON_MIRROR) {
+    const installer = fileURLToPath(new URL('../../scripts/ci_python_mirror.py', import.meta.url));
+    const install = spawnSync('python3', [installer, 'sync', '--locked', '--project', projectDir], {
+      stdio: 'inherit',
+      env: process.env,
+    });
+    if (install.status !== 0) {
+      throw new Error(`Python API dependencies failed with status ${install.status ?? 'unknown'}`);
+    }
+  }
   for (const moduleName of modules) {
     const result = spawnSync(
       'uv',

@@ -3892,6 +3892,106 @@ On 2026-11-19, `desktop/tests/real_server.py` passed anonymous loopback, static 
 
 The native probe used Rust 1.97.1 and the product adapter modules in an isolated Cargo crate, with registry dependency pins matching the product Cargo lock. This qualification covers the local SQLite protocol. Installed WebView and platform keyring behavior require separate checks.
 
+## PowerContext 1.6.0 release protocol qualification
+
+`sqlite-release-1-6-0-98a9b1f7-v1` qualifies all thirteen Desktop protocol operations against Server source
+`98a9b1f7f58628ef8b7129b0d7c7cee7efe75daf`, with OpenAPI release version `1.6.0`.
+
+- OpenAPI SHA-256: `dba1e669da2c38f0c52a5720a300ea43b7020c58c62f503e18b588237f870374`.
+- Wheel: `powercontext-1.5.3.dev327+g98a9b1f7f-py3-none-any.whl`.
+- Wheel SHA-256: `d6b4f64fee1a5b6d65ab99e0f9ec99edf26cae9e7d92ad828f5b6fd806082644`.
+- Native debug probe SHA-256: `d8ae8d1845104a631c7554b84dc0768e7f2b9325f3e5ecef52f19ecda9a96803`.
+- Report SHA-256: `23dec383957805d50936c93f1b0f6455f6b4046d843fa2a91fb130a5d660a8d5`.
+
+On 2026-11-23, Linux 5.10 x86_64, glibc 2.32 and Python 3.14.6 passed anonymous loopback, static Bearer,
+HTTPS with an explicit CA/base path, and injected-provider/enforced-access modes. The ordinary product
+ConnectionManager selected the bundled qualification. The harness checks save, search, exact revision reads,
+lost write responses without replay, Server survival, Principal changes and revocation, Scope pagination,
+and scoped authorization. Model usage is controlled fixture input.
+
+The first run passed the first three modes but timed out waiting for the Provider fixture to become ready.
+A local harness wrapper raised only the startup wait to 60 seconds; all four modes then passed. The checked-in
+harness, native probe, HTTP assertions and request timeouts were unchanged. The wrapper and report are retained
+under `/data/codex-tmp/release-1.6.0/`.
+
+The native protocol probe used Rust 1.96.0, the current product adapter modules and registry pins from the
+product Cargo lock in an isolated crate, without Tauri/WebView and without `ci-fixtures`. Its library suite
+passed 39 tests with two ignored. Every packaged runtime file was compared byte-for-byte against the recorded
+Git commit before execution. The wheel has a Git-derived development version because no release tag was created.
+This evidence qualifies the observed SQLite protocol; it does not establish packaged Desktop/WebView behavior,
+other operating systems, native database upgrade acceptance or the final tagged release artifacts.
+
+Reproduce with the recorded artifact (allow sufficient local startup time):
+
+```sh
+.venv/bin/python desktop/tests/real_server.py \
+  --product-qualification sqlite-release-1-6-0-98a9b1f7-v1 \
+  --wheel /data/codex-tmp/release-1.6.0/wheel/powercontext-1.5.3.dev327+g98a9b1f7f-py3-none-any.whl
+```
+
+## Server c407025 source metadata protocol qualification
+
+`sqlite-source-metadata-c407025-v1` covers all thirteen Desktop protocol operations against Server source
+`c407025b05b18364848084412324acce7781dbc7`. The contract adds caller `metadata` to Source detail and list responses as
+an optional field: a current Server always sends an object (empty when the Source has no caller metadata), while a client
+talking to an earlier Server decodes the omission as null instead of failing.
+
+- Normalized OpenAPI SHA-256: `90571f6bb831c24996485e3527eb7b1ac1f41eb6921c015ff9daa8603a5f198a`.
+- Wheel: `powercontext-0.1.dev2+gc407025b0-py3-none-any.whl`.
+- Wheel SHA-256: `b436824a0bca98c950778a9599c141f65b19d3d5c1cc84f44ccfafced8c8486c`.
+
+On 2026-11-25, Linux x86_64 (WSL2) with Python 3.14 and that wheel passed static Bearer mode with an enforced token:
+unauthenticated requests returned 401, and the bundled Python client exercised all thirteen operations. A captured content
+Source round-tripped nested objects, Unicode and an empty metadata value through the list and detail responses.
+
+The native `server_probe` was not rebuilt for this record because the validation environment has no Rust toolchain. This
+record therefore establishes HTTP protocol compatibility between the new client contract and the exact wheel; it does not
+establish native-probe, installed-WebView, Windows/macOS or release acceptance. Mixed-version decoding of an omitted field
+is covered by a client `MockTransport` regression, not by this real-Server probe.
+
+Reproduce against the recorded artifact:
+
+```sh
+uv build --wheel --out-dir /tmp/pc-wheel-meta3
+uv pip install --python /tmp/pc-venv-meta3/bin/python \
+  "/tmp/pc-wheel-meta3/powercontext-0.1.dev2+gc407025b0-py3-none-any.whl[server,cli]"
+POWERCONTEXT_SERVER_ACCESS_MODE=enforced POWERCONTEXT_SERVER_AUTH_TOKEN=qualification-token \
+  /tmp/pc-venv-meta3/bin/powercontext server run --host 127.0.0.1 --port 8242 --no-env-file
+```
+
+## Server 7b58ce2 source content limit protocol qualification
+
+`sqlite-source-content-limit-7b58ce2-v1` covers all thirteen Desktop protocol operations against Server source
+`7b58ce2a601dc099966363667e0d040647fc3dff`. The contract makes the Content Source character limit a deployment
+setting, adds `GET /v1/source-limits`, applies the limit to every Content Source write path, and reports the effective
+value in the MCP capture schemas; the Desktop operations and their request or response shapes are unchanged.
+
+- Normalized OpenAPI SHA-256: `29f33308b74ff51bdd3d9825f85d7dd5a2308c80a476c6b1badf32a850e662f5`.
+- Wheel: `powercontext-0.1.dev2+g7b58ce2a6-py3-none-any.whl`.
+- Wheel SHA-256: `addb6322cc6f875a4a7cccc13f87146b901928b8e43dcfc0153ed8f5d3b997b3`.
+
+On 2026-11-27, Linux x86_64 (WSL2) with Python 3.14 and that wheel passed static Bearer mode with an enforced token:
+unauthenticated requests returned 401, and the bundled Python client exercised all thirteen operations. The Server ran
+with `POWERCONTEXT_SERVER_SOURCE_CONTENT_MAX_CHARS=64`: `GET /v1/source-limits` reported 64 and the 1,000,000-character
+ceiling; a 64-character capture was accepted and a 65-character capture returned `422 invalid_request` naming the
+limit; `POST /v1/scopes/{scope_id}/sources` accepted 64 string characters and a JSON value whose canonical text is 64
+characters, and rejected the corresponding 65-character writes with the same `422`.
+
+The native `server_probe` was not rebuilt for this record because the validation environment has no Rust toolchain. This
+record therefore establishes HTTP protocol compatibility between the new client contract and the exact wheel; it does not
+establish native-probe, installed-WebView, Windows/macOS or release acceptance.
+
+Reproduce against the recorded artifact:
+
+```sh
+uv build --wheel --out-dir /tmp/pc-wheel-limit8
+uv pip install --python /tmp/pc-venv-limit7/bin/python \
+  "/tmp/pc-wheel-limit8/powercontext-0.1.dev2+g7b58ce2a6-py3-none-any.whl[server,cli]"
+POWERCONTEXT_SERVER_ACCESS_MODE=enforced POWERCONTEXT_SERVER_AUTH_TOKEN=qualification-token \
+  POWERCONTEXT_SERVER_SOURCE_CONTENT_MAX_CHARS=64 \
+  /tmp/pc-venv-limit7/bin/powercontext server run --host 127.0.0.1 --port 8246 --no-env-file
+```
+
 ## Server 6bb19eec Source target status protocol qualification
 
 `sqlite-codex-source-status-6bb19eec-v1` qualifies the bundled Desktop operations against Server commit
