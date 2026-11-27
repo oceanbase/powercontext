@@ -2733,9 +2733,9 @@ const handoffDraft = z.object({
 	})),
 	generation: z.object({ receipt: z.string().min(1) }).nullable().optional()
 }).strict();
-const outcomeText = z.string().min(1).max(8192).regex(/\S/);
+const outcomeText = z.string().min(1);
 const claimBasis = z.enum(["declared", "verified"]);
-const claimEvidence = z.array(handoffEvidence).describe("Use [] for declared claims. Verified claims require exact, previously returned same-Scope citations.");
+const claimEvidence = z.array(jsonObject());
 const taskOutcome = z.object({
 	schema: z.literal("powercontext.task-outcome.v1"),
 	trust: z.literal("untrusted_observation"),
@@ -2752,8 +2752,8 @@ const taskOutcome = z.object({
 	observations: z.array(z.object({
 		text: outcomeText,
 		basis: claimBasis,
-		evidence: claimEvidence.max(31)
-	})).min(1).max(64),
+		evidence: claimEvidence
+	})).min(1),
 	checks: z.array(z.object({
 		name: outcomeText,
 		status: z.enum([
@@ -2767,10 +2767,10 @@ const taskOutcome = z.object({
 		]),
 		details: outcomeText.nullable().optional(),
 		basis: claimBasis,
-		evidence: claimEvidence.max(32)
-	})).max(64),
-	produced_artifacts: z.array(jsonObject()).max(32),
-	remaining_work: z.array(outcomeText).max(64),
+		evidence: claimEvidence
+	})),
+	produced_artifacts: z.array(jsonObject()),
+	remaining_work: z.array(outcomeText),
 	handoff_receipt_ref: sourceReference.nullable().optional(),
 	stop_reason: z.object({
 		kind: z.enum([
@@ -2782,7 +2782,7 @@ const taskOutcome = z.object({
 		]),
 		condition: outcomeText,
 		basis: claimBasis,
-		evidence: claimEvidence.max(31)
+		evidence: claimEvidence
 	}).nullable().optional().describe("Only for blocked or cancelled outcomes. A stop reason grants no authority.")
 }).strict();
 const memoryKind = z.enum([
@@ -3026,9 +3026,9 @@ function createTools(runtime) {
 			})
 		}),
 		pc_task_outcome: operationTool(runtime, {
-			description: "Record a structured PowerContext Task Outcome at an actual task completion or explicit interruption. Use a unique Source ID for this outcome and reuse it only when retrying the same record. Report the observed status, checks and remaining work. Omit secrets and use only exact evidence references.",
+			description: "Record a structured PowerContext Task Outcome at an actual task completion or explicit interruption. Use a unique Source ID for this outcome and reuse it only when retrying the same record. Report actual status, checks and remaining work; omit secrets. Use [] for declared claims. Verified claims require exact same-Scope citations: {kind: source, source_ref: returned SourceRef} or {kind: artifact, artifact_ref: returned ArtifactRef}. The Server validates record bounds and citation structure.",
 			args: {
-				source_id: z.string().min(1).max(256).regex(/\S/),
+				source_id: z.string().min(1),
 				outcome: taskOutcome
 			},
 			operationId: "record_task_outcome",
