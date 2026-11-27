@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Install the alias projection through the registered MySQL DDL executor."""
+"""Install the alias projection and Dream history index through the registered MySQL DDL executor."""
 
 from alembic import context
 

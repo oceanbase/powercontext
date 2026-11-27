@@ -337,11 +337,12 @@ def test_exact_artifact_share_does_not_grant_scope_progress_and_revocation_appli
         assert "data-source-consumption" not in denied.text
 
 
-def test_refreshes_are_passive_and_do_not_read_dream_history(dashboard):
+def test_refreshes_keep_consumption_separate_from_bounded_dream_history(dashboard):
     scope = create_scope(dashboard, "Passive inspection")["scope_id"]
     _capture(dashboard, scope, 1)
     runtime = _runtime(dashboard)
     prohibited = []
+    dream_reads = []
 
     async def topic_flush():
         async with runtime.primary_database.transaction() as connection:
@@ -363,23 +364,30 @@ def test_refreshes_are_passive_and_do_not_read_dream_history(dashboard):
             "pc_artifacts",
             "pc_sources",
             "pc_profile_policies",
+            "pc_dream_runs",
         )
         if normalized.startswith(("INSERT", "UPDATE", "DELETE", "REPLACE")) and any(
             name in statement for name in tables
         ):
             prohibited.append(statement)
         if normalized.startswith("SELECT") and "pc_dream_runs" in statement:
-            prohibited.append(statement)
+            dream_reads.append(statement)
 
     engine = runtime.primary_database.engine.sync_engine
     event.listen(engine, "before_cursor_execute", record)
     try:
         for _ in range(2):
             for page in ("notes", "profile", "methods"):
+                before = len(dream_reads)
                 response = dashboard.get("/dashboard/" + page, params={"scope": scope}, headers={"HX-Request": "true"})
                 assert response.status_code == 200, response.text
                 assert "data-source-consumption" in response.text
                 assert CATALOGS["zh"]["source_consumption_not_applicable"] in _section(response.text)
+                assert "data-operation-outcomes" in response.text
+                # The separate outcome window may read one bounded page; it cannot walk history.
+                assert len(dream_reads) - before == 1
+                assert " LIMIT " in dream_reads[-1].upper()
+                assert "pc_dream_runs.operation =" in dream_reads[-1]
     finally:
         event.remove(engine, "before_cursor_execute", record)
     assert not prohibited

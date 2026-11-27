@@ -30,6 +30,7 @@ limitations under the License.
     </div>
     {% if data.handoff.disposition in ['complete', 'blocked'] %}<p>{{ t.complete_notice if data.handoff.disposition == 'complete' else t.blocked_notice }}</p>{% endif %}
   </header>
+{% include 'components/operation-outcomes.html' %}
     <div class="reading-body">
       <section><h2>{{ t.recorded_state }}</h2><ul>{% for statement in data.handoff.state %}<li>{{ statement.text }}</li>{% endfor %}</ul></section>
       <section><h2>{{ t.next_action }}</h2><p>{{ data.handoff.next_action.text if data.handoff.next_action else t.no_next_action }}</p></section>

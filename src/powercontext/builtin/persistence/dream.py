@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import and_, func, insert, or_, select, update
+from sqlalchemy import func, insert, literal, select, tuple_, update
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from powercontext.builtin.dream.bindings import binding_for_request
@@ -157,10 +157,7 @@ class DreamRepository:
         if request.cursor is not None:
             stamp, run_id = _parse_cursor(request.cursor)
             statement = statement.where(
-                or_(
-                    RUNS.c.accepted_at < stamp,
-                    and_(RUNS.c.accepted_at == stamp, RUNS.c.run_id < run_id),
-                )
+                tuple_(RUNS.c.accepted_at, RUNS.c.run_id) < tuple_(literal(stamp), literal(run_id))
             )
         rows = (
             await connection.scalars(

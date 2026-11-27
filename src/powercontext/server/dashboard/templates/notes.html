@@ -40,6 +40,7 @@ limitations under the License.
 {% if search_query and not errors.get('notes') %}<p class="text-secondary memory-search-mode">{{ t.memory_requested_mode }}: {{ t.get('memory_mode_' ~ search_mode, search_mode) }} · {{ t.memory_used_mode }}: {{ t.get('memory_mode_' ~ search_used_mode, search_used_mode) if search_used_mode else t.unknown_value }}</p>{% endif %}
 {% endif %}
 {% if record_only %}<h1 class="page-title mb-4">{{ t.notes }}</h1>{% endif %}
+{% include 'components/operation-outcomes.html' %}
 {% if search_limited %}<p class="text-secondary">{{ t.notes_search_limit }}</p>{% endif %}
 {% if errors.get('notes') %}{{ read_error(errors.notes, t.notes) }}{% endif %}
 {% if not errors.get('notes') or data.notes or selected_note %}

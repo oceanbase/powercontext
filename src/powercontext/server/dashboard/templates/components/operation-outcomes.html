@@ -1,0 +1,126 @@
+<!--
+Copyright (c) 2026 OceanBase.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+-->
+{% from 'components/pagination.html' import pagination %}
+{% set outcomes = operation_outcomes %}
+{% if outcomes %}
+{% macro reference(ref) %}{{ ref.family }}/{{ ref.artifact_id }}@{{ ref.revision }}{% endmacro %}
+{% macro recorded_summary(item) %}
+  <p class="small mb-1"><a href="{{ link('processing',record_type='dreams',run_id=item.run.run_id) }}">{{ t['processing_operation_' ~ item.run.operation] }} · {{ item.run.run_id }}</a> · {{ t['processing_status_' ~ item.run.status] }}{% if item.run.outcome %} · {{ t['outcomes_brief_' ~ item.run.outcome] }}{% endif %}</p>
+  {% if item.candidate %}<p class="small mb-1">{{ t.outcomes_current_candidate }}: {{ t['review_' ~ item.candidate.status] }}{% if item.candidate.result_artifact %} · {{ t.outcomes_published }}: {{ reference(item.candidate.result_artifact) }}{% endif %}</p>{% endif %}
+{% endmacro %}
+<section class="card mb-4" aria-labelledby="operation-outcomes-heading" data-operation-outcomes>
+  <div class="card-body">
+    <div class="d-flex align-items-center justify-content-between gap-3 mb-2">
+      <h2 id="operation-outcomes-heading" class="card-title mb-0">{{ t.outcomes_heading }}</h2>
+      <button class="btn btn-sm" type="button" data-bs-toggle="offcanvas" data-bs-target="#operation-outcomes-details" aria-controls="operation-outcomes-details">{{ t.outcomes_details }}</button>
+    </div>
+    {% if outcomes.selected %}
+      <p class="mb-1">{{ t.outcomes_selected }}: <code>{{ reference(outcomes.selected) }}</code></p>
+      {% if outcomes.matched %}<p class="mb-1">{{ t.outcomes_associated.format(count=outcomes.matched|length) }}</p>
+      <p class="small text-secondary mb-1">{{ t.outcomes_latest_associated }} {{ t['outcomes_relation_' ~ outcomes.matched[0].association] }}</p>
+      {{ recorded_summary(outcomes.matched[0]) }}
+      {% else %}<p class="text-secondary mb-1">{{ t.outcomes_exact_unavailable }}</p>{% endif %}
+    {% endif %}
+    {% if outcomes.record_only %}<p class="text-secondary mb-0">{{ t.outcomes_scope_unavailable }}</p>
+    {% else %}<p class="small text-secondary mb-0">{{ t.outcomes_window.format(operation=t['processing_operation_' ~ outcomes.operation], count=outcomes.runs|length) }}</p>
+      {% if outcomes.error %}<p class="text-secondary mb-0">{{ t.outcomes_read_unavailable }}</p>
+      {% elif outcomes.selected %}<p class="small text-secondary mb-0">{{ t.outcomes_separate }}</p>{% endif %}
+    {% endif %}
+    {% if outcomes.runs and (not outcomes.matched or outcomes.runs[0].run.run_id != outcomes.matched[0].run.run_id) %}
+      <p class="small text-secondary mt-2 mb-1">{{ t.outcomes_latest_scope }}</p>
+      {{ recorded_summary(outcomes.runs[0]) }}
+    {% endif %}
+  </div>
+</section>
+<div class="offcanvas offcanvas-end" tabindex="-1" id="operation-outcomes-details" aria-labelledby="operation-outcomes-title" hx-boost="false" style="width: 48rem; max-width: 100vw;">
+  <div class="offcanvas-header">
+    <h2 class="offcanvas-title" id="operation-outcomes-title">{{ t.outcomes_heading }}</h2>
+    <button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="{{ t.outcomes_close }}"></button>
+  </div>
+  <div class="offcanvas-body">
+    <h3 class="h4">{{ t.outcomes_explicit }}</h3>
+    <p>{{ t.outcomes_sync_not_applicable }}</p>
+    <p>{{ t['outcomes_explicit_' ~ outcomes.family] }}</p>
+    {% if outcomes.generation %}{% set generation=outcomes.generation %}
+      {% if outcomes.family == 'profile' %}
+        <p>{{ t.outcomes_saved_generation }}: {{ t['profile_mode_' ~ generation.mode] }} · {{ generation.created_at|display_time }}</p>
+        {% if generation.dream_run_id %}<p><a href="{{ link(outcome_operation='revise_profile',outcome_run=generation.dream_run_id,operation_runs_cursor=none,operation_runs_history=none) }}">{{ t.outcomes_origin_run }}: {{ generation.dream_run_id }}</a></p>{% endif %}
+      {% elif outcomes.family == 'handoff' %}
+        <p>{{ t.outcomes_handoff_origin }}: {{ generation.selection }} · {{ t['outcomes_edit_' ~ generation.edit_status] }}</p>
+        {% if generation.artifact %}<p>{{ t.outcomes_prompt_origin }}: <code>{{ reference(generation.artifact) }}</code></p>{% endif %}
+      {% endif %}
+    {% endif %}
+    <a href="{{ link('review',resource_type='all',review_status='pending') }}">{{ t.outcomes_existing_candidates }} →</a>
+    <p>{{ t.outcomes_local_unavailable }}</p>
+    <h3 class="h4 mt-4">{{ t.outcomes_recent }}</h3>
+    {% if outcomes.record_only %}<p>{{ t.outcomes_scope_unavailable }}</p>{% else %}
+    <p class="small text-secondary">{{ t.outcomes_window.format(operation=t['processing_operation_' ~ outcomes.operation], count=outcomes.runs|length) }}</p>
+    <nav class="nav nav-pills mb-3" aria-label="{{ t.outcomes_operation }}">
+      {% for operation in outcomes.operations %}<a class="nav-link {{ 'active' if outcomes.operation == operation else '' }}" {% if outcomes.operation == operation %}aria-current="page"{% endif %} href="{{ link(outcome_operation=operation,outcome_run=none,operation_runs_cursor=none,operation_runs_history=none) }}#operation-outcomes-heading">{{ t['processing_operation_' ~ operation] }}</a>{% endfor %}
+    </nav>
+    <p class="small text-secondary">{{ t.outcomes_coverage }} {{ t.outcomes_separate }}</p>
+    {% if request.query_params.get('outcome_run') %}<a href="{{ link(outcome_run=none,operation_runs_cursor=none,operation_runs_history=none) }}#operation-outcomes-heading">{{ t.outcomes_back_recent }}</a>{% endif %}
+    {% if outcomes.error %}{{ read_error(outcomes.error,t.outcomes_read_unavailable) }}{% endif %}
+    {% if outcomes.selected %}
+      <p>{{ t.outcomes_selected }}: <code>{{ reference(outcomes.selected) }}</code></p>
+      {% if not outcomes.matched %}<p>{{ t.outcomes_exact_unavailable }}</p>{% endif %}
+    {% endif %}
+    {% for item in outcomes.runs %}{% set run=item.run %}{% set candidate=item.candidate %}
+    <article class="border-top pt-3 mt-3" data-operation-run="{{ run.run_id }}" data-association="{{ item.association }}">
+      <h4 class="h5"><a href="{{ link('processing',record_type='dreams',run_id=run.run_id) }}">{{ t['processing_operation_' ~ run.operation] }} · {{ run.run_id }}</a></h4>
+      <a class="small" href="{{ link(outcome_run=run.run_id,operation_runs_cursor=none,operation_runs_history=none) }}#operation-outcomes-heading">{{ t.outcomes_inspect_run }}</a>
+      <p>{{ t['outcomes_relation_' ~ item.association] }}</p>
+      <dl class="row small">
+        <dt class="col-sm-4">{{ t.outcomes_recorded_state }}</dt><dd class="col-sm-8">{{ t['processing_status_' ~ run.status] }}</dd>
+        <dt class="col-sm-4">{{ t.processing_accepted }}</dt><dd class="col-sm-8">{{ run.accepted_at|display_time }}</dd>
+        <dt class="col-sm-4">{{ t.processing_started }}</dt><dd class="col-sm-8">{{ run.started_at|display_time if run.started_at else t.unknown_value }}</dd>
+        <dt class="col-sm-4">{{ t.processing_completed }}</dt><dd class="col-sm-8">{{ run.completed_at|display_time if run.completed_at else t.unknown_value }}</dd>
+        <dt class="col-sm-4">{{ t.processing_attempts }}</dt><dd class="col-sm-8">{{ run.attempt_count }}</dd>
+      </dl>
+      {% if run.target %}<p>{{ t.processing_target }}: <code>{{ reference(run.target) }}</code></p>{% endif %}
+      {% if run.tag_target %}<p>{{ t.outcomes_tag_basis }}: <code>{{ run.tag_target.target|tojson }}</code>{% if run.tag_target.basis_ref %} · {{ reference(run.tag_target.basis_ref) }}{% endif %}</p>{% endif %}
+      {% if run.outcome %}<p>{{ t['outcomes_outcome_' ~ run.outcome] }}</p>{% endif %}
+      {% if run.reused %}<p>{{ t.outcomes_reused }}</p>{% endif %}
+      {% if run.reason %}<p class="text-break">{{ run.reason }}</p>{% endif %}
+      {% if run.error %}<p>{{ t.outcomes_failure }} <code>{{ t.get('outcomes_error_' ~ run.error,t.outcomes_error_unknown) }}</code></p>{% endif %}
+      {% if run.status in ['queued','running'] %}<p>{{ t.outcomes_executor_unavailable }}</p>{% endif %}
+      {% if run.candidate %}
+      <p>{{ t.outcomes_recorded_candidate }}: <code>{{ run.candidate.kind }}/{{ run.candidate.candidate_id }}@{{ run.candidate.version }}</code></p>
+      {% if item.candidate_error %}{{ read_error(item.candidate_error,t.outcomes_candidate_unavailable) }}
+      {% elif candidate %}
+        <p>{{ t.outcomes_current_candidate }}: {{ t['review_' ~ candidate.status] }} · {{ t.review_version }} {{ candidate.version }}</p>
+        {% if candidate.version != run.candidate.version %}<p>{{ t.outcomes_candidate_changed }}</p>{% endif %}
+        <p><a href="{{ link('review',candidate_id=candidate.candidate_id,candidate_kind=candidate.candidate_kind,resource_type='all',review_status=candidate.status) }}">{{ t.processing_open_candidate }} →</a></p>
+        {% if candidate.result_artifact %}
+          <p>{{ t.outcomes_published }}: <code>{{ reference(candidate.result_artifact) }}</code></p>
+          {% if item.result_error %}{{ read_error(item.result_error,t.outcomes_result_unavailable) }}{% elif item.result_url %}<a href="{{ item.result_url }}">{{ t.outcomes_open_result }} →</a>{% endif %}
+        {% elif candidate.candidate_kind == 'tag' and candidate.status == 'approved' and candidate.result %}<p>{{ t.outcomes_tags_saved }}</p><pre>{{ candidate.result|tojson(indent=2) }}</pre>
+        {% else %}<p>{{ t.outcomes_not_published }}</p>{% endif %}
+      {% endif %}
+      {% endif %}
+      <details class="mt-2"><summary>{{ t.outcomes_budget }}</summary><dl class="row small mt-2">
+        <dt class="col-sm-6">{{ t.outcomes_model_calls }}</dt><dd class="col-sm-6">{{ run.usage.model_calls }} / {{ run.budget.max_model_calls }}</dd>
+        <dt class="col-sm-6">{{ t.outcomes_timeout }}</dt><dd class="col-sm-6">{{ run.budget.timeout_seconds }}</dd>
+      </dl></details>
+    </article>
+    {% else %}{% if not outcomes.error %}<p>{{ t.outcomes_no_records }}</p>{% endif %}{% endfor %}
+    {{ pagination(outcomes.pager,t) }}
+    {% endif %}
+    <p class="small text-secondary mt-4">{{ t.outcomes_evidence_origin }} {{ t.outcomes_read_at }}: {{ outcomes.read_at|display_time }}</p>
+    <p class="small text-secondary">{{ t.outcomes_historical }}</p>
+  </div>
+</div>
+{% endif %}

@@ -1351,6 +1351,7 @@ DREAM_RUNS_TABLE = Table(
     UniqueConstraint("scope_id", "principal_key", "idempotency_key", name="uq_pc_dream_idempotency"),
     Index("ix_pc_dream_dispatch", "scope_id", "operation", "status", "request_generation"),
     Index("ix_pc_dream_list", "scope_id", "accepted_at", "run_id"),
+    Index("ix_pc_dream_operation_list", "scope_id", "operation", "accepted_at", "run_id"),
     CheckConstraint("generation >= 0", name="ck_pc_dream_generation"),
     Index("ix_pc_dream_runs_proposal_fingerprint", "scope_id", "principal_key", "proposal_fingerprint"),
 )

@@ -299,6 +299,8 @@ head is `v1_5_0_005`; Source collection follows it as `v1_5_0_006`. Development 
 plans using the former PR-based Source collection identity must be rebuilt; there is no runtime alias. The 1.6.0 release freezes the following cumulative migration as `v1_6_0`; new drafts depend on that head. No production
 draft is introduced without a real storage change.
 
+The shared unpublished revision `000` also adds the Dream history index `(scope_id, operation, accepted_at, run_id)`. It preserves retained Run payloads and supports bounded operation-filtered history reads; existing managed databases require explicit migration.
+
 ## Initialization and maintenance ownership
 
 The following inventory identifies the owners of schema changes and projection repair. "Managed" means that the
