@@ -12,7 +12,7 @@ status: community
 
 - 已安装并可运行的 PowerContext。从与下方插件相同的 `master` revision 安装 CLI 和本地 Server：
   `uv tool install --python ">=3.11,<3.15" --force "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@master"`。
-  然后执行 `powercontext server run` 启动 Server。
+  然后执行 `powercontext server run` 启动 Server。从源码安装会编译原生分析器，需要 Rust 1.97.1 和平台 C 工具链（Windows 使用 MSVC）；见[平台支持](../get-started/install-and-run.md#平台支持)。
 - 支持用户级 hooks、MCP 和 Skills 的 WorkBuddy 桌面应用。
 - 用于执行 hook 进程的 Python 3.11 或更新版本，且已加入 `PATH`。
 - 本仓库中的插件目录：`integrations/workbuddy/plugins/powercontext`。

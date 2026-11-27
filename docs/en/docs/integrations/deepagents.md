@@ -21,6 +21,8 @@ middleware passed to `create_deep_agent` wraps only the main agent's model calls
 
 Install the adapter package; it depends on `powercontext-langchain` and `deepagents`.
 
+This installs from source and compiles the native analyzer, so it needs Rust 1.97.1 and a platform C toolchain (MSVC on Windows); see [Platform support](../get-started/install-and-run.md#platform-support).
+
 ```bash
 uv tool install --python ">=3.11,<3.15" --force "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@master"
 powercontext server run

@@ -21,6 +21,8 @@ middleware 只包住主 agent 的模型调用。经由 `context=` 传入的 `Pow
 
 安装适配层包；它依赖 `powercontext-langchain` 与 `deepagents`。
 
+此命令从源码安装并编译原生分析器，需要 Rust 1.97.1 和平台 C 工具链（Windows 使用 MSVC）；见[平台支持](../get-started/install-and-run.md#平台支持)。
+
 ```bash
 uv tool install --python ">=3.11,<3.15" --force "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@master"
 powercontext server run

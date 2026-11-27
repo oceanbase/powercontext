@@ -13,6 +13,7 @@ status: community
 - A running PowerContext installation. Install the CLI and local Server from the same `master` revision used below:
   `uv tool install --python ">=3.11,<3.15" --force "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@master"`.
   Start the Server with `powercontext server run`.
+  Installing from source compiles the native analyzer and needs Rust 1.97.1 and a platform C toolchain (MSVC on Windows); see [Platform support](../get-started/install-and-run.md#platform-support).
 - WorkBuddy with user-level hooks, MCP, and Skills support (the desktop app).
 - Python 3.11 or newer on `PATH` for the hook process.
 - The plugin directory from this repository: `integrations/workbuddy/plugins/powercontext`.

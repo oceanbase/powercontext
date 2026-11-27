@@ -19,6 +19,8 @@ checkpointer。
 
 middleware 源码独立打包为 `powercontext-langchain`，要求 LangChain 1.3 或更高版本。目前该包没有发布到 PyPI：
 
+此命令从源码安装并编译原生分析器，需要 Rust 1.97.1 和平台 C 工具链（Windows 使用 MSVC）；见[平台支持](../get-started/install-and-run.md#平台支持)。
+
 ```bash
 uv tool install --python ">=3.11,<3.15" --force "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@master"
 powercontext server run
