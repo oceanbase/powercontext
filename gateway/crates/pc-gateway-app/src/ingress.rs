@@ -327,6 +327,7 @@ pub async fn extract(
             match format {
                 Format::Chat => OutputProtocol::OpenAiChat,
                 Format::Responses => OutputProtocol::OpenAiResponses,
+                Format::Messages => OutputProtocol::AnthropicMessages,
             },
         ),
     }
@@ -444,6 +445,9 @@ fn extraction_result(format: &Format, mut response: Value) -> Option<Value> {
                 .as_str()?
                 .to_owned()
         }
+        // Prefix retention covers the Chat and Responses routes only; Messages
+        // responses never reach extraction.
+        Format::Messages => return None,
     };
     Some(json!({"text": text, "usage": usage, "model": response.get("model")}))
 }
