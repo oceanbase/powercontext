@@ -84,7 +84,8 @@ powercontext server run --env-file powercontext.env
 ```
 
 When first enabling Generation processing on an existing persistent database, startup may report
-`Processing configuration differs from the completed maintenance manifest`. First inspect the read-only plan with
+`incompatible_processing_configuration: Processing ownership differs from the migrated declaration`. First inspect the
+read-only plan with
 `powercontext server processing-migrate --action plan --env-file powercontext.env`. Back up the database and stop the
 old Server, Workers, and writes before running `apply` and `verify` with a new migration ID as described in
 [Artifact processing migration](../operate/artifact-processing-migration.md). Start the new configuration only after
