@@ -1293,6 +1293,17 @@ fn omit_prepared_tool_output(output: &mut Value, text_kind: &str) -> bool {
     false
 }
 
+// The prompt hook prefixes its complete recall envelope with this exact guidance.
+// Keep arbitrary developer text and malformed envelopes subject to Core's check.
+fn is_codex_prompt_hook_context(text: &str) -> bool {
+    const GUIDANCE: &str = concat!(
+        "PowerContext task outcome guidance: Only when the task is actually complete or explicitly interrupted, ",
+        "call the PowerContext record_task_outcome tool if available. Skip it on intermediate turns. ",
+        "A prompt boundary, Stop, or session end alone is insufficient. Report the actual status and omit secrets.\n\n"
+    );
+    is_prepared_plugin_text(text.strip_prefix(GUIDANCE).unwrap_or(text))
+}
+
 fn omit_responses_plugin_context(input: &mut Vec<Value>) -> bool {
     let mut omitted = false;
     input.retain_mut(|item| {
@@ -1307,7 +1318,7 @@ fn omit_responses_plugin_context(input: &mut Vec<Value>) -> bool {
         {
             if item["content"]
                 .as_str()
-                .is_some_and(is_prepared_plugin_text)
+                .is_some_and(is_codex_prompt_hook_context)
             {
                 omitted = true;
                 return false;
@@ -1316,7 +1327,7 @@ fn omit_responses_plugin_context(input: &mut Vec<Value>) -> bool {
                 let count = parts.len();
                 parts.retain(|part| {
                     part["type"].as_str() != Some("input_text")
-                        || !part["text"].as_str().is_some_and(is_prepared_plugin_text)
+                        || !part["text"].as_str().is_some_and(is_codex_prompt_hook_context)
                 });
                 if parts.len() != count {
                     omitted = true;
