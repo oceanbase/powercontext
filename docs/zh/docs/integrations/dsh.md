@@ -508,7 +508,7 @@ DeepSeek Harness 的模型请求经过 PowerContext gateway 时，gateway 为每
 
 DSH 直接调用模型时，gateway 不承载这些流量，请保留插件的默认值。要让 DSH 经过 gateway，
 按下面的步骤配置 Core、DSH、插件和 gateway。这些步骤适用于 DSH `0.2.2-rc.1` 及之后的 0.2.2 预发布版本，
-它们通过自定义 `llm-pi-ai` provider 访问 gateway。更早的 DSH 版本不允许插件发送下文所述的会话请求头。
+它们通过自定义 `llm-pi-ai` provider 访问 gateway。DSH 0.2.1 及更早的版本不允许插件发送下文所述的会话请求头。
 
 ### 选择 Core 目标
 

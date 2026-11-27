@@ -601,8 +601,8 @@ fails before the model receives it.
 
 Keep the plugin defaults where DSH calls its model directly, because the gateway does not carry that traffic. To route
 DSH through the gateway, configure Core, DSH, the plugin, and the gateway as follows. These steps apply to DSH
-`0.2.2-rc.1` and later 0.2.2 prereleases, which reach the gateway through a custom `llm-pi-ai` provider. Earlier DSH
-releases do not let the plugin send the conversation header described below.
+`0.2.2-rc.1` and later 0.2.2 prereleases, which reach the gateway through a custom `llm-pi-ai` provider. DSH 0.2.1
+and earlier do not let the plugin send the conversation header described below.
 
 ### Choose the Core target
 
