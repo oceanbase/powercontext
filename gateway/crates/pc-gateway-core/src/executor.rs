@@ -657,14 +657,16 @@ where
                                 }
                             }
                             Ok(r) => {
-                                if r
-                                    .reason_codes
+                                if r.reason_codes
                                     .iter()
                                     .any(|reason| reason == CONTEXT_REFRESH_REQUIRED)
                                 {
                                     if let Some((conversation, anchors)) = replay {
-                                        self.replays
-                                            .forget_matching(&call.scope_id, conversation, anchors);
+                                        self.replays.forget_matching(
+                                            &call.scope_id,
+                                            conversation,
+                                            anchors,
+                                        );
                                     }
                                 }
                                 return ManagedOutcome::withheld(r.reason_codes);

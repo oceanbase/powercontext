@@ -4345,9 +4345,11 @@ async fn a_refresh_required_with_history_recovers_the_tool_continuation() {
     let renderer = pc_gateway_protocol::OpenAiChatRenderer;
     let follow_up = |step| {
         let mut call = tool_loop_call("first question", 1, false);
-        call.request
-            .messages
-            .extend(tool_loop_call("next question", step, false).request.messages);
+        call.request.messages.extend(
+            tool_loop_call("next question", step, false)
+                .request
+                .messages,
+        );
         call
     };
     let run = |call| executor.run(request_control(), call, &renderer, &NoopEvidenceSink);
