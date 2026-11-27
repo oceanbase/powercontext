@@ -33,7 +33,7 @@
 - 审阅 CLI 回执明确区分导入审阅的 `unresolved`、正式 `formal_unresolved` 和 `formal_human_review_required`，
   并提供 `reviewer_kind` / `score_kind`，诊断未决为零不代表正式通过。
 - 特定运行的人工抽查声明和 v6 assistant 原子事实审阅迁至独立、保留原字节的[历史审阅补充包](HISTORICAL_REVIEWS.zh.md)。
-  原结果包及校验和不变，补充包尚未公开发布。读取器通过 `POWERCONTEXT_EVIDENCE_ADMISSION_REVIEWS` 定位，
+  原结果包及校验和不变，补充包下载地址和成员哈希见上述说明。读取器通过 `POWERCONTEXT_EVIDENCE_ADMISSION_REVIEWS` 定位，
   先验字节哈希再解析，保留原有清单、结果、队列和状态绑定；显式自选声明须同时给出 CLI 校验和。
   普通协议和合成测试无需补充包。当前 v6/v7 身份声明预期哈希，不冒充历史执行身份或未发生的验证。
 - 当前运行时回归与显式历史指令/schema 夹具分开；不改历史响应、评分、门槛或未知用量。
@@ -161,7 +161,9 @@ uv run --project evaluation --locked pytest -c evaluation/pyproject.toml \
 
 用户报告的完整评估目标通过结果包含根环境 recovery/budget 测试组。未提供全量计数和日志；
 该通过状态来自用户报告，与上面实际执行的定向结果分别记录。冻结协议字节、历史报告和决策门槛保持不变。
-审阅补充包仅在本地，尚无公开地址；发布时须上传并下载核验，原结果包及历史执行身份保持不变。
+[审阅补充包](https://github.com/user-attachments/files/35418256/powercontext-2074-review-receipts-0c467f5b.tar.gz)已公开发布。
+下载副本与原始压缩包逐字节相同，两份收据校验和已核验通过。
+[补充包说明](HISTORICAL_REVIEWS.zh.md)保留来源修订、压缩包和成员哈希；原结果包及历史执行身份保持不变。
 
 历史结果工具通过 `POWERCONTEXT_EVIDENCE_ADMISSION_RESULTS` 定位，运行专属审阅通过独立的
 `POWERCONTEXT_EVIDENCE_ADMISSION_REVIEWS` 定位。默认合成测试无需证据包、凭据或网络。

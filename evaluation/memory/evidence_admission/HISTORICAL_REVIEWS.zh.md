@@ -7,10 +7,12 @@
 
 ## 补充包可用性与核验
 
-补充包已在本地准备，尚未发布，目前没有公开下载地址。
-发布时须上传这份原始压缩包，并核验下载副本后再填写地址。
+补充包已在[发布评论](https://github.com/oceanbase/powercontext/pull/2541#issuecomment-7166559603)中公开提供。
+下载副本已确认与原始压缩包逐字节相同，两份审阅收据的校验和也已核验通过。
 
 - 压缩包：`powercontext-2074-review-receipts-0c467f5b.tar.gz`
+- 下载：[powercontext-2074-review-receipts-0c467f5b.tar.gz](https://github.com/user-attachments/files/35418256/powercontext-2074-review-receipts-0c467f5b.tar.gz)
+- 压缩包大小：3,220 字节
 - SHA-256：`6237f127b295f506ee8e7bc06e0f165ac71db38874428c7c7f047e50d4af7cee`
 - 来源修订：`0c467f5b79fc1abec3236dd730d9e91227c217dd`
 - 包内根目录：`historical-reviews/v1/`
@@ -24,9 +26,12 @@
 读取器采用代码或 v6 冻结合同固定的预期校验和，不信任索引自行声明的校验和。
 原结果包中的声明与这里的来源声明不是同一字节版本，不能直接替换。
 
-将 `REVIEW_ARCHIVE` 设为本地压缩包，`REVIEW_EXTRACT` 设为仓库外的解压目录：
+将 `REVIEW_ARCHIVE` 设为本地下载文件路径，`REVIEW_EXTRACT` 设为仓库外的解压目录。
+下载、核验并解压补充包：
 
 ```bash
+curl --fail --location --output "$REVIEW_ARCHIVE" \
+  'https://github.com/user-attachments/files/35418256/powercontext-2074-review-receipts-0c467f5b.tar.gz'
 printf '%s  %s\n' '6237f127b295f506ee8e7bc06e0f165ac71db38874428c7c7f047e50d4af7cee' "$REVIEW_ARCHIVE" | sha256sum --check -
 tar -tzf "$REVIEW_ARCHIVE"
 mkdir -p "$REVIEW_EXTRACT"

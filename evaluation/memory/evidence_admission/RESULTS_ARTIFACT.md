@@ -3,7 +3,9 @@
 Generated reports, run records, and historical result bundles are published separately from the code pull request.
 Run-specific review receipts are also external: the [review supplement](HISTORICAL_REVIEWS.md)
 ([中文](HISTORICAL_REVIEWS.zh.md)) preserves the source declaration and v6 assistant reviews byte for byte.
-That supplement is prepared locally and not yet published; the original result archive below is unchanged.
+The [published supplement](https://github.com/user-attachments/files/35418256/powercontext-2074-review-receipts-0c467f5b.tar.gz)
+has separate [checksum and extraction instructions](HISTORICAL_REVIEWS.md); its downloaded bytes and both receipt hashes
+have been verified. The original result archive below is unchanged.
 The archive preserves the former `results/` directory layout so historical hash checks and replay commands can use it
 without rewriting any receipt.
 

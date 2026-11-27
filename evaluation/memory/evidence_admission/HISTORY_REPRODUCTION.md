@@ -46,7 +46,9 @@ The current code tree keeps run-specific review judgements in the separate [revi
 not in reusable manifests or package sources. v6 replay loads its original assistant receipt through
 `POWERCONTEXT_EVIDENCE_ADMISSION_REVIEWS` and checks the unchanged contract's `atom_reviews_sha256`.
 Human sample declarations are pinned by byte checksum before their original result/queue/state bindings are checked.
-The supplement is prepared locally and has not been published; there is no download URL yet.
+The [published supplement](https://github.com/user-attachments/files/35418256/powercontext-2074-review-receipts-0c467f5b.tar.gz)
+is available from the [publication comment](https://github.com/oceanbase/powercontext/pull/2541#issuecomment-7166559603).
+Follow the [download, checksum and extraction instructions](HISTORICAL_REVIEWS.md) before using the receipts.
 
 Current v6/v7 dependency identities describe the implementation and the expected external receipt checksum.
 They do not claim receipt verification until a replay actually reads it, and they do not match the original code

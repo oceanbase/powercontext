@@ -37,8 +37,8 @@ false_attribution 和 entailed_atom_ids 均已逐项确认。无法唯一定位�
 | validation-reordered-sources | 4 | 0 | 4 |
 | 合计 | **46** | **29** | **17** |
 
-原始声明通过[历史审阅补充包](HISTORICAL_REVIEWS.zh.md)提供，包内路径为
-`historical-reviews/v1/human-sample-review-v1.json`，按固定 SHA-256 校验后读取；补充包尚未公开发布。
+原始声明通过已发布的[历史审阅补充包](HISTORICAL_REVIEWS.zh.md)提供，可[下载补充包](https://github.com/user-attachments/files/35418256/powercontext-2074-review-receipts-0c467f5b.tar.gz)。
+包内路径为 `historical-reviews/v1/human-sample-review-v1.json`，按固定 SHA-256 校验后读取。
 逐条候选调用选择见 [coverage.json](RESULTS_ARTIFACT.md) (归档内路径: `results/v20-human-sample/coverage.json`)。
 单独的17条待确认清单见 [pending-mappings.json](RESULTS_ARTIFACT.md) (归档内路径: `results/v20-human-sample/pending-mappings.json`)。
 `resolution=ambiguous` 的 `possible_records` 列出所有匹配项；补充 arm 和 input_index 后才能唯一绑定。
@@ -114,8 +114,9 @@ mixed-scaffolding 的2K三次调用具有一个输入哈希、一个请求哈希
 
 ## 可重现命令
 
-以下在当前仓库执行。先按证据包说明配置 `POWERCONTEXT_EVIDENCE_ADMISSION_RESULTS` 和
-`POWERCONTEXT_EVIDENCE_ADMISSION_REVIEWS`；后者对应包含原始声明的补充包，不是原结果包。
+以下在当前仓库执行。先按[原结果包说明](RESULTS_ARTIFACT.md)和[审阅补充包说明](HISTORICAL_REVIEWS.zh.md)
+分别配置 `POWERCONTEXT_EVIDENCE_ADMISSION_RESULTS` 和 `POWERCONTEXT_EVIDENCE_ADMISSION_REVIEWS`；
+后者对应包含原始声明的补充包，不是原结果包。
 `REVIEW_SESSION` 由操作者设置为仓库外原私有会话，
 `REVIEW_OUTPUT` 为不存在的新目录，不能位于原会话内。
 

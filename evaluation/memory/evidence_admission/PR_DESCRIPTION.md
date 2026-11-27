@@ -56,7 +56,7 @@ output schema, model settings, and per-input budgets; input admission and genera
   require its extracted `results` directory through `POWERCONTEXT_EVIDENCE_ADMISSION_RESULTS`.
   Documentation links point to the archive instructions and retain each member path without restoring result files.
 - Run-specific human sample declarations and v6 assistant atom reviews are externalized into a separate,
-  byte-preserving review supplement. Its checksum, member hashes and unpublished status are documented in
+  byte-preserving review supplement. Its published download, checksum and member hashes are documented in
   [Historical review receipts](HISTORICAL_REVIEWS.md). The original result archive and checksum are unchanged.
   Review readers use `POWERCONTEXT_EVIDENCE_ADMISSION_REVIEWS`, verify receipt bytes before parsing and retain
   original manifest/result/queue/state bindings. Default synthetic tests and protocol loading need no supplement.
@@ -204,8 +204,10 @@ these checks do not establish new real-provider acceptance or corrected historic
 The contributor's full evaluation-target result includes the root-environment recovery/budget group. Full-run
 counts and logs were not supplied; the passing status is contributor-reported and is distinct from the focused
 execution results above. Frozen protocol bytes, historical reports, and decision thresholds remain unchanged.
-The receipt supplement is local only and has no public download URL. Publishing it requires upload and download
-checksum verification; original result archives and historical execution identities must remain unchanged.
+The [receipt supplement](https://github.com/user-attachments/files/35418256/powercontext-2074-review-receipts-0c467f5b.tar.gz)
+is published. A downloaded copy matches the original archive byte for byte, and both receipt checksums were verified.
+The [supplement instructions](HISTORICAL_REVIEWS.md) retain the source revision, archive hash and member hashes;
+original result archives and historical execution identities remain unchanged.
 
 Historical result helpers use `POWERCONTEXT_EVIDENCE_ADMISSION_RESULTS`; run-specific review receipts use the separate
 `POWERCONTEXT_EVIDENCE_ADMISSION_REVIEWS` root. Default synthetic tests need neither archive, credentials nor network.

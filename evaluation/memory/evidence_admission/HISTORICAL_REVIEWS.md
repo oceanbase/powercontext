@@ -8,10 +8,12 @@ The original [result archive](RESULTS_ARTIFACT.md), its bytes and checksum remai
 
 ## Supplement availability and verification
 
-The supplement is prepared locally and has not been published. There is no public download URL yet.
-Publication requires uploading this exact archive and verifying a downloaded copy before adding its URL.
+The supplement is available in the [publication comment](https://github.com/oceanbase/powercontext/pull/2541#issuecomment-7166559603).
+A downloaded copy was verified byte for byte against the original archive. Both review-receipt checksums were also verified.
 
 - Archive: `powercontext-2074-review-receipts-0c467f5b.tar.gz`
+- Download: [powercontext-2074-review-receipts-0c467f5b.tar.gz](https://github.com/user-attachments/files/35418256/powercontext-2074-review-receipts-0c467f5b.tar.gz)
+- Archive size: 3,220 bytes
 - SHA-256: `6237f127b295f506ee8e7bc06e0f165ac71db38874428c7c7f047e50d4af7cee`
 - Source revision: `0c467f5b79fc1abec3236dd730d9e91227c217dd`
 - Member root: `historical-reviews/v1/`
@@ -25,9 +27,12 @@ Publication requires uploading this exact archive and verifying a downloaded cop
 The loader uses the expected receipt checksum pinned by code or the frozen v6 contract, not an untrusted index value.
 The declaration in the original result archive is not a byte-identical substitute for this source declaration.
 
-Set `REVIEW_ARCHIVE` to the local archive and `REVIEW_EXTRACT` to an external extraction directory:
+Set `REVIEW_ARCHIVE` to the local download path and `REVIEW_EXTRACT` to an external extraction directory.
+Download, verify and extract the supplement:
 
 ```bash
+curl --fail --location --output "$REVIEW_ARCHIVE" \
+  'https://github.com/user-attachments/files/35418256/powercontext-2074-review-receipts-0c467f5b.tar.gz'
 printf '%s  %s\n' '6237f127b295f506ee8e7bc06e0f165ac71db38874428c7c7f047e50d4af7cee' "$REVIEW_ARCHIVE" | sha256sum --check -
 tar -tzf "$REVIEW_ARCHIVE"
 mkdir -p "$REVIEW_EXTRACT"
