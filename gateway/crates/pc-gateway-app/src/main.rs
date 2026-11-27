@@ -25,6 +25,7 @@
 //! PC_GATEWAY_POLICY_VERSION、PC_GATEWAY_MAX_ATTEMPTS、PC_GATEWAY_DEGRADE。
 
 mod authentication;
+mod codex_task_outcome_guidance;
 mod connection;
 mod evidence_body;
 mod evidence_diagnostics;

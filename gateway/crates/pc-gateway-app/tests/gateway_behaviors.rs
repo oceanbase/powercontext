@@ -24,8 +24,10 @@ use std::{
     time::Duration,
 };
 
-const CODEX_TASK_OUTCOME_GUIDANCE: &str =
-    include_str!("../src/codex_task_outcome_guidance.txt").trim_ascii_end();
+#[path = "../src/codex_task_outcome_guidance.rs"]
+mod codex_task_outcome_guidance;
+
+use codex_task_outcome_guidance::CODEX_TASK_OUTCOME_GUIDANCE;
 
 struct Reply {
     body: Vec<u8>,

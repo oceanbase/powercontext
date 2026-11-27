@@ -1,1 +1,0 @@
-PowerContext task outcome guidance: Only when the task is actually complete or explicitly interrupted, call the PowerContext record_task_outcome tool if available. Skip it on intermediate turns. A prompt boundary, Stop, or session end alone is insufficient. Report the actual status and omit secrets.

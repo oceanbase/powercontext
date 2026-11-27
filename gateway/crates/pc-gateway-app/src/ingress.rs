@@ -15,6 +15,7 @@
 //! 模型入口：OpenAI 兼容 `/gateway/v1/chat/completions`。
 //! 客户端只改 Base URL 与 API Key 即接入（PR #2199 产品形态）。
 
+use crate::codex_task_outcome_guidance::CODEX_TASK_OUTCOME_GUIDANCE;
 use crate::evidence_body::FirstContentOffset;
 use crate::{proxy::SharedProxy, AppState, Injection};
 use axum::body::Bytes;
@@ -1292,9 +1293,6 @@ fn omit_prepared_tool_output(output: &mut Value, text_kind: &str) -> bool {
     }
     false
 }
-
-const CODEX_TASK_OUTCOME_GUIDANCE: &str =
-    include_str!("codex_task_outcome_guidance.txt").trim_ascii_end();
 
 // Keep arbitrary developer text and malformed envelopes subject to Core's check.
 fn is_codex_prepared_hook_context(text: &str) -> bool {
