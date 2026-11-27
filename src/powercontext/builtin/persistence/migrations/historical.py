@@ -187,7 +187,7 @@ def _scopes(connection: Connection) -> None:
     from powercontext.builtin.persistence.scope_search_schema import ensure_scope_search_schema
 
     # Early releases used arbitrary scope IDs before Scope became a stored domain.
-    # Retain those exact IDs; no historical title, owner or timestamp is invented.
+    # Retain those exact IDs; use the scope ID as default title and summary.
     scope_ids = set()
     for name in inspect(connection).get_table_names():
         if name.startswith("pc_") and "scope_id" in {c["name"] for c in inspect(connection).get_columns(name)}:
@@ -201,10 +201,22 @@ def _scopes(connection: Connection) -> None:
         connection.execute(
             text(
                 "INSERT INTO pc_scopes (scope_id,title,summary,scope_id_search,title_search,summary_search,version) "
-                "SELECT :scope,'','',:scope,'','',1 WHERE NOT EXISTS (SELECT 1 FROM pc_scopes WHERE scope_id=:scope)"
+                "SELECT :scope,:scope,:scope,:scope,:scope,:scope,1 WHERE NOT EXISTS (SELECT 1 FROM pc_scopes WHERE scope_id=:scope)"
             ),
             {"scope": scope_id},
         )
+    connection.execute(
+        text(
+            "UPDATE pc_scopes SET title = scope_id, title_search = scope_id "
+            "WHERE title IS NULL OR trim(title) = ''"
+        )
+    )
+    connection.execute(
+        text(
+            "UPDATE pc_scopes SET summary = scope_id, summary_search = scope_id "
+            "WHERE summary IS NULL OR trim(summary) = ''"
+        )
+    )
     finish(ensure_scope_search_schema(pinned(connection)))
 
 

@@ -127,7 +127,14 @@ class ScopeRepository:
                 )
             )
         ).mappings()
-        return tuple(dict(row) for row in rows)
+        return tuple(
+            {
+                "scope_id": str(row["scope_id"]),
+                "title": str(row["title"]) if (row["title"] and str(row["title"]).strip()) else str(row["scope_id"]),
+                "parent_scope_id": None if row["parent_scope_id"] is None else str(row["parent_scope_id"]),
+            }
+            for row in rows
+        )
 
     async def list(
         self, connection: AsyncConnection, /, *, exclude_external_reference_kind: str | None = None
@@ -244,8 +251,8 @@ class ScopeRepository:
         return tuple(
             ScopeDescriptor(
                 scope_id=scope_id,
-                title=str(row["title"]),
-                summary=str(row["summary"]),
+                title=str(row["title"]) if (row["title"] and str(row["title"]).strip()) else scope_id,
+                summary=str(row["summary"]) if (row["summary"] and str(row["summary"]).strip()) else scope_id,
                 parent_scope_id=None if row["parent_scope_id"] is None else str(row["parent_scope_id"]),
                 context_references=tuple(context_references[scope_id]),
                 external_references=tuple(external_references[scope_id]),

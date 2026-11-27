@@ -6364,7 +6364,12 @@ def _binding_administrative_check(
 
 
 def _scope_descriptor_response(value: DomainScopeDescriptor) -> ScopeDescriptor:
-    return ScopeDescriptor.model_validate(value.model_dump(mode="json"))
+    dumped = value.model_dump(mode="json")
+    if not dumped.get("title") or not str(dumped["title"]).strip():
+        dumped["title"] = value.scope_id
+    if not dumped.get("summary") or not str(dumped["summary"]).strip():
+        dumped["summary"] = value.scope_id
+    return ScopeDescriptor.model_validate(dumped)
 
 
 def _domain_binding_key(value: ScopeBindingKey) -> DomainScopeBindingKey:

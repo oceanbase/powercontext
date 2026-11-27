@@ -478,3 +478,92 @@ def test_data_plane_rejects_an_unknown_scope(tmp_path) -> None:
 
     assert response.status_code == 404
     assert response.json()["error"]["code"] == "scope_not_found"
+
+
+def test_historical_scope_backfill_upgrades_without_422(tmp_path) -> None:
+    from sqlalchemy import create_engine
+
+    from powercontext.builtin.persistence.migrations import historical
+
+    db_path = tmp_path / "historical_upgrade.db"
+    settings = ServerSettings(
+        database=SQLiteConfig(url=f"sqlite+aiosqlite:///{db_path}"),
+        mcp=McpConfig(enabled=False),
+    )
+
+    with TestClient(create_server_app(settings=settings)) as client:
+        valid = client.post(
+            "/v1/scopes",
+            json={"title": "Valid Scope", "summary": "Valid Metadata", "idempotency_key": "valid-1"},
+        )
+        assert valid.status_code == 201
+        valid_id = valid.json()["scope_id"]
+
+    # Historical state: a source carries a scope ID before Scope was stored as separate entity
+    historical_scope_id = "scp_historical_legacy"
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            "INSERT INTO pc_sources (scope_id, source_type, source_id, payload, journal_position) "
+            "VALUES (?, 'message', 'msg-1', ?, 1)",
+            (historical_scope_id, b'{"text":"Legacy content"}'),
+        )
+        conn.execute("DELETE FROM pc_scopes WHERE scope_id = ?", (historical_scope_id,))
+
+    # Upgrade through historical migration
+    engine = create_engine(f"sqlite:///{db_path}")
+    with engine.begin() as connection:
+        historical._scopes(connection)
+
+    # Calling unfiltered GET /v1/scopes must return 200 with both scopes
+    with TestClient(create_server_app(settings=settings)) as client:
+        response = client.get("/v1/scopes", params={"limit": 50})
+        assert response.status_code == 200
+        items = {item["scope_id"]: item for item in response.json()["items"]}
+
+        assert valid_id in items
+        assert items[valid_id]["title"] == "Valid Scope"
+        assert items[valid_id]["summary"] == "Valid Metadata"
+
+        assert historical_scope_id in items
+        assert items[historical_scope_id]["title"] == historical_scope_id
+        assert items[historical_scope_id]["summary"] == historical_scope_id
+
+
+def test_ready_database_repairs_invalid_descriptors(tmp_path) -> None:
+    db_path = tmp_path / "ready_repair.db"
+    settings = ServerSettings(
+        database=SQLiteConfig(url=f"sqlite+aiosqlite:///{db_path}"),
+        mcp=McpConfig(enabled=False),
+    )
+
+    with TestClient(create_server_app(settings=settings)) as client:
+        valid = client.post(
+            "/v1/scopes",
+            json={"title": "Keep Valid", "summary": "Keep Summary", "idempotency_key": "valid-2"},
+        )
+        assert valid.status_code == 201
+        valid_id = valid.json()["scope_id"]
+
+    # Inject an invalid descriptor with empty strings into a ready database
+    invalid_id = "scp_needs_repair"
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            "INSERT INTO pc_scopes (scope_id, title, summary, scope_id_search, title_search, summary_search, version) "
+            "VALUES (?, '', '', ?, '', '', 1)",
+            (invalid_id, invalid_id),
+        )
+
+    # Server restarts against the ready database; repair path recovers the descriptor
+    with TestClient(create_server_app(settings=settings)) as client:
+        response = client.get("/v1/scopes", params={"limit": 50})
+        assert response.status_code == 200
+        items = {item["scope_id"]: item for item in response.json()["items"]}
+
+        assert valid_id in items
+        assert items[valid_id]["title"] == "Keep Valid"
+        assert items[valid_id]["summary"] == "Keep Summary"
+
+        assert invalid_id in items
+        assert items[invalid_id]["title"] == invalid_id
+        assert items[invalid_id]["summary"] == invalid_id
+
