@@ -218,7 +218,7 @@ Gemini 关闭 Gateway 上下文注入。Claude CLI 只接受新的单轮文本�
 
 Rust Gateway 在启动时通过 `/v1/capabilities` 查询一次 `context_protection`。模型入口要求 OpenAPI 定义的完整 `ContextProtectionCapabilities` DTO： `check_versions`、`payload_versions`、`reuse_versions`、`reuse_families`、`enforcing`，以及包含 `payload_bytes`、`binding_bytes`、`prepared_contexts`、`dependencies`、`send_seconds` 和 `correlate_seconds` 的 `limits`。即使存在输入容量，任何必需字段缺失或类型错误也会暂停准入。 check/payload 版本必须包含 v1，且 `limits.payload_bytes` 必须是正整数。查询失败、版本不兼容、DTO 不完整或容量无效时，两个模型入口返回 HTTP 503 暂停服务； `/healthz` 和已配置的 Core/MCP 转发仍可访问。恢复 Core 契约后，重启 Gateway 以重新发现容量。每次模型发送和响应释放仍须分别通过 Core 检查。若 Core 在 Gateway 重启前收紧限制，这次检查可以拒绝调用；增大 Core 限制不会在重启前放大 Gateway 启动时确认的额度。启动诊断通过固定消息区分传输失败、查询被拒、响应畸形/不完整、版本不兼容和容量无效，不输出 Core 错误值。
 
-`PC_GATEWAY_MAX_BODY_BYTES` 默认 16 MiB（1 MiB = 1,048,576 字节）。模型输入的有效上限是该配置、 Core 声明的输入容量和当前完整正文解析器 1 MiB 硬上限的最小值。部署上限为零时，模型输入禁用，返回 HTTP 503 和 `input_capacity_disabled`，不表示 Core 能力查询失败。 Content-Length 预检和 chunked 正文实际读取都受限。执行器还会在 prepared context 注入/重放、 steering 和协议渲染后，检查最终 UTF-8 JSON 正文字节数。入口正文超限返回 HTTP 413；最终正文超限返回 HTTP 403 和 `request_payload_too_large`，不会发送模型。放大配置不能绕过解析器硬上限。
+`PC_GATEWAY_MAX_BODY_BYTES` 默认 16 MiB（1 MiB = 1,048,576 字节）。模型输入的有效上限是该配置、 Core 声明的输入容量和当前完整正文解析器 1 MiB 硬上限的最小值。部署上限为零时，模型输入禁用，返回 HTTP 503 和 `input_capacity_disabled`，不表示 Core 能力查询失败。 Content-Length 预检和 chunked 正文实际读取都受限。执行器还会在 prepared context 注入/重放、 固定指令注入 和协议渲染后，检查最终 UTF-8 JSON 正文字节数。Chat 和 Responses 的固定指令都计入有效输入上限。客户端正文在注入前未超限，也可能因加入固定指令而超限。入口正文超限返回 HTTP 413；最终正文超限返回 HTTP 403 和 `request_payload_too_large`，不会发送模型。放大配置不能绕过解析器硬上限。
 
 固定长度和 chunked/SSE provider 响应的默认缓冲上限均为 1 MiB。传输器显式设置的缓冲上限可以进一步收紧该值。输入 `payload_bytes` **不声明**输出额度。 Core 的响应配置、内容检查以及 JSON/RPC 包装仍有各自的限制，因此低于 1 MiB 的正文也可能被拒绝。 UDS 客户端的 8 MiB RPC 响应解析上限属于另一个传输方向，不是模型正文容量。
 

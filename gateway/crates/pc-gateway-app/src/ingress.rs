@@ -1591,6 +1591,9 @@ pub(crate) mod tests {
     #[derive(Default)]
     pub(crate) struct Receivers {
         pub admissions: std::sync::atomic::AtomicUsize,
+        checks: std::sync::Mutex<Vec<serde_json::Value>>,
+        upstream_requests: std::sync::Mutex<Vec<Bytes>>,
+        refuse_send: std::sync::atomic::AtomicBool,
         pub sends: std::sync::atomic::AtomicUsize,
         pub response_bytes: std::sync::atomic::AtomicUsize,
         pub blocked_phase: std::sync::atomic::AtomicUsize,
@@ -1653,6 +1656,13 @@ pub(crate) mod tests {
     async fn lifecycle_router_with_evidence(
         evidence: Arc<dyn pc_gateway_evidence::EvidenceSink>,
     ) -> (axum::Router, tokio::task::JoinHandle<()>, Arc<Receivers>) {
+        lifecycle_router_with_steering(evidence, None).await
+    }
+
+    async fn lifecycle_router_with_steering(
+        evidence: Arc<dyn pc_gateway_evidence::EvidenceSink>,
+        steering: Option<String>,
+    ) -> (axum::Router, tokio::task::JoinHandle<()>, Arc<Receivers>) {
         use axum::routing::post;
         use pc_gateway_core::{Executor, HttpGateClient};
         use pc_gateway_types::{CheckPhase, ContextCheckRequest};
@@ -1661,6 +1671,7 @@ pub(crate) mod tests {
             .route(
                 "/v1/context/check",
                 post(|State(received): State<Arc<Receivers>>, Json(request): Json<ContextCheckRequest>| async move {
+                    received.checks.lock().unwrap().push(serde_json::to_value(&request).unwrap());
                     let phase = match request {
                         ContextCheckRequest::BeforeSend { .. } => CheckPhase::BeforeSend,
                         ContextCheckRequest::BeforeRelease { .. } => CheckPhase::BeforeRelease,
@@ -1673,21 +1684,28 @@ pub(crate) mod tests {
                         received.entered.notify_one();
                         std::future::pending::<()>().await;
                     }
-                    Json(serde_json::json!({
+                    let refused = phase == CheckPhase::BeforeSend
+                        && received.refuse_send.load(std::sync::atomic::Ordering::SeqCst);
+                    let mut verdict = serde_json::json!({
                         "schema": pc_gateway_types::CONTEXT_CHECK_SCHEMA,
                         "phase": phase,
-                        "decision": "allow",
-                        "reason_codes": [],
+                        "decision": if refused { "block" } else { "allow" },
+                        "reason_codes": if refused { vec!["forbidden_value"] } else { vec![] },
                         "coverage": {"profile": "text-and-tools.v1", "complete": true},
                         "policy_version": "test",
-                        "valid_until": "2999-01-01T00:00:00Z",
-                        "binding": "test-binding"
-                    }))
+                        "valid_until": "2999-01-01T00:00:00Z"
+                    });
+                    if !refused {
+                        verdict["binding"] = serde_json::json!("test-binding");
+                    }
+                    Json(verdict)
                 }),
             )
             .route(
                 "/v1/chat/completions",
-                post(|State(received): State<Arc<Receivers>>, Json(request): Json<serde_json::Value>| async move {
+                post(|State(received): State<Arc<Receivers>>, body: Bytes| async move {
+                    let request: serde_json::Value = serde_json::from_slice(&body).unwrap();
+                    received.upstream_requests.lock().unwrap().push(body);
                     received.sends.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                     if received.blocked_phase.load(std::sync::atomic::Ordering::SeqCst) == 3 {
                         received.entered.notify_one();
@@ -1749,7 +1767,7 @@ pub(crate) mod tests {
             inject_responses: false,
             inject_code: false,
             sediment: false,
-            steering: None,
+            steering,
             prefix_extraction: false,
             default_scope: "test".into(),
             max_body_bytes: 1024 * 1024,
@@ -1763,6 +1781,74 @@ pub(crate) mod tests {
             ],
         );
         (router, server, received)
+    }
+
+    #[tokio::test]
+    async fn chat_http_steering_is_checked_before_send() {
+        use tower::ServiceExt;
+        for (steering, blocked) in [
+            (None, false),
+            (Some("PC2424_HTTP"), false),
+            (Some("PC2424_HTTP"), true),
+        ] {
+            let (router, server, received) = lifecycle_router_with_steering(
+                Arc::new(pc_gateway_evidence::NoopEvidenceSink),
+                steering.map(str::to_owned),
+            )
+            .await;
+            received
+                .refuse_send
+                .store(blocked, std::sync::atomic::Ordering::SeqCst);
+            let response = router
+                .oneshot(
+                    axum::http::Request::builder()
+                        .method("POST")
+                        .uri("/gateway/v1/chat/completions")
+                        .header("authorization", "Bearer gateway-key")
+                        .header("content-type", "application/json")
+                        .body(axum::body::Body::from(
+                            serde_json::json!({
+                                "model": "test", "messages": [
+                                    {"role": "system", "content": "base"},
+                                    {"role": "user", "content": "hello"}
+                                ]
+                            })
+                            .to_string(),
+                        ))
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(
+                response.status(),
+                if blocked {
+                    StatusCode::FORBIDDEN
+                } else {
+                    StatusCode::CREATED
+                }
+            );
+            let checks = received.checks.lock().unwrap();
+            let checked_body = checks[0]["payload"]["body"].as_str().unwrap();
+            let checked: serde_json::Value = serde_json::from_str(checked_body).unwrap();
+            let messages = checked["messages"].as_array().unwrap();
+            assert_eq!(messages.len(), 2);
+            if let Some(text) = steering {
+                assert_eq!(
+                    messages[0],
+                    serde_json::json!({"role": "system", "content": format!("base\n\n{text}")})
+                );
+            }
+            let sent = received.upstream_requests.lock().unwrap();
+            if blocked {
+                assert!(sent.is_empty());
+                assert_eq!(checks.len(), 1);
+            } else {
+                assert_eq!(sent.len(), 1);
+                assert_eq!(sent[0].as_ref(), checked_body.as_bytes());
+                assert_eq!(checks.len(), 2);
+            }
+            server.abort();
+        }
     }
 
     struct PendingBody {
