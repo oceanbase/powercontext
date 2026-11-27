@@ -1024,7 +1024,7 @@ where
             None => {
                 let result = self.prepare_turn(call, recording, execution).await;
                 match (result, replay) {
-                    (Some((prepared, expires_at)), Some((conversation, (&(_, anchor), _)))) => {
+                    (Some((prepared, expires_at)), Some((conversation, (&(_, anchor), history)))) => {
                         let now = now_ms();
                         let expires = expires_at
                             .as_deref()
@@ -1036,6 +1036,7 @@ where
                             anchor,
                             prepared,
                             expires,
+                            history,
                         )
                     }
                     (Some((prepared, _)), None) => prepared,
