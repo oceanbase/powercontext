@@ -405,9 +405,17 @@ def _signal_and_verify_closed_admission(process, address, bypass, body, path):
             f"Content-Length: {len(payload)}\r\n\r\n".encode()
             + payload
         )
-        assert bypass.recv(1024) == b""
+        response_started = bypass.recv(1, socket.MSG_PEEK)
     except (BrokenPipeError, ConnectionResetError):
-        pass
+        return started
+    if response_started:
+        # An accepted connection can still report the shutdown decision after
+        # the listener closes. Require a complete refusal once bytes arrive.
+        with http.client.HTTPResponse(bypass) as response:
+            response.begin()
+            assert response.status == 503, response.status
+            assert response.getheader("Connection", "").lower() == "close"
+            assert json.loads(response.read()) == {"decision": "gateway_shutdown", "model_send": "no_send"}
     return started
 
 
@@ -473,7 +481,9 @@ def test_real_core_uds_staged_shutdown(tmp_path, short_tmp_path, gateway_binary,
                 request_started = time.monotonic()
                 connection = _pending_shutdown_request(address, mode, process, provider, body, path)
                 bypass = socket.create_connection(address, timeout=2)
+                sends_before_shutdown = provider.sends
                 started = _signal_and_verify_closed_admission(process, address, bypass, body, path)
+                assert provider.sends == sends_before_shutdown, "shutdown admitted a new model request"
                 if mode == "normal":
                     assert process.poll() is None, "handed-off model call must keep draining"
                     provider.release.set()

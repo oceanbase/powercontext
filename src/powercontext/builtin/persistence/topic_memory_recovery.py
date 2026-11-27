@@ -23,6 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncConnection
 from powercontext.builtin.artifacts.topic_memory.processing import (
     TopicMemoryBlockConflictError,
     TopicMemoryBlockNotFoundError,
+    TopicMemoryProcessingStatus,
     TopicMemoryWorkBlock,
 )
 from powercontext.builtin.persistence.cursors import SourceCursorRepository
@@ -45,6 +46,58 @@ from powercontext.builtin.persistence.topic_memory_budget import (
     exhausted_reason,
     load_topic_memory_work_budget,
 )
+
+
+async def read_topic_memory_processing_status(connection: AsyncConnection, scope_id: str, binding_name: str):
+    """Project existing evidence from one snapshot without observing or repairing it.
+
+    A spent allowance alone cannot attest that its final Worker stopped. Only a
+    retained diagnostic matching the current frontier and attempt proves a block.
+    """
+    cursor = await SourceCursorRepository().load(connection, scope_id, binding_name)
+    after = 0 if cursor is None else cursor.cursor.sequence
+    head = await connection.scalar(select(HEADS.c.position).where(HEADS.c.scope_id == scope_id)) or 0
+    target = await connection.scalar(
+        select(TARGETS.c.source_through).where(TARGETS.c.scope_id == scope_id, TARGETS.c.binding_name == binding_name)
+    )
+    budget = await load_topic_memory_work_budget(connection, scope_id, binding_name, after)
+    block = None
+    through = head if target is None else target
+    if budget is not None and through > after and (reason := exhausted_reason(budget)):
+        row = (
+            (
+                await connection.execute(
+                    select(BLOCKS).where(
+                        BLOCKS.c.scope_id == scope_id,
+                        BLOCKS.c.binding_name == binding_name,
+                        BLOCKS.c.source_after == after,
+                        BLOCKS.c.attempt_id == budget["attempt_id"],
+                        BLOCKS.c.error_code == reason,
+                        BLOCKS.c.retried_at.is_(None),
+                    )
+                )
+            )
+            .mappings()
+            .one_or_none()
+        )
+        if row is not None:
+            block = _block(row)
+    status = TopicMemoryProcessingStatus(
+        state="blocked" if block is not None else "idle" if after >= head and target is None else "pending",
+        source_cursor=after,
+        source_head=head,
+        target_source_through=target,
+        block=block,
+    )
+    return {
+        **status.model_dump(mode="json"),
+        "budget": None
+        if budget is None
+        else {
+            name: budget[name]
+            for name in ("source_after", "source_through", "attempt_source_through", "attempts", "requests", "tokens")
+        },
+    }
 
 
 async def observe_topic_memory_block(

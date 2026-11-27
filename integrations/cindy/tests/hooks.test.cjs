@@ -236,6 +236,41 @@ test('a capture that never answers cannot withdraw context that was already prep
   assert.equal(outcome.capture, 'unknown');
 });
 
+function recallQueries() {
+  const backend = server();
+  const queries = [];
+  const request = async (url, init) => {
+    if (url.endsWith('/context/prepare')) queries.push(JSON.parse(init.body).query);
+    return backend.request(url, init);
+  };
+  return { queries, request };
+}
+
+test('a long prompt recalls with its end instead of skipping recall', async () => {
+  const question = 'Why does the cache migration fail after the schema upgrade?';
+  const text = `${Array.from({ length: 400 }, (_, line) => `2026-11-22T08:00:${line} worker: retrying cache shard`).join('\n')}\n\n${question}`;
+  const backend = recallQueries();
+  const outcome = await runHook({ ...input, text }, undefined, backend.request);
+  assert.equal(outcome.prepare, 'ready');
+  assert.equal(outcome.content, 'Deployment codename: QUARTZ-8413.');
+  assert.equal(backend.queries.length, 1);
+  const [query] = backend.queries;
+  assert.ok(query.endsWith(question));
+  assert.ok(query.length < text.length);
+  assert.ok(Array.from(query).length <= 8192);
+  assert.ok(Buffer.byteLength(query, 'utf8') <= 8192);
+});
+
+test('the recall query follows the shared bound for every fixture case', async () => {
+  const fixture = JSON.parse(readFileSync(resolve(__dirname, '../../../tests/fixtures/recall_query_bound.json'), 'utf8'));
+  const expand = segments => segments.map(({ text, repeat = 1 }) => text.repeat(repeat)).join('');
+  for (const { id, prompt, query } of fixture.cases) {
+    const backend = recallQueries();
+    await runHook({ ...input, text: expand(prompt) }, undefined, backend.request);
+    assert.deepEqual(backend.queries, [expand(query)], id);
+  }
+});
+
 test('oversized rewrites allow the original message without truncating it', async () => {
   const adapter = host(config, async () => ({ ok: true, result: { ok: true, prepare: 'ready', content: 'history' } }));
   await adapter.dispatch({ ...event, data: { ...event.data, text: 'x'.repeat(15990) } });

@@ -341,6 +341,26 @@ def test_valid_emoji_and_punctuation_content_has_empty_lexical_projection(tmp_pa
         assert exact.status_code == 200 and exact.json()["title"] == "😀"
 
 
+def test_consecutive_manual_replaces_link_only_the_previous_revision(tmp_path):
+    with TestClient(_app(tmp_path)) as client:
+        scope = _scope(client, "lineage")
+        response = _create(client, scope, "amber")
+        path = response.headers["Location"]
+        artifact_id = response.json()["artifact_id"]
+        for word in ("cobalt", "silver", "zircon"):
+            previous = response.json()["revision"]
+            response = client.put(
+                path, headers={"If-Match": response.headers["ETag"]}, json={"content": _content(word)}
+            )
+            assert response.status_code == 200, response.text
+            assert response.json()["artifacts"] == [
+                {"family": "topic-memory", "artifact_id": artifact_id, "revision": previous}
+            ]
+            assert len(response.json()["sources"]) == 1
+        exact = [client.get(f"{path}/revisions/{revision}").json()["artifacts"] for revision in (1, 2, 3, 4)]
+        assert [[ref["revision"] for ref in refs] for refs in exact] == [[], [1], [2], [3]]
+
+
 def test_write_embeddings_are_attributed_to_the_operation_scope(tmp_path):
     embedding = UsageEmbeddings()
     # Check attribution, not how quickly a loaded runner can persist telemetry.

@@ -95,10 +95,18 @@ does not justify a revision. The model can correct the decision within its reque
 redundant revision is exhausted, an exactly matching proposal keeps the target through `noop`; otherwise the proposal's
 current content, published identities and evidence remain available for later comparisons and publication. This
 conservative recovery can retain a translated duplicate, but does not discard potentially new facts or block later
-Sources. It also applies when the request budget is one. Other invalid decisions still prevent publication and cursor
-advancement. Different wording still requires the model to judge meaning; this check does not provide cross-language
-semantic search or restrict explicit record edits. Source content remains untrusted evidence, not output-policy
-configuration.
+Sources. It also applies when the request budget is one. Different wording still requires the model to judge meaning;
+this check does not provide cross-language semantic search or restrict explicit record edits. Source content remains
+untrusted evidence, not output-policy configuration.
+
+Automatic reconciliation also rejects a `revise` whose combined inputs do not hold exactly one published identity: two
+unpublished candidates, or a working item that already holds one published identity meeting another. The model can
+correct the decision to `create` or `merge` within its request budget. If the last correction still breaks this rule,
+the proposal keeps its current content, published identities and evidence, the compared items stay unchanged, and the
+window continues as if the model had chosen `create`. The correction requests are still spent first. Where the model
+could not label the combination, this can publish a duplicate or leave two memories uncombined; published identities
+are never merged without an explicit `merge` decision. This recovery also applies when the request budget is one. Other
+invalid decisions still prevent publication and cursor advancement.
 
 Every memory changes independently. `forget()` deactivates one memory and `merge()` replaces several memories with a
 new one. `forget()` takes the expected content revision and state version, and `merge()` takes the exact records read

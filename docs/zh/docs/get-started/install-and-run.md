@@ -38,6 +38,14 @@ powershell -ExecutionPolicy Bypass -c "& ([scriptblock]::Create((irm https://pow
 
 默认安装最新稳定版及本地 Server 依赖。完成后继续配置个人服务。连接远程 Server 时，使用 `--profile client`，再按[远程连接指南](../operate/connect-remote-server.md)设置。
 
+传入 `--gateway` 可同时安装与 CLI 版本相同的 [Gateway](../operate/install-gateway.md)：
+
+```bash
+curl -fsSL https://powercontext.oceanbase.io/install.sh | bash -s -- --gateway
+```
+
+脚本在安装前检查平台，再从对应的 GitHub Release 下载压缩包，校验 SHA256 和 `pc-gateway --version` 报告的版本后，把 `pc-gateway` 放在 `powercontext` 所在的目录。该选项只适用于本地 Server 安装（`--profile local`），需要 Linux glibc 2.28+ 或 macOS 15+，Windows 安装脚本不提供该选项。安装 Gateway 不会配置或启动它。
+
 ## 配置并安装个人服务
 
 在 macOS 或 Linux 上配置本地 Server：

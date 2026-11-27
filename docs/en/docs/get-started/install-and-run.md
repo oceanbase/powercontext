@@ -38,6 +38,14 @@ Run the PATH command printed at completion before using `powercontext` or starti
 
 The default installs the latest stable release and local Server dependencies. After installation, continue with the personal-service steps below. For a remote Server, use `--profile client` and follow the [remote connection guide](../operate/connect-remote-server.md).
 
+Pass `--gateway` to also install the [Gateway](../operate/install-gateway.md) with the same version as the CLI:
+
+```bash
+curl -fsSL https://powercontext.oceanbase.io/install.sh | bash -s -- --gateway
+```
+
+The script checks the platform before installing anything, downloads the archive from the matching GitHub Release, verifies its SHA256 and the version that `pc-gateway --version` reports, and places `pc-gateway` in the same directory as `powercontext`. The option applies only to a local Server installation (`--profile local`) and needs Linux glibc 2.28+ or macOS 15+; the Windows installer does not offer it. Installing the Gateway does not configure or start it.
+
 ## Configure and install a personal service
 
 On macOS or Linux, configure a local Server:

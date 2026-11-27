@@ -812,9 +812,12 @@ jobs:
           # Keep an explicitly configured task-reachable proxy; otherwise use the runner's route.
           # The harness passes this secret by reference to Harbor, including during agent setup.
           export POWERCONTEXT_E2E_AGENT_PROXY_URL="${POWERCONTEXT_E2E_AGENT_PROXY_URL:-${https_proxy:-${HTTPS_PROXY:-${http_proxy:-${HTTP_PROXY:-}}}}}"
-          # Use the task-reachable package mirror for the complete pip/uv/Bub installation chain.
-          export POWERCONTEXT_E2E_PYTHON_INDEX_URL="${POWERCONTEXT_E2E_PYTHON_INDEX_URL:-https://mirrors.aliyun.com/pypi/simple/}"
-          export POWERCONTEXT_E2E_DEBIAN_MIRROR_URL="${POWERCONTEXT_E2E_DEBIAN_MIRROR_URL:-https://mirrors.aliyun.com}"
+          # Share package downloads across fresh task containers; keep explicit task mirror overrides.
+          package_cache_endpoint="${PC_CI_PACKAGE_CACHE_ENDPOINT:-}"
+          package_cache_endpoint="${package_cache_endpoint%/}"
+          python_index="${package_cache_endpoint:+${package_cache_endpoint}/pypi/simple/}"
+          export POWERCONTEXT_E2E_PYTHON_INDEX_URL="${POWERCONTEXT_E2E_PYTHON_INDEX_URL:-${python_index:-https://mirrors.aliyun.com/pypi/simple/}}"
+          export POWERCONTEXT_E2E_DEBIAN_MIRROR_URL="${POWERCONTEXT_E2E_DEBIAN_MIRROR_URL:-${package_cache_endpoint:-https://mirrors.aliyun.com}}"
           make harness-compose-acceptance
 
       - name: Upload OceanBase native reports

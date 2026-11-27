@@ -162,11 +162,13 @@ class TopicMemoryManagementWriter:
     ) -> TopicMemory:
         if not isinstance(current, TopicMemory) or not isinstance(content, TopicMemoryProjection):
             raise TypeError("Topic Memory replacement requires a topic and prepared projection")  # noqa: TRY003
+        # Lineage links only the previous exact Revision (publish_revision adds it); older revisions and the
+        # Prompts a Worker used stay reachable through that chain instead of being copied forward.
         published = await self.topics.publish_revision(
             connection,
             scope_id,
             current,
-            TopicMemoryDraft(content=content.content, sources=(direct_source,), artifacts=current.lineage.artifacts),
+            TopicMemoryDraft(content=content.content, sources=(direct_source,)),
             content,
         )
         return published.topic

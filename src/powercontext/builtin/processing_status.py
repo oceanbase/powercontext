@@ -17,7 +17,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from typing import TYPE_CHECKING, Literal
 
@@ -26,6 +26,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from powercontext.artifacts.search import ArtifactSearchExecutionContext
+from powercontext.builtin.artifacts.profile.models import ProfilePolicy
 from powercontext.builtin.artifacts.topic_memory import TOPIC_MEMORY_SOURCE_WINDOW_BINDING
 from powercontext.builtin.dream.bindings import DREAM_OPERATIONS, FAMILY_DREAM_BINDINGS
 from powercontext.builtin.dream.models import DreamCandidateRef, DreamOperation, DreamRecord, DreamRun, DreamStatus
@@ -33,6 +34,7 @@ from powercontext.builtin.persistence.codec import load_model, stored_bytes
 from powercontext.builtin.persistence.cursors import SourceCursorRepository
 from powercontext.builtin.persistence.errors import InvalidStoredColumnError, InvalidStoredPayloadError
 from powercontext.builtin.persistence.processing_intents import ArtifactProcessingIntentRepository
+from powercontext.builtin.persistence.profile import ProfilePolicyRepository
 from powercontext.builtin.persistence.supervision import ArtifactProcessingLeaseRepository, database_utc_now
 from powercontext.builtin.persistence.tables import (
     DREAM_RUNS_TABLE,
@@ -124,7 +126,94 @@ class ArtifactProcessingStatus:
 _SOURCE_FAMILIES = frozenset({"memory", "experience", "profile", "topic-memory"})
 
 
+@dataclass(frozen=True, slots=True)
+class SourceConsumptionStatus:
+    """Source progress and invocation evidence, independent of publication and Dream."""
+
+    scope_id: str
+    family: str
+    binding: str
+    observed_at: datetime
+    progress: ProcessingStatusProgress
+    invocation: ProcessingObservation | None
+    configured: bool | None
+    profile_policy: ProfilePolicy | None = None
+    executor: ProcessingObservation | None = None
+
+    @property
+    def processing_family(self) -> str:
+        return "memory" if self.family == "atomic-memory" else self.family
+
+    @property
+    def input_state(self) -> Literal["pending", "caught_up", "unavailable"]:
+        if self.progress.source_cursor > self.progress.source_head:
+            return "unavailable"
+        return "pending" if self.progress.pending_inputs else "caught_up"
+
+
 class ProcessingStatusInspector:
+    async def source_consumption(
+        self,
+        connection: AsyncConnection,
+        scope_id: str,
+        family: str,
+        /,
+        *,
+        configured: bool | None = None,
+        supervisors: ArtifactProcessingSupervisors | None = None,
+    ) -> SourceConsumptionStatus:
+        """Read one binding in the caller's authorized, consistent snapshot.
+
+        Topic pending/flush and recovery records do not govern these three paths.
+        Missing cursors use the processors' initial position; absent intents stay absent.
+        Unlike the composite status(), this projection reads Profile policy and
+        requires a fresh, exact executor sample without letting sampling failure
+        invalidate durable evidence. Both projections reuse the cursor reader and
+        retained-intent interpretation.
+        """
+        scope_id = validate_scope_id(scope_id)
+        processing_family = "memory" if family == "atomic-memory" else family
+        if processing_family not in {"memory", "profile", "experience"}:
+            raise ValueError("Source consumption requires Memory, Profile or Experience")  # noqa: TRY003
+        if await ScopeRepository().get(connection, scope_id) is None:
+            raise ScopeNotFoundError(scope_id)
+        binding = FAMILY_BINDINGS[processing_family]
+        observed_at = datetime.now(UTC)
+        progress = await self._source_progress(connection, scope_id, binding)
+        intent = await ArtifactProcessingIntentRepository().load(connection, scope_id, binding)
+        policy = await ProfilePolicyRepository().get(connection, scope_id) if processing_family == "profile" else None
+        executor = None
+        if supervisors is not None:
+            try:
+                sampled_at = datetime.now(UTC)
+                executor = next(
+                    (
+                        row
+                        for row in supervisors.observe_scope(scope_id)
+                        if row.binding == binding
+                        and row.family == processing_family
+                        and row.scheduler_observed
+                        and sampled_at - timedelta(seconds=5) <= row.observed_at <= datetime.now(UTC)
+                    ),
+                    None,
+                )
+            except Exception:
+                # Local observer failure cannot erase independently readable durable progress.
+                executor = None
+        return SourceConsumptionStatus(
+            scope_id=scope_id,
+            family="atomic-memory" if processing_family == "memory" else processing_family,
+            binding=binding,
+            observed_at=observed_at,
+            progress=progress,
+            invocation=None
+            if intent is None
+            else project_processing_observation(intent.model_dump(), processing_family, observed_at),
+            configured=configured,
+            profile_policy=policy,
+            executor=executor,
+        )
+
     async def status(
         self,
         connection: AsyncConnection,

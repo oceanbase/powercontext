@@ -1,0 +1,273 @@
+{
+  "format": "powercontext.mysql-state-layouts.v1",
+  "revisions": {
+    "000": {
+      "statements": [
+        "CREATE TABLE pc_atomic_memory_alias (\n\tscope_id VARCHAR(256) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, \n\talias_artifact_id VARCHAR(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, \n\ttarget_artifact_id VARCHAR(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, \n\talias_revision BIGINT NOT NULL, \n\tmerged_state_version BIGINT NOT NULL, \n\tprojection_format VARCHAR(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, \n\tkind MEDIUMTEXT NOT NULL, \n\ttext MEDIUMTEXT NOT NULL, \n\tsearchable_text MEDIUMTEXT NOT NULL, \n\tembedding BLOB, \n\tprofile_fingerprint VARCHAR(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin, \n\tembedding_input_hash VARCHAR(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin, \n\tPRIMARY KEY (scope_id, alias_artifact_id), \n\tCONSTRAINT ck_pc_atomic_memory_alias_revision CHECK (alias_revision > 0), \n\tCONSTRAINT ck_pc_atomic_memory_alias_state_version CHECK (merged_state_version >= 0), \n\tCONSTRAINT ck_pc_atomic_memory_alias_embedding_metadata CHECK ((embedding IS NULL AND profile_fingerprint IS NULL AND embedding_input_hash IS NULL) OR (embedding IS NOT NULL AND profile_fingerprint IS NOT NULL AND embedding_input_hash IS NOT NULL))\n)"
+      ],
+      "changes": [
+        {
+          "pc_atomic_memory_alias": {
+            "columns": {
+              "scope_id": {
+                "type": [
+                  "varchar",
+                  [
+                    "256"
+                  ]
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": "utf8mb4_bin",
+                "extra": []
+              },
+              "alias_artifact_id": {
+                "type": [
+                  "varchar",
+                  [
+                    "128"
+                  ]
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": "utf8mb4_bin",
+                "extra": []
+              },
+              "target_artifact_id": {
+                "type": [
+                  "varchar",
+                  [
+                    "128"
+                  ]
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": "utf8mb4_bin",
+                "extra": []
+              },
+              "alias_revision": {
+                "type": [
+                  "bigint",
+                  []
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              },
+              "merged_state_version": {
+                "type": [
+                  "bigint",
+                  []
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              },
+              "projection_format": {
+                "type": [
+                  "varchar",
+                  [
+                    "64"
+                  ]
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": "utf8mb4_bin",
+                "extra": []
+              },
+              "kind": {
+                "type": [
+                  "mediumtext",
+                  []
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              },
+              "text": {
+                "type": [
+                  "mediumtext",
+                  []
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              },
+              "searchable_text": {
+                "type": [
+                  "mediumtext",
+                  []
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              },
+              "embedding": {
+                "type": [
+                  "blob",
+                  []
+                ],
+                "nullable": true,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              },
+              "profile_fingerprint": {
+                "type": [
+                  "varchar",
+                  [
+                    "64"
+                  ]
+                ],
+                "nullable": true,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": "utf8mb4_bin",
+                "extra": []
+              },
+              "embedding_input_hash": {
+                "type": [
+                  "varchar",
+                  [
+                    "64"
+                  ]
+                ],
+                "nullable": true,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": "utf8mb4_bin",
+                "extra": []
+              }
+            },
+            "primary_key": [
+              [
+                "scope_id",
+                null,
+                "asc"
+              ],
+              [
+                "alias_artifact_id",
+                null,
+                "asc"
+              ]
+            ],
+            "foreign_keys": [],
+            "checks": {
+              "ck_pc_atomic_memory_alias_revision": {
+                "expression": [
+                  "binary",
+                  ">",
+                  [
+                    "column",
+                    "alias_revision"
+                  ],
+                  [
+                    "number",
+                    0
+                  ]
+                ],
+                "enforced": true
+              },
+              "ck_pc_atomic_memory_alias_state_version": {
+                "expression": [
+                  "binary",
+                  ">=",
+                  [
+                    "column",
+                    "merged_state_version"
+                  ],
+                  [
+                    "number",
+                    0
+                  ]
+                ],
+                "enforced": true
+              },
+              "ck_pc_atomic_memory_alias_embedding_metadata": {
+                "expression": [
+                  "binary",
+                  "or",
+                  [
+                    "binary",
+                    "and",
+                    [
+                      "binary",
+                      "and",
+                      [
+                        "is_null",
+                        [
+                          "column",
+                          "embedding"
+                        ]
+                      ],
+                      [
+                        "is_null",
+                        [
+                          "column",
+                          "profile_fingerprint"
+                        ]
+                      ]
+                    ],
+                    [
+                      "is_null",
+                      [
+                        "column",
+                        "embedding_input_hash"
+                      ]
+                    ]
+                  ],
+                  [
+                    "binary",
+                    "and",
+                    [
+                      "binary",
+                      "and",
+                      [
+                        "is_not_null",
+                        [
+                          "column",
+                          "embedding"
+                        ]
+                      ],
+                      [
+                        "is_not_null",
+                        [
+                          "column",
+                          "profile_fingerprint"
+                        ]
+                      ]
+                    ],
+                    [
+                      "is_not_null",
+                      [
+                        "column",
+                        "embedding_input_hash"
+                      ]
+                    ]
+                  ]
+                ],
+                "enforced": true
+              }
+            },
+            "indexes": {}
+          }
+        }
+      ]
+    }
+  }
+}
