@@ -762,31 +762,33 @@ describe('PowerContext Pi extension', () => {
     }
   })
 
-  it('sends no conversation header with a compaction or branch summary', async () => {
+  it('marks a compaction or branch summary internal instead of naming the conversation', async () => {
     vi.stubEnv('POWERCONTEXT_PI_PROMPT_RECALL', 'false')
     vi.stubGlobal('fetch', vi.fn())
     const handlers = installExtension()
     const context = { sessionManager: { getSessionId: () => 'session-42' } }
-    const conversation = async () => {
+    const sent = async () => {
       const headers: Record<string, string | null> = {}
       await handlers.get('before_provider_headers')?.({ headers }, context)
-      return headers['X-PowerContext-Conversation-ID']
+      return headers
     }
+    const turn = { 'X-PowerContext-Conversation-ID': 'session-42' }
+    const summary = { 'X-PowerContext-Turn': 'internal' }
 
     await handlers.get('session_before_compact')?.({ signal: new AbortController().signal }, context)
-    expect(await conversation()).toBeUndefined()
+    expect(await sent()).toEqual(summary)
     await handlers.get('session_compact')?.({}, context)
-    expect(await conversation()).toBe('session-42')
+    expect(await sent()).toEqual(turn)
 
     await handlers.get('session_before_tree')?.({}, context)
-    expect(await conversation()).toBeUndefined()
+    expect(await sent()).toEqual(summary)
     await handlers.get('session_tree')?.({}, context)
-    expect(await conversation()).toBe('session-42')
+    expect(await sent()).toEqual(turn)
 
     // A cancelled or failed compaction emits no end event; the next turn is a conversation turn again.
     await handlers.get('session_before_compact')?.({ signal: new AbortController().signal }, context)
     await handlers.get('turn_start')?.({}, context)
-    expect(await conversation()).toBe('session-42')
+    expect(await sent()).toEqual(turn)
   })
 
   it('does not persist a secret-looking prompt', async () => {

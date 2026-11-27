@@ -189,9 +189,9 @@ pi
 重启后保持不变的会话标识；推导出的 ID 仅在当前 gateway 进程内用于重放准备结果。
 见[网关上下文注入](../operate/deploy-server.md#网关上下文注入)。Pi 会把这个请求头发给处理该请求的任何 provider，
 包括它直接调用的 provider；除非 `PI_CACHE_RETENTION=none`，Pi 自己的 Responses 请求本来就以 `prompt_cache_key`
-携带同一个 ID。Pi 的压缩和分支摘要请求不带这个请求头，因此 gateway 不会把摘要算作该会话的一轮。gateway
-仍会根据摘要请求的开头推导会话，因此可能向摘要提示词注入上下文；为这个提示词召回的 Memory 随后可能出现在 Pi
-存入会话的摘要中。
+携带同一个 ID。Pi 的压缩和分支摘要请求不带会话请求头，package 改为给它们标记 `X-PowerContext-Turn: internal`，
+因此 gateway 不会把摘要算作一轮：不为它准备或注入上下文，不添加成本指导，也不采集它。Core 仍会检查这个请求。
+和会话请求头一样，Pi 会把这个请求头发给处理该请求的任何 provider。
 
 修改这些设置后请重启 Pi。已有会话可以继续：Pi 每一轮都重新构建 system prompt，不把 package 召回的上下文存进会话。
 `pc_prepare_context` 返回过上下文的会话还能继续对话，因为 gateway 会在每一轮的请求中把这个结果替换为占位文本。
@@ -200,7 +200,7 @@ gateway 不会替换这段文本，因此 Core 拒绝该请求，压缩或分支
 
 ### 配置 gateway
 
-以组合部署（`PC_GATEWAY_CORE_UDS`）运行 gateway，它默认注入带有对话 ID 的请求。设置：
+以组合部署（`PC_GATEWAY_CORE_UDS`）运行 gateway，它默认注入带有会话标识的请求。设置：
 
 - `PC_GATEWAY_UPSTREAM_URL_RESPONSES` 设为目标的 `endpoint`，`PC_GATEWAY_UPSTREAM_API_KEY_RESPONSES` 设为供应商密钥。
   未设置 URL 时，Responses 路由返回 HTTP 501 `responses_route_disabled`。
@@ -209,7 +209,7 @@ gateway 不会替换这段文本，因此 Core 拒绝该请求，压缩或分支
 - `PC_GATEWAY_SEDIMENT=on`，让 gateway 把每个完成的轮次采集为 Source。
 - `PC_GATEWAY_DEFAULT_SCOPE` 设为 package 为该 workspace 解析的 Scope，`/pc` 会打印这个 Scope。
 
-gateway 把所有对话都放在 `PC_GATEWAY_DEFAULT_SCOPE` 指定的同一个 Scope 中准备和采集，而不是 package 为每个 workspace
+gateway 把所有会话都放在 `PC_GATEWAY_DEFAULT_SCOPE` 指定的同一个 Scope 中准备和采集，而不是 package 为每个 workspace
 解析的 Scope。gateway 的鉴权设置和请求大小上限见[部署 Server](../operate/deploy-server.md#网关认证边界)。
 
 ## 使用显式工具和命令
@@ -274,7 +274,7 @@ powercontext doctor pi
 | `POWERCONTEXT_PI_SCOPE_ID` | 未设置 | 在 workspace binding 和 Server 默认值之前显式选择已有 Scope |
 | `POWERCONTEXT_PI_AUTHORIZATION` | 未设置 | package HTTP 请求使用的完整 `Bearer <token>` header |
 | `POWERCONTEXT_PI_CAPTURE_PROMPTS` | `true` | 把符合条件的用户提示词采集为 Source 证据 |
-| `POWERCONTEXT_PI_PROMPT_RECALL` | `true` | 为每条提示词准备并添加上下文，并提供 `pc_prepare_context`；`false` 时把提示词时上下文交给 gateway，并发送 gateway 对话请求头 |
+| `POWERCONTEXT_PI_PROMPT_RECALL` | `true` | 为每条提示词准备并添加上下文，并提供 `pc_prepare_context`；`false` 时把提示词时上下文交给 gateway，并发送 gateway 会话请求头和轮次请求头 |
 | `POWERCONTEXT_PI_REQUEST_TIMEOUT_MS` | `3000` | 单请求超时，单位毫秒 |
 | `POWERCONTEXT_PI_HTTP_BUDGET_MS` | `6000` | 召回/采集共享 HTTP 时间预算，单位毫秒 |
 | `POWERCONTEXT_PI_MAX_BYTES` | `8000` | 请求并校验的 PreparedContext byte 上限（`512`–`32768`） |

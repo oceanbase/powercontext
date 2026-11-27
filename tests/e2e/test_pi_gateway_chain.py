@@ -26,6 +26,7 @@ import os
 import shutil
 import subprocess
 import sys
+import time
 from collections.abc import Iterator
 from contextlib import ExitStack
 from dataclasses import dataclass, field
@@ -57,6 +58,7 @@ MODEL = "fixture"
 FACT = "In the synthetic plover project, the verification color is cobalt-417."
 PLUGIN_LABEL = "PowerContext host-supplied context."
 PREPARED_MARKERS = ("BEGIN_POWERCONTEXT_PREPARED_CONTEXT_V1", "BEGIN_POWERCONTEXT_PREPARED_TEXT_V1")
+STEERING = PROJECT_ROOT / "gateway/crates/pc-gateway-app/src/default_steering.txt"
 
 
 @dataclass
@@ -100,6 +102,7 @@ class PiGatewayStack:
     recorder: GatewayRecorder
     core: httpx.Client
     scope_id: str
+    gateway_log: Path
 
     def open(self) -> PiHost:
         """Start a Pi process, which is also a new Pi session."""
@@ -109,6 +112,21 @@ class PiGatewayStack:
         response = self.core.get(f"/v1/scopes/{self.scope_id}/sources")
         response.raise_for_status()
         return response.json()["items"]
+
+    def calls(self, count: int) -> list[dict[str, Any]]:
+        """The gateway's call evidence records, in the order the calls finished, once `count` have been written."""
+        # The gateway writes evidence asynchronously, so the last call's record can trail its response.
+        deadline = time.monotonic() + 10
+        while True:
+            records = []
+            for line in self.gateway_log.read_text(encoding="utf-8").splitlines():
+                if line.startswith("{"):
+                    record = json.loads(line)
+                    if record.get("operation") == "gateway.model_call" and record.get("event") == "call":
+                        records.append(record["evidence"])
+            if len(records) >= count or time.monotonic() >= deadline:
+                return records
+            time.sleep(0.1)
 
 
 def _required(reason: str) -> NoReturn:
@@ -235,7 +253,7 @@ def pi_gateway(tmp_path: Path, short_tmp_path: Path) -> Iterator[PiGatewayStack]
             POWERCONTEXT_PI_PROMPT_RECALL="false",
             POWERCONTEXT_PI_CAPTURE_PROMPTS="false",
         )
-        yield PiGatewayStack(node, workspace, environment, model, recorder, core, scope_id)
+        yield PiGatewayStack(node, workspace, environment, model, recorder, core, scope_id, tmp_path / "gateway.log")
 
 
 def test_pi_turns_take_context_and_capture_only_from_the_gateway(pi_gateway: PiGatewayStack) -> None:
@@ -247,7 +265,7 @@ def test_pi_turns_take_context_and_capture_only_from_the_gateway(pi_gateway: PiG
         pi_gateway.model.plan([("pc_search", {"query": "plover verification color"})])
         session = host.prompt(first)
         host.prompt(second)
-        # Compaction asks the model for a summary, which is not a turn of the gateway conversation.
+        # Compaction asks the model for a summary, which Pi marks as not a turn of the gateway conversation.
         assert host.request("compact")["summary"]
     finally:
         host.close()
@@ -262,20 +280,26 @@ def test_pi_turns_take_context_and_capture_only_from_the_gateway(pi_gateway: PiG
     # Compaction splits the second turn, so Pi asks for a history summary and a turn-prefix summary.
     assert len(sent) == len(pi_gateway.model.requests) == 5
     assert {headers.get("x-powercontext-conversation-id") for headers in sent[:3]} == {session}
-    # The summary requests carry no header, so the gateway does not count a summary as a turn of the session.
+    assert all("x-powercontext-turn" not in headers for headers in sent[:3])
+    # The summary requests name no conversation and are marked internal, so the gateway does not prepare, inject,
+    # steer, or capture them.
     assert all("x-powercontext-conversation-id" not in headers for headers in sent[3:])
+    assert [headers.get("x-powercontext-turn") for headers in sent[3:]] == ["internal", "internal"]
+    assert [call["internal"] for call in pi_gateway.calls(5)] == [False, False, False, True, True]
+    steering = STEERING.read_text(encoding="utf-8").strip()
     turn_requests, summary_requests = pi_gateway.model.requests[:3], pi_gateway.model.requests[3:]
-    # The gateway infers a conversation from a summary request's opening and injects context when preparation finds some.
     for request in summary_requests:
         text = pi_gateway.model.texts(request)
         assert PLUGIN_LABEL not in text
-        assert sum(text.count(marker) for marker in PREPARED_MARKERS) <= 1, "gateway_block_count"
+        assert not any(marker in text for marker in PREPARED_MARKERS), "gateway_block_count"
+        assert steering not in text
 
     for request in turn_requests:
         text = pi_gateway.model.texts(request)
         assert PLUGIN_LABEL not in text
         assert sum(text.count(marker) for marker in PREPARED_MARKERS) == 1, "gateway_block_count"
         assert FACT in text
+        assert steering in text
         # The gateway injects context itself and replaces a prepare result with a placeholder, so Pi does not offer it.
         offered = {tool.get("name") for tool in request.get("tools", [])}
         assert "pc_search" in offered
@@ -289,7 +313,7 @@ def test_pi_turns_take_context_and_capture_only_from_the_gateway(pi_gateway: PiG
     # The next turn's Memory comes from the gateway's block, not only from the earlier pc_search output.
     assert FACT in json.dumps(next_turn[-1], ensure_ascii=False)
 
-    # The gateway, not the package, captured both turns in its configured Scope.
+    # The gateway, not the package, captured both turns in its configured Scope, and no summary as a turn.
     turns = [json.loads(item["content"]) for item in pi_gateway.sources() if item["source_id"].startswith("gw-turn-")]
     assert [turn["user"] for turn in turns] == [first, second]
     assert all(turn["kind"] == "gateway_turn" for turn in turns)

@@ -29,6 +29,8 @@ import { GUIDANCE } from '../src/guidance.ts'
 const CONVERSATION_HEADER = 'X-PowerContext-Conversation-ID'
 // The gateway accepts 1-256 visible ASCII characters and ignores anything else.
 const CONVERSATION_ID = /^[\x21-\x7e]{1,256}$/
+/** Marks a model request that is not a conversation turn, so the gateway neither prepares, injects nor captures it. */
+const TURN_HEADER = 'X-PowerContext-Turn'
 
 function createRuntime(): PluginRuntime {
   const config = resolveConfig()
@@ -78,8 +80,8 @@ export default function powercontextPi(pi: ExtensionAPI): void {
   }
 
   // Compaction and branch summaries are standalone model requests inside the Pi session. They are not turns of the
-  // gateway conversation, so they carry no conversation header. Pi emits no end event for a cancelled or failed
-  // summary, so the next agent turn also ends the summary window.
+  // gateway conversation, so they carry no conversation header and are marked internal. Pi emits no end event for a
+  // cancelled or failed summary, so the next agent turn also ends the summary window.
   let summarizing = false
 
   pi.on('before_agent_start', async (event, ctx) => {
@@ -102,7 +104,10 @@ export default function powercontextPi(pi: ExtensionAPI): void {
   // conversation, so a provider that Pi calls directly does not receive it as a header.
   if (runtime && !runtime.config.promptRecall) {
     pi.on('before_provider_headers', (event, ctx) => {
-      if (summarizing) return
+      if (summarizing) {
+        event.headers[TURN_HEADER] = 'internal'
+        return
+      }
       const conversation = ctx.sessionManager.getSessionId()
       if (CONVERSATION_ID.test(conversation)) event.headers[CONVERSATION_HEADER] = conversation
     })

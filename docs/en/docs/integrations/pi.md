@@ -201,9 +201,10 @@ a conversation identity that stays the same across gateway restarts; an inferred
 serves only preparation replay. See [Gateway context injection](../operate/deploy-server.md#gateway-context-injection).
 Pi sends the header to whichever provider serves the request, including one it calls directly; Pi's own Responses
 requests already carry the same ID as `prompt_cache_key` unless `PI_CACHE_RETENTION=none`. Pi's compaction and
-branch-summary requests carry no header, so the gateway does not count a summary as a turn of the session's
-conversation. The gateway still infers a conversation from a summary request's opening, so it can inject context into
-the summary prompt, and Memory recalled for that prompt can then appear in the summary that Pi stores in the session.
+branch-summary requests carry no conversation header. The package marks them with `X-PowerContext-Turn: internal`
+instead, so the gateway does not count a summary as a turn: it does not prepare or inject context for it, add its cost
+guidance, or capture it. Core still checks the request. Like the conversation header, Pi sends this header to whichever
+provider serves the request.
 
 Restart Pi after changing these settings. An existing session can continue: Pi rebuilds the system prompt for every turn
 and does not store the package's recalled context in the session. A session in which `pc_prepare_context` returned
@@ -292,7 +293,7 @@ changing PowerContext environment variables.
 | `POWERCONTEXT_PI_SCOPE_ID` | unset | Explicit existing Scope before workspace binding and Server default |
 | `POWERCONTEXT_PI_AUTHORIZATION` | unset | Complete `Bearer <token>` header for package HTTP requests |
 | `POWERCONTEXT_PI_CAPTURE_PROMPTS` | `true` | Capture eligible user prompts as Source evidence |
-| `POWERCONTEXT_PI_PROMPT_RECALL` | `true` | Prepare and add context for each prompt and offer `pc_prepare_context`; `false` leaves prompt-time context to the gateway and sends the gateway conversation header |
+| `POWERCONTEXT_PI_PROMPT_RECALL` | `true` | Prepare and add context for each prompt and offer `pc_prepare_context`; `false` leaves prompt-time context to the gateway and sends the gateway conversation and turn headers |
 | `POWERCONTEXT_PI_REQUEST_TIMEOUT_MS` | `3000` | Per-request timeout in milliseconds |
 | `POWERCONTEXT_PI_HTTP_BUDGET_MS` | `6000` | Shared recall/capture HTTP budget in milliseconds |
 | `POWERCONTEXT_PI_MAX_BYTES` | `8000` | Requested and validated PreparedContext byte limit (`512`–`32768`) |
