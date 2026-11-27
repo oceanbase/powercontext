@@ -39,6 +39,7 @@ from __future__ import annotations
 
 import html
 import re
+import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[4]
@@ -67,7 +68,7 @@ def _num(value):
 
 
 class Fig:
-    """A canvas of `w` × `h` units. Every position and size is in those units."""
+    """A canvas `w` units wide and `h` units tall. Every position and size is in those units."""
 
     def __init__(self, w, h, alt=None, caption=None):
         self.w, self.h = w, h
@@ -173,6 +174,51 @@ class Fig:
                 out += f"<span>{_html(value, lang)}</span>"
         return out
 
+    def _wire_layer(self):
+        """The SVG of every connector, under the boxes, with an arrowhead in the wire's tone."""
+        out = [f'<svg viewBox="0 0 {self.w} {self.h}">']
+        for points, cls, head, r in self.wires:
+            tones = cls.split()
+            marker = ""
+            if head:
+                tone = "accent" if "accent" in tones else "muted" if "muted" in tones else ""
+                ref = f"url(#fig-arrow{'-' + tone if tone else ''})"
+                marker = f' marker-end="{ref}"' + (f' marker-start="{ref}"' if head == "both" else "")
+            out.append(f'<path class="{" ".join(["fig-wire", *tones])}" d="{self._path(points, r)}"{marker}/>')
+        out.append("</svg>")
+        return out
+
+    @staticmethod
+    def _cell(value, lang):
+        value = _text(value, lang)
+        if value.startswith("~"):
+            return f"<em>{_html(value[1:], lang)}</em>"
+        if value.startswith("^"):
+            return f"<strong>{_html(value[1:], lang)}</strong>"
+        return f"<span>{_html(value, lang)}</span>"
+
+    def _item(self, item, lang):
+        """One placed element's HTML: a box, card, panel, table of rows, label, chip or dot."""
+        kind, x, y, w, h, a, b, cls = item
+        classes = " ".join([f"fig-{kind}", *cls.split()])
+        style = self._style(x, y, w, h)
+        if kind in ("box", "card"):
+            inner = (f"<b>{_html(a, lang)}</b>" if a is not None else "") + self._lines(b, lang)
+            return f'<div class="{classes}" style="{style}">{inner}</div>'
+        if kind == "panel":
+            inner = ""
+            if a is not None:
+                inner = (
+                    f"<header><b>{_html(a, lang)}</b>" + (f"<span>{_html(b, lang)}</span>" if b else "") + "</header>"
+                )
+            return f'<div class="{classes}" style="{style}">{inner}</div>'
+        if kind == "rows":
+            body = "".join("<div>" + "".join(self._cell(c, lang) for c in row) + "</div>" for row in a)
+            return f'<div class="{classes}" style="{style};--cols:{b}">{body}</div>'
+        if kind in ("label", "chip"):
+            return f'<span class="{classes}" style="{style}">{_html(a, lang)}</span>'
+        return f'<span class="{classes}" style="{style}"></span>'
+
     def render(self, lang):
         """The figure's HTML for one language; no blank lines, so Markdown keeps it as one block."""
         opening = f'<figure class="fig" id="{self.id}">' if self.id else '<figure class="fig">'
@@ -182,47 +228,8 @@ class Fig:
             f'aria-label="{html.escape(_text(self.alt, lang) or "", quote=True)}">',
         ]
         if self.wires:
-            out.append(f'<svg viewBox="0 0 {self.w} {self.h}">')
-            for points, cls, head, r in self.wires:
-                tones = cls.split()
-                marker = ""
-                if head:
-                    tone = "accent" if "accent" in tones else "muted" if "muted" in tones else ""
-                    ref = f"url(#fig-arrow{'-' + tone if tone else ''})"
-                    marker = f' marker-end="{ref}"' + (f' marker-start="{ref}"' if head == "both" else "")
-                out.append(f'<path class="{" ".join(["fig-wire", *tones])}" d="{self._path(points, r)}"{marker}/>')
-            out.append("</svg>")
-        for kind, x, y, w, h, a, b, cls in self.items:
-            classes = " ".join([f"fig-{kind}", *cls.split()])
-            style = self._style(x, y, w, h)
-            if kind in ("box", "card"):
-                inner = (f"<b>{_html(a, lang)}</b>" if a is not None else "") + self._lines(b, lang)
-                out.append(f'<div class="{classes}" style="{style}">{inner}</div>')
-            elif kind == "panel":
-                inner = ""
-                if a is not None:
-                    inner = (
-                        f"<header><b>{_html(a, lang)}</b>"
-                        + (f"<span>{_html(b, lang)}</span>" if b else "")
-                        + "</header>"
-                    )
-                out.append(f'<div class="{classes}" style="{style}">{inner}</div>')
-            elif kind == "rows":
-
-                def cell(value):
-                    value = _text(value, lang)
-                    if value.startswith("~"):
-                        return f"<em>{_html(value[1:], lang)}</em>"
-                    if value.startswith("^"):
-                        return f"<strong>{_html(value[1:], lang)}</strong>"
-                    return f"<span>{_html(value, lang)}</span>"
-
-                body = "".join("<div>" + "".join(cell(c) for c in row) + "</div>" for row in a)
-                out.append(f'<div class="{classes}" style="{style};--cols:{b}">{body}</div>')
-            elif kind in ("label", "chip"):
-                out.append(f'<span class="{classes}" style="{style}">{_html(a, lang)}</span>')
-            elif kind == "dot":
-                out.append(f'<span class="{classes}" style="{style}"></span>')
+            out += self._wire_layer()
+        out += [self._item(item, lang) for item in self.items]
         out.append("</div>")
         if self.caption:
             out.append(f"<figcaption>{_html(self.caption, lang)}</figcaption>")
@@ -251,7 +258,7 @@ def place(post, name, fig):
 
     First run: replaces the image line that references assets/blog/**/<name>.(png|svg),
     uses its alt text as the accessible label, and folds the caption paragraph that
-    follows ("Figure 3: ...", "*图 1｜...*") into <figcaption>. Later runs replace
+    follows ("Figure 3: ...", or "图 1" and a full-width bar) into <figcaption>. Later runs replace
     the figure by its id and keep the label and caption already there. Without an
     image line or figure, it appends nothing and stops with an error: put a line
     `<figure class="fig" id="fig-<name>">` + `</figure>` where the figure belongs.
@@ -279,7 +286,7 @@ def place(post, name, fig):
                 k for k, line in enumerate(lines) if pattern.search(line) and line.lstrip().startswith(("[!", "!["))
             ]
             if len(hits) != 1:
-                raise SystemExit(f"{lang}/{post}: expected one image line for {name}, found {len(hits)}")
+                sys.exit(f"{lang}/{post}: expected one image line for {name}, found {len(hits)}")
             i = hits[0]
             if fig.alt is None:
                 found = re.search(r"!\[([^\]]*)\]", lines[i])

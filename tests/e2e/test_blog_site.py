@@ -25,6 +25,7 @@ import shutil
 import subprocess
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from typing import Any
 
 import pytest
 
@@ -75,6 +76,42 @@ def test_blog_i18n_pagination_and_publishing_contract() -> None:
     subprocess.run([pnpm, "exec", "tsx", "--test", "tests/blog.test.ts"], cwd=WEBSITE, check=True)
 
 
+def _assert_exported_post(
+    post: dict[str, Any], language: str, output: Path, listing: str, authors: dict[str, Any]
+) -> None:
+    article = (output / "blog" / post["slug"] / "index.html").read_text(encoding="utf-8")
+    assert post["title"] in html.unescape(article)
+    assert re.search(rf'href="/{language}/blog/{post["slug"]}/?"', listing)
+    cover_url = "/docs-assets/" + post["cover"].removeprefix("assets/")
+    assert f'src="{cover_url}"' in article
+    assert f'src="{cover_url}"' in listing
+    assert post["coverAlt"] in html.unescape(article)
+    assert (WEBSITE / "out" / cover_url.lstrip("/")).is_file()
+    assert 'property="og:image"' in article
+    if post["slug"] == "building-durable-project-context":
+        # Diagrams are HTML figures; the two product screenshots stay images.
+        for number in range(1, 8):
+            assert f'id="fig-figure-{number}"' in article
+        for number in (8, 9):
+            assert f'src="/docs-assets/blog/{post["slug"]}/figure-{number}.png"' in article
+    for author_id in post["authors"]:
+        _assert_exported_author(authors[author_id], author_id, output, article)
+
+
+def _assert_exported_author(author: dict[str, Any], author_id: str, output: Path, article: str) -> None:
+    assert author["name"] in article
+    profile = (output / "blog/authors" / author_id / "index.html").read_text(encoding="utf-8")
+    assert author["description"] in profile
+    assert author["name"] in profile
+    for platform, handle in author["socials"].items():
+        domain = "github.com" if platform == "github" else "x.com"
+        for page in (article, profile):
+            assert f'href="https://{domain}/{handle}"' in page
+            assert f"@{handle}</span>" in re.sub(r"<!--.*?-->", "", page)
+    assert "GitHub user:" not in article
+    assert "GitHub 用户" not in article
+
+
 @pytest.mark.usefixtures("built_blog_site")
 def test_exported_blog_and_original_pages() -> None:
     content = json.loads((WEBSITE / ".generated/blog.json").read_text(encoding="utf-8"))
@@ -83,34 +120,7 @@ def test_exported_blog_and_original_pages() -> None:
         listing = (output / "blog/index.html").read_text(encoding="utf-8")
         assert f'<html lang="{language}"' in listing
         for post in content[language]["posts"]:
-            article = (output / "blog" / post["slug"] / "index.html").read_text(encoding="utf-8")
-            assert post["title"] in html.unescape(article)
-            assert re.search(rf'href="/{language}/blog/{post["slug"]}/?"', listing)
-            cover_url = "/docs-assets/" + post["cover"].removeprefix("assets/")
-            assert f'src="{cover_url}"' in article
-            assert f'src="{cover_url}"' in listing
-            assert post["coverAlt"] in html.unescape(article)
-            assert (WEBSITE / "out" / cover_url.lstrip("/")).is_file()
-            assert 'property="og:image"' in article
-            if post["slug"] == "building-durable-project-context":
-                # Diagrams are HTML figures; the two product screenshots stay images.
-                for number in range(1, 8):
-                    assert f'id="fig-figure-{number}"' in article
-                for number in (8, 9):
-                    assert f'src="/docs-assets/blog/{post["slug"]}/figure-{number}.png"' in article
-            for author_id in post["authors"]:
-                author = content[language]["authors"][author_id]
-                assert author["name"] in article
-                profile = (output / "blog/authors" / author_id / "index.html").read_text(encoding="utf-8")
-                assert author["description"] in profile
-                assert author["name"] in profile
-                for platform, handle in author["socials"].items():
-                    domain = "github.com" if platform == "github" else "x.com"
-                    for page in (article, profile):
-                        assert f'href="https://{domain}/{handle}"' in page
-                        assert f"@{handle}</span>" in re.sub(r"<!--.*?-->", "", page)
-                assert "GitHub user:" not in article
-                assert "GitHub 用户" not in article
+            _assert_exported_post(post, language, output, listing, content[language]["authors"])
         for route in ("index.html", "docs/index.html", "benchmarks/index.html", "docs/changelog/index.html"):
             document = (output / route).read_text(encoding="utf-8")
             assert re.search(rf'href="/{language}/blog/?"', document)
