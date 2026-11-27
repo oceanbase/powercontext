@@ -372,17 +372,36 @@ fn anthropic_step(block: &Value, role: Role) -> Option<Step> {
     }
 }
 
-// Anthropic binary sources contain bare base64 instead of a data URL.
+// Anthropic binary sources contain bare base64 instead of a data URL, and nest
+// inside tool results (for example a PDF web_fetch_tool_result under `content.source`).
 fn anthropic_content(block: &Value) -> Value {
     let mut projected = without_binary(block);
-    if let Some(source) = projected.get_mut("source") {
-        if source.get("type").and_then(Value::as_str) == Some("base64") {
-            if let Some(length) = source.get("data").and_then(Value::as_str).map(str::len) {
-                source["data"] = format!("[base64 data omitted: {length} bytes]").into();
+    scrub_binary_sources(&mut projected);
+    projected
+}
+
+fn scrub_binary_sources(value: &mut Value) {
+    match value {
+        Value::Object(fields) => {
+            for (key, field) in fields {
+                if key == "source" {
+                    scrub_base64_source(field);
+                } else {
+                    scrub_binary_sources(field);
+                }
             }
         }
+        Value::Array(items) => items.iter_mut().for_each(scrub_binary_sources),
+        _ => {}
     }
-    projected
+}
+
+fn scrub_base64_source(source: &mut Value) {
+    if source.get("type").and_then(Value::as_str) == Some("base64") {
+        if let Some(length) = source.get("data").and_then(Value::as_str).map(str::len) {
+            source["data"] = format!("[base64 data omitted: {length} bytes]").into();
+        }
+    }
 }
 
 fn chat_has_tool_call(message: &Value) -> bool {
@@ -1036,6 +1055,24 @@ mod tests {
                 "{\"logs\":\"Verified account total: 12345.67 USD\",\"type\":\"logs\"}\n[image: https://example.com/plot.png]"})
         );
         assert_eq!(projection.coverage["status"], "complete");
+    }
+
+    #[test]
+    fn nested_anthropic_binary_sources_are_scrubbed() {
+        let block = serde_json::json!({
+            "type": "web_fetch_tool_result", "tool_use_id": "srv_1",
+            "content": {"type": "web_fetch_result", "url": "https://example.com/a.pdf",
+                "source": {"type": "base64", "media_type": "application/pdf", "data": "JVBERi0"}}
+        });
+        let projected = anthropic_content(&block);
+        assert_eq!(
+            projected["content"]["source"]["data"],
+            serde_json::json!("[base64 data omitted: 7 bytes]")
+        );
+        assert_eq!(
+            projected["content"]["source"]["media_type"],
+            serde_json::json!("application/pdf")
+        );
     }
 
     #[test]
