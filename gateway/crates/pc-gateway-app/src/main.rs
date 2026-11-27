@@ -357,8 +357,9 @@ async fn main() {
     }
     let app = middleware::apply_chain(router, chain);
 
-    tracing::info!(%addr, "pc-gateway listening (port takeover mode)");
     let listener = tokio::net::TcpListener::bind(addr).await.expect("bind");
+    let addr = listener.local_addr().expect("listener local address");
+    tracing::info!(%addr, "pc-gateway listening (port takeover mode)");
     let serving = connection::serve(listener, app, async {
         let deadlines = shutdown.signalled().await;
         executor.close_model_admission();
