@@ -25,6 +25,7 @@ from hashlib import sha256
 from pathlib import Path
 from time import monotonic
 from typing import Any
+from uuid import uuid4
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -87,21 +88,33 @@ def _connect(event: SessionStartEvent) -> BootstrapConnection:
     )
 
 
-def _claim_prompt(conversation: str, prompt: str) -> bool:
-    """Record only the latest prompt digest per conversation, atomically across hook processes."""
+def _prompt_state_path() -> Path:
     root = Path(os.environ[STATE_ENV])
     root.mkdir(parents=True, exist_ok=True, mode=0o700)
+    return root / "prompts.sqlite"
+
+
+def _claim_prompt(conversation: str, prompt: str) -> str | None:
+    """Claim the latest prompt atomically and return a token for that specific claim."""
     conversation_key = sha256(conversation.encode()).hexdigest()
     prompt_key = sha256(prompt.encode()).hexdigest()
-    with closing(sqlite3.connect(root / "prompts.sqlite", timeout=1.0)) as database, database:
+    # The first 64 characters stay compatible with rows from older installs.
+    claim = f"{prompt_key}:{uuid4().hex}"
+    with closing(sqlite3.connect(_prompt_state_path(), timeout=1.0)) as database, database:
         database.execute("CREATE TABLE IF NOT EXISTS prompts (conversation TEXT PRIMARY KEY, digest TEXT NOT NULL)")
-        return bool(
-            database.execute(
-                "INSERT INTO prompts VALUES (?, ?) ON CONFLICT(conversation) DO UPDATE SET digest = excluded.digest "
-                "WHERE prompts.digest != excluded.digest",
-                (conversation_key, prompt_key),
-            ).rowcount
-        )
+        changed = database.execute(
+            "INSERT INTO prompts VALUES (?, ?) ON CONFLICT(conversation) DO UPDATE SET digest = excluded.digest "
+            "WHERE substr(prompts.digest, 1, 64) != ?",
+            (conversation_key, claim, prompt_key),
+        ).rowcount
+    return claim if changed else None
+
+
+def _release_prompt(conversation: str, claim: str) -> None:
+    # A late failure cannot delete a newer claim, even if its prompt text matches.
+    conversation_key = sha256(conversation.encode()).hexdigest()
+    with closing(sqlite3.connect(_prompt_state_path(), timeout=1.0)) as database, database:
+        database.execute("DELETE FROM prompts WHERE conversation = ? AND digest = ?", (conversation_key, claim))
 
 
 def _recall(payload: dict[str, Any], cwd: str, conversation: str) -> str | None:
@@ -122,7 +135,8 @@ def _recall(payload: dict[str, Any], cwd: str, conversation: str) -> str | None:
         flush_on_capture=False,
         flush_max_calls=0,
     )
-    if not _claim_prompt(conversation, prompt):
+    claim = _claim_prompt(conversation, prompt)
+    if claim is None:
         return None
     invocation = payload.get("invocationNum")
     prompt_id = str(invocation) if type(invocation) is int else None
@@ -131,6 +145,9 @@ def _recall(payload: dict[str, Any], cwd: str, conversation: str) -> str | None:
     )
     if submitted is None:
         return None
+    if submitted.scope_id is None:
+        # Scope resolution is the only known failure before recall and capture.
+        _release_prompt(conversation, claim)
     for diagnostic in submitted.diagnostics:
         print(json.dumps(diagnostic), file=sys.stderr)
     return submitted.context

@@ -19,6 +19,7 @@ import json
 import os
 import shlex
 import subprocess
+from concurrent.futures import ThreadPoolExecutor
 from hashlib import sha256
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -90,6 +91,7 @@ def lifecycle_server():
     bootstrap_content = "Bootstrap context"
     recall_content = "Recalled context"
     requests = []
+    fail_scope = []
     replies = {
         "/v1/scope-bindings/resolve": {"scope_id": "scope:test"},
         "/v1/scope-bindings": {"scope_id": "scope:test"},
@@ -127,6 +129,10 @@ def lifecycle_server():
         def respond(self):
             payload = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
             requests.append((self.command, self.path, payload, self.headers.get("Authorization")))
+            if self.path == "/v1/scope-bindings/resolve" and fail_scope:
+                fail_scope.pop()
+                self.send_error(503)
+                return
             body = json.dumps(replies[self.path]).encode()
             self.send_response(200)
             self.send_header("Content-Length", str(len(body)))
@@ -139,7 +145,7 @@ def lifecycle_server():
         thread = Thread(target=server.serve_forever, daemon=True)
         thread.start()
         try:
-            yield f"http://127.0.0.1:{server.server_port}", requests
+            yield f"http://127.0.0.1:{server.server_port}", requests, fail_scope
         finally:
             server.shutdown()
             thread.join()
@@ -148,7 +154,7 @@ def lifecycle_server():
 def test_installed_antigravity_hooks_inject_and_capture_once_per_prompt(
     tmp_path, monkeypatch, server_checks, lifecycle_server
 ):
-    endpoint, requests = lifecycle_server
+    endpoint, requests, fail_scope = lifecycle_server
     monkeypatch.setenv("POWERCONTEXT_ANTIGRAVITY_AUTHORIZATION", "fixture-token")
     runner, cli = CliRunner(), create_cli()
     result = runner.invoke(cli, ["setup", "antigravity", "--source", str(ROOT), "--server-url", endpoint, "--json"])
@@ -209,9 +215,27 @@ def test_installed_antigravity_hooks_inject_and_capture_once_per_prompt(
     assert invoke("PreInvocation", {**prompt, "invocationNum": 5}) == inject("Recalled context")
     assert requests[-1][2]["metadata"]["prompt_id"] == "5"
 
+    # A failure before recall/capture must be retryable, but concurrent retries
+    # of the same prompt must still result in one recall and one capture.
+    retry_prompt = {**session, "lastUserInput": "Retry after Scope failure"}
+    fail_scope.append(True)
+    before = len(requests)
+    assert invoke("PreInvocation", {**retry_prompt, "invocationNum": 6}) == {}
+    assert [path for _, path, _, _ in requests[before:]] == ["/v1/scope-bindings/resolve"]
+    before = len(requests)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        attempts = [pool.submit(invoke, "PreInvocation", {**retry_prompt, "invocationNum": n}) for n in (7, 8)]
+        outputs = [attempt.result() for attempt in attempts]
+    assert outputs.count(inject("Recalled context")) == outputs.count({}) == 1
+    assert [path for _, path, _, _ in requests[before:]] == [
+        "/v1/scope-bindings/resolve",
+        "/v1/context/prepare",
+        "/v1/sources/content",
+    ]
+
     monkeypatch.setenv("POWERCONTEXT_ANTIGRAVITY_PROMPT_RECALL", "false")
     result = runner.invoke(cli, ["config", "agent", "antigravity", "--no-capture-prompts", "--json"])
     assert result.exit_code == 0, result.output
     before = len(requests)
-    assert invoke("PreInvocation", {**session, "lastUserInput": "Gateway turn", "invocationNum": 6}) == {}
+    assert invoke("PreInvocation", {**session, "lastUserInput": "Gateway turn", "invocationNum": 9}) == {}
     assert len(requests) == before
