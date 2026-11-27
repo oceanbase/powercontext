@@ -71,7 +71,9 @@ def _javascript(directory: Path, git_root: bool) -> list[str]:
 
 @pytest.fixture(params=[_python, _javascript], ids=["python", "javascript"])
 def helper(request: pytest.FixtureRequest) -> Helper:
-    return request.param
+    run: Helper = request.param
+    # Git prints a Windows path with forward slashes, and every host resolves a path before keying it.
+    return lambda directory, git_root: [os.path.normpath(path) for path in run(directory, git_root)]
 
 
 @pytest.fixture
