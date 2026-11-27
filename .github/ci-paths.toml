@@ -22,7 +22,7 @@ ignore = [
 
 [suites]
 
-knowledge_base = ["frontend/knowledge-base/**", "plugins/knowledge-base/**", "tests/knowledge_base/**", "tests/e2e/test_knowledge_base*.py"]
+knowledge_base = ["evaluation/knowledge_base/**", "frontend/knowledge-base/**", "plugins/knowledge-base/**", "tests/knowledge_base/**", "tests/e2e/test_knowledge_base*.py"]
 
 gateway = ["gateway/**", ".github/workflows/gateway.yml", "tests/e2e/gateway_tck.py"]
 
@@ -258,7 +258,7 @@ suites = ["upgrade", "packaging"]
 # A selected scope must produce successful root jobs, not silent skips.
 # Main's result gate consumes this contract; reusable workflows own their children.
 [checks]
-knowledge_base = ["knowledge-base"]
+knowledge_base = ["knowledge-base", "knowledge-base-evaluation"]
 helm = ["helm"]
 tests = ["tests", "windows-unit-portability"]
 evaluation = ["evaluation-tests"]
@@ -298,5 +298,5 @@ upgrade = ["seekdb-managed-startup"]
 
 # Changes to unrelated root dependencies do not select the optional plugin suite.
 [dependency_suites.knowledge_base]
-extras = ["knowledge-base"]
+extras = ["knowledge-base", "knowledge-base-formats"]
 groups = ["knowledge-base-tests"]
