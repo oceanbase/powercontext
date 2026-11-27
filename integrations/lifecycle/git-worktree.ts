@@ -27,6 +27,8 @@ import { promisify } from 'node:util'
 const GIT_ARGUMENTS = ['rev-parse', '--show-toplevel', '--path-format=absolute', '--git-dir', '--git-common-dir']
 // Older Git does not know --path-format and prints it back as an argument.
 const UNKNOWN_FORMAT = '\n--path-format=absolute'
+// Asked with --git-dir set to the common directory, because a linked worktree always reports itself as non-bare.
+const BARE_ARGUMENTS = ['rev-parse', '--is-bare-repository']
 const runGit = promisify(execFile)
 
 /**
@@ -39,51 +41,64 @@ const runGit = promisify(execFile)
  * and resolves them in this order, so the worktree's own binding wins. Binding and clearing use only the first.
  *
  * A linked worktree's Git directory differs from the common directory, and its main worktree is the parent of the
- * common directory when that directory is named `.git`. A main checkout, including one whose Git directory is separate,
- * gets no second path, and neither do bare repositories and submodules. A linked worktree of a checkout with a separate
- * Git directory falls back to the parent of that directory, since Git records no other main worktree. A second path
- * that is the same directory as `directory` is left out.
+ * common directory when that directory is named `.git` and Git confirms that the repository is not bare. A main
+ * checkout, including one whose Git directory is separate, gets no second path, and neither do bare repositories,
+ * including one in a directory named `.git`, and submodules. A linked worktree of a checkout with a separate Git
+ * directory falls back to the parent of that directory, since Git records no other main worktree. A second path that
+ * is the same directory as `directory` is left out. Both Git calls together stay within `timeout`.
  */
 export async function workspacePaths(directory: string, gitRoot: boolean, timeout: number): Promise<string[]> {
-  try {
-    const { stdout } = await runGit('git', ['-C', directory, ...GIT_ARGUMENTS], {
-      encoding: 'utf8', timeout, windowsHide: true,
-    })
-    return pathsFromGit(directory, stdout, gitRoot)
-  } catch {
-    return pathsFromGit(directory, '', gitRoot)
-  }
+  const deadline = Date.now() + timeout
+  const [top = '', gitDir = '', common = ''] = gitPaths(await gitOutput(['-C', directory, ...GIT_ARGUMENTS], timeout))
+  const first = gitRoot && top ? top : directory
+  const main = mainPath(directory, top, gitDir, common, gitRoot)
+  if (main === undefined) return [first]
+  // An unknown answer leaves the second path out, as for a bare repository.
+  const bare = await gitOutput(['-C', directory, '--git-dir', common, ...BARE_ARGUMENTS], deadline - Date.now())
+  return bare.trim() === 'false' ? [first, main] : [first]
 }
 
 /** Return what `workspacePaths` returns, for hosts whose hooks compute their keys synchronously. */
 export function workspacePathsSync(directory: string, gitRoot: boolean, timeout: number): string[] {
+  const deadline = Date.now() + timeout
+  const [top = '', gitDir = '', common = ''] = gitPaths(gitOutputSync(['-C', directory, ...GIT_ARGUMENTS], timeout))
+  const first = gitRoot && top ? top : directory
+  const main = mainPath(directory, top, gitDir, common, gitRoot)
+  if (main === undefined) return [first]
+  const bare = gitOutputSync(['-C', directory, '--git-dir', common, ...BARE_ARGUMENTS], deadline - Date.now())
+  return bare.trim() === 'false' ? [first, main] : [first]
+}
+
+// Return what Git prints, or an empty string when it fails or time is up.
+async function gitOutput(args: string[], timeout: number): Promise<string> {
+  if (timeout <= 0) return ''
   try {
-    const stdout = execFileSync('git', ['-C', directory, ...GIT_ARGUMENTS], {
-      encoding: 'utf8', timeout, windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'],
-    })
-    return pathsFromGit(directory, stdout, gitRoot)
+    return (await runGit('git', args, { encoding: 'utf8', timeout, windowsHide: true })).stdout
   } catch {
-    return pathsFromGit(directory, '', gitRoot)
+    return ''
   }
 }
 
-function pathsFromGit(directory: string, output: string, gitRoot: boolean): string[] {
+function gitOutputSync(args: string[], timeout: number): string {
+  if (timeout <= 0) return ''
+  try {
+    return execFileSync('git', args, {
+      encoding: 'utf8', timeout, windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'],
+    })
+  } catch {
+    return ''
+  }
+}
+
+// Return the top level and the absolute Git and common directories in Git's output, each empty when unknown.
+function gitPaths(output: string): string[] {
   const lines = output.replace(/\r\n/gu, '\n').replace(/\n+$/u, '')
   const commonSplit = lines.lastIndexOf('\n')
   const rest = commonSplit < 0 ? '' : lines.slice(0, commonSplit)
   const gitDirSplit = rest.lastIndexOf('\n')
-  let head = gitDirSplit < 0 ? '' : rest.slice(0, gitDirSplit)
-  let gitDir = rest.slice(gitDirSplit + 1)
-  let common = lines.slice(commonSplit + 1)
-  if (head.endsWith(UNKNOWN_FORMAT)) {
-    head = head.slice(0, -UNKNOWN_FORMAT.length)
-    gitDir = ''
-    common = ''
-  }
-  const top = head.trim()
-  const first = gitRoot && top ? top : directory
-  const main = mainPath(directory, top, gitDir, common, gitRoot)
-  return main === undefined ? [first] : [first, main]
+  const head = gitDirSplit < 0 ? '' : rest.slice(0, gitDirSplit)
+  if (head.endsWith(UNKNOWN_FORMAT)) return [head.slice(0, -UNKNOWN_FORMAT.length).trim(), '', '']
+  return [head.trim(), rest.slice(gitDirSplit + 1), lines.slice(commonSplit + 1)]
 }
 
 function mainPath(directory: string, top: string, gitDir: string, common: string, gitRoot: boolean): string | undefined {

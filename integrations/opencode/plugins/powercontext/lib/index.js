@@ -2447,6 +2447,7 @@ const GIT_ARGUMENTS = [
 	"--git-common-dir"
 ];
 const UNKNOWN_FORMAT = "\n--path-format=absolute";
+const BARE_ARGUMENTS = ["rev-parse", "--is-bare-repository"];
 const runGit = promisify(execFile);
 /**
 * Return the paths whose workspace bindings apply to `directory`, the worktree's own first.
@@ -2458,44 +2459,58 @@ const runGit = promisify(execFile);
 * and resolves them in this order, so the worktree's own binding wins. Binding and clearing use only the first.
 *
 * A linked worktree's Git directory differs from the common directory, and its main worktree is the parent of the
-* common directory when that directory is named `.git`. A main checkout, including one whose Git directory is separate,
-* gets no second path, and neither do bare repositories and submodules. A linked worktree of a checkout with a separate
-* Git directory falls back to the parent of that directory, since Git records no other main worktree. A second path
-* that is the same directory as `directory` is left out.
+* common directory when that directory is named `.git` and Git confirms that the repository is not bare. A main
+* checkout, including one whose Git directory is separate, gets no second path, and neither do bare repositories,
+* including one in a directory named `.git`, and submodules. A linked worktree of a checkout with a separate Git
+* directory falls back to the parent of that directory, since Git records no other main worktree. A second path that
+* is the same directory as `directory` is left out. Both Git calls together stay within `timeout`.
 */
 async function workspacePaths(directory, gitRoot, timeout) {
+	const deadline = Date.now() + timeout;
+	const [top = "", gitDir = "", common = ""] = gitPaths(await gitOutput([
+		"-C",
+		directory,
+		...GIT_ARGUMENTS
+	], timeout));
+	const first = gitRoot && top ? top : directory;
+	const main = mainPath(directory, top, gitDir, common, gitRoot);
+	if (main === void 0) return [first];
+	return (await gitOutput([
+		"-C",
+		directory,
+		"--git-dir",
+		common,
+		...BARE_ARGUMENTS
+	], deadline - Date.now())).trim() === "false" ? [first, main] : [first];
+}
+async function gitOutput(args, timeout) {
+	if (timeout <= 0) return "";
 	try {
-		const { stdout } = await runGit("git", [
-			"-C",
-			directory,
-			...GIT_ARGUMENTS
-		], {
+		return (await runGit("git", args, {
 			encoding: "utf8",
 			timeout,
 			windowsHide: true
-		});
-		return pathsFromGit(directory, stdout, gitRoot);
+		})).stdout;
 	} catch {
-		return pathsFromGit(directory, "", gitRoot);
+		return "";
 	}
 }
-function pathsFromGit(directory, output, gitRoot) {
+function gitPaths(output) {
 	const lines = output.replace(/\r\n/gu, "\n").replace(/\n+$/u, "");
 	const commonSplit = lines.lastIndexOf("\n");
 	const rest = commonSplit < 0 ? "" : lines.slice(0, commonSplit);
 	const gitDirSplit = rest.lastIndexOf("\n");
-	let head = gitDirSplit < 0 ? "" : rest.slice(0, gitDirSplit);
-	let gitDir = rest.slice(gitDirSplit + 1);
-	let common = lines.slice(commonSplit + 1);
-	if (head.endsWith(UNKNOWN_FORMAT)) {
-		head = head.slice(0, -23);
-		gitDir = "";
-		common = "";
-	}
-	const top = head.trim();
-	const first = gitRoot && top ? top : directory;
-	const main = mainPath(directory, top, gitDir, common, gitRoot);
-	return main === void 0 ? [first] : [first, main];
+	const head = gitDirSplit < 0 ? "" : rest.slice(0, gitDirSplit);
+	if (head.endsWith(UNKNOWN_FORMAT)) return [
+		head.slice(0, -23).trim(),
+		"",
+		""
+	];
+	return [
+		head.trim(),
+		rest.slice(gitDirSplit + 1),
+		lines.slice(commonSplit + 1)
+	];
 }
 function mainPath(directory, top, gitDir, common, gitRoot) {
 	if (!top || !gitDir || !common || !isAbsolute(gitDir) || !isAbsolute(common)) return void 0;

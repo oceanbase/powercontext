@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+import time
 from shutil import which
 
 # --path-format applies to the options after it, so the top level stays exactly what --show-toplevel alone prints.
@@ -28,6 +29,8 @@ from shutil import which
 _ARGUMENTS = ("rev-parse", "--show-toplevel", "--path-format=absolute", "--git-dir", "--git-common-dir")
 # Older Git does not know --path-format and prints it back as an argument.
 _UNKNOWN_FORMAT = "\n--path-format=absolute"
+# Asked with --git-dir set to the common directory, because a linked worktree always reports itself as non-bare.
+_BARE_ARGUMENTS = ("rev-parse", "--is-bare-repository")
 
 
 def workspace_paths(cwd: str, *, git_root: bool, timeout: float = 2.0) -> list[str]:
@@ -40,27 +43,33 @@ def workspace_paths(cwd: str, *, git_root: bool, timeout: float = 2.0) -> list[s
     resolves them in this order, so the worktree's own binding wins. Binding and clearing use only the first.
 
     A linked worktree's Git directory differs from the common directory, and its main worktree is the parent of the
-    common directory when that directory is named ``.git``. A main checkout, including one whose Git directory is
-    separate, gets no second path, and neither do bare repositories and submodules. A linked worktree of a checkout
-    with a separate Git directory falls back to the parent of that directory, since Git records no other main
-    worktree. A second path that is the same directory as ``cwd`` is left out.
+    common directory when that directory is named ``.git`` and Git confirms that the repository is not bare. A main
+    checkout, including one whose Git directory is separate, gets no second path, and neither do bare repositories,
+    including one in a directory named ``.git``, and submodules. A linked worktree of a checkout with a separate Git
+    directory falls back to the parent of that directory, since Git records no other main worktree. A second path that
+    is the same directory as ``cwd`` is left out. Both Git calls together stay within ``timeout``.
     """
 
-    top, git_dir, common = _git_paths(cwd, timeout)
+    deadline = time.monotonic() + timeout
+    top, git_dir, common = _git_paths(_git_output(cwd, _ARGUMENTS, timeout))
     first = (top or cwd) if git_root else cwd
     main = _main_worktree_path(cwd, top, git_dir, common, git_root=git_root)
-    return [first] if main is None else [first, main]
+    if main is None or common is None:
+        return [first]
+    # An unknown answer leaves the second path out, as for a bare repository.
+    bare = _git_output(cwd, ("--git-dir", common, *_BARE_ARGUMENTS), deadline - time.monotonic())
+    return [first, main] if bare.strip() == "false" else [first]
 
 
-def _git_paths(cwd: str, timeout: float) -> tuple[str | None, str | None, str | None]:
-    """Return the top level and the absolute Git and common directories that Git reports for ``cwd``, when known."""
+def _git_output(cwd: str, arguments: tuple[str, ...], timeout: float) -> str:
+    """Return what Git prints for ``arguments`` in ``cwd``, or an empty string when it fails or time is up."""
 
     executable = which("git")
-    if executable is None:
-        return None, None, None
+    if executable is None or timeout <= 0:
+        return ""
     try:
         completed = subprocess.run(  # noqa: S603 - git executable and arguments are integration-owned.
-            [executable, *_ARGUMENTS],
+            [executable, *arguments],
             cwd=cwd,
             check=True,
             capture_output=True,
@@ -68,8 +77,14 @@ def _git_paths(cwd: str, timeout: float) -> tuple[str | None, str | None, str | 
             timeout=timeout,
         )
     except (OSError, subprocess.SubprocessError):
-        return None, None, None
-    rest, _, common = completed.stdout.rstrip("\n").rpartition("\n")
+        return ""
+    return completed.stdout
+
+
+def _git_paths(stdout: str) -> tuple[str | None, str | None, str | None]:
+    """Return the top level and the absolute Git and common directories in Git's output, when known."""
+
+    rest, _, common = stdout.rstrip("\n").rpartition("\n")
     head, _, git_dir = rest.rpartition("\n")
     if head.endswith(_UNKNOWN_FORMAT):
         return head[: -len(_UNKNOWN_FORMAT)].strip() or None, None, None

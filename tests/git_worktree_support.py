@@ -34,7 +34,8 @@ class GitLayout:
 
     Each path is real, so it equals what Git reports. ``checkout_sub`` and ``worktree_sub`` are the same subdirectory
     in the checkout and in its linked worktree. ``separate_checkout`` keeps its Git directory at
-    ``separate_store / ".git"``, and ``separate_worktree`` is a linked worktree of it.
+    ``separate_store / ".git"``, and ``separate_worktree`` is a linked worktree of it. ``dot_git_bare_worktree`` is a
+    linked worktree of a bare repository whose directory is named ``.git``.
     """
 
     checkout: Path
@@ -46,6 +47,7 @@ class GitLayout:
     separate_checkout: Path
     separate_store: Path
     separate_worktree: Path
+    dot_git_bare_worktree: Path
 
 
 def _git(executable: str, *arguments: str | Path) -> None:
@@ -80,6 +82,10 @@ def make_git_layout(root: Path, monkeypatch: pytest.MonkeyPatch) -> GitLayout:
     _git(executable, "init", "-q", "--separate-git-dir", separate_store / ".git", separate_checkout)
     _git(executable, "-C", separate_checkout, "commit", "-q", "--allow-empty", "-m", "init")
     _git(executable, "-C", separate_checkout, "worktree", "add", "-q", separate_worktree)
+    dot_git_bare, dot_git_bare_worktree = root / "dot-git-bare" / ".git", root / "dot-git-bare-wt"
+    _git(executable, "init", "-q", "--bare", dot_git_bare)
+    _git(executable, "-C", checkout, "push", "-q", dot_git_bare, "HEAD:refs/heads/main")
+    _git(executable, "-C", dot_git_bare, "worktree", "add", "-q", dot_git_bare_worktree, "main")
     for directory in (checkout / "sub", worktree / "sub", root / "outside"):
         directory.mkdir()
     return GitLayout(
@@ -92,6 +98,7 @@ def make_git_layout(root: Path, monkeypatch: pytest.MonkeyPatch) -> GitLayout:
         separate_checkout=separate_checkout,
         separate_store=separate_store,
         separate_worktree=separate_worktree,
+        dot_git_bare_worktree=dot_git_bare_worktree,
     )
 
 

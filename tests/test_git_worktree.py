@@ -102,6 +102,13 @@ def test_a_worktree_of_a_bare_repository_gets_no_second_path(helper: Helper, lay
     assert helper(layout.bare_worktree, False) == [str(layout.bare_worktree)]
 
 
+def test_a_worktree_of_a_bare_repository_in_a_directory_named_git_gets_no_second_path(
+    helper: Helper, layout: GitLayout
+) -> None:
+    assert helper(layout.dot_git_bare_worktree, True) == [str(layout.dot_git_bare_worktree)]
+    assert helper(layout.dot_git_bare_worktree, False) == [str(layout.dot_git_bare_worktree)]
+
+
 def test_a_checkout_with_a_separate_git_directory_gets_no_second_path(helper: Helper, layout: GitLayout) -> None:
     assert helper(layout.separate_checkout, True) == [str(layout.separate_checkout)]
     assert helper(layout.separate_checkout, False) == [str(layout.separate_checkout)]
