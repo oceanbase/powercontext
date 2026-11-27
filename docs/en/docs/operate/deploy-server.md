@@ -185,7 +185,7 @@ Do not route Core's own generation through automatic Gateway recall or capture w
 
 ### Gateway context injection
 
-When the gateway connects to the Core over UDS (`PC_GATEWAY_CORE_UDS`, the combined deployment), it injects prepared context by default into Chat and Responses requests that belong to a conversation. Within a conversation it prepares once per new user message. Later requests, including tool continuations, restore the exact blocks for retained user messages whose original history prefixes still match. The gateway keeps up to eight user turns per conversation and 1,024 across the process. Entries expire after five minutes or when the Core reuse binding expires, whichever comes first.
+When the gateway connects to the Core over UDS (`PC_GATEWAY_CORE_UDS`, the combined deployment), it injects prepared context by default into Chat and Responses requests that belong to a conversation. Within a conversation it prepares once per new user message. Later requests, including tool continuations, restore the exact blocks for retained user messages whose original history prefixes still match. The gateway keeps up to eight user turns per conversation and 1,024 across the process. Entries expire after five minutes or when the Core reuse binding expires, whichever comes first. Eviction, expiry or invalidation can change an earlier part of the rendered prefix and reduce provider cache hits. Retaining multiple blocks also increases input size and can reach the request byte limit earlier.
 
 The gateway identifies the conversation from the first of these request headers with a valid value:
 
@@ -202,7 +202,9 @@ When none of these headers supplies an ID, the gateway can identify a full-histo
 
 The combined deployment default skips injection if no explicit or inferred ID is available and logs `context injection skipped: no conversation identity`. With `PC_GATEWAY_INJECTION=on`, requests with no ID prepare individually when they have a usable user message. `PC_GATEWAY_INJECTION=off` disables injection and `PC_GATEWAY_INJECTION_RESPONSES=off` disables it for Responses only. Standalone gateways (`PC_GATEWAY_CORE_BASE`) require `PC_GATEWAY_INJECTION=on`. An empty or failed preparation adds no block for the new turn. During normal replay, only a new user turn queries Core for context. A non-user tail with no replay identity is sent without recall. The gateway classifies every request tail for evidence and logs; see [Gateway call evidence](gateway-evidence.md#turn-classification).
 
-Set `PC_GATEWAY_INJECTION_CODE=on` to include code evidence from the Scope's code index in the prepared context; it is off by default and requires a configured repository for the Scope. When Core requires a refresh and the only replayed block belongs to the latest user message, the gateway can replace that block and check the request again. If the request includes historical replay, the gateway returns Core's withhold because the verdict does not identify which block failed validation.
+Set `PC_GATEWAY_INJECTION_CODE=on` to include code evidence from the Scope's code index in the prepared context; it is off by default and requires a configured repository for the Scope.
+
+When Core requires a refresh before sending (for example, because cited memory or code changed), the gateway invalidates the matching replay window, prepares the latest user message once and checks the reconstructed request again without historical recall. A repeated withhold is returned to the client. A refresh verdict after generation invalidates the replay window and returns the withhold without resending the provider request. A retryable withhold returns HTTP 409.
 
 ### Gateway instruction
 

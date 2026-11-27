@@ -131,10 +131,17 @@ impl ReplayCache {
         blocks
     }
 
-    /// 丢弃一个锚点的结果，例如它的复用证明已不能通过 check；下一次请求重新准备。
-    pub(crate) fn forget(&self, scope_id: &str, conversation_id: &str, anchor: u64) {
+    /// Invalidate the matching replay window when Core cannot identify a stale binding.
+    pub(crate) fn forget_matching(
+        &self,
+        scope_id: &str,
+        conversation_id: &str,
+        anchors: &[(usize, u64)],
+    ) {
         lock(&self.entries).retain(|e| {
-            !(e.scope_id == scope_id && e.conversation_id == conversation_id && e.anchor == anchor)
+            !(e.scope_id == scope_id
+                && e.conversation_id == conversation_id
+                && anchors.iter().any(|(_, anchor)| *anchor == e.anchor))
         });
     }
 

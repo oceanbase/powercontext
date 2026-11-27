@@ -418,7 +418,7 @@ where
             if let Err(stop) = execution.checkpoint() {
                 return stop;
             }
-            let has_historical_replay = if call.inject_context {
+            if call.inject_context {
                 self.enrich(
                     &mut call,
                     RecallPolicy { kind, reprepare },
@@ -427,10 +427,8 @@ where
                     recording,
                     execution,
                 )
-                .await
-            } else {
-                false
-            };
+                .await;
+            }
 
             if let Err(stop) = execution.checkpoint() {
                 return stop;
@@ -531,11 +529,10 @@ where
                             reason_codes: result.reason_codes,
                         }
                     }
-                    // A refresh can replace the current block only. Core's verdict
-                    // gives no location for an invalid binding in a historical replay.
+                    // Core does not identify the invalid binding. Discard the matching
+                    // replay window and prepare only the current turn before checking again.
                     CheckDecision::Withhold
                         if !refreshed
-                            && !has_historical_replay
                             && !call.prepared_contexts.is_empty()
                             && result
                                 .reason_codes
@@ -544,15 +541,26 @@ where
                     {
                         refreshed = true;
                         reprepare = true;
-                        if let Some((conversation, &(_, anchor))) = replay_id.zip(anchors.last()) {
-                            self.replays.forget(&call.scope_id, conversation, anchor);
+                        if let Some((conversation, anchors)) = replay {
+                            self.replays
+                                .forget_matching(&call.scope_id, conversation, anchors);
                         }
                         call.request = pristine_request.clone();
                         call.prepared_contexts.clear();
                         continue;
                     }
                     CheckDecision::Withhold => {
-                        return ManagedOutcome::withheld(result.reason_codes)
+                        if result
+                            .reason_codes
+                            .iter()
+                            .any(|reason| reason == CONTEXT_REFRESH_REQUIRED)
+                        {
+                            if let Some((conversation, anchors)) = replay {
+                                self.replays
+                                    .forget_matching(&call.scope_id, conversation, anchors);
+                            }
+                        }
+                        return ManagedOutcome::withheld(result.reason_codes);
                     }
                 },
             };
@@ -648,7 +656,19 @@ where
                                     reason_codes: r.reason_codes,
                                 }
                             }
-                            Ok(r) => return ManagedOutcome::withheld(r.reason_codes),
+                            Ok(r) => {
+                                if r
+                                    .reason_codes
+                                    .iter()
+                                    .any(|reason| reason == CONTEXT_REFRESH_REQUIRED)
+                                {
+                                    if let Some((conversation, anchors)) = replay {
+                                        self.replays
+                                            .forget_matching(&call.scope_id, conversation, anchors);
+                                    }
+                                }
+                                return ManagedOutcome::withheld(r.reason_codes);
+                            }
                             Err(e) => return ManagedOutcome::GatePaused(classify_gate_error(e)),
                         }
                     }
@@ -872,7 +892,21 @@ where
                             reason_codes: result.reason_codes,
                         }
                     }
-                    CheckDecision::Withhold => ManagedOutcome::withheld(result.reason_codes),
+                    CheckDecision::Withhold => {
+                        // Do not resend a completed provider call. Invalidate replay for
+                        // the next client request while preserving Core's release verdict.
+                        if result
+                            .reason_codes
+                            .iter()
+                            .any(|reason| reason == CONTEXT_REFRESH_REQUIRED)
+                        {
+                            if let Some((conversation, anchors)) = replay {
+                                self.replays
+                                    .forget_matching(&call.scope_id, conversation, anchors);
+                            }
+                        }
+                        ManagedOutcome::withheld(result.reason_codes)
+                    }
                 },
             };
         }
@@ -968,7 +1002,7 @@ where
         list_key: &str,
         recording: &mut CallRecorder<'_>,
         execution: &Execution,
-    ) -> bool {
+    ) {
         let replay = replay.and_then(|(id, anchors)| Some((id, anchors.split_last()?)));
         let cached = replay.and_then(|(conversation, (&(_, anchor), _))| {
             self.replays
@@ -1007,8 +1041,7 @@ where
                 }
             }
         };
-        let previous_locations = call.prepared_contexts.len();
-        if let Some((conversation, (_, history))) = replay {
+        if let Some((conversation, (_, history))) = replay.filter(|_| !policy.reprepare) {
             // Read after storing the current block so the same retention bound
             // applies to this request, even when a new entry evicted an old one.
             for (index, prepared) in
@@ -1018,11 +1051,9 @@ where
                 self.inject(call, index, &prepared, list_key);
             }
         }
-        let has_historical_replay = call.prepared_contexts.len() > previous_locations;
         if let (Some(index), Some(prepared)) = (last_user_index(&call.request), prepared) {
             self.inject(call, index, &prepared, list_key);
         }
-        has_historical_replay
     }
 
     /// 调用 prepare：失败返回 None（不缓存、不阻塞主请求）；
