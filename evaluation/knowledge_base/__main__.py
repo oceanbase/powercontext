@@ -19,6 +19,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import hashlib
+import json
 import math
 import platform
 import sys
@@ -107,6 +108,9 @@ def baseline_manifest(files, expected):
         "provisional_retrieval": PROVISIONAL_RETRIEVAL,
         "embedding": EMBEDDING,
         "parser_packages": PARSER_PACKAGES,
+        "parser_profiles": {
+            extension: parser_profile(f"input{extension}").model_dump(mode="json") for extension in CAPABILITIES
+        },
         "format_packages": FORMAT_PACKAGES,
         "future_parser_stacks": FUTURE_PARSERS,
         "ocr_assets": OCR_ASSETS,
@@ -140,7 +144,13 @@ def verify():
             if hashlib.file_digest(file, "sha256").hexdigest() != expected_hash:
                 raise SystemExit(f"Unexpected RapidOCR artifact hash: {name}")  # noqa: TRY003
     files, expected = generate()
-    if json_bytes(baseline_manifest(files, expected)) != canonical_text_bytes(HERE / "manifest.json"):
+    observed = baseline_manifest(files, expected)
+    recorded = canonical_text_bytes(HERE / "manifest.json")
+    recorded_profiles = json.loads(recorded).get("parser_profiles", {})
+    for extension, profile in observed["parser_profiles"].items():
+        if recorded_profiles.get(extension) != profile:
+            raise SystemExit(f"Installed parser profile for {extension} differs from manifest.json")  # noqa: TRY003
+    if json_bytes(observed) != recorded:
         raise SystemExit("Fixture, labels, thresholds, version or evaluator hash differs from manifest.json")  # noqa: TRY003
     return files, expected
 

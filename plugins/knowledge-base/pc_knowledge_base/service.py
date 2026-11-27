@@ -21,9 +21,18 @@ import os
 from pathlib import Path
 from typing import NoReturn
 
-from pc_knowledge_base.content import ContentError, Snapshots, chunk_document, parser_for, parser_profile, relative_path
+from pc_knowledge_base.content import (
+    ContentError,
+    Snapshots,
+    chunk_document,
+    parser_for,
+    parser_profile,
+    project_legacy_chunk_locator,
+    relative_path,
+)
 from pc_knowledge_base.embedding import Embedding
 from pc_knowledge_base.models import ChunkEdit, Chunking, Retrieve, canonical, identity
+from pc_knowledge_base.parser_contract import can_reuse_parse
 from pc_knowledge_base.sources import FileEvidence, ProcessEvidence
 from pc_knowledge_base.store import Store, defaults, resources, spaces
 from powercontext.plugins import AccessDenied, ApiError, InvalidContent, Rendering, SearchHit, SearchResult
@@ -504,9 +513,15 @@ class KnowledgeBase:
                     and not pinned.get("force_reprocess")
                     and current.content["content_digest"] == pinned["content_digest"]
                 ):
-                    if current.content.get("parser_profile", profile_json) != profile_json:
+                    recorded_profile = current.content.get("parser_profile")
+                    if recorded_profile is not None and recorded_profile != profile_json:
                         raise ContentError("Parser profile changed; explicitly reprocess the document")  # noqa: TRY003, TRY301
-                    if current.content["chunking"] == pinned["chunking"]:
+                    if current.content["chunking"] == pinned["chunking"] and can_reuse_parse(
+                        current.content.get("parsed_result_id"),
+                        pinned["content_digest"],
+                        adapter.capability.format,
+                        profile,
+                    ):
                         await self.store.observation(
                             request.scope_id,
                             key,
@@ -746,7 +761,7 @@ class KnowledgeBase:
                 "heading_path": row["heading_path"],
                 "source": row["source"],
                 "manually_modified": row["manually_modified"],
-                **row["locator"],
+                **(project_legacy_chunk_locator(row["locator"]) if request.max_bytes is not None else row["locator"]),
             }
             group["chunks"].append(location)
             # Context assembly retains text but not the structured locator.

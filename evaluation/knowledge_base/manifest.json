@@ -444,6 +444,50 @@
     "pillow": "12.3.0",
     "rapidocr": "3.10.0"
   },
+  "parser_profiles": {
+    ".jpeg": {
+      "config_digest": "46c63209ab3e4afc472d55fe9c2e9f0a08e943f45de78c5a6db9358221db04a6",
+      "locator_version": 1,
+      "model_digest": "aa9dba99971c6d3c0fb2e7bc6c3a9ba3670c717fbde2b3c2c180fbddc0bfc27d",
+      "parser": "rapidocr",
+      "version": "3.10.0"
+    },
+    ".jpg": {
+      "config_digest": "46c63209ab3e4afc472d55fe9c2e9f0a08e943f45de78c5a6db9358221db04a6",
+      "locator_version": 1,
+      "model_digest": "aa9dba99971c6d3c0fb2e7bc6c3a9ba3670c717fbde2b3c2c180fbddc0bfc27d",
+      "parser": "rapidocr",
+      "version": "3.10.0"
+    },
+    ".markdown": {
+      "config_digest": "3b55c5f61425e55895f3176606540cb4201488468d188f8eeb0f246e24ee228e",
+      "locator_version": 1,
+      "model_digest": null,
+      "parser": "markdown-it-py",
+      "version": "4.2.0"
+    },
+    ".md": {
+      "config_digest": "3b55c5f61425e55895f3176606540cb4201488468d188f8eeb0f246e24ee228e",
+      "locator_version": 1,
+      "model_digest": null,
+      "parser": "markdown-it-py",
+      "version": "4.2.0"
+    },
+    ".png": {
+      "config_digest": "46c63209ab3e4afc472d55fe9c2e9f0a08e943f45de78c5a6db9358221db04a6",
+      "locator_version": 1,
+      "model_digest": "aa9dba99971c6d3c0fb2e7bc6c3a9ba3670c717fbde2b3c2c180fbddc0bfc27d",
+      "parser": "rapidocr",
+      "version": "3.10.0"
+    },
+    ".webp": {
+      "config_digest": "46c63209ab3e4afc472d55fe9c2e9f0a08e943f45de78c5a6db9358221db04a6",
+      "locator_version": 1,
+      "model_digest": "aa9dba99971c6d3c0fb2e7bc6c3a9ba3670c717fbde2b3c2c180fbddc0bfc27d",
+      "parser": "rapidocr",
+      "version": "3.10.0"
+    }
+  },
   "parsing_threshold_basis": {
     "coverage": "Exact counts and warnings from authored extraction units and OCR unknown-total semantics.",
     "min_text_similarity": "Exact normalized text in independent annotations for the legacy fixtures.",
@@ -472,7 +516,7 @@
     "unicode": "15.0.0"
   },
   "schema_version": 1,
-  "scorer_sha256": "0f29227c1fc8cbc11651f95178deec6c591cc56a91dff55d4503c0c1d952420a",
+  "scorer_sha256": "59712308772712ee70a23f92e9553d05ce41d2027cd4575b2cbe30c4782b79df",
   "thresholds": {
     "coverage": 1.0,
     "min_text_similarity": 1.0,

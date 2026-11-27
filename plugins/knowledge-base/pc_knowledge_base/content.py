@@ -18,14 +18,17 @@ from __future__ import annotations
 
 import hashlib
 import io
+import json
 import os
 from importlib.metadata import version
 from inspect import getsource
 from pathlib import Path, PurePosixPath
+from typing import Annotated
 from uuid import uuid4
 
 from markdown_it import MarkdownIt
 from PIL import Image
+from pydantic import Field, FiniteFloat, TypeAdapter
 
 from pc_knowledge_base.models import identity
 from pc_knowledge_base.parser_contract import (
@@ -41,9 +44,11 @@ from pc_knowledge_base.parser_contract import (
     ParserOutput,
     ParserProfile,
     ParseWarning,
+    Point,
     ResourceLimits,
     Span,
     build_parser_registry,
+    serialize_context_locator,
 )
 
 MAX_FILE_BYTES = 16 * 1024 * 1024
@@ -344,6 +349,37 @@ def legacy_location(locator: Locator, *, legacy_lines: bool):
             "image_height": int(locator.region.bounds[3]),
         }
     return {}
+
+
+_LEGACY_POINT = Annotated[list[FiniteFloat], Field(min_length=2, max_length=2)]
+_LEGACY_POLYGON = TypeAdapter(Annotated[list[_LEGACY_POINT], Field(min_length=3, max_length=16)])
+
+
+def project_legacy_chunk_locator(location: dict[str, object]) -> dict[str, object]:
+    """Translate the persisted Markdown or image locator for agent context."""
+
+    projection: dict[str, object] = {}
+    start, end = location.get("block_char_start"), location.get("block_char_end")
+    if type(start) is int and type(end) is int and 0 <= start < end < 2**31:
+        projection.update(block_char_start=start, block_char_end=end)
+    try:
+        line_start, line_end = location.get("line_start"), location.get("line_end")
+        if type(line_start) is int and type(line_end) is int and line_start >= 1:
+            locator: LineLocator | ImageLocator = LineLocator(lines=Span(start=line_start - 1, end=line_end))
+        else:
+            index, width, height = (location.get(key) for key in ("ocr_block", "image_width", "image_height"))
+            if type(index) is not int or type(width) is not int or type(height) is not int:
+                return projection
+            if width <= 0 or height <= 0 or width * height > MAX_IMAGE_PIXELS:
+                return projection
+            polygon = _LEGACY_POLYGON.validate_python(location.get("polygon"), strict=True)
+            points: tuple[Point, ...] = tuple((x, y) for x, y in polygon)
+            locator = ImageLocator.from_pixels(index, width, height, points)
+        projection["source_locator"] = json.loads(serialize_context_locator(locator))
+    except (ValueError, OverflowError):
+        # An incomplete historical locator must not hide the cited chunk.
+        pass
+    return projection
 
 
 def pack_markdown(blocks: tuple[ParsedBlock, ...], maximum: int) -> list[ParsedBlock]:

@@ -26,7 +26,9 @@ installed profile. Each new parsed revision records `parser_profile`, `parsed_re
 `parse_coverage`. Existing revisions keep their original chunk positions and identities.
 An ordinary import of identical bytes under a different recorded profile requires explicit
 reprocessing. A new explicit reprocess request uses the current profile and preserves the
-existing revision precondition and protections for manual edits.
+existing revision precondition and protections for manual edits. An ordinary repeat import can
+keep the existing revision only when its recorded parse key and chunking settings match.
+A missing or different parse key requires parsing, subject to the same manual-edit protection.
 
 Markdown chunk output retains its one-based inclusive line fields. The legacy
 `block_char_start` and `block_char_end` address the packed block before appended references.
@@ -56,13 +58,15 @@ with existing clients, with the coverage report available on the published revis
   box after crop and rotation, with a top-left origin and both axes in the closed interval
   `[0,1]`. An out-of-box native polygon must be handled by the parser before constructing its
   locator. The complete JSON retains the transform and native geometry.
-- Prepared Context uses `serialize_context_locator` to encode one v1 locator as compact UTF-8
-  JSON, up to 1,024 bytes. It keeps the discriminator, type-specific bounded indices or spans,
-  and up to 16 normalized polygon points rounded to eight decimals. Native geometry, transforms,
-  confidence, and other metadata stay in the exact locator. The projection does not allocate a
-  context budget across hits. The actual Prepared Context search projection belongs to `search_artifacts`. The v4
-  function allow-list names only `generate` and `prepare` for locator projection. Runtime
-  projection and legacy OCR normalization require that mismatch to be resolved.
+- For Prepared Context, `search_artifacts` projects existing Markdown line ranges and historical
+  OCR coordinates into `source_locator`. Markdown ranges become zero-based and half-open.
+  For OCR, the stored pixel polygon is normalized using the stored image dimensions.
+  `serialize_context_locator` limits each typed locator to 1,024 UTF-8 bytes and each polygon to
+  16 points rounded to eight decimals. The projection retains valid `block_char_start` and
+  `block_char_end` as half-open offsets locating the chunk's slice in the parsed or packed block
+  text. An incomplete or invalid historical locator leaves
+  the text and chunk reference available. Raw geometry and OCR confidence remain available
+  through existing chunk reads. The structured hit and the passage carry the same projection.
 
 ## Adapter entry point
 
@@ -181,8 +185,10 @@ thresholds remain provisional until #2856 measures the fixed embedding model.
 ## Evaluation commands
 
 Run from the repository root with CPython 3.12.14 and Unicode 15.0.0. The verifier checks both,
-the installed Markdown-It-Py, Pillow and RapidOCR versions, the locked format and embedding package versions, and the bundled OCR configuration
-and model hashes. The manifest
+the installed parser, format and embedding package versions, and the bundled OCR configuration
+and model hashes. It compares each registered extension's complete parser profile against the
+manifest. This catches changes in profile inputs such as Markdown's URL library, OCR's native
+dependencies, model identity and locator mapping. The manifest
 hashes the checked-in encoded raster assets, whose generation OS, architecture, Pillow, font
 renderer and codec versions are recorded. Replay copies the source image bytes and decodes the
 grayscale raster for the scan-only PDF page. This keeps the corpus bytes independent of the host

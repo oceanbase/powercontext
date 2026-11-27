@@ -21,8 +21,10 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "plugins" / "knowledge-base"))
-from pc_knowledge_base.content import parse_document, parser_profile
+from pc_knowledge_base.content import parse_document
 from pc_knowledge_base.service import KnowledgeBase
 
 
@@ -53,10 +55,24 @@ def test_status_preserves_publication_when_two_revisions_commit_between_reads():
     assert (status["state"], status["published_revision"], status["error"]) == ("completed", 2, None)
 
 
-def test_generation_requires_explicit_reprocessing_after_a_profile_change():  # noqa: C901
+@pytest.mark.parametrize(
+    ("recorded", "processing", "expected"),
+    [
+        ("legacy", "ordinary", "publish"),
+        ("missing_key", "ordinary", "publish"),
+        ("different_key", "ordinary", "publish"),
+        ("current", "ordinary", "unchanged"),
+        ("old_profile", "ordinary", "explicitly reprocess"),
+        ("old_profile", "stale_request", "different parser profile"),
+        ("old_profile", "reprocess", "publish"),
+    ],
+)
+def test_generation_with_existing_revision(recorded, processing, expected):  # noqa: C901
     data = b"# Maintenance\n\nCheck fan bearings."
     digest = hashlib.sha256(data).hexdigest()
-    profile = parser_profile("service.md").model_dump(mode="json")
+    parsed = parse_document(data, "service.md")
+    profile = parsed.profile.model_dump(mode="json")
+    old_profile = {**profile, "version": "older"}
     chunking = {"max_chars": 360, "overlap": 40}
     original_source = {"source_type": "knowledge-base-file", "source_id": "file"}
     source = SimpleNamespace(
@@ -70,10 +86,17 @@ def test_generation_requires_explicit_reprocessing_after_a_profile_change():  # 
         ref="processing-source",
     )
     request = SimpleNamespace(scope_id="scope", sources=[source])
+    revision_metadata = {
+        "legacy": {},
+        "missing_key": {"parser_profile": profile},
+        "different_key": {"parser_profile": profile, "parsed_result_id": "0" * 64},
+        "current": {"parser_profile": profile, "parsed_result_id": parsed.result_id},
+        "old_profile": {"parser_profile": old_profile},
+    }
     previous = SimpleNamespace(
         ref=SimpleNamespace(revision=1),
         lifecycle_state="active",
-        content={"content_digest": digest, "chunking": chunking, "parser_profile": {**profile, "version": "older"}},
+        content={"content_digest": digest, "chunking": chunking, **revision_metadata[recorded]},
     )
     pinned = {
         "document_id": "doc",
@@ -83,8 +106,9 @@ def test_generation_requires_explicit_reprocessing_after_a_profile_change():  # 
         "relative_path": "service.md",
         "chunking": chunking,
         "embedding_profile": "embedding",
-        "parser_profile": profile,
+        "parser_profile": old_profile if processing == "stale_request" else profile,
         "manual_edits_policy": "reject",
+        "force_reprocess": processing != "ordinary",
     }
 
     class Store:
@@ -125,21 +149,16 @@ def test_generation_requires_explicit_reprocessing_after_a_profile_change():  # 
     writer, store = Writer(), Store()
     kb = KnowledgeBase(None, store, SimpleNamespace(read=lambda _key, _digest: data), Embedding())
     asyncio.run(kb.generate(request, writer))
-    assert store.observations[-1]["state"] == "failed"
-    assert "explicitly reprocess" in store.observations[-1]["error"]
-    assert not writer.publications
-
-    pinned["force_reprocess"] = True
-    pinned["parser_profile"] = previous.content["parser_profile"]
-    asyncio.run(kb.generate(request, writer))
-    assert "different parser profile" in store.observations[-1]["error"]
-    assert not writer.publications
-
-    pinned["parser_profile"] = profile
-    asyncio.run(kb.generate(request, writer))
-    (published,) = writer.publications
-    parsed = parse_document(data, "service.md")
-    assert published["expected_revision"] == 1
-    assert published["content"]["parser_profile"] == profile
-    assert published["content"]["parsed_result_id"] == parsed.result_id
-    assert published["content"]["parse_coverage"] == parsed.coverage.model_dump(mode="json")
+    if expected == "publish":
+        (published,) = writer.publications
+        assert published["expected_revision"] == 1
+        assert published["content"]["parser_profile"] == profile
+        assert published["content"]["parsed_result_id"] == parsed.result_id
+        assert published["content"]["parse_coverage"] == parsed.coverage.model_dump(mode="json")
+    elif expected == "unchanged":
+        assert not writer.publications
+        assert store.observations[-1] == {"state": "completed", "error": None, "unchanged_revision": 1}
+    else:
+        assert not writer.publications
+        assert store.observations[-1]["state"] == "failed"
+        assert expected in store.observations[-1]["error"]
