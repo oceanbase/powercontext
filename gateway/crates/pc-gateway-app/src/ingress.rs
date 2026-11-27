@@ -658,8 +658,11 @@ async fn ingress_model(
         Format::Messages => {
             let parsed = pc_gateway_protocol::parse_messages(&body, state.steering.as_deref());
             match parsed {
-                Ok((request, stream)) => {
+                Ok((mut request, stream)) => {
                     client_stream = stream;
+                    if omit_messages_plugin_context(&mut request) {
+                        tracing::warn!("{OMITTED_PLUGIN_CONTEXT}");
+                    }
                     request
                 }
                 Err(error) => {
@@ -1357,6 +1360,68 @@ fn is_prepared_plugin_text(text: &str) -> bool {
         .and_then(|text| text.strip_prefix(begin))
         .and_then(|text| text.split_once(end))
         .is_some_and(|(content, suffix)| !content.is_empty() && suffix.is_empty())
+}
+
+// Claude Code can place its hook context in a native user/system text block,
+// including a standalone system-reminder wrapper. Remove only complete known
+// envelopes; quoted markers, partial envelopes and mixed prose still go to Core.
+fn omit_messages_plugin_text(value: &mut Value) -> bool {
+    let Some(text) = value.as_str() else {
+        return false;
+    };
+    let text = text.trim();
+    if is_prepared_plugin_text(text) {
+        *value = Value::String(OMITTED_PLUGIN_CONTEXT.into());
+        return true;
+    }
+    if text
+        .strip_prefix("<system-reminder>")
+        .and_then(|text| text.strip_suffix("</system-reminder>"))
+        .is_some_and(|text| is_prepared_plugin_text(text.trim()))
+    {
+        *value = Value::String(format!(
+            "<system-reminder>\n{OMITTED_PLUGIN_CONTEXT}\n</system-reminder>"
+        ));
+        return true;
+    }
+    false
+}
+
+fn omit_messages_plugin_part(part: &mut Value) -> bool {
+    if part.is_string() {
+        return omit_messages_plugin_text(part);
+    }
+    if part["type"].as_str() == Some("text") {
+        if let Some(text) = part.get_mut("text") {
+            return omit_messages_plugin_text(text);
+        }
+    }
+    false
+}
+
+fn omit_messages_plugin_context(request: &mut CanonicalRequest) -> bool {
+    let mut omitted = false;
+    for message in &mut request.messages {
+        if matches!(message.role, Role::User | Role::System) {
+            for part in &mut message.content {
+                omitted |= omit_messages_plugin_part(part);
+            }
+        }
+    }
+    if let Some(system) = request
+        .passthrough_fields
+        .as_mut()
+        .and_then(|fields| fields.get_mut("system"))
+    {
+        if let Some(parts) = system.as_array_mut() {
+            for part in parts {
+                omitted |= omit_messages_plugin_part(part);
+            }
+        } else {
+            omitted |= omit_messages_plugin_text(system);
+        }
+    }
+    omitted
 }
 
 fn is_prepared_tool_output(text: &str) -> bool {
