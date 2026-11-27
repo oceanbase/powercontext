@@ -4008,3 +4008,34 @@ static Bearer, HTTPS with a custom CA and base path, and injected-provider authe
 with enforced access. The product ConnectionManager selected the bundled record and
 reported matching contract digests. The working tree contained the new qualification
 record during the run. This records local protocol behavior.
+
+## Server 502130bb Source import protocol qualification
+
+`sqlite-source-import-502130bb-v1` qualifies all thirteen Desktop protocol operations against Server commit
+`502130bbd5dc16f7a301a4d13c75535501b03784`. All 827 packaged runtime files match that Git archive byte-for-byte.
+
+- Normalized OpenAPI SHA-256: `587cbf6fcec43439b42ea69fe4c2750f492d10b0b817748853ee84989fc6dbee`.
+- Wheel: `powercontext-1.6.1.dev138+g502130bbd-py3-none-any.whl`.
+- Wheel SHA-256: `b3ebefe475767911ba4225e7afd00fbc717ef710af014e84e914e63196aeb9fe`.
+- Native debug probe SHA-256: `cba4022f151d6664f6c11826d126f38cc302b4ae35e86eebd3cece61413b21cd`.
+- Report SHA-256: `c3121e8b37662ad10e62179c4f5d7e71f153663c5298cf1a2446a69069933d65`.
+
+On 2026-11-28, `desktop/tests/real_server.py` and the native debug probe passed all four SQLite connection modes on
+macOS arm64 with Python 3.13.9: anonymous loopback, static Bearer, HTTPS with a custom CA and base path, and
+injected-provider authentication with enforced access. The product ConnectionManager selected the bundled record and
+reported matching contract digests. Checks cover save, search, exact revision reads, lost write responses without replay,
+Server survival after client exit, Principal changes and revocation, Scope pagination, and scoped native authorization.
+
+The probe was built with Rust 1.95.0 and the product Cargo lock, without `ci-fixtures`. The working tree contained the new
+qualification record during execution. Model responses are controlled fixture inputs. This records local SQLite protocol
+behavior; it does not establish installed Desktop/WebView, native Codex-host, external-provider, or installed-release
+upgrade acceptance.
+
+Reproduce with the recorded artifact:
+
+```sh
+cargo +1.95.0 build --locked --manifest-path desktop/src-tauri/Cargo.toml --example server_probe
+uv run python desktop/tests/real_server.py \
+  --product-qualification sqlite-source-import-502130bb-v1 \
+  --wheel /tmp/pr2546-wheel/powercontext-1.6.1.dev138+g502130bbd-py3-none-any.whl
+```
