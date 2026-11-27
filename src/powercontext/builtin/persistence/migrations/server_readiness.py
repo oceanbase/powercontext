@@ -181,19 +181,30 @@ def _processing_configuration_guidance(error, runner, database):
     return MigrationError(
         error.code,
         "Processing ownership differs from the migrated declaration: the configured capabilities widen the "
-        "persisted declaration without changing bindings or mode. Run the offline Processing configuration switch "
-        "with all writers stopped — 'powercontext server processing-migrate --action plan', then '--action apply "
-        "--migration-id <new-unique-id> --maintenance-confirmed', then '--action verify'. Committed work survives.",
+        "persisted declaration without changing bindings or mode. Adopt them with the offline Processing "
+        "configuration switch, with all writers stopped. Run every step with the new configuration loaded "
+        "(--env-file or a discovered .env) and with one new --migration-id: 'powercontext server "
+        "processing-migrate --action plan --migration-id <new-id> --backup auto' prints a plan_id, then "
+        "'--action apply --migration-id <new-id> --plan-id <plan_id> --backup auto --maintenance-confirmed "
+        "--yes', then '--action verify --migration-id <new-id>'. See "
+        "https://powercontext.oceanbase.io/en/docs/operate/artifact-processing-migration/ for the full "
+        "procedure. Committed work survives.",
     )
 
 
 def _persisted_processing_manifest(database):
-    """Read the persisted Processing declaration read-only; the guidance stays best effort."""
+    """Read the persisted Processing declaration read-only; the guidance stays best effort.
+
+    Vector storage has no registered Processing configuration switch, so it also returns None there: there is no
+    supported operation to name.
+    """
     if database.kind != "sqlite":
         return None
     from urllib.parse import quote
 
     from sqlalchemy import create_engine
+
+    from .vector_profile import read_embedding_profile
 
     try:
         url = make_url(database.url)
@@ -203,6 +214,8 @@ def _persisted_processing_manifest(database):
         engine = create_engine(f"sqlite:///file:{path}?mode=ro&uri=true")
         try:
             with engine.connect() as connection:
+                if read_embedding_profile(connection) is not None:
+                    return None
                 row = connection.exec_driver_sql(
                     "SELECT config_manifest FROM pc_artifact_processing_schema WHERE singleton=1"
                 ).first()
