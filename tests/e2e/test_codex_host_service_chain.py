@@ -27,14 +27,19 @@ import hashlib
 import json
 import os
 import queue
+import shlex
+import shutil
+import signal
 import subprocess
 import sys
 import threading
+import time
 from collections.abc import Callable, Iterator
-from contextlib import ExitStack, contextmanager
+from contextlib import ExitStack, contextmanager, suppress
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 import httpx
 import pytest
@@ -268,7 +273,7 @@ stream_max_retries = 0
 
 
 def _isolated_environment(home: Path, codex_home: Path, tmp_path: Path) -> dict[str, str]:
-    # Setup builds the plugin's environment with uv; keep the runner's uv cache so it can do so offline.
+    # Retain downloaded artifacts across cases, while each case builds its own installed plugin environment.
     uv_cache = subprocess.run(["uv", "cache", "dir"], capture_output=True, text=True, check=True).stdout.strip()  # noqa: S607
     # Proxies would route the loopback Server and model traffic away from this host.
     prefixes = ("POWERCONTEXT_", "CODEX_", "OPENAI_", "VIRTUAL_ENV", "UV_PROJECT_ENVIRONMENT")
@@ -298,6 +303,44 @@ def _isolated_environment(home: Path, codex_home: Path, tmp_path: Path) -> dict[
     return environment
 
 
+def _install_tool(path: Path, command: list[str], phase: str, log: Path, *, fallback: str = "") -> None:
+    # Preserve native stdout/stderr for setup's JSON/error handling and stream a copy to the case log.
+    # Only the setup subprocess sees these shims. Native hooks and codex exec use their normal PATH.
+    passthrough = f'if [[ "$1" != sync ]]; then exec {shlex.quote(fallback)} "$@"; fi\n' if fallback else ""
+    path.write_text(
+        "#!/usr/bin/env bash\n"
+        + passthrough
+        + f"""phase="{phase}"
+printf '[setup] %s started pid=%s\n' "$phase" "$$" >> {shlex.quote(str(log))}
+SECONDS=0
+{shlex.join(command)} "$@" > >(tee -a {shlex.quote(str(log))}) 2> >(tee -a {shlex.quote(str(log))} >&2)
+status=$?
+wait
+printf '\n[setup] %s exited status=%s elapsed=%ss\n' "$phase" "$status" "$SECONDS" >> {shlex.quote(str(log))}
+exit "$status"
+""",
+        encoding="utf-8",
+    )
+    path.chmod(0o755)
+
+
+def _stop_plugin_setup(process: subprocess.Popen[bytes]) -> None:
+    if os.name != "posix":
+        process.kill()
+        return
+    # On macOS an exited group can consist only of zombies reparented to launchd.
+    with suppress(ProcessLookupError, PermissionError):
+        os.killpg(process.pid, signal.SIGTERM)
+        # The shared installer restores the original lock on SIGTERM. Bound the wait even
+        # if a native process ignores the signal or an orphan remains as a zombie.
+        deadline = time.monotonic() + 1
+        while time.monotonic() < deadline:
+            process.poll()
+            os.killpg(process.pid, 0)
+            time.sleep(0.02)
+        os.killpg(process.pid, signal.SIGKILL)
+
+
 def _install_plugin(executable: str, environment: dict[str, str], base_url: str, tmp_path: Path, log: Path) -> None:
     """Run `powercontext setup codex` from this checkout, with the Codex under test first on PATH."""
     setup_environment = dict(environment)
@@ -305,21 +348,107 @@ def _install_plugin(executable: str, environment: dict[str, str], base_url: str,
     # Setup saves this credential for the hooks and the MCP header helper; `codex exec` runs without it.
     setup_environment["POWERCONTEXT_CODEX_AUTHORIZATION"] = f"Bearer {TOKEN}"
     setup_environment["PYTHONPATH"] = str(REPOSITORY / "src")
+    if os.name == "posix":
+        path = setup_environment["PATH"]
+        tools = tmp_path / "setup-tools"
+        tools.mkdir()
+        _install_tool(tools / "codex", [executable], "codex $1 $2", log)
+        if uv := shutil.which("uv", path=path):
+            command = [uv]
+            if installer := setup_environment.get("PC_CI_PYTHON_INSTALLER"):
+                # Resolve the real uv on the original PATH in the shared adapter, avoiding recursive shims.
+                command = ["/usr/bin/env", f"PATH={path}", sys.executable, installer]
+                proxy = {key: value for key, value in os.environ.items() if key.upper().endswith("_PROXY")}
+                mirror = urlsplit(setup_environment.get("PC_CI_PYTHON_MIRROR", "")).hostname or ""
+                bypass = [*proxy.get("NO_PROXY", "").split(","), *proxy.get("no_proxy", "").split(","), mirror]
+                no_proxy = ",".join(dict.fromkeys(filter(None, [*bypass, "localhost", "127.0.0.1", "::1"])))
+                setup_environment.update(proxy, NO_PROXY=no_proxy, no_proxy=no_proxy)
+            _install_tool(tools / "uv", command, "uv sync", log, fallback=uv)
+        setup_environment["PATH"] = os.pathsep.join((str(tools), path))
     script = (
         "import sys; from powercontext.cli.installation import setup; "
         "setup('codex', source=sys.argv[1], server_url=sys.argv[2])"
     )
-    completed = subprocess.run(
-        [sys.executable, "-c", script, str(REPOSITORY), base_url],
-        cwd=tmp_path,
-        env=setup_environment,
-        capture_output=True,
-        text=True,
-        timeout=180,
-        check=False,
+    with (
+        log.open("a", encoding="utf-8") as output,
+        subprocess.Popen(
+            [sys.executable, "-u", "-c", script, str(REPOSITORY), base_url],
+            cwd=tmp_path,
+            env=setup_environment,
+            stdin=subprocess.DEVNULL,
+            stdout=output,
+            stderr=subprocess.STDOUT,
+            start_new_session=os.name == "posix",
+        ) as process,
+    ):
+        start = time.monotonic()
+        print(f"$ powercontext setup codex (pid={process.pid})", file=output, flush=True)
+        try:
+            result = process.wait(timeout=180)
+        except (subprocess.TimeoutExpired, KeyboardInterrupt) as error:
+            print(f"[setup] {type(error).__name__} after {time.monotonic() - start:.2f}s", file=output, flush=True)
+            error.add_note(f"Codex setup diagnostics: {log}")
+            _stop_plugin_setup(process)
+            raise
+        if result:
+            # A native command can time out inside setup before the fixture's own deadline.
+            _stop_plugin_setup(process)
+        print(f"[setup] exit={result} elapsed={time.monotonic() - start:.2f}s", file=output, flush=True)
+    assert result == 0, f"powercontext_setup_codex_failed; see {log}"
+
+
+@pytest.mark.skipif(os.name != "posix", reason="Uses POSIX process groups to exercise setup timeout cleanup")
+def test_codex_setup_timeout_keeps_native_output_and_stops_descendants(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pid_file = tmp_path / "installer-pids"
+    executable = tmp_path / "codex"
+    executable.write_text(
+        f"#!{sys.executable}\n"
+        "import os, pathlib, subprocess, sys\n"
+        "child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'])\n"
+        "print('native setup stdout', flush=True)\n"
+        "print('native setup stderr', file=sys.stderr, flush=True)\n"
+        f"pathlib.Path({str(pid_file)!r}).write_text(f'{{os.getpid()}} {{child.pid}}')\n"
+        "child.wait()\n",
+        encoding="utf-8",
     )
-    log.write_text(f"$ powercontext setup codex\n{completed.stdout}\n{completed.stderr}\n", encoding="utf-8")
-    assert completed.returncode == 0, f"powercontext_setup_codex_failed; see {log}"
+    executable.chmod(0o755)
+
+    def short_timeout(timeout: float | None) -> float | None:
+        if timeout != 180:
+            return timeout
+        deadline = time.monotonic() + 20
+        while not pid_file.is_file() and time.monotonic() < deadline:
+            time.sleep(0.01)
+        return 0.2
+
+    class SetupPopen(subprocess.Popen[bytes]):
+        def wait(self, timeout: float | None = None) -> int:
+            return super().wait(short_timeout(timeout))
+
+    monkeypatch.setattr(subprocess, "Popen", SetupPopen)
+    log = tmp_path / "codex.log"
+    try:
+        with pytest.raises(subprocess.TimeoutExpired):
+            _install_plugin(str(executable), {"PATH": os.environ["PATH"]}, "http://127.0.0.1:1", tmp_path, log)
+        diagnostics = log.read_text(encoding="utf-8")
+        assert "codex plugin marketplace" in diagnostics
+        assert "native setup stdout" in diagnostics
+        assert "native setup stderr" in diagnostics
+        for pid in pid_file.read_text().split():
+            status = subprocess.run(
+                ["ps", "-o", "stat=", "-p", pid],  # noqa: S607 - inspect the spawned test process.
+                check=False,
+                capture_output=True,
+                text=True,
+            ).stdout.strip()
+            assert not status or status.startswith("Z"), f"setup descendant {pid} is still running: {status}"
+    finally:
+        if pid_file.exists():
+            for pid in pid_file.read_text().split():
+                with suppress(ProcessLookupError):
+                    os.kill(int(pid), signal.SIGKILL)
 
 
 @contextmanager

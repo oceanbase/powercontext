@@ -206,17 +206,17 @@ Set `PC_GATEWAY_INJECTION_CODE=on` to include code evidence from the Scope's cod
 
 ### Gateway instruction
 
-The gateway adds a built-in cost-guidance instruction (S) to every request on the Responses route (`/gateway/v1/responses`) by default; the Chat route is never changed. The text encourages targeted searches, batched reads, concise edits, and focused validation. `PC_GATEWAY_STEERING=off` disables it; unset or `on` enables it. Other values prevent startup.
+The gateway adds a built-in cost-guidance instruction (S) to every request on the Chat (`/gateway/v1/chat/completions`) and Responses (`/gateway/v1/responses`) routes by default. The text encourages targeted searches, batched reads, concise edits, and focused validation. `PC_GATEWAY_STEERING=off` disables it; unset or `on` enables it. Other values prevent startup.
 
 `PC_GATEWAY_STEERING_FILE` replaces the built-in text with a custom instruction. When steering is enabled, the gateway reads the file once at startup. It must be UTF-8, non-empty after trimming, at most 4,096 bytes, and free of PowerContext's reserved `BEGIN_POWERCONTEXT_` markers; otherwise the gateway exits at startup instead of running with a different instruction. `PC_GATEWAY_STEERING=off` takes precedence and does not read the file.
 
-The text becomes the first content block of the developer message that follows the client's first developer message, which is where Codex places its own `developer_instructions`. Without such a message, the gateway inserts a new developer message after the client's first developer message, or before the first user message when the request has no developer message. The text is identical on every request, so it stays part of the cached prefix. Core checks it as part of the final request like any other request text. It is independent of context injection, capture, and replay.
+On Responses, the text becomes the first content block of the developer message that follows the client's first developer message, which is where Codex places its own `developer_instructions`. Without such a message, the gateway inserts a new developer message after the client's first developer message, or before the first user message when the request has no developer message. On Chat, the gateway appends the guidance to the first system message, or inserts a system message before the first user message. The text is identical on every request, so it stays part of the cached prefix. Core checks it as part of the final request like any other request text. It is independent of context injection, capture, and replay.
 
 ### Gateway byte capacity
 
 The Rust gateway discovers `context_protection` once at startup through `/v1/capabilities`. Model routes require the complete `ContextProtectionCapabilities` DTO defined by OpenAPI: `check_versions`, `payload_versions`, `reuse_versions`, `reuse_families`, `enforcing`, and `limits` with `payload_bytes`, `binding_bytes`, `prepared_contexts`, `dependencies`, `send_seconds`, and `correlate_seconds`. Missing or mistyped required fields pause admission even when the input capacity is present. The check/payload versions must include v1, and `limits.payload_bytes` must be a positive integer. A failed query, incompatible version, incomplete DTO, or invalid capacity pauses both model routes with HTTP 503; `/healthz` and configured Core/MCP forwarding remain available. Restore the Core contract and restart this gateway to rediscover capacity. Every model send and response release still requires its own Core check. If Core lowers a limit before the gateway restarts, that check can reject the call; increasing a Core limit does not enlarge this gateway's startup allowance until restart. Startup diagnostics distinguish transport failure, query rejection, malformed/incomplete responses, unsupported versions, and invalid capacity using fixed messages without Core error values.
 
-`PC_GATEWAY_MAX_BODY_BYTES` defaults to 16 MiB (1 MiB = 1,048,576 bytes). The effective model input limit is the minimum of that setting, the advertised input capacity, and the current 1 MiB complete-body parser ceiling. A zero deployment limit disables model input with HTTP 503 and `input_capacity_disabled`; it does not indicate a Core discovery failure. Both Content-Length and consumed chunked request bytes are limited. The executor also measures the final UTF-8 JSON body after prepared-context injection/replay, Responses steering and protocol rendering. Initial-body overflow returns HTTP 413; final-body overflow returns HTTP 403 with `request_payload_too_large`, before any model send. Enlarging configuration cannot bypass the parser ceiling.
+`PC_GATEWAY_MAX_BODY_BYTES` defaults to 16 MiB (1 MiB = 1,048,576 bytes). The effective model input limit is the minimum of that setting, the advertised input capacity, and the current 1 MiB complete-body parser ceiling. A zero deployment limit disables model input with HTTP 503 and `input_capacity_disabled`; it does not indicate a Core discovery failure. Both Content-Length and consumed chunked request bytes are limited. The executor also measures the final UTF-8 JSON body after prepared-context injection/replay, steering and protocol rendering. Initial-body overflow returns HTTP 413; final-body overflow returns HTTP 403 with `request_payload_too_large`, before any model send. Enlarging configuration cannot bypass the parser ceiling.
 
 Provider response buffering defaults to at most 1 MiB for both fixed-length and chunked/SSE responses. The transport's explicit buffer limit can reduce this ceiling. Input `payload_bytes` does **not** declare an output allowance. Core's response configuration, content checks and the JSON/RPC envelope impose their own limits, so even a body below 1 MiB may be refused. The UDS client's 8 MiB RPC-response parser ceiling is a separate direction and is not model-body capacity.
 
@@ -231,11 +231,12 @@ These are per-body and per-class concurrency limits. They do not measure retaine
 When the gateway runs on the same host as the Server, Atomic Memory extraction for a captured turn can reuse the
 provider's prompt cache for the agent's conversation instead of sending the transcript again. The gateway enables prefix extraction by default for supported upstreams; `PC_GATEWAY_PREFIX_EXTRACTION=off` disables it, and `on` explicitly enables it. Other values prevent startup. With an OAuth subscription, only `codex` supports it, and only when the Server is confirmed as non-enforcing: the extraction request goes out with the subscription's credentials like the agent's own requests, counts against that account's usage limits, and cannot carry an output limit, which that endpoint rejects. Traffic of the other subscriptions uses normal extraction. Capture and the Server callback must also be configured:
 
-- **Gateway:** Enable capture with `PC_GATEWAY_SEDIMENT=on`; capture remains off by default. For a Responses
-  conversation, the gateway keeps the exact request it sent and the response output of each turn's final response in
+- **Gateway:** Enable capture with `PC_GATEWAY_SEDIMENT=on`; capture remains off by default. The gateway keeps
+  the exact request it sent and the terminal response output in
   memory, for at most 30 minutes, at most 64 turns and at most 64 MiB in total; the oldest are dropped first, and a
   turn dropped before extraction goes through normal extraction. It records an opaque handle in the captured Source's metadata,
-  with the input and output token counts of that final response.
+  with the input and output token counts of that final response. Chat prefix extraction applies to non-streaming Chat
+  Completions with a conversation ID and a single completed text reply.
   The request and response never enter the Source, evidence, or logs. The captured Source records the turn in full
   (projection `gateway-turn-text.v2`): no field is truncated and no step is omitted, and every argument field of a tool
   call, tool outputs and errors, other messages, and unrecognized items are included. Only the provider's encrypted
@@ -272,9 +273,9 @@ and the window shrinks, and later attempts process the parts one at a time; auto
 backoff. The Server uses the prefix only when that estimate is lower. This usually
 holds for turns with substantial tool output, and stops holding as a long conversation's prefix grows. It then sends its extraction instruction, the output schema,
 and the Source's provenance to `POST /gateway/v1/extract`. The gateway appends them as one user message after the
-kept request and response, sets `tool_choice` to `none`, and sends it to the agent's own target and account. Fields
-that would change the cached prefix, such as tools, `prompt_cache_key`, reasoning settings, and a response format, are
-not changed. The request passes the Server's normal `before_send` and `before_release` checks. The prefix holds the
+kept request and response, disables tool selection for the extraction, and sends it to the agent's own target and account.
+The request preserves cache-related fields such as tools, `prompt_cache_key`, reasoning settings, and response format.
+The request passes the Server's normal `before_send` and `before_release` checks. The prefix holds the
 memory blocks the gateway injected; the extraction instruction states that content between `BEGIN_POWERCONTEXT_*` and
 `END_POWERCONTEXT_*` markers is not evidence for the turn. An enforcing Server withholds a
 request that replays the provider's encrypted reasoning, so with Codex and similar clients extraction then falls back
