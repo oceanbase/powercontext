@@ -110,7 +110,7 @@ def _one_turn(evidence: tuple[AtomicMemoryEvidence, ...]) -> bool:
 def prefix_handle(value: AtomicMemoryExtractionInput) -> str | None:
     """The gateway prefix handle of a window that holds exactly one gateway turn, which its last Source carries."""
 
-    if not value.evidence or not _one_turn(value.evidence):
+    if not value.evidence or any(item.is_session for item in value.evidence) or not _one_turn(value.evidence):
         return None
     handle = _metadata(value.evidence[-1]).get(PREFIX_HANDLE_KEY)
     return handle if isinstance(handle, str) and handle else None

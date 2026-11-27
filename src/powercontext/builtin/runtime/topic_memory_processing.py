@@ -73,6 +73,7 @@ from powercontext.builtin.artifacts.topic_memory.generation import (
     TopicMemoryReductionOutput,
     TopicMemoryTemporaryInput,
     TopicMemoryTemporaryOutput,
+    render_topic_memory_input,
     topic_memory_stage_fixed_prompt,
 )
 from powercontext.builtin.artifacts.topic_memory.relatedness import (
@@ -130,11 +131,13 @@ from powercontext.builtin.sources import (
     SKILL_PACKAGE_UPLOAD_SOURCE_NAME,
     SKILL_USAGE_SOURCE_NAME,
     ContentCapture,
+    ContentSource,
     ExternalSkillSnapshotCapture,
     SkillPackageUploadCapture,
     SkillUsageCapture,
     SourceCursor,
 )
+from powercontext.builtin.sources.session import SessionMessage
 from powercontext.builtin.statistics import ModelUsageOperation, ModelUsagePurpose
 from powercontext.errors import RevisionConflictError
 from powercontext.sources import TEXT_EVIDENCE_PROJECTION_KEY, SourceObservation, TextEvidence
@@ -232,9 +235,7 @@ class TopicMemoryStageSet:
 
     def fits(self, value: BaseModel, stage: str = "") -> bool:
         fixed = self.fixed_prompts.get(stage, stage)
-        return (
-            self.estimator.estimate(f"{fixed}\n{value.model_dump_json(exclude_none=False)}") <= self.input_tokens_limit
-        )
+        return self.estimator.estimate(f"{fixed}\n{render_topic_memory_input(value)}") <= self.input_tokens_limit
 
 
 class TopicMemoryWorkerSpec(BaseModel):
@@ -310,7 +311,7 @@ class TopicMemoryWindowSelector:
             except TopicMemoryGenerationError:
                 # End before it; at the frontier, a singleton Worker persists its rejection.
                 return source_after + max(index - 1, 1)
-            characters += len(projected.content)
+            characters += _source_character_count(projected)
             evidence.append(projected)
             # The first eligible Source forms a Window even when it alone exceeds the budget.
             if (
@@ -321,7 +322,9 @@ class TopicMemoryWindowSelector:
         return source_ceiling
 
     def _probe_fits(self, evidence: Sequence[TopicMemoryEvidence]) -> bool:
-        request = f"{self._probe_fixed_prompt}\n{TopicMemoryProbeInput(evidence=tuple(evidence)).model_dump_json()}"
+        request = (
+            f"{self._probe_fixed_prompt}\n{render_topic_memory_input(TopicMemoryProbeInput(evidence=tuple(evidence)))}"
+        )
         return self._estimator.estimate(request) <= self._input_limit
 
 
@@ -622,7 +625,7 @@ class TopicMemoryProcessor:
 
     def _estimate_stage_input(self, value: BaseModel, stage: str) -> int:
         fixed = self._stages.fixed_prompts.get(stage, stage)
-        return self._stages.estimator.estimate(f"{fixed}\n{value.model_dump_json(exclude_none=False)}")
+        return self._stages.estimator.estimate(f"{fixed}\n{render_topic_memory_input(value)}")
 
     def _token_estimator_id(self) -> str | None:
         try:
@@ -903,19 +906,33 @@ class TopicMemoryProcessor:
     def _evidence_fragments(self, item: TopicMemoryEvidence, stage: str) -> Iterable[TopicMemoryEvidence]:
         """Keep every character and the original evidence identity across bounded requests."""
 
+        if (session := item.session) is None:
+            yield from self._split_evidence_text(item, stage, item.content)
+            return
+        for index, message in enumerate(session.messages):
+            partial = item.model_copy(update={"metadata": {**item.metadata, "message_index": index}})
+            yield from self._split_evidence_text(partial, stage, message.content, message=message)
+
+    def _split_evidence_text(
+        self, item: TopicMemoryEvidence, stage: str, text: str, *, message: SessionMessage | None = None
+    ) -> Iterable[TopicMemoryEvidence]:
         offset = 0
-        fragment_size = len(item.content)
-        while offset < len(item.content):
-            size = min(fragment_size, len(item.content) - offset)
+        fragment_size = len(text)
+        while offset < len(text):
+            size = min(fragment_size, len(text) - offset)
             while size:
+                content = text[offset : offset + size]
+                if (session := item.session) is not None and message is not None:
+                    fragment_message = message.model_copy(update={"content": content})
+                    content = session.model_copy(update={"messages": (fragment_message,)}).model_dump_json()
                 fragment = item.model_copy(
                     update={
-                        "content": item.content[offset : offset + size],
+                        "content": content,
                         "metadata": {
                             **item.metadata,
                             "fragment_start": offset,
                             "fragment_end": offset + size,
-                            "source_content_length": len(item.content),
+                            "source_content_length": len(text),
                         },
                     }
                 )
@@ -1494,11 +1511,15 @@ async def _project_window(
     for index, item in enumerate(stored, start=1):
         if is_generation_eligible(item.value):
             projected = await _project_evidence(index, item, sources)
-            characters += len(projected.content)
+            characters += _source_character_count(projected)
             if characters > MAX_TOPIC_MEMORY_SOURCE_CHARACTERS:
                 raise TopicMemoryGenerationError("source_complexity_limit")
             result.append(projected)
     return tuple(result)
+
+
+def _source_character_count(value: TopicMemoryEvidence) -> int:
+    return len(value.content) if value.session is None else len(value.model_dump_json())
 
 
 async def _project_evidence(
@@ -1506,6 +1527,14 @@ async def _project_evidence(
     stored: StoredSource,
     sources: SourceRepository,
 ) -> TopicMemoryEvidence:
+    if isinstance(stored.value, ContentSource) and (session := stored.value.session()) is not None:
+        _require_bounded_source_payload({"content": stored.value.content, "metadata": stored.value.metadata})
+        evidence = TopicMemoryEvidence.from_session(
+            _evidence_id(index), stored.ref.source_type, session, stored.value.metadata
+        )
+        if _source_character_count(evidence) > MAX_TOPIC_MEMORY_SOURCE_CHARACTERS:
+            raise TopicMemoryGenerationError("source_complexity_limit")
+        return evidence
     materialized = (
         stored.value if isinstance(stored.value, SourceObservation) else await sources.read_value(stored.value)
     )
@@ -1969,6 +1998,7 @@ async def _open_topic_memory_processor(spec: TopicMemoryWorkerSpec, scope_id: st
                 model_settings=settings,
                 name=name,
                 prompt_key=prompt_key,
+                input_renderer=render_topic_memory_input,
             )
             bounded = BudgetedTopicMemoryGenerator(
                 raw,

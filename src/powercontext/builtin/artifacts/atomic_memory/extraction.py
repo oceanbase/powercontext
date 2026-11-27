@@ -43,6 +43,8 @@ from powercontext.builtin.processing_diagnostics import (
     ProcessingStage,
     attach_diagnostics,
 )
+from powercontext.builtin.sources.content import ContentSource
+from powercontext.builtin.sources.session import SESSION_EVIDENCE_INSTRUCTIONS
 from powercontext.sources import (
     TEXT_EVIDENCE_PROJECTION_KEY,
     LocatedTextEvidence,
@@ -139,10 +141,24 @@ class AtomicMemoryEvidence(BaseModel):
     source_metadata: JsonValue
     via_artifact: ArtifactRef | None = None
 
+    @property
+    def is_session(self) -> bool:
+        """Identify native Session Sources from their server-owned provenance."""
+        return isinstance(self.source_metadata, dict) and self.source_metadata.get("session_input") is True
+
 
 class AtomicMemoryExtractionInput(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
     evidence: tuple[AtomicMemoryEvidence, ...]
+
+
+def with_session_evidence_instructions(
+    value: AtomicMemoryExtractionInput | AtomicMemoryReconciliationInput, payload: str, /
+) -> str:
+    """Add role guidance to extraction requests with structured conversations."""
+    if any(isinstance(item, AtomicMemoryEvidence) and item.is_session for item in value.evidence):
+        return f"{SESSION_EVIDENCE_INSTRUCTIONS}\n{payload}"
+    return payload
 
 
 class AtomicMemoryCandidate(BaseModel):
@@ -342,6 +358,9 @@ def _compact_source_metadata(value: Source, *, body: JsonValue, body_from_text_p
     """
 
     dumped = value.model_dump(mode="json", by_alias=True)
+    if isinstance(value, ContentSource) and value.session_input:
+        dumped.pop("content")
+        return _JSON.validate_python(dumped)
     body_text = body.get("content") if isinstance(body, dict) else body
     _drop_body_carriers(dumped, body_text)
 
@@ -372,7 +391,9 @@ async def project_atomic_memory_evidence(
     value = stored.value
     locator = None
     body_from_text_projection = False
-    if isinstance(value, SourceObservation):
+    if isinstance(value, ContentSource) and (session := value.session()) is not None:
+        content = session.model_dump(mode="json")
+    elif isinstance(value, SourceObservation):
         content = value.payload
         for projection in value.projections:
             if projection.key == TEXT_EVIDENCE_PROJECTION_KEY:

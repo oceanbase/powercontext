@@ -333,6 +333,7 @@ from powercontext.builtin.sources import (
     SourceCursor,
     validate_scope_id,
 )
+from powercontext.builtin.sources.session import InvalidSessionInputError
 from powercontext.builtin.statistics import (
     ModelUsageOperation,
     ModelUsagePurpose,
@@ -591,12 +592,16 @@ class ScopedSourceApplication:
         if value.metadata.get("kind") == WORKING_NOTE_SOURCE_KIND:
             raise InvalidRuntimeRequestError("working-note-dedicated-api")
         if self._runtime._record_service is None:
-            return await self._capture(value)
+            return await self._capture(value, classify_capture=True)
         try:
             async with self._runtime._scope_operation(self.scope_id):
                 try:
                     capture = ContentCapture.model_validate(
-                        {"source_id": value.source_id, "content": value.content, "metadata": dict(value.metadata)},
+                        {
+                            "source_id": value.source_id,
+                            "content": value.content,
+                            "metadata": dict(value.metadata),
+                        },
                         strict=True,
                     )
                 except ValidationError as error:
@@ -705,6 +710,7 @@ class ScopedSourceApplication:
         *,
         handoff_receipt: bool = False,
         working_note: bool = False,
+        classify_capture: bool = False,
     ) -> SourceReceipt:
         if self._runtime._record_service is not None:
             try:
@@ -727,20 +733,24 @@ class ScopedSourceApplication:
                 source_ref=SourceRef(source_type=record.source_type, source_id=record.source_id),
                 sequence=record.position,
             )
-        async with self._runtime._context(self.scope_id) as context:
-            with self._runtime._stage(_MEMORY_CAPTURE_STAGE, attributes={}) as span:
-                source, sequence = await context.sources.capture(
-                    ContentCapture(
-                        source_id=value.source_id,
-                        content=value.content,
-                        metadata=value.model_dump(mode="json")["metadata"],
-                    ),
-                    handoff_receipt=handoff_receipt,
-                    working_note=working_note,
-                )
-                if span is not None:
-                    span.set_attributes({_MEMORY_CAPTURE_SOURCE_COUNT: 1})
-            return SourceReceipt(source_ref=context.sources.catalog.as_ref(source), sequence=sequence)
+        try:
+            async with self._runtime._context(self.scope_id) as context:
+                with self._runtime._stage(_MEMORY_CAPTURE_STAGE, attributes={}) as span:
+                    source, sequence = await context.sources.capture(
+                        ContentCapture(
+                            source_id=value.source_id,
+                            content=value.content,
+                            metadata=value.model_dump(mode="json")["metadata"],
+                        ),
+                        handoff_receipt=handoff_receipt,
+                        working_note=working_note,
+                        classify_capture=classify_capture,
+                    )
+                    if span is not None:
+                        span.set_attributes({_MEMORY_CAPTURE_SOURCE_COUNT: 1})
+                return SourceReceipt(source_ref=context.sources.catalog.as_ref(source), sequence=sequence)
+        except InvalidSessionInputError as error:
+            raise InvalidBaseAccessRequestError("content", str(error)) from None
 
 
 class SourceApplication:

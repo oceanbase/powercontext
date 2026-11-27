@@ -18,7 +18,10 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
-from powercontext.builtin.artifacts.atomic_memory.extraction import AtomicMemoryExtractionInput
+from powercontext.builtin.artifacts.atomic_memory.extraction import (
+    AtomicMemoryExtractionInput,
+    with_session_evidence_instructions,
+)
 from powercontext.builtin.artifacts.atomic_memory.reconciliation import AtomicMemoryReconciliationInput
 from powercontext.builtin.inference.input_encoding import InputEncodingMode
 from powercontext.builtin.inference.privacy import PrivacyPolicy
@@ -39,8 +42,8 @@ def render_atomic_memory_input(
     stage = "atomic_memory.extract" if isinstance(value, AtomicMemoryExtractionInput) else "atomic_memory.reconcile"
     mode = modes[stage]
     if mode == "off":
-        return value.model_dump_json()
-    return render_input(
+        return with_session_evidence_instructions(value, value.model_dump_json())
+    payload = render_input(
         value,
         stage=stage,
         mode=mode,
@@ -49,3 +52,4 @@ def render_atomic_memory_input(
         observe=observe,
         schema=ATOMIC_MEMORY_INPUT_SCHEMA,
     )
+    return with_session_evidence_instructions(value, payload)

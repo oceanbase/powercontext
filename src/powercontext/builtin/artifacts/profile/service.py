@@ -64,7 +64,8 @@ from powercontext.builtin.records import BaseValueConflictError, BaseValueNotFou
 from powercontext.builtin.scope.errors import ScopeNotFoundError
 from powercontext.builtin.scope.repository import ScopeRepository
 from powercontext.builtin.source_eligibility import is_generation_eligible
-from powercontext.builtin.sources import SourceCursor
+from powercontext.builtin.sources import ContentSource, SourceCursor
+from powercontext.builtin.sources.session import SessionSourceInput
 from powercontext.errors import RevisionConflictError
 
 if TYPE_CHECKING:
@@ -74,7 +75,7 @@ if TYPE_CHECKING:
 
 class ProfileGenerationInput(BaseModel):
     previous_content: str | None
-    sources: tuple[str, ...]
+    sources: tuple[str | SessionSourceInput, ...]
 
 
 class ProfileGenerationOutput(BaseModel):
@@ -264,7 +265,12 @@ class RelationalProfileService:
             markdown = await self.generator.generate(
                 ProfileGenerationInput(
                     previous_content=None if current is None else current.content.content,
-                    sources=tuple(item.value.model_dump_json() for item in evidence),
+                    sources=tuple(
+                        session
+                        if isinstance(item.value, ContentSource) and (session := item.value.session()) is not None
+                        else item.value.model_dump_json()
+                        for item in evidence
+                    ),
                 )
             )
             if markdown is not None:

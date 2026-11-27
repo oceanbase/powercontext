@@ -39,12 +39,19 @@ class BuiltinSources(Sources):
         *,
         handoff_receipt: bool = False,
         working_note: bool = False,
+        classify_capture: bool = False,
     ) -> tuple[ContentSource, int]:
         """Resolve and persist one Content Source, returning its journal position."""
 
         resolved = await self.resolve(value)
         if type(resolved) is not ContentSource:
             raise TypeError("Content Source adapter returned an unexpected Source type")  # noqa: TRY003
+        if classify_capture:
+            entry = await self.journal.entry(self.catalog.as_ref(resolved))
+            if entry is not None and isinstance(entry.source, ContentSource) and entry.source.matches_capture(resolved):
+                return entry.source, entry.position
+            if entry is None:
+                resolved = resolved.classify_capture()
         source = await self.add(
             resolved.model_copy(update={"handoff_receipt": handoff_receipt, "working_note": working_note})
         )

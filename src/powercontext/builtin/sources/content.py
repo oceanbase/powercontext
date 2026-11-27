@@ -17,11 +17,13 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import Annotated, Literal
+from typing import Annotated, Literal, Self
 
-from pydantic import BaseModel, ConfigDict, Field, JsonValue, field_validator
+from pydantic import BaseModel, ConfigDict, Field, JsonValue, PrivateAttr, field_validator, model_validator
+from pydantic.json_schema import SkipJsonSchema
 
 from powercontext.artifacts import ArtifactRef
+from powercontext.builtin.sources.session import SessionSourceInput, parse_session_input, require_session_input
 from powercontext.limits import MAX_ARTIFACT_FAMILY_LENGTH
 from powercontext.sources import TEXT_EVIDENCE_PROJECTION_KEY, AdapterSourceDefinition, TextEvidenceV1
 from powercontext.sources.models import Source, SourceMaterialization
@@ -96,6 +98,8 @@ class ContentSourceInternal(BaseModel):
 class ContentSource(Source):
     """Captured content that can be used as Artifact evidence."""
 
+    model_config = ConfigDict(hide_input_in_errors=True)
+
     content: str
     metadata: dict[str, JsonValue] = Field(default_factory=dict)
     working_note: bool = False
@@ -104,6 +108,34 @@ class ContentSource(Source):
     internal: ContentSourceInternal | None = None
     # Set only by the Work acknowledgement writer, never from capture metadata.
     handoff_receipt: bool = False
+    # The existing native manifest allows additional properties. Omit the
+    # marker from that manifest and from ordinary Sources' stored material.
+    session_input: SkipJsonSchema[bool] = Field(default=False, exclude_if=lambda value: not value)
+
+    _session: SessionSourceInput | None = PrivateAttr(default=None)
+
+    @model_validator(mode="after")
+    def validate_retained_session(self) -> Self:
+        if self.session_input:
+            self._session = require_session_input(self.content, self.metadata)
+        return self
+
+    def classify_capture(self) -> ContentSource:
+        """Assign the representation for a new generic Content Source capture."""
+        session = parse_session_input(self.content, self.metadata)
+        if session is None:
+            return self
+        captured = self.model_copy(update={"session_input": True})
+        captured._session = session
+        return captured
+
+    def matches_capture(self, proposed: ContentSource, /) -> bool:
+        """Compare a retained record with the caller's unclassified capture."""
+        return self.model_dump(exclude={"session_input"}) == proposed.model_dump(exclude={"session_input"})
+
+    def session(self) -> SessionSourceInput | None:
+        """Expose the parsed projection of the original accepted payload."""
+        return self._session
 
     @property
     def is_working_note(self) -> bool:

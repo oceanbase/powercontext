@@ -11,6 +11,7 @@ the shared `evaluation/` environment.
 | [LongMemEval-V2](longmemeval_v2/README.md) | Long-horizon memory retrieval, prepared context, reader answers, and official scoring. |
 | [LoCoMo-Plus](locomo_plus/README.md) | Factual and cognitive memory evaluation with bounded smoke and full profiles. |
 | [Memory write gate](write_gate/README.md) | Offline evidence-sufficiency calibration, held-out checks, and promotion decision. |
+| [Session Source](session_source/README.md) | Role attribution, false facts, duplicates, and token usage from paired conversation extraction. |
 | [Capture ownership](capture_ownership/README.md) | WorkBuddy joined-prompt evidence ownership, candidate contamination and current-fact retention. |
 | [Source poisoning observation](source_poisoning/README.md) | Versioned synthetic inputs, immutable citations, and actual host answers from a bounded live-model run. |
 | [Prepared-context budget](prepared_context_budget/README.md) | Per-candidate budget dispositions and an offline comparison of the production allocator with an evaluation-only alternative. |

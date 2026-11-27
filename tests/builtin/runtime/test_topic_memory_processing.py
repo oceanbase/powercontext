@@ -153,6 +153,7 @@ from powercontext.builtin.sources import (
     SkillUsageCapture,
     SourceCursor,
 )
+from powercontext.builtin.sources.session import SessionSourceInput
 from powercontext.builtin.statistics import ModelUsagePurpose
 from powercontext.errors import RevisionConflictError
 from powercontext.sources import SourceMaterialization
@@ -2506,23 +2507,29 @@ def test_selector_and_worker_share_adapter_canonical_skill_evidence(source_kind:
     asyncio.run(scenario())
 
 
-def test_oversized_source_preserves_all_evidence_and_reaches_tail_at_the_same_budget() -> None:
+@pytest.mark.parametrize("session", [False, True], ids=["plain", "session"])
+def test_oversized_source_preserves_all_evidence_and_reaches_tail_at_the_same_budget(session) -> None:
     async def scenario() -> None:
         manager, profile, _, topics = await _repositories()
         sources = SourceRepository((*SOURCE_ADAPTERS, CONTENT_SOURCE_ADAPTER))
         try:
-            oversized_metadata = "界" * 200_000
+            oversized_metadata = "" if session else "界" * 200_000
+            conversation = {
+                "type": "powercontext.session.v1",
+                "session_id": "topic-session",
+                "messages": [
+                    {"role": "user", "content": "界" * 20_000},
+                    {"role": "assistant", "content": "User: verified. " + "新" * 20_000},
+                ],
+            }
             oversized_capture = ContentCapture(
                 source_id="oversized-content",
-                content="body",
-                metadata={"unbounded": oversized_metadata},
+                content=json.dumps(conversation, ensure_ascii=False) if session else "body",
+                metadata={} if session else {"unbounded": oversized_metadata},
             )
             async with profile.database.transaction() as connection:
-                first = await sources.add(
-                    connection,
-                    "scope-a",
-                    await CONTENT_SOURCE_ADAPTER.resolve(oversized_capture),
-                )
+                captured = await CONTENT_SOURCE_ADAPTER.resolve(oversized_capture)
+                first = await sources.add(connection, "scope-a", captured.classify_capture() if session else captured)
                 second = await sources.add(
                     connection,
                     "scope-a",
@@ -2541,7 +2548,7 @@ def test_oversized_source_preserves_all_evidence_and_reaches_tail_at_the_same_bu
                 profile.database,
                 sources,
                 character_token_estimator(),
-                context_window_tokens=125_000,
+                context_window_tokens=24_000 if session else 125_000,
             )
             assert await selector.select("scope-a", 0, second.journal_position) == first.journal_position
 
@@ -2555,7 +2562,7 @@ def test_oversized_source_preserves_all_evidence_and_reaches_tail_at_the_same_bu
                 temporary=unexpected,
                 reconciler=unexpected,
                 estimator=character_token_estimator(),
-                input_tokens_limit=100_000,
+                input_tokens_limit=12_000 if session else 100_000,
                 fixed_prompts={
                     "probe": topic_memory_stage_fixed_prompt(
                         TOPIC_MEMORY_PROBE_INSTRUCTIONS,
@@ -2578,12 +2585,27 @@ def test_oversized_source_preserves_all_evidence_and_reaches_tail_at_the_same_bu
             assert first_completion.outcome is ArtifactProcessingWorkerOutcome.SUCCEEDED
             assert len(small_probe.inputs) > 1
             assert all(small_stages.fits(cast(TopicMemoryProbeInput, value), "probe") for value in small_probe.inputs)
-            projected = "".join(cast(TopicMemoryProbeInput, value).evidence[0].content for value in small_probe.inputs)
-            assert json.loads(projected) == {
-                "content": "body",
-                "metadata": {"unbounded": oversized_metadata},
-            }
-            assert "oversized-content" not in projected
+            fragments = [cast(TopicMemoryProbeInput, value).evidence[0] for value in small_probe.inputs]
+            if session:
+                original = SessionSourceInput.model_validate(conversation)
+                for index, message in enumerate(original.messages):
+                    fragments_for_message = [part for part in fragments if part.metadata["message_index"] == index]
+                    texts = []
+                    for part in fragments_for_message:
+                        projected = SessionSourceInput.model_validate_json(part.content)
+                        assert projected.session_id == original.session_id
+                        (fragment,) = projected.messages
+                        assert fragment.role == message.role
+                        texts.append(fragment.content)
+                    assert "".join(texts) == message.content
+                message_indices = [part.metadata["message_index"] for part in fragments]
+                assert all(isinstance(index, int) for index in message_indices)
+                assert message_indices == sorted(cast(list[int], message_indices))
+                assert {part.evidence_id for part in fragments} == {"evidence-0001"}
+            else:
+                projected = "".join(part.content for part in fragments)
+                assert json.loads(projected) == {"content": "body", "metadata": {"unbounded": oversized_metadata}}
+                assert "oversized-content" not in projected
 
             async with profile.database.transaction() as connection:
                 cursor = await SourceCursorRepository().load(
