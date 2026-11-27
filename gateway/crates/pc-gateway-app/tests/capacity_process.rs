@@ -284,6 +284,7 @@ impl Gateway {
             });
             (task, path)
         });
+        command.env("PC_GATEWAY_STEERING", if steering { "on" } else { "off" });
         let steering = steering.then(|| {
             let path = std::env::temp_dir().join(format!(
                 "pc2464-{}-{}.txt",

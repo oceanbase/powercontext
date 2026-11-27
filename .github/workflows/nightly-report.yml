@@ -21,12 +21,10 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Install GitHub CLI
+      - name: Verify runner GitHub CLI
         run: |
-          if ! command -v gh >/dev/null 2>&1; then
-            sudo apt-get update
-            sudo apt-get install --no-install-recommends -y gh
-          fi
+          gh --version
+          gh api --help | grep -q -- '--slurp'
 
       - name: Generate the completed attempt's report
         env:
