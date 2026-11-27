@@ -161,7 +161,7 @@ In a combined deployment (`PC_GATEWAY_CORE_UDS`), requests forwarded to Core ret
 Core API, MCP and Dashboard requests follow Core's existing authentication and access-control rules.
 The Gateway key does not grant Core API access, and UDS does not replace Core authentication.
 
-Before exposing a combined deployment, set `POWERCONTEXT_SERVER_ACCESS_MODE=enforced` and configure valid Core authentication credentials, as in the UDS example above. Clients of protected Core routes must use Core credentials. `PC_GATEWAY_CORE_TOKEN` authenticates Gateway-initiated Core calls; the reverse proxy does not substitute it for client credentials.
+Every Gateway deployment, including standalone TCP and combined UDS, requires Core access control in `enforced` mode and a valid authentication credential for the Gateway service identity. This is required for privileged target resolution even when inference privacy protection is `disabled`, `shadow`, or `advisory`; a Core with authentication/access control disabled cannot authorize Gateway model sends. Configure `POWERCONTEXT_SERVER_ACCESS_MODE=enforced` and a supported authentication provider before starting the Gateway. Clients of protected Core routes must use their own Core credentials; the reverse proxy does not substitute `PC_GATEWAY_CORE_TOKEN` for client credentials.
 
 ### Gateway OAuth subscriptions
 
@@ -202,21 +202,41 @@ Set `PC_GATEWAY_UPSTREAM_PROFILE` for Chat and, to enable Responses, `PC_GATEWAY
 Each route selects one profile per Gateway instance. A request for another model on that route is rejected
 before sending; deployments that previously selected models per request need separately configured Gateway
 instances for those models.
-Grant the Gateway service identity both `gateway.invoke` and `scope.read` on the selected Scope;
-`PC_GATEWAY_CORE_TOKEN` must identify that service and differ from the mandatory client-facing `PC_GATEWAY_API_KEY`.
-This token is required at startup even for combined UDS deployments and Core deployments without authentication;
-previously tokenless deployments must configure a Core service identity before upgrading.
-The Gateway uses only the endpoint and protocol returned on an authorized `before_send` and never accepts
-`PC_GATEWAY_UPSTREAM_URL*`; these legacy variables now prevent startup. Core absence, missing target resolution,
-or a protocol mismatch pauses sending. The provider credential remains deployment-owned via
+`PC_GATEWAY_CORE_TOKEN` must identify the Gateway service principal and differ from the mandatory client-facing
+`PC_GATEWAY_API_KEY`. Core access control must be `enforced` in every Gateway deployment, including combined UDS and
+non-enforcing inference privacy modes. A Core with authentication/access control disabled cannot authorize model sends.
+Grant the service principal `gateway.user` (`gateway.invoke`) and `scope.viewer` (`scope.read`) on the selected Scope.
+For the built-in writable Access Provider, first use the Gateway token to confirm its Principal, then have an Access
+administrator create both bindings:
+
+```bash
+curl --fail "$CORE_URL/v1/access/me" \
+  -H "Authorization: Bearer $PC_GATEWAY_CORE_TOKEN"
+```
+
+Replace `server-token` below with the `service` identity returned by `/v1/access/me`, and use an Access administrator's
+credential for these `POST /v1/access/bindings/create` requests:
+
+```bash
+curl --fail "$CORE_URL/v1/access/bindings/create" \
+  -H "Authorization: Bearer $ACCESS_ADMIN_TOKEN" -H 'Content-Type: application/json' \
+  -d '{"subject":{"type":"service","id":"server-token"},"resource":{"type":"scope","scope_id":"<scope_id>"},"role":"gateway.user","idempotency_key":"gateway-user-<scope_id>"}'
+
+curl --fail "$CORE_URL/v1/access/bindings/create" \
+  -H "Authorization: Bearer $ACCESS_ADMIN_TOKEN" -H 'Content-Type: application/json' \
+  -d '{"subject":{"type":"service","id":"server-token"},"resource":{"type":"scope","scope_id":"<scope_id>"},"role":"scope.viewer","idempotency_key":"gateway-viewer-<scope_id>"}'
+```
+
+Use the configured identity provider's corresponding role-binding mechanism when it is not the built-in writable
+provider. The Gateway uses only the endpoint and protocol returned on an authorized `before_send`. Core absence,
+missing target resolution, or a protocol mismatch pauses sending. The provider credential remains deployment-owned via
 `PC_GATEWAY_UPSTREAM_API_KEY_CHAT` / `PC_GATEWAY_UPSTREAM_API_KEY_RESPONSES` (or the shared
 `PC_GATEWAY_UPSTREAM_API_KEY`); account/region identity is **not** validated by Core in this iteration.
-Do not share a profile between provider credential identities with distinct permissions. The upstream
-transport connects directly to the approved endpoint and ignores ambient HTTP proxy settings
-(`HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY`, etc.); configure a directly reachable Core-approved endpoint.
-Deployments that previously relied on these proxies to reach the provider must arrange direct connectivity
-before upgrading; an unreachable provider fails the send rather than falling back to the proxy.
-No offline passthrough is available: `PC_GATEWAY_DEGRADE=passthrough` fails startup.
+Do not share a profile between provider credential identities with distinct permissions. The upstream transport
+connects directly to the approved endpoint and ignores ambient HTTP proxy settings (`HTTP_PROXY`, `HTTPS_PROXY`,
+`ALL_PROXY`, etc.); configure a directly reachable Core-approved endpoint. Deployments that previously relied on these
+proxies to reach the provider must arrange direct connectivity before upgrading; an unreachable provider fails the
+send rather than falling back to the proxy.
 
 The model in a privileged send request must match the Core profile in every privacy mode, including `disabled`,
 `shadow` and `advisory`. Turning off privacy enforcement does not authorize a different model.
@@ -258,7 +278,7 @@ The Rust gateway discovers `context_protection` once at startup through `/v1/cap
 
 Provider response buffering defaults to at most 1 MiB for both fixed-length and chunked/SSE responses. The transport's explicit buffer limit can reduce this ceiling. Input `payload_bytes` does **not** declare an output allowance. Core's response configuration, content checks and the JSON/RPC envelope impose their own limits, so even a body below 1 MiB may be refused. The UDS client's 8 MiB RPC-response parser ceiling is a separate direction and is not model-body capacity.
 
-A response buffer overflow discards the response and returns HTTP 400 with `response_buffer_limit_exceeded`. No provider content is released and the call is not retried. The execution observation retains `PossiblySent` and a `Withheld` terminal: the provider may already have charged for the call. This is not proof of a complete response or of zero cost. This observation is process-local; this stage does not export a readable call record with attempts and terminal/sending facts. The G5-A requirement to expose possible billing in call evidence remains pending integration and an exported-record regression with [#2506](https://github.com/oceanbase/powercontext/pull/2506). Smaller, completely received responses still pass `before_release` before release.
+A response buffer overflow discards the response and returns HTTP 400 with `response_buffer_limit_exceeded`. No provider content is released and the call is not retried. The execution observation retains `PossiblySent` and a `Withheld` terminal: the provider may already have charged for the call. This is not proof of a complete response or of zero cost. The same lifecycle facts are exported in bounded, body-free call evidence: the call record retains the attempt, terminal and sending facts, and the production JSONL sink is covered by the Gateway evidence validation. Smaller, completely received responses still pass `before_release` before release.
 
 Transparent Core/MCP forwarding retains the deployment body limit rather than consuming the model input allowance. `PC_GATEWAY_MAX_CONCURRENT` (default 64) applies independently to model calls and fallback calls, so an active fallback SSE connection cannot exhaust the model semaphore. The combined ceiling is therefore up to twice the configured value, excluding exempt health probes; this setting is not a process-wide concurrency ceiling. Model permits stay with the actual HTTP/1 connection owner through local response delivery and the end of related request work, including writes still buffered after body EOF/drop. Model responses declare `Connection: close`; normal connection completion establishes local completion, without proving client receipt. The original 180-second monotonic deadline covers intake, execution, and local delivery. Expiration ends the connection without an extra delivery/cleanup window; a response may be truncated and error JSON is best effort. Framework-observed disconnects stop local work with `request_cancelled`; unobserved network loss is bounded by the deadline. A delivery interruption preserves completed execution and model-send facts, including `ReleaseAuthorized` and `ResponseReceived`. Cancellation does not prove provider rollback or safe resend. The process-local `ExecutionSnapshot::local_delivery` reports model content delivery as `NotStarted`, `InProgress`, `Completed`, or `Interrupted(reason)`; rejection and lifecycle-error responses do not start model content delivery. It is independent of the execution terminal and does not retain response bytes or permits. Fallback permits remain attached to their response body until drop. Fallback retains authentication, keep-alive and streaming behavior without the model deadline or forced connection closure. Provider sends and HTTP Core RPCs use fresh HTTP/1 connections with idle pooling disabled; the UDS Core client retains its bounded idle pool. Gateway shutdown allows up to 25 seconds to drain and bounds process exit to 30 seconds from the first shutdown signal. `/healthz` is exempt from both semaphores. A fallback request with a known oversized Content-Length returns 413 before forwarding. Unknown-length overflow produces a body error: a prefix may already have reached Core, and the proxy returns 502 if forwarding fails. It is not successful truncation, and the gateway does not buffer an entire MCP stream to force a uniform error status.
 
@@ -294,8 +314,8 @@ provider's prompt cache for the agent's conversation instead of sending the tran
   `context_protection.limits.capture_batch_sources`, the gateway logs an error at startup and does not capture turns;
   other requests are unaffected. A turn with more parts than that limit is not captured either.
 - **Server:** `POWERCONTEXT_SERVER_INFERENCE_PREFIX_EXTRACTION_GATEWAY_URL` set to the gateway's listen address, and
-  `POWERCONTEXT_SERVER_INFERENCE_PREFIX_EXTRACTION_GATEWAY_HEADERS` set to `{"Authorization": "Bearer <PC_GATEWAY_API_KEY>"}`
-  when the gateway requires a key. A generation model is still required, because normal extraction is the fallback.
+  `POWERCONTEXT_SERVER_INFERENCE_PREFIX_EXTRACTION_GATEWAY_HEADERS` set to `{"Authorization": "Bearer <PC_GATEWAY_API_KEY>"}`.
+  The Gateway key is mandatory on every listener, including loopback. A generation model is still required, because normal extraction is the fallback.
 
 With `POWERCONTEXT_SERVER_INFERENCE_PREFIX_EXTRACTION_GATEWAY_URL` configured, the Server defaults Atomic Memory processing to `one_pass` unless a mode was explicitly supplied. Set `POWERCONTEXT_SERVER_RUNTIME_ATOMIC_MEMORY_PROCESSING_MODE=per_candidate` to retain per-candidate extraction, or `one_pass` to select one-pass explicitly. A Server without the callback URL and direct SDK configurations keep their existing `per_candidate` default. The gateway cannot discover or configure this URL for a separately started Server.
 

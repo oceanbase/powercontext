@@ -2,18 +2,13 @@
 
 The optional Rust Gateway adds PowerContext recall and conversation capture to OpenAI-compatible model traffic. PowerContext Core decides whether a request may be sent and whether its response may be released. See [RFC 2199](../docs/en/rfcs/2199-powercontext-gateway.md) for the design.
 
-The Core-bound egress path requires privileged target resolution in `/v1/context/check` and `include_reuse`. It has been exercised with real Core and local upstream TCP listeners, not an external provider. See the [1.6.0 release notes](../release/notes/powercontext-v1.6.0.md) for compatibility.
+The optional Gateway requires Core-issued target admission for every model send. Core must run with access control enforced, including for combined UDS deployments and non-enforcing inference privacy modes. See [Gateway deployment](../docs/en/docs/operate/deploy-server.md) and [installation](../docs/en/docs/operate/install-gateway.md) for the current authentication and target requirements.
 
 ## Model traffic
 
 The Gateway serves `/gateway/v1/chat/completions` and `/gateway/v1/responses`. It checks the final request with Core before sending it, then buffers the response and checks it before releasing content. Clients requesting a stream receive buffered replay after approval, rather than live token delivery. Upstream error statuses are preserved.
 
-- **Two-phase gate executor**: `check(before_send)` → send admitted bytes → `check(before_release)` → release. Opaque bindings thread the two phases (`request_binding` must be the send-phase binding). HTTP success alone is never treated as approval; unknown never becomes allow.
-- **Privacy enforcement by Core, executed by the gateway**: forbidden content is blocked before any byte leaves the gateway (zero-send on block/withhold, zero-release on refuse, upstream cancel on refusal).
-- **Deterministic-failure-only bounded retry**: connection-refused style failures retry a bounded number of times with a single owner; indeterminate outcomes (timeout after hand-off) are surfaced as `send_indeterminate` and never auto-retried (no paid re-sends).
-- **Core-owned send destination**: privileged `before_send` returns the exact endpoint and renderer protocol from the Core profile. Only that admission can reach transport; missing/old responses, an unavailable Core before admission, or a mismatched protocol pause with zero sends. Offline passthrough is disabled; `PC_GATEWAY_DEGRADE=passthrough` fails at startup. Issued admissions remain usable through their deadline, and each confirmed-not-sent retry requires a fresh Core decision.
-- **Streaming ingestion** (`stream: true`): upstream SSE is received incrementally with a byte cap; first HTTP body byte latency is measured from before the response-header wait, while model TTFT remains unknown. Strict semantics hold — the complete raw response is buffered and must pass `before_release` before anything is released to the client. (The current public carrier in #2264 withholds streaming payloads; the pipeline is ready for when the contract allows it.)
-- **Status-code fidelity**: upstream errors pass through with their original status code (a provider 402/400 is never masked as 200), and `Content-Type` is preserved.
+Requests with uncertain delivery are not automatically resent. When Core is unreachable, model traffic pauses; model requests are never sent without Core-issued target admission.
 
 The default upstream uses the same API format as the client. [Subscription adapters](SUBSCRIPTIONS.md) provide channel-specific conversions. The Gateway does not serve the Anthropic Messages API.
 
@@ -21,27 +16,17 @@ Blocked calls return HTTP 403. Withheld calls return HTTP 400 unless the executo
 
 ## Memory
 
-- **Two deployment forms**: *combined* (Rust owns the public TCP port; Core listens only on a private Unix socket; all non-`/gateway` routes are reverse-proxied to Core over UDS) or *standalone* (TCP to a remote Core).
-- **UDS client**: hand-rolled HTTP/1.1 over the Unix socket with a pooled, keep-alive connection pool (bounded idle set, connect/read timeouts, operation-aware single retry, one complete-operation timeout, content-length truncation and chunked-trailer consumption — covered by a real-socket regression test).
-- **OpenAI-compatible ingress** at `/gateway/v1/chat/completions` and `/gateway/v1/responses` (same format in and out, no cross-format translation), authenticated by a gateway key that replaces provider keys.
-- **Authentication boundary**: `PC_GATEWAY_API_KEY` protects only the two model routes above. Other paths forwarded to Core retain the client's credentials and follow Core's own authentication and access-control rules. Before exposing a combined deployment, enable Core authentication and enforced access control; neither the Gateway key nor UDS replaces Core authentication. See [deployment authentication](../docs/en/docs/operate/deploy-server.md#gateway-authentication-boundaries) ([中文](../docs/zh/docs/operate/deploy-server.md#网关认证边界)).
-- **Responses fidelity**: on `/gateway/v1/responses`, every input item other than a plain user message (developer messages, tool calls and outputs, reasoning, client-specific items such as Codex's `additional_tools`) is forwarded unchanged, and request fields the ingress does not model (for example `reasoning`, `include`, `prompt_cache_key`) are passed through for Core's request allowlist to decide; only the client-local `client_metadata` is dropped. The upstream request is always non-streaming; a streaming client receives the released  200 response replayed as Responses SSE events: `response.created`, `response.output_item.added`/`done` per item with each message content part as `response.content_part.added`/`done` around one buffered `response.output_text.delta`/`done` (or `response.refusal.delta`/`done`), and a terminal event chosen from the response status (`response.completed`, `response.incomplete`, or `response.failed` when the status is `failed`/`cancelled` or an `error` is present).
-- **Protection refusals**: blocked requests return HTTP 403; deterministic `withhold` outcomes return HTTP 400 with `decision` and `reason_codes`, including release-time refusals after upstream generation. Codex can retry generic 403 errors as stream failures, so 403 does not make a `withhold` terminal for that client. Repeating the same refused request cannot resolve these outcomes and may consume provider quota again. The HTTP adapter maps the executor's `retryable` classification to HTTP 409 when true and HTTP 400 when false; it does not classify `reason_codes`. The executor currently classifies a `withhold` as retryable only when its nonempty reason list contains exclusively `context-refresh-required`, in either phase; mixed, unknown, or empty reasons are non-retryable. A release-phase retry can repeat upstream generation and consume provider quota again. Stale prepared context is still refreshed internally at most once before send. Admission expiry retains HTTP 409.
-- **Byte capacity**: startup-confirmed model input is the minimum of deployment, Core input capacity, and the current 1 MiB parser ceiling; final rendered bytes are checked before send. Provider response buffering is capped independently at 1 MiB; overflow withholds content without automatic resend and may already be billed. Model and fallback concurrency budgets are separate. See [deployment capacity and migration behavior](../docs/en/docs/operate/deploy-server.md#gateway-byte-capacity) ([中文](../docs/zh/docs/operate/deploy-server.md#gateway-字节容量)). These limits do not establish a process RSS ceiling. G5-A readable billing evidence remains pending integration with #2506; see [acceptance status](CAPACITY_VALIDATION.md#remaining-issue-acceptance).
-- **Middleware chain**: composable `GatewayMiddleware` trait; ships with resource limits (request-body precheck + concurrency semaphore, health probe exempt) and request-id propagation (`x-powercontext-request-id`, client-supplied or generated, echoed on responses).
-- **Body-free evidence**: bounded JSONL on stdout (1024 queued records plus one in flight), correlated call/attempt terminals, per-field usage completeness and cache reads, explicit first-byte/release/framework timing and separate first model-content frame observation; model TTFT stays unknown. Operational tracing uses stderr and omits configured Core URLs/socket paths. Common operation/unit/outcome fields align with the Server vocabulary; the managed Server OTLP pipeline does not ingest Gateway JSONL by default. See the [output and deployment contract](../docs/en/docs/operate/gateway-evidence.md) / [中文](../docs/zh/docs/operate/gateway-evidence.md). `PC_GATEWAY_EVIDENCE=off` explicitly disables coverage.
-
 In a combined UDS deployment, recall injection is enabled by default. The Gateway prepares context on a user turn and reuses that turn's prepared block for the requests that follow, without querying again. A tool continuation without a conversation ID has nothing to reuse and is sent without recall. Core verifies the injected text and its binding. Empty or failed preparation leaves the request uninjected.
 
 Use `X-PowerContext-Conversation-ID` to identify a conversation. The Gateway also recognizes client session headers from OpenCode, Codex and translated Claude Code traffic. Without a valid header, eligible full-history requests get a process-local identity for preparation replay from their opening messages. See [context injection settings](../docs/en/docs/operate/deploy-server.md#gateway-context-injection) for header precedence and fallback behavior. Standalone deployments require `PC_GATEWAY_INJECTION=on` to enable injection.
 
 The Gateway classifies each request tail as `user_turn`, `tool_continuation`, `assistant_only` or `empty`, and records it in call evidence and debug logs. Responses items are classified by their own role and type rather than the verbatim carrier. Every kind other than `user_turn` reuses the turn's prepared block when a replay entry exists and otherwise skips preparation and replay.
 
-Set `PC_GATEWAY_SEDIMENT=on` to capture completed user turns as Sources for later extraction. Capture excludes injected context and provider reasoning ciphertext. Tool continuations remain open until the final response. Long turns are split into Sources, and Core stores all parts in one batch. With a trusted conversation ID, captures share a turn digest and include a digest of the ordered normalized Source parts in their Source IDs. Distinct terminal records are stored independently; identical normalized parts are idempotent even when provider response IDs or usage change. Existing Sources remain unchanged, and a repeated capture under the former turn-only ID creates a new Source. Capture requires a Core that supports batch capture. Capture failure does not prevent response delivery. Blocked and degraded turns are not captured.
+Set `PC_GATEWAY_SEDIMENT=on` to capture completed user turns as Sources for later extraction. Capture excludes injected context and provider reasoning ciphertext. Tool continuations remain open until the final response. Long turns are split into Sources, and Core stores all parts in one batch. With a trusted conversation ID, captures share a turn digest and include a digest of the ordered normalized Source parts in their Source IDs. Distinct terminal records are stored independently; identical normalized parts are idempotent even when provider response IDs or usage change. Existing Sources remain unchanged, and a repeated capture under the former turn-only ID creates a new Source. Capture requires a Core that supports batch capture. Capture failure does not prevent response delivery. Blocked turns are not captured.
 
 When Core allows a Chat Completions stream, capture assembles the primary choice's text from its deltas and requires a terminal finish reason. The client receives the original SSE body.
 
-For a supported Responses upstream, prefix extraction is enabled by default; `PC_GATEWAY_PREFIX_EXTRACTION=off` disables it. With a subscription this applies to `codex` only, on a Core confirmed as non-enforcing; the extraction requests use the subscription account, and the Core-approved destination must match the subscription endpoint. Traffic of the other subscriptions uses normal extraction. Capture remains opt-in. Core also needs its gateway callback URL and generation model configured. With that URL configured, the Server defaults to `one_pass` unless a processing mode was explicitly supplied; `POWERCONTEXT_SERVER_RUNTIME_ATOMIC_MEMORY_PROCESSING_MODE=per_candidate` retains the previous mode. Both processing modes can reuse an eligible agent prefix when estimated cheaper, with normal extraction as the fallback. See [prefix extraction settings](../docs/en/docs/operate/deploy-server.md#memory-extraction-over-the-cached-prefix).
+For a supported Responses upstream, prefix extraction is enabled by default; `PC_GATEWAY_PREFIX_EXTRACTION=off` disables it. With a subscription this applies to `codex` only, on a Core confirmed as non-enforcing; the extraction requests use the subscription account. Traffic of the other subscriptions uses normal extraction. Capture remains opt-in. Core also needs its gateway callback URL and generation model configured. With that URL configured, the Server defaults to `one_pass` unless a processing mode was explicitly supplied; `POWERCONTEXT_SERVER_RUNTIME_ATOMIC_MEMORY_PROCESSING_MODE=per_candidate` retains the previous mode. Both processing modes can reuse an eligible agent prefix when estimated cheaper, with normal extraction as the fallback. See [prefix extraction settings](../docs/en/docs/operate/deploy-server.md#memory-extraction-over-the-cached-prefix).
 
 ## Steering
 
@@ -71,21 +56,23 @@ If the selected Release has no Gateway archive, build from its source tag. From 
 cargo build --locked --manifest-path gateway/Cargo.toml --release
 ```
 
-For a combined deployment, start Core on a private Unix socket and configure an approved upstream profile and an accessible Scope:
+For a combined deployment, Core must use `POWERCONTEXT_SERVER_ACCESS_MODE=enforced` and authenticate the service principal represented by `PC_GATEWAY_CORE_TOKEN`. Configure the Core target and grant that principal `scope.read` (`scope.viewer`) and `gateway.invoke` (`gateway.user`) on the selected Scope before starting the Gateway. For a route's profile and client key requirements, see [Gateway deployment](../docs/en/docs/operate/deploy-server.md#gateway-model-destination).
 
 ```bash
 PC_GATEWAY_CORE_UDS=/path/to/core.sock \
 PC_GATEWAY_CORE_TOKEN="$POWERCONTEXT_DEPLOYMENT_TOKEN" \
 PC_GATEWAY_UPSTREAM_PROFILE=approved-provider \
+PC_GATEWAY_UPSTREAM_PROFILE_RESPONSES=approved-provider-responses \
 PC_GATEWAY_DEFAULT_SCOPE=your-scope \
 PC_GATEWAY_API_KEY="$GATEWAY_CLIENT_TOKEN" \
 PC_GATEWAY_UPSTREAM_API_KEY_CHAT="$PROVIDER_API_KEY" \
+PC_GATEWAY_UPSTREAM_API_KEY_RESPONSES="$PROVIDER_RESPONSES_API_KEY" \
 ./gateway/target/release/pc-gateway
 ```
 
 The Rust process owns the public listener and forwards other routes to Core over UDS. For a standalone Gateway, set `PC_GATEWAY_CORE_BASE` to the Core HTTP URL instead; standalone mode does not reverse-proxy Core routes.
 
-`PC_GATEWAY_API_KEY` authenticates the two model routes and is required for every listener. Forwarded Core API, MCP and Dashboard requests retain the client's credentials. `PC_GATEWAY_CORE_TOKEN` authenticates Gateway-initiated Core calls. See [deployment authentication](../docs/en/docs/operate/deploy-server.md#gateway-authentication-boundaries) before exposing the service.
+`PC_GATEWAY_API_KEY` is mandatory on every listener, including loopback, and must differ from `PC_GATEWAY_CORE_TOKEN`. Forwarded Core API, MCP and Dashboard requests retain the client's credentials. `PC_GATEWAY_CORE_TOKEN` authenticates Gateway-initiated Core calls. Core target resolution requires enforced access mode and a service identity with the required Scope grants; a Core with authentication/access control disabled cannot serve model traffic through this Gateway. `PC_GATEWAY_UPSTREAM_URL*` is no longer accepted; configure Core-owned target profiles instead.
 
 Request size, response buffering and concurrency have separate limits. The effective input limit includes Core's advertised capacity and the parser ceiling; increasing a deployment setting cannot bypass either. See [byte capacity](../docs/en/docs/operate/deploy-server.md#gateway-byte-capacity) for limits and failure statuses. Operational JSONL omits request and response bodies; its configuration is in [Gateway evidence](../docs/en/docs/operate/gateway-evidence.md).
 
@@ -93,7 +80,7 @@ Request size, response buffering and concurrency have separate limits. The effec
 
 `PC_GATEWAY_SUBSCRIPTION` selects `codex`, `copilot`, `grok`, `qwen`, `kimi` or `gemini`; Claude CLI is not supported by Core-bound egress because its internal sends cannot be observed. HTTP channels require an explicit credential path in `PC_GATEWAY_SUBSCRIPTION_CREDENTIALS`. Copilot, Qwen and Kimi also support `pc-gateway login <provider> <new-file>`.
 
-See [OAuth subscriptions](SUBSCRIPTIONS.md) for login steps, credential renewal, supported routes and protection limits. Gemini disables context injection. Subscription credentials are sent only when Core approves their exact endpoint.
+See [OAuth subscriptions](SUBSCRIPTIONS.md) for login steps, credential renewal, supported routes and protection limits. Gemini disables context injection. Codex can be withheld when Core requires an output token cap its endpoint cannot enforce.
 
 ## Layout
 
@@ -107,17 +94,6 @@ See [OAuth subscriptions](SUBSCRIPTIONS.md) for login steps, credential renewal,
 | `pc-gateway-transport` | HTTP and CLI execution, buffering and bounded retry |
 | `pc-gateway-evidence` | Call, attempt, usage and delivery records |
 | `pc-gateway-embedded` | Placeholder for an embedded executor |
-
-Core `InferenceConfig.protection.targets[<profile>]` owns the endpoint, model and protocol. Configure
-an authenticated service principal with `gateway.invoke` and `scope.read` on the selected Scope,
-and pass its bearer token as `PC_GATEWAY_CORE_TOKEN` (UDS alone does not authenticate).
-Chat uses `PC_GATEWAY_UPSTREAM_PROFILE`; Responses requires `PC_GATEWAY_UPSTREAM_PROFILE_RESPONSES`.
-Requests for other models are rejected, even when privacy enforcement is disabled. Deploy separate
-Gateway instances for multiple models. The client-facing `PC_GATEWAY_API_KEY` must be distinct
-from the Core token. Neither key authenticates a client to Core's forwarded API routes.
-The transport connects directly to the Core-approved endpoint and ignores ambient HTTP proxies;
-the removed `PC_GATEWAY_UPSTREAM_URL*` variables cause a startup error. Credentials never enter
-Core check payloads.
 
 ## Tests
 
@@ -156,16 +132,7 @@ When an HTTP error can still be returned, deadline expiration maps to 504 and sh
 
 ## Retry and Core RPC recovery
 
-The production Executor is the only model retry owner. Each provably unsent attempt may retry up to the
-configured attempt limit, obtains a new before-send admission, and validates its binding and validity.
-The original deadline and cancellation apply throughout. `Executor::close_model_admission()` permanently
-closes new attempts, including retries; handed-off calls can still finish within their
-original lifecycle. `Executor::model_admission()` exposes a one-way atomic closure handle for signal
-handlers; `close_model_admission()` also synchronizes with committed transport handoffs before the
-service inspects sending facts.
-A timeout, partial response, or disconnect after request handoff retains possibly-sent facts and never
-triggers an automatic resend or fallback. The transport no longer exports `BoundedRetry` or `RetryOutcome`;
-embedding callers that used them must route model retries through the Executor.
+The production Executor is the only model retry owner. Each provably unsent attempt may retry up to the configured attempt limit, obtains a new before-send admission, and validates its binding and validity. The original deadline and cancellation apply throughout. `Executor::close_model_admission()` permanently closes new attempts, including retries; handed-off calls can still finish within their original lifecycle. `Executor::model_admission()` exposes a one-way atomic closure handle for signal handlers; `close_model_admission()` also synchronizes with committed transport handoffs before the service inspects sending facts. A timeout, partial response, or disconnect after request handoff retains possibly-sent facts and never triggers an automatic resend or fallback. The transport no longer exports `BoundedRetry` or `RetryOutcome`; embedding callers that used them must route model retries through the Executor.
 
 Both Core clients allow at most one eligible transport retry. Check and capabilities are read-only. Capture serializes once and replays the same Scope, content Source identity, body, and full metadata; an existing equal capture returns its original journal position, while changed content or metadata remains conflicting. Prepare reconnects only on proof that zero request bytes were handed off. Missing response headers, EOF, and timeouts do not prove non-execution. Authentication failures, explicit rejections, malformed responses, and capture conflicts are not retried.
 

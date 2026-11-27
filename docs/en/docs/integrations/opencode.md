@@ -116,11 +116,13 @@ An enforcing Core withholds streamed Chat Completions responses, and the gateway
 non-enforcing Core, including the default `disabled` mode, the gateway releases the stream unchanged. With
 `PC_GATEWAY_SEDIMENT=on`, it also assembles the assistant's text from a terminal stream and captures the completed turn.
 
-Core also needs a target for the profile that `PC_GATEWAY_UPSTREAM_PROFILE` names (`default` unless set), in every
-privacy mode, including `disabled`. Without one, Core withholds each request with `target_unsupported`, and the gateway
-returns HTTP 400 for every turn on either route, not only for streamed Chat Completions turns. The `reason_codes` field
-of the gateway's response body names the reason and tells the two cases apart. See
-[Configure a supported target](../operate/inference-protection.md#configure-a-supported-target).
+The `@ai-sdk/openai` provider uses the Responses route. Set `PC_GATEWAY_UPSTREAM_PROFILE_RESPONSES` to the Core
+target profile with the matching endpoint, `openai-responses` protocol and model; `PC_GATEWAY_UPSTREAM_PROFILE` only
+selects the Chat route and does not enable Responses. Without the Responses setting, requests return HTTP 501
+`responses_route_disabled`. Do not set `PC_GATEWAY_UPSTREAM_URL*`; these legacy variables prevent startup. Core access
+control must be `enforced`, `PC_GATEWAY_CORE_TOKEN` must identify an authenticated service principal, and a nonempty
+`PC_GATEWAY_API_KEY` is mandatory even on loopback. Grant the service principal `gateway.user` and `scope.viewer` on the
+selected Scope. See [Gateway authentication and target requirements](../operate/deploy-server.md#gateway-model-destination).
 
 ## Verify the installation
 

@@ -98,14 +98,28 @@ PC_GATEWAY_UPSTREAM_API_KEY_CHAT="$PROVIDER_API_KEY" \
 pc-gateway
 ```
 
+所有 Gateway 部署（包括组合 UDS 和非 enforcing 推理隐私模式）都要求 Core 设置
+`POWERCONTEXT_SERVER_ACCESS_MODE=enforced` 并配置受支持的认证 Provider。关闭认证/访问控制的 Core 无法批准模型发送。
 Gateway 默认监听回环地址。同机组合部署时，将 `PC_GATEWAY_CORE_BASE` 替换为
 `PC_GATEWAY_CORE_UDS=/path/to/core.sock`；Core 必须已经监听该私有 socket。
 `PC_GATEWAY_API_KEY` 保护模型路由，包括回环监听在内的所有模型监听都必须配置。它必须与
 `PC_GATEWAY_CORE_TOKEN` 不同；它不替代转发 API、MCP 和 Dashboard 路由所需的 Core 凭据。
 `PC_GATEWAY_UPSTREAM_PROFILE` 必须已存在于 Core，并包含服务商 endpoint、模型和 `openai-chat` 协议。
-`PC_GATEWAY_CORE_TOKEN` 对应的服务身份必须在 `your-scope` 上同时具备 `scope.read` 和 `gateway.invoke`
-（例如通过 `scope.viewer` 和 `gateway.user` 两项角色授予）。
-详见[认证边界](deploy-server.md#网关认证边界)。
+Responses 路由还要设置 `PC_GATEWAY_UPSTREAM_PROFILE_RESPONSES`，并配置 `openai-responses` 目标。不要设置
+`PC_GATEWAY_UPSTREAM_URL*`；旧变量会导致启动失败。`PC_GATEWAY_CORE_TOKEN` 必须代表服务主体；即使监听回环地址，
+也必须配置非空且不同于 Core Token 的 `PC_GATEWAY_API_KEY`。使用内置可写 Access Provider 时，先携带 Gateway Token
+调用 `GET /v1/access/me`，再由 Access 管理员调用 `POST /v1/access/bindings/create`，为该主体在选定 Scope 上授予
+`gateway.user`（`gateway.invoke`）和 `scope.viewer`（`scope.read`）：
+
+```json
+{"subject":{"type":"service","id":"server-token"},"resource":{"type":"scope","scope_id":"your-scope"},"role":"gateway.user","idempotency_key":"gateway-user-your-scope"}
+```
+
+```json
+{"subject":{"type":"service","id":"server-token"},"resource":{"type":"scope","scope_id":"your-scope"},"role":"scope.viewer","idempotency_key":"gateway-viewer-your-scope"}
+```
+
+将 `server-token` 替换为 `PC_GATEWAY_CORE_TOKEN` 对应的 service 主体。详见[网关认证与目标要求](deploy-server.md#网关模型目标)。
 
 `curl --fail http://127.0.0.1:8787/healthz` 只检查 Gateway 监听状态。同机 UDS 部署时，通过 Gateway
 携带认证请求 `/v1/server-info` 应返回与 Core 相同的 Server 身份。独立 HTTP 模式不转发 Core 路由。

@@ -101,14 +101,30 @@ PC_GATEWAY_UPSTREAM_API_KEY_CHAT="$PROVIDER_API_KEY" \
 pc-gateway
 ```
 
-The default Gateway listener is loopback. For a combined deployment, replace `PC_GATEWAY_CORE_BASE` with
+Core must run with `POWERCONTEXT_SERVER_ACCESS_MODE=enforced` and a supported authentication provider for every
+Gateway deployment, including combined UDS and non-enforcing inference privacy modes. A Core with authentication/access
+control disabled cannot authorize model sends. For a combined deployment, replace `PC_GATEWAY_CORE_BASE` with
 `PC_GATEWAY_CORE_UDS=/path/to/core.sock`; Core must already be listening on that private socket.
 `PC_GATEWAY_API_KEY` protects model routes and is required for every model listener, including loopback. It must be
 different from `PC_GATEWAY_CORE_TOKEN`; it does not replace Core's credentials for forwarded API, MCP or Dashboard
 routes. The selected `PC_GATEWAY_UPSTREAM_PROFILE` must already exist in Core and must contain the provider endpoint,
-model and `openai-chat` protocol. Grant the service identity behind `PC_GATEWAY_CORE_TOKEN` both `scope.read` and
-`gateway.invoke` on `your-scope` (for example, `scope.viewer` and `gateway.user`). See
-[authentication boundaries](deploy-server.md#gateway-authentication-boundaries).
+model and `openai-chat` protocol. For Responses, also set `PC_GATEWAY_UPSTREAM_PROFILE_RESPONSES` to a Core target
+with the `openai-responses` protocol. Do not set `PC_GATEWAY_UPSTREAM_URL*`; those legacy variables prevent startup.
+`PC_GATEWAY_CORE_TOKEN` must identify a service principal, and `PC_GATEWAY_API_KEY` is required even on loopback and
+must be different from the Core token. With the built-in writable Access Provider, inspect the Gateway principal using
+`GET /v1/access/me`, then have an Access administrator grant it `gateway.user` (`gateway.invoke`) and `scope.viewer`
+(`scope.read`) on the selected Scope via `POST /v1/access/bindings/create`:
+
+```json
+{"subject":{"type":"service","id":"server-token"},"resource":{"type":"scope","scope_id":"your-scope"},"role":"gateway.user","idempotency_key":"gateway-user-your-scope"}
+```
+
+```json
+{"subject":{"type":"service","id":"server-token"},"resource":{"type":"scope","scope_id":"your-scope"},"role":"scope.viewer","idempotency_key":"gateway-viewer-your-scope"}
+```
+
+Replace `server-token` with the service identity returned for `PC_GATEWAY_CORE_TOKEN`. See
+[Gateway authentication and target requirements](deploy-server.md#gateway-model-destination).
 
 `curl --fail http://127.0.0.1:8787/healthz` checks the Gateway listener only. In a combined UDS deployment, an authenticated
 request to `/v1/server-info` through the Gateway should return the same Server identity as Core. Standalone HTTP mode

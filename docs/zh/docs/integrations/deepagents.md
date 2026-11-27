@@ -164,11 +164,13 @@ gateway（`PC_GATEWAY_CORE_BASE`）只有设置了这一项才会注入。
 - 除非每个请求都满足 enforcing 规则，否则请让 Core 运行在非 enforcing 隐私模式（`disabled`、`shadow` 或 `advisory`）：
   enforcing 模式的 Core 会暂缓没有 `store: false`、或没有不超过目标 token 预算的输出上限的 Responses 请求，gateway 返回
   HTTP 400。gateway 在启动时发现 Core 的模式，修改模式后请重启 gateway。
-- 任何隐私模式下（包括 `disabled`），Core 都需要为 `PC_GATEWAY_UPSTREAM_PROFILE` 指定的 profile（未设置时为
-  `default`）配置目标。没有目标时，Core 以 `target_unsupported` 暂缓每个请求，gateway 返回 HTTP 400。
-  见[配置受支持的目标](../operate/inference-protection.md#配置受支持的目标)。
-- 把 `PC_GATEWAY_UPSTREAM_URL_RESPONSES` 和 `PC_GATEWAY_UPSTREAM_API_KEY_RESPONSES` 设为供应商的 Responses 端点和密钥，
-  设置 `PC_GATEWAY_SEDIMENT=on`；Core 启用鉴权时还要设置 `PC_GATEWAY_CORE_TOKEN`。
+- 此处使用 Responses 路由，应将 `PC_GATEWAY_UPSTREAM_PROFILE_RESPONSES` 设为 Core 中 endpoint、`openai-responses`
+  协议和模型均匹配的 target profile。未设置时该路由返回 HTTP 501 `responses_route_disabled`。
+  将 `PC_GATEWAY_UPSTREAM_API_KEY_RESPONSES` 设为该目标的服务商 Key，并设置 `PC_GATEWAY_SEDIMENT=on`。
+  不要设置 `PC_GATEWAY_UPSTREAM_URL*`；这些旧变量会导致启动失败。
+- 即使监听回环地址也必须设置非空 `PC_GATEWAY_API_KEY`，并将 `PC_GATEWAY_CORE_TOKEN` 设为已认证的服务身份。
+  Core 访问控制必须为 `enforced`；在所选 Scope 上为该身份授予 `gateway.user` 和 `scope.viewer`。
+  详见[Gateway 认证与目标要求](../operate/deploy-server.md#网关模型目标)。
 - gateway 在 `PC_GATEWAY_DEFAULT_SCOPE` 指定的同一个 Scope 中准备和采集所有会话。请把它设为适配层使用过的 Scope，
   使 gateway 能召回之前采集的 Memory。
 

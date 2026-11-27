@@ -60,9 +60,9 @@ application operation，也不是 worker 的 inference generation。
 
 | 证据事实 | 顶层运维 `outcome` |
 | --- | --- |
-| 调用 `release_authorized` 或 `degraded`，已观察上游状态码 < 400 | `success` |
-| 同上，已观察上游状态码 >= 400 | `failure` |
-| 同上，上游状态码缺失 | null |
+| 调用 `release_authorized`，已观察上游状态码 < 400 | `success` |
+| `release_authorized`，已观察上游状态码 >= 400 | `failure` |
+| `release_authorized`，上游状态码缺失 | null |
 | 调用 `blocked`、`withheld`、`admission_expired` | `blocked` |
 | 调用 `send_indeterminate`、`not_sent`、`gate_paused` 或已确认原因的 `stopped` | `failure` |
 | 调用 `abandoned`，不论销毁时的取消意图/期限事实 | null |
@@ -73,7 +73,7 @@ application operation，也不是 worker 的 inference generation。
 
 null 表示分类不可得，不是 `success` 或 `noop`。销毁时存在取消意图不能证明取消原因，因此不投影为
 `cancelled`。保留嵌套的 terminal、sending、interruption 和尝试 outcome；通用 outcome 不能替代这些事实。
-这里的 `success` 不证明降级输出获得 strict 释放批准、客户端收到、任务采用或任务成功。
+这里的 `success` 不证明客户端收到、任务采用或任务成功。
 顶层 `duration_ms` 复制调用/尝试耗时；delivery 为 null，因为其 `elapsed_ms` 使用不同的起点。
 
 现有托管 Collector 接收 Server OTLP 日志，并通过 Server 字段白名单精简；默认**不采集** Gateway stdout，
@@ -147,8 +147,7 @@ reasoning 一类条目以及服务商已在响应内执行完毕的工具为 ass
 `lost_after_handoff` 表示其他传输/正文读取失败。两者均不允许自动重试。
 transport 交付完整响应后，解码或释放失败不会丢掉 usage。直接丢弃 pending transport 时无法取得其内部的部分观测。
 响应缓冲区超限时，调用记录为 `withheld`、发送事实为 `possibly_sent`，仅有一次 `buffer_limit_exceeded` 尝试；
-usage 与完整响应时间未知，保留已观察到的状态码和首字节时间。不释放响应前缀，也不重试，降级直通同样遵循此行为。
-容量限制的拒绝结论与可能计费事实分别保留。
+usage 与完整响应时间未知，保留已观察到的状态码和首字节时间。不释放响应前缀，也不重试。容量限制的拒绝结论与可能计费事实分别保留。
 
 ## Usage 映射
 
@@ -192,10 +191,10 @@ SSE 媒体类型在分离参数后按大小写不敏感方式比较。usage 与�
 执行器交接与 transport 自身的发送起点不同，两者的精确偏移没有记录。
 `started_ms + response_first_byte_ms` 或 `started_ms + response_complete_ms` 不能得到精确的调用相对时间戳。
 
-`delivery` 在获准/降级响应体放入 HTTP 响应时报告 `framework_handoff`，框架首次轮询取出非空 data frame
+`delivery` 在获准响应体放入 HTTP 响应时报告 `framework_handoff`，框架首次轮询取出非空 data frame
 时报告 `first_body_frame`，取出包含首个可识别模型输出编码字节的 frame 时报告 `first_model_content`，
 包装的 body 报告完成时为 `body_completed`，观察到完成之前被丢弃时为 `body_dropped`。
-strict 模式的释放批准先于框架交接、首个 data frame 与首内容观测。降级响应没有释放批准时间。
+释放批准先于框架交接、首个 data frame 与首内容观测。
 
 首内容边界识别 OpenAI Chat/Responses JSON 与所支持 SSE 输出中的非空 assistant 文本、拒绝字符串、
 函数调用名称及参数，包含 Responses 重放。仅含 role、usage、reasoning、error 及其他控制信息的事件不触发。

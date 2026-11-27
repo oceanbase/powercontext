@@ -410,8 +410,10 @@ default. Set:
   HTTP 501 `responses_route_disabled`. Do not set `PC_GATEWAY_UPSTREAM_URL*`; legacy URL variables prevent startup.
 - `PC_GATEWAY_UPSTREAM_API_KEY_RESPONSES` to the provider key for that approved target.
 - `PC_GATEWAY_API_KEY` to a nonempty key that Codex sends as `PC_GATEWAY_KEY`.
-- `PC_GATEWAY_CORE_TOKEN` to a distinct Core service identity with both `gateway.invoke` and `scope.read` on the
-  selected Scope. It is required even when Core is in a non-enforcing inference protection mode.
+- `PC_GATEWAY_CORE_TOKEN` to an authenticated Core service identity, distinct from the client-facing key. Core access
+  control must be `enforced` even when inference privacy protection is non-enforcing. Grant the identity `gateway.user`
+  (`gateway.invoke`) and `scope.viewer` (`scope.read`) on the selected Scope. See [Gateway authentication and target
+  requirements](../operate/deploy-server.md#gateway-model-destination) for the `/v1/access/me` and binding requests.
 - `PC_GATEWAY_SEDIMENT=on`, so that the gateway captures each completed turn as a Source.
 - `PC_GATEWAY_DEFAULT_SCOPE` to the Scope this plugin resolves for the workspace. Running `scope_binding.py` without
   `--bind-scope`, as described in [Hand off the current work in one turn](#hand-off-the-current-work-in-one-turn),

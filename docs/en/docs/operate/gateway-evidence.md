@@ -68,9 +68,9 @@ Current Gateway model routes cannot degrade: Core must authorize a target before
 
 | Evidence facts | Top-level operational `outcome` |
 | --- | --- |
-| Call `release_authorized` or `degraded`, observed upstream status < 400 | `success` |
-| Same terminals with observed upstream status >= 400 | `failure` |
-| Same terminals with missing upstream status | null |
+| Call `release_authorized`, observed upstream status < 400 | `success` |
+| `release_authorized` with observed upstream status >= 400 | `failure` |
+| `release_authorized` with missing upstream status | null |
 | Call `blocked`, `withheld`, `admission_expired` | `blocked` |
 | Call `send_indeterminate`, `not_sent`, `gate_paused`, or a confirmed `stopped` cause | `failure` |
 | Call `abandoned`, regardless of observed interruption intent/deadline | null |
@@ -82,7 +82,7 @@ Current Gateway model routes cannot degrade: Core must authorize a target before
 Null is unavailable classification, not `success` or `noop`. In particular, destruction-time cancellation intent
 is not a confirmed cancellation cause and is not projected as `cancelled`. Keep the nested terminal, sending,
 interruption and attempt outcome fields: the common outcome does not replace them. `success` here does not prove
-strict release authorization for degraded output, client receipt, task adoption or task success.
+client receipt, task adoption or task success.
 Top-level `duration_ms` copies call/attempt duration; it is null for delivery, whose `elapsed_ms` has a different origin.
 
 The existing managed Collector receives Server OTLP logs and reduces them through the Server field allowlist.
@@ -165,8 +165,8 @@ both waiting for response headers and timing out while reading the body, includi
 `lost_after_handoff` covers other transport/body failures. Neither permits automatic retry. Once the transport reports delivery,
 usage survives decoding/release failures. A dropped pending transport cannot provide its private partial observations.
 A response-buffer overflow produces a `withheld` call with `possibly_sent`, one `buffer_limit_exceeded` attempt,
-unknown usage/completion, and any observed status/first-byte timing. It releases no response prefix and does not retry,
-including degraded passthrough. This preserves the capacity-limit decision separately from possible billing.
+unknown usage/completion, and any observed status/first-byte timing. It releases no response prefix and does not retry.
+This preserves the capacity-limit decision separately from possible billing.
 
 ## Usage mapping
 
@@ -211,11 +211,11 @@ All durations are monotonic milliseconds, truncated to integers. Null means unav
 The executor handoff and the transport's own send start are separate origins. Their exact offset is not recorded;
 `started_ms + response_first_byte_ms` or `started_ms + response_complete_ms` is not an exact call-relative timestamp.
 
-A `delivery` record reports `framework_handoff` when the released/degraded body is placed in the HTTP response,
+A `delivery` record reports `framework_handoff` when the authorized body is placed in the HTTP response,
 `first_body_frame` when the framework first polls a nonempty data frame, `first_model_content` when it polls
 the frame containing the first encoded byte of recognized model output, `body_completed` when the wrapped body
 reports completion, or `body_dropped` if dropped before observed completion. Strict release authorization precedes
-framework handoff and both first-frame/content observations. A degraded response has no release authorization timestamp.
+framework handoff and both first-frame/content observations.
 
 The content boundary recognizes nonempty assistant text, refusal strings, and function-call names/arguments in
 OpenAI Chat/Responses JSON and their supported SSE output, including Responses replay. It skips role-only, usage,

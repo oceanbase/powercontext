@@ -357,13 +357,14 @@ codex
   `responses_route_disabled`。不要设置 `PC_GATEWAY_UPSTREAM_URL*`；旧 URL 变量会导致启动失败。
 - `PC_GATEWAY_UPSTREAM_API_KEY_RESPONSES` 设为该获准目标的供应商密钥。
 - `PC_GATEWAY_API_KEY` 设为 Codex 以 `PC_GATEWAY_KEY` 发送的非空密钥。
-- `PC_GATEWAY_CORE_TOKEN` 设为与 gateway key 不同的 Core 服务身份，并在选定 Scope 上同时授予 `gateway.invoke` 和
-  `scope.read`。即使 Core 的推理保护为非 enforcing 模式，也必须设置。
+- `PC_GATEWAY_CORE_TOKEN` 必须代表经过 Core 认证的服务身份，且与面向客户端的 Key 不同。即使推理隐私保护不是
+  enforcing，Core 访问控制也必须设为 `enforced`。在目标 Scope 上为该身份授予 `gateway.user`（`gateway.invoke`）和
+  `scope.viewer`（`scope.read`）。`/v1/access/me` 与绑定请求见[网关认证与目标要求](../operate/deploy-server.md#网关模型目标)。
 - `PC_GATEWAY_SEDIMENT=on`，让 gateway 把每个完成的轮次采集为 Source。
 - `PC_GATEWAY_DEFAULT_SCOPE` 设为插件为该 workspace 解析的 Scope。按[一句话交接当前工作](#一句话交接当前工作)中的
   说明，不带 `--bind-scope` 运行 `scope_binding.py`，即可打印这个 Scope。
 
-gateway 在启动时读取这些设置。gateway 的鉴权和注入设置见[部署 Server](../operate/deploy-server.md#网关认证边界)。
+gateway 在启动时读取这些设置。gateway 的认证与授权要求见[部署 Server](../operate/deploy-server.md#网关模型目标)。
 经过 gateway 的模型请求正文最多 1 MiB，过长的 thread 可能在发送前被拒绝，见
 [Gateway 字节容量](../operate/deploy-server.md#gateway-字节容量)。
 
