@@ -135,6 +135,22 @@ def test_preformatted_code_keeps_indentation_inside_a_quote():
     assert blocks[0]["text"] == "Example\ndef f():\n    return 1"
 
 
+def test_preformatted_code_keeps_indentation_through_enclosing_containers():
+    blocks = html_blocks(
+        "<doc><main><list><item>Run this:<code>def f():\n    return 1</code></item></list></main></doc>"
+    )
+    assert blocks[0]["text"] == "Run this:\ndef f():\n    return 1"
+
+
+def test_html_list_code_keeps_indentation_after_extraction():
+    source = (
+        b"<html><body><article><h1>Guide</h1><ul><li>Run this:<pre><code>def f():\n    return 1</code></pre>"
+        b"</li></ul></article></body></html>"
+    )
+    chunks = parse(source, "guide.html", {"max_chars": 12000, "overlap": 0})
+    assert "def f():\n    return 1" in chunks[0]["text"]
+
+
 def test_preformatted_code_does_not_leave_a_blank_line_before_the_next_item():
     blocks = html_blocks(
         "<doc><main><list><item><code>make test\nmake lint\n</code></item><item>Then verify.</item></list></main></doc>"

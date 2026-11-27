@@ -262,8 +262,12 @@ def _preformatted(element):
     return "\n" in "".join(element.itertext()) or element.find(".//lb") is not None
 
 
-def _render(element, collapse=True):  # noqa: C901
+def _render(element, collapse=True):
     """Render element text, keeping block-level boundaries and explicit line breaks."""
+    return _render_with_flag(element, collapse)[0]
+
+
+def _render_with_flag(element, collapse):  # noqa: C901
     parts = []
     literal = False
     if element.text:
@@ -283,26 +287,31 @@ def _render(element, collapse=True):  # noqa: C901
             literal = True
             if parts:
                 parts.append("\n")
-            parts.append(_render(child, collapse=False).strip("\n"))
+            parts.append(_render_with_flag(child, False)[0].strip("\n"))
             if child.tail and child.tail.strip():
                 parts.append("\n")
                 parts.append(re.sub(r"\s+", " ", child.tail) if collapse else child.tail)
             continue
         separated = _BLOCK_SEPARATORS.get(tag)
-        if separated is None:
-            parts.append(_render(child, collapse))
-            _append_inline(parts, child.tail, collapse)
-            continue
-        if parts:
+        if separated is not None and parts:
             parts.append(separated)
-        parts.append(_table_text(child)[0] if tag == "table" else _render(child, collapse))
-        if child.tail and child.tail.strip():
+        if tag == "table":
+            parts.append(_table_text(child)[0])
+        else:
+            text, child_literal = _render_with_flag(child, collapse)
+            # Preformatted whitespace must survive every enclosing container, not just its parent.
+            literal = literal or child_literal
+            parts.append(text)
+        if separated is None:
+            _append_inline(parts, child.tail, collapse)
+        elif child.tail and child.tail.strip():
             parts.append(separated)
             parts.append(re.sub(r"\s+", " ", child.tail) if collapse else child.tail)
     text = "".join(parts)
+    if literal or not collapse:
+        return text, literal
     # Block separators already mark those boundaries; indentation whitespace around them is noise.
-    # A nested code block keeps its own indentation, so its container is left untouched.
-    return text if literal or not collapse else re.sub(r" *\n *", "\n", text)
+    return re.sub(r" *\n *", "\n", text), False
 
 
 def _table_text(element):
