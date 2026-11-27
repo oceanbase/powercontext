@@ -190,7 +190,8 @@ impl ReplayCache {
                     .iter()
                     .position(|e| same_conversation(e) && e.anchor == *anchor)
             });
-            if let Some(index) = newest_history.or_else(|| entries.iter().position(same_conversation))
+            if let Some(index) =
+                newest_history.or_else(|| entries.iter().position(same_conversation))
             {
                 entries.remove(index);
             }
