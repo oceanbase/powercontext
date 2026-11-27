@@ -31,6 +31,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / "src" / "powercontext_integration_lifecycle"
 TYPESCRIPT_SOURCE = ROOT / "integrations" / "lifecycle"
 PLUGINS = "integrations/*/plugins/*"
+_ANTIGRAVITY = "integrations/antigravity/plugins/powercontext"
 _CLAUDE_CODE = "integrations/claude-code/plugins/powercontext"
 _CODEX = "integrations/codex/plugins/powercontext"
 _HERMES = "integrations/hermes/plugins/powercontext"
@@ -47,10 +48,14 @@ _BUB = "integrations/bub/src/powercontext_bub"
 _LANGCHAIN = "integrations/langchain/src/powercontext_langchain"
 _LANGGRAPH = "integrations/langgraph/src/powercontext_langgraph"
 _PYDANTIC_AI = "integrations/pydantic-ai/src/powercontext_pydantic_ai"
-# Claude Code and Codex ship the whole package, so a module added to the source reaches both without an entry here.
+# These hosts ship the whole package. New source modules reach them without an entry here.
 # The copies use another name than the source, so a process that has already imported the source, such as the test
 # suite, still loads the plugin's own copy.
-PACKAGE_COPIES = (f"{_CLAUDE_CODE}/powercontext_lifecycle", f"{_CODEX}/powercontext_lifecycle")
+PACKAGE_COPIES = (
+    f"{_ANTIGRAVITY}/powercontext_lifecycle",
+    f"{_CLAUDE_CODE}/powercontext_lifecycle",
+    f"{_CODEX}/powercontext_lifecycle",
+)
 # WorkBuddy, Hermes, Bub, and the SDK adapters ship single modules where their hooks, installers, and imports already
 # expect them.
 COPIES = {

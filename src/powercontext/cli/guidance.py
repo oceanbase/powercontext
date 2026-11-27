@@ -58,6 +58,11 @@ class HostGuidance:
 
 
 HOST_GUIDANCE = {
+    "antigravity": HostGuidance(
+        "integrations/antigravity/plugins/powercontext",
+        source_files=("plugin.json", "hooks.json", "mcp_config.json", "scripts/lifecycle.py"),
+        package_name="powercontext",
+    ),
     "codex": HostGuidance(
         "integrations/codex/plugins/powercontext",
     ),

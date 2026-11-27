@@ -162,6 +162,7 @@ def test_manifest_v2_declares_pre_compaction_mode_for_every_maintained_agent_hos
         if integration.kind is IntegrationKind.AGENT_HOST and integration.lifecycle is not None
     }
     assert modes == {
+        "antigravity": "unsupported",
         "codex": "unsupported",
         "claude-code": "unsupported",
         "dsh": "unsupported",

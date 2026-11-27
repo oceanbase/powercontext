@@ -17,13 +17,14 @@ Choose the integration mechanism, then the host or framework:
 
 ## Agent Hosts
 
-The 9 Agent Hosts use `official` for PowerContext project maintenance and `community` for community contributions.
+Agent Hosts use `official` for PowerContext project maintenance and `community` for community contributions.
 `official` does not imply endorsement by a host vendor.
 
 | Agent Host | Stewardship | Integration |
 | --- | --- | --- |
 | [Codex](codex.md) | `official` | Prompt Hook + MCP + Skill |
 | [Claude Code](claude-code.md) | `community` | Prompt Hook + MCP + Skill |
+| [Antigravity](antigravity.md) | `community` | Prompt Hook + MCP + Skill |
 | [DeepSeek Harness](dsh.md) | `community` | HTTP plugin + pc_* + /pc |
 | [Hermes](hermes.md) | `community` | MemoryProvider + /pc |
 | [OpenClaw](openclaw.md) | `community` | Memory plugin + lifecycle hooks |
@@ -163,7 +164,7 @@ All 3 adapters are `community`. Install them in the application environment; do 
 ## Capabilities and availability
 
 The [capability matrix](capabilities.md) is generated from `integrations/capabilities.toml`.
-The 9 Agent Hosts and Bub are `master_only`; Pydantic AI is `experimental`.
+The Agent Hosts in the table and Bub are `master_only`; Pydantic AI is `experimental`.
 `released` means available from a specified release tag, `master_only` means implemented but unreleased, and
 `experimental` carries no stability guarantee. These labels are separate from stewardship and the
 Minimal / Recommended / Full capability profiles.

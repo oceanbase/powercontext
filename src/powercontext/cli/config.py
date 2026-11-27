@@ -286,7 +286,7 @@ def configure_agents(
         bool | None,
         typer.Option(
             "--capture-prompts/--no-capture-prompts",
-            help="Claude Code, Kimi Code and ZCode only; omission preserves the capture preference.",
+            help="Antigravity, Claude Code, Kimi Code and ZCode only; omission preserves the capture preference.",
         ),
     ] = None,
     scope_id: Annotated[str | None, typer.Option(help="Existing Scope ID for Kimi Code.")] = None,

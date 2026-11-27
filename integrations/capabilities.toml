@@ -266,6 +266,16 @@ id = "workbuddy:UserPromptSubmit"
 capabilities = ["source_capture", "context_injection", "flush_or_checkpoint"]
 
 [[toolsets]]
+id = "antigravity-hooks"
+probe = "antigravity_hooks"
+[[toolsets.tools]]
+id = "antigravity:SessionStart"
+capabilities = ["context_injection", "persistent_scope_binding"]
+[[toolsets.tools]]
+id = "antigravity:PreInvocation"
+capabilities = ["source_capture", "context_injection"]
+
+[[toolsets]]
 id = "zcode-prompt-hook"
 probe = "zcode_prompt_hook"
 [[toolsets.tools]]
@@ -978,6 +988,20 @@ mode = "unsupported"
 implementation = ["integrations/claude-code/plugins/powercontext/.mcp.json", "integrations/claude-code/plugins/powercontext/hooks/session_start.py", "integrations/claude-code/plugins/powercontext/hooks/user_prompt_submit.py"]
 documentation = ["docs/en/docs/integrations/claude-code.md", "docs/zh/docs/integrations/claude-code.md"]
 tests = ["tests/claude_code_plugin/test_bootstrap.py", "tests/claude_code_plugin/test_contract.py", "tests/e2e/test_bootstrap_host_service_chain.py", "tests/e2e/test_claude_code_service_chain.py", "tests/test_automatic_prompt_privacy.py"]
+
+[[integrations]]
+id = "antigravity"
+kind = "agent_host"
+availability = "master_only"
+capabilities = ["memory_read", "memory_write", "source_capture", "context_injection", "work_contract", "handoff", "acknowledge", "task_outcome", "candidate_review", "experience_read_or_generate", "skill_read_or_generate", "external_skill", "scope_organization", "artifact_publication", "persistent_scope_binding"]
+profiles = ["minimal", "recommended", "full"]
+toolsets = ["server-mcp", "antigravity-hooks"]
+[integrations.lifecycle.pre_compaction]
+mode = "unsupported"
+[integrations.evidence]
+implementation = ["integrations/antigravity/plugins/powercontext/mcp_config.json", "integrations/antigravity/plugins/powercontext/hooks.json", "integrations/antigravity/plugins/powercontext/scripts/lifecycle.py"]
+documentation = ["docs/en/docs/integrations/antigravity.md", "docs/zh/docs/integrations/antigravity.md"]
+tests = ["tests/test_antigravity_installation.py"]
 
 [[integrations]]
 id = "dsh"

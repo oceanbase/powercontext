@@ -57,7 +57,7 @@ def select_hosts(requested: Sequence[str] | None, *, json_output: bool = False) 
 def validate_native_options(selected: Sequence[str], **options: Any) -> None:
     """Reject explicit flags that none of the selected agents can use."""
     owners = {
-        "capture_prompts": ("claude-code", "kimi-code", "zcode"),
+        "capture_prompts": ("claude-code", "kimi-code", "zcode", "antigravity"),
         "scope_id": ("kimi-code",),
         "workspace_scope": ("kimi-code",),
         "boundary_flush": ("zcode",),
@@ -97,6 +97,7 @@ def native_options(host: str, **options: Any) -> dict[str, Any]:
     """Pass only options owned by the selected native adapter."""
     fields = {
         "claude-code": ("capture_prompts",),
+        "antigravity": ("capture_prompts",),
         "dsh": ("dsh_target",),
         "kimi-code": ("scope_id", "capture_prompts", "workspace_scope", "profile"),
         "zcode": ("capture_prompts", "boundary_flush"),
@@ -111,6 +112,7 @@ def doctor_checks(host: str, **options) -> dict[str, Any]:
     from powercontext.cli.installation import installers
     from powercontext.cli.native_transport import resolve_host_transport
     from powercontext.cli.system import Diagnostic, DiagnosticStatus, server_diagnostics
+    from powercontext.client.transport_policy import resolve_client_transport
 
     try:
         if host == "dsh" and "dsh_target" not in options:
@@ -133,11 +135,16 @@ def doctor_checks(host: str, **options) -> dict[str, Any]:
         if host == "minimax":
             checks.update(installer.server_checks())
             return checks
-        target = {"dsh_target": installer.dsh_target} if host == "dsh" else {}
-        endpoint, allowed = resolve_host_transport(host, **target)
-        authorization = None
-        if host in {"codex", "claude-code", "workbuddy", "dsh", "pi", "opencode"}:
-            authorization = read_stored_authorization(credential_path(host), server_url=endpoint).authorization
+        if host == "antigravity":
+            # The endpoint and its header must come from the same configuration snapshot.
+            endpoint, authorization = installer.connection()
+            endpoint, allowed = resolve_client_transport(host, server_url=endpoint)
+        else:
+            target = {"dsh_target": installer.dsh_target} if host == "dsh" else {}
+            endpoint, allowed = resolve_host_transport(host, **target)
+            authorization = None
+            if host in {"codex", "claude-code", "workbuddy", "dsh", "pi", "opencode"}:
+                authorization = read_stored_authorization(credential_path(host), server_url=endpoint).authorization
         checks.update(
             server_diagnostics(
                 server_url=endpoint,

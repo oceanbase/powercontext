@@ -174,6 +174,13 @@ def _selected_url(host: str, prefix: str, native_url: str | None) -> str:
 
 def configured_native_endpoint(host: str) -> str | None:
     """Read only explicitly configured native endpoints for setup conflict detection."""
+    if host == "antigravity":
+        from powercontext.cli.antigravity import AntigravityInstaller
+
+        try:
+            return AntigravityInstaller.connection()[0]
+        except (FileNotFoundError, ValueError, KeyError, TypeError, AttributeError):
+            return None
     if host == "minimax":
         from powercontext.cli.minimax import MiniMaxInstaller
 
@@ -195,6 +202,11 @@ def resolve_host_transport(host: str, *, dsh_target: DshTarget | None = None) ->
     Native HTTP consent is endpoint-bound. This is a read-only diagnostic, not
     an HTTP guard; callers must label remote HTTP as degraded or blocked.
     """
+    if host == "antigravity":
+        from powercontext.cli.antigravity import AntigravityInstaller
+
+        endpoint, _ = AntigravityInstaller.connection()
+        return resolve_client_transport(host, server_url=endpoint)
     if host == "minimax":
         from powercontext.cli.minimax import MiniMaxInstaller
 

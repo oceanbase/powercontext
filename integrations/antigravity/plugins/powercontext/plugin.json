@@ -1,0 +1,6 @@
+{
+  "name": "powercontext",
+  "displayName": "PowerContext",
+  "description": "Project memory, context recall, and handoff for Antigravity.",
+  "version": "0.1.0"
+}
