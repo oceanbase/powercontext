@@ -46,6 +46,7 @@ from tests.e2e.server_startup import wait_for_server_startup
 HOOK = Path(__file__).resolve().parents[2] / "integrations/zcode/plugins/powercontext/hooks/user_prompt_submit.mjs"
 # Exceed the Hook's 3-second request limit; Stop has a separate 800 ms network budget.
 SLOW_HOOK_RESPONSE_SECONDS = 3.5
+STOP_PROCESS_TIMEOUT_SECONDS = 2
 
 
 @pytest.fixture
@@ -496,9 +497,6 @@ def test_zcode_source_is_processed_and_recalled_in_a_new_session(
             )
             assert scope_id in first["hookSpecificOutput"]["additionalContext"]
             assert "teal-731" not in first["hookSpecificOutput"]["additionalContext"]
-            remaining = 5 - time.time() % 5
-            if remaining < 1.5:
-                time.sleep(remaining + 0.05)
             stop_input = json.dumps({
                 "hookEventName": "Stop",
                 "cwd": str(HOOK.parents[5]),
@@ -510,6 +508,12 @@ def test_zcode_source_is_processed_and_recalled_in_a_new_session(
                 "POWERCONTEXT_ZCODE_SCOPE_ID": scope_id,
                 "POWERCONTEXT_ZCODE_BOUNDARY_FLUSH": "true",
             }
+            # The plugin refuses a claim in the last second of its five-second slot.
+            # Reserve the whole child-process timeout so startup and scope resolution
+            # can use their budgets without reaching that part of the slot.
+            while (remaining := 5 - time.time() % 5) < STOP_PROCESS_TIMEOUT_SECONDS + 1:
+                time.sleep(remaining)
+            hook_timeline("stop_start")
             stopped = subprocess.run(
                 [node, str(HOOK.parent / "stop.mjs")],
                 input=stop_input,
@@ -517,8 +521,9 @@ def test_zcode_source_is_processed_and_recalled_in_a_new_session(
                 text=True,
                 capture_output=True,
                 check=False,
-                timeout=2,
+                timeout=STOP_PROCESS_TIMEOUT_SECONDS,
             )
+            hook_timeline("stop_end", returncode=stopped.returncode)
             assert stopped.returncode == 0, stopped.stderr
             assert json.loads(stopped.stdout) == {}
             status = subprocess.run(
@@ -542,8 +547,10 @@ def test_zcode_source_is_processed_and_recalled_in_a_new_session(
             )
             assert status.returncode == 0, status.stdout + status.stderr
             result = json.loads(status.stdout)
-            flush = result["observation"]["stages"]["flush"]
-            assert flush["state"] in {"cursor_reached", "unknown"}, result
+            observation = result["observation"]
+            assert observation["event"] == "Stop", (observation["event"], stopped.stderr, result)
+            flush = observation["stages"]["flush"]
+            assert flush["state"] in {"cursor_reached", "unknown"}, (flush, stopped.stderr, result)
             if processing_delay or slow_flush_receipt:
                 assert flush["state"] == "unknown", result
             if flush["state"] == "unknown":
@@ -561,7 +568,7 @@ def test_zcode_source_is_processed_and_recalled_in_a_new_session(
                     text=True,
                     capture_output=True,
                     check=False,
-                    timeout=2,
+                    timeout=STOP_PROCESS_TIMEOUT_SECONDS,
                 )
                 boundary.delay_retry_resolution = False
                 assert retried.returncode == 0 and json.loads(retried.stdout) == {}, retried.stderr
