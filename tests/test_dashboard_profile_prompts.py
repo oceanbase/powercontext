@@ -1737,6 +1737,32 @@ def test_browser_saved_revisit_and_rejected_save_preserve_draft_and_url(dashboar
                 == newer_draft
             )
 
+            # Save revision 2, edit a third unsaved draft, and verify revisiting older revision-1 save URL
+            # preserves the third draft, keeps ETag "revision:2", and never regresses saved ack from "2" to "1".
+            page.locator("form[data-profile-prompt-editor] [data-prompt-save]").click()
+            page.locator("#prompt-record-profile-generate .alert-success").wait_for(state="visible")
+            third_draft = "Third unsaved draft written after saving revision 2."
+            page.locator('form[data-profile-prompt-editor] textarea[name="instructions"]').fill(third_draft)
+            page.goto(
+                f"http://testserver/dashboard/prompts?scope={scope}&prompt_key=profile.generate&prompt_saved=1&prompt_saved_revision=1&lang=en",
+                wait_until="domcontentloaded",
+            )
+            assert (
+                page.locator('form[data-profile-prompt-editor] textarea[name="instructions"]').input_value()
+                == third_draft
+            )
+            assert (
+                page.locator('form[data-profile-prompt-editor] input[name="expected_etag"]').input_value()
+                == '"revision:2"'
+            )
+            assert (
+                page.evaluate(
+                    "scope => window.sessionStorage.getItem(`powercontext:profile-prompt-saved:${scope}`)",
+                    scope,
+                )
+                == "2"
+            )
+
             # 3. Validation rejection keeps a GET-safe URL so page.reload() succeeds instead of hitting 405.
             page.locator('form[data-profile-prompt-editor] textarea[name="instructions"]').fill("")
             page.locator("form[data-profile-prompt-editor] [data-prompt-save]").click()

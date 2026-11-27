@@ -71,12 +71,17 @@ limitations under the License.
       const normalize = value => value.replace(/\r\n/g, '\n');
       const currentMode = () => (radios.find(radio => radio.checked) || {}).value || 'auto';
       const readSavedAck = () => {
-        if (!savedAckKey) return '';
-        try { return window.sessionStorage.getItem(savedAckKey) || ''; } catch { return ''; }
+        if (!savedAckKey) return 0;
+        try {
+          const parsed = Number.parseInt(window.sessionStorage.getItem(savedAckKey) || '', 10);
+          return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+        } catch {
+          return 0;
+        }
       };
       const writeSavedAck = revision => {
-        if (!savedAckKey || !revision) return;
-        try { window.sessionStorage.setItem(savedAckKey, revision); } catch {}
+        if (!savedAckKey || !Number.isFinite(revision) || revision <= 0) return;
+        try { window.sessionStorage.setItem(savedAckKey, String(revision)); } catch {}
       };
       const stripSavedQuery = () => {
         if (!window.history || typeof window.history.replaceState !== 'function') return;
@@ -109,10 +114,13 @@ limitations under the License.
       let customText = hasDraft ? normalize(textarea.value) : (normalize(textarea.value) || defaults);
       let consumedSave = false;
       if (promptSaved) {
-        const alreadyConsumed = Boolean(savedAckKey && promptSavedRevision && readSavedAck() === promptSavedRevision);
+        const savedRev = Number.parseInt(promptSavedRevision, 10);
+        const validSavedRev = Number.isFinite(savedRev) && savedRev > 0 ? savedRev : 0;
+        const ackedRev = readSavedAck();
+        const alreadyConsumed = Boolean(savedAckKey && validSavedRev > 0 && ackedRev >= validSavedRev);
         if (!alreadyConsumed) {
           clearStoredDraft();
-          writeSavedAck(promptSavedRevision);
+          if (validSavedRev > ackedRev) writeSavedAck(validSavedRev);
           consumedSave = true;
         }
         stripSavedQuery();
