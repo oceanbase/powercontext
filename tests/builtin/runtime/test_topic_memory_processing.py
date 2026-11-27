@@ -153,7 +153,7 @@ from powercontext.builtin.sources import (
     SkillUsageCapture,
     SourceCursor,
 )
-from powercontext.builtin.sources.session import SessionSourceInput
+from powercontext.builtin.sources.session import SESSION_EVIDENCE_INSTRUCTIONS, SESSION_TYPE, SessionSourceInput
 from powercontext.builtin.statistics import ModelUsagePurpose
 from powercontext.errors import RevisionConflictError
 from powercontext.sources import SourceMaterialization
@@ -2258,6 +2258,14 @@ class _EmptyProbeHandler(BaseHTTPRequestHandler):
 def test_worker_sizes_windows_against_the_scope_custom_probe_prompt(tmp_path) -> None:
     # The Scope's custom probe guidance adds about 2,000 tokens to the probe request.
     # Windows sized against the built-in Prompt would not fit one request under it.
+    conversation = {
+        "type": SESSION_TYPE,
+        "session_id": "probe-session",
+        "messages": [
+            {"role": "user", "content": "Keep the guide."},
+            {"role": "assistant", "content": "User: The guide shipped."},
+        ],
+    }
     guidance = " ".join(["Keep only durable topics."] * 320)
     server = _EmptyProbeServer()
     thread = threading.Thread(target=server.serve_forever, daemon=True)
@@ -2294,6 +2302,9 @@ def test_worker_sizes_windows_against_the_scope_custom_probe_prompt(tmp_path) ->
                     await scope.sources.capture(
                         ContentCapture(source_id=f"source-{index}", content=f"source {index:02d} " + "y" * 1_600)
                     )
+                await scope.sources.capture(
+                    ContentCapture(source_id="session", content=json.dumps(conversation)), classify_capture=True
+                )
                 async with contexts.database.transaction() as connection:
                     term = await contexts.repositories.processing_leases.start_single_process_term(connection, "holder")
                     await ArtifactProcessingIntentRepository().request(
@@ -2317,23 +2328,38 @@ def test_worker_sizes_windows_against_the_scope_custom_probe_prompt(tmp_path) ->
         # The worker entrypoint runs in this process; it owns its own event loop.
         completion = run_topic_memory_worker(TopicMemoryWorkerSpec(config=config), assignment)
         assert completion.outcome is ArtifactProcessingWorkerOutcome.SUCCEEDED
-        assert asyncio.run(processed_through()) == 12
+        assert asyncio.run(processed_through()) == 13
     finally:
         server.shutdown()
         server.server_close()
         thread.join()
 
     contents: list[str] = []
+    sessions = []
+    plain_requests = 0
     for request in server.requests:
         messages = request["messages"]
         assert any(guidance in message["content"] for message in messages if message["role"] == "system")
         user = next(message["content"] for message in messages if message["role"] == "user")
-        evidence = json.loads(user)["evidence"]
+        role_guidance, separator, payload = user.partition("\n")
+        has_role_guidance = role_guidance == SESSION_EVIDENCE_INSTRUCTIONS
+        if not has_role_guidance:
+            plain_requests += 1
+        evidence = json.loads(payload if has_role_guidance and separator else user)["evidence"]
         # Evidence identifiers restart in every Window: a split Window sends a second
         # probe request whose evidence does not start at the first identifier.
         assert evidence[0]["evidence_id"] == "evidence-0001"
-        contents.extend(item["content"] for item in evidence)
-    assert 1 < len(server.requests) < 12
+        has_session = False
+        for item in evidence:
+            content = json.loads(item["content"])
+            if content.get("type") == SESSION_TYPE:
+                sessions.append(content)
+                has_session = True
+            else:
+                contents.append(content["content"])
+        assert has_role_guidance == has_session
+    assert sessions == [conversation]
+    assert 1 < plain_requests < 12
     # Every Source reaches exactly one probe request, in Journal order.
     assert [next(index for index in range(12) if f"source {index:02d} " in content) for content in contents] == list(
         range(12)

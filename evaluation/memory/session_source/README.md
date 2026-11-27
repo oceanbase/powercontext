@@ -61,20 +61,16 @@ real DeepSeek Flash model, structured Atomic Memory extraction adapter, Coding i
 sampling settings. The User-only arm filters Assistant messages before creating the extraction input. The
 Assistant-only conversation has no User-only model call. Labels are absent from model input.
 
-| Rules | Input | Labeled claims recovered | Unsupported facts | Duplicate candidates | Requests | Input tokens | Output tokens |
-| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| Initial | User only | 7/8 | 0 | 0 | 7 | 9,586 | 299 |
-| Initial | User and Assistant | 8/8 | 1 | 0 | 8 | 11,113 | 338 |
-| Corroboration required | User only | 7/8 | 0 | 0 | 7 | 10,223 | 298 |
-| Corroboration required | User and Assistant | 8/8 | 0 | 0 | 8 | 11,841 | 303 |
+| Input | Labeled claims recovered | Unsupported facts | Duplicate candidates | Requests | Input tokens | Output tokens |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| User only | 7/8 | 0 | 0 | 7 | 10,223 | 298 |
+| User and Assistant | 8/8 | 0 | 0 | 8 | 11,841 | 303 |
 
 Scoring is a manual comparison of the candidate texts to the labeled propositions. A candidate can cover
-multiple claims. A duplicate repeats the same proposition within one result. On both runs the extra context
-recovered Lark's release-tag convention after the user confirmed the proposal with a short reply. Under the
-initial rules, the paired arm also asserted an Assistant-only claim about an archive size limit. After adding
-explicit corroboration and omission rules, the paired arm omitted that candidate and retained the user's
-archive policy. The Plover candidate in the User-only arm changed language from English to Chinese while
-retaining the correct attribution and policy.
+multiple claims. A duplicate repeats the same proposition within one result. The extra context recovered
+Lark's release-tag convention after the user confirmed the proposal with a short reply. Both arms attributed
+the Plover policy correctly. In the archive case, both arms retained the user's policy and omitted the
+Assistant-only claim about a size limit.
 
 For the seven cases in which both arms called the model, adding Assistant context under the final rules
 used 168 additional input tokens (1.6%). The additional Assistant-only call used 1,450 input tokens. Totals use
@@ -87,7 +83,12 @@ entered through the capture API, advanced the Atomic Memory cursor from zero to 
 user-accepted release-tag convention. The Assistant's separate claim about an 80 GB limit did not enter
 the resulting Memory.
 
-[Initial outputs](deepseek-flash-initial.json) · [Corroboration outputs](deepseek-flash-20261127.json)
+The runner records the built-in extraction prompt version and SHA-256 hashes of the two instruction strings
+it sends, using the UTF-8 strings before provider formatting. The corroboration report records these values
+from the source used for that run. The exploratory run's original prompt was not recorded with its output,
+so those outputs are retained separately from the comparison table.
+
+[Corroboration outputs](deepseek-flash-20261127.json) · [Exploratory outputs](deepseek-flash-initial.json)
 
 ```sh
 PYDANTIC_AI_NO_BANNER=1 uv run --locked python evaluation/memory/session_source/run.py \

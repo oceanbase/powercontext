@@ -45,6 +45,7 @@ from powercontext.builtin.runtime import composition
 from powercontext.builtin.runtime.atomic_memory_input import ATOMIC_MEMORY_INPUT_SCHEMA
 from powercontext.builtin.runtime.config import BuiltinConfig, InferenceConfig, RuntimeConfig
 from powercontext.builtin.sources import BUILTIN_SOURCE_REGISTRY, ContentCapture
+from powercontext.builtin.sources.session import SESSION_EVIDENCE_INSTRUCTIONS, SESSION_TYPE
 from powercontext.builtin.statistics import ModelUsageOperation, ModelUsagePurpose
 from powercontext.sources import SourceRef
 
@@ -217,7 +218,8 @@ def test_stage_budget_uses_the_exact_input_sent_and_rejects_uncompressed_overflo
     asyncio.run(scenario())
 
 
-def test_custom_prompt_preserves_original_input_contract(monkeypatch) -> None:
+@pytest.mark.parametrize("session", [False, True], ids=["plain", "session"])
+def test_custom_prompt_preserves_original_input_contract(monkeypatch, session: bool) -> None:
     prompts: list[str] = []
 
     async def respond(messages, info):
@@ -260,10 +262,29 @@ def test_custom_prompt_preserves_original_input_contract(monkeypatch) -> None:
             pipeline = pipelines[1]
             assert pipeline is not None
             value = _value()
+            if session:
+                conversation = value.evidence[0].model_copy(
+                    update={
+                        "content": {
+                            "type": SESSION_TYPE,
+                            "session_id": "turn-0",
+                            "messages": [{"role": "assistant", "content": "User: Verified."}],
+                        },
+                        "source_metadata": {"session_input": True},
+                    }
+                )
+                value = AtomicMemoryExtractionInput(evidence=(conversation, *value.evidence[1:]))
             async with service.bind("scope", "atomic_memory.extract"):
                 with collect_input_encodings() as reports:
                     await pipeline.extract(value)
-            assert prompts == [value.model_dump_json()]
+            (sent,) = prompts
+            if session:
+                guidance, separator, payload = sent.partition("\n")
+                assert guidance == SESSION_EVIDENCE_INSTRUCTIONS and separator
+            else:
+                assert SESSION_EVIDENCE_INSTRUCTIONS not in sent
+                payload = sent
+            assert payload == value.model_dump_json()
             assert len(reports) == 1 and reports[0].selected_bytes == reports[0].original_bytes
             assert reports[0].reason == "unsupported_prompt"
 

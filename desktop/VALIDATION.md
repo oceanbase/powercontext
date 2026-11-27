@@ -3958,3 +3958,27 @@ uv pip install --python /tmp/pc-venv-meta3/bin/python \
 POWERCONTEXT_SERVER_ACCESS_MODE=enforced POWERCONTEXT_SERVER_AUTH_TOKEN=qualification-token \
   /tmp/pc-venv-meta3/bin/powercontext server run --host 127.0.0.1 --port 8242 --no-env-file
 ```
+
+## Server fe441d965 Session Source protocol qualification
+
+`sqlite-session-capture-fe441d965-v1` qualifies the bundled Desktop operations against
+Server source `fe441d9659f3d5189eda6c5a6c00d26bad5f406a`. The contract documents Session Source capture inside the existing
+Content Source string field.
+
+- Normalized OpenAPI SHA-256: `84c0c26db9dd562a1b1a33fbc4dfcb1aa2f10c6e66f08c17fc239cd0fc1a8d3e`.
+- Wheel: `powercontext-1.5.2.dev627+gfe441d965.d20261127-py3-none-any.whl`.
+- Wheel SHA-256: `7661cc77832bb7478a28ff6e72761ef285853e6dc3ea86c43f93fe295038882a`.
+
+On 2026-11-27, the native Desktop probe built with Rust 1.95.0 and the product Cargo lock passed against
+the exact wheel on macOS 26.5.1 arm64 with Python 3.13.15 and SQLite. The real Server harness passed anonymous
+loopback, static Bearer, HTTPS with an explicit CA and base path, and injected-provider authentication with
+enforced access. The probe exercised the ordinary product ConnectionManager, including save, search, exact
+revision reads, and the committed-write response-loss case. Qualification applies to these protocol operations
+on the recorded artifact. Installed WebView and platform keyring behavior require separate acceptance.
+
+```sh
+cargo build --locked --manifest-path desktop/src-tauri/Cargo.toml --example server_probe
+uv run --locked python desktop/tests/real_server.py \
+  --product-qualification sqlite-session-capture-fe441d965-v1 \
+  --wheel desktop/.artifacts/server-wheel/powercontext-1.5.2.dev627+gfe441d965.d20261127-py3-none-any.whl
+```

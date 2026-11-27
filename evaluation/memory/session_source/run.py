@@ -20,6 +20,7 @@ import argparse
 import asyncio
 import json
 from contextlib import AsyncExitStack
+from hashlib import sha256
 from pathlib import Path
 
 from pydantic_ai.settings import ModelSettings
@@ -29,13 +30,14 @@ from powercontext.builtin.artifacts.atomic_memory.extraction import (
     AtomicMemoryExtractionInput,
     AtomicMemoryExtractionOutput,
     atomic_memory_extraction_instructions,
+    atomic_memory_extraction_instructions_version,
     validate_extraction_output,
     with_session_evidence_instructions,
 )
 from powercontext.builtin.artifacts.memory.prompts import MemoryExtractionProfile
 from powercontext.builtin.inference.pydantic_ai import InferenceLimits, PydanticAIStructuredGenerator
 from powercontext.builtin.runtime.composition import _open_pydantic_ai_model
-from powercontext.builtin.sources.session import SESSION_TYPE
+from powercontext.builtin.sources.session import SESSION_EVIDENCE_INSTRUCTIONS, SESSION_TYPE
 from powercontext.server.configuration import server_settings_context
 from powercontext.sources import SourceRef, SourceSequenceLocator
 
@@ -56,9 +58,11 @@ async def compare(env_file: Path, output: Path) -> None:
             instrumentation=None,
             disable_provider_retries=True,
         )
+        profile = MemoryExtractionProfile.CODING
+        instructions = atomic_memory_extraction_instructions(profile)
         extractor = PydanticAIStructuredGenerator[AtomicMemoryExtractionInput, AtomicMemoryExtractionOutput](
             model=model,
-            instructions=atomic_memory_extraction_instructions(MemoryExtractionProfile.CODING),
+            instructions=instructions,
             input_type=AtomicMemoryExtractionInput,
             output_type=AtomicMemoryExtractionOutput,
             limits=InferenceLimits(timeout_seconds=30, max_requests=1, allow_continuations=False),
@@ -66,7 +70,16 @@ async def compare(env_file: Path, output: Path) -> None:
             output_check=validate_extraction_output,
             input_renderer=lambda value: with_session_evidence_instructions(value, value.model_dump_json()),
         )
-        report = {"model": inference.generation_model, "settings": settings, "rows": []}
+        report = {
+            "model": inference.generation_model,
+            "settings": settings,
+            "prompt": {
+                "extraction_version": atomic_memory_extraction_instructions_version(profile),
+                "extraction_sha256": sha256(instructions.encode("utf-8")).hexdigest(),
+                "session_guidance_sha256": sha256(SESSION_EVIDENCE_INSTRUCTIONS.encode("utf-8")).hexdigest(),
+            },
+            "rows": [],
+        }
         for case in cases:
             for arm in ("user-only", "user-assistant"):
                 messages = [

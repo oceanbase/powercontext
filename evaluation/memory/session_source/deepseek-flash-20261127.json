@@ -9,6 +9,11 @@
       }
     }
   },
+  "prompt": {
+    "extraction_version": "powercontext.atomic-memory.extract.coding.v4",
+    "extraction_sha256": "da5de7be4ac0e23f5e718076dc51b5f1825f376bfe2f071278ff5be2dc096a97",
+    "session_guidance_sha256": "729fd5c7b672c4cbd213425acb0a4bc9e636217ea133a3fe2400bf9df6d41bde"
+  },
   "rows": [
     {
       "case": "corrected-reference",
