@@ -178,7 +178,7 @@ pi
 ```
 
 关闭召回后，package 不发送准备请求，不向 system prompt 添加上下文，也不提供 `pc_prepare_context`。gateway
-已经为每一轮注入上下文，并会在 Core 检查请求之前，把会话历史中的 `pc_prepare_context` 结果替换为占位文本。
+已经为每一轮注入上下文，并会在 Core 检查请求之前，把请求所带历史中的 `pc_prepare_context` 工具结果替换为占位文本。
 `POWERCONTEXT_PI_CAPTURE_PROMPTS` 为 `true` 时 package 仍会采集提示词；两项都关闭时，它不会为提示词发送任何请求。其余
 `pc_*` 工具、`/pc` 命令和边界 flush 照常工作。
 
@@ -194,7 +194,9 @@ pi
 存入会话的摘要中。
 
 修改这些设置后请重启 Pi。已有会话可以继续：Pi 每一轮都重新构建 system prompt，不把 package 召回的上下文存进会话。
-模型调用过 `pc_prepare_context` 的会话也可以继续，因为 gateway 会把这个结果替换为占位文本。
+`pc_prepare_context` 返回过上下文的会话还能继续对话，因为 gateway 会在每一轮的请求中把这个结果替换为占位文本。
+但这只持续到 Pi 压缩包含该结果的那部分会话，或为包含该结果的分支生成摘要为止。此时 Pi 会把结果复制进摘要请求的文本，
+gateway 不会替换这段文本，因此 Core 拒绝该请求，压缩或分支摘要失败。请开启新会话，不要恢复这样的会话。
 
 ### 配置 gateway
 

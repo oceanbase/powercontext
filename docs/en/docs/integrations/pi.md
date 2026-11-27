@@ -187,10 +187,10 @@ pi
 ```
 
 With recall off, the package sends no preparation request, adds no context to the system prompt, and does not offer
-`pc_prepare_context`. The gateway already injects context for each turn, and it replaces a `pc_prepare_context` result
-in the session history with a placeholder before Core checks the request. The package still captures prompts while
-`POWERCONTEXT_PI_CAPTURE_PROMPTS` is `true`; with both off, it sends no request for a prompt. The other `pc_*` tools,
-`/pc` commands, and boundary flushes keep working.
+`pc_prepare_context`. The gateway already injects context for each turn, and it replaces a `pc_prepare_context` tool
+result in a request's history with a placeholder before Core checks the request. The package still captures prompts
+while `POWERCONTEXT_PI_CAPTURE_PROMPTS` is `true`; with both off, it sends no request for a prompt. The other `pc_*`
+tools, `/pc` commands, and boundary flushes keep working.
 
 While recall is off, the package also sends Pi's session ID as `X-PowerContext-Conversation-ID` on every model request.
 A combined deployment (`PC_GATEWAY_CORE_UDS`) prepares once per user message of a conversation and replays that context
@@ -205,9 +205,12 @@ branch-summary requests carry no header, so the gateway does not count a summary
 conversation. The gateway still infers a conversation from a summary request's opening, so it can inject context into
 the summary prompt, and Memory recalled for that prompt can then appear in the summary that Pi stores in the session.
 
-Restart Pi after changing these settings. An existing session can continue: Pi rebuilds the system prompt for every
-turn and does not store the package's recalled context in the session. A session in which the model called
-`pc_prepare_context` can continue as well, because the gateway replaces that result with a placeholder.
+Restart Pi after changing these settings. An existing session can continue: Pi rebuilds the system prompt for every turn
+and does not store the package's recalled context in the session. A session in which `pc_prepare_context` returned
+context can take further turns, because the gateway replaces that result with a placeholder in each turn's requests.
+This lasts only until Pi compacts the part of the session that holds the result, or summarizes a branch that holds it.
+Pi then copies the result into the text of the summary request, where the gateway does not replace it, so Core rejects
+the request and the compaction or branch summary fails. Start a new session instead of resuming such a session.
 
 ### Configure the gateway
 
