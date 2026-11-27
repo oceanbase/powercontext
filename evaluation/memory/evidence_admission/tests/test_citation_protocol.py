@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import shutil
 from contextlib import asynccontextmanager
 from dataclasses import replace
 
@@ -205,71 +206,85 @@ def test_one_incomplete_call_keeps_multi_call_sample_usage_incomplete(incomplete
     assert not sample.usage_complete
 
 
-@pytest.fixture(params=["v4", "v5"])
-def smoke_chain(tmp_path, monkeypatch, request):
+@pytest.fixture(scope="module", params=["v4", "v5"])
+def smoke_baseline(tmp_path_factory, request):
     suite = load_suite(experiment_version=request.param)
     identity = {**cli.code_identity(suite), "frozen_committed": True}
-    monkeypatch.setattr(cli, "code_identity", lambda _: identity)
-    monkeypatch.setattr(live_evaluation, "code_identity", lambda _: identity)
+    root = tmp_path_factory.mktemp("smoke-baseline")
+    original, private, audited = root / "smoke", root / "private", root / "audited"
 
     @asynccontextmanager
     async def provider(*args, **kwargs):
         yield Generator()
 
-    monkeypatch.setattr(cli, "live_generator", provider)
-    original, private, audited = tmp_path / "smoke", tmp_path / "private", tmp_path / "audited"
-    args = [
-        "run-smoke",
-        "--experiment-version",
-        suite.version,
-        "--provider",
-        "openai-compatible",
-        "--model",
-        "controlled-no-network",
-        "--base-url",
-        "https://example.invalid",
-        "--token-env",
-        "UNUSED",
-        "--max-requests",
-        "8",
-        "--output-dir",
-        str(original),
-        "--audit-dir",
-        str(private),
-    ]
-    result = CliRunner().invoke(cli.app, args)
-    assert result.exit_code == 0, result.exception
-    manifest, samples, report = load_run(original)
-    reviews = {
-        "manifest_hash": digest(manifest),
-        "reviews": {
-            s.sample_id: {
-                candidate: {"verdict": "supported", "claim_hashes": [digest("approval")]}
-                for candidate in s.generation.candidate_hashes
-            }
-            for s in samples
-            if s.generation
-        },
-    }
-    review_path = private / "reviews.json"
-    review_path.write_text(json.dumps(reviews))
-    result = CliRunner().invoke(
-        cli.app,
-        [
-            "audit",
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(cli, "code_identity", lambda _: identity)
+        patch.setattr(live_evaluation, "code_identity", lambda _: identity)
+        patch.setattr(cli, "live_generator", provider)
+        args = [
+            "run-smoke",
             "--experiment-version",
             suite.version,
-            "--run-dir",
-            str(original),
-            "--private-outputs",
-            str(private / "outputs.json"),
-            "--reviews",
-            str(review_path),
+            "--provider",
+            "openai-compatible",
+            "--model",
+            "controlled-no-network",
+            "--base-url",
+            "https://example.invalid",
+            "--token-env",
+            "UNUSED",
+            "--max-requests",
+            "8",
             "--output-dir",
-            str(audited),
-        ],
-    )
-    assert result.exit_code == 0, result.exception
+            str(original),
+            "--audit-dir",
+            str(private),
+        ]
+        result = CliRunner().invoke(cli.app, args)
+        assert result.exit_code == 0, result.exception
+        manifest, samples, report = load_run(original)
+        reviews = {
+            "manifest_hash": digest(manifest),
+            "reviews": {
+                s.sample_id: {
+                    candidate: {"verdict": "supported", "claim_hashes": [digest("approval")]}
+                    for candidate in s.generation.candidate_hashes
+                }
+                for s in samples
+                if s.generation
+            },
+        }
+        review_path = private / "reviews.json"
+        review_path.write_text(json.dumps(reviews))
+        result = CliRunner().invoke(
+            cli.app,
+            [
+                "audit",
+                "--experiment-version",
+                suite.version,
+                "--run-dir",
+                str(original),
+                "--private-outputs",
+                str(private / "outputs.json"),
+                "--reviews",
+                str(review_path),
+                "--output-dir",
+                str(audited),
+            ],
+        )
+        assert result.exit_code == 0, result.exception
+    return suite, identity, original, audited, report
+
+
+@pytest.fixture
+def smoke_chain(tmp_path, monkeypatch, smoke_baseline):
+    suite, identity, baseline_original, baseline_audited, report = smoke_baseline
+    monkeypatch.setattr(cli, "code_identity", lambda _: identity)
+    monkeypatch.setattr(live_evaluation, "code_identity", lambda _: identity)
+    original = tmp_path / "smoke"
+    audited = tmp_path / "audited"
+    shutil.copytree(baseline_original, original)
+    shutil.copytree(baseline_audited, audited)
     return suite, original, audited, report
 
 
@@ -484,6 +499,12 @@ def test_supported_runbook_smoke_allows_formal_audit_and_report_without_new_prov
     suite, smoke, audited_smoke, _ = smoke_chain
     selected = replace(suite, cases=tuple(c for c in suite.cases if c.case_id == "small-complete"))
     monkeypatch.setattr(cli, "selected_suite", lambda *_args: selected)
+
+    @asynccontextmanager
+    async def provider(*args, **kwargs):
+        yield Generator()
+
+    monkeypatch.setattr(cli, "live_generator", provider)
     original, private, audited = tmp_path / "formal", tmp_path / "formal-private", tmp_path / "formal-audited"
     runner = CliRunner()
     result = runner.invoke(
