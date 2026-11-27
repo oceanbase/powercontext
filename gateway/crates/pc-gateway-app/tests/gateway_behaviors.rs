@@ -1595,8 +1595,7 @@ async fn messages_omit_only_complete_plugin_recall_envelopes() {
         );
         assert_eq!(body["messages"][0]["content"][1]["text"], "question");
     }
-    request["messages"][0]["content"][0]["text"] =
-        json!(format!("Quoted envelope: {prepared}"));
+    request["messages"][0]["content"][0]["text"] = json!(format!("Quoted envelope: {prepared}"));
     let response = gateway.post("messages", &request).await;
     assert!(!response.status().is_success());
     assert_eq!(gateway.peers.sent.lock().unwrap().len(), 1);
@@ -1819,7 +1818,10 @@ async fn messages_replays_injection_and_captures_only_completed_tool_turns() {
                 b"Prepared context 1"
             );
         } else {
-            assert!(phases[0]["prepared_contexts"].as_array().unwrap().is_empty());
+            assert!(phases[0]["prepared_contexts"]
+                .as_array()
+                .unwrap()
+                .is_empty());
             assert_eq!(upstream["messages"][3], request["messages"][3]);
         }
         assert_eq!(
