@@ -125,7 +125,8 @@ gateway 也会采集这一轮。Core 检查 gateway 转发的每个请求，拒�
 在每种隐私模式下都是如此：Core 返回 HTTP 422，gateway 返回 HTTP 503 `gate_paused`。本适配器有两处会产生这样的块：
 
 - `PowerContext` Capability 在每次运行中添加一个。请改用 `PowerContextToolset`，由 gateway 采集各轮。
-- `powercontext_context` 的工具结果带有一个，Core 会拒绝把它返回给模型的请求。请过滤掉这个工具。
+- `powercontext_context` 的工具结果带有一个，Core 会拒绝把它返回给模型的请求。
+  构造工具集时请设置 `include_context_tool=False`，这样既不提供这个工具，也会从工具集说明中去掉它的那一行。
 
 `openai:` 模型字符串本身就会选择 Responses 模型；要让它指向 gateway 的 `/gateway/v1`，请显式构造：
 
@@ -141,7 +142,7 @@ model = OpenAIResponsesModel(
     "approved-model",
     provider=OpenAIProvider(base_url="http://127.0.0.1:8787/gateway/v1", api_key=os.environ["PC_GATEWAY_KEY"]),
 )
-toolset = PowerContextToolset().filtered(lambda ctx, tool_def: tool_def.name != "powercontext_context")
+toolset = PowerContextToolset(include_context_tool=False)
 agent = Agent(model, toolsets=[toolset])
 
 result = await agent.run(

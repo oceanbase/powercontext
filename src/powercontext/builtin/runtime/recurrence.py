@@ -23,6 +23,7 @@ transaction, and it is the only place that derives ledger events from evidence.
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any
 
@@ -115,13 +116,22 @@ class RelationalRecurrenceLedger:
         """Record every event one incubation window proves, in evidence order."""
 
         outcomes = tuple((row, outcome) for row in rows if (outcome := _task_outcome(row)) is not None)
+        if not outcomes:
+            return ()
         # Every unlinked outcome matches against the same scope-head snapshot, and
-        # this method writes no artifacts, so read the snapshot once per window.
-        needs_heads = any(outcome.handoff_receipt_ref is None for _, outcome in outcomes)
-        heads: _Contents = await self._experience_heads(connection) if needs_heads else ()
+        # this method writes no artifacts, so read the snapshot at most once per window
+        # when an unrecorded failure item with available evidence actually needs it.
+        heads: _Contents | None = None
+
+        async def scope_heads() -> _Contents:
+            nonlocal heads
+            if heads is None:
+                heads = await self._experience_heads(connection)
+            return heads
+
         proposals: list[RecurrenceRevisionProposal] = []
         for row, outcome in outcomes:
-            proposals.extend(await self._record_outcome(connection, row, outcome, heads=heads))
+            proposals.extend(await self._record_outcome(connection, row, outcome, scope_heads=scope_heads))
         return tuple(proposals)
 
     async def effectiveness(
@@ -163,7 +173,7 @@ class RelationalRecurrenceLedger:
         outcome: TaskOutcome,
         /,
         *,
-        heads: _Contents,
+        scope_heads: Callable[[], Awaitable[_Contents]],
     ) -> tuple[RecurrenceRevisionProposal, ...]:
         link = await self._resolve_link(connection, outcome)
         if not isinstance(link, (_LinkedHandoff, type(None))):
@@ -171,12 +181,12 @@ class RelationalRecurrenceLedger:
         contents: _Contents = () if link is None else link.contents
         if link is not None:
             await self._record_selected(connection, row=row, link=link, contents=contents)
-        candidates: _Contents = contents if link is not None else heads
         matches = await self._freeze_matches(
             connection,
             row=row,
             outcome=outcome,
-            contents=candidates,
+            contents=None if link is None else contents,
+            load_contents=scope_heads if link is None else None,
             mode="handoff_citations" if link is not None else "scope_heads",
         )
         if link is not None:
@@ -309,8 +319,14 @@ class RelationalRecurrenceLedger:
         in statistics and proposes nothing.
         """
 
-        content = await self._experience_content(connection, artifact_ref)
-        if content is None or content.failure is None:
+        try:
+            target = await self.artifacts.get(connection, self.scope_id, artifact_ref)
+        except RepositoryNotFoundError:
+            return None
+        if not isinstance(target.content, ExperienceContent) or target.content.failure is None:
+            return None
+        content = target.content
+        if content.failure.repair_surface != _EXPERIENCE_CONTENT_SURFACE:
             return None
         try:
             current = await self.artifacts.latest(
@@ -318,20 +334,17 @@ class RelationalRecurrenceLedger:
                 self.scope_id,
                 artifact_ref.family,
                 artifact_ref.artifact_id,
+                known=target,
             )
         except RepositoryNotFoundError:
             return None
         if current.as_ref() != artifact_ref:
             return None
-        if content.failure.repair_surface != _EXPERIENCE_CONTENT_SURFACE:
-            return None
-        observations = await self.recurrence.observations(connection, self.scope_id)
-        verdicts = tuple(
-            observation
-            for observation in observations
-            if observation.artifact_ref == artifact_ref
-            and observation.signature_key == cue_key
-            and observation.event != "selected"
+        verdicts = await self.recurrence.verdicts_for_target(
+            connection,
+            self.scope_id,
+            artifact_ref,
+            cue_key,
         )
         streak = terminal_streak(verdicts)
         if streak < RECURRENCE_REVIEW_STREAK_THRESHOLD:
@@ -349,7 +362,8 @@ class RelationalRecurrenceLedger:
         *,
         row: StoredSource,
         outcome: TaskOutcome,
-        contents: _Contents,
+        contents: _Contents | None,
+        load_contents: Callable[[], Awaitable[_Contents]] | None = None,
         mode: CandidateSetMode,
     ) -> tuple[RecurrenceMatch, ...]:
         """Load or derive one matching decision per failure evidence item.
@@ -359,6 +373,7 @@ class RelationalRecurrenceLedger:
         """
 
         matches: list[RecurrenceMatch] = []
+        resolved_contents = contents
         for failure_ref in failure_refs(outcome, row.ref):
             existing = await self.recurrence.find_match(connection, self.scope_id, row.ref, failure_ref)
             if existing is not None:
@@ -369,14 +384,16 @@ class RelationalRecurrenceLedger:
                 continue
             if not await self._item_evidence_available(connection, item):
                 continue
+            if resolved_contents is None:
+                resolved_contents = () if load_contents is None else await load_contents()
             candidates = freeze_candidate_set(
                 mode=mode,
-                refs=tuple(ref for ref, _ in contents),
+                refs=tuple(ref for ref, _ in resolved_contents),
             )
-            eligible = eligible_candidates(failure_item_text(item), contents)
+            eligible = eligible_candidates(failure_item_text(item), resolved_contents)
             result = match_result(len(eligible))
             target = eligible[0] if result == "matched" else None
-            target_content = None if target is None else _content_of(contents, target)
+            target_content = None if target is None else _content_of(resolved_contents, target)
             match = RecurrenceMatch(
                 scope_id=self.scope_id,
                 task_outcome_ref=row.ref,
@@ -530,13 +547,6 @@ class RelationalRecurrenceLedger:
             if isinstance(artifact.content, ExperienceContent):
                 contents.append((artifact.as_ref(), artifact.content))
         return tuple(contents)
-
-    async def _experience_content(self, connection: AsyncConnection, ref: ArtifactRef, /) -> ExperienceContent | None:
-        try:
-            artifact = await self.artifacts.get(connection, self.scope_id, ref)
-        except RepositoryNotFoundError:
-            return None
-        return artifact.content if isinstance(artifact.content, ExperienceContent) else None
 
     async def _item_evidence_available(self, connection: AsyncConnection, item: Any, /) -> bool:
         sources, artifacts = _citation_refs(getattr(item, "evidence", ()))

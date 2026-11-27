@@ -29,6 +29,7 @@ import pytest
 from pydantic import AnyHttpUrl, BaseModel, SecretStr
 from sqlalchemy import event, select
 from sqlalchemy.engine import Engine
+from sqlalchemy.exc import OperationalError
 
 from powercontext.artifacts import ArtifactRef
 from powercontext.builtin.artifacts.memory import EmbeddingProfile
@@ -760,7 +761,8 @@ def test_temporary_topics_plus_exact_history_fail_closed_when_flattened_input_is
     asyncio.run(scenario())
 
 
-def test_atomic_publisher_rolls_back_first_update_when_second_head_cas_fails() -> None:
+@pytest.mark.parametrize("database_failure", [False, True])
+def test_atomic_publisher_rolls_back_revisions_and_cursor_on_failure(database_failure: bool) -> None:
     async def scenario() -> None:
         manager, profile, sources, topics = await _repositories()
         try:
@@ -786,14 +788,15 @@ def test_atomic_publisher_rolls_back_first_update_when_second_head_cas_fails() -
                     TopicMemoryDraft(content=_content("b"), sources=(source.ref,)),
                     prepare_topic_memory_projection(_content("b")),
                 )
-            async with profile.database.transaction() as connection:
-                await topics.publish_revision(
-                    connection,
-                    "scope-a",
-                    second.topic,
-                    TopicMemoryDraft(content=_content("b2"), sources=(source.ref,)),
-                    prepare_topic_memory_projection(_content("b2")),
-                )
+            if not database_failure:
+                async with profile.database.transaction() as connection:
+                    await topics.publish_revision(
+                        connection,
+                        "scope-a",
+                        second.topic,
+                        TopicMemoryDraft(content=_content("b2"), sources=(source.ref,)),
+                        prepare_topic_memory_projection(_content("b2")),
+                    )
             operations = tuple(
                 PreparedTopicMemoryOperation(
                     proposal_id=f"proposal-{index}",
@@ -810,17 +813,41 @@ def test_atomic_publisher_rolls_back_first_update_when_second_head_cas_fails() -
             )
             publisher = TopicMemoryAtomicPublisher(profile.database, sources, topics, leases=leases)
 
-            with pytest.raises(RevisionConflictError, match="revision"):
+            async def fail_after_writes(connection):
+                await connection.exec_driver_sql("SELECT 1 FROM private_topic_publication_table")
+
+            with pytest.raises(OperationalError if database_failure else RevisionConflictError) as caught:
                 await publisher.publish(
                     _assignment(term.fence("single-process")),
                     {"evidence-0001": source},
                     operations,
+                    commit_hook=fail_after_writes if database_failure else None,
                 )
+            diagnostics = classify_processing_error(caught.value)
+            if database_failure:
+                assert diagnostics is not None
+                assert diagnostics.stage is ProcessingStage.PERSISTENCE
+                assert diagnostics.reason is ProcessingFailureReason.STORAGE_FAILURE
+                assert diagnostics.failure_location == "topic-memory-publish-storage"
+                assert "private_topic_publication_table" not in str(diagnostics.log_fields())
+            else:
+                assert diagnostics is None or diagnostics.reason is not ProcessingFailureReason.STORAGE_FAILURE
             async with profile.database.transaction() as connection:
                 first_revisions = await topics.artifacts.revisions(connection, "scope-a", "topic-memory", "topic-a")
+                second_revisions = await topics.artifacts.revisions(connection, "scope-a", "topic-memory", "topic-b")
                 cursor = await SourceCursorRepository().load(connection, "scope-a", TOPIC_MEMORY_SOURCE_WINDOW_BINDING)
             assert len(first_revisions) == 1
+            assert len(second_revisions) == (1 if database_failure else 2)
             assert cursor is None
+            if database_failure:
+                await publisher.publish(
+                    _assignment(term.fence("single-process")), {"evidence-0001": source}, operations
+                )
+                async with profile.database.transaction() as connection:
+                    cursor = await SourceCursorRepository().load(
+                        connection, "scope-a", TOPIC_MEMORY_SOURCE_WINDOW_BINDING
+                    )
+                assert cursor is not None and cursor.cursor.sequence == 1
         finally:
             await manager.__aexit__(None, None, None)
 
