@@ -314,7 +314,7 @@ def apply_one_pass_recheck(
         if result.resolve(key) != key:
             # An earlier operation of this reply already combined this item into another memory.
             continue
-        proposal = result.items[key]
+        created_item = proposal = result.items[key]
         related = result.related(key, unseen[label].values())
         writes = operation.action != "noop"
         resolved = tuple(dict.fromkeys(result.resolve(target) for target in targets))
@@ -338,19 +338,20 @@ def apply_one_pass_recheck(
                 ),
             )
             result.items[key] = proposal
-        _apply(
-            result,
-            key,
-            related,
-            AtomicMemoryReconciliationOutput(
-                action=operation.action,
-                compared_ids=tuple(item.key for item in related),
-                target_ids=resolved,
-                content=_content(operation, default=proposal.content) if writes else None,
-                evidence_ids=(cited or tuple(item.evidence_id for item in proposal.evidence)) if writes else (),
-                reason=operation.reason,
-            ),
+        output = AtomicMemoryReconciliationOutput(
+            action=operation.action,
+            compared_ids=tuple(item.key for item in related),
+            target_ids=resolved,
+            content=_content(operation, default=proposal.content) if writes else None,
+            evidence_ids=(cited or tuple(item.evidence_id for item in proposal.evidence)) if writes else (),
+            reason=operation.reason,
         )
+        try:
+            result.apply(key, related, output)
+        except RedundantAtomicMemoryRevisionError as error:
+            # The revision was not written, so the memory keeps only the evidence it was created from.
+            result.items[key] = created_item
+            result.recover_redundant_revision(key, related, error)
         if writes and resolved:
             written.add(result.resolve(key))
     return result

@@ -222,14 +222,16 @@ def test_recheck_accepts_every_evidence_id_of_the_window(tmp_path: Path) -> None
     def create(_: dict[str, Any]) -> dict[str, Any]:
         return {"operations": [_write("create", BUDGET_200, evidence_ids=[evidence["budget"]])]}
 
-    def run(path: Path, *cited: str) -> tuple[Any, tuple[Any, ...], InvalidInferenceOutputError | None]:
-        """Revise the recalled budget in step 3 with the owner, citing ``cited`` or every Source of the window."""
+    def run(
+        path: Path, *cited: str, text: str = f"{BUDGET_200} {OWNER}"
+    ) -> tuple[Any, tuple[Any, ...], InvalidInferenceOutputError | None]:
+        """Revise the recalled budget in step 3 to ``text``, citing ``cited`` or every Source of the window."""
 
         def recheck(listed: dict[str, Any]) -> dict[str, Any]:
             (entry,) = listed["recheck"]
             label = entry["existing_memories"][0]["id"]
             evidence_ids = list(cited or evidence.values())
-            operation = _write("revise", f"{BUDGET_200} {OWNER}", label, evidence_ids=evidence_ids)
+            operation = _write("revise", text, label, evidence_ids=evidence_ids)
             return {"operations": [{**operation, "id": entry["id"]}]}
 
         outcome: list[Any] = []
@@ -261,6 +263,14 @@ def test_recheck_accepts_every_evidence_id_of_the_window(tmp_path: Path) -> None
     original, items, rejected = run(tmp_path / "unknown", "unknown")
     assert rejected is not None and rejected.operation == "atomic-memory-one-pass"
     assert [(item.ref, item.artifact.content.text) for item in items] == [(original.ref, BUDGET_100)]
+
+    # A revision that only repeats the recalled memory is not written: the created memory is kept as step 2 made
+    # it, with the Source it was created from and not the other one the unwritten revision cited.
+    original, items, rejected = run(tmp_path / "redundant", text=BUDGET_100)
+    assert rejected is None
+    assert {item.artifact.content.text for item in items} == {BUDGET_100, BUDGET_200}
+    (kept,) = (item for item in items if item.artifact.content.text == BUDGET_200)
+    assert {ref.source_id for ref in kept.artifact.lineage.sources} == {"budget"}
 
 
 NOTES = "Rollout notes for the payments service: owner and budget are tracked here."
