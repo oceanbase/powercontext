@@ -208,13 +208,15 @@ Gemini 关闭 Gateway 上下文注入。Claude CLI 只接受新的单轮文本�
 
 如果这些头均未提供 ID，网关可以根据入口以及模型、开头的指令和第一条用户消息的哈希，识别携带完整历史的 Chat 或 Responses 请求。历史开头必须有用户消息，且其前面只能有 system 或 developer 消息。通过 `previous_response_id` 或 `conversation` 续接的 Responses 请求需要提供请求头才能复用准备结果。推导出的 ID 仅在当前网关进程内用于重放准备结果。开头完全相同的会话可能共享推导出的 ID，需要区分时请发送显式会话头。
 
+带 `X-PowerContext-Turn: internal` 的请求不是会话回合：网关不推导 ID，不准备、不注入、不重放上下文，也不加入固定指令，也不把响应捕获为回合。before-send 检查仍会执行，网关也不会向上游转发该请求头。该头只接受单个大小写不敏感的 `internal`；空值、重复或其他取值会返回 `400 invalid_turn_header`，而不是静默当作普通回合处理。
+
 如果既没有显式 ID 也无法推导 ID，组合部署默认跳过注入，并记录 `context injection skipped: no conversation identity`。设置 `PC_GATEWAY_INJECTION=on` 后，没有 ID 的请求如果带有可用的用户消息，就会各自准备。设置 `PC_GATEWAY_INJECTION=off` 关闭注入，设置 `PC_GATEWAY_INJECTION_RESPONSES=off` 仅关闭 Responses 入口的注入。独立部署（`PC_GATEWAY_CORE_BASE`）必须设置 `PC_GATEWAY_INJECTION=on` 才会注入。准备结果为空或准备失败时，请求照常发送，不注入内容。只有用户回合会向 Core 查询上下文；同一回合的后续请求复用已准备的块，不再查询，没有可重放身份的非用户尾部直接发送、不召回。网关为证据与日志判定每个请求尾部的类型，见[Gateway 调用证据](gateway-evidence.md#回合类型)。
 
 设置 `PC_GATEWAY_INJECTION_CODE=on` 后，准备的上下文同时包含 Scope 代码索引中的代码证据；该选项默认关闭，并要求 Scope 已配置代码仓库。重放的内容因被引用的来源变化（例如 Agent 修改了被引用的文件）而不再通过检查时，网关丢弃该会话的重放，为该请求重新准备一次，而不是把 withhold 返回给客户端。
 
 ### 网关固定指令
 
-网关默认向 Chat 入口（`/gateway/v1/chat/completions`）和 Responses 入口（`/gateway/v1/responses`）的每个请求加入内置的成本指导指令（S），提示模型定向搜索、合并读取、集中修改并进行针对性验证。`PC_GATEWAY_STEERING=off` 关闭指令；未设置或设为 `on` 时开启，其他值会阻止启动。
+网关默认向 Chat 入口（`/gateway/v1/chat/completions`）和 Responses 入口（`/gateway/v1/responses`）的每个请求加入内置的成本指导指令（S），但带 `X-PowerContext-Turn: internal` 的请求除外，提示模型定向搜索、合并读取、集中修改并进行针对性验证。`PC_GATEWAY_STEERING=off` 关闭指令；未设置或设为 `on` 时开启，其他值会阻止启动。
 
 `PC_GATEWAY_STEERING_FILE` 用自定义指令替换内置文本。开启指令时，网关只在启动时读取一次该文件。文件必须是 UTF-8，去掉首尾空白后不能为空，不超过 4096 字节，并且不能含有 PowerContext 保留的 `BEGIN_POWERCONTEXT_` 标记；否则网关在启动时退出，不会改用其他指令。`PC_GATEWAY_STEERING=off` 优先于文件配置，关闭时不读取文件。
 
