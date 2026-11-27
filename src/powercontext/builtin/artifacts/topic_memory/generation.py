@@ -125,15 +125,12 @@ def narrow_stage_budget(
     inside the narrowed allowance is rejected instead of being silently clamped.
     """
 
+    allowed = allowed.with_output_limit(budget.max_output_tokens_per_request)
     input_tokens_limit = min(budget.input_tokens_limit, allowed.allowed_input_tokens)
     if input_tokens_limit < 1:
         raise TopicMemoryGenerationError("input_budget_exceeded")
-    max_output_tokens_per_request = budget.max_output_tokens_per_request
-    if allowed.output_tokens_limit is not None:
-        # The derived stage output limit already reserves room for retries, so a
-        # configured output allowance caps one provider response, exactly like
-        # ``generation_model_settings.max_tokens`` does during derivation.
-        max_output_tokens_per_request = min(max_output_tokens_per_request, allowed.output_tokens_limit)
+    # The request reserves its actual stage response cap, including explicit deployment ceilings.
+    max_output_tokens_per_request = allowed.output_reserve_tokens
     if max_output_tokens_per_request < 1:
         raise TopicMemoryGenerationError("output_budget_exceeded")
     return budget.model_copy(

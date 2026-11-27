@@ -223,6 +223,37 @@ def estimate_http_request(body: dict[str, Any], *, estimator: TokenEstimator) ->
         or contains_opaque_content(carrier, protocol=protocol)
     ):
         raise InferenceConfigurationError("budget-inline-context-required")
+    if "contents" in body:
+        if contains_opaque_content({"request": body}, protocol="google-codeassist") or body.get("cachedContent"):
+            raise InferenceConfigurationError("budget-inline-context-required")
+        # Gemini puts output schemas beside generation controls; only the schemas are model input.
+        generation = body.get("generationConfig", {})
+        if not isinstance(generation, dict):
+            raise InferenceConfigurationError("budget-request-body-unsupported")
+        content = {key: value for key, value in body.items() if key != "generationConfig"}
+        content["generationConfig"] = {
+            key: value
+            for key, value in generation.items()
+            if key
+            not in {
+                "temperature",
+                "topP",
+                "topK",
+                "candidateCount",
+                "maxOutputTokens",
+                "stopSequences",
+                "seed",
+                "presencePenalty",
+                "frequencyPenalty",
+                "responseMimeType",
+                "thinkingConfig",
+            }
+        }
+        return RequestEstimate(
+            estimated_input_tokens=estimator.estimate(_canonical(content)),
+            estimator=estimator.profile,
+            scope="complete_request",
+        )
     content = {key: value for key, value in body.items() if key not in _REQUEST_CONTROLS}
     return RequestEstimate(
         estimated_input_tokens=estimator.estimate(_canonical(content)),
@@ -274,9 +305,16 @@ async def _admit_http_request(request: httpx2.Request) -> None:
     if not isinstance(body, dict):
         raise InferenceConfigurationError("budget-request-body-unsupported")
     outputs = [body[key] for key in _OUTPUT_FIELDS if key in body]
+    if "contents" in body and isinstance(generation := body.get("generationConfig"), dict):
+        outputs.append(generation.get("maxOutputTokens"))
     if not outputs or any(not isinstance(value, int) or isinstance(value, bool) or value < 1 for value in outputs):
         raise InferenceConfigurationError("budget-output-limit-required")
-    output = max(outputs)
+    _require_output_limit(exchange, max(outputs))
+    _require_admission(exchange, estimate_http_request(body, estimator=exchange.estimator))
+    exchange.sent_requests += 1
+
+
+def _require_output_limit(exchange: _RequestExchange, output: int) -> None:
     ceiling = min(
         limit
         for limit in (exchange.budget.output_reserve_tokens, exchange.budget.output_tokens_limit)
@@ -299,7 +337,28 @@ async def _admit_http_request(request: httpx2.Request) -> None:
         error = InferenceBudgetExceededError(decision)
         error.requests_sent = exchange.sent_requests
         raise error
-    _require_admission(exchange, estimate_http_request(body, estimator=exchange.estimator))
+
+
+def admit_claude_cli_request(prompt: bytes, max_tokens: int | None) -> None:
+    """Admit the final text transcript before starting a Claude Code generation process.
+
+    This bounds Core's CLI input and output cap; Claude Code owns its internal provider requests and retries.
+    """
+
+    exchange = _CURRENT_EXCHANGE.get()
+    if exchange is None:
+        return
+    if not isinstance(max_tokens, int) or isinstance(max_tokens, bool) or max_tokens < 1:
+        raise InferenceConfigurationError("budget-output-limit-required")
+    _require_output_limit(exchange, max_tokens)
+    _require_admission(
+        exchange,
+        RequestEstimate(
+            estimated_input_tokens=exchange.estimator.estimate(prompt.decode("utf-8")),
+            estimator=exchange.estimator.profile,
+            scope="complete_request",
+        ),
+    )
     exchange.sent_requests += 1
 
 
@@ -307,19 +366,28 @@ class BudgetedModel(WrapperModel):
     """Bind request identity and check the final SDK body with a task-local hook.
 
     In-process test models have no wire format and use their prepared model
-    parameters. External models must expose the complete HTTP request.
+    parameters. External SDK models must expose the complete HTTP request;
+    Claude Code admits its rendered transcript at the CLI boundary.
     """
 
     def __init__(self, wrapped: Model) -> None:
         super().__init__(wrapped)
+        from powercontext.builtin.inference.claude_cli import ClaudeCliModel
+
+        inner = wrapped
+        while isinstance(inner, WrapperModel):
+            inner = inner.wrapped
+        self._cli_accounting = isinstance(inner, ClaudeCliModel)
         provider = self.wrapped.provider
         sdk = None if provider is None else provider.client
         client = getattr(sdk, "_client", None)
+        if not isinstance(client, httpx2.AsyncClient):
+            client = getattr(getattr(sdk, "_api_client", None), "_async_httpx_client", None)
         self._http_accounting = isinstance(client, httpx2.AsyncClient)
         if isinstance(client, httpx2.AsyncClient):
             if admit_http_request not in client.event_hooks["request"]:
                 client.event_hooks["request"].append(admit_http_request)
-        elif self.wrapped.system not in {"test", "function"}:
+        elif not self._cli_accounting and self.wrapped.system not in {"test", "function"}:
             raise InferenceConfigurationError("budget-accounting-unsupported")
 
     @classmethod
@@ -348,7 +416,7 @@ class BudgetedModel(WrapperModel):
             else "retry_dispatch"
         )
         exchange.attempts += 1
-        if not self._http_accounting:
+        if not self._http_accounting and not self._cli_accounting:
             settings, parameters = self.wrapped.prepare_request(model_settings, model_request_parameters)
             estimate = estimate_outbound_request(messages, settings, parameters, estimator=exchange.estimator)
             _require_admission(exchange, estimate.model_copy(update={"scope": "complete_request"}))

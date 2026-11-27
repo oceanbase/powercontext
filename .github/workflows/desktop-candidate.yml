@@ -36,7 +36,7 @@ jobs:
       - uses: ./.github/actions/setup-uv
         with:
           version: '0.13.5'
-      - run: uv sync --locked --no-dev --group resource-build --python 3.12
+      - run: python3 scripts/ci_python_mirror.py sync --locked --no-dev --group resource-build --python 3.12
       - name: Verify candidate handoff
         run: |
           uv run --no-sync ruff check scripts/desktop_candidate.py tests/test_desktop_candidate.py
@@ -83,7 +83,7 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
-      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+      - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
         with:
           version: '0.13.5'
           enable-cache: true
@@ -180,7 +180,7 @@ jobs:
       - name: Validate required targets and freeze manifest
         run: |
           set -o pipefail
-          uv sync --locked --no-dev --group resource-build --python 3.12
+          python3 scripts/ci_python_mirror.py sync --locked --no-dev --group resource-build --python 3.12
           uv run --no-sync python scripts/desktop_candidate.py assemble \
             --version "$DESKTOP_VERSION" --server-version "$SERVER_VERSION" --source-sha "$SOURCE_SHA" --server-source-sha "$SERVER_SOURCE_SHA" \
             --root build/desktop-candidate | tee -a "$GITHUB_STEP_SUMMARY"

@@ -20,6 +20,7 @@ import asyncio
 from pathlib import Path
 
 import pytest
+from sqlalchemy.exc import OperationalError
 
 from powercontext.builtin.artifacts.atomic_memory.extraction import (
     AtomicMemoryCandidate,
@@ -749,7 +750,10 @@ def test_source_flush_merge_keeps_a_bounded_tag_set_and_advances_the_cursor(tmp_
     asyncio.run(scenario())
 
 
-def test_failed_merge_projection_rolls_back_entire_source_window_and_recomputes(tmp_path: Path, monkeypatch) -> None:
+@pytest.mark.parametrize("database_failure", [False, True])
+def test_failed_merge_projection_rolls_back_entire_source_window_and_recomputes(
+    tmp_path: Path, monkeypatch, database_failure: bool
+) -> None:
     pipeline = AtomicMemoryGenerationPipeline(
         extractor=_PolicyExtractor(), reconciler=_PolicyReconciler(), estimator=character_token_estimator()
     )
@@ -773,12 +777,23 @@ def test_failed_merge_projection_rolls_back_entire_source_window_and_recomputes(
             async def fail_projection(connection, scope_id, artifact_id):
                 await remove(connection, scope_id, artifact_id)
                 if artifact_id == originals[-1].ref.artifact_id:
+                    if database_failure:
+                        await connection.exec_driver_sql("SELECT 1 FROM private_projection_table")
                     raise RuntimeError("projection publication failed")  # noqa: TRY003
 
             with monkeypatch.context() as patch:
                 patch.setattr(application.publisher, "remove", fail_projection)
-                with pytest.raises(RuntimeError, match="projection publication failed"):
+                with pytest.raises(OperationalError if database_failure else RuntimeError) as caught:
                     await context.triggers.flush(limit=1)
+            diagnostics = diagnostics_of(caught.value)
+            if database_failure:
+                assert diagnostics is not None
+                assert diagnostics.stage == "persistence"
+                assert diagnostics.reason == "storage_failure"
+                assert diagnostics.failure_location == "atomic-memory-publish-storage"
+                assert "private_projection_table" not in str(diagnostics.log_fields())
+            else:
+                assert diagnostics is None
             assert (await context.triggers.cursor()).sequence == 2
             assert (await memory.list(states=("active", "forgotten", "merged", "retired"))).items == originals
             assert {

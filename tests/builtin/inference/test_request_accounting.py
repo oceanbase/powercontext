@@ -512,12 +512,45 @@ def test_supported_sdk_protocols_reject_before_transport_without_retrying(protoc
     asyncio.run(scenario())
 
 
-def test_opaque_responses_reference_without_a_type_is_rejected() -> None:
+@pytest.mark.parametrize("extra", [{}, {"contents": [{"role": "user", "parts": [{"text": "visible"}]}]}])
+def test_opaque_responses_reference_without_a_type_is_rejected(extra) -> None:
     """An item reference with a missing type is opaque and must be rejected before send."""
 
     with pytest.raises(InferenceConfigurationError) as rejected:
         request_accounting.estimate_http_request(
-            {"input": [{"id": "msg_previous", "type": None}]},
+            {"input": [{"id": "msg_previous", "type": None}], **extra},
             estimator=character_token_estimator(),
         )
     assert "budget-inline-context-required" in str(rejected.value)
+
+
+def test_conversation_retry_growth_preserves_usage_from_the_admitted_request() -> None:
+    from powercontext.builtin.inference import InvalidInferenceOutputError
+    from powercontext.builtin.inference.models import ConversationTurn
+    from powercontext.builtin.inference.pydantic_ai import PydanticAIConversationGenerator
+
+    provider = _Provider(["X" * 10_000])
+
+    def check(reply):
+        raise InvalidInferenceOutputError("fixture", "reply must satisfy the rule")
+
+    async def scenario():
+        try:
+            generator = PydanticAIConversationGenerator(
+                model=provider.model(),
+                budget=_budget(1_000),
+                operation="atomic_memory.reconcile",
+            )
+            with pytest.raises(InferenceBudgetExceededError) as rejected:
+                await generator.generate(ConversationTurn(instructions="Rules.", message="evidence", check=check))
+            assert rejected.value.decision.phase == "retry_dispatch"
+            assert rejected.value.requests_sent == 1
+            assert rejected.value.usage is not None
+            assert rejected.value.usage.requests == 1
+            assert rejected.value.usage.input_tokens == 10
+            assert rejected.value.usage.output_tokens == 5
+        finally:
+            await provider._client.aclose()
+
+    asyncio.run(scenario())
+    assert len(provider.calls) == 1

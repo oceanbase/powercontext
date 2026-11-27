@@ -246,6 +246,7 @@ if TYPE_CHECKING:
     from pydantic_ai.providers import Provider
     from pydantic_ai.settings import ModelSettings
 
+    from powercontext.builtin.inference.models import ConversationReply, ConversationTurn
     from powercontext.builtin.inference.pydantic_ai import InferenceLimits
 
 ValueT = TypeVar("ValueT")
@@ -261,6 +262,7 @@ class BuiltinConfigurationError(RuntimeError):
             "inference-endpoint-provider": (
                 "custom inference endpoints require an OpenAI- or Anthropic-compatible model identifier"
             ),
+            "claude-cli-settings": "Claude CLI accepts only a positive max_tokens model setting",
             "inference-profile": "validated inference profile is incomplete",
             "inference-protection-injected-provider": (
                 "enforcing inference protection requires owned provider transports; custom inference injection is unsupported"
@@ -836,6 +838,15 @@ async def open_builtin_runtime(  # noqa: C901
                 provider=contexts,
                 primary_database=contexts.database,
                 owner_write_transactions=True,
+                source_processing_families=tuple(
+                    sorted(
+                        set(processing_capabilities(config))
+                        | {binding.artifact_family for binding in processing_bindings}
+                        | ({"memory"} if contexts.memory_extraction else set())
+                        | ({"experience"} if contexts.experience_incubation else set())
+                        | ({"profile"} if contexts.profiles.generator is not None else set())
+                    )
+                ),
                 handoff_committer=contexts.commit_handoff,
                 capabilities=RuntimeCapabilities(
                     memory_extraction=contexts.memory_extraction,
@@ -1557,14 +1568,26 @@ async def _dream_generator(
     )
 
 
-def _prefixed_extractor(
-    settings: InferenceConfig, runtime: RuntimeConfig, resources: AsyncExitStack, estimator: TokenEstimator
-) -> UsageReportingStructuredGenerator[AtomicMemoryExtractionInput, AtomicMemoryExtractionOutput] | None:
+def _prefixed_generators(
+    settings: InferenceConfig,
+    runtime: RuntimeConfig,
+    resources: AsyncExitStack,
+    estimator: TokenEstimator,
+    limits: InferenceLimits,
+) -> tuple[
+    UsageReportingStructuredGenerator[AtomicMemoryExtractionInput, AtomicMemoryExtractionOutput] | None,
+    UsageReportingStructuredGenerator[ConversationTurn[Any], ConversationReply[Any]] | None,
+]:
+    """The extraction and one-pass conversation generators that read the agent's prefix through one gateway client."""
+
     if settings.prefix_extraction_gateway_url is None:
-        return None
+        return None, None
     import httpx
 
-    from powercontext.builtin.artifacts.atomic_memory.prefixed_extraction import GatewayPrefixedExtractor
+    from powercontext.builtin.artifacts.atomic_memory.prefixed_extraction import (
+        GatewayPrefixedConversation,
+        GatewayPrefixedExtractor,
+    )
 
     client = httpx.AsyncClient(
         base_url=str(settings.prefix_extraction_gateway_url),
@@ -1579,6 +1602,13 @@ def _prefixed_extractor(
             instructions=atomic_memory_extraction_instructions(runtime.memory_extraction_profile),
             estimator=estimator,
             cached_input_ratio=settings.prefix_extraction_cached_input_ratio,
+        )
+    ), UsageReportingStructuredGenerator(
+        GatewayPrefixedConversation(
+            client=client,
+            estimator=estimator,
+            cached_input_ratio=settings.prefix_extraction_cached_input_ratio,
+            max_requests=limits.max_requests,
         )
     )
 
@@ -1614,7 +1644,7 @@ async def _generation_pipelines(
     ):
         return (None, None, None, None, None, None, None, None, None, None, None)
 
-    from pydantic_ai.settings import ModelSettings, merge_model_settings
+    from pydantic_ai.settings import ModelSettings
 
     from powercontext.builtin.artifacts.experience import (
         EXPERIENCE_GENERATION_INSTRUCTIONS,
@@ -1644,6 +1674,8 @@ async def _generation_pipelines(
         SkillGenerationOutput,
     )
     from powercontext.builtin.inference.pydantic_ai import (
+        InferenceLimits,
+        PydanticAIConversationGenerator,
         PydanticAIStructuredGenerator,
         probe_pydantic_ai_model,
     )
@@ -1672,7 +1704,9 @@ async def _generation_pipelines(
             stream_idle_timeout_seconds=settings.generation_stream_idle_timeout_seconds,
             protection=settings.protection,
         )
-        generation_request_settings = cast(ModelSettings, dict(settings.generation_model_settings)) or None
+        generation_request_settings = _composed_model_settings(
+            generation_provider_model, cast(ModelSettings, dict(settings.generation_model_settings))
+        )
         _register_prompt_demonstrators(
             prompt_demonstrators,
             (
@@ -1828,6 +1862,16 @@ async def _generation_pipelines(
             budget=settings.generation_budget("handoff.generate"),
             operation="handoff.generate",
         )
+        prefixed, prefixed_conversation = _prefixed_generators(
+            settings,
+            runtime,
+            resources,
+            memory_estimator,
+            InferenceLimits(
+                timeout_seconds=settings.generation_timeout_seconds,
+                max_requests=settings.generation_max_requests,
+            ),
+        )
         generated_memory = AtomicMemoryGenerationPipeline(
             extractor=UsageReportingStructuredGenerator(memory_generator),
             reconciler=UsageReportingStructuredGenerator(memory_reconciler),
@@ -1837,7 +1881,28 @@ async def _generation_pipelines(
             request_budgets={
                 key: settings.generation_budget(key) for key in ("atomic_memory.extract", "atomic_memory.reconcile")
             },
-            prefixed=_prefixed_extractor(settings, runtime, resources, memory_estimator),
+            prefixed=prefixed,
+            prefixed_conversation=prefixed_conversation,
+            conversation=UsageReportingStructuredGenerator(
+                PydanticAIConversationGenerator(
+                    model=generation_model,
+                    limits=settings.generation_limits("atomic_memory.extract"),
+                    model_settings=generation_request_settings,
+                    name="atomic_memory_one_pass",
+                    budget=settings.generation_budget("atomic_memory.extract"),
+                    operation="atomic_memory.extract",
+                )
+            ),
+            reconciliation_conversation=UsageReportingStructuredGenerator(
+                PydanticAIConversationGenerator(
+                    model=generation_model,
+                    limits=settings.generation_limits("atomic_memory.reconcile"),
+                    model_settings=generation_request_settings,
+                    name="atomic_memory_one_pass",
+                    budget=settings.generation_budget("atomic_memory.reconcile"),
+                    operation="atomic_memory.reconcile",
+                )
+            ),
         )
         generated_incubation = LLMExperienceCandidatePipeline(UsageReportingStructuredGenerator(experience_generator))
         generated_experience = LLMExperienceGenerator(UsageReportingStructuredGenerator(explicit_experience_generator))
@@ -1891,10 +1956,8 @@ async def _generation_pipelines(
                 if inherits_generation
                 else settings.rerank_model_settings
             )
-            rerank_request_settings = cast(ModelSettings, dict(rerank_values))
-            rerank_request_settings = merge_model_settings(
-                rerank_request_settings,
-                ModelSettings(temperature=0.0),
+            rerank_request_settings = _composed_model_settings(
+                rerank_provider_model, cast(ModelSettings, dict(rerank_values)), deterministic=True
             )
             # A rerank model on its own endpoint has its own context window. Without a
             # declared capacity the workload keeps no budget instead of borrowing the
@@ -1983,7 +2046,7 @@ async def _generation_decision(
     if not runtime.decision_assistance_enabled and not runtime.memory_write_gate_enabled:
         return None, None
 
-    from pydantic_ai.settings import ModelSettings, merge_model_settings
+    from pydantic_ai.settings import ModelSettings
 
     from powercontext.builtin.inference.pydantic_ai import (
         PydanticAIStructuredGenerator,
@@ -2022,10 +2085,8 @@ async def _generation_decision(
         if inherits_generation
         else settings.decision_model_settings
     )
-    decision_request_settings = cast(ModelSettings, dict(decision_values))
-    decision_request_settings = merge_model_settings(
-        decision_request_settings,
-        ModelSettings(temperature=0.0),
+    decision_request_settings = _composed_model_settings(
+        decision_provider_model, cast(ModelSettings, dict(decision_values)), deterministic=True
     )
     # A separate decision model may have a different context window; the deployment
     # declares that endpoint's capacity with decision_request_budget, and without it the
@@ -2073,6 +2134,23 @@ async def _generation_decision(
             )
         )
     return generated_decision, decision_readiness
+
+
+def _composed_model_settings(
+    model: Model, settings: ModelSettings, *, deterministic: bool = False
+) -> ModelSettings | None:
+    from pydantic_ai.exceptions import UserError
+
+    from powercontext.builtin.inference.claude_cli import ClaudeCliModel
+
+    if isinstance(model, ClaudeCliModel):
+        try:
+            model.validate_settings(settings)
+        except UserError as error:
+            raise BuiltinConfigurationError("claude-cli-settings") from error
+    elif deterministic:
+        settings["temperature"] = 0.0
+    return settings or None
 
 
 async def preflight_builtin_runtime(
@@ -2130,17 +2208,40 @@ async def _open_pydantic_ai_model(
 
     if (base_url is not None or headers) and ":" not in model_name:
         raise BuiltinConfigurationError("inference-endpoint-provider")
-    inferred_model = infer_model(
-        model_name,
-        provider_factory=_provider_factory(
-            base_url,
-            headers,
-            workload="generation",
-            resources=resources,
-            disable_retries=disable_provider_retries,
-            protection=protection,
-        ),
+    create_provider = _provider_factory(
+        base_url,
+        headers,
+        workload="generation",
+        resources=resources,
+        disable_retries=disable_provider_retries,
+        protection=protection,
     )
+    if model_name.startswith("claude-cli:"):
+        from powercontext.builtin.inference.claude_cli import ClaudeCliModel
+
+        if (
+            disable_provider_retries
+            or base_url is not None
+            or headers
+            or (protection is not None and protection.mode != "disabled")
+        ):
+            raise BuiltinConfigurationError("inference-endpoint-provider")
+        inferred_model = ClaudeCliModel(model_name.split(":", 1)[1])
+    elif model_name.split(":", 1)[0] in {"qwen", "kimi"}:
+        from pydantic_ai.models.openai import OpenAIChatModel
+
+        prefix, identifier = model_name.split(":", 1)
+        inferred_model = OpenAIChatModel(identifier, provider=create_provider(prefix))
+    elif model_name.startswith("gemini-cli:"):
+        from pydantic_ai.models.google import GoogleModel
+
+        inferred_model = GoogleModel(model_name.split(":", 1)[1], provider=create_provider("gemini-cli"))
+    elif model_name.startswith("grok:"):
+        from pydantic_ai.models.openai import OpenAIResponsesModel
+
+        inferred_model = OpenAIResponsesModel(model_name.split(":", 1)[1], provider=create_provider("grok"))
+    else:
+        inferred_model = infer_model(model_name, provider_factory=create_provider)
     provider_model = await resources.enter_async_context(inferred_model)
     model = provider_model
     if streaming == "auto" and model_name.split(":", 1)[0] in _STREAMING_AGGREGATED_PROVIDERS:
@@ -2198,7 +2299,14 @@ def _provider_factory(
 
             client = getattr(provider, "_own_http_client", None)
             # Explicit SDK clients above are newly owned by this Runtime as well.
-            if client is None and name in {"openai", "openai-chat", "openai-responses", "anthropic", "openai-codex"}:
+            if client is None and name in {
+                "openai",
+                "openai-chat",
+                "openai-responses",
+                "anthropic",
+                "openai-codex",
+                "grok",
+            }:
                 client = getattr(provider.client, "_client", None)
             supported = False
             if isinstance(client, httpx2.AsyncClient):
@@ -2279,7 +2387,7 @@ def _protected_provider_factory(
     return create
 
 
-def _unbounded_provider_factory(
+def _unbounded_provider_factory(  # noqa: C901 - provider-specific SDK and authentication contracts
     base_url: AnyHttpUrl | None,
     headers: Mapping[str, SecretStr],
     *,
@@ -2290,8 +2398,24 @@ def _unbounded_provider_factory(
     from pydantic_ai.providers import infer_provider
     from pydantic_ai.providers.openai import OpenAIProvider
 
-    def create_provider(provider_name: str) -> Provider[Any]:
+    def create_provider(provider_name: str) -> Provider[Any]:  # noqa: C901 - provider-specific construction
         if base_url is None and not headers:
+            if provider_name == "qwen" and workload == "generation":
+                from powercontext.builtin.inference.qwen import qwen_provider
+
+                return qwen_provider(resources)
+            if provider_name == "kimi" and workload == "generation":
+                from powercontext.builtin.inference.kimi import kimi_provider
+
+                return kimi_provider(resources)
+            if provider_name == "gemini-cli" and workload == "generation":
+                from powercontext.builtin.inference.gemini_cli import gemini_cli_provider
+
+                return gemini_cli_provider(resources)
+            if provider_name == "grok" and workload == "generation":
+                from powercontext.builtin.inference.grok import grok_cli_provider
+
+                return grok_cli_provider(resources)
             if provider_name == "openai-codex" and workload == "generation":
                 from powercontext.builtin.inference.codex import codex_cli_provider
 

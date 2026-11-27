@@ -1,11 +1,11 @@
 ---
 title: "GitHub CI design and operation"
-description: "How GitHub CI selects checks for a change, shares workflow ownership, and limits duplicate work and runner demand."
+description: "How GitHub CI selects checks, assigns runners, reuses dependencies, and validates the current change."
 ---
 
 # GitHub CI design and operation
 
-CI must validate affected behavior while controlling duplicate work, wasted work and bursts of runner demand. The upstream trunk branch is `master`, and automatic trunk validation listens only to that branch. Workflow policy, path ownership and required outcomes are reviewed with code. Release acceptance remains independent.
+CI must validate affected behavior, avoid duplicate or obsolete work, and use available runner capacity fully. The upstream trunk branch is `master`, and automatic trunk validation listens only to that branch. Workflow policy, path ownership and required outcomes are reviewed with code. Release acceptance remains independent.
 
 ## Entry points and admission
 
@@ -29,6 +29,26 @@ Preflight failure prevents downstream tests and heavy work from starting. Python
 
 Draft PRs allocate no automatic CI runners. Marking a PR ready validates its complete diff; conversion back to draft cancels the old run. Only the latest automatic run survives for each PR. Schedule, push and manual entry points use separate concurrency groups so diagnostics do not cancel trunk or daily validation. These groups replace obsolete work for the same change; they are not cross-PR resource queues.
 
+## Runner selection and shared setup
+
+Linux jobs in this repository use existing internal runners by default, including CI for PRs opened from forks. Computation, builds, browser tests and service tests follow this rule. A fork PR's lack of repository secrets is not a reason to move Linux checks outside the pool; reuse runner-provided configuration and shared setup. An independent fork repository without access to this organization's runners may retain its hosted fallback.
+
+| Workload | Runner choice |
+| --- | --- |
+| Lightweight quality and integration checks | `powercontext-ci-light` |
+| Python unit and E2E regression suites | `powercontext-ci-python` |
+| Heavier Linux builds, browser tests, services and database acceptance | `powercontext-ci-standard`; choose among existing pools using measured needs |
+| Tests or builds requiring native macOS or Windows | Keep the corresponding GitHub-hosted platform |
+| Acceptance of the GitHub-hosted environment itself, or a Linux capability verified to be unavailable internally | Document the required capability and evidence for a hosted exception |
+
+The internal Linux pool scales with demand and shares caches and mirrors, reducing the effect of hosted concurrency quotas and repeated external downloads on throughput. Browser and service tests do not inherently require GitHub-hosted execution, while native macOS/Windows behavior requires its corresponding OS.
+
+An existing `ubuntu-*` value is configuration history, not an exception rationale. Linux jobs such as `knowledge-base` that still use hosted labels are migration gaps; this policy does not claim they have already migrated. Check `runs-on` inside reusable workflows as well: `workflow_call` does not inherit the caller's runner, and explicit runner inputs exist only where the called workflow declares them. In OS matrices, change only Linux entries and retain native macOS/Windows entries.
+
+Reuse `setup-python-env`, `setup-uv`, `cache-npm`, `cache-pnpm` and other shared actions with their complete restore/install/save sequence. Switching labels or calling `setup-uv` or cache helpers alone does not wrap later raw install commands: use `setup-python-env` for ordinary Python installation and the installer exposed as `PC_CI_NODE_INSTALLER` for npm/pnpm installation. Retain the shared Aliyun mirror for Python, npmmirror for npm/pnpm, direct mirror routing, internal cache and official-source fallback without changing locked versions or hashes. Do not assume these helpers redirect or cache every tool URL, browser download or post-install network request; verify those paths separately.
+
+A new commit or dependency version must start successfully on a cache miss without manual prewarming in every job. Cold-installation and first-launch acceptance must retain their cold semantics; cached tools or unrelated dependencies must not bypass the behavior under test. The dependency-cache section below documents the existing helpers.
+
 ## Validation profiles
 
 | Entry point or input | Python validation | Other acceptance |
@@ -43,7 +63,7 @@ Draft PRs allocate no automatic CI runners. Marking a PR ready validates its com
 
 Ordinary PR Python combinations drop from eight to three, a 62.5% reduction in combination count. This is not a measured reduction in runner minutes or queue latency. Dependency and CI-policy changes keep the full matrix, so a PR editing CI itself may still run eight combinations.
 
-Each Linux E2E combination runs in two jobs, partitioned by a stable digest of each collected test ID. The two partitions are disjoint and together preserve the complete parallel E2E suite. The first partition also runs the serial ZCode acceptance once per Python version. Unit tests remain one job per Python version, so the ordinary profile runs four jobs and the full profile runs twelve. Per-Pod resources and the 55-minute job deadline are unchanged; splitting jobs does not guarantee an equal runtime split. Local `make e2e-test` still runs the complete parallel and serial suites.
+Each Linux E2E combination runs in two jobs, partitioned by a stable digest of each collected test ID. The two partitions are disjoint and together preserve the complete parallel E2E suite. The first partition also runs the serial ZCode acceptance once per Python version. Unit tests remain one job per Python version, so the ordinary profile runs four jobs and the full profile runs twelve. Main currently allows 75 minutes for unit jobs and 90 minutes for E2E jobs; splitting jobs does not guarantee an equal runtime split. Local `make e2e-test` still runs the complete parallel and serial suites.
 
 When packaging is selected, installation validation uses two jobs, one each for Python 3.11 and 3.14. Each job builds its wheel once and verifies five roles: `core` without extras, plus `builtin`, `cli`, `builtin,cli` and `server,cli`. Each role gets its own virtual environment, application state and temporary directory, and runs against the installed wheel with checkout imports excluded. The core role checks public imports without optional dependencies. The CLI role also verifies that adding unrelated SQLAlchemy and FastAPI packages does not enable optional roles. Every role produces a result; any failed role fails its job. All ten Python/role combinations remain covered while eight runner allocations and eight duplicate wheel builds are removed. The job-count reduction does not establish a queue-latency or throughput improvement without measurements.
 
@@ -94,7 +114,7 @@ Reporting uses a separate `workflow_run: completed` listener with read-only perm
 
 For example, documentation selects website and documentation-contract checks; Cindy changes select Python regression and Cindy-package checks; migrations and shared runtime changes retain SQLite regression and upgrade acceptance on PRs. Native database acceptance runs nightly or manually against real engines.
 
-Helm charts select deployment-contract checks. Managed resource producers select the Windows x86-64, macOS arm64 and macOS x86-64 candidate builds through Main, after quality and any selected Python tests succeed. Their native build matrix has no independent PR trigger. Shared runtime and dependency changes retain these candidate builds; unrelated website or Desktop UI changes do not start them. Candidate artifacts remain unqualified until the separate resource qualification process accepts them.
+Helm charts select deployment-contract checks. Managed resource producers select Windows x86-64, macOS arm64 and macOS x86-64 candidate builds through Main, after quality and any selected Python tests succeed. Main calls the Linux target separately under the same scope selection; its result is optional for Main's required gate, not a manually enabled target. These builds have no independent PR trigger. Shared runtime and dependency changes retain these candidate builds; unrelated website or Desktop UI changes do not start them. Candidate artifacts remain unqualified until the separate resource qualification process accepts them.
 
 Shared helpers select their actual consumers: the clean-migration runner also selects upgrade acceptance, with native managed-startup required on nightly/manual runs; the pnpm cache action also selects the Python test setup and Cindy package. A path filter must follow dependencies, not only directory names.
 
@@ -121,6 +141,8 @@ These rules reduce unnecessary work for local changes. Shared-runtime and CI-pol
 
 ## Dependency cache storage
 
+Harbor task containers have their own filesystems; restoring a dependency snapshot in the runner does not populate their apt, pip or uv caches. Internal runners can provide `PC_CI_PACKAGE_CACHE_ENDPOINT` for the shared [package download service](https://github.com/oceanbase/powercontext/blob/master/deploy/ci-package-cache/README.md). The harness forwards this endpoint through Compose and uses it for Debian repositories and the Python index. Fresh containers still run their real installers with empty client caches. The service retains complete package files on persistent storage, coalesces concurrent misses for the same file, and owns mirror-to-official fallback. Mutable package indexes revalidate with upstream ETag or Last-Modified values, reusing unchanged bodies and fetching changed indexes so new versions remain visible; package hashes and signed Debian metadata remain unchanged. This coverage applies to configured repository paths, not arbitrary downloads or installed environments.
+
 The shared cache actions select an S3-compatible backend when a self-hosted Linux runner provides `PC_CI_CACHE_ENDPOINT`. The runner Pod supplies the following configuration; workflow files do not contain service addresses or credentials.
 
 | Variable | Meaning |
@@ -133,11 +155,21 @@ The shared cache actions select an S3-compatible backend when a self-hosted Linu
 
 The backend helper reads the inherited Pod environment and exposes `backend` as `s3` or `github` before cache steps run. An internal endpoint with missing required settings fails configuration validation. With no endpoint, the shared actions retain GitHub caching. Windows, macOS and GitHub-hosted jobs retain their existing cache backend, including the hosted Docker build cache. Artifact upload and download also remain on GitHub.
 
-Internal caches use `runs-on/cache` to store dependency and tool snapshots. Python, pnpm, npm, Cargo, Go, mise, OpenAPI generator and pre-commit caches use the shared actions in the migrated jobs. Existing explicit saves after dependency installation remain before tests; Rust saves also run after ordinary test failures. Restored Rust snapshots retain third-party compiled dependencies, while workspace crates are rebuilt so embedded inputs outside the workspace cannot leave stale binaries. Cancellation or runner termination can prevent a save. GitHub cache objects are not copied automatically; packages absent from both the internal cache and runner image still download from package registries. Cache hits transfer contents from the internal service.
+Internal caches use `runs-on/cache` to store dependency and tool snapshots. Python, pnpm, npm, pip, Cargo, Go, mise, OpenAPI generator and pre-commit caches use the shared actions in the migrated jobs. Dependency installation and pre-commit environment preparation save their snapshots before checks run; Rust saves also run after ordinary test failures. Restored Rust snapshots retain third-party compiled dependencies, while workspace crates are rebuilt so embedded inputs outside the workspace cannot leave stale binaries. Cancellation or runner termination can prevent a save. GitHub cache objects are not copied automatically; packages absent from both the internal cache and runner image still download from package registries. Cache hits transfer contents from the internal service.
+
+The npm helper keys content downloads by the actual Node/npm versions and dependency files or pinned package specifications. It does not restore installed packages. Bundle builds cache pip HTTP responses using the Python/pip versions and exported requirements; locally built wheels remain outside the shared snapshot. Gateway TCK jobs also cache upstream source checkouts at their pinned revisions. Preparation populates these caches before tests; the normal installation, source revision checks, builds and tests still run.
+
+Bundle preparation installs pinned packaging tools in an isolated environment and caches their original wheels separately. Its dependency cache uses the original requirement exports, tool pins and the builder's actual Python/pip versions. Compatible locked wheels take priority; otherwise a verified locked source archive is built offline with those tools. Source builds have no package/version allowlist, and missing backends fail without installing extra tools. Each bundle retains the original exports and source-to-wheel provenance, and its installation requirements contain the hashes of the resulting wheels after checking their package identities against the verified inputs. Rebuilding a wheel does not change the download-cache identity or publish that wheel to the shared download cache.
+
+Internal Linux images can contain the pinned `license-eye` executable and `skill-up` release under `/opt/powercontext-ci-tools`. The workflows reuse the matching installed tool and retain their existing download or build path when it is absent. Helm likewise reuses the required installed version.
+
+Docker image caching is separate from dependency snapshots. Runner configuration can supply `PC_CI_OCEANBASE_435_IMAGE` and `PC_CI_OCEANBASE_442_IMAGE` with internal copies of the corresponding pinned OceanBase images. It can also supply `PC_CI_DOCKER_REGISTRY_MIRROR` for the Docker Hub mirror used by the nested E2E daemon; the outer runner daemon needs its own mirror configuration. The nested harness accepts `POWERCONTEXT_E2E_DOCKER_REGISTRY_MIRROR` directly. Without these settings, existing public image references and daemon behavior remain in effect. Prewarm images sequentially and verify the copied platform digest before configuring runners to use them.
 
 The internal mise cache also stores its bootstrap binary, version record and signed checksum files in a separate snapshot. It restores this snapshot after the installed tools, so an older tool snapshot cannot remove the bootstrap files. The pinned upstream action still verifies the cached binary locally, installs project tools and exports the environment. An exact installed-tools hit does not prevent saving a missing bootstrap snapshot; an explicit mise version selects its own bootstrap key. Only complete bootstrap snapshots are published. Missing checksum files skip the cache write without failing successful tool setup.
 
-Historical-source bundle builds use `$/` action references, so cache tooling follows the workflow commit while the requested source checkout remains unchanged. The nested cache actions use the same reference convention. This requires GitHub.com and runner 2.336.0 or newer; see GitHub's [self-repository action reference announcement](https://github.blog/changelog/2026-07-30-reference-same-repository-actions-with-self-repository-syntax/).
+Ordinary CI uses local `./.github/actions/` helpers from its source checkout, including nested helpers, so resolving them does not download a second repository archive. Historical-source bundle builds retain top-level `$/` references: these helpers are self-contained and load tooling relative to their own action directory while fingerprinting the requested source checkout. This requires GitHub.com and runner 2.336.0 or newer; see GitHub's [self-repository action reference announcement](https://github.blog/changelog/2026-07-30-reference-same-repository-actions-with-self-repository-syntax/).
+
+Internal runners do not prewarm the repository archive before each job. The runner downloads an archive only when resolving a remote action reference. Older workflow revisions with nested `$/` references continue to use that native download path, which can be served by the runner infrastructure's download cache; it does not imply a fresh public-network transfer. Historical-source bundle builds keep their workflow-version tools. Verify the infrastructure's supported paths instead of assuming arbitrary URLs are cached.
 
 The cache service must have storage that outlives worker reclamation and be reachable from every runner Pod. The helper bypasses the outbound proxy for the endpoint host. Service deployment, bucket provisioning and persistent storage are infrastructure configuration; repository workflows do not create them. Validate a save and restore from different Pods, verify persistence after worker removal, and compare dependency-install duration on real CI runs. YAML validation alone does not establish backend availability or a performance improvement.
 
@@ -145,26 +177,28 @@ The cache service must have storage that outlives worker reclamation and be reac
 
 | Matrix | Maximum parallel jobs per run | Failure behavior |
 | --- | --- | --- |
-| Python tests | Available runners | Stop remaining combinations after the first failure |
+| Python tests | Available runners | Preserve results from all selected combinations |
 | Isolated installations, one job per Python version | Available runners | Attempt every role within a job; a failed job cancels the other Python job if still running |
 | Installed-release upgrades | Available runners | Preserve all cases and complete evidence collection |
 | OceanBase clean-migration shards | Available runners | Preserve all shards and completeness checks |
 | Candidate replay | Available runners | Preserve every backend result |
 | Historical schema capture | Available runners | Preserve every configuration result |
-| Managed resource candidates | 2 | Preserve all three native targets |
+| Managed resource candidates | Main: up to 2 Windows/macOS jobs plus 1 separate Linux job; standalone matrix: up to 2 | Preserve every selected target; the separate Linux result does not block Main's required gate |
 
-The Linux matrices omit `max-parallel`, so GitHub dispatches ready jobs according to runner availability. Each internal runner runs in its own Pod; Kubernetes schedules it using the full Pod resource requests, and pending demand drives worker scaling up to the configured pool capacity. Hosted fallbacks remain subject to GitHub-hosted runner limits. A larger `max-parallel` value would not create additional matrix jobs or increase worker capacity.
+Internal Linux jobs should use available runner capacity without arbitrary `max-parallel` caps. The table records current workflow settings; the mixed-platform candidate limit is not a default for new internal Linux jobs. Each internal runner runs in its own Pod, scheduled using complete Pod resource requests without overselling. Pending demand drives worker scaling up to the configured pool capacity. Hosted exceptions and independent fork-repository fallbacks remain subject to GitHub-hosted limits. A larger `max-parallel` value does not create jobs or worker capacity.
+
+Do not add conservative `maxRunners` settings, hard-coded test-worker counts or fixed reserves that leave usable resources idle. A workload-specific bound needs a correctness requirement or measured resource constraint. Check workflow settings, runner-pool configuration and test commands together, and size resources from observations. Correctness dependencies, obsolete-run cancellation and deliberate fail-fast policies are valid controls with different purposes; they are not arbitrary resource throttles.
 
 `max-parallel` bounds one matrix run, not the repository or organization. Do not place unrelated PRs in a normal concurrency group as a global semaphore: the default group retains only one pending run and replaces other waiting work. Release publication must not share a cancellable PR group.
 
 A concurrency cap does not remove work and can lengthen one PR's completion time. Queue reduction comes from skipping unrelated scopes, eliminating duplicate entries, grouping short checks on one runner, reusing installation builds, using the smaller PR compatibility matrix and cancelling superseded runs. Runtime and CI-policy changes still require broad acceptance, so their completion time remains sensitive to organization capacity.
 
-Organization capacity should provide separate pools: reserve capacity for basic checks and Python tests, isolate database/upgrade workloads in a heavy pool, and budget Windows/macOS separately. GitHub larger-runner groups or appropriately isolated ephemeral runners can provide these pools. Create and verify actual group names and capacity before changing `runs-on`; nonexistent labels would only queue indefinitely. Account for other repositories sharing organization capacity.
+Use existing pools according to measured workload needs, accounting for other repositories that share them. Native Windows/macOS capacity remains separate. Create and verify any new label or pool before changing `runs-on`; nonexistent labels only queue indefinitely. Pool separation must address an observed scheduling or capability need, without fixed precautionary reserves.
 
 These rollout tasks require organization administration. Workflow code does not change paid plans, budgets, runner groups or organization concurrency:
 
 1. Inspect organization Settings → Actions → Runners for active jobs, total/OS limits and other repositories' usage. Check billing, budgets and service availability as well.
-2. Create and qualify runner groups before migrating workflows. A starting allocation of roughly 20% basic checks, 40% ordinary tests and 40% heavy acceptance can be evaluated against measured minutes; it is not a capacity configuration already applied by this change.
+2. For internal Linux jobs, inspect allocatable node resources, complete Pod requests, pending reasons and scaling status. Compare these with each job's actual CPU and memory peaks over its lifetime before resizing; fully allocated CPU requests do not mean actual CPU usage is full.
 3. After merging and validating the workflows, require the stable `CI result` check while preserving existing review requirements. The quality job's displayed check name is `CI preflight`; license and scope validation are its steps, rather than separate status checks. Replace required-check rules that still name the old quality, license or scope checks. Reusable workflow check names acquire Main caller prefixes, so external status-check rules must be reconciled.
 
 See GitHub's [concurrency semantics](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/control-workflow-concurrency) and [organization job and capacity monitoring](https://docs.github.com/en/actions/how-tos/manage-runners/github-hosted-runners/view-current-jobs).
@@ -183,7 +217,7 @@ Inspect jobs, rather than treating a workflow awaiting its final summary as an e
 
 ```sh
 python3 scripts/ci_queue_report.py --repo oceanbase/powercontext \
-  --max-runs 40 --output /data/codex-tmp/ci-queue.json
+  --max-runs 40 --output ./ci-queue.json
 ```
 
 This bounded read-only report records sample coverage and actual job states. It never cancels, retries or changes a run. `workflow_age_minutes` is the workflow's age, not an individual job's queue latency. Incomplete or failed queries are not evidence of zero backlog.
@@ -192,12 +226,20 @@ Operational sequence:
 
 1. Compare queued work with current PR heads and state. Remove only obsolete runs for closed PRs or superseded heads. Preserve current-head checks, latest trunk verification, daily full verification and releases. Updated concurrency policy does not establish that historical runs have already been cleared.
 2. For summary jobs remaining after cancellation, confirm the parent run and current PR head before removing the old run. The new cancellation predicates prevent recurrence.
-3. If jobs queue while no actual jobs run, investigate organization capacity, budgets and runner availability first. A smaller matrix cannot substitute for capacity troubleshooting.
-4. Rerun only failures supported by evidence of nondeterminism. Fix deterministic assertions, contract drift and incompatible database schemas first. Retain failure logs and real-backend evidence; do not add unbounded automatic retries.
+3. Separate queued from running jobs, and resource requests from actual usage. Inspect internal Pod pending reasons, node capacity and scaling failures; inspect organization capacity and budgets for hosted jobs. A smaller matrix cannot replace capacity troubleshooting.
+4. Locate time spent in dependency downloads, process/service startup or tests. Retain logs, browser traces and screenshots, and first reproduce Linux failures in an internal Pod or VM with aligned versions and runtime settings. Repeated external reruns hoping for green are not a diagnosis. Adjust a timeout only when measured behavior supports the new budget; preserve behavioral assertions and fix deterministic defects before rerunning.
 
 Observe at least one full working day and one daily full validation after rollout. Track ready-PR to basic-check completion, selected jobs' queue p50/p95, actual runner minutes, consumed minutes of cancelled jobs, OS usage and failure/rerun rate. Suggested targets are basic-check p95 under five minutes and ordinary PR test-start queue p95 under ten minutes. These require capacity and runtime measurements; they are not guarantees from a code change.
 
 To roll back coverage policy, restore the full PR matrix while retaining orchestration, scope selection and cancellation fixes. Never simultaneously enable automatic child triggers and Main calls, which would duplicate executions.
+
+## Maintainer verification before merge
+
+1. Check the current PR head, base, run attempt and actual checkout SHA. Distinguish the branch head, GitHub's synthetic merge and the eventual merge commit. Earlier green revisions and another branch's run do not certify newly added code or tests.
+2. Inspect every selected job. A job skipped after preflight or another prerequisite failed has not passed. Preserve valid dependency ordering and fix the blocker rather than removing dependencies to conceal missing results.
+3. For runner or download-path changes, verify a fresh runner and an uncached version or commit, then cache reuse from another runner. Use the shared setup and preserve cold-installation semantics. Confirm native macOS/Windows checks remain on their platforms.
+4. After a fix, repeat the original scenario in an aligned environment to assess the observed intermittency, then run the affected suite. Keep failure logs and artifacts. Local fixtures or a single green run do not establish supported-host or service acceptance.
+5. Refresh head and results immediately before merge. Changes to source, tests, shared setup or runner settings can invalidate earlier evidence; validate the updated merge result and record remaining gaps. Old green and selected skipped jobs do not establish acceptance.
 
 ## Validation
 

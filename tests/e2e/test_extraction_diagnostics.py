@@ -44,6 +44,9 @@ from powercontext.builtin.runtime.family_processing import process_family_invoca
 from powercontext.builtin.scope import ScopeDraft
 from powercontext.builtin.triggers import SOURCE_WINDOW_TRIGGER_NAME
 
+# Observe cold child imports, execution, and natural exit separately from fault deadlines.
+_WORKER_LIFECYCLE_TIMEOUT_SECONDS = 60
+
 
 class _SourceExtractor:
     async def generate(self, request: AtomicMemoryExtractionInput, /) -> GenerationResult[AtomicMemoryExtractionOutput]:
@@ -125,7 +128,7 @@ def test_custom_memory_worker_reports_configuration_and_persisted_success(tmp_pa
                 await ArtifactProcessingIntentRepository().request(connection, scope.scope_id, binding.binding_name)
             assert runtime.artifact_processing_supervisor is not None
             runtime.artifact_processing_supervisor.wake(binding.binding_name)
-            async with asyncio.timeout(20):
+            async with asyncio.timeout(_WORKER_LIFECYCLE_TIMEOUT_SECONDS):
                 while True:
                     observed = runtime.extraction_status()
                     assert observed is not None

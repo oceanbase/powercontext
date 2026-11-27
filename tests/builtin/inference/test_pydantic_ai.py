@@ -1141,18 +1141,19 @@ def test_native_provider_context_errors_keep_their_classification(provider: str,
 
 @pytest.mark.parametrize("allow_continuations", [True, False])
 @pytest.mark.parametrize("budgeted", [False, True])
+@pytest.mark.parametrize("state", ["complete", "incomplete", "interrupted"])
 def test_structured_generator_classifies_a_length_finish_reason_as_truncated_output(
-    allow_continuations: bool, budgeted: bool
+    allow_continuations: bool, budgeted: bool, state: ModelResponseState
 ) -> None:
     from powercontext.builtin.runtime.config import InferenceConfig
 
     async def truncated(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
         del messages, info
         return ModelResponse(
-            parts=[TextPart("partial")],
+            parts=[TextPart("partial" if allow_continuations else '{"value":"partial"}')],
             provider_response_id="req-truncated",
             finish_reason="length",
-            state="complete" if allow_continuations else "incomplete",
+            state=state,
         )
 
     async def scenario() -> None:
@@ -1550,5 +1551,54 @@ def test_embedding_failure_retains_usage_from_the_previous_batch() -> None:
         assert rejected.value.usage is not None
         assert rejected.value.usage.requests == 1
         assert rejected.value.usage.input_tokens == 1
+
+    asyncio.run(scenario())
+
+
+def test_conversation_turns_share_one_request_prefix_and_correct_a_rejected_reply() -> None:
+    from pydantic_ai.messages import ModelRequest, ModelResponse, TextPart
+    from pydantic_ai.models.function import FunctionModel
+
+    from powercontext.builtin.inference import InvalidInferenceOutputError
+    from powercontext.builtin.inference.models import ConversationTurn
+    from powercontext.builtin.inference.pydantic_ai import InferenceLimits, PydanticAIConversationGenerator
+
+    requests = []
+
+    async def respond(messages, _info):
+        requests.append(messages)
+        return ModelResponse(parts=[TextPart(f"reply {len(requests)}")])
+
+    def sent(messages):
+        return [
+            (type(message).__name__, [getattr(part, "content", None) for part in message.parts]) for message in messages
+        ]
+
+    def check(reply: str) -> str:
+        if reply == "reply 2":
+            raise InvalidInferenceOutputError("fixture", "use only the labels shown")
+        return reply.upper()
+
+    async def scenario() -> None:
+        generator = PydanticAIConversationGenerator(model=FunctionModel(respond), limits=InferenceLimits())
+        first = await generator.generate(ConversationTurn(instructions="Rules.", message="evidence", check=check))
+        second = await generator.generate(
+            ConversationTurn(instructions="Rules.", message="memories", check=check, history=first.output.history)
+        )
+        assert (first.output.output, second.output.output) == ("REPLY 1", "REPLY 3")
+        assert first.usage.requests == 1 and second.usage.requests == 2
+        # The second turn resends the first exchange unchanged, under the same instructions.
+        assert sent(requests[1])[:2] == [*sent(requests[0]), ("ModelResponse", ["reply 1"])]
+        assert sent(requests[1])[2] == ("ModelRequest", ["memories"])
+        assert {message.instructions for call in requests for message in call if isinstance(message, ModelRequest)} == {
+            "Rules."
+        }
+        # The rejected reply and the broken rule stay in the conversation for the correction.
+        assert "use only the labels shown" in str(sent(requests[2])[-1])
+        # The transcript is the text of the conversation a next turn would resend, corrections included.
+        assert first.output.transcript == ("evidence", "reply 1")
+        assert second.output.transcript[:4] == ("evidence", "reply 1", "memories", "reply 2")
+        assert "use only the labels shown" in second.output.transcript[4]
+        assert second.output.transcript[5:] == ("reply 3",)
 
     asyncio.run(scenario())

@@ -1045,7 +1045,11 @@ def test_mysql_registered_projection_repair_preserves_authority_and_revision(bac
             ).scalar_one(),
         )
 
-    assert backend.connections().run(inspect_content) == ("000", content, "Preserve immutable nebula evidence.")
+    assert backend.connections().run(inspect_content) == (
+        "000",
+        content,
+        "Preserve immutable nebula evidence.",
+    )
 
 
 @pytest.mark.parametrize("origin", ("empty", "released"))

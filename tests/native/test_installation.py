@@ -31,6 +31,7 @@ from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from threading import Thread
 from typing import Any
+from urllib.parse import urlsplit
 
 import httpx
 import pytest
@@ -38,6 +39,8 @@ from dotenv import dotenv_values
 
 ROOT = Path(__file__).parents[2]
 WHEEL = os.environ.get("POWERCONTEXT_INSTALL_WHEEL")
+# A complete installation includes tool/Python bootstrap, dependency downloads, and CLI self-checks.
+INSTALLATION_TIMEOUT_SECONDS = 600
 pytestmark = pytest.mark.skipif(not WHEEL, reason="set POWERCONTEXT_INSTALL_WHEEL to run installation acceptance")
 
 
@@ -49,7 +52,7 @@ def run(
     *,
     stdin: str = "",
     success: bool = True,
-    timeout: int = 300,
+    timeout: float = 300,
 ) -> str:
     with (root / f"{name}.log").open("w", encoding="utf-8") as log:
         result = subprocess.run(
@@ -257,9 +260,7 @@ def test_install_configure_remember_and_reinstall(tmp_path: Path, environment: s
             UV_PYTHON_INSTALL_MIRROR="https://127.0.0.1:9/unavailable",
             POWERCONTEXT_UV_INSTALLER_URL="https://127.0.0.1:9/unavailable",
         )
-    # Cold bootstrap downloads Python and resolves the full dependency graph;
-    # a healthy regional mirror can spend nearly five minutes on resolution alone.
-    run(installer, tmp_path, env, "install", timeout=600)
+    run(installer, tmp_path, env, "install", timeout=INSTALLATION_TIMEOUT_SECONDS)
     if environment.startswith("bootstrap"):
         python3 = Path(env["UV_PYTHON_BIN_DIR"]) / ("python3.exe" if sys.platform == "win32" else "python3")
         run(
@@ -334,15 +335,28 @@ def test_latest_exact_versions_and_client_profile(tmp_path: Path) -> None:
     }
     config = tmp_path / "uv.toml"
     config.write_text('[pip]\nresolution = "lowest-direct"\n', encoding="utf-8")
+    home_dir = tmp_path / "home"
+    home_dir.mkdir()
     env.update(
+        HOME=str(home_dir),
+        USERPROFILE=str(home_dir),
         PYTHONIOENCODING="utf-8",
         UV_CONFIG_FILE=str(config),
         UV_TOOL_DIR=str(tmp_path / "tools"),
         UV_TOOL_BIN_DIR=str(tmp_path / "bin with spaces"),
-        UV_CACHE_DIR=str(tmp_path / "cache"),
+        # Version/profile selection needs fresh tools, not repeated dependency downloads.
+        UV_CACHE_DIR=subprocess.check_output([uv, "cache", "dir"], text=True).strip(),
+        UV_PYTHON_INSTALL_DIR=str(tmp_path / "python"),
         UV_NO_PROGRESS="1",
         POWERCONTEXT_HOME=str(tmp_path / "state"),
     )
+    if default_index := os.environ.get("POWERCONTEXT_INSTALL_TEST_INDEX_URL"):
+        env["UV_DEFAULT_INDEX"] = default_index
+        if mirror_host := urlsplit(default_index).hostname:
+            # The opt-in CI mirror is direct; preserve existing internal-host exclusions.
+            excluded_hosts = ",".join((env.get("NO_PROXY", ""), env.get("no_proxy", ""), mirror_host))
+            no_proxy = ",".join(dict.fromkeys(host.strip() for host in excluded_hosts.split(",") if host.strip()))
+            env.update(NO_PROXY=no_proxy, no_proxy=no_proxy)
     if sys.platform == "win32":
         shell = shutil.which("powershell.exe")
         assert shell is not None
@@ -369,9 +383,15 @@ def test_latest_exact_versions_and_client_profile(tmp_path: Path) -> None:
         run([*installer, "--host", "codex", "--no-hosts"], tmp_path, env, "host-choice-conflict", success=False)
         assert not Path(cli).exists()
         client_install = [*installer, "--no-hosts", "--profile", "client"]
-        run([*client_install, "--version", "1.2.0"], tmp_path, env, "install-old")
+        run(
+            [*client_install, "--version", "1.2.0"],
+            tmp_path,
+            env,
+            "install-old",
+            timeout=INSTALLATION_TIMEOUT_SECONDS,
+        )
         assert run([cli, "--version"], tmp_path, env, "old-version").strip() == "1.2.0"
-        run(client_install, tmp_path, env, "install-latest")
+        run(client_install, tmp_path, env, "install-latest", timeout=INSTALLATION_TIMEOUT_SECONDS)
         assert run([cli, "--version"], tmp_path, env, "latest-version").strip() == "1.2.1"
         if shutil.which("git"):
             output = run(
@@ -391,15 +411,33 @@ def test_latest_exact_versions_and_client_profile(tmp_path: Path) -> None:
             "client-without-server",
         )
         assert not (tmp_path / "state").exists()
-        run([*client_install, "--version", "1.2.2rc1"], tmp_path, env, "install-prerelease")
+        run(
+            [*client_install, "--version", "1.2.2rc1"],
+            tmp_path,
+            env,
+            "install-prerelease",
+            timeout=INSTALLATION_TIMEOUT_SECONDS,
+        )
         assert run([cli, "--version"], tmp_path, env, "prerelease-version").strip() == "1.2.2rc1"
         run([*client_install, "--version", "99.0.0"], tmp_path, env, "missing-version", success=False)
         assert run([cli, "--version"], tmp_path, env, "preserved-version").strip() == "1.2.2rc1"
-        run(client_install, tmp_path, env, "stable-after-prerelease")
+        run(client_install, tmp_path, env, "stable-after-prerelease", timeout=INSTALLATION_TIMEOUT_SECONDS)
         assert run([cli, "--version"], tmp_path, env, "restored-stable-version").strip() == "1.2.1"
-        run([*installer, "--no-hosts", "--version", "1.2.0"], tmp_path, env, "switch-to-local")
+        run(
+            [*installer, "--no-hosts", "--version", "1.2.0"],
+            tmp_path,
+            env,
+            "switch-to-local",
+            timeout=INSTALLATION_TIMEOUT_SECONDS,
+        )
         run([python, "-c", "import fastapi"], tmp_path, env, "local-includes-server")
-        run([*client_install, "--version", "1.2.0"], tmp_path, env, "switch-to-client")
+        run(
+            [*client_install, "--version", "1.2.0"],
+            tmp_path,
+            env,
+            "switch-to-client",
+            timeout=INSTALLATION_TIMEOUT_SECONDS,
+        )
         run(
             [python, "-c", "from importlib.util import find_spec; assert find_spec('fastapi') is None"],
             tmp_path,

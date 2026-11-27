@@ -375,3 +375,97 @@ def test_profile_local_reselection_shares_one_deadline() -> None:
             await _generate_within_budget(SlowSelection(max_sources=1), _window(4), None)
 
     asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("operation", ["atomic_memory.extract", "atomic_memory.reconcile"])
+def test_one_pass_turn_uses_its_operation_request_and_output_limits(monkeypatch, operation) -> None:
+    from powercontext.builtin.inference import InferenceError
+    from powercontext.builtin.inference.models import ConversationTurn
+
+    calls = []
+
+    async def respond(messages, info):
+        calls.append(info.model_settings)
+        return ModelResponse(parts=[TextPart("invalid reply")])
+
+    async def open_model(*args, **kwargs):
+        model = FunctionModel(respond)
+        return model, model
+
+    def reject(reply):
+        raise InvalidInferenceOutputError("fixture", "reply must satisfy the operation schema")
+
+    from powercontext.builtin.inference import InvalidInferenceOutputError
+
+    monkeypatch.setattr(composition, "_open_pydantic_ai_model", open_model)
+
+    async def scenario():
+        async with AsyncExitStack() as resources:
+            pipelines = await composition._generation_pipelines(
+                InferenceConfig(
+                    generation_model="test",
+                    generation_operation_budgets={
+                        operation: GenerationOperationBudgetConfig(max_requests=1, output_tokens_limit=128)
+                    },
+                ),
+                RuntimeConfig(),
+                resources,
+                None,
+                BUILTIN_SOURCE_REGISTRY,
+            )
+            pipeline = pipelines[1]
+            assert pipeline is not None
+            generator = pipeline.conversation if operation.endswith("extract") else pipeline.reconciliation_conversation
+            assert generator is not None
+            with pytest.raises(InferenceError):
+                await generator.generate(ConversationTurn(instructions="Rules.", message="evidence", check=reject))
+
+    asyncio.run(scenario())
+    assert len(calls) == 1
+    assert calls[0]["max_tokens"] == 128
+
+
+def test_one_pass_reconciliation_admits_the_prior_conversation(monkeypatch) -> None:
+    from powercontext.builtin.inference.models import ConversationTurn
+
+    calls = []
+
+    async def respond(messages, info):
+        calls.append(messages)
+        return ModelResponse(parts=[TextPart("reply " * 1000)])
+
+    async def open_model(*args, **kwargs):
+        model = FunctionModel(respond)
+        return model, model
+
+    monkeypatch.setattr(composition, "_open_pydantic_ai_model", open_model)
+
+    async def scenario():
+        async with AsyncExitStack() as resources:
+            pipelines = await composition._generation_pipelines(
+                InferenceConfig(
+                    generation_model="test",
+                    generation_operation_budgets={
+                        "atomic_memory.reconcile": GenerationOperationBudgetConfig(input_tokens_limit=500)
+                    },
+                ),
+                RuntimeConfig(),
+                resources,
+                None,
+                BUILTIN_SOURCE_REGISTRY,
+            )
+            pipeline = pipelines[1]
+            assert pipeline is not None and pipeline.conversation is not None
+            assert pipeline.reconciliation_conversation is not None
+            first = await pipeline.conversation.generate(
+                ConversationTurn(instructions="Rules.", message="evidence", check=str)
+            )
+            with pytest.raises(InferenceBudgetExceededError) as rejected:
+                await pipeline.reconciliation_conversation.generate(
+                    ConversationTurn(instructions="Rules.", message="memories", check=str, history=first.output.history)
+                )
+            assert rejected.value.decision.operation == "atomic_memory.reconcile"
+            assert rejected.value.requests_sent == 0
+
+    asyncio.run(scenario())
+    assert len(calls) == 1

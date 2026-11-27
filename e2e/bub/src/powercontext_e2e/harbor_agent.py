@@ -21,9 +21,10 @@ from importlib.metadata import version
 from os import environ
 from pathlib import Path
 from typing import Any, override
+from urllib.parse import urlsplit
 
 from harbor.agents.installed import acp as harbor_acp
-from harbor.environments.base import BaseEnvironment
+from harbor.environments.base import BaseEnvironment, OutputStream
 from harbor.models.agent.context import AgentContext
 
 AGENT_ID = "powercontext-bub-acp"
@@ -54,6 +55,9 @@ STEP_FAILURE_MARKER = "/logs/agent/powercontext-step-failed"
 STEP_TESTS_DIR = "/tests"
 PYPI_INDEX_URL = "https://pypi.org/simple"
 PIP_INDEX_SETTING = "POWERCONTEXT_E2E_PIP_INDEX_URL"
+PYTHON_INDEX_SETTING = "POWERCONTEXT_E2E_PYTHON_INDEX_URL"
+DEBIAN_MIRROR_SETTING = "POWERCONTEXT_E2E_DEBIAN_MIRROR_URL"
+PACKAGE_CACHE_SETTING = "PC_CI_PACKAGE_CACHE_ENDPOINT"
 
 
 class PowerContextBubAcpAgent(harbor_acp.AcpAgent):
@@ -105,20 +109,41 @@ class PowerContextBubAcpAgent(harbor_acp.AcpAgent):
 
     @override
     async def install(self, environment: BaseEnvironment) -> None:
+        index = environ.get(PYTHON_INDEX_SETTING)
+        # Keep the task's package route consistent through pip, uv tool install, and Bub's child uv commands.
+        install_env = {"PIP_INDEX_URL": index, "UV_INDEX_URL": index} if index else {}
+        if index and _uses_shared_package_cache(index):
+            # A shared cold fill publishes the complete file before responding. Its socket wait can exceed pip's
+            # 15s default even while the origin is progressing; the complete Harbor setup still has its own deadline.
+            install_env.update({
+                "PIP_DEFAULT_TIMEOUT": environ.get("PIP_TIMEOUT", environ.get("PIP_DEFAULT_TIMEOUT", "180")),
+                "UV_HTTP_TIMEOUT": environ.get("UV_HTTP_TIMEOUT", "180"),
+            })
+            if urlsplit(index).scheme == "http":
+                # The task-reachable internal service uses HTTP; trust only its exact host and port.
+                host = urlsplit(index).netloc
+                install_env.update({"PIP_TRUSTED_HOST": host, "UV_INSECURE_HOST": host})
         constraint = self.logs_dir / "harbor-acp-constraints.txt"
         constraint.write_text(f"{HARBOR_ACP_SDK_REQUIREMENT}\n", encoding="utf-8")
         await environment.upload_file(source_path=constraint, target_path=HARBOR_ACP_CONSTRAINT)
-        await self.exec_as_root(
+        dependencies = self._build_dependencies_command("uvx")
+        if mirror := environ.get(DEBIAN_MIRROR_SETTING):
+            dependencies = f"{_debian_mirror_command(mirror)} || exit $?; {dependencies}"
+        await self._install_phase(
             environment,
-            command=self._build_dependencies_command("uvx"),
+            phase="dependencies",
+            command=dependencies,
             env={
                 "DEBIAN_FRONTEND": "noninteractive",
                 "PIP_INDEX_URL": pip_index_url(),
                 "PIP_CONSTRAINT": HARBOR_ACP_CONSTRAINT,
+                **install_env,
             },
         )
-        await self.exec_as_root(environment, command=_install_bub_command(powercontext=self._powercontext))
-        await self.exec_as_root(environment, command=_install_acp_server_command())
+        await self._install_phase(
+            environment, phase="bub", command=_install_bub_command(powercontext=self._powercontext), env=install_env
+        )
+        await self._install_phase(environment, phase="acp", command=_install_acp_server_command(), env=install_env)
         agent_user = shlex.quote(str(environment.default_user or "root"))
         await self.exec_as_root(
             environment,
@@ -142,6 +167,50 @@ class PowerContextBubAcpAgent(harbor_acp.AcpAgent):
         )
         self._selected_distribution_kind = "uvx"
 
+    async def _install_phase(
+        self, environment: BaseEnvironment, *, phase: str, command: str, env: dict[str, str]
+    ) -> None:
+        shared_cache = any(_uses_shared_package_cache(env.get(name)) for name in ("PIP_INDEX_URL", "UV_INDEX_URL"))
+        if not shared_cache and any(
+            env.get(name, PYPI_INDEX_URL).rstrip("/") != PYPI_INDEX_URL for name in ("PIP_INDEX_URL", "UV_INDEX_URL")
+        ):
+            # The shared cache owns origin fallback and coalesces its misses across task containers.
+            # Only direct mirror installs retry here; bypassing the cache would duplicate origin downloads.
+            # Retry only the package installers: apt setup, credentials, and agent invocations run once.
+            runner_bin = f"{self._RUNNER_VENV_PATH}/bin"
+            for installer in (
+                f"{runner_bin}/pip install",
+                f"{runner_bin}/uv tool install",
+                f"{REMOTE_BIN_DIR}/bub install",
+            ):
+                command = command.replace(installer, f"python_install {installer}")
+            command = (
+                'python_install() { "$@" || env -u UV_INDEX -u UV_EXTRA_INDEX_URL -u PIP_EXTRA_INDEX_URL '
+                "-u PIP_TRUSTED_HOST -u UV_INSECURE_HOST "
+                f"PIP_INDEX_URL={PYPI_INDEX_URL} UV_INDEX_URL={PYPI_INDEX_URL} UV_DEFAULT_INDEX={PYPI_INDEX_URL} "
+                '"$@"; }; ' + command
+            )
+        setup = self.logs_dir / "setup"
+        setup.mkdir(parents=True, exist_ok=True)
+        with (
+            (setup / f"{phase}.stdout.log").open("w", encoding="utf-8") as stdout,
+            (setup / f"{phase}.stderr.log").open("w", encoding="utf-8") as stderr,
+        ):
+
+            async def record_output(text: str, stream: OutputStream) -> None:
+                output = stdout if stream == "stdout" else stderr
+                output.write(text)
+                output.flush()
+
+            # Stream before Harbor truncates exception text, also retaining output received before cancellation.
+            with environment.scoped_output_callback(record_output):
+                await self.exec_as_root(environment, command=command, env=env)
+
+
+def _uses_shared_package_cache(index: str | None) -> bool:
+    endpoint = environ.get(PACKAGE_CACHE_SETTING, "").rstrip("/")
+    return bool(endpoint) and (index or "").rstrip("/") == f"{endpoint}/pypi/simple"
+
 
 def pip_index_url() -> str:
     """Return the index Harbor's ACP runtime install uses for pip, overriding any the task image configured.
@@ -153,6 +222,26 @@ def pip_index_url() -> str:
     """
 
     return environ.get(PIP_INDEX_SETTING) or PYPI_INDEX_URL
+
+
+def _debian_mirror_command(mirror: str) -> str:
+    """Route Debian's default repositories through an explicitly configured mirror, without changing suites."""
+
+    return (
+        "(set -eu; if [ -r /etc/os-release ]; then . /etc/os-release || exit $?; "
+        'if [ "${ID:-}" = debian ]; then '
+        "temporary=$(mktemp) || exit $?; trap 'rm -f \"$temporary\"' EXIT; "
+        "for sources in /etc/apt/sources.list /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources; do "
+        '[ -f "$sources" ] || continue; '
+        f"awk -v mirror={shlex.quote(mirror.rstrip('/'))} "
+        '\'($1 == "URIs:" || $1 == "deb" || $1 == "deb-src") { '
+        "for (i = 1; i <= NF; i++) { "
+        "if ($i ~ /^https?:\\/\\/deb[.]debian[.]org\\/debian(-security)?\\/?$/) { "
+        'suffix = $i; sub(/^https?:\\/\\/deb[.]debian[.]org/, "", suffix); $i = mirror suffix '
+        "} } } { print }' "
+        '"$sources" > "$temporary" || exit $?; cat "$temporary" > "$sources" || exit $?; '
+        "done; fi; fi)"
+    )
 
 
 async def clear_step_tests(environment: BaseEnvironment) -> None:

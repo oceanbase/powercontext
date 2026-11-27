@@ -375,6 +375,7 @@ async def search_approved_artifact_rows(
         "result_limit": limit,
         "required": min(required, len(terms) + 1),
     }
+    projection_admitted = "0"
     if connection.dialect.name == "sqlite":
         coverage, values = sqlite_fts_coverage_sql(terms) if required > 1 else ("1", {})
         parameters["query"] = fts_match_query(query)
@@ -392,6 +393,13 @@ async def search_approved_artifact_rows(
         )
         identity = "f.rowid AS projection_id, "
         projection_join = "JOIN pc_artifact_fts AS p ON p.rowid=c.projection_id "
+        if family == Experience.family:
+            # Reuse admission only when the FTS copy agrees with the exact head's projection.
+            projection_admitted = (
+                "EXISTS (SELECT 1 FROM pc_artifact_heads AS head "
+                "WHERE head.scope_id=:scope_id AND head.family=:family AND head.artifact_id=c.artifact_id "
+                "AND head.revision=c.revision AND head.searchable_text=p.searchable_text)"
+            )
     else:
         coverage, values = oceanbase_fts_coverage_sql(terms) if required > 1 else ("1", {})
         parameters["query"] = analyze_fts_query(query)
@@ -403,6 +411,13 @@ async def search_approved_artifact_rows(
             "JOIN pc_artifact_heads AS p ON p.scope_id=:scope_id AND p.family=:family "
             "AND p.artifact_id=c.artifact_id AND p.revision=c.revision "
         )
+        if family == Experience.family:
+            projection_admitted = "1"
+            if required == 1:
+                # MATCH alone does not prove exact term coverage on this path.
+                exact_coverage, exact_values = oceanbase_fts_coverage_sql(terms)
+                parameters.update(exact_values)
+                projection_admitted = f"{exact_coverage.replace('searchable_text', 'p.searchable_text')} >= :required"
     parameters.update(values)
     eligibility = f"WHERE h.scope_id=:scope_id AND h.family=:family AND h.lifecycle_state='active' AND {predicate}"
     matches = f"FROM {source} {eligibility}"
@@ -428,7 +443,10 @@ async def search_approved_artifact_rows(
             else ()
         )
         if len(qualified) >= limit or len(observed) < parameters["probe_limit"]:
-            return witness + tuple({**row, "family": family, "score_metric": metric} for row in qualified[:limit])
+            return witness + tuple(
+                {**row, "family": family, "score_metric": metric, "projection_admitted": family == Experience.family}
+                for row in qualified[:limit]
+            )
     prefix = ""
     candidate_source = source
     if connection.dialect.name == "sqlite" and required > 1:
@@ -461,7 +479,7 @@ async def search_approved_artifact_rows(
         )
     rejected = (
         (
-            " UNION ALL SELECT NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 1 FROM "
+            " UNION ALL SELECT NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 0, 1 FROM "
             "(SELECT 1 WHERE (SELECT COUNT(*) FROM raw_probe) > "
             "(SELECT COUNT(*) FROM qualified_probe)) AS rejected"
         )
@@ -472,7 +490,8 @@ async def search_approved_artifact_rows(
         f"WITH {prefix}candidates AS ({candidates}) "  # noqa: S608
         "SELECT c.artifact_id AS artifact_id, c.revision AS revision, p.searchable_text AS searchable_text, "
         "a.content, a.created_at, a.created_by, a.restored_from_revision, a.rollback_reason, "
-        f"c.raw_score AS raw_score, 0 AS is_rejected FROM candidates AS c {projection_join}"
+        f"c.raw_score AS raw_score, {projection_admitted} AS projection_admitted, 0 AS is_rejected "
+        f"FROM candidates AS c {projection_join}"
         "LEFT JOIN pc_artifacts AS a ON a.scope_id=:scope_id AND a.family=:family "
         f"AND a.artifact_id=c.artifact_id AND a.revision=c.revision{rejected} "
         f"ORDER BY is_rejected DESC, raw_score {direction}, artifact_id, revision"
@@ -497,6 +516,7 @@ def experience_search_hits(
 
     ``admission=None`` applies the historical lexical floor bit for bit. Raw score metadata
     is optional for old custom indexes; public searches set ``require_scores=True``.
+    Rows qualified by the built-in projection can reuse that admission during decoding.
 
     ``retrieved`` counts the rows *examined*, not the rows kept: the loop stops as soon as
     ``limit`` final hits survive, so a backend that returned many rows for a narrow query is
@@ -522,7 +542,9 @@ def experience_search_hits(
                 ),
             )
         content = _content(row["content"])
-        if not admits_fts_text(query, experience_search_text(content), floor=admission):
+        if not row.get("projection_admitted") and not admits_fts_text(
+            query, experience_search_text(content), floor=admission
+        ):
             continue
         admitted += 1
         retrieval_score, channel_scores = _search_scores(row, required=require_scores or min_score is not None)

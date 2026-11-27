@@ -57,7 +57,20 @@ async def calculate_restoration(
         raise errors.invalid_state("retired Artifact identities cannot be restored")  # noqa: TRY003
     if operation == "undo_merge" and selected is not None:
         raise errors.invalid_state("undo_merge does not accept a content revision")  # noqa: TRY003
-    records = {target.artifact.artifact_id: target}
+    target_id = target.artifact.artifact_id
+    known_inputs: dict[str, tuple[ArtifactRef, ...]] = {}
+    if operation == "undo_merge":
+        # Marked creation inputs are the only record that an Artifact is a merge result. Without them the caller
+        # named the wrong target; that is not the inconsistent stored relation reported along a merge path.
+        known_inputs[target_id] = await load_inputs(target_id)
+        if not known_inputs[target_id]:
+            raise errors.invalid_state(
+                "undo_merge needs a merge result; this Artifact is a merge input, so undo the merge on its result"
+                " or restore this Artifact"
+                if target.state.merged_into_id is not None
+                else "undo_merge needs a merge result; this Artifact was not created by a merge"
+            )
+    records = {target_id: target}
     result_ids: list[str] = []
     cursor = target
     while cursor.state.merged_into_id is not None:
@@ -72,9 +85,8 @@ async def calculate_restoration(
     endpoint = cursor.as_read()
     undo_ids = list(reversed(result_ids))
     if operation == "undo_merge":
-        undo_ids.append(target.artifact.artifact_id)
-    final = await _expand_undo(undo_ids, records, load_current, load_inputs, target.ref.family, errors)
-    target_id = target.artifact.artifact_id
+        undo_ids.append(target_id)
+    final = await _expand_undo(undo_ids, records, known_inputs, load_current, load_inputs, target.ref.family, errors)
     if operation == "restore":
         final[target_id] = ArtifactLifecycleState.ACTIVE
     writes, restored = _restoration_writes(final, records, target_id, selected, adapter)
@@ -95,6 +107,7 @@ async def calculate_restoration(
 async def _expand_undo(
     undo_ids: list[str],
     records: dict[str, ArtifactMergeRecord],
+    known_inputs: dict[str, tuple[ArtifactRef, ...]],
     load_current: Callable[[str], Awaitable[ArtifactMergeRecord]],
     load_inputs: Callable[[str], Awaitable[tuple[ArtifactRef, ...]]],
     family: str,
@@ -104,7 +117,8 @@ async def _expand_undo(
 
     final: dict[str, ArtifactLifecycleState] = {}
     for result_id in undo_ids:
-        refs = await load_inputs(result_id)
+        # A merge path result is a recorded destination, so missing inputs here are an inconsistent relation.
+        refs = known_inputs[result_id] if result_id in known_inputs else await load_inputs(result_id)
         if (
             len(refs) < 2
             or len({ref.artifact_id for ref in refs}) != len(refs)

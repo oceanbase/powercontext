@@ -25,6 +25,36 @@ from powercontext.limits import MAX_ARTIFACT_ID_LENGTH, MAX_SCOPE_ID_LENGTH
 
 ATOMIC_MEMORY_CURRENT_TABLE_NAME = "pc_atomic_memory_current"
 ATOMIC_MEMORY_PROJECTION_FORMAT = "powercontext.atomic-memory.current.v1"
+ATOMIC_MEMORY_ALIAS_FORMAT = "powercontext.atomic-memory.alias.v1"
+
+
+def atomic_memory_alias_table(embedding_type: TypeEngine[Any] | None = None, /) -> Table:
+    """Disposable historical entry points; authoritative heads own merge links."""
+    body_type = Text().with_variant(MEDIUMTEXT(), "mysql")
+    return Table(
+        "pc_atomic_memory_alias",
+        MetaData(),
+        Column("scope_id", identity_string(MAX_SCOPE_ID_LENGTH), primary_key=True),
+        Column("alias_artifact_id", identity_string(MAX_ARTIFACT_ID_LENGTH), primary_key=True),
+        Column("target_artifact_id", identity_string(MAX_ARTIFACT_ID_LENGTH), nullable=False),
+        Column("alias_revision", BigInteger, nullable=False),
+        Column("merged_state_version", BigInteger, nullable=False),
+        Column("projection_format", identity_string(64), nullable=False),
+        Column("kind", body_type, nullable=False),
+        Column("text", body_type, nullable=False),
+        Column("searchable_text", body_type, nullable=False),
+        Column("embedding", LargeBinary() if embedding_type is None else embedding_type),
+        Column("profile_fingerprint", identity_string(64)),
+        Column("embedding_input_hash", identity_string(64)),
+        CheckConstraint("alias_revision > 0", name="ck_pc_atomic_memory_alias_revision"),
+        CheckConstraint("merged_state_version >= 0", name="ck_pc_atomic_memory_alias_state_version"),
+        CheckConstraint(
+            "(embedding IS NULL AND profile_fingerprint IS NULL AND embedding_input_hash IS NULL) "
+            "OR (embedding IS NOT NULL AND profile_fingerprint IS NOT NULL AND embedding_input_hash IS NOT NULL)",
+            name="ck_pc_atomic_memory_alias_embedding_metadata",
+        ),
+    )
+
 
 # This table is disposable index state, never retained archive authority.
 ATOMIC_MEMORY_EVIDENCE_PROJECTION_TABLE = Table(
@@ -74,8 +104,10 @@ def atomic_memory_current_table(embedding_type: TypeEngine[Any] | None = None, /
 
 
 __all__ = [
+    "ATOMIC_MEMORY_ALIAS_FORMAT",
     "ATOMIC_MEMORY_CURRENT_TABLE_NAME",
     "ATOMIC_MEMORY_EVIDENCE_PROJECTION_TABLE",
     "ATOMIC_MEMORY_PROJECTION_FORMAT",
+    "atomic_memory_alias_table",
     "atomic_memory_current_table",
 ]

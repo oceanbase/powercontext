@@ -13,6 +13,12 @@ complement request counts, deadlines, and the existing Topic Memory and Dream wo
 Owned OpenAI Chat, Responses, and Anthropic SDK clients use an HTTP request hook after serialization and before network
 transport. Budget admission is independent of privacy mode: `protection.mode=disabled` does not disable it.
 
+Gemini SDK requests, including Gemini CLI Code Assist, use the same serialized HTTP boundary. Accounting includes
+`contents`, `systemInstruction`, tools, and output schemas; cached remote content and opaque parts are rejected.
+Claude Code print mode checks the final JSON transcript and output cap before starting the generation process.
+That check bounds Core's CLI input and each invocation; Claude Code owns its internal provider requests, additional
+instructions, and retries, which Core cannot inspect or account for as complete provider requests.
+
 Accounting includes effective instructions, provider-rendered output instructions, tools and schemas, evidence, previous
 responses, and retry feedback. Unsent local input schemas are excluded. Model identifiers, output caps, and sampling
 controls are not input content. Extension fields are counted conservatively. Remote history references, images, audio,
@@ -56,6 +62,10 @@ which can differ from the Server's generation model. That route retains the Gate
 checks; it is outside the owned-SDK request accounting described here and does not inherit the generation model's declared
 capacity or operation budgets. When it falls back to normal extraction, the ordinary generator applies its resolved budget.
 Its request count and timeout cover that Agent execution, not the combined prefix attempt and fallback.
+
+Ordinary one-pass Atomic Memory processing applies `atomic_memory.extract` to its first turn and
+`atomic_memory.reconcile` to later turns, including rechecks. Each turn keeps the prior conversation unchanged while
+applying its own request count, timeout, input allowance, and output cap. Retry feedback is admitted again before sending.
 
 ## Family and entry-point rules
 

@@ -13,6 +13,12 @@ description: 完整模型请求的发送前检查、执行配额、选材规则�
 内置 OpenAI Chat、Responses 和 Anthropic SDK 的 HTTP request hook 在请求序列化完成后、进入网络 transport 前检查
 实际 JSON body。该检查独立于隐私保护模式，`protection.mode=disabled` 不会关闭预算检查。
 
+Gemini SDK 请求（包括 Gemini CLI Code Assist）使用同一序列化 HTTP 边界。计量包含 `contents`、
+`systemInstruction`、工具与输出 Schema；远程缓存内容与不透明的内容部分会被拒绝。
+Claude Code print 模式在启动生成进程前检查最终 JSON 对话文本和输出上限。
+该检查约束 Core 传给 CLI 的输入和每次调用；Claude Code 自行管理内部 provider 请求、额外指令与重试，
+Core 无法检查它们，也不将其视为已完成完整 provider 请求计量。
+
 计量包括实际指令、provider 渲染的结构化输出说明、工具与 Schema、证据、历史回答和重试反馈。不计量未发送的本地
 输入 Schema；模型名、输出长度和采样控制等不是输入正文。扩展请求字段保守计量；无法看到完整内容的远程历史引用、
 图片、音频和其他不透明内容会被拒绝，不能用一个文本估算声称已覆盖它们。
@@ -49,6 +55,10 @@ Atomic Memory 缓存前缀抽取通过 Gateway 的 `/gateway/v1/extract` 调用 
 该通路保留 Gateway 的 `before_send` 与 `before_release` 检查，不属于本文所述受控 SDK 的请求计量范围，也不继承生成模型
 声明的容量或 operation 预算。回退到普通抽取时，普通生成器仍执行其解析后的预算；其请求次数与超时约束覆盖该次 Agent
 执行，不覆盖前缀尝试与回退合计的请求次数和耗时。
+
+普通 one-pass Atomic Memory 处理对首轮使用 `atomic_memory.extract`，对后续轮次（含复核）使用
+`atomic_memory.reconcile`。每轮保留此前对话不变，同时应用自身的请求次数、超时、输入额度和输出上限。
+重试反馈在发送前重新检查准入。
 
 ## 各入口的规则
 

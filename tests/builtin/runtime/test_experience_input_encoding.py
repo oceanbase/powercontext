@@ -216,6 +216,8 @@ def test_configured_experience_survives_review_approval_and_database_reopen(
         config = BuiltinConfig(
             database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'reviewed.db'}"),
             inference=InferenceConfig(generation_model="test", input_encoding={"experience.generate": mode}),
+            # Exact persisted counts need write/flush time; recorder tests cover short-budget drops.
+            runtime=RuntimeConfig(model_usage_write_timeout_seconds=5.0, model_usage_flush_timeout_seconds=10.0),
         )
         content = "Migration returned exit code 1. Reopening retained the old schema. " * 50
         async with open_builtin_runtime(config) as runtime:

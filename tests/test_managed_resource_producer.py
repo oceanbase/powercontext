@@ -31,10 +31,12 @@ from typing import Any
 
 import httpx
 import pytest
+from build_intel_managed_wheel import PINS as INTEL_BUILD_PINS
 from build_intel_managed_wheel import _check_linkage, native_build_environment, verify_backend
 from ci_managed_resource_smoke import MAX_DIAGNOSTIC_BYTES, preserve_failure, smoke_phase
 from prepare_managed_resources import (
     _locked_dependencies,
+    _wheel_closure,
     acquire,
     extract_runtime,
     inventory,
@@ -326,29 +328,73 @@ def test_foreign_target_is_not_a_cross_compilation_request() -> None:
 
 def test_intel_crypto_source_exception_is_version_and_target_specific() -> None:
     digest = "a" * 64
+    pins = json.loads(INTEL_BUILD_PINS.read_bytes())
+    name, version = pins["package"], pins["version"]
     lock = {
         "package": [
             {
-                "name": "cryptography",
-                "version": "50.0.0",
+                "name": name,
+                "version": version,
                 "sdist": {
-                    "url": "https://candidate.invalid/cryptography-50.0.0.tar.gz",
+                    "url": f"https://candidate.invalid/{name}-{version}.tar.gz",
                     "hash": "sha256:" + digest,
                     "size": 10,
                 },
             }
         ]
     }
-    export = "cryptography==50.0.0 --hash=sha256:" + digest
+    export = f"{name}=={version} --hash=sha256:" + digest
     selected = _locked_dependencies(export, lock, {}, ["cp312-cp312-macosx_10_13_x86_64"], "macos-x86_64")
     assert selected[0]["kind"] == "intel-cryptography-sdist"
     assert selected[0]["sha256"] == digest
-    with pytest.raises(ValueError, match="source builds are not implicitly allowed"):
-        _locked_dependencies(export, lock, {}, ["cp312-cp312-win_amd64"], "windows-x86_64")
+    windows = _locked_dependencies(export, lock, {}, ["cp312-cp312-win_amd64"], "windows-x86_64")
+    assert windows[0]["kind"] == "sdist"
     with pytest.raises(ValueError, match="exported requirement hashes"):
         _locked_dependencies(
             export.replace(digest, "b" * 64), lock, {}, ["cp312-cp312-macosx_10_13_x86_64"], "macos-x86_64"
         )
+    changed = version + ".1"
+    lock["package"][0]["version"] = changed
+    lock["package"][0]["sdist"]["url"] = f"https://candidate.invalid/{name}-{changed}.tar.gz"
+    with pytest.raises(ValueError, match="native build recipe"):
+        _locked_dependencies(f"{name}=={changed} --hash=sha256:{digest}", lock, {}, ["py3-none-any"], pins["target"])
+
+
+@pytest.mark.parametrize(("name", "version"), [("jieba", "0.43.0"), ("source-only", "1.0")])
+def test_locked_dependency_selection_accepts_changed_and_new_sources(name: str, version: str) -> None:
+    digest = "a" * 64
+    filename = f"{name.replace('-', '_')}-{version}.tar.gz"
+    artifact = {"url": f"https://candidate.invalid/{filename}", "hash": "sha256:" + digest, "size": 10}
+    lock = {"package": [{"name": name, "version": version, "sdist": artifact}]}
+    selected = _locked_dependencies(f"{name}=={version} --hash=sha256:{digest}", lock, {}, ["py3-none-any"])
+    assert [(item["name"], item["version"], item["filename"], item["sha256"]) for item in selected] == [
+        (name, version, filename, digest)
+    ]
+
+
+@pytest.mark.parametrize("target", ["windows-x86_64", "macos-arm64", "macos-x86_64"])
+def test_locked_dependency_selection_prefers_compatible_wheels(target: str) -> None:
+    digest = "a" * 64
+    wheel = {
+        "url": "https://candidate.invalid/cryptography-50.0.0-py3-none-any.whl",
+        "hash": "sha256:" + digest,
+        "size": 10,
+    }
+    lock = {"package": [{"name": "cryptography", "version": "50.0.0", "wheels": [wheel]}]}
+    selected = _locked_dependencies(f"cryptography==50.0.0 --hash=sha256:{digest}", lock, {}, ["py3-none-any"], target)
+    assert selected[0]["kind"] == "wheel"
+    assert selected[0]["filename"] == "cryptography-50.0.0-py3-none-any.whl"
+
+
+@pytest.mark.parametrize(("name", "version"), [("other-package", "0.42.1"), ("jieba", "0.43.0")])
+def test_prepared_wheel_closure_rejects_changed_dependency_identity(tmp_path: Path, name: str, version: str) -> None:
+    for package, release in [("powercontext", "1.2.0"), (name, version)]:
+        normalized = package.replace("-", "_")
+        path = tmp_path / f"{normalized}-{release}-py3-none-any.whl"
+        with zipfile.ZipFile(path, "w") as wheel:
+            wheel.writestr(f"{normalized}-{release}.dist-info/METADATA", f"Name: {package}\nVersion: {release}\n")
+    with pytest.raises(ValueError, match="closure"):
+        _wheel_closure(tmp_path, [{"name": "jieba", "version": "0.42.1"}], "1.2.0")
 
 
 def test_native_build_cannot_be_retargeted_by_ambient_library_or_backend_options(tmp_path: Path) -> None:

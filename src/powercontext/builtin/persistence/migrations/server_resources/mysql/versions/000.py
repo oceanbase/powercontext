@@ -12,12 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Add context diagnostics through the shared resumable DDL executor."""
+"""Install the alias projection through the registered MySQL DDL executor."""
 
 from alembic import context
 
 revision = "000"
-down_revision = "v1_5_2_pr2639"
+down_revision = "v1_6_0"
 
 
 def upgrade() -> None:

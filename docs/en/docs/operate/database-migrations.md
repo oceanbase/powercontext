@@ -15,10 +15,10 @@ The design follows [RFC #1771](https://github.com/oceanbase/powercontext/pull/17
 `powercontext server db-migrate status/plan/apply/verify` default to `--bundle server` and use the configured persistent SQLite, embedded seekDB, or OceanBase MySQL database. Explicit environment files are authoritative; arbitrary bundle paths are not accepted.
 
 The full Server framework uses two normalization checkpoints before its shared migration chain for the PowerContext
-1.5.2 target (stored compatibility IDs shown below):
+1.6.0 target (stored compatibility IDs shown below):
 
-- **1.3.0:** `s1300 → s1400 → s1401 → s1402 → v1_4_1_004 → v1_4_1_005 → v1_4_1_006 → v1_5_0_001 → v1_5_0_002 → v1_5_0_003 → v1_5_0_004 → v1_5_0_005 → v1_5_2_pr2639`.
-- **1.4.0:** `r1400 → s1400 → s1401 → s1402 → v1_4_1_004 → v1_4_1_005 → v1_4_1_006 → v1_5_0_001 → v1_5_0_002 → v1_5_0_003 → v1_5_0_004 → v1_5_0_005 → v1_5_2_pr2639` through a separate frozen source bridge.
+- **1.3.0:** `s1300 → s1400 → s1401 → s1402 → v1_4_1_004 → v1_4_1_005 → v1_4_1_006 → v1_5_0_001 → v1_5_0_002 → v1_5_0_003 → v1_5_0_004 → v1_5_0_005 → v1_5_0_006 → v1_6_0 → 000`.
+- **1.4.0:** `r1400 → s1400 → s1401 → s1402 → v1_4_1_004 → v1_4_1_005 → v1_4_1_006 → v1_5_0_001 → v1_5_0_002 → v1_5_0_003 → v1_5_0_004 → v1_5_0_005 → v1_5_0_006 → v1_6_0 → 000` through a separate frozen source bridge.
 
 Application release numbers and schema revisions are distinct. The 1.4.0 release is not the `s1400` checkpoint:
 its existing Candidate schema is current, but its Topic attempt storage still needs the registered bridge.
@@ -95,7 +95,7 @@ Revision `v1_5_0_004` registers `pc_artifact_source_locators`, an optional relat
 
 Revision `v1_5_0_005` removes the previous Artifact plugin-framework storage and adds nullable `pc_artifacts.metadata`. The upgrade refuses to proceed while old plugin registrations or data remain. There is currently no supported in-place upgrade path for these databases. Unloading plugins, deleting plugin directories, or exporting archives does not clear the retained framework records, even when no Artifacts were generated. Keep the database on the previous version until a supported migration is available. A separate fresh database can use the new version, but this does not migrate old plugin data; do not manually delete framework records to bypass the check. The immutable revision keeps its original `1.5.0` numbering.
 
-Revision `v1_5_2_pr2639` adds `pc_source_runners` and `pc_source_collect_targets` for Source collection and drops the empty `pc_source_write_plugins`; it rewrites no records. While `pc_source_write_plugins` still holds records (after `source load --kind write`), the upgrade is refused with `unsupported_plugin_data` and the database stays unchanged. The previous version has no operation that removes these registrations, so such a database currently has no supported in-place upgrade path: keep using the previous version or move to a new database, and do not delete the records by hand to bypass the check. The previous Source management service's own SQLite is not migrated. See [Source plugins](../workflows/source-plugins.md).
+Revision `v1_5_0_006` adds `pc_source_runners` and `pc_source_collect_targets` for Source collection and drops the empty `pc_source_write_plugins`; it rewrites no records. While `pc_source_write_plugins` still holds records (after `source load --kind write`), the upgrade is refused with `unsupported_plugin_data` and the database stays unchanged. The previous version has no operation that removes these registrations, so such a database currently has no supported in-place upgrade path: keep using the previous version or move to a new database, and do not delete the records by hand to bypass the check. The previous Source management service's own SQLite is not migrated. See [Source plugins](../workflows/source-plugins.md).
 
 Revision `v1_4_1_006` registers `pc_source_write_plugins` for persisted Source write plugin declarations.
 Revision `v1_5_0_001` adds Artifact plugin registration fields, family schemas, search state and projections,
@@ -149,14 +149,14 @@ read-only no-op. See [Migrate to Atomic Memory](atomic-memory-migration.md).
 
 ## Migration names and software versions
 
-The target release is **PowerContext 1.5.2**. Schema changes for the next release accumulate
+The target release is **PowerContext 1.6.0**. Schema changes for the next release accumulate
 in the shared unpublished revision `000`. A release PR freezes that draft as `v<major>_<minor>_<patch>`;
 there is no PR number or step suffix. Execution follows `down_revision`, not name sorting.
 Without a schema change, a release keeps the previous database head and adds no revision.
 
-Existing three-digit sequence names, PR-based names and legacy aliases remain readable and immutable.
+Published three-digit sequence names, PR-based names and legacy aliases remain readable and immutable.
 Historical sequence `000` in a name such as `v1_3_0_000` identifies a baseline; it is distinct from the
-literal mutable draft ID `000`. The following registered names remain unchanged:
+literal mutable draft ID `000`. The registered revisions are:
 
 | Migration name | Software release | Step | Compatible stored revision | Meaning |
 | --- | --- | --- | --- | --- |
@@ -173,14 +173,15 @@ literal mutable draft ID `000`. The following registered names remain unchanged:
 | `v1_5_0_003` | 1.5.0 | 3 | `v1_5_0_003` | Disposable exact-revision evidence projection |
 | `v1_5_0_004` | 1.5.0 | 4 | `v1_5_0_004` | Source citation position locators |
 | `v1_5_0_005` | 1.5.0 | 5 | `v1_5_0_005` | Remove previous plugin-framework storage and add nullable Artifact metadata |
-| `v1_5_2_pr2639` | 1.5.2 | PR #2639 | `v1_5_2_pr2639` | Source collection runner and target tables; remove the write plugin registry |
-| `000` | — | Draft | `v1_5_2_pr2639` | Independent prepare diagnostics |
+| `v1_5_0_006` | 1.5.0 | 6 | `v1_5_0_006` | Source collection runner and target tables; remove the write plugin registry |
+| `v1_6_0` | 1.6.0 | — | `v1_6_0` | Independent prepare diagnostics |
+| `000` | — | — | `000` | Disposable historical Atomic Memory alias projection |
 
-Both registered source paths reach the `000` draft after `v1_5_2_pr2639`; only 1.3.0 is selected for CI upgrade acceptance:
+Both registered source paths reach `000` after `v1_6_0`; only 1.3.0 is selected for CI upgrade acceptance:
 
 ```text
-1.3.0: v1_3_0_000 -> v1_4_1_001 -> v1_4_1_002 -> v1_4_1_003 -> v1_4_1_004 -> v1_4_1_005 -> v1_4_1_006 -> v1_5_0_001 -> v1_5_0_002 -> v1_5_0_003 -> v1_5_0_004 -> v1_5_0_005 -> v1_5_2_pr2639 -> 000
-1.4.0: v1_4_0_000 -> v1_4_1_001 -> v1_4_1_002 -> v1_4_1_003 -> v1_4_1_004 -> v1_4_1_005 -> v1_4_1_006 -> v1_5_0_001 -> v1_5_0_002 -> v1_5_0_003 -> v1_5_0_004 -> v1_5_0_005 -> v1_5_2_pr2639 -> 000
+1.3.0: v1_3_0_000 -> v1_4_1_001 -> v1_4_1_002 -> v1_4_1_003 -> v1_4_1_004 -> v1_4_1_005 -> v1_4_1_006 -> v1_5_0_001 -> v1_5_0_002 -> v1_5_0_003 -> v1_5_0_004 -> v1_5_0_005 -> v1_5_0_006 -> v1_6_0 -> 000
+1.4.0: v1_4_0_000 -> v1_4_1_001 -> v1_4_1_002 -> v1_4_1_003 -> v1_4_1_004 -> v1_4_1_005 -> v1_4_1_006 -> v1_5_0_001 -> v1_5_0_002 -> v1_5_0_003 -> v1_5_0_004 -> v1_5_0_005 -> v1_5_0_006 -> v1_6_0 -> 000
 ```
 
 `status` and `plan` show `source_migration`, `target_migration` and `pending_migrations`
@@ -244,8 +245,11 @@ compatibility bridge from a development draft to the frozen release is provided.
 ### Transition existing schema PRs
 
 The cumulative workflow applies when a schema PR updates against master. Legacy sequence and PR-based
-revisions already in the master baseline remain immutable, including `v1_5_2_pr2639`. The baseline
-comparison protects their IDs, resources and dependencies; adopting this workflow does not rename them.
+revisions already in the master baseline remain immutable. The baseline comparison protects their IDs,
+resources and dependencies. The 1.6.0 release has one explicit exception: the unpublished Source collection
+revision from [PR #2639](https://github.com/oceanbase/powercontext/pull/2639) is named `v1_5_0_006`.
+The baseline validator is unchanged and rejects this rename when compared with a base containing the
+former identity. This known CI failure does not authorize SQL or published-history changes.
 
 An unmerged PR that introduces an unpublished revision such as `v1_5_2_pr2674` must:
 
@@ -290,9 +294,9 @@ at publication time: CI already validated the cumulative changes before their PR
 the next schema change starts a new `000` depending on the frozen head. The released scripts and resources
 then remain immutable; failures are fixed in the next cumulative migration.
 
-Existing `pc_schema_revision` values, resources, plans and checksums remain unchanged by this workflow
-change. The released 1.5.2 database head is `v1_5_0_005`; the existing `v1_5_2_pr2639` revision
-follows it and remains unchanged. New cumulative drafts depend on that current head. No production
+Published revision identities, resources and checksums remain unchanged. The released 1.5.2 database
+head is `v1_5_0_005`; Source collection follows it as `v1_5_0_006`. Development databases and recovery
+plans using the former PR-based Source collection identity must be rebuilt; there is no runtime alias. The 1.6.0 release freezes the following cumulative migration as `v1_6_0`; new drafts depend on that head. No production
 draft is introduced without a real storage change.
 
 ## Initialization and maintenance ownership
@@ -436,6 +440,11 @@ archive, with no Atomic rows or archived evidence. Normal startup can complete t
 database before adding Topic tables; it does not treat the maintenance output as an empty database. Missing or altered
 objects, unexpected business tables and retained Atomic evidence are rejected before writes. This continuation is
 specific to the registered SQLite layout and does not register additional OceanBase or seekDB baselines.
+
+The Topic recovery bundle checksum covers the relative paths and exact contents of two resource files:
+`schema.json` and `atomic_maintenance_sqlite_v2.json`. Changes to either file invalidate reviewed plans.
+Documentation files such as `README.md` are excluded. Keep the original journal checksum for recovery.
+The compatibility rules for released schema-only checksums are described below.
 
 The conversion revokes every old processing lease once by advancing its generation, expiring it in UTC, and assigning
 the maintenance-window holder. Repeating an interrupted conversion does not advance that holder again. This follows
@@ -594,6 +603,8 @@ powercontext server db-migrate apply --env-file oceanbase.env --backup manual \
 powercontext server db-migrate verify --env-file oceanbase.env \
   --evidence-dir /var/lib/powercontext/migration-state --lock-coordination single-host
 ```
+
+Topic recovery checksums cover `schema.json` and `atomic_maintenance_sqlite_v2.json`, excluding `README.md`. Journals using the released schema-only checksum remain resumable only with the exact frozen schema. Recovery preserves the original journal and backup checksum identities; configuration and backup validation still apply.
 
 Replace `PLAN_ID` with the returned plan ID. Do not move evidence to an empty directory to bypass a recovery error.
 Missing or inconsistent evidence for an interrupted migration returns `recovery_required`; selecting manual backup or
@@ -901,7 +912,7 @@ registered migration chain and read-only startup admission; its startup never in
 
 ### Prepare diagnostic storage
 
-The `000` draft adds only `pc_context_prepare_diagnostics` and its Scope/time/status indexes. It does not change existing
+Revision `v1_6_0` adds only `pc_context_prepare_diagnostics` and its Scope/time/status indexes. It does not change existing
 records or backfill past prepare calls. The table has no Scope deletion foreign key or cascade. Existing managed
 installations must migrate before startup. Capture is always on for the Server; recovery uses the existing
 verified-backup workflow and never automatically drops diagnostic records.

@@ -400,6 +400,26 @@ def allow_processing_failure_log(family: str, operation: str, code: str, reason:
 
 
 @asynccontextmanager
+async def classify_processing_storage_failure(location: str | None, /) -> AsyncIterator[None]:
+    """Attach safe database evidence outside the transaction that owns the write."""
+    try:
+        yield
+    except DBAPIError as error:
+        with suppress(Exception):
+            if location is not None and safe_classify_processing_error(error) is None:
+                attach_diagnostics(
+                    error,
+                    ProcessingDiagnostics(
+                        stage=ProcessingStage.PERSISTENCE,
+                        reason=ProcessingFailureReason.STORAGE_FAILURE,
+                        failure_location=location,
+                        cause_exception_type=None if error.orig is None else type(error.orig).__name__,
+                    ),
+                )
+        raise
+
+
+@asynccontextmanager
 async def observe_processing_failure(
     family: str,
     operation: str,
@@ -411,19 +431,11 @@ async def observe_processing_failure(
 ) -> AsyncIterator[None]:
     """Observe one failed Artifact operation without changing its outcome."""
     try:
-        yield
+        async with classify_processing_storage_failure(storage_location):
+            yield
     except Exception as error:
         with suppress(Exception):
             diagnostics = safe_classify_processing_error(error)
-            if diagnostics is None and storage_location is not None and isinstance(error, DBAPIError):
-                with suppress(Exception):
-                    diagnostics = ProcessingDiagnostics(
-                        stage=ProcessingStage.PERSISTENCE,
-                        reason=ProcessingFailureReason.STORAGE_FAILURE,
-                        failure_location=storage_location,
-                        cause_exception_type=None if error.orig is None else type(error.orig).__name__,
-                    )
-                    attach_diagnostics(error, diagnostics)
             fields = safe_log_fields(diagnostics)
             code = processing_error_code(type(error))
             reason = diagnostics.reason if diagnostics is not None else None
@@ -690,6 +702,7 @@ __all__ = [
     "attach_diagnostics",
     "classify_block_code",
     "classify_processing_error",
+    "classify_processing_storage_failure",
     "diagnostics_of",
     "observe_processing_failure",
     "processing_error_code",
