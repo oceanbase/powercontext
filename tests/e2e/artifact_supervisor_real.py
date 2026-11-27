@@ -504,7 +504,8 @@ async def run_acceptance(  # noqa: C901 - one bounded end-to-end acceptance life
                 raise failed("real-generation-produced-no-published-memory")
             if candidates.get("experience", 0) < 1 or candidates.get("profile", 0) != 1:
                 raise failed("real-generation-did-not-preserve-review-candidates")
-            if any(ownership.get("atomic-memory" if family == "memory" else family, 0) < 1 for family in BINDINGS):
+            # Topic Memory is Scope-owned. Its scoped Artifact heads attest publication.
+            if any(ownership.get(family, 0) < 1 for family in ("atomic-memory", "experience", "profile")):
                 raise failed("atomic-owner-attestation-contract-failed")
             if cursors["profile"] != 0 or any(
                 cursors[family] != initial_state["source_journal_position"]
@@ -569,10 +570,15 @@ async def run_acceptance(  # noqa: C901 - one bounded end-to-end acceptance life
                 "memory_indexing/embedding",
                 "experience_generation/generation",
                 "topic_memory_generation/generation",
-                "topic_memory_indexing/embedding",
             ):
                 if final_state["model_requests"].get(usage_key, 0) < 1:
                     raise failed("real-model-usage-evidence-missing")
+            # Topic indexing can reuse document vectors already embedded for recall.
+            if not any(
+                final_state["model_requests"].get(usage_key, 0)
+                for usage_key in ("topic_memory_indexing/embedding", "topic_memory_recall/embedding")
+            ):
+                raise failed("real-model-usage-evidence-missing")
             prompt_evidence = await _custom_prompt_evidence(contexts, scope) if custom_prompts else {}
             search = await runtime.topic_memory.for_scope(scope).search(
                 SearchTopicMemoryRequest(query="strict configuration validation release engineering", limit=10)

@@ -71,6 +71,19 @@ def run_async(operation: Callable[[], Coroutine[Any, Any, ResultT]]) -> ResultT:
     return asyncio.run(operation())
 
 
+def test_capture_tools_report_the_effective_content_limit() -> None:
+    app = create_app()
+    app.state.source_content_max_chars = 64
+
+    async def inspect() -> dict[str, Any]:
+        async with Client(create_mcp_server(app)) as client:
+            return {tool.name: tool.inputSchema for tool in await client.list_tools()}
+
+    schemas = asyncio.run(inspect())
+    assert schemas["capture_content_source"]["properties"]["content"]["maxLength"] == 64
+    assert schemas["capture_working_note"]["properties"]["content"]["maxLength"] == 64
+
+
 def test_mcp_exposes_only_data_plane_and_integration_control_operations() -> None:
     async def inspect_components() -> tuple[list[str], int, int]:
         async with Client(create_mcp_server(create_app())) as client:

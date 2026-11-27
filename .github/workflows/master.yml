@@ -279,6 +279,9 @@ jobs:
     # Unit jobs must outlast pytest plus uv cache publication. End-to-end jobs
     # also need time for subprocess tails on internal runners.
     # Python 3.11/3.12 can exceed 55 minutes while the full E2E suite is still progressing.
+    # A test that runs past faulthandler_timeout dumps every thread stack to the job log, so a
+    # hang names its test before the job timeout cancels the run. These jobs do not load the
+    # embedded seekdb extra, whose jobs disable the dump.
     timeout-minutes: ${{ matrix.suite == 'e2e' && 90 || 75 }}
     runs-on: powercontext-ci-python
     strategy:
@@ -333,7 +336,7 @@ jobs:
           PYTEST_ADDOPTS: --require-dsh-config-runtime --require-claude-code-python-floor
         run: |
           PYTHONPATH="$PWD/.github/scripts${PYTHONPATH:+:$PYTHONPATH}" \
-            make unit-test PYTEST_ARGS="-p pytest_ci_diagnostics --junitxml=$RUNNER_TEMP/pytest-diagnostics/unit.xml"
+            make unit-test PYTEST_ARGS="-p pytest_ci_diagnostics -o faulthandler_timeout=600 --junitxml=$RUNNER_TEMP/pytest-diagnostics/unit.xml"
 
       - name: Check Source serialization with minimum Pydantic
         if: matrix.suite == 'unit' && matrix.python-version == '3.11'
@@ -356,7 +359,7 @@ jobs:
         # Preserve the real Hook deadlines without competing with xdist workers.
         run: |
           PYTHONPATH="$PWD/.github/scripts${PYTHONPATH:+:$PYTHONPATH}" \
-            make e2e-test-serial PYTEST_ARGS="-p pytest_ci_diagnostics --junitxml=$RUNNER_TEMP/pytest-diagnostics/serial.xml"
+            make e2e-test-serial PYTEST_ARGS="-p pytest_ci_diagnostics -o faulthandler_timeout=600 --junitxml=$RUNNER_TEMP/pytest-diagnostics/serial.xml"
 
       - name: Run remaining end-to-end tests
         if: matrix.suite == 'e2e'
@@ -364,7 +367,7 @@ jobs:
           PYTEST_ADDOPTS: --ci-shard-index=${{ matrix.shard-index }} --ci-shard-count=${{ matrix.shard-count }}
         run: |
           PYTHONPATH="$PWD/.github/scripts${PYTHONPATH:+:$PYTHONPATH}" \
-            make e2e-test-parallel PYTEST_ARGS="-p pytest_ci_diagnostics --junitxml=$RUNNER_TEMP/pytest-diagnostics/e2e.xml"
+            make e2e-test-parallel PYTEST_ARGS="-p pytest_ci_diagnostics -o faulthandler_timeout=600 --junitxml=$RUNNER_TEMP/pytest-diagnostics/e2e.xml"
 
       - name: Save Gateway dependencies and compilation
         if: (success() || failure()) && steps.cargo-cache.outputs.cache-backend == 's3' && steps.cargo-cache.outputs.cache-hit != 'true'

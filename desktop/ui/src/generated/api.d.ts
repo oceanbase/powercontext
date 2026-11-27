@@ -278,6 +278,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/source-limits": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get effective Source capture limits
+         * @description Report the deployment's effective Content Source write limit so collectors can validate input before sending it. The limit applies to Content Source captures, batch items, Working Notes and Source creation with `source_type: content`; string content counts raw characters and other JSON values count their canonical JSON characters. The value comes from deployment configuration. Storage may already hold larger Sources written under a higher limit; reads of those Sources stay available.
+         */
+        get: operations["get_source_limits"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/scopes": {
         parameters: {
             query?: never;
@@ -4149,7 +4169,7 @@ export interface components {
         CaptureContentSourceRequest: {
             scope_id: string;
             source_id: string;
-            /** @description Raw integration content. Server-reserved payload schemas, including handoff receipts, are rejected on this generic capture operation and must be created through their dedicated workflow. */
+            /** @description Raw integration content. Server-reserved payload schemas, including handoff receipts, are rejected on this generic capture operation and must be created through their dedicated workflow. The deployment's effective limit is reported by `GET /v1/source-limits` as `source_content_max_chars`. */
             content: string;
             /** @description Caller metadata. The reserved kind value `working_note` is rejected; use the dedicated Working Note capture operation instead. */
             metadata?: {
@@ -5803,7 +5823,7 @@ export interface components {
              * @default content
              */
             source_type: string;
-            /** @description JSON value persisted by the built-in content Source adapter, or the input of a plugin Source type. Server-reserved payload schemas, including handoff receipts, are rejected and must be created through their dedicated workflow. String values that are empty or whitespace-only are rejected. */
+            /** @description JSON value persisted by the built-in content Source adapter, or the input of a plugin Source type. For the built-in content type, the size counts toward `source_content_max_chars` as raw characters for strings and canonical JSON characters for other values. Server-reserved payload schemas, including handoff receipts, are rejected and must be created through their dedicated workflow. String values that are empty or whitespace-only are rejected. */
             content: unknown;
         };
         /** @description A built-in Family or a loaded plugin family; every readable Family supports logical tags on persisted Artifacts. The collection-level memory Family tags entries instead. */
@@ -6031,6 +6051,12 @@ export interface components {
              */
             kind: "sequence";
             sequence: number;
+        };
+        SourceLimits: {
+            /** @description Effective maximum characters accepted in one Content Source write on this deployment. String content counts raw characters; other JSON values count their canonical JSON characters. */
+            source_content_max_chars: number;
+            /** @description Largest limit this build accepts as configuration. Requests above the ceiling fail schema validation before the deployment limit applies. */
+            source_content_max_chars_ceiling: number;
         };
         /** @description Inclusive one-based lines in adapter-supplied text, at most 200 lines. Never a revision redirect. */
         SourceLineRangeLocator: {
@@ -7105,6 +7131,30 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Capabilities"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    get_source_limits: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Effective Source limits for this deployment. */
+            200: {
+                headers: {
+                    "X-PowerContext-Request-ID": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SourceLimits"];
                 };
             };
             401: components["responses"]["Unauthorized"];
