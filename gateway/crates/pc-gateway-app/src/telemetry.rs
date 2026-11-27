@@ -22,6 +22,7 @@ use pc_gateway_evidence::{
     AttemptEvidence, AttemptOutcome, CallEvidence, CallStage, DeliveryBoundary, DeliveryEvidence,
     EvidenceSink, PrepareResult, Sending, Terminal, UsageCompleteness,
 };
+use pc_gateway_types::TurnKind;
 use std::{
     sync::{
         atomic::{AtomicBool, AtomicUsize, Ordering},
@@ -68,7 +69,6 @@ impl Telemetry {
             route,
             call_id: call_id.to_owned(),
             trace,
-            turn: OnceLock::new(),
             admitted: AtomicBool::new(false),
             blocked_by_core: AtomicBool::new(false),
             completed: OnceLock::new(),
@@ -104,24 +104,15 @@ pub(crate) struct ModelCall {
     route: &'static str,
     call_id: String,
     trace: Option<otlp::Trace>,
-    turn: OnceLock<&'static str>,
     admitted: AtomicBool,
     blocked_by_core: AtomicBool,
-    completed: OnceLock<(&'static str, u32, u64)>,
+    completed: OnceLock<(&'static str, u32, u64, &'static str)>,
     phases: Mutex<Vec<otlp::Phase>>,
     prepare_result: Mutex<Option<&'static str>>,
     delivery: OnceLock<Instant>,
 }
 
 impl ModelCall {
-    pub(crate) fn classify(&self, turn: &'static str) {
-        let _ = self.turn.set(turn);
-    }
-
-    fn turn_kind(&self) -> &'static str {
-        self.turn.get().copied().unwrap_or("empty")
-    }
-
     fn phase(
         &self,
         name: &'static str,
@@ -150,13 +141,13 @@ impl Drop for ModelCall {
         if self.admitted.load(Ordering::Relaxed) {
             self.telemetry.admitted.fetch_sub(1, Ordering::Relaxed);
         }
-        if let (Some(exporter), Some(trace), Some((terminal, attempts, duration))) =
+        if let (Some(exporter), Some(trace), Some((terminal, attempts, duration, turn_kind))) =
             (&self.telemetry.exporter, &self.trace, self.completed.get())
         {
             let attributes = [
                 otlp::attribute("call_id", &self.call_id),
                 otlp::attribute("route", self.route),
-                otlp::attribute("turn_kind", self.turn_kind()),
+                otlp::attribute("turn_kind", turn_kind),
                 otlp::attribute("terminal", terminal),
                 otlp::attribute("attempt_count", &attempts.to_string()),
                 otlp::attribute("duration_ms", &duration.to_string()),
@@ -200,9 +191,10 @@ impl EvidenceSink for ModelCall {
             }
             Sending::ResponseReceived => "response_received",
         };
+        let turn_kind = call.turn_kind.map(TurnKind::as_str).unwrap_or("empty");
         let _ = self
             .completed
-            .set((terminal, call.attempts, call.duration_ms));
+            .set((terminal, call.attempts, call.duration_ms, turn_kind));
 
         let mut metrics = lock(&self.telemetry.metrics);
         metrics.increment(
@@ -210,7 +202,7 @@ impl EvidenceSink for ModelCall {
             format!(
                 "{{route=\"{}\",turn_kind=\"{}\",terminal=\"{terminal}\",outcome=\"{outcome}\"}}",
                 self.route,
-                self.turn_kind()
+                turn_kind
             ),
             1,
         );

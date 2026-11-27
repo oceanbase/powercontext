@@ -645,7 +645,6 @@ async fn ingress_model(
             }
         }
     };
-    telemetry.classify(turn_kind(&canonical, &format));
     drop(classify);
     // P1 review：未配置的上游禁用路由（不默认到任何第三方）。
     if (matches!(format, Format::Responses) && state.upstream_responses.is_empty())
@@ -772,54 +771,6 @@ async fn ingress_model(
             Format::Responses => OutputProtocol::OpenAiResponses,
         },
     )
-}
-
-/// Responses keeps native items in a Tool carrier even when they are messages or reasoning.
-fn turn_kind(request: &CanonicalRequest, format: &Format) -> &'static str {
-    request
-        .messages
-        .iter()
-        .rev()
-        .find_map(|message| match message.role {
-            Role::User => Some("user_turn"),
-            Role::System | Role::Developer => None,
-            Role::Assistant
-                if message
-                    .tool_calls
-                    .as_ref()
-                    .is_some_and(|calls| !calls.is_empty()) =>
-            {
-                Some("tool_continuation")
-            }
-            Role::Assistant => Some("assistant_only"),
-            Role::Tool if matches!(format, Format::Chat) => Some("tool_continuation"),
-            Role::Tool => {
-                let item = message.content.first()?;
-                match item.get("type").and_then(serde_json::Value::as_str) {
-                    Some(
-                        "function_call"
-                        | "function_call_output"
-                        | "custom_tool_call"
-                        | "custom_tool_call_output"
-                        | "computer_call"
-                        | "computer_call_output"
-                        | "local_shell_call"
-                        | "local_shell_call_output"
-                        | "shell_call"
-                        | "shell_call_output"
-                        | "apply_patch_call"
-                        | "apply_patch_call_output"
-                        | "mcp_call"
-                        | "mcp_approval_request"
-                        | "mcp_approval_response",
-                    ) => Some("tool_continuation"),
-                    Some("reasoning") => Some("assistant_only"),
-                    Some("message") | None if item["role"] == "assistant" => Some("assistant_only"),
-                    _ => None,
-                }
-            }
-        })
-        .unwrap_or("empty")
 }
 
 /// 流式 Responses 客户端：把放行（或允许降级直通）后的完整响应重放为 Responses SSE 事件。
