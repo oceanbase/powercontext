@@ -488,12 +488,14 @@ async def run_acceptance(  # noqa: C901 - one bounded end-to-end acceptance life
                 ).all()
                 ownership_rows = (
                     await connection.execute(
-                        select(ACCESS_OWNERS_TABLE.c.family, func.count())
+                        select(ACCESS_OWNERS_TABLE.c.family, ACCESS_OWNERS_TABLE.c.owner_kind, func.count())
                         .where(ACCESS_OWNERS_TABLE.c.scope_id == scope)
-                        .group_by(ACCESS_OWNERS_TABLE.c.family)
+                        .group_by(ACCESS_OWNERS_TABLE.c.family, ACCESS_OWNERS_TABLE.c.owner_kind)
                     )
                 ).all()
-                ownership = {str(row[0]): int(row[1]) for row in ownership_rows}
+                ownership: dict[str, int] = {}
+                for family, _, count in ownership_rows:
+                    ownership[family] = ownership.get(family, 0) + int(count)
                 artifacts = {str(row[0]): int(row[1]) for row in artifact_rows}
                 candidates = {str(row[0]): int(row[1]) for row in candidate_rows}
                 cursors = {}
@@ -504,7 +506,13 @@ async def run_acceptance(  # noqa: C901 - one bounded end-to-end acceptance life
                 raise failed("real-generation-produced-no-published-memory")
             if candidates.get("experience", 0) < 1 or candidates.get("profile", 0) != 1:
                 raise failed("real-generation-did-not-preserve-review-candidates")
-            if any(ownership.get("atomic-memory" if family == "memory" else family, 0) < 1 for family in BINDINGS):
+            # Topic Memory is Scope-owned. Its publication, cursor, and retrieval are checked separately.
+            required_attestations = {
+                ("atomic-memory", "artifact"),
+                ("experience", "candidate"),
+                ("profile", "candidate"),
+            }
+            if not required_attestations.issubset((family, kind) for family, kind, _ in ownership_rows):
                 raise failed("atomic-owner-attestation-contract-failed")
             if cursors["profile"] != 0 or any(
                 cursors[family] != initial_state["source_journal_position"]
