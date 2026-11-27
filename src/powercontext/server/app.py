@@ -5578,9 +5578,12 @@ def _remote_skill_publication(publication: SkillPublication) -> RemoteSkillPubli
 
 
 async def _authenticate_remote_skill_request(request: Request) -> Response | None:
-    # The Receiver operation checks the credential again within its transaction.
     try:
         _require_secure_remote_transport(request)
+        if request.scope["path"] == ENROLL_REMOTE_SKILL_TARGET.path:
+            # The one-time enrollment code is in the size-limited JSON body.
+            return None
+        # The Receiver operation checks the credential again within its transaction.
         credential = _target_credential(request)
         await _require_application(request).remote_skills.authenticate_target(credential)
     except (_RuntimeNotReadyError, PowerContextError, PersistenceError) as error:

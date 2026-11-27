@@ -97,8 +97,11 @@ Server 在下游解析之前按实际收到的字节限制请求体，默认上�
 交给下游时会短暂复制一次已接收的请求体，随后释放输入缓冲。
 
 健康检查和已启用的 Dashboard 静态资源等不使用请求体的公开路由仍检查声明的 `Content-Length`，并跳过请求体缓冲。
-Dashboard 登录采用配置上限和 32 KiB 中较小的值。远程 Skill reconciliation、Receipt 和包下载要求 Server 在读取
-请求体前验证 Receiver 凭据。
+Dashboard 登录采用配置上限和 32 KiB 中较小的值。
+远程 Skill 注册仅接受 `POST`。除非启用 `POWERCONTEXT_SERVER_ALLOW_INSECURE_HTTP`，
+Server 在读取 JSON 请求体前要求连接使用 HTTPS 或来自回环地址。
+注册请求体上限取 8 KiB 和已配置的请求体上限中的较小值。
+远程 Skill reconciliation、Receipt 和包下载要求 Server 在读取请求体前验证 Receiver 凭据。
 
 按请求来源设置速率配额、上传超时、连接上限和跨 Server 进程的总额度由反向代理负责。
 

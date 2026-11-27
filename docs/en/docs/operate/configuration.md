@@ -111,6 +111,9 @@ parsing and application overhead; replay briefly copies each accepted body once 
 
 Public routes that do not use a request body, such as health probes and enabled Dashboard assets, still check a
 declared `Content-Length` and skip buffering. Dashboard login uses the smaller of the configured limit and 32 KiB.
+Remote Skill enrollment accepts only `POST`. Before reading the JSON body, the Server requires HTTPS or a loopback
+peer unless `POWERCONTEXT_SERVER_ALLOW_INSECURE_HTTP` is enabled. The enrollment body limit is the smaller of
+8 KiB and the configured request body limit.
 Remote Skill reconciliation, Receipts, and package downloads require a valid Receiver credential before the Server
 reads the body.
 
