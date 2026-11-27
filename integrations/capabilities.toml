@@ -280,6 +280,19 @@ id = "zcode:Stop"
 capabilities = ["flush_or_checkpoint"]
 
 [[toolsets]]
+id = "antigravity-prompt-hook"
+probe = "antigravity_prompt_hook"
+[[toolsets.tools]]
+id = "antigravity:SessionStart"
+capabilities = ["context_injection"]
+[[toolsets.tools]]
+id = "antigravity:PreInvocation"
+capabilities = ["source_capture", "context_injection", "flush_or_checkpoint"]
+[[toolsets.tools]]
+id = "antigravity:PreToolUse"
+capabilities = ["persistent_scope_binding"]
+
+[[toolsets]]
 id = "dsh-mcp"
 probe = "dsh_mcp"
 [[toolsets.tools]]
@@ -1086,6 +1099,20 @@ mode = "unsupported"
 implementation = ["integrations/zcode/plugins/powercontext/.mcp.json", "integrations/zcode/plugins/powercontext/hooks/user_prompt_submit.mjs", "integrations/zcode/plugins/powercontext/scripts/scope.mjs", "integrations/zcode/plugins/powercontext/scripts/status.mjs", "integrations/zcode/plugins/powercontext/scripts/doctor.mjs", "integrations/zcode/plugins/powercontext/hooks/session_start.mjs", "integrations/zcode/plugins/powercontext/hooks/stop.mjs", "integrations/zcode/plugins/powercontext/shared/pending.mjs", "integrations/zcode/plugins/powercontext/scripts/pending.mjs"]
 documentation = ["docs/en/docs/integrations/zcode.md", "docs/zh/docs/integrations/zcode.md", "integrations/zcode/acceptance/README.md", "integrations/zcode/acceptance/desktop.md"]
 tests = ["integrations/zcode/plugins/powercontext/tests/plugin.test.mjs", "integrations/zcode/plugins/powercontext/tests/scope.test.mjs", "integrations/zcode/plugins/powercontext/tests/observations.test.mjs", "integrations/zcode/plugins/powercontext/tests/host.test.mjs", "integrations/zcode/plugins/powercontext/tests/lifecycle.test.mjs", "integrations/zcode/plugins/powercontext/tests/boundary.test.mjs", "tests/test_cli_zcode.py", "tests/e2e/test_zcode_service_chain.py", "tests/e2e/test_zcode_host_acceptance.py"]
+
+[[integrations]]
+id = "antigravity"
+kind = "agent_host"
+availability = "master_only"
+capabilities = ["memory_read", "memory_write", "source_capture", "context_injection", "flush_or_checkpoint", "work_contract", "handoff", "acknowledge", "task_outcome", "candidate_review", "experience_read_or_generate", "skill_read_or_generate", "external_skill", "scope_organization", "artifact_publication", "persistent_scope_binding"]
+profiles = ["minimal", "recommended", "full"]
+toolsets = ["server-mcp", "antigravity-prompt-hook"]
+[integrations.lifecycle.pre_compaction]
+mode = "unsupported"
+[integrations.evidence]
+implementation = ["integrations/antigravity/plugins/powercontext/mcp_config.json", "integrations/antigravity/plugins/powercontext/hooks/hook.py", "integrations/antigravity/plugins/powercontext/hooks/bind_tools.py", "src/powercontext/cli/antigravity.py"]
+documentation = ["docs/en/docs/integrations/antigravity.md", "docs/zh/docs/integrations/antigravity.md"]
+tests = ["tests/antigravity_plugin/test_antigravity_hooks.py"]
 
 [[integrations]]
 id = "deepagents"

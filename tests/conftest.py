@@ -65,7 +65,12 @@ def isolated_client_connection_settings(tmp_path, monkeypatch, request):
     if not request.config.getoption("run_real_e2e"):
         # Developer runtime overrides must not alter hermetic tests or their subprocesses.
         for name in tuple(os.environ):
-            if name.upper().startswith(("POWERCONTEXT_SERVER_", "POWERCONTEXT_CLIENT_", "POWERCONTEXT_CODEX_")):
+            if name.upper().startswith((
+                "POWERCONTEXT_SERVER_",
+                "POWERCONTEXT_CLIENT_",
+                "POWERCONTEXT_CODEX_",
+                "POWERCONTEXT_ANTIGRAVITY_",
+            )):
                 monkeypatch.delenv(name)
         # Local fixture servers must remain reachable even when the shell uses a proxy.
         no_proxy = ",".join(
@@ -76,6 +81,7 @@ def isolated_client_connection_settings(tmp_path, monkeypatch, request):
         monkeypatch.setenv("POWERCONTEXT_CLIENT_CONFIG_FILE", str(tmp_path / "client-settings.json"))
         monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes-home"))
         monkeypatch.setenv("DSH_HOME", str(tmp_path / "dsh-home"))
+        monkeypatch.setenv("ANTIGRAVITY_CONFIG_DIR", str(tmp_path / "antigravity-config"))
 
 
 def pytest_addoption(parser: pytest.Parser) -> None:

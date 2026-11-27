@@ -1,0 +1,30 @@
+{
+  "powercontext": {
+    "SessionStart": [
+      {
+        "type": "command",
+        "command": "python3 ./hooks/hook.py session-start",
+        "timeout": 15
+      }
+    ],
+    "PreInvocation": [
+      {
+        "type": "command",
+        "command": "python3 ./hooks/hook.py pre-invocation",
+        "timeout": 15
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "call_mcp_tool|mcp_powercontext.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ./hooks/bind_tools.py",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -41,6 +41,7 @@ _OPENCODE = "integrations/opencode/plugins/powercontext"
 _PI = "integrations/pi/plugins/powercontext"
 _KIMI_CODE = "integrations/kimi-code/plugins/powercontext"
 _ZCODE = "integrations/zcode/plugins/powercontext"
+_ANTIGRAVITY = "integrations/antigravity/plugins/powercontext"
 # The SDK adapters and Bub install with the PowerContext package, but they also support released cores that predate
 # powercontext_integration_lifecycle, so each keeps a private copy beside its own modules.
 _BUB = "integrations/bub/src/powercontext_bub"
@@ -50,7 +51,11 @@ _PYDANTIC_AI = "integrations/pydantic-ai/src/powercontext_pydantic_ai"
 # Claude Code and Codex ship the whole package, so a module added to the source reaches both without an entry here.
 # The copies use another name than the source, so a process that has already imported the source, such as the test
 # suite, still loads the plugin's own copy.
-PACKAGE_COPIES = (f"{_CLAUDE_CODE}/powercontext_lifecycle", f"{_CODEX}/powercontext_lifecycle")
+PACKAGE_COPIES = (
+    f"{_CLAUDE_CODE}/powercontext_lifecycle",
+    f"{_CODEX}/powercontext_lifecycle",
+    f"{_ANTIGRAVITY}/powercontext_lifecycle",
+)
 # WorkBuddy, Hermes, Bub, and the SDK adapters ship single modules where their hooks, installers, and imports already
 # expect them.
 COPIES = {

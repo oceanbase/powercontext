@@ -34,6 +34,7 @@ SetupAuthorizationStatus = Literal[
 ]
 
 _AUTHORIZATION_ENVIRONMENTS = {
+    "antigravity": "POWERCONTEXT_ANTIGRAVITY_AUTHORIZATION",
     "codex": "POWERCONTEXT_CODEX_AUTHORIZATION",
     "claude-code": "POWERCONTEXT_CLAUDE_AUTHORIZATION",
     "opencode": "POWERCONTEXT_OPENCODE_AUTHORIZATION",
@@ -79,6 +80,7 @@ def credential_path(host: str) -> Path:
     from powercontext.cli.dsh_runtime import dsh_home
 
     roots = {
+        "antigravity": Path(os.environ.get("ANTIGRAVITY_CONFIG_DIR", Path.home() / ".gemini" / "config")).expanduser(),
         "codex": Path(os.environ.get("CODEX_HOME", Path.home() / ".codex")).expanduser(),
         "claude-code": Path(os.environ.get("CLAUDE_CONFIG_DIR", Path.home() / ".claude")).expanduser(),
         "opencode": Path(os.environ.get("OPENCODE_CONFIG_DIR", Path.home() / ".config" / "opencode")).expanduser(),

@@ -17,12 +17,13 @@ Choose the integration mechanism, then the host or framework:
 
 ## Agent Hosts
 
-The 9 Agent Hosts use `official` for PowerContext project maintenance and `community` for community contributions.
+The 10 Agent Hosts use `official` for PowerContext project maintenance and `community` for community contributions.
 `official` does not imply endorsement by a host vendor.
 
 | Agent Host | Stewardship | Integration |
 | --- | --- | --- |
 | [Codex](codex.md) | `official` | Prompt Hook + MCP + Skill |
+| [Antigravity](antigravity.md) | `community` | Lifecycle Hooks + MCP + Skill |
 | [Claude Code](claude-code.md) | `community` | Prompt Hook + MCP + Skill |
 | [DeepSeek Harness](dsh.md) | `community` | HTTP plugin + pc_* + /pc |
 | [Hermes](hermes.md) | `community` | MemoryProvider + /pc |
@@ -58,6 +59,7 @@ when updating a plugin; this policy adds credential checks without changing capt
 
 | Host | Automatic input boundary | Disable capture |
 | --- | --- | --- |
+| Antigravity | `PreInvocation` unwrapped `<USER_REQUEST>` text | `POWERCONTEXT_ANTIGRAVITY_CAPTURE_PROMPTS=false` or setup `--no-capture-prompts` |
 | Claude Code | `UserPromptSubmit` text | `POWERCONTEXT_CLAUDE_CAPTURE_PROMPTS=false` or setup `--no-capture-prompts` |
 | Codex | `UserPromptSubmit` text | `POWERCONTEXT_CODEX_CAPTURE_PROMPTS=false` |
 | DSH | User text of the messages before each model step | `POWERCONTEXT_DSH_CAPTURE_PROMPTS=false` |
@@ -163,7 +165,7 @@ All 3 adapters are `community`. Install them in the application environment; do 
 ## Capabilities and availability
 
 The [capability matrix](capabilities.md) is generated from `integrations/capabilities.toml`.
-The 9 Agent Hosts and Bub are `master_only`; Pydantic AI is `experimental`.
+The 10 Agent Hosts and Bub are `master_only`; Pydantic AI is `experimental`.
 `released` means available from a specified release tag, `master_only` means implemented but unreleased, and
 `experimental` carries no stability guarantee. These labels are separate from stewardship and the
 Minimal / Recommended / Full capability profiles.
