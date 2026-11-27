@@ -743,3 +743,29 @@ def test_extraction_schedule_diagnostic_surfaces_last_failure(monkeypatch: pytes
     payload["extraction"]["observation"]["last_success_at"] = "2026-11-27T06:40:00+00:00"
     recovered = agy_cli.extraction_schedule_diagnostic("http://127.0.0.1:8000")
     assert recovered.checks == {"automatic_processing": "enabled"}
+
+
+def test_verify_hook_diagnostics_ignores_sibling_plugin_data_env(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from powercontext.cli import antigravity as agy_cli
+    from powercontext.cli.system import DiagnosticStatus
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setattr(agy_cli, "antigravity_home", lambda: tmp_path / ".gemini" / "config")
+
+    pc_state = tmp_path / ".gemini" / "antigravity" / "plugin_data" / "powercontext" / "state"
+    pc_state.mkdir(parents=True)
+    (pc_state / "ag-1.json").write_text("{}", encoding="utf-8")
+    (pc_state / "ag-2.json").write_text("{}", encoding="utf-8")
+
+    sibling = tmp_path / ".gemini" / "antigravity" / "plugin_data" / "antigravity-pulse"
+    (sibling / "state").mkdir(parents=True)
+    (sibling / "state" / "pulse.json").write_text("{}", encoding="utf-8")
+    monkeypatch.setenv("PLUGIN_DATA", str(sibling))
+
+    diag = agy_cli._verify_hook_diagnostics()
+    assert diag.status is DiagnosticStatus.OK
+    assert diag.checks is not None
+    assert diag.checks["session_state_files"] == "2"
+    assert "2 session state file(s)" in diag.detail

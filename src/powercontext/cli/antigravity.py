@@ -374,7 +374,8 @@ def _active_extraction_failure(extraction: object) -> tuple[str, str] | None:
 
 
 def _verify_hook_diagnostics() -> Diagnostic:
-    plugin_data_dir = antigravity_home().parent / "antigravity" / "plugin_data" / "powercontext"
+    plugin_data_root = antigravity_home().parent / "antigravity" / "plugin_data"
+    plugin_data_dir = plugin_data_root / "powercontext"
     diag_override = os.environ.get("POWERCONTEXT_DIAGNOSTIC_STATE_FILE", "").strip()
     diag_candidates = (
         (Path(diag_override).expanduser(),)
@@ -386,14 +387,17 @@ def _verify_hook_diagnostics() -> Diagnostic:
     )
     diag_data = next((_read_json(path) for path in diag_candidates if path.is_file()), {})
     plugin_data = os.environ.get("PLUGIN_DATA", "").strip()
-    state_candidates = (
-        (Path(plugin_data).expanduser() / "state",)
-        if plugin_data
-        else (
-            plugin_data_dir / "state",
-            Path.home() / ".config" / "powercontext" / "state" / "antigravity",
+    state_candidates: list[Path] = [
+        plugin_data_dir / "state",
+        Path.home() / ".config" / "powercontext" / "state" / "antigravity",
+    ]
+    if plugin_data:
+        env_plugin_dir = Path(plugin_data).expanduser()
+        is_sibling_plugin = (
+            env_plugin_dir.parent.resolve() == plugin_data_root.resolve() and env_plugin_dir.name != "powercontext"
         )
-    )
+        if not is_sibling_plugin:
+            state_candidates = [env_plugin_dir / "state"]
     seen_dirs: set[Path] = set()
     state_count = 0
     for state_dir in state_candidates:
