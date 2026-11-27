@@ -92,6 +92,7 @@ class TargetStatus:
     consecutive_failures: int
     last_error_code: str | None
     last_error_message: str | None
+    has_more: bool
 
 
 @dataclass(frozen=True)
@@ -186,6 +187,7 @@ def _target(row: Mapping[Any, Any]) -> Target:
             consecutive_failures=int(row["consecutive_failures"]),
             last_error_code=row["last_error_code"],
             last_error_message=row["last_error_message"],
+            has_more=bool(row["has_more"]),
         ),
     )
 

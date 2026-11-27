@@ -3574,10 +3574,17 @@ export interface components {
             consecutive_failures: number;
             last_error_code: string | null;
             last_error_message: string | null;
+            /** @description Whether more collection is pending or the runner has not reported completion. Check the latest attempt for success before interpreting this field. */
+            has_more: boolean;
         };
         /** @description The outcome of the collection attempt whose checkpoint this commits. */
         SourceTargetResultStatus: {
             succeeded: boolean;
+            /**
+             * @description Whether more items remain after this successful attempt. Omission leaves completion unconfirmed.
+             * @default true
+             */
+            has_more: boolean;
             error_code?: string | null;
             error_message?: string | null;
         };

@@ -153,6 +153,7 @@ class CollectionCommit(BaseModel):
     config_version: int | None = None
     # The attempt's outcome, recorded on the target with the checkpoint; None records nothing.
     succeeded: bool | None = None
+    has_more: bool = True
     error_code: str | None = None
     error_message: str | None = None
 

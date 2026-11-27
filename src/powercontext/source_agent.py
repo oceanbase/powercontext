@@ -348,7 +348,9 @@ class SourceAgent:
                 continue
             try:
                 submitted = [await self._submit(plugin, scope_id, collected) for collected in outcome.items]
-                changed = await self._commit(plugin, scope_id, item, outcome.checkpoint, version)
+                changed = await self._commit(
+                    plugin, scope_id, item, outcome.checkpoint, version, has_more=outcome.has_more
+                )
             except Exception as error:
                 # Also what the plugin returned in a wrong shape: this target fails, the others go on.
                 logger.warning("Plugin %s submit failed (%s)", plugin.name, type(error).__name__)
@@ -401,12 +403,15 @@ class SourceAgent:
         config_version: int,
         *,
         error: tuple[str, str] | None = None,
+        has_more: bool = True,
     ) -> bool:
         """Commit the checkpoint with the attempt's status; True when the Server refused it for a changed target."""
 
         status: dict[str, Any] = {"succeeded": error is None}
         if error is not None:
             status.update(error_code=error[0][:128], error_message=error[1][:1024])
+        else:
+            status["has_more"] = has_more
         response = await self.http.post(
             "/v1/connector-checkpoints/commit",
             json={

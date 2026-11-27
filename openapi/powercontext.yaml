@@ -8141,13 +8141,14 @@ components:
     SourceTargetStatus:
       type: object
       additionalProperties: false
-      required: [last_attempt_at, last_success_at, consecutive_failures, last_error_code, last_error_message]
+      required: [last_attempt_at, last_success_at, consecutive_failures, last_error_code, last_error_message, has_more]
       properties:
         last_attempt_at: {type: string, format: date-time, nullable: true}
         last_success_at: {type: string, format: date-time, nullable: true}
         consecutive_failures: {type: integer, minimum: 0}
         last_error_code: {type: string, nullable: true}
         last_error_message: {type: string, nullable: true}
+        has_more: {type: boolean, description: Whether more collection is pending or the runner has not reported completion. Check the latest attempt for success before interpreting this field.}
     SourceTargetResultStatus:
       type: object
       additionalProperties: false
@@ -8155,6 +8156,7 @@ components:
       description: The outcome of the collection attempt whose checkpoint this commits.
       properties:
         succeeded: {type: boolean}
+        has_more: {type: boolean, default: true, description: Whether more items remain after this successful attempt. Omission leaves completion unconfirmed.}
         error_code: {type: string, nullable: true, maxLength: 128}
         error_message: {type: string, nullable: true, maxLength: 1024}
     SourceTarget:

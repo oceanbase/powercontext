@@ -209,6 +209,14 @@ withholds that plugin's targets, and `pc_source_runners` shows it as incompatibl
 - The Server calls `upgrade(ctx)` every time it loads a plugin version (see [Write a plugin](../develop/plugins.md));
   devices do not call `upgrade`, and plugins check and migrate their own local files in `setup`.
 
+## Plugin responsibilities for Agent clients
+
+Agent Plugins own host-specific client integration: configuration, authentication, Skills, hooks, and user prompts. Source
+plugins acquire explicitly selected historical or external data and submit it through the Source runner. Hosts discover
+capabilities through public MCP, select the material and destination Scope, and add targets. Administrators load trusted
+plugin code and deploy Runtimes. Keep native hooks and manifest differences in host adapters; put reusable data acquisition
+in Source plugins.
+
 ## Migrating from the previous Source plugin framework
 
 `/v1/source-management/*`, `powercontext source load`, `powercontext.yml`, and `write.yml` are removed:
@@ -224,3 +232,33 @@ withholds that plugin's targets, and `pc_source_runners` shows it as incompatibl
 - Collection instances and configuration of the previous management service are not migrated; configure them again
   through the target APIs above. Collected Sources and their type definitions are kept, and a rewritten plugin that
   keeps declaring definitions of the same name and version keeps the saved Sources readable.
+
+## Codex session history
+
+The repository provides two opt-in Source plugins under `integrations/codex/`: `source_plugin/` (installed as
+`codex-history`) reads one selected JSONL session, and `memory_source_plugin/` (installed as `codex-memory-history`) reads a
+selected file or directory under `memories/`. Copy each plugin directory to the Server's plugin directory. Device runners
+that collect from another machine need the same plugin directory. The process that runs collection must have `CODEX_HOME`
+set to the Codex home on that machine.
+
+Choose only the files the user intends to import. For a session, the target parameter is a path relative to
+`CODEX_HOME/sessions/`; for existing memory, `path` is relative to `CODEX_HOME/memories/`:
+
+```javascript
+pc_source_add({"scope_id":"SCOPE_ID", "runner":"server", "capability":"codex-history",
+               "parameters":{"session_file":"2026/09/13/rollout.jsonl"}})
+pc_source_add({"scope_id":"SCOPE_ID", "runner":"server", "capability":"codex-memory-history",
+               "parameters":{"path":"MEMORY.md"}})
+```
+
+Use a device runner name instead of `server` when the files are on another machine. The history plugin collects real user
+prompts as the separate `codex-session-prompt` Source type and excludes assistant replies and host-generated context. Both
+plugins redact known secrets before submission. The separate Source type keeps a redacted history import from conflicting
+with an existing live `content` capture of the same prompt. The memory plugin records the original file hash and whether
+redaction changed the captured text.
+
+Target creation starts collection. For a one-time import, call `pc_source_status` and wait until
+`status.last_success_at` is at or after `updated_at`, `status.last_error_code` is null, and `status.has_more` is false
+before disabling the target. Use the current Server and device runner versions for this check. Re-enable the target
+to resume tracking. The memory plugin also has a local preview command described in
+[Import Existing Codex Memory](import-codex-memory.md).
