@@ -94,6 +94,7 @@ def test_source_and_artifact_api_round_trip(tmp_path: Path) -> None:
                 "source_type",
                 "source_id",
                 "content",
+                "metadata",
                 "position",
                 "content_digest",
                 "receipt_identity",

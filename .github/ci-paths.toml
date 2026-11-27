@@ -62,7 +62,10 @@ database = [
   "scripts/oceanbase_ci.py", ".github/oceanbase-migration-durations.json",
 ]
 dify = ["integrations/dify/**", "tests/*dify*"]
-hermes = ["integrations/hermes/**", "tests/*hermes*", "scripts/generate_integration_lifecycle.py"]
+# The real-manager conformance harness serves the Hermes provider through the e2e Server fixture.
+hermes = [
+  "integrations/hermes/**", "tests/*hermes*", "scripts/generate_integration_lifecycle.py", "tests/e2e/dream_support.py",
+]
 dsh = ["integrations/dsh/**", "tests/*dsh*", "scripts/generate_js_operations.py", "scripts/sync_dsh_plugin_tree.py"]
 cindy = [
   "integrations/cindy/**", "tests/e2e/*cindy*", "scripts/generate_js_operations.py",
@@ -212,10 +215,11 @@ patterns = [
 ]
 suites = ["tests", "dify", "hermes", "dsh", "pi", "opencode", "openclaw", "zcode", "kimi"]
 
-# The TypeScript lifecycle source is copied into these plugins; ZCode and Cindy run the Pi and DSH plugins.
+# The TypeScript lifecycle source is copied into these plugins, as JavaScript for Kimi Code and ZCode; ZCode and Cindy
+# also run the Pi and DSH plugins.
 [shared.lifecycle_typescript]
 patterns = ["integrations/lifecycle/**", "scripts/generate_integration_lifecycle.py"]
-suites = ["tests", "dsh", "cindy", "pi", "opencode", "openclaw", "zcode"]
+suites = ["tests", "dsh", "cindy", "pi", "opencode", "openclaw", "zcode", "kimi"]
 
 # Shared Python changes still exercise all runtime consumers. Diagnostic source
 # capture and lock probes have their own inputs rather than joining every build.
@@ -260,7 +264,7 @@ tests = ["tests", "windows-unit-portability"]
 evaluation = ["evaluation-tests"]
 database = ["oceanbase-engine-recovery", "code-seekdb", "atomic-memory-clean-seekdb", "harness-validation"]
 dify = ["dify-tools"]
-hermes = ["hermes-skills"]
+hermes = ["hermes-skills", "hermes-host"]
 dsh = ["dsh-package"]
 cindy = ["cindy-package"]
 pi = ["pi-package"]

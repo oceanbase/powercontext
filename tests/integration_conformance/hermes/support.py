@@ -202,7 +202,11 @@ def exercise_storage(provider_type, directory, manager_type=None):
         try:
             if manager:
                 # The real manager performs secret handling; do not replace its lifecycle methods.
+                # Hermes masks the value, but the remaining credential assignment makes the provider skip the turn.
                 manager.sync_all(messages()[0]["content"], ALLOWED_ASSISTANT, messages=messages())
+                assert manager.flush_pending(timeout=15)
+                assert not any(path == "/v1/sources/content" for _, path, _ in boundary.requests)
+                manager.sync_all(ALLOWED_USER, ALLOWED_ASSISTANT, messages=messages())
                 assert manager.flush_pending(timeout=15)
                 manager.on_session_end(messages())
             else:
@@ -243,14 +247,18 @@ def exercise_storage(provider_type, directory, manager_type=None):
                 manager.shutdown_all()
             else:
                 provider.shutdown()
-        assert_projected(json.dumps(boundary.requests))
+        received = json.dumps(boundary.requests)
+        assert_projected(received)
+        # Masking keeps a prefix or suffix in some schemes; no part of the sample may reach the Server.
+        assert SECRET_SAMPLE[:6] not in received
+        assert SECRET_SAMPLE[-8:] not in received
         assert_projected(trace_text(home))
         originals = list(boundary.accepted)
         for payload in originals[:2]:
             assert ALLOWED_USER in payload["content"]
             assert ALLOWED_ASSISTANT in payload["content"]
-            # Hermes keeps a masked prefix/suffix on sync egress; PC's own
-            # pre-compress secret handling uses [REDACTED]. Both must remove the raw sample.
+            # The manager's captured turn carries no credential; PC's own
+            # pre-compress secret handling replaces the raw sample with [REDACTED].
             if not manager or payload["metadata"]["kind"] == "hermes-context-compression":
                 assert "[REDACTED]" in payload["content"]
 

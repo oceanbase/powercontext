@@ -24,6 +24,7 @@ from starlette.types import Scope
 from powercontext.server.dashboard.navigation import reading_return, request_reading_return
 
 COOKIE_NAME = "powercontext_dashboard_token"
+DASHBOARD_SESSION_MAX_BODY_BYTES = 32 * 1024
 
 
 def same_origin(request: Request) -> bool:
@@ -70,13 +71,13 @@ async def save_session(request: Request) -> HTMLResponse | RedirectResponse:
     if not same_origin(request):
         return HTMLResponse(status_code=403)
     length = request.headers.get("content-length", "0")
-    if not length.isdecimal() or len(length) > 6 or int(length) > 32768:
+    if not length.isdecimal() or len(length) > 6 or int(length) > DASHBOARD_SESSION_MAX_BODY_BYTES:
         return HTMLResponse(status_code=413)
     body = bytearray()
     async for chunk in request.stream():
-        body.extend(chunk)
-        if len(body) > 32768:
+        if len(chunk) > DASHBOARD_SESSION_MAX_BODY_BYTES - len(body):
             return HTMLResponse(status_code=413)
+        body.extend(chunk)
     try:
         fields = parse_qs(body.decode(), keep_blank_values=True, max_num_fields=2)
         if fields.keys() - {"token", "next"} or any(len(values) != 1 for values in fields.values()):
