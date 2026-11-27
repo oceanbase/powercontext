@@ -254,7 +254,9 @@ Creation requires `scope.contribute` on the target Scope, and the request body c
 and `detail`. The content skips semantic generation: topic content, the current head, chunks, and the retrieval indexes
 enabled by the deployment are committed in one operation, so generic reads and the dedicated search see the same topic
 version. A replace requires current `scope.admin` access, creates the next immutable Revision, and must carry the current
-head's `If-Match`.
+head's `If-Match`. The new Revision's `sources` hold the system Source that records the replacement input, and its
+`artifacts` hold only the previous exact Revision; earlier revisions and the Prompts a Worker used remain reachable
+through that chain. Revisions already stored keep the lineage they were written with.
 
 Manage tags as described in [Organize with tags](manage-artifact-tags.md); whole-Artifact Topic Memory tags are
 read with `scope.read` and modified with `scope.admin`.

@@ -68,7 +68,7 @@ pub struct AppState {
     pub inject_code: bool,
     /// 过检后同步沉淀对话（默认关）。
     pub sediment: bool,
-    /// 默认内置固定指令，只插入 Responses 请求；文件可覆盖，`PC_GATEWAY_STEERING=off` 可关闭。
+    /// 默认内置固定指令，插入 Responses 和 Chat 请求；文件可覆盖，`PC_GATEWAY_STEERING=off` 可关闭。
     pub steering: Option<String>,
     /// 支持的上游默认保留记忆抽取前缀；`PC_GATEWAY_PREFIX_EXTRACTION=off` 可关闭（#2413）。
     pub prefix_extraction: bool,
@@ -359,13 +359,22 @@ async fn main() {
 
     tracing::info!(%addr, "pc-gateway listening (port takeover mode)");
     let listener = tokio::net::TcpListener::bind(addr).await.expect("bind");
-    connection::serve(listener, app, async {
+    let serving = connection::serve(listener, app, async {
         let deadlines = shutdown.signalled().await;
         executor.close_model_admission();
         deadlines
     })
-    .await
-    .expect("serve");
+    .await;
+    let totals = executor.turn_counters();
+    tracing::info!(
+        user_turn = totals.user_turn,
+        tool_continuation = totals.tool_continuation,
+        assistant_only = totals.assistant_only,
+        empty = totals.empty,
+        skipped_prepare = totals.skipped_prepare,
+        "gateway turn classification totals"
+    );
+    serving.expect("serve");
 }
 
 /// Default-on feature switches reject misspellings instead of silently enabling a feature.
@@ -445,11 +454,11 @@ pub enum Injection {
     Off,
     /// 只注入有显式或推导会话 ID 的请求，按回合精确重放准备结果。
     ConversationsOnly,
-    /// 所有请求都注入；没有会话 ID 的请求各自准备。
+    /// 不要求会话 ID：每个请求都可注入；用户回合准备，同一回合的后续请求复用该块。
     All,
 }
 
-/// `PC_GATEWAY_INJECTION`：`on` 注入所有请求，`off` 关闭。未设置时，同机组合部署（经 UDS 连接已配置的 Core）
+/// `PC_GATEWAY_INJECTION`：`on` 不要求会话 ID 即注入，`off` 关闭。未设置时，同机组合部署（经 UDS 连接已配置的 Core）
 /// 默认只注入有显式或推导会话 ID 的请求，不会让工具循环的每一步都重新准备；独立部署默认关闭。
 /// 其他取值按关闭处理并告警，拼写错误不会意外开启注入。
 fn injection_mode(setting: Option<&str>, combined: bool) -> Injection {

@@ -137,6 +137,16 @@ impl<'a> CallRecorder<'a> {
     pub(crate) fn release_decision(&mut self) {
         self.call.release_decision_ms = Some(self.observation.elapsed_ms());
     }
+    pub(crate) fn turn_kind(&mut self, kind: pc_gateway_types::TurnKind) {
+        self.call.turn_kind = Some(kind);
+    }
+    pub(crate) fn prepare_skipped(&mut self) {
+        self.call.prepare_skipped = true;
+    }
+    /// 准备失败不进入导出证据；沿用本地诊断通道。
+    pub(crate) fn prepare_failed(&mut self) {
+        self.sink.record_not_sent(0, "prepare_failed");
+    }
     pub(crate) fn authorized(&mut self) {
         self.call.release_authorized_ms = Some(self.observation.elapsed_ms());
     }
