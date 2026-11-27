@@ -50,12 +50,23 @@ pub fn turn_kind(request: &CanonicalRequest, list_key: &str) -> TurnKind {
         .find(|message| !is_system_like(message, list_key))
     {
         Some(message) => classify(message, list_key),
-        None => TurnKind::UserTurn,
+        None => classify(&request.messages[last_user], list_key),
     }
 }
 
 fn classify(message: &CanonicalMessage, list_key: &str) -> TurnKind {
     match message.role {
+        // Native Anthropic Messages carries client tool results in user-role messages.
+        // A mixed text/result message still starts a user turn.
+        Role::User
+            if list_key != RESPONSES_LIST_KEY
+                && !message.content.is_empty()
+                && message.content.iter().all(|part| {
+                    part.get("type").and_then(Value::as_str) == Some("tool_result")
+                }) =>
+        {
+            TurnKind::ToolContinuation
+        }
         Role::User => TurnKind::UserTurn,
         Role::Assistant if has_tool_calls(message) => TurnKind::ToolContinuation,
         Role::Assistant => TurnKind::AssistantOnly,
@@ -249,6 +260,28 @@ mod tests {
         ] {
             assert_eq!(turn_kind(&request(messages), "messages"), expected);
         }
+    }
+
+    #[test]
+    fn messages_tool_results_are_continuations_but_mixed_content_is_a_user_turn() {
+        let mut result = message(Role::User, None);
+        result.content = vec![serde_json::json!({
+            "type": "tool_result", "tool_use_id": "toolu_1", "content": "ok"
+        })];
+        assert_eq!(
+            turn_kind(
+                &request(vec![message(Role::User, None), result.clone()]),
+                "messages"
+            ),
+            TurnKind::ToolContinuation
+        );
+        result
+            .content
+            .push(serde_json::json!({"type": "text", "text": "new question"}));
+        assert_eq!(
+            turn_kind(&request(vec![result]), "messages"),
+            TurnKind::UserTurn
+        );
     }
 
     #[test]

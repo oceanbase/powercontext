@@ -1734,8 +1734,8 @@ async fn messages_replays_injection_and_captures_only_completed_tool_turns() {
     let prepares = gateway.peers.prepares.lock().unwrap();
     assert_eq!(
         prepares.len(),
-        2,
-        "same subagent replays, different subagent prepares"
+        1,
+        "same subagent replays, different subagent skips recall"
     );
     assert!(prepares
         .iter()
@@ -1744,13 +1744,7 @@ async fn messages_replays_injection_and_captures_only_completed_tool_turns() {
     let sent = gateway.peers.sent.lock().unwrap();
     let checks = gateway.peers.checks.lock().unwrap();
     assert_eq!(sent.len(), 3);
-    // The child replays its preparation (send 2) while the other child prepares its own (send 3).
-    let expected_bindings = ["reuse-1", "reuse-1", "reuse-2"];
-    let expected_prepared = [
-        "Prepared context 1",
-        "Prepared context 1",
-        "Prepared context 2",
-    ];
+    // The child replays its preparation (send 2); the other child has no replay (send 3).
     for (index, ((_, body), phases)) in sent.iter().zip(checks.chunks_exact(2)).enumerate() {
         let upstream: Value = serde_json::from_slice(body).unwrap();
         assert_eq!(upstream["messages"][0], request["messages"][0]);
@@ -1763,21 +1757,26 @@ async fn messages_replays_injection_and_captures_only_completed_tool_turns() {
             upstream["system"][2]["text"],
             include_str!("../src/default_steering.txt").trim()
         );
-        let prepared = &phases[0]["prepared_contexts"][0];
-        assert_eq!(prepared["binding"], expected_bindings[index]);
-        let pointer = prepared["location"]["pointer"].as_str().unwrap();
-        assert_eq!(pointer, "/messages/3/content/0/text");
-        let start = prepared["location"]["start_byte"].as_u64().unwrap() as usize;
-        let end = prepared["location"]["end_byte"].as_u64().unwrap() as usize;
-        assert_eq!(
-            &upstream
-                .pointer(pointer)
-                .unwrap()
-                .as_str()
-                .unwrap()
-                .as_bytes()[start..end],
-            expected_prepared[index].as_bytes()
-        );
+        if index < 2 {
+            let prepared = &phases[0]["prepared_contexts"][0];
+            assert_eq!(prepared["binding"], "reuse-1");
+            let pointer = prepared["location"]["pointer"].as_str().unwrap();
+            assert_eq!(pointer, "/messages/3/content/0/text");
+            let start = prepared["location"]["start_byte"].as_u64().unwrap() as usize;
+            let end = prepared["location"]["end_byte"].as_u64().unwrap() as usize;
+            assert_eq!(
+                &upstream
+                    .pointer(pointer)
+                    .unwrap()
+                    .as_str()
+                    .unwrap()
+                    .as_bytes()[start..end],
+                b"Prepared context 1"
+            );
+        } else {
+            assert!(phases[0]["prepared_contexts"].as_array().unwrap().is_empty());
+            assert_eq!(upstream["messages"][3], request["messages"][3]);
+        }
         assert_eq!(
             phases[0]["payload"]["body"].as_str().unwrap().as_bytes(),
             body.as_ref()
