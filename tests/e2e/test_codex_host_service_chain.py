@@ -36,7 +36,7 @@ import threading
 import time
 from collections.abc import Callable, Iterator
 from contextlib import ExitStack, contextmanager, suppress
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
@@ -52,6 +52,7 @@ from powercontext.server.settings import BearerAuthConfig, ServerSettings
 from tests.e2e.host_models.responses import ResponsesModelFixture
 from tests.e2e.zcode_acceptance.protocol import HostModelFixture, ObserveServer, WireEvidence
 from tests.e2e.zcode_acceptance.runner import serve
+from tests.git_worktree_support import make_git_layout
 
 REPOSITORY = Path(__file__).resolve().parents[2]
 TOKEN = "codex-host-service-chain-token"  # noqa: S105 - non-secret test credential.
@@ -567,6 +568,31 @@ def test_codex_resumed_session_keeps_its_scope(codex_stack: CodexStack) -> None:
     )
     bootstraps = [record["request"]["lifecycle"] for record in codex_stack.records("/v1/context/bootstrap")]
     assert bootstraps == ["startup", "resume", "startup"]
+
+
+def test_codex_linked_worktree_falls_back_to_its_checkout_binding(
+    codex_stack: CodexStack, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    layout = make_git_layout(tmp_path / "git", monkeypatch)
+    worktree = replace(codex_stack, workspace=layout.worktree)
+    checkout_scope = codex_stack.create_scope("Codex checkout")
+    replace(codex_stack, workspace=layout.checkout).bind_workspace(checkout_scope)
+
+    # Until the worktree has a binding of its own, its sessions resolve its checkout's Scope.
+    unbound = worktree.run("Synthetic orchid prompt from the unbound worktree.")
+    assert codex_stack.session_scope(unbound.thread_id) == checkout_scope
+    assert [item["content"] for item in codex_stack.sources(checkout_scope)] == [
+        "Synthetic orchid prompt from the unbound worktree."
+    ]
+
+    # The worktree's own binding wins over its checkout's.
+    worktree_scope = codex_stack.create_scope("Codex worktree")
+    worktree.bind_workspace(worktree_scope)
+    bound = worktree.run("Synthetic orchid prompt from the bound worktree.")
+    assert codex_stack.session_scope(bound.thread_id) == worktree_scope
+    assert [item["content"] for item in codex_stack.sources(worktree_scope)] == [
+        "Synthetic orchid prompt from the bound worktree."
+    ]
 
 
 def test_codex_bootstrap_context_reaches_the_first_model_request(codex_stack: CodexStack) -> None:
