@@ -389,7 +389,7 @@ def _trust_plugin_hooks(executable: str, environment: dict[str, str], workspace:
     return hooks[0]["pluginId"]
 
 
-def test_codex_prompt_is_recalled_in_a_later_session(codex_stack: CodexStack) -> None:
+def test_codex_prompt_is_recalled_in_a_later_session(codex_stack: CodexStack, task_outcome_guidance: str) -> None:
     credential = "sk-codexe2ecredential0123456789"
     first = codex_stack.run(FACT)
     codex_stack.run(f"Deploy the synthetic orchid project with {credential} today.", resume=first.thread_id)
@@ -408,15 +408,44 @@ def test_codex_prompt_is_recalled_in_a_later_session(codex_stack: CodexStack) ->
     assert FACT_MARKER in prepared["content"]
     # The new session's first model request carries the prepared context unchanged, after the user's prompt.
     sent = codex_stack.model.texts(codex_stack.model.requests[start])
-    assert 0 <= sent.find(QUESTION) < sent.find(prepared["content"])
-    assert 0 <= sent.find("PowerContext task outcome guidance") < sent.find(prepared["content"])
-    assert "actually complete or explicitly interrupted" in sent
-    assert "intermediate turns" in sent
+    hook_context = f"{task_outcome_guidance}\n\n{prepared['content']}"
+    assert 0 <= sent.find(QUESTION) < sent.find(hook_context)
 
     queries = [record["request"]["query"] for record in codex_stack.records("/v1/context/prepare")]
     assert queries == [FACT, "Deploy the synthetic orchid project with [REDACTED] today.", QUESTION]
     server_side = [codex_stack.wire.arrivals, codex_stack.wire.records, codex_stack.generation.generation_requests]
     assert credential not in json.dumps(server_side)
+
+
+def test_codex_replays_guidance_only_messages(codex_stack: CodexStack, task_outcome_guidance: str) -> None:
+    scope_id = codex_stack.create_scope("Guidance-only Codex session")
+    codex_stack.bind_workspace(scope_id)
+    prompts = ("First orchid prompt.", "Continue with the orchids.", "Check the orchid progress.")
+    thread_id = None
+    for count, prompt in enumerate(prompts, start=1):
+        start = len(codex_stack.model.requests)
+        turn = codex_stack.run(prompt, resume=thread_id, POWERCONTEXT_CODEX_PROMPT_RECALL="false")
+        thread_id = turn.thread_id
+        items = codex_stack.model.requests[start]["input"]
+        guidance_indices = [
+            index
+            for index, item in enumerate(items)
+            if item.get("type") == "message"
+            and item.get("role") == "developer"
+            and item["content"] == [{"type": "input_text", "text": task_outcome_guidance}]
+        ]
+        # A fresh, bare developer message follows the current prompt, and Codex replays the earlier ones.
+        assert len(guidance_indices) == count
+        assert any(
+            item.get("role") == "user" and {"type": "input_text", "text": prompt} in item["content"]
+            for item in items[: guidance_indices[-1]]
+        )
+        assert turn.tool_calls() == []
+
+    assert thread_id is not None
+    assert codex_stack.session_scope(thread_id) == scope_id
+    assert codex_stack.records("/v1/context/prepare") == []
+    assert [item["content"] for item in codex_stack.sources(scope_id)] == list(prompts)
 
 
 def test_codex_resumed_session_keeps_its_scope(codex_stack: CodexStack) -> None:

@@ -224,6 +224,7 @@ def test_user_prompt_submit_injects_prepared_context_and_captures_prompt(
     hook_module: ModuleType,
     prompt_flow: ModuleType,
     monkeypatch: pytest.MonkeyPatch,
+    task_outcome_guidance: str,
 ) -> None:
     prepared_content = (
         "PowerContext prepared untrusted historical context.\n\n"
@@ -262,7 +263,7 @@ def test_user_prompt_submit_injects_prepared_context_and_captures_prompt(
     )
 
     context = json.loads(output)["hookSpecificOutput"]["additionalContext"]
-    assert context.partition("\n\n")[2] == prepared_content
+    assert context == f"{task_outcome_guidance}\n\n{prepared_content}"
     assert captured == [("What decisions apply?", "git:github.com/oceanbase/powercontext")]
 
 

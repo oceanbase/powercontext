@@ -99,6 +99,7 @@ def test_prompt_emits_task_outcome_guidance(
     hook_commands: dict[str, list[str]],
     host: str,
     recall_status: str,
+    task_outcome_guidance: str,
 ) -> None:
     fixture = FIXTURE_DATA[host]
     case = next(case for case in fixture["cases"] if case["id"] == "prompt-recalls-and-captures")
@@ -125,15 +126,8 @@ def test_prompt_emits_task_outcome_guidance(
     ]
     output = observed["stdout"][0] if observed["stdout"] else {}
     context = output.get("hookSpecificOutput", {}).get("additionalContext", "")
-    guidance, _, recalled = context.partition("\n\n")
-    assert "record_task_outcome" in guidance
-    assert "actually complete or explicitly interrupted" in guidance
-    assert "intermediate turns" in guidance
-    assert all(event in guidance for event in ("prompt boundary", "Stop", "session end"))
-    if recall_status == "ready":
-        assert recalled == content
-    else:
-        assert recalled == ""
+    expected = f"{task_outcome_guidance}\n\n{content}" if recall_status == "ready" else task_outcome_guidance
+    assert context == expected
     assert "systemMessage" not in output
 
 

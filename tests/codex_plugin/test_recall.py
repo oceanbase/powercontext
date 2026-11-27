@@ -214,6 +214,7 @@ def test_recall_emits_bounded_untrusted_context(
     recall_module: ModuleType,
     prompt_flow: ModuleType,
     monkeypatch: pytest.MonkeyPatch,
+    task_outcome_guidance: str,
 ) -> None:
     prepared_content = (
         "PowerContext prepared untrusted historical context.\n\n"
@@ -255,7 +256,7 @@ def test_recall_emits_bounded_untrusted_context(
 
     assert recall_module.main() == 0
     context = json.loads(output.getvalue())["hookSpecificOutput"]["additionalContext"]
-    assert context.partition("\n\n")[2] == prepared_content
+    assert context == f"{task_outcome_guidance}\n\n{prepared_content}"
     assert len(context.encode("utf-8")) <= 8_000
     assert captured == [("What decisions apply?", "project:test")]
 

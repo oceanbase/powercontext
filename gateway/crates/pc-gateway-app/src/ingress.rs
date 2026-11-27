@@ -1293,51 +1293,78 @@ fn omit_prepared_tool_output(output: &mut Value, text_kind: &str) -> bool {
     false
 }
 
-// The prompt hook prefixes its complete recall envelope with this exact guidance.
+const CODEX_TASK_OUTCOME_GUIDANCE: &str =
+    include_str!("codex_task_outcome_guidance.txt").trim_ascii_end();
+
 // Keep arbitrary developer text and malformed envelopes subject to Core's check.
-fn is_codex_prompt_hook_context(text: &str) -> bool {
-    const GUIDANCE: &str = concat!(
-        "PowerContext task outcome guidance: Only when the task is actually complete or explicitly interrupted, ",
-        "call the PowerContext record_task_outcome tool if available. Skip it on intermediate turns. ",
-        "A prompt boundary, Stop, or session end alone is insufficient. Report the actual status and omit secrets.\n\n"
-    );
-    is_prepared_plugin_text(text.strip_prefix(GUIDANCE).unwrap_or(text))
+fn is_codex_prepared_hook_context(text: &str) -> bool {
+    let envelope = text
+        .strip_prefix(CODEX_TASK_OUTCOME_GUIDANCE)
+        .and_then(|rest| rest.strip_prefix("\n\n"))
+        .unwrap_or(text);
+    is_prepared_plugin_text(envelope)
+}
+
+fn is_responses_developer_message(item: &Value) -> bool {
+    item["role"].as_str() == Some("developer")
+        && item
+            .get("type")
+            .is_none_or(|kind| kind.as_str() == Some("message"))
+}
+
+fn is_codex_guidance_only(content: &Value) -> bool {
+    content.as_str() == Some(CODEX_TASK_OUTCOME_GUIDANCE)
+        || matches!(
+            content.as_array().map(Vec::as_slice),
+            Some([part]) if part["type"].as_str() == Some("input_text")
+                && part["text"].as_str() == Some(CODEX_TASK_OUTCOME_GUIDANCE)
+        )
 }
 
 fn omit_responses_plugin_context(input: &mut Vec<Value>) -> bool {
-    let mut omitted = false;
+    // Codex appends a standalone developer message for each hook result and replays it.
+    // Drop older bare copies without removing the newest instruction or editing mixed messages.
+    let mut guidance_remaining = input
+        .iter()
+        .filter(|item| {
+            is_responses_developer_message(item) && is_codex_guidance_only(&item["content"])
+        })
+        .count();
+    let mut omitted_prepared_context = false;
     input.retain_mut(|item| {
         if item["type"].as_str() == Some("function_call_output") && item["call_id"].is_string() {
             if let Some(output) = item.get_mut("output") {
-                omitted |= omit_prepared_tool_output(output, "input_text");
+                omitted_prepared_context |= omit_prepared_tool_output(output, "input_text");
             }
-        } else if item["role"].as_str() == Some("developer")
-            && item
-                .get("type")
-                .is_none_or(|kind| kind.as_str() == Some("message"))
-        {
+        } else if is_responses_developer_message(item) {
+            if guidance_remaining > 1 && is_codex_guidance_only(&item["content"]) {
+                guidance_remaining -= 1;
+                return false;
+            }
             if item["content"]
                 .as_str()
-                .is_some_and(is_codex_prompt_hook_context)
+                .is_some_and(is_codex_prepared_hook_context)
             {
-                omitted = true;
+                omitted_prepared_context = true;
                 return false;
             }
             if let Some(parts) = item.get_mut("content").and_then(Value::as_array_mut) {
                 let count = parts.len();
                 parts.retain(|part| {
                     part["type"].as_str() != Some("input_text")
-                        || !part["text"].as_str().is_some_and(is_codex_prompt_hook_context)
+                        || !part["text"]
+                            .as_str()
+                            .is_some_and(is_codex_prepared_hook_context)
                 });
                 if parts.len() != count {
-                    omitted = true;
+                    omitted_prepared_context = true;
                     return !parts.is_empty();
                 }
             }
         }
         true
     });
-    omitted
+    omitted_prepared_context
 }
 
 fn to_canonical_chat(chat: OpenAiChatRequest) -> Result<CanonicalRequest, String> {
