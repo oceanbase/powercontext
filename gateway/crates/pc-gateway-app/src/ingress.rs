@@ -1592,7 +1592,7 @@ pub(crate) mod tests {
     pub(crate) struct Receivers {
         pub admissions: std::sync::atomic::AtomicUsize,
         checks: std::sync::Mutex<Vec<serde_json::Value>>,
-        upstream_requests: std::sync::Mutex<Vec<serde_json::Value>>,
+        upstream_requests: std::sync::Mutex<Vec<Bytes>>,
         refuse_send: std::sync::atomic::AtomicBool,
         pub sends: std::sync::atomic::AtomicUsize,
         pub response_bytes: std::sync::atomic::AtomicUsize,
@@ -1703,8 +1703,9 @@ pub(crate) mod tests {
             )
             .route(
                 "/v1/chat/completions",
-                post(|State(received): State<Arc<Receivers>>, Json(request): Json<serde_json::Value>| async move {
-                    received.upstream_requests.lock().unwrap().push(request.clone());
+                post(|State(received): State<Arc<Receivers>>, body: Bytes| async move {
+                    let request: serde_json::Value = serde_json::from_slice(&body).unwrap();
+                    received.upstream_requests.lock().unwrap().push(body);
                     received.sends.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                     if received.blocked_phase.load(std::sync::atomic::Ordering::SeqCst) == 3 {
                         received.entered.notify_one();
@@ -1827,8 +1828,8 @@ pub(crate) mod tests {
                 }
             );
             let checks = received.checks.lock().unwrap();
-            let checked: serde_json::Value =
-                serde_json::from_str(checks[0]["payload"]["body"].as_str().unwrap()).unwrap();
+            let checked_body = checks[0]["payload"]["body"].as_str().unwrap();
+            let checked: serde_json::Value = serde_json::from_str(checked_body).unwrap();
             let messages = checked["messages"].as_array().unwrap();
             assert_eq!(messages.len(), 2);
             if let Some(text) = steering {
@@ -1842,7 +1843,8 @@ pub(crate) mod tests {
                 assert!(sent.is_empty());
                 assert_eq!(checks.len(), 1);
             } else {
-                assert_eq!(sent.as_slice(), &[checked]);
+                assert_eq!(sent.len(), 1);
+                assert_eq!(sent[0].as_ref(), checked_body.as_bytes());
                 assert_eq!(checks.len(), 2);
             }
             server.abort();
