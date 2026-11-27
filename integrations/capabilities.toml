@@ -900,6 +900,19 @@ id = "after_agent:capture_content_source"
 capabilities = ["source_capture"]
 
 [[toolsets]]
+id = "deepagents-adapter"
+probe = "deepagents_adapter"
+[[toolsets.tools]]
+id = "create_powercontext_deep_agent:agent_recall"
+capabilities = ["context_injection"]
+[[toolsets.tools]]
+id = "create_powercontext_deep_agent:capture_ownership"
+capabilities = ["source_capture"]
+[[toolsets.tools]]
+id = "powercontext_subagents:subagent_recall"
+capabilities = ["context_injection"]
+
+[[toolsets]]
 id = "langgraph-tools"
 probe = "langgraph_tools"
 [[toolsets.tools]]
@@ -992,7 +1005,7 @@ mode = "unsupported"
 [integrations.evidence]
 implementation = ["integrations/hermes/plugins/powercontext/operations.py", "integrations/hermes/plugins/powercontext/commands.py"]
 documentation = ["docs/en/docs/integrations/hermes.md", "docs/zh/docs/integrations/hermes.md"]
-tests = ["tests/integrations/test_hermes_provider.py"]
+tests = ["tests/integrations/test_hermes_provider.py", "tests/test_automatic_prompt_privacy.py", "tests/integration_conformance/hermes/test_real_manager.py"]
 
 [[integrations]]
 id = "openclaw"
@@ -1075,6 +1088,17 @@ documentation = ["docs/en/docs/integrations/zcode.md", "docs/zh/docs/integration
 tests = ["integrations/zcode/plugins/powercontext/tests/plugin.test.mjs", "integrations/zcode/plugins/powercontext/tests/scope.test.mjs", "integrations/zcode/plugins/powercontext/tests/observations.test.mjs", "integrations/zcode/plugins/powercontext/tests/host.test.mjs", "integrations/zcode/plugins/powercontext/tests/lifecycle.test.mjs", "integrations/zcode/plugins/powercontext/tests/boundary.test.mjs", "tests/test_cli_zcode.py", "tests/e2e/test_zcode_service_chain.py", "tests/e2e/test_zcode_host_acceptance.py"]
 
 [[integrations]]
+id = "deepagents"
+kind = "framework_adapter"
+availability = "master_only"
+capabilities = ["source_capture", "context_injection"]
+toolsets = ["deepagents-adapter"]
+[integrations.evidence]
+implementation = ["integrations/deepagents/src/powercontext_deepagents/adapter.py"]
+documentation = ["docs/en/docs/integrations/deepagents.md", "docs/zh/docs/integrations/deepagents.md"]
+tests = ["tests/deepagents_adapter/test_adapter.py"]
+
+[[integrations]]
 id = "pydantic-ai"
 kind = "framework_adapter"
 availability = "experimental"
@@ -1083,7 +1107,7 @@ toolsets = ["pydantic-ai-tools"]
 [integrations.evidence]
 implementation = ["integrations/pydantic-ai/src/powercontext_pydantic_ai/toolset.py"]
 documentation = ["docs/en/docs/integrations/pydantic-ai.md", "docs/zh/docs/integrations/pydantic-ai.md"]
-tests = ["tests/pydantic_ai_adapter/test_toolset.py"]
+tests = ["tests/pydantic_ai_adapter/test_toolset.py", "tests/test_automatic_prompt_privacy.py"]
 
 [[integrations]]
 id = "langchain"
@@ -1094,7 +1118,7 @@ toolsets = ["langchain-middleware"]
 [integrations.evidence]
 implementation = ["integrations/langchain/src/powercontext_langchain/middleware.py"]
 documentation = ["docs/en/docs/integrations/langchain.md", "docs/zh/docs/integrations/langchain.md"]
-tests = ["tests/langchain_middleware/test_middleware.py"]
+tests = ["tests/langchain_middleware/test_middleware.py", "tests/test_automatic_prompt_privacy.py"]
 
 [[integrations]]
 id = "langgraph"
@@ -1105,7 +1129,7 @@ toolsets = ["langgraph-tools"]
 [integrations.evidence]
 implementation = ["integrations/langgraph/src/powercontext_langgraph/tools.py"]
 documentation = ["docs/en/docs/integrations/langgraph.md", "docs/zh/docs/integrations/langgraph.md"]
-tests = ["tests/langgraph_adapter/test_tools.py"]
+tests = ["tests/langgraph_adapter/test_tools.py", "tests/test_automatic_prompt_privacy.py"]
 
 [[integrations]]
 id = "bub"
@@ -1116,7 +1140,7 @@ toolsets = ["bub-tools", "bub-lifecycle"]
 [integrations.evidence]
 implementation = ["integrations/bub/src/powercontext_bub/tools.py", "integrations/bub/src/powercontext_bub/plugin.py"]
 documentation = ["integrations/bub/README.md"]
-tests = ["e2e/bub/tests/test_workload_catalog.py", "tests/e2e/test_bub_service_chain.py"]
+tests = ["e2e/bub/tests/test_workload_catalog.py", "e2e/bub/tests/test_bub_prompt_privacy.py", "tests/e2e/test_bub_service_chain.py"]
 
 [[integrations]]
 id = "dify"

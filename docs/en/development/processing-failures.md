@@ -65,25 +65,25 @@ Memory / Atomic Memory and Topic Memory are tracked at operation granularity whi
 
 | Operation | Stage | Status | Notes |
 |---|---|---|---|
-| `atomic-memory.extract` | Generation | Partial | Provider timeout, unavailability, rate limit, and configuration are classified; a provider finish reason is only visible where the adapter exposes it. |
-| `atomic-memory.extract` | Output parsing | Partial | Schema and Pydantic output failures are classified; some provider truncation paths surface as schema failures. |
+| `atomic-memory.extract` | Generation | Partial | Provider timeout, unavailability, rate limit, and configuration are classified; the final provider finish reason is retained when the adapter exposes a supported value. |
+| `atomic-memory.extract` | Output parsing | Partial | Schema rejections retain the final response metadata when available. Explicit provider length evidence identifies truncation. |
 | `atomic-memory.extract` | Business validation | Covered | Candidate content and cited-evidence rules carry `business_validation` / `invalid_output`. |
 | `atomic-memory.reconcile` | Generation | Partial | Same provider mapping as extraction. |
 | `atomic-memory.reconcile` | Output parsing | Partial | Same schema mapping as extraction. |
 | `atomic-memory.reconcile` | Business validation | Covered | Reconciliation output and content rules carry `business_validation` / `invalid_output`. |
 | Embedding (extract, reconcile, query) | Embedding | Covered | Provider status, wrong vector count/order/type, and embedding profile/input failures are classified. |
-| Publish / index | Persistence | Partial | `AtomicMemoryIndexError` codes are mapped; other storage failures keep unknown. |
+| Publish / index | Persistence | Partial | `AtomicMemoryIndexError` codes are mapped. Source window publication reports database driver failures, including at transaction exit, as `persistence` / `storage_failure` at `atomic-memory-publish-storage`. Unclassified exceptions retain an unknown reason. |
 | Usage accounting | Usage accounting | Partial | The shared reporter and recorder classify usage failures. Inference usage limits keep the generation or embedding stage. |
 
 Topic Memory operation-level coverage:
 
 | Operation | Stage | Status | Notes |
 |---|---|---|---|
-| `topic-memory` stages (`probe`, `global`, `planner`, `evolve`, `temporary`, `reconcile`) | Generation | Partial | Provider timeout, unavailability, rate limit, and configuration are classified; a provider finish reason is only visible where the adapter exposes it. |
+| `topic-memory` stages (`probe`, `global`, `planner`, `evolve`, `temporary`, `reconcile`) | Generation | Partial | Provider timeout, unavailability, rate limit, and configuration are classified; the final provider finish reason is retained when the adapter exposes a supported value. |
 | `topic-memory` stages | Output parsing | Partial | Provider schema failures use the shared mapping; semantic rejections are business validation. |
 | `topic-memory` stages | Business validation | Covered | Every `TopicMemoryGenerationError` code maps to bounded diagnostics: domain and model rejections carry a stage and, when evidence supports it, a reason; control-flow rejections carry only `failure_location`. Input-budget failures carry input counts, token estimates, estimator identity, and the effective budget; the window token ceiling carries the charged tokens and the ceiling, while attempt and request ceilings are reported through their block details. |
 | `topic-memory.index` and query embedding | Embedding | Covered | A missing embedding adapter and a wrong vector count are classified. |
-| Publish / persistence | Persistence | Partial | Projection content and vector-completeness rules are business validation; storage-invariant failures map to `persistence` / `storage_failure`; unsupported capabilities report `configuration`; publisher conflicts keep their domain outcomes, and other storage failures keep unknown. A Topic head conflict records `head_conflict` as the attempt's last error and does not spend a window attempt. |
+| Publish / persistence | Persistence | Partial | Projection content and vector-completeness rules are business validation. Storage-invariant failures and database driver failures in window publication, including at transaction exit, map to `persistence` / `storage_failure`. Driver failures use `topic-memory-publish-storage`. Unsupported capabilities report `configuration`; unclassified exceptions retain an unknown reason. A Topic head conflict records `head_conflict` as the attempt's last error and does not spend a window attempt. |
 | Usage accounting | Usage accounting | Partial | The shared reporter and recorder classify usage failures. The window provider budget keeps `generation` / `usage_limit`. |
 
 Experience, Profile, and Skill operation-level coverage:
@@ -107,16 +107,18 @@ Handoff and Prompt operation-level coverage:
 | `handoff.finalize` / `handoff.commit` | Business validation | Partial | Evidence, scope, and provenance rejections retain their domain errors. A revision conflict keeps its existing outcome and carries no storage-failure reason. |
 | `handoff.commit` | Persistence | Partial | Database driver failures in the Handoff commit path carry `persistence` / `storage_failure`. |
 | `prompt.generate_demonstrations` | Generation / output parsing / business validation | Partial | Provider/schema errors use shared classification. Invalid demonstration results are business validation. Demonstration generation never saves a Prompt revision. |
-| `prompt.create` / `prompt.replace` | Business validation / persistence | Partial | The scoped management operations report known Prompt rejections and database driver failures, including failures at transaction exit. Other Prompt write paths are outside this coverage. |
+| `prompt.create` / `prompt.replace` | Business validation / persistence | Partial | The scoped management operations report known Prompt rejections and database driver failures, including failures at transaction exit. |
+| `prompt.approve` | Business validation / persistence | Partial | Dream Candidate approval reports classified rejections and database driver failures after conflict recovery. The Prompt revision and Candidate decision commit together; a stale target keeps its domain outcome. |
 | Handoff / Prompt | Embedding | N/A | These processing paths do not generate embeddings. |
 | Handoff | Usage accounting | Covered | Model usage reporting and recording use the shared diagnostics. |
 | Prompt demonstrations | Usage accounting | N/A | Demonstrations currently do not submit records to the shared recorder. |
 
-Covered boundaries emit up to one `artifact.operation.failed` event per failed operation. Each process
+Scoped Artifact operations with diagnostics emit up to one `artifact.operation.failed` event per failed operation. Each process
 emits at most 16 events in a rolling second for the same Family, operation, error code, and failure
 reason. The event carries the existing Scope and bound request or trace identity, when present. It uses the shared diagnostic
 fields and omits traceback, raw error text, SQL, and content. Unclassified errors omit unknown fields.
 Logging has no effect on the returned error, transaction outcome, or retry behavior.
+Source window publication attaches evidence to the original error for Worker and Supervisor reporting.
 
 The matrices describe classification coverage, not completion of the whole issue. Dream failure
 records contain bounded diagnostic fields only, never exception text or evidence content. Its
@@ -131,6 +133,26 @@ Its attempt log reports `generation` / `usage_limit` with `failure_location=budg
 and logs `timeout` without inferring a stage.
 Provider `InferenceTimeoutError` keeps its operation-specific stage and `timeout` reason and remains
 retryable within the existing Run budget.
+
+## Provider response evidence
+
+For structured generation, an error at the end of the Agent's output parsing uses metadata from
+the final provider response. A supported length finish reason yields `generation / output_truncated`;
+a response with no such evidence retains its original classification. Starting another provider
+request clears the previous response evidence. This preserves the configured retry and continuation
+policy and the precedence of business validation, usage limits, and provider errors. A stream that
+ends without a terminal signal remains a failure with an unknown reason.
+
+Only recognized finish values and bounded, identifier-shaped provider response IDs enter
+diagnostics. Context overflow requires a typed provider error, a recognized context-limit code,
+or a specific provider message about input context. An output-token setting rejection does not
+establish input context overflow.
+
+The built-in Worker and Supervisor carry the same safe evidence for one invocation. The Supervisor
+limits repeated `artifact_processing.failed` logs to 16 per rolling second per controlled error
+code and reason in its process. Dream attempt logs use the same limit per family, operation, code,
+and reason. Limiting these logs does not suppress cancellation or change processing state, attempt
+counts, or retry behavior.
 
 ## Model usage accounting
 

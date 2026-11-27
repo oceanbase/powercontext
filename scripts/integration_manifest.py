@@ -106,6 +106,7 @@ class ToolSurfaceProbe(StrEnum):
     PI_LIFECYCLE = "pi_lifecycle"
     PYDANTIC_AI_TOOLS = "pydantic_ai_tools"
     LANGCHAIN_MIDDLEWARE = "langchain_middleware"
+    DEEPAGENTS_ADAPTER = "deepagents_adapter"
     LANGGRAPH_TOOLS = "langgraph_tools"
     BUB_TOOLS = "bub_tools"
     BUB_LIFECYCLE = "bub_lifecycle"
@@ -673,6 +674,21 @@ def _probe_toolset(probe: ToolSurfaceProbe, root: Path) -> set[str]:
             {
                 "wrap_model_call:prepare_context": ("wrap_model_call", "_prepare("),
                 "after_agent:capture_content_source": ("after_agent", "_capture("),
+            },
+        )
+    if probe is ToolSurfaceProbe.DEEPAGENTS_ADAPTER:
+        return _python_method_markers(
+            root / "integrations/deepagents/src/powercontext_deepagents/adapter.py",
+            {
+                "create_powercontext_deep_agent:agent_recall": (
+                    "create_powercontext_deep_agent",
+                    "powercontext_deep_agent_middleware(",
+                ),
+                "create_powercontext_deep_agent:capture_ownership": (
+                    "create_powercontext_deep_agent",
+                    "auto_capture=auto_capture",
+                ),
+                "powercontext_subagents:subagent_recall": ("powercontext_subagents", "_recall_only_subagent("),
             },
         )
     if probe is ToolSurfaceProbe.LANGGRAPH_TOOLS:

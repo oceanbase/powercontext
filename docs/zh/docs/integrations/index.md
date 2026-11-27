@@ -63,6 +63,23 @@ powercontext setup
 | ZCode | `UserPromptSubmit` 文本 | `POWERCONTEXT_ZCODE_CAPTURE_PROMPTS=false` |
 | Kimi Code（实验性） | `UserPromptSubmit` 中的文本部分 | setup `--no-capture-prompts` |
 
+进程内 Python 适配器在自动路径上使用同样的识别和处理方式，不改变各自的捕获默认值：
+
+| 适配器 | 自动输入边界 | 受检查的自动捕获 | 捕获默认值 |
+| --- | --- | --- | --- |
+| Hermes | `prefetch` 的 query | 完成轮次的 Source | 开启；`POWERCONTEXT_HERMES_CAPTURE_TURNS=false` 关闭 |
+| LangChain | 最新的人类消息 | 完成轮次的 Source | 关闭；`PowerContextMiddleware(auto_capture=True)` 开启 |
+| Deep Agents | 主 agent 和每个 subagent 每次模型调用的最新人类消息 | 主 agent 完成轮次的 Source | 关闭；`create_powercontext_deep_agent(auto_capture=True)` 开启 |
+| LangGraph | 最新的人类消息 | 无；LangGraph 只通过显式工具写入 | 不适用 |
+| Pydantic AI | 最新的文本 User Prompt | `user_prompt` 事件 | 关闭；`POWERCONTEXT_PYDANTIC_AI_CAPTURE_EVENTS=true` 开启 |
+
+用户文本或助手回复中识别到凭据时，整轮跳过完成轮次捕获（Hermes、LangChain、Deep Agents），因为轮次 Source 同时保存两者；
+User Prompt 中识别到凭据时跳过 `user_prompt` 事件（Pydantic AI）。Pydantic AI 的模型响应和工具事件继续按键名和
+已知凭据值脱敏。Hermes 的压缩前捕获替换每条消息中识别到的凭据并保留该消息，
+所以凭据不会导致必需 checkpoint 失败。当前 Server 凭据指适配器配置的 token，或 Hermes 的
+Authorization 值。跳过时在 debug 日志中记录原因 `sensitive_content`，不包含被拒绝的文本；完成轮次的跳过还注明
+凭据所在的一侧（用户或助手）。
+
 自动捕获前，适配器识别常见凭据赋值（API/access key 和 token、AWS 风格的 access key ID、client/private key、
 secret、password、passphrase、authorization、cookie）、至少八个 token 字符的 Bearer 值、常见服务商/Stripe/
 GitHub/Slack token 形状、包含未闭合情况的私钥块，以及当前 Server 凭据在输入中的精确出现。这是尽力识别：
@@ -113,6 +130,7 @@ Authorization 和 Cookie 请求头，包括 Proxy-Authorization、Set-Cookie、X
 | --- | --- | --- |
 | [Pydantic AI](pydantic-ai.md) | Toolset：Memory 读写和上下文 | `experimental` |
 | [LangChain](langchain.md) | Middleware：上下文和可选 Source 采集 | `master_only` |
+| [Deep Agents](deepagents.md) | 薄适配层：为主 agent 与 subagent 增加召回 | `master_only` |
 | [LangGraph](langgraph.md) | Recall hook 和 Memory 工具 | `master_only` |
 
 ## 评测集成

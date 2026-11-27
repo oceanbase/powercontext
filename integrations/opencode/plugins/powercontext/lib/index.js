@@ -2869,7 +2869,7 @@ function createTools(runtime) {
 				state_version: args.state_version
 			})
 		}),
-		pc_prepare_context: operationTool(runtime, {
+		...runtime.config.promptRecall ? { pc_prepare_context: operationTool(runtime, {
 			description: "Retrieve bounded, query-specific PowerContext when additional assembled context is needed. Automatic recall already attempts this on supported lifecycle events; do not repeat it routinely or to satisfy an explicit save. A returned context value is not proof of host injection. Empty context is normal; use only the evidence actually returned.",
 			args: { query: z.string() },
 			operationId: "prepare_context",
@@ -2878,7 +2878,7 @@ function createTools(runtime) {
 				max_bytes: runtime.config.maxBytes,
 				...runtime.config.contextAssembly === void 0 ? {} : { assembly: runtime.config.contextAssembly }
 			})
-		}),
+		}) } : {},
 		pc_capture_source: operationTool(runtime, {
 			description: "Record a deliberate evidence Source, such as the inspected boundary of a requested handoff. Use a stable unique source_id and concise content without secrets. Do not duplicate automatic prompt capture. Accepted Source evidence does not mean Memory was extracted and does not satisfy an explicit remember request.",
 			args: {

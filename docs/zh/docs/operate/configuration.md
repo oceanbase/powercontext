@@ -35,6 +35,7 @@ PowerContext 进程启动时从环境变量读取配置。当前工作目录存�
 | `POWERCONTEXT_SERVER_RUNTIME_ATOMIC_MEMORY_RELATED_FTS_FALLBACK` | `false` | 显式允许相关召回在查询向量不可用、profile 不匹配或向量投影不完整时改用全文枚举；不改变普通搜索的错误处理 |
 | `POWERCONTEXT_SERVER_RUNTIME_ATOMIC_MEMORY_COMPARISON_BATCH_SIZE` | `20` | 每次相关记忆判断最多比较的对象数，正整数；不是总候选上限 |
 | `POWERCONTEXT_SERVER_RUNTIME_ATOMIC_MEMORY_INPUT_TOKENS_LIMIT` | `64000` | 每次抽取或判断输入的估算 token 上限，包含指令和完整输入，正整数 |
+| `POWERCONTEXT_SERVER_RUNTIME_ATOMIC_MEMORY_PROCESSING_MODE` | `per_candidate` | 原子记忆处理 Source 窗口的方式。`per_candidate` 先抽取候选，再逐条与相关记忆比较；`one_pass` 在同一段模型对话里先列出要写的记忆、再一次给出全部操作，模型调用成本更低。对话输入超出 token 上限的窗口仍按 `per_candidate` 处理 |
 
 未配置 secret 不会生成随机进程密钥。更换 secret 或 key ID 后，旧 token 无法验证，应重新预览。
 带 token 的恢复遇到变化会返回 `preview_stale`，不会自动重新解释意图；重试预算也不处理提交结果未知的连接失败。
@@ -94,6 +95,11 @@ Server 在下游解析之前按实际收到的字节限制请求体，默认上�
 并为 JSON envelope 留出空间。调低上限可能拒绝原本符合领域约束的操作。两个 HTTP 上限都必须是正整数。
 应按可用内存调整：64 个请求各保留 16 MiB，请求体本身就需要 1 GiB，尚未包括解析和业务开销。
 交给下游时会短暂复制一次已接收的请求体，随后释放输入缓冲。
+
+健康检查和已启用的 Dashboard 静态资源等不使用请求体的公开路由仍检查声明的 `Content-Length`，并跳过请求体缓冲。
+Dashboard 登录采用配置上限和 32 KiB 中较小的值。远程 Skill reconciliation、Receipt 和包下载要求 Server 在读取
+请求体前验证 Receiver 凭据。
+
 按请求来源设置速率配额、上传超时、连接上限和跨 Server 进程的总额度由反向代理负责。
 
 MCP 使用 stateless Streamable HTTP，每次工具执行都采用当前请求的认证身份，不发放传输 Session ID，
@@ -491,10 +497,7 @@ export POWERCONTEXT_SERVER_RUNTIME_MEMORY_RERANK_ENABLED=true
 export POWERCONTEXT_SERVER_RUNTIME_MEMORY_RERANK_CANDIDATE_LIMIT=30
 ```
 
-Rerank 默认关闭。启用后，Runtime 会召回并融合配置的候选池，再使用 temperature 为 0 的 generation model，选择不超过
-search request 最终 `limit` 的结果。它不会修改已存储 Memory 或索引。Provider 与结构化输出失败仍作为 inference error
-显式返回；如果搜索必须独立于模型可用性，请关闭 rerank。算法、并发与 API 边界见
-[RFC 0080](/zh/rfcs/0080_memory_search_reranking/)。
+Rerank 默认关闭。启用后，Runtime 会召回并融合配置的候选池，再使用 temperature 为 0 的 generation model，选择不超过 search request 最终 `limit` 的结果。Claude CLI 使用自身的采样设置。Rerank 不会修改已存储的 Memory 或索引。Provider 与结构化输出失败会作为 inference error 返回。如果搜索必须独立于模型可用性，请关闭 rerank。算法、并发与 API 边界见 [RFC 0080](/zh/rfcs/0080_memory_search_reranking/)。
 
 内置 reranker 是 LLM listwise reranker，不是独立的 cross-encoder protocol。默认复用 generation model 及其 provider
 settings。设置 `POWERCONTEXT_SERVER_INFERENCE_RERANK_MODEL` 后，该 LLM operation 可以使用独立的 model、base URL、

@@ -23,6 +23,7 @@
     "---Python Agent frameworks---",
     "pydantic-ai",
     "langchain",
+    "deepagents",
     "langgraph",
     "---Evaluation and capabilities---",
     "evaluation",

@@ -20,6 +20,7 @@ import { normalizeAgentId, parseAgentSessionKey } from "openclaw/plugin-sdk/rout
 import type { PowerContextConfig } from "./config.js";
 import { opaqueSessionId } from "./config.js";
 import {
+  boundedRecallQuery,
   captureTranscript,
   deterministicSourceId,
   escapePowerContextBoundary,
@@ -39,10 +40,13 @@ type LifecycleDependencies = {
   getConfig: () => PowerContextConfig;
   isPrivateSession: (agentId: string, sessionKey: string | undefined) => boolean;
   createClosingSignal?: () => AbortSignal;
+  // Defaults to state private to this registration.
+  state?: LifecycleState;
 };
 
 const MAX_SESSION_SCOPES = 32;
 const MAX_TRACKED_RUNS = 64;
+const MAX_TRACKED_SESSIONS = 64;
 const CLOSING_BUDGET_MS = 1000;
 
 type CheckpointResult = {
@@ -54,6 +58,56 @@ type CheckpointResult = {
 type FlushCallBudget = {
   remaining: number;
 };
+
+type QueuedFlush = {
+  run: () => Promise<void>;
+  resolve: () => void;
+  reject: (error: unknown) => void;
+  signal?: AbortSignal;
+  deadlineReported: boolean;
+  onDeadline?: () => void;
+};
+
+/** What one plugin process knows about its sessions, runs, captured positions, and flush queue. */
+export type LifecycleState = {
+  sessionScopes: Map<string, Set<string>>;
+  activeRunProjects: Map<string, readonly string[]>;
+  completedRunProjects: Map<string, readonly string[]>;
+  sessionProjects: Map<string, readonly string[]>;
+  pendingPositions: Map<string, number>;
+  confirmedCursors: Map<string, number>;
+  normalFlushQueue: QueuedFlush[];
+  closingFlushQueue: QueuedFlush[];
+  flushQueueRunning: boolean;
+};
+
+export function createLifecycleState(): LifecycleState {
+  return {
+    sessionScopes: new Map(),
+    activeRunProjects: new Map(),
+    completedRunProjects: new Map(),
+    sessionProjects: new Map(),
+    pendingPositions: new Map(),
+    confirmedCursors: new Map(),
+    normalFlushQueue: [],
+    closingFlushQueue: [],
+    flushQueueRunning: false,
+  };
+}
+
+// OpenClaw registers the plugin more than once in one Gateway process: agent runs fire `agent_end` and
+// `before_compaction` on a registration made for the run's plugin registry, while `session_end` and `gateway_stop`
+// fire on the Gateway's own registration. Every registration must see the same captured positions, so a closing
+// boundary can flush what any run captured. The state lives on `globalThis` because a registration is not guaranteed
+// to share a module instance with the others. Change the key's version whenever `LifecycleState` changes shape, so a
+// rebuilt plugin loaded into a running Gateway never adopts an older object.
+const SHARED_STATE_KEY = Symbol.for("powercontext.openclaw.memory-lifecycle-state.v1");
+
+export function sharedLifecycleState(): LifecycleState {
+  const holder = globalThis as typeof globalThis & { [SHARED_STATE_KEY]?: LifecycleState };
+  holder[SHARED_STATE_KEY] ??= createLifecycleState();
+  return holder[SHARED_STATE_KEY];
+}
 
 // OpenClaw resolves a run's agent from its agent-scoped session key before any other source, and it gives every run
 // such a key, so the key names the same agent that the run's other hooks report.
@@ -115,25 +169,57 @@ export function registerPowerContextLifecycle(api: OpenClawPluginApi, deps: Life
       ...extra,
     });
   };
-  const sessionScopes = new Map<string, Set<string>>();
+  const state = deps.state ?? createLifecycleState();
+  const {
+    sessionScopes,
+    activeRunProjects,
+    completedRunProjects,
+    sessionProjects,
+    pendingPositions,
+    confirmedCursors,
+    normalFlushQueue,
+    closingFlushQueue,
+  } = state;
   // OpenClaw supplies a run's active projects to `before_prompt_build` but not to `agent_end`; capture resolves
   // with the projects of the run it captures, so it reaches the same project binding as that run's recall.
   // A completed run moves to its own map instead of being dropped: a replayed `agent_end` must resolve the same
   // Scope, because Source deduplication holds only within one Scope, and completed runs must not evict runs that
   // are still in progress. Each map keeps its most recent runs.
-  const activeRunProjects = new Map<string, readonly string[]>();
-  const completedRunProjects = new Map<string, readonly string[]>();
-  const trackRun = (runs: Map<string, readonly string[]>, runId: string, projectKeys: readonly string[]) => {
-    runs.delete(runId);
-    runs.set(runId, projectKeys);
-    if (runs.size > MAX_TRACKED_RUNS) {
-      runs.delete(runs.keys().next().value!);
+  // `before_compaction` carries neither a run nor its active projects, only the session key. OpenClaw queues a
+  // session's runs and compactions on one session lane, so the session's most recent prompt belongs to the run being
+  // compacted, or to the session's last run when compaction happens between runs; the checkpoint resolves with
+  // that run's projects. A prompt context without `activeProjectKeys` clears the session's entry.
+  const trackRecent = (
+    records: Map<string, readonly string[]>,
+    key: string,
+    projectKeys: readonly string[],
+    limit: number,
+  ) => {
+    records.delete(key);
+    records.set(key, projectKeys);
+    if (records.size > limit) {
+      records.delete(records.keys().next().value!);
     }
   };
   const rememberRunProjects = (runId: string | undefined, projectKeys: readonly string[] | undefined) => {
     if (runId && projectKeys) {
-      trackRun(activeRunProjects, runId, [...projectKeys]);
+      trackRecent(activeRunProjects, runId, [...projectKeys], MAX_TRACKED_RUNS);
     }
+  };
+  const rememberSessionProjects = (sessionKey: string | undefined, projectKeys: readonly string[] | undefined) => {
+    const key = sessionKey?.trim();
+    if (!key) {
+      return;
+    }
+    if (projectKeys) {
+      trackRecent(sessionProjects, key, [...projectKeys], MAX_TRACKED_SESSIONS);
+    } else {
+      sessionProjects.delete(key);
+    }
+  };
+  const latestSessionProjects = (sessionKey: string | undefined): readonly string[] | undefined => {
+    const key = sessionKey?.trim();
+    return key ? sessionProjects.get(key) : undefined;
   };
   const completeRunProjects = (runId: string | undefined): readonly string[] | undefined => {
     if (!runId) {
@@ -144,11 +230,9 @@ export function registerPowerContextLifecycle(api: OpenClawPluginApi, deps: Life
       return completedRunProjects.get(runId);
     }
     activeRunProjects.delete(runId);
-    trackRun(completedRunProjects, runId, projectKeys);
+    trackRecent(completedRunProjects, runId, projectKeys, MAX_TRACKED_RUNS);
     return projectKeys;
   };
-  const pendingPositions = new Map<string, number>();
-  const confirmedCursors = new Map<string, number>();
   const clearConfirmedPending = (scopeId: string): boolean => {
     const pending = pendingPositions.get(scopeId);
     if (pending === undefined || (confirmedCursors.get(scopeId) ?? -1) < pending) {
@@ -175,17 +259,6 @@ export function registerPowerContextLifecycle(api: OpenClawPluginApi, deps: Life
       });
     }
   };
-  type QueuedFlush = {
-    run: () => Promise<void>;
-    resolve: () => void;
-    reject: (error: unknown) => void;
-    signal?: AbortSignal;
-    deadlineReported: boolean;
-    onDeadline?: () => void;
-  };
-  const normalFlushQueue: QueuedFlush[] = [];
-  const closingFlushQueue: QueuedFlush[] = [];
-  let flushQueueRunning = false;
   const reportBoundaryDeadline = (queued: QueuedFlush) => {
     if (queued.deadlineReported) return;
     queued.deadlineReported = true;
@@ -196,8 +269,8 @@ export function registerPowerContextLifecycle(api: OpenClawPluginApi, deps: Life
     }
   };
   const drainFlushQueue = async () => {
-    if (flushQueueRunning) return;
-    flushQueueRunning = true;
+    if (state.flushQueueRunning) return;
+    state.flushQueueRunning = true;
     try {
       while (closingFlushQueue.length || normalFlushQueue.length) {
         const queued = closingFlushQueue.shift() ?? normalFlushQueue.shift()!;
@@ -214,7 +287,7 @@ export function registerPowerContextLifecycle(api: OpenClawPluginApi, deps: Life
         }
       }
     } finally {
-      flushQueueRunning = false;
+      state.flushQueueRunning = false;
     }
   };
   const enqueueFlush = (
@@ -415,6 +488,7 @@ export function registerPowerContextLifecycle(api: OpenClawPluginApi, deps: Life
 
   api.on("before_prompt_build", async (event, ctx) => {
     rememberRunProjects(ctx.runId, ctx.activeProjectKeys);
+    rememberSessionProjects(ctx.sessionKey, ctx.activeProjectKeys);
     const config = deps.getConfig();
     const agentId = readAgentId(ctx.agentId);
     if (
@@ -438,7 +512,7 @@ export function registerPowerContextLifecycle(api: OpenClawPluginApi, deps: Life
       });
       const prepared = await deps.client.post<unknown>("/v1/context/prepare", {
         scope_id: scopeId,
-        query: truncateUtf8(scrubSecrets(query, serverToken(config)), 8192),
+        query: boundedRecallQuery(scrubSecrets(query, serverToken(config))),
         max_bytes: config.prepareMaxBytes,
         ...(config.contextAssembly !== undefined ? { assembly: config.contextAssembly } : {}),
       });
@@ -494,13 +568,15 @@ export function registerPowerContextLifecycle(api: OpenClawPluginApi, deps: Life
     if (!agentId || !deps.isPrivateSession(agentId, ctx.sessionKey)) {
       return;
     }
+    // No OpenClaw compaction path reports active projects; resolve with those of the session's most recent prompt.
+    const activeProjectKeys = ctx.activeProjectKeys ?? latestSessionProjects(ctx.sessionKey);
     let scopeId: string;
     try {
       scopeId = await resolveScope({
         agentId,
         sessionId: ctx.sessionId,
         sessionKey: ctx.sessionKey,
-        activeProjectKeys: ctx.activeProjectKeys,
+        activeProjectKeys,
       });
     } catch (error) {
       reportFailure("scope_binding", error);
@@ -513,7 +589,7 @@ export function registerPowerContextLifecycle(api: OpenClawPluginApi, deps: Life
           agentId,
           sessionId: ctx.sessionId,
           sessionKey: ctx.sessionKey,
-          activeProjectKeys: ctx.activeProjectKeys,
+          activeProjectKeys,
           channel: ctx.channel ?? ctx.messageProvider,
           messages: event.messages,
           eventIdentity: lifecycleEventIdentity(event.messages, {

@@ -1,0 +1,431 @@
+{
+  "schema_version": 1,
+  "profiles": {
+    "grok-cli": {
+      "credential_ownership": "shared-file-refresh",
+      "resource_url": "https://api.x.ai/v1/responses",
+      "allowed_resource_origin": "https://api.x.ai",
+      "refresh_url": "https://auth.x.ai/oauth2/token",
+      "refresh_leeway_seconds": 60,
+      "lock_file": "auth.json.lock",
+      "issuer": "https://auth.x.ai",
+      "client_id": "b1a00492-073a-47ea-816f-4c329264a828",
+      "credential_scope": "https://auth.x.ai::b1a00492-073a-47ea-816f-4c329264a828"
+    }
+  },
+  "scenarios": [
+    {
+      "id": "republic-file-refresh-preserves-cli-store-and-rotates-tokens",
+      "profile": "grok-cli",
+      "now": 2000000000,
+      "credentials": {
+        "https://auth.x.ai::b1a00492-073a-47ea-816f-4c329264a828": {
+          "key": "file-token",
+          "refresh_token": "refresh-one",
+          "expires_at": "1970-01-01T00:00:00+00:00",
+          "oidc_issuer": "https://auth.x.ai",
+          "oidc_client_id": "b1a00492-073a-47ea-816f-4c329264a828",
+          "principal_type": "Team",
+          "principal_id": "team-1",
+          "user_id": "user-1",
+          "coding_data_retention_opt_out": true
+        },
+        "other-provider": {
+          "key": "untouched"
+        }
+      },
+      "http": {
+        "token_responses": [
+          {
+            "status": 200,
+            "json": {
+              "access_token": "renewed",
+              "refresh_token": "refresh-two",
+              "expires_in": 3600
+            }
+          }
+        ],
+        "resource_response": {
+          "status": 200,
+          "json": {
+            "output": []
+          }
+        }
+      },
+      "actions": [
+        {
+          "type": "request",
+          "outcome": "success"
+        }
+      ],
+      "expect": {
+        "resource_tokens": [
+          "renewed"
+        ],
+        "refresh_forms": [
+          {
+            "grant_type": "refresh_token",
+            "refresh_token": "refresh-one",
+            "client_id": "b1a00492-073a-47ea-816f-4c329264a828",
+            "principal_type": "Team",
+            "principal_id": "team-1"
+          }
+        ],
+        "store": {
+          "mode": "updated",
+          "access_token": "renewed",
+          "refresh_token": "refresh-two",
+          "expires_at": 2000003600
+        }
+      },
+      "source": {
+        "repository": "https://github.com/bubbuild/republic",
+        "commit": "2fa76b5407ba1cf035293121bfab9e782ea199f3",
+        "path": "tests/test_grok.py",
+        "license": "Apache-2.0",
+        "test": "test_file_refresh_preserves_cli_store_and_rotates_tokens"
+      }
+    },
+    {
+      "id": "republic-retains-rotated-refresh-token-when-response-omits-it",
+      "profile": "grok-cli",
+      "now": 2000000000,
+      "credentials": {
+        "https://auth.x.ai::b1a00492-073a-47ea-816f-4c329264a828": {
+          "key": "renewed",
+          "refresh_token": "refresh-two",
+          "expires_at": "1970-01-01T00:00:00+00:00",
+          "oidc_issuer": "https://auth.x.ai",
+          "oidc_client_id": "b1a00492-073a-47ea-816f-4c329264a828",
+          "principal_type": "Team",
+          "principal_id": "team-1",
+          "user_id": "user-1",
+          "coding_data_retention_opt_out": true
+        },
+        "other-provider": {
+          "key": "untouched"
+        }
+      },
+      "http": {
+        "token_responses": [
+          {
+            "status": 200,
+            "json": {
+              "access_token": "renewed-again",
+              "expires_in": 3600
+            }
+          }
+        ],
+        "resource_response": {
+          "status": 200,
+          "json": {
+            "output": []
+          }
+        }
+      },
+      "actions": [
+        {
+          "type": "request",
+          "outcome": "success"
+        }
+      ],
+      "expect": {
+        "resource_tokens": [
+          "renewed-again"
+        ],
+        "refresh_forms": [
+          {
+            "grant_type": "refresh_token",
+            "refresh_token": "refresh-two",
+            "client_id": "b1a00492-073a-47ea-816f-4c329264a828",
+            "principal_type": "Team",
+            "principal_id": "team-1"
+          }
+        ],
+        "store": {
+          "mode": "updated",
+          "access_token": "renewed-again",
+          "refresh_token": "refresh-two",
+          "expires_at": 2000003600
+        }
+      },
+      "source": {
+        "repository": "https://github.com/bubbuild/republic",
+        "commit": "2fa76b5407ba1cf035293121bfab9e782ea199f3",
+        "path": "tests/test_grok.py",
+        "license": "Apache-2.0",
+        "test": "test_file_refresh_preserves_cli_store_and_rotates_tokens"
+      }
+    },
+    {
+      "id": "republic-failed-refresh-oauth",
+      "profile": "grok-cli",
+      "now": 2000000000,
+      "credentials": {
+        "https://auth.x.ai::b1a00492-073a-47ea-816f-4c329264a828": {
+          "key": "file-token",
+          "refresh_token": "refresh-one",
+          "expires_at": "1970-01-01T00:00:00+00:00",
+          "oidc_issuer": "https://auth.x.ai",
+          "oidc_client_id": "b1a00492-073a-47ea-816f-4c329264a828",
+          "principal_type": "Team",
+          "principal_id": "team-1",
+          "user_id": "user-1",
+          "coding_data_retention_opt_out": true
+        },
+        "other-provider": {
+          "key": "untouched"
+        }
+      },
+      "http": {
+        "token_responses": [
+          {
+            "status": 400,
+            "json": {
+              "error": "invalid_grant",
+              "error_description": "private-refresh-token"
+            }
+          }
+        ],
+        "resource_response": {
+          "status": 200,
+          "json": {
+            "output": []
+          }
+        }
+      },
+      "actions": [
+        {
+          "type": "request",
+          "outcome": "auth_error"
+        }
+      ],
+      "expect": {
+        "resource_tokens": [],
+        "refresh_forms": [
+          {
+            "grant_type": "refresh_token",
+            "refresh_token": "refresh-one",
+            "client_id": "b1a00492-073a-47ea-816f-4c329264a828",
+            "principal_type": "Team",
+            "principal_id": "team-1"
+          }
+        ],
+        "store": {
+          "mode": "unchanged"
+        }
+      },
+      "source": {
+        "repository": "https://github.com/bubbuild/republic",
+        "commit": "2fa76b5407ba1cf035293121bfab9e782ea199f3",
+        "path": "tests/test_grok.py",
+        "license": "Apache-2.0",
+        "test": "test_failed_refresh_does_not_replace_credentials_or_send_inference[oauth]"
+      },
+      "secret_markers": [
+        "private-refresh-token"
+      ]
+    },
+    {
+      "id": "republic-failed-refresh-json",
+      "profile": "grok-cli",
+      "now": 2000000000,
+      "credentials": {
+        "https://auth.x.ai::b1a00492-073a-47ea-816f-4c329264a828": {
+          "key": "file-token",
+          "refresh_token": "refresh-one",
+          "expires_at": "1970-01-01T00:00:00+00:00",
+          "oidc_issuer": "https://auth.x.ai",
+          "oidc_client_id": "b1a00492-073a-47ea-816f-4c329264a828",
+          "principal_type": "Team",
+          "principal_id": "team-1",
+          "user_id": "user-1",
+          "coding_data_retention_opt_out": true
+        },
+        "other-provider": {
+          "key": "untouched"
+        }
+      },
+      "http": {
+        "token_responses": [
+          {
+            "status": 200,
+            "text": "private-refresh-token"
+          }
+        ],
+        "resource_response": {
+          "status": 200,
+          "json": {
+            "output": []
+          }
+        }
+      },
+      "actions": [
+        {
+          "type": "request",
+          "outcome": "auth_error"
+        }
+      ],
+      "expect": {
+        "resource_tokens": [],
+        "refresh_forms": [
+          {
+            "grant_type": "refresh_token",
+            "refresh_token": "refresh-one",
+            "client_id": "b1a00492-073a-47ea-816f-4c329264a828",
+            "principal_type": "Team",
+            "principal_id": "team-1"
+          }
+        ],
+        "store": {
+          "mode": "unchanged"
+        }
+      },
+      "source": {
+        "repository": "https://github.com/bubbuild/republic",
+        "commit": "2fa76b5407ba1cf035293121bfab9e782ea199f3",
+        "path": "tests/test_grok.py",
+        "license": "Apache-2.0",
+        "test": "test_failed_refresh_does_not_replace_credentials_or_send_inference[json]"
+      },
+      "secret_markers": [
+        "private-refresh-token"
+      ]
+    },
+    {
+      "id": "republic-failed-refresh-missing",
+      "profile": "grok-cli",
+      "now": 2000000000,
+      "credentials": {
+        "https://auth.x.ai::b1a00492-073a-47ea-816f-4c329264a828": {
+          "key": "file-token",
+          "refresh_token": "refresh-one",
+          "expires_at": "1970-01-01T00:00:00+00:00",
+          "oidc_issuer": "https://auth.x.ai",
+          "oidc_client_id": "b1a00492-073a-47ea-816f-4c329264a828",
+          "principal_type": "Team",
+          "principal_id": "team-1",
+          "user_id": "user-1",
+          "coding_data_retention_opt_out": true
+        },
+        "other-provider": {
+          "key": "untouched"
+        }
+      },
+      "http": {
+        "token_responses": [
+          {
+            "status": 200,
+            "json": {}
+          }
+        ],
+        "resource_response": {
+          "status": 200,
+          "json": {
+            "output": []
+          }
+        }
+      },
+      "actions": [
+        {
+          "type": "request",
+          "outcome": "auth_error"
+        }
+      ],
+      "expect": {
+        "resource_tokens": [],
+        "refresh_forms": [
+          {
+            "grant_type": "refresh_token",
+            "refresh_token": "refresh-one",
+            "client_id": "b1a00492-073a-47ea-816f-4c329264a828",
+            "principal_type": "Team",
+            "principal_id": "team-1"
+          }
+        ],
+        "store": {
+          "mode": "unchanged"
+        }
+      },
+      "source": {
+        "repository": "https://github.com/bubbuild/republic",
+        "commit": "2fa76b5407ba1cf035293121bfab9e782ea199f3",
+        "path": "tests/test_grok.py",
+        "license": "Apache-2.0",
+        "test": "test_failed_refresh_does_not_replace_credentials_or_send_inference[missing]"
+      },
+      "secret_markers": [
+        "private-refresh-token"
+      ]
+    },
+    {
+      "id": "republic-failed-refresh-expiry",
+      "profile": "grok-cli",
+      "now": 2000000000,
+      "credentials": {
+        "https://auth.x.ai::b1a00492-073a-47ea-816f-4c329264a828": {
+          "key": "file-token",
+          "refresh_token": "refresh-one",
+          "expires_at": "1970-01-01T00:00:00+00:00",
+          "oidc_issuer": "https://auth.x.ai",
+          "oidc_client_id": "b1a00492-073a-47ea-816f-4c329264a828",
+          "principal_type": "Team",
+          "principal_id": "team-1",
+          "user_id": "user-1",
+          "coding_data_retention_opt_out": true
+        },
+        "other-provider": {
+          "key": "untouched"
+        }
+      },
+      "http": {
+        "token_responses": [
+          {
+            "status": 200,
+            "json": {
+              "access_token": "new",
+              "expires_in": "invalid"
+            }
+          }
+        ],
+        "resource_response": {
+          "status": 200,
+          "json": {
+            "output": []
+          }
+        }
+      },
+      "actions": [
+        {
+          "type": "request",
+          "outcome": "auth_error"
+        }
+      ],
+      "expect": {
+        "resource_tokens": [],
+        "refresh_forms": [
+          {
+            "grant_type": "refresh_token",
+            "refresh_token": "refresh-one",
+            "client_id": "b1a00492-073a-47ea-816f-4c329264a828",
+            "principal_type": "Team",
+            "principal_id": "team-1"
+          }
+        ],
+        "store": {
+          "mode": "unchanged"
+        }
+      },
+      "source": {
+        "repository": "https://github.com/bubbuild/republic",
+        "commit": "2fa76b5407ba1cf035293121bfab9e782ea199f3",
+        "path": "tests/test_grok.py",
+        "license": "Apache-2.0",
+        "test": "test_failed_refresh_does_not_replace_credentials_or_send_inference[expiry]"
+      },
+      "secret_markers": [
+        "private-refresh-token"
+      ]
+    }
+  ]
+}

@@ -22,6 +22,8 @@ ignore = [
 
 [suites]
 
+knowledge_base = ["frontend/knowledge-base/**", "plugins/knowledge-base/**", "tests/knowledge_base/**", "tests/e2e/test_knowledge_base*.py"]
+
 gateway = ["gateway/**", ".github/workflows/gateway.yml", "tests/e2e/gateway_tck.py"]
 
 helm = ["deploy/helm/**", "tests/test_helm*.py", "tests/e2e/helm_*.py"]
@@ -36,6 +38,7 @@ tests = [
   "scripts/check_atomic_memory_migration_shards.py",
   "scripts/oceanbase_ci.py", ".github/oceanbase-migration-durations.json",
   "scripts/ci_role_smoke.py", "scripts/ci_installation_roles.py",
+  ".github/workflows/gateway-distribution.yml", "scripts/gateway_distribution.py",
   # Release tooling is covered by unit tests; the packaging and publication workflows are manual.
   ".github/workflows/desktop-candidate.yml", "scripts/desktop_candidate.py",
   ".github/workflows/desktop-release.yml", "scripts/desktop_publication_manifest.py",
@@ -59,7 +62,10 @@ database = [
   "scripts/oceanbase_ci.py", ".github/oceanbase-migration-durations.json",
 ]
 dify = ["integrations/dify/**", "tests/*dify*"]
-hermes = ["integrations/hermes/**", "tests/*hermes*", "scripts/generate_integration_lifecycle.py"]
+# The real-manager conformance harness serves the Hermes provider through the e2e Server fixture.
+hermes = [
+  "integrations/hermes/**", "tests/*hermes*", "scripts/generate_integration_lifecycle.py", "tests/e2e/dream_support.py",
+]
 dsh = ["integrations/dsh/**", "tests/*dsh*", "scripts/generate_js_operations.py", "scripts/sync_dsh_plugin_tree.py"]
 cindy = [
   "integrations/cindy/**", "tests/e2e/*cindy*", "scripts/generate_js_operations.py",
@@ -209,10 +215,11 @@ patterns = [
 ]
 suites = ["tests", "dify", "hermes", "dsh", "pi", "opencode", "openclaw", "zcode", "kimi"]
 
-# The TypeScript lifecycle source is copied into these plugins; ZCode and Cindy run the Pi and DSH plugins.
+# The TypeScript lifecycle source is copied into these plugins, as JavaScript for Kimi Code and ZCode; ZCode and Cindy
+# also run the Pi and DSH plugins.
 [shared.lifecycle_typescript]
 patterns = ["integrations/lifecycle/**", "scripts/generate_integration_lifecycle.py"]
-suites = ["tests", "dsh", "cindy", "pi", "opencode", "openclaw", "zcode"]
+suites = ["tests", "dsh", "cindy", "pi", "opencode", "openclaw", "zcode", "kimi"]
 
 # Shared Python changes still exercise all runtime consumers. Diagnostic source
 # capture and lock probes have their own inputs rather than joining every build.
@@ -251,12 +258,13 @@ suites = ["upgrade", "packaging"]
 # A selected scope must produce successful root jobs, not silent skips.
 # Main's result gate consumes this contract; reusable workflows own their children.
 [checks]
+knowledge_base = ["knowledge-base"]
 helm = ["helm"]
 tests = ["tests", "windows-unit-portability"]
 evaluation = ["evaluation-tests"]
 database = ["oceanbase-engine-recovery", "code-seekdb", "atomic-memory-clean-seekdb", "harness-validation"]
 dify = ["dify-tools"]
-hermes = ["hermes-skills"]
+hermes = ["hermes-skills", "hermes-host"]
 dsh = ["dsh-package"]
 cindy = ["cindy-package"]
 pi = ["pi-package"]
@@ -287,3 +295,8 @@ gateway = ["gateway-validation"]
 # Native prerequisites join the result gate only on scheduled or manual runs.
 [nightly_checks]
 upgrade = ["seekdb-managed-startup"]
+
+# Changes to unrelated root dependencies do not select the optional plugin suite.
+[dependency_suites.knowledge_base]
+extras = ["knowledge-base"]
+groups = ["knowledge-base-tests"]

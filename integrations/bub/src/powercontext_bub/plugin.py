@@ -49,6 +49,7 @@ except ImportError:
     # Older core releases support legacy recall but cannot accept assembly settings.
     from types import NoneType as ContextAssembly
 
+from ._prompt_privacy import scrub_secrets
 from .scope import resolve_scope_id, workspace_binding_key
 
 STATE_KEY = "_powercontext"
@@ -232,12 +233,16 @@ class PowerContextPlugin:
         capture_state = state[STATE_KEY]
         if self.settings.capture_events and not capture_state["prompt_captured"]:
             capture_state["prompt_captured"] = True
-            await self._capture_event(
-                event="user_prompt",
-                run_id=request.run_id,
-                payload={"text": prompt},
-                state=state,
-            )
+            if scrub_secrets(prompt, self._authorization()) != prompt:
+                # A recognized credential skips the event rather than storing a redacted copy of the prompt.
+                self._write_capture_record(event="user_prompt", status="skipped", reason="sensitive_content")
+            else:
+                await self._capture_event(
+                    event="user_prompt",
+                    run_id=request.run_id,
+                    payload={"text": prompt},
+                    state=state,
+                )
 
         if any(_contains_context_marker(message) for message in request.messages):
             return None
@@ -295,6 +300,10 @@ class PowerContextPlugin:
         async with self._capture_lock:
             await self._flush_captured_sources(state, final=True)
 
+    def _authorization(self) -> str | None:
+        token = self.settings.api_token
+        return None if token is None else f"Bearer {token.get_secret_value()}"
+
     def _client(self) -> AbstractAsyncContextManager[PowerContextClient]:
         return open_client(
             self.base_url,
@@ -338,7 +347,8 @@ class PowerContextPlugin:
 
     async def _prepare_context(self, query: str, scope_id: str, state: TurnState) -> str | None:
         try:
-            bounded_query = _bounded_recall_query(query)
+            # Scrubbing first means a cut cannot leave a bare credential behind.
+            bounded_query = _bounded_recall_query(scrub_secrets(query, self._authorization()))
         except UnicodeEncodeError as exc:
             # Unpaired surrogates, such as a file name decoded with ``surrogateescape``, have no UTF-8 form to send.
             self._write_capture_record(
