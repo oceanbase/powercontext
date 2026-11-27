@@ -225,6 +225,10 @@ pub async fn extract(
     if let Some(rejected) = unauthorized(&state, &headers) {
         return rejected;
     }
+    let scope_id = match request_scope(&headers, &state.default_scope) {
+        Ok(scope_id) => scope_id,
+        Err(error) => return error.into_response(),
+    };
     if request.instruction.trim().is_empty()
         || request.instruction.len() > MAX_EXTRACT_INSTRUCTION_BYTES
     {
@@ -240,7 +244,7 @@ pub async fn extract(
     if !valid_continuation(&request.continuation) {
         return error(StatusCode::BAD_REQUEST, "invalid_continuation");
     }
-    let Some(prefix) = state.executor.prefix(&request.handle, &state.default_scope) else {
+    let Some(prefix) = state.executor.prefix(&request.handle, scope_id) else {
         return error(StatusCode::NOT_FOUND, "prefix_unavailable");
     };
     if prefix.target_profile != state.upstream_profile {
@@ -262,7 +266,7 @@ pub async fn extract(
         return subscription_auth_failed();
     };
     let call = ManagedCall {
-        scope_id: state.default_scope.clone(),
+        scope_id: scope_id.to_owned(),
         target_profile: state.upstream_profile.clone(),
         request: canonical,
         target_url: channel.target_url,
@@ -511,6 +515,10 @@ async fn ingress_model(
     if let Some(rejected) = unauthorized(&state, &headers) {
         return rejected;
     }
+    let scope_id = match request_scope(&headers, &state.default_scope) {
+        Ok(scope_id) => scope_id,
+        Err(error) => return error.into_response(),
+    };
 
     if state.max_body_bytes == 0 {
         return respond(
@@ -704,7 +712,7 @@ async fn ingress_model(
         tracing::warn!("context injection skipped: no conversation identity");
     }
     let call = ManagedCall {
-        scope_id: state.default_scope.clone(),
+        scope_id: scope_id.to_owned(),
         target_profile: state.upstream_profile.clone(),
         request: canonical,
         target_url,
@@ -1110,6 +1118,26 @@ fn valid_id(value: &str) -> bool {
     !value.is_empty() && value.len() <= 256 && value.bytes().all(|b| b.is_ascii_graphic())
 }
 
+/// Select the Scope once for the request. Reject ambiguous or invalid explicit selections.
+fn request_scope<'a>(
+    headers: &'a HeaderMap,
+    default_scope: &'a str,
+) -> Result<&'a str, (StatusCode, Json<serde_json::Value>)> {
+    let mut values = headers.get_all(SCOPE_ID_HEADER).into_iter();
+    let Some(value) = values.next() else {
+        return Ok(default_scope);
+    };
+    if let Ok(scope_id) = value.to_str() {
+        if valid_id(scope_id) && !scope_id.contains(',') && values.next().is_none() {
+            return Ok(scope_id);
+        }
+    }
+    Err((
+        StatusCode::BAD_REQUEST,
+        Json(serde_json::json!({ "error": "invalid_scope_id" })),
+    ))
+}
+
 /// 请求带给上游的会话标识：请求的 `session-id` 头；没有时取请求体的 `prompt_cache_key`。Codex 给两者填同一个值，
 /// 不发这个头的 agent 往往仍带后者。值的规则与会话头相同，不合规则时按没有处理。
 fn upstream_session(headers: &HeaderMap, body: &[u8]) -> Option<String> {
@@ -1126,6 +1154,7 @@ fn upstream_session(headers: &HeaderMap, body: &[u8]) -> Option<String> {
         .filter(|key| valid_id(key))
 }
 
+const SCOPE_ID_HEADER: &str = "x-powercontext-scope-id";
 const CONVERSATION_ID_HEADER: &str = "x-powercontext-conversation-id";
 const CLAUDE_CODE_SESSION_HEADER: &str = "x-claude-code-session-id";
 const CLAUDE_CODE_AGENT_HEADER: &str = "x-claude-code-agent-id";
