@@ -155,10 +155,13 @@ test('plugin declares a ZCode prompt hook and Server MCP endpoint', async () => 
   assert.equal(mcp.mcpServers.powercontext.url, 'http://127.0.0.1:8000/mcp')
 })
 
-test('hook resolves Scope, injects prepared context and captures one Source', async () => {
+test('hook resolves Scope, injects prepared context and captures one Source', async t => {
+  // Outside any Git repository, so the workspace keys do not depend on where the suite is checked out.
+  const cwd = await mkdtemp(join(tmpdir(), 'pc-zcode-hook-'))
+  t.after(() => rm(cwd, { recursive: true, force: true }))
   const payload = {
     hookEventName: 'UserPromptSubmit', sessionId: 'session-1', turnId: 'turn-2',
-    cwd: pluginRoot, prompt: 'What color is the deployment?',
+    cwd, prompt: 'What color is the deployment?',
   }
   const result = await invoke(payload)
   assert.equal(result.code, 0)
@@ -170,8 +173,7 @@ test('hook resolves Scope, injects prepared context and captures one Source', as
   assert.deepEqual(requests.map(request => request.path), [
     '/v1/scope-bindings/resolve', '/v1/context/prepare', '/v1/sources/content',
   ])
-  // A checkout in a linked Git worktree also sends its main checkout's workspace key after these.
-  assert.deepEqual(requests[0].body.binding_keys.slice(0, 2).map(key => key.kind), ['session', 'workspace'])
+  assert.deepEqual(requests[0].body.binding_keys.map(key => key.kind), ['session', 'workspace'])
   assert.equal(requests[1].body.scope_id, 'scope-test')
   assert.equal(requests[2].body.scope_id, 'scope-test')
   assert.match(requests[2].body.source_id, /^zcode-user-prompt:[0-9a-f]{64}$/)
