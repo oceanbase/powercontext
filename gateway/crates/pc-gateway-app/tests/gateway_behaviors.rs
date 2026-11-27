@@ -59,6 +59,7 @@ struct Peers {
     checks: Mutex<Vec<Value>>,
     queries: Mutex<Vec<Value>>,
     prepares: Mutex<Vec<Value>>,
+    fixed_preparation: Mutex<bool>,
     captures: Mutex<Vec<Value>>,
     deny: Option<(&'static str, &'static str)>,
 }
@@ -126,13 +127,25 @@ const PREPARED_BLOCK: &str = "Recall: température";
 
 async fn prepare(State(peers): State<Arc<Peers>>, Json(request): Json<Value>) -> Json<Value> {
     peers.queries.lock().unwrap().push(request["query"].clone());
-    peers.prepares.lock().unwrap().push(request);
+    let preparation = {
+        let mut prepares = peers.prepares.lock().unwrap();
+        prepares.push(request);
+        prepares.len()
+    };
+    let (content, binding) = if *peers.fixed_preparation.lock().unwrap() {
+        (PREPARED_BLOCK.to_owned(), "test-reuse".to_owned())
+    } else {
+        (
+            format!("Prepared context {preparation}"),
+            format!("reuse-{preparation}"),
+        )
+    };
     Json(json!({
         "schema": "powercontext.prepared-context-with-reuse.v1",
         "context": {"schema": "powercontext.prepared-context.v1", "status": "ready",
-            "content": PREPARED_BLOCK, "content_bytes": PREPARED_BLOCK.len()},
+            "content": content, "content_bytes": content.len()},
         "reuse": {"schema": "powercontext.context-reuse.v1",
-            "expires_at": "2999-01-01T00:00:00Z", "binding": "test-reuse"}
+            "expires_at": "2999-01-01T00:00:00Z", "binding": binding}
     }))
 }
 
@@ -181,7 +194,7 @@ impl Gateway {
         memory: bool,
     ) -> Self {
         let setting = if memory { "on" } else { "off" };
-        Self::start_with_env(
+        let gateway = Self::start_with_env(
             replies,
             deny,
             &[
@@ -193,7 +206,9 @@ impl Gateway {
             ],
             true,
         )
-        .await
+        .await;
+        *gateway.peers.fixed_preparation.lock().unwrap() = true;
+        gateway
     }
 
     async fn start_with_env(
