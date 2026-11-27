@@ -12,17 +12,45 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use axum::http::HeaderMap;
-use pc_gateway_evidence::fingerprint;
-use serde_json::{json, Value};
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
-use tokio::sync::mpsc;
+use axum::http::{HeaderMap, Request, Response};
+use bytes::Bytes;
+use opentelemetry::{
+    propagation::{Extractor, TextMapPropagator},
+    trace::{Span as _, TraceContextExt, TraceId, Tracer as _, TracerProvider as _},
+    Context, KeyValue,
+};
+use opentelemetry_http::{HttpClient, HttpError};
+use opentelemetry_otlp::{Protocol, WithExportConfig, WithHttpConfig};
+use opentelemetry_sdk::{
+    error::OTelSdkResult,
+    propagation::TraceContextPropagator,
+    trace::{
+        BatchConfigBuilder, BatchSpanProcessor, Sampler, SdkTracer, SdkTracerProvider, SpanData,
+        SpanProcessor,
+    },
+    Resource,
+};
+use std::{
+    collections::HashMap,
+    time::{Duration, Instant, SystemTime},
+};
+use tracing::{dispatcher, Dispatch, Span};
+use tracing_opentelemetry::OpenTelemetrySpanExt;
+use tracing_subscriber::prelude::*;
+
+const EXPORT_TIMEOUT: Duration = Duration::from_secs(2);
+const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(3);
+const CALL_SPAN: &str = "gateway.model_call";
 
 #[derive(Clone)]
-pub(crate) struct Exporter(mpsc::Sender<Value>);
+pub(crate) struct Exporter {
+    provider: SdkTracerProvider,
+    tracer: SdkTracer,
+    dispatch: Dispatch,
+}
 
 impl Exporter {
-    pub(crate) fn from_env() -> Option<Self> {
+    pub(crate) async fn from_env() -> Option<Self> {
         if std::env::var("PC_GATEWAY_OTLP").as_deref() != Ok("on") {
             return None;
         }
@@ -32,53 +60,204 @@ impl Exporter {
                     .map(|base| format!("{}/v1/traces", base.trim_end_matches('/')))
             })
             .ok()?;
-        let headers = std::env::var("OTEL_EXPORTER_OTLP_TRACES_HEADERS")
-            .or_else(|_| std::env::var("OTEL_EXPORTER_OTLP_HEADERS"))
-            .unwrap_or_default();
-        Self::new(&endpoint, &headers)
+        Self::new(&endpoint, HashMap::new()).await
     }
 
-    pub(crate) fn new(endpoint: &str, headers: &str) -> Option<Self> {
+    pub(crate) async fn new(endpoint: &str, headers: HashMap<String, String>) -> Option<Self> {
         let endpoint = reqwest::Url::parse(endpoint).ok()?;
         if !matches!(endpoint.scheme(), "http" | "https") {
             return None;
         }
-        let client = reqwest::Client::builder()
-            .timeout(Duration::from_secs(2))
-            .redirect(reqwest::redirect::Policy::none())
-            .build()
-            .ok()?;
-        let mut parsed = HeaderMap::new();
-        for entry in headers.split(',').filter(|entry| !entry.is_empty()) {
-            let (name, value) = entry.trim().split_once('=')?;
-            // OTLP header values are percent-encoded. Preserve literal plus signs.
-            let decoder = reqwest::Url::parse(&format!(
-                "http://localhost/?v={}",
-                value.replace('+', "%2B")
-            ))
-            .ok()?;
-            let value = decoder.query_pairs().next()?.1;
-            let name = reqwest::header::HeaderName::from_bytes(name.trim().as_bytes()).ok()?;
-            let mut value = reqwest::header::HeaderValue::from_str(&value).ok()?;
-            value.set_sensitive(true);
-            parsed.append(name, value);
-        }
-        let (sender, mut receiver) = mpsc::channel(128);
-        tokio::spawn(async move {
-            while let Some(payload) = receiver.recv().await {
-                let _ = client
-                    .post(endpoint.clone())
-                    .headers(parsed.clone())
-                    .json(&payload)
-                    .send()
-                    .await;
-            }
-        });
-        Some(Self(sender))
+
+        tokio::task::spawn_blocking(move || {
+            let client = reqwest::blocking::Client::builder()
+                .timeout(EXPORT_TIMEOUT)
+                .redirect(reqwest::redirect::Policy::none())
+                .build()
+                .ok()?;
+            let exporter = opentelemetry_otlp::SpanExporter::builder()
+                .with_http()
+                .with_protocol(Protocol::HttpJson)
+                .with_endpoint(endpoint.as_str())
+                .with_timeout(EXPORT_TIMEOUT)
+                .with_http_client(PrivateHttpClient(client))
+                .with_headers(headers)
+                .build()
+                .ok()?;
+            let batch = BatchSpanProcessor::builder(exporter)
+                .with_batch_config(
+                    BatchConfigBuilder::default()
+                        .with_max_queue_size(128)
+                        .with_max_export_batch_size(128)
+                        .with_scheduled_delay(Duration::from_millis(200))
+                        .build(),
+                )
+                .build();
+            let provider = SdkTracerProvider::builder()
+                .with_sampler(Sampler::ParentBased(Box::new(Sampler::AlwaysOn)))
+                .with_resource(
+                    Resource::builder_empty()
+                        .with_service_name("powercontext-gateway")
+                        .build(),
+                )
+                .with_span_processor(CompletedCalls(batch))
+                .build();
+            let tracer = provider.tracer("pc-gateway");
+            // Scope the OTLP layer to the allowlisted call span. Gateway and dependency
+            // log events continue to use the process subscriber and never enter OTLP.
+            let dispatch = Dispatch::new(
+                tracing_subscriber::registry().with(
+                    tracing_opentelemetry::layer()
+                        .with_tracer(tracer.clone())
+                        .with_location(false)
+                        .with_level(false)
+                        .with_target(false)
+                        .with_threads(false)
+                        .with_tracked_inactivity(false)
+                        .with_context_activation(false),
+                ),
+            );
+            Some(Self {
+                provider,
+                tracer,
+                dispatch,
+            })
+        })
+        .await
+        .ok()?
     }
 
-    pub(crate) fn enqueue(&self, payload: Value) {
-        let _ = self.0.try_send(payload);
+    pub(crate) fn start(
+        &self,
+        headers: &HeaderMap,
+        route: &'static str,
+        call_id: &str,
+    ) -> Option<Trace> {
+        let parent = TraceContextPropagator::new()
+            .extract_with_context(&Context::new(), &TraceParent(headers));
+        let span = dispatcher::with_default(&self.dispatch, || {
+            tracing::info_span!(
+                parent: None,
+                CALL_SPAN,
+                otel.kind = "server",
+                call_id,
+                route,
+                turn_kind = tracing::field::Empty,
+                terminal = tracing::field::Empty,
+                attempt_count = tracing::field::Empty,
+                duration_ms = tracing::field::Empty
+            )
+        });
+        span.set_parent(parent).ok()?;
+        let context = span.context();
+        let started = Instant::now();
+        let wall_start = SystemTime::now();
+        context.span().span_context().is_sampled().then_some(Trace {
+            span,
+            context,
+            started,
+            wall_start,
+        })
+    }
+
+    pub(crate) async fn shutdown(&self) {
+        let provider = self.provider.clone();
+        // SDK shutdown flushes the queue. Wait off the async worker and within the
+        // process watchdog's remaining budget after model connections have drained.
+        let _ =
+            tokio::task::spawn_blocking(move || provider.shutdown_with_timeout(SHUTDOWN_TIMEOUT))
+                .await;
+    }
+
+    pub(crate) fn finish(
+        &self,
+        trace: Trace,
+        phases: &[Phase],
+        terminal: &'static str,
+        attempts: u32,
+        duration_ms: u64,
+        turn_kind: &'static str,
+    ) {
+        let timestamp =
+            |instant: Instant| trace.wall_start + instant.saturating_duration_since(trace.started);
+        trace.span.record("terminal", terminal);
+        trace.span.record("attempt_count", attempts.to_string());
+        trace.span.record("duration_ms", duration_ms.to_string());
+        trace.span.record("turn_kind", turn_kind);
+        drop(trace.span);
+
+        for phase in phases {
+            let mut span = self
+                .tracer
+                .span_builder(phase.name)
+                .with_start_time(timestamp(phase.start))
+                .with_end_time(timestamp(phase.end))
+                .with_attributes(phase.result.map(|result| KeyValue::new("result", result)))
+                .start_with_context(&self.tracer, &trace.context);
+            span.end_with_timestamp(timestamp(phase.end));
+        }
+    }
+}
+
+#[derive(Debug)]
+struct PrivateHttpClient(reqwest::blocking::Client);
+
+#[async_trait::async_trait]
+impl HttpClient for PrivateHttpClient {
+    async fn send_bytes(&self, mut request: Request<Bytes>) -> Result<Response<Bytes>, HttpError> {
+        // The SDK resolves configured OTLP headers. Keep their values out of any
+        // HTTP client diagnostics while preserving them on the wire.
+        for value in request.headers_mut().values_mut() {
+            value.set_sensitive(true);
+        }
+        self.0.send_bytes(request).await
+    }
+}
+
+// Only the W3C trace identity crosses this boundary. Caller-supplied vendor
+// tracestate and baggage can contain opaque values and are not forwarded.
+struct TraceParent<'a>(&'a HeaderMap);
+
+impl Extractor for TraceParent<'_> {
+    fn get(&self, key: &str) -> Option<&str> {
+        if key != "traceparent" {
+            return None;
+        }
+        self.0.get(key)?.to_str().ok()
+    }
+
+    fn keys(&self) -> Vec<&str> {
+        vec!["traceparent"]
+    }
+}
+
+/// Ingress can stop before the executor records a terminal call. Such requests
+/// have no model-call evidence and have never been included in exported traces.
+#[derive(Debug)]
+struct CompletedCalls(BatchSpanProcessor);
+
+impl SpanProcessor for CompletedCalls {
+    fn on_start(&self, span: &mut opentelemetry_sdk::trace::Span, context: &Context) {
+        self.0.on_start(span, context);
+    }
+
+    fn on_end(&self, span: SpanData) {
+        if span.name != CALL_SPAN
+            || span
+                .attributes
+                .iter()
+                .any(|entry| entry.key.as_str() == "terminal")
+        {
+            self.0.on_end(span);
+        }
+    }
+
+    fn force_flush(&self) -> OTelSdkResult {
+        self.0.force_flush()
+    }
+
+    fn shutdown_with_timeout(&self, timeout: Duration) -> OTelSdkResult {
+        self.0.shutdown_with_timeout(timeout)
     }
 }
 
@@ -91,91 +270,14 @@ pub(crate) struct Phase {
 }
 
 pub(crate) struct Trace {
-    pub(crate) id: String,
-    parent: Option<String>,
-    pub(crate) started: Instant,
-    unix_start: u128,
+    span: Span,
+    context: Context,
+    started: Instant,
+    wall_start: SystemTime,
 }
 
 impl Trace {
-    pub(crate) fn new(headers: &HeaderMap, call_id: &str, started: Instant) -> Option<Self> {
-        let parent = headers
-            .get("traceparent")
-            .and_then(|value| value.to_str().ok())
-            .and_then(parse_parent);
-        if parent.is_some_and(|(_, _, sampled)| !sampled) {
-            return None;
-        }
-        Some(Self {
-            id: parent.map_or_else(
-                || call_id.replace('-', ""),
-                |(trace, _, _)| trace.to_owned(),
-            ),
-            parent: parent.map(|(_, span, _)| span.to_owned()),
-            started,
-            unix_start: SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .ok()?
-                .as_nanos(),
-        })
+    pub(crate) fn id(&self) -> TraceId {
+        self.context.span().span_context().trace_id()
     }
-
-    pub(crate) fn payload(&self, call_id: &str, phases: &[Phase], attributes: &[Value]) -> Value {
-        let root = fingerprint(&format!("{call_id}:model_call"));
-        let timestamp = |instant: Instant| {
-            (self.unix_start + instant.saturating_duration_since(self.started).as_nanos())
-                .to_string()
-        };
-        let mut spans = Vec::with_capacity(phases.len() + 1);
-        let mut model_call = json!({
-            "traceId": self.id, "spanId": root, "name": "gateway.model_call", "kind": 2,
-            "startTimeUnixNano": self.unix_start.to_string(), "endTimeUnixNano": timestamp(Instant::now()),
-            "attributes": attributes, "flags": 1,
-        });
-        if let Some(parent) = &self.parent {
-            model_call["parentSpanId"] = json!(parent);
-        }
-        spans.push(model_call);
-        for (index, phase) in phases.iter().enumerate() {
-            let mut span = json!({
-                "traceId": self.id, "spanId": fingerprint(&format!("{call_id}:{index}")),
-                "parentSpanId": root, "name": phase.name, "kind": 1, "flags": 1,
-                "startTimeUnixNano": timestamp(phase.start), "endTimeUnixNano": timestamp(phase.end),
-            });
-            if let Some(result) = phase.result {
-                span["attributes"] = json!([attribute("result", result)]);
-            }
-            spans.push(span);
-        }
-        json!({"resourceSpans": [{
-            "resource": {"attributes": [attribute("service.name", "powercontext-gateway")]},
-            "scopeSpans": [{"scope": {"name": "pc-gateway"}, "spans": spans}]
-        }]})
-    }
-}
-
-pub(crate) fn attribute(key: &str, value: &str) -> Value {
-    json!({"key": key, "value": {"stringValue": value}})
-}
-
-fn parse_parent(value: &str) -> Option<(&str, &str, bool)> {
-    let mut parts = value.split('-');
-    let (version, trace, parent, flags) =
-        (parts.next()?, parts.next()?, parts.next()?, parts.next()?);
-    let lower_hex = |s: &str| {
-        s.bytes()
-            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
-    };
-    if version != "00"
-        || parts.next().is_some()
-        || trace.len() != 32
-        || parent.len() != 16
-        || flags.len() != 2
-        || ![trace, parent, flags].into_iter().all(lower_hex)
-        || trace.bytes().all(|b| b == b'0')
-        || parent.bytes().all(|b| b == b'0')
-    {
-        return None;
-    }
-    Some((trace, parent, u8::from_str_radix(flags, 16).ok()? & 1 == 1))
 }

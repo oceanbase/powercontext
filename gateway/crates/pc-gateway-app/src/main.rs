@@ -295,6 +295,7 @@ async fn main() {
             .then(|| std::env::var_os("CLAUDE_CLI_EXECUTABLE").unwrap_or_else(|| "claude".into())),
     );
 
+    let exporter = otlp::Exporter::from_env().await;
     let state = Arc::new(AppState {
         executor: Arc::new(
             Executor::new(
@@ -311,8 +312,11 @@ async fn main() {
             .with_capture_batch_limit(capture_batch)
             .with_core_enforcement(capabilities.as_ref().is_none_or(|caps| caps.enforcing)),
         ),
+        telemetry: Arc::new(telemetry::Telemetry::new(
+            evidence.clone(),
+            exporter.clone(),
+        )),
         evidence,
-        telemetry: Arc::new(telemetry::Telemetry::new(otlp::Exporter::from_env())),
         upstream_profile: std::env::var("PC_GATEWAY_UPSTREAM_PROFILE")
             .unwrap_or_else(|_| "default".into()),
         upstream_chat,
@@ -370,6 +374,9 @@ async fn main() {
         deadlines
     })
     .await;
+    if let Some(exporter) = exporter {
+        exporter.shutdown().await;
+    }
     let totals = executor.turn_counters();
     tracing::info!(
         user_turn = totals.user_turn,

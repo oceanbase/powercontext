@@ -1757,8 +1757,8 @@ pub(crate) mod tests {
                 ),
                 std::num::NonZeroU32::new(2).unwrap(),
             )),
+            telemetry: Arc::new(crate::telemetry::Telemetry::new(evidence.clone(), exporter)),
             evidence,
-            telemetry: Arc::new(crate::telemetry::Telemetry::new(exporter)),
             upstream_profile: "test".into(),
             upstream_chat: format!("{base}/v1/chat/completions"),
             upstream_responses: format!("{base}/v1/responses"),
@@ -2225,6 +2225,7 @@ pub(crate) mod tests {
     /// 只用于取上游通道的网关状态，不连接 Core 或上游。
     fn channel_state(subscription: Option<pc_gateway_auth::SubscriptionAuth>) -> Arc<AppState> {
         use pc_gateway_core::{Executor, HttpGateClient};
+        let evidence = Arc::new(pc_gateway_evidence::NoopEvidenceSink);
         Arc::new(AppState {
             executor: Arc::new(Executor::new(
                 crate::link::CoreLink::Http(HttpGateClient::with_token("http://127.0.0.1:9", None)),
@@ -2233,8 +2234,8 @@ pub(crate) mod tests {
                 ),
                 std::num::NonZeroU32::new(1).unwrap(),
             )),
-            evidence: Arc::new(pc_gateway_evidence::NoopEvidenceSink),
-            telemetry: Arc::new(crate::telemetry::Telemetry::default()),
+            telemetry: Arc::new(crate::telemetry::Telemetry::new(evidence.clone(), None)),
+            evidence,
             upstream_profile: "test".into(),
             upstream_chat: String::new(),
             upstream_responses: "https://chatgpt.com/backend-api/codex/responses".into(),
@@ -3127,11 +3128,15 @@ pub(crate) mod tests {
             );
             axum::serve(listener, app).await.unwrap();
         });
-        let exporter =
-            crate::otlp::Exporter::new(&endpoint, "Authorization=Basic%20dGVzdA%3D%3D").unwrap();
+        let exporter = crate::otlp::Exporter::new(
+            &endpoint,
+            [("Authorization".into(), "Basic%20dGVzdA%3D%3D".into())].into(),
+        )
+        .await
+        .unwrap();
         let (router, server, _) = lifecycle_router_with_telemetry(
             Arc::new(pc_gateway_evidence::NoopEvidenceSink),
-            Some(exporter),
+            Some(exporter.clone()),
         )
         .await;
         let trace_id = "4bf92f3577b34da6a3ce929d0e0e4736";
@@ -3140,6 +3145,8 @@ pub(crate) mod tests {
             .method("POST").uri("/gateway/v1/responses")
             .header(header::AUTHORIZATION, "Bearer gateway-key")
             .header("traceparent", format!("00-{trace_id}-{parent_id}-01"))
+            .header("tracestate", "vendor=private-tracestate")
+            .header("baggage", "vendor=private-baggage")
             .body(axum::body::Body::from(
                 r#"{"model":"private-model","input":[{"role":"user","content":"private-prompt"},{"type":"function_call_output","call_id":"private-tool-id","output":"private-output"},{"role":"developer","content":"private-developer"}],"store":false}"#,
             )).unwrap();
@@ -3148,6 +3155,7 @@ pub(crate) mod tests {
         axum::body::to_bytes(response.into_body(), 1024 * 1024)
             .await
             .unwrap();
+        exporter.shutdown().await;
         let payload = tokio::time::timeout(std::time::Duration::from_secs(3), exports.recv())
             .await
             .unwrap()
@@ -3198,6 +3206,38 @@ pub(crate) mod tests {
             .unwrap()
             .contains(&format!(" # {{trace_id=\"{trace_id}\"}}")));
         receiver.abort();
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn gateway_model_call_succeeds_when_otlp_collector_is_unreachable() {
+        use tower::ServiceExt;
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let endpoint = format!("http://{}/v1/traces", listener.local_addr().unwrap());
+        drop(listener);
+        let exporter = crate::otlp::Exporter::new(&endpoint, Default::default())
+            .await
+            .unwrap();
+        let (router, server, _) = lifecycle_router_with_telemetry(
+            Arc::new(pc_gateway_evidence::NoopEvidenceSink),
+            Some(exporter.clone()),
+        )
+        .await;
+        let request = Request::builder()
+            .method("POST")
+            .uri("/gateway/v1/responses")
+            .header(header::AUTHORIZATION, "Bearer gateway-key")
+            .body(axum::body::Body::from(
+                r#"{"model":"private-model","input":"private-prompt","store":false}"#,
+            ))
+            .unwrap();
+        let response = router.oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let bytes = axum::body::to_bytes(response.into_body(), 1024 * 1024)
+            .await
+            .unwrap();
+        assert!(String::from_utf8_lossy(&bytes).contains("SYNTHETIC_SENSITIVE_RESPONSE"));
+        exporter.shutdown().await;
         server.abort();
     }
 

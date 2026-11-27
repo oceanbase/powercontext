@@ -425,7 +425,6 @@ where
             if call.inject_context {
                 self.enrich(
                     &mut call,
-                    evidence,
                     RecallPolicy { kind, reprepare },
                     replay,
                     renderer.message_list_key(),
@@ -995,7 +994,6 @@ where
     async fn enrich(
         &self,
         call: &mut ManagedCall,
-        evidence: &dyn EvidenceSink,
         policy: RecallPolicy,
         replay: Option<(&str, u64)>,
         list_key: &str,
@@ -1017,13 +1015,12 @@ where
         }
         let prepared = match cached {
             Some(prepared) => {
-                evidence.record_prepare(PrepareResult::Replay);
+                recording.sink().record_prepare(PrepareResult::Replay);
                 prepared
             }
             None => {
-                let Some((prepared, expires_at)) = self
-                    .prepare_turn(call, evidence, recording, execution)
-                    .await
+                let Some((prepared, expires_at)) =
+                    self.prepare_turn(call, recording, execution).await
                 else {
                     return;
                 };
@@ -1057,10 +1054,10 @@ where
     async fn prepare_turn(
         &self,
         call: &ManagedCall,
-        evidence: &dyn EvidenceSink,
         recording: &mut CallRecorder<'_>,
         execution: &Execution,
     ) -> Option<(Option<PreparedBlock>, Option<String>)> {
+        let evidence = recording.sink();
         let Some(query) = last_user_text(&call.request) else {
             evidence.record_prepare(PrepareResult::Skipped);
             return None;

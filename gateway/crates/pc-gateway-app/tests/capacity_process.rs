@@ -510,7 +510,7 @@ async fn ingress_and_final_wire_bytes_obey_both_limits() {
     // Client bytes fit; renderer-added defaults and control-character escaping make final bytes larger.
     let gateway = Gateway::start(capabilities(json!(256)), 4096, false, false, false, false).await;
     let mut body = "{\"model\":\"test\",\"messages\":[{\"role\":\"user\",\"content\":\"".to_owned();
-    body.push_str(&"\\^A".repeat(31));
+    body.push_str(&"\\u0001".repeat(31));
     body.push_str("\"}]}");
     assert!(body.len() <= 256);
     let (status, result) = gateway.request(CHAT, body, false).await;

@@ -15,7 +15,7 @@
 use crate::{metrics::Metrics, otlp, proxy::SharedProxy};
 use axum::{
     extract::State,
-    http::{header, HeaderMap},
+    http::{header, HeaderMap, StatusCode},
     response::IntoResponse,
 };
 use pc_gateway_evidence::{
@@ -25,17 +25,14 @@ use pc_gateway_evidence::{
 use pc_gateway_types::TurnKind;
 use std::{
     sync::{
-        atomic::{AtomicBool, AtomicUsize, Ordering},
+        atomic::{AtomicBool, Ordering},
         Arc, Mutex, MutexGuard, OnceLock,
     },
     time::Instant,
 };
 
-#[derive(Default)]
 pub(crate) struct Telemetry {
-    metrics: Mutex<Metrics>,
-    in_flight: AtomicUsize,
-    admitted: AtomicUsize,
+    metrics: Metrics,
     exporter: Option<otlp::Exporter>,
 }
 
@@ -44,10 +41,10 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 }
 
 impl Telemetry {
-    pub(crate) fn new(exporter: Option<otlp::Exporter>) -> Self {
+    pub(crate) fn new(evidence: Arc<dyn EvidenceSink>, exporter: Option<otlp::Exporter>) -> Self {
         Self {
+            metrics: Metrics::new(evidence),
             exporter,
-            ..Self::default()
         }
     }
 
@@ -58,16 +55,15 @@ impl Telemetry {
         route: &'static str,
         call_id: &str,
     ) -> Arc<ModelCall> {
-        self.in_flight.fetch_add(1, Ordering::Relaxed);
+        self.metrics.in_flight.inc();
         let trace = self
             .exporter
             .as_ref()
-            .and_then(|_| otlp::Trace::new(headers, call_id, Instant::now()));
+            .and_then(|exporter| exporter.start(headers, route, call_id));
         Arc::new(ModelCall {
             telemetry: self.clone(),
             evidence,
             route,
-            call_id: call_id.to_owned(),
             trace,
             admitted: AtomicBool::new(false),
             blocked_by_core: AtomicBool::new(false),
@@ -80,29 +76,24 @@ impl Telemetry {
 }
 
 pub(crate) async fn scrape(State((state, _)): State<SharedProxy>) -> impl IntoResponse {
-    let telemetry = &state.telemetry;
-    let stats = state.evidence.evidence_stats().unwrap_or_default();
-    let metrics = lock(&telemetry.metrics).clone();
-    let text = metrics.render(
-        telemetry.in_flight.load(Ordering::Relaxed),
-        telemetry.admitted.load(Ordering::Relaxed),
-        stats.dropped,
-        stats.write_failed,
-    );
-    (
+    let text = state
+        .telemetry
+        .metrics
+        .render()
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    Ok::<_, StatusCode>((
         [(
             header::CONTENT_TYPE,
             "application/openmetrics-text; version=1.0.0; charset=utf-8",
         )],
         text,
-    )
+    ))
 }
 
 pub(crate) struct ModelCall {
     telemetry: Arc<Telemetry>,
     evidence: Arc<dyn EvidenceSink>,
     route: &'static str,
-    call_id: String,
     trace: Option<otlp::Trace>,
     admitted: AtomicBool,
     blocked_by_core: AtomicBool,
@@ -137,22 +128,23 @@ impl ModelCall {
 
 impl Drop for ModelCall {
     fn drop(&mut self) {
-        self.telemetry.in_flight.fetch_sub(1, Ordering::Relaxed);
+        self.telemetry.metrics.in_flight.dec();
         if self.admitted.load(Ordering::Relaxed) {
-            self.telemetry.admitted.fetch_sub(1, Ordering::Relaxed);
+            self.telemetry.metrics.admitted.dec();
         }
-        if let (Some(exporter), Some(trace), Some((terminal, attempts, duration, turn_kind))) =
-            (&self.telemetry.exporter, &self.trace, self.completed.get())
-        {
-            let attributes = [
-                otlp::attribute("call_id", &self.call_id),
-                otlp::attribute("route", self.route),
-                otlp::attribute("turn_kind", turn_kind),
-                otlp::attribute("terminal", terminal),
-                otlp::attribute("attempt_count", &attempts.to_string()),
-                otlp::attribute("duration_ms", &duration.to_string()),
-            ];
-            exporter.enqueue(trace.payload(&self.call_id, &lock(&self.phases), &attributes));
+        if let (Some(exporter), Some(trace), Some(&(terminal, attempts, duration, turn_kind))) = (
+            &self.telemetry.exporter,
+            self.trace.take(),
+            self.completed.get(),
+        ) {
+            exporter.finish(
+                trace,
+                &lock(&self.phases),
+                terminal,
+                attempts,
+                duration,
+                turn_kind,
+            );
         }
     }
 }
@@ -196,22 +188,28 @@ impl EvidenceSink for ModelCall {
             .completed
             .set((terminal, call.attempts, call.duration_ms, turn_kind));
 
-        let mut metrics = lock(&self.telemetry.metrics);
-        metrics.increment(
-            "calls",
-            format!(
-                "{{route=\"{}\",turn_kind=\"{}\",terminal=\"{terminal}\",outcome=\"{outcome}\"}}",
-                self.route, turn_kind
-            ),
-            1,
-        );
-        let exemplar = self.trace.as_ref().map(|trace| trace.id.as_str());
-        metrics.observe("call_duration_ms", call.duration_ms, exemplar);
+        let metrics = &self.telemetry.metrics;
+        metrics
+            .calls
+            .get_or_create(&[
+                ("route", self.route),
+                ("turn_kind", turn_kind),
+                ("terminal", terminal),
+                ("outcome", outcome),
+            ])
+            .inc();
+        let exemplar = self
+            .trace
+            .as_ref()
+            .map(|trace| [("trace_id", trace.id().to_string())]);
+        metrics
+            .call_duration
+            .observe(call.duration_ms as f64, exemplar, None);
         if let Some(value) = call.release_decision_ms {
-            metrics.observe("release_decision_ms", value, None);
+            metrics.release_decision.observe(value as f64);
         }
         if let Some(value) = call.release_authorized_ms {
-            metrics.observe("release_authorized_ms", value, None);
+            metrics.release_authorized.observe(value as f64);
         }
         match call.terminal {
             Terminal::Blocked => {
@@ -222,13 +220,18 @@ impl EvidenceSink for ModelCall {
                 } else {
                     "local"
                 };
-                metrics.increment("blocked", format!("{{reason_class=\"{class}\"}}"), 1);
+                metrics
+                    .blocked
+                    .get_or_create(&[("reason_class", class)])
+                    .inc();
             }
-            Terminal::Degraded => metrics.increment("degraded", String::new(), 1),
+            Terminal::Degraded => {
+                metrics.degraded.inc();
+            }
             _ => {}
         }
         if call.sending == Sending::PossiblySent {
-            metrics.increment("send_indeterminate", String::new(), 1);
+            metrics.send_indeterminate.inc();
         }
         // A call stopped before sending has no provider usage to report as missing.
         if call.sending != Sending::ResponseReceived {
@@ -246,16 +249,18 @@ impl EvidenceSink for ModelCall {
                 UsageCompleteness::Unknown | UsageCompleteness::Estimated => None,
             };
             match (usage.tokens, completeness) {
-                (Some(tokens), Some(completeness)) => metrics.increment(
-                    "tokens",
-                    format!("{{direction=\"{direction}\",completeness=\"{completeness}\"}}"),
-                    tokens,
-                ),
-                _ => metrics.increment(
-                    "tokens_missing",
-                    format!("{{direction=\"{direction}\"}}"),
-                    1,
-                ),
+                (Some(tokens), Some(completeness)) => {
+                    metrics
+                        .tokens
+                        .get_or_create(&[("direction", direction), ("completeness", completeness)])
+                        .inc_by(tokens);
+                }
+                _ => {
+                    metrics
+                        .tokens_missing
+                        .get_or_create(&[("direction", direction)])
+                        .inc();
+                }
             }
         }
     }
@@ -272,15 +277,14 @@ impl EvidenceSink for ModelCall {
             AttemptOutcome::TimeoutAwaitingResponse => "timeout_awaiting_response",
             AttemptOutcome::BufferLimitExceeded => "buffer_limit_exceeded",
         };
-        let mut metrics = lock(&self.telemetry.metrics);
-        metrics.increment(
-            "attempts",
-            format!("{{route=\"{}\",attempt_outcome=\"{outcome}\"}}", self.route),
-            1,
-        );
-        metrics.observe("attempt_duration_ms", attempt.duration_ms, None);
+        let metrics = &self.telemetry.metrics;
+        metrics
+            .attempts
+            .get_or_create(&[("route", self.route), ("attempt_outcome", outcome)])
+            .inc();
+        metrics.attempt_duration.observe(attempt.duration_ms as f64);
         if let Some(value) = attempt.response_first_byte_ms {
-            metrics.observe("response_first_byte_ms", value, None);
+            metrics.response_first_byte.observe(value as f64);
         }
     }
 
@@ -305,24 +309,24 @@ impl EvidenceSink for ModelCall {
     }
 
     fn record_stage(&self, stage: CallStage, started: Instant) {
+        let metrics = &self.telemetry.metrics;
         let (name, histogram) = match stage {
             CallStage::Classify => ("classify", None),
             CallStage::Enrich => ("enrich", None),
-            CallStage::Prepare => ("prepare", Some("prepare_duration_ms")),
-            CallStage::BeforeSend => ("check.before_send", Some("check_before_send_duration_ms")),
+            CallStage::Prepare => ("prepare", Some(&metrics.prepare_duration)),
+            CallStage::BeforeSend => (
+                "check.before_send",
+                Some(&metrics.check_before_send_duration),
+            ),
             CallStage::BeforeRelease => (
                 "check.before_release",
-                Some("check_before_release_duration_ms"),
+                Some(&metrics.check_before_release_duration),
             ),
             CallStage::Upstream => ("upstream.send", None),
         };
         let end = Instant::now();
         if let Some(histogram) = histogram {
-            lock(&self.telemetry.metrics).observe(
-                histogram,
-                end.duration_since(started).as_millis() as u64,
-                None,
-            );
+            histogram.observe(end.duration_since(started).as_millis() as f64);
         }
         let result = (self.trace.is_some() && matches!(stage, CallStage::Enrich))
             .then(|| lock(&self.prepare_result).take())
@@ -341,19 +345,23 @@ impl EvidenceSink for ModelCall {
         if self.trace.is_some() {
             *lock(&self.prepare_result) = Some(result);
         }
-        lock(&self.telemetry.metrics).increment("prepare", format!("{{result=\"{result}\"}}"), 1);
+        self.telemetry
+            .metrics
+            .prepare
+            .get_or_create(&[("result", result)])
+            .inc();
     }
 
     fn record_context_refresh(&self) {
-        lock(&self.telemetry.metrics).increment("context_refresh", String::new(), 1);
+        self.telemetry.metrics.context_refresh.inc();
     }
 
     fn record_admission(&self, contexts: usize, bytes: u64) {
         if !self.admitted.swap(true, Ordering::Relaxed) {
-            self.telemetry.admitted.fetch_add(1, Ordering::Relaxed);
-            let mut metrics = lock(&self.telemetry.metrics);
-            metrics.increment("injected_contexts", String::new(), contexts as u64);
-            metrics.increment("injected_bytes", String::new(), bytes);
+            let metrics = &self.telemetry.metrics;
+            metrics.admitted.inc();
+            metrics.injected_contexts.inc_by(contexts as u64);
+            metrics.injected_bytes.inc_by(bytes);
         }
     }
 
@@ -362,10 +370,11 @@ impl EvidenceSink for ModelCall {
     }
 
     fn record_withhold(&self, retryable: bool) {
-        lock(&self.telemetry.metrics).increment(
-            "withheld",
-            format!("{{retryable=\"{retryable}\"}}"),
-            1,
-        );
+        let label = if retryable { "true" } else { "false" };
+        self.telemetry
+            .metrics
+            .withheld
+            .get_or_create(&[("retryable", label)])
+            .inc();
     }
 }

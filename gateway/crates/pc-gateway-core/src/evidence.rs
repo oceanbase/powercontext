@@ -140,6 +140,9 @@ impl<'a> CallRecorder<'a> {
     pub(crate) fn turn_kind(&mut self, kind: pc_gateway_types::TurnKind) {
         self.call.turn_kind = Some(kind);
     }
+    pub(crate) fn sink(&self) -> &'a dyn EvidenceSink {
+        self.sink
+    }
     pub(crate) fn prepare_skipped(&mut self) {
         self.call.prepare_skipped = true;
     }
