@@ -1566,8 +1566,8 @@ Apache License
 
 ## Notice 20
 
-- jieba-macros 0.11.0: jieba-rs-LICENSE
-- jieba-rs 0.11.0: jieba-rs-LICENSE
+- jieba-macros 0.11.0: rs-jieba.LICENSE
+- jieba-rs 0.11.0: rs-jieba.LICENSE
 
 ```text
 MIT License

@@ -27,7 +27,7 @@ from powercontext.builtin.artifacts.search import analyze_text, analyze_text_wit
 
 
 def main() -> None:
-    notices = distribution("powercontext").read_text("licenses/LICENSES/lexical/THIRD_PARTY_NOTICES.md")
+    notices = distribution("powercontext").read_text("licenses/LICENSES/lex/notice.md")
     if not notices or "zstd-sys" not in notices or "Python Jieba 0.42.1" not in notices:
         raise SystemExit("The installed native wheel is missing its third-party notices")  # noqa: TRY003 - installed distribution acceptance.
     extension = Path(_lexical.__file__).resolve()

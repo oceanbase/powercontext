@@ -16,7 +16,7 @@
 """Collect notices for the lexical crate's locked normal dependency closure.
 
 Run after changing lexical/Cargo.lock. Cargo downloads the exact locked sources;
-upstream notices missing from crate archives are retained in LICENSES/lexical/.
+upstream notices missing from crate archives are retained in LICENSES/lex/.
 """
 
 import argparse
@@ -27,7 +27,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 CRATE = ROOT / "src/powercontext/builtin/artifacts/lexical"
-NOTICES = ROOT / "LICENSES/lexical"
+NOTICES = ROOT / "LICENSES/lex"
 
 
 def render():
@@ -67,7 +67,7 @@ def render():
             if path.is_file() and path.name.upper().startswith(("LICENSE", "COPYING", "COPYRIGHT", "NOTICE"))
         )
         if name in {"jieba-rs", "jieba-macros"} and package["version"] == "0.11.0":
-            files = [NOTICES / "jieba-rs-LICENSE"]
+            files = [NOTICES / "rs-jieba.LICENSE"]
         elif name in {"include-flate-codegen", "include-flate-compress"}:
             parent = next(
                 item for item in packages if item["name"] == "include-flate" and item["version"] == package["version"]
@@ -82,7 +82,7 @@ def render():
             relative = path.relative_to(root).as_posix() if path.is_relative_to(root) else path.name
             label = f"{name} {package['version']}: {relative}"
             sections.setdefault(text, []).append(label)
-    dictionary = (NOTICES / "python-jieba-LICENSE").read_text(encoding="utf-8").strip()
+    dictionary = (NOTICES / "py-jieba.LICENSE").read_text(encoding="utf-8").strip()
     sections.setdefault(dictionary, []).append("Python Jieba 0.42.1: embedded dict.txt")
     digest = hashlib.sha256((CRATE / "Cargo.lock").read_text(encoding="utf-8").encode()).hexdigest()
     lines = [
@@ -111,7 +111,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--check", action="store_true", help="Reject stale notices without rewriting them")
     args = parser.parse_args()
-    path = NOTICES / "THIRD_PARTY_NOTICES.md"
+    path = NOTICES / "notice.md"
     content = render()
     if args.check:
         if path.read_text(encoding="utf-8") != content:

@@ -348,6 +348,20 @@ def test_windows_path_budget_covers_real_default_staging_and_utf16() -> None:
         measure_windows_paths(PureWindowsPath("C:/" + "a" * 245), [{"path": "x"}])
 
 
+def test_native_license_payload_fits_candidate_staging_budget() -> None:
+    root = PureWindowsPath(
+        "C:/Users/runneradmin/AppData/Local/Programs/PowerContext/managed/staging/resource-" + "0" * 32
+    )
+    version = os.environ.get("PACKAGE_VERSION", "0.0.0+candidate." + "9" * 40)
+    licenses = [
+        {"path": (f"Lib/site-packages/powercontext-{version}.dist-info/licenses/" + path.relative_to(_ROOT).as_posix())}
+        for path in sorted((_ROOT / "LICENSES/lex").glob("*"))
+        if path.is_file()
+    ]
+    measured = measure_windows_paths(root, [{"path": "python.exe"}, {"path": "pythonw.exe"}, *licenses])
+    assert measured["longest_file_utf16_units"] <= 259
+
+
 def test_foreign_target_is_not_a_cross_compilation_request() -> None:
     for target in ("linux-x86_64", "macos-arm64", "macos-x86_64", "windows-x86_64"):
         target_spec(target, native=False)
