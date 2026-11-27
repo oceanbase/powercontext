@@ -73,7 +73,7 @@ impl Metrics {
         let mut registry = Registry::with_prefix("powercontext_gateway");
         registry.register_collector(Box::new(EvidenceCounters(evidence)));
         let buckets = || BOUNDS.into_iter().map(|bound| bound as f64);
-        Self {
+        let metrics = Self {
             in_flight: metric(
                 &mut registry,
                 "in_flight",
@@ -207,7 +207,38 @@ impl Metrics {
                 Histogram::new(buckets()),
             ),
             registry,
+        };
+
+        // Keep dashboard families visible before their first event. Only seed
+        // existing bounded labels; calls still require observed model traffic.
+        for direction in ["input", "output", "cache_read", "cache_write"] {
+            drop(
+                metrics
+                    .tokens_missing
+                    .get_or_create(&[("direction", direction)]),
+            );
+            for completeness in ["known", "reconciled"] {
+                drop(
+                    metrics
+                        .tokens
+                        .get_or_create(&[("direction", direction), ("completeness", completeness)]),
+                );
+            }
         }
+        for result in ["hit_replay", "prepared", "skipped", "failed", "empty"] {
+            drop(metrics.prepare.get_or_create(&[("result", result)]));
+        }
+        for reason_class in ["local", "core_send", "core_release"] {
+            drop(
+                metrics
+                    .blocked
+                    .get_or_create(&[("reason_class", reason_class)]),
+            );
+        }
+        for retryable in ["false", "true"] {
+            drop(metrics.withheld.get_or_create(&[("retryable", retryable)]));
+        }
+        metrics
     }
 
     pub(crate) fn render(&self) -> Result<String, fmt::Error> {

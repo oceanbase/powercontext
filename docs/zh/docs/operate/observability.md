@@ -409,8 +409,10 @@ Rust 网关在 `/gateway/metrics` 导出进程级 OpenMetrics，独立运行时�
 以下网关指标名称以 `powercontext_gateway_` 开头。
 
 - `calls_total` 按路由、回合类型、执行终态和发送结果统计受管理的模型调用。回合类型包括
-  `user_turn`、`tool_continuation`、`assistant_only` 和 `empty`。入口校验未通过的请求及抽取请求
-  不计入该指标。`attempts_total` 按路由和尝试结果统计执行器向传输层交接的次数。
+  `user_turn`、`tool_continuation`、`assistant_only` 和 `empty`。`outcome` 标签包括 `no_send`（未尝试发送）、
+  `definitely_not_sent`（确认未发送）、`possibly_sent`（可能已发送但未收到完整响应）、
+  `upstream_error`（收到 HTTP 状态码为 400 或更高的响应）和 `response_received`（收到其他完整上游响应）。
+  入口校验未通过的请求及抽取请求不计入该指标。`attempts_total` 按路由和尝试结果统计执行器向传输层交接的次数。
 - `in_flight` 涵盖模型入口至可观测的框架响应体处理。`admitted_in_flight` 仅统计通过 Core 发送准入的
   调用。进程级仪表值无法证明客户端已收到响应。
 - `tokens_total` 按方向与完整性累计服务商报告的数量。`tokens_missing_total` 统计对应方向缺少数量的完整

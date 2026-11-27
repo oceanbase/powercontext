@@ -463,8 +463,11 @@ handler. The [reference stack](reference-observability-stack.md) can scrape the 
 The `powercontext_gateway_` prefix identifies these metric families.
 
 - `calls_total` groups managed model calls by route, turn kind, execution terminal, and send outcome.
-  Turn kinds are `user_turn`, `tool_continuation`, `assistant_only`, and `empty`. Invalid ingress and extraction
-  requests are outside this counter. `attempts_total` counts executor handoffs by route and attempt outcome.
+  Turn kinds are `user_turn`, `tool_continuation`, `assistant_only`, and `empty`. The `outcome` label uses
+  `no_send` (no send attempted), `definitely_not_sent` (confirmed unsent), `possibly_sent` (possibly sent without
+  a complete response), `upstream_error` (response with HTTP status 400 or higher), or `response_received`
+  (other complete upstream responses). Invalid ingress and extraction requests are outside this counter.
+  `attempts_total` counts executor handoffs by route and attempt outcome.
 - `in_flight` covers model ingress through framework body observation when available. `admitted_in_flight` counts
   the subset with a validated Core send admission. These process gauges do not establish delivery to the client.
 - `tokens_total` sums provider-reported counts by direction and completeness. `tokens_missing_total` counts

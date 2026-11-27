@@ -569,16 +569,31 @@ def _check_model_gateway(client: httpx.Client, target: str, *, require_traffic: 
     if not result or any(float(row["value"][1]) != 1 for row in result):
         raise ObservabilityError("Model Gateway metrics target is unavailable or stale")  # noqa: TRY003
     if require_traffic:
+        # Match the metric names referenced by the packaged Model Gateway dashboard.
         names = {
-            "powercontext_gateway_calls_total",
+            "powercontext_gateway_admitted_in_flight",
+            "powercontext_gateway_blocked_total",
             "powercontext_gateway_call_duration_ms_bucket",
+            "powercontext_gateway_calls_total",
+            "powercontext_gateway_degraded_total",
+            "powercontext_gateway_evidence_dropped_total",
+            "powercontext_gateway_evidence_write_failed_total",
+            "powercontext_gateway_in_flight",
+            "powercontext_gateway_prepare_total",
+            "powercontext_gateway_response_first_byte_ms_bucket",
+            "powercontext_gateway_send_indeterminate_total",
+            "powercontext_gateway_tokens_missing_total",
+            "powercontext_gateway_tokens_total",
+            "powercontext_gateway_withheld_total",
         }
         selector = f'{{{labels},__name__=~"{"|".join(sorted(names))}"}}'
         samples = _json(client, "/prometheus/api/v1/query", query=selector)["data"]["result"]
-        if not names.issubset(row["metric"]["__name__"] for row in samples):
-            raise ObservabilityError(  # noqa: TRY003
-                "Model Gateway traffic metrics are missing; send a model call and wait for a scrape"
-            )
+        missing = names.difference(row["metric"]["__name__"] for row in samples)
+        if missing:
+            message = "Model Gateway dashboard metrics are missing: " + ", ".join(sorted(missing))
+            if "powercontext_gateway_calls_total" in missing:
+                message += "; send a model call and wait for a scrape"
+            raise ObservabilityError(message)
     typer.echo("Model Gateway metrics: current scrape is healthy")
 
 

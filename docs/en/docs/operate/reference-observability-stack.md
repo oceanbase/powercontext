@@ -218,8 +218,10 @@ Send a regular Chat Completions or Responses call through the Gateway and wait f
 powercontext observability check --exercise
 ```
 
-The check verifies a current Gateway scrape and the model-call metric families used by Grafana. The exercise
-generates one read-only Server request. Supply Gateway model traffic separately. Open **PowerContext · Model Gateway**
+The check verifies a current Gateway scrape and that every metric used by the Gateway dashboard is queryable.
+It requires observed model traffic but does not require blocks, withholds, or other unusual outcomes; those counters
+can remain at zero. The exercise generates one read-only Server request. Supply Gateway model traffic separately.
+Open **PowerContext · Model Gateway**
 (`pc-gateway`) in Grafana. Select an exemplar on the call duration panel to open the sampled call in Tempo.
 The same Collector can deliver Gateway traces to Phoenix. See [Gateway telemetry](observability.md#gateway-telemetry)
 for units, label definitions, and sampling. To add the monitored Gateway to an existing managed deployment without

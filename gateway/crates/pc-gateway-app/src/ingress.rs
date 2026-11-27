@@ -3037,6 +3037,34 @@ pub(crate) mod tests {
     async fn gateway_scrape_reports_model_traffic() {
         use tower::ServiceExt;
         let (router, server, _) = lifecycle_router().await;
+        let idle_response = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/gateway/metrics")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(idle_response.status(), StatusCode::OK);
+        let idle_bytes = axum::body::to_bytes(idle_response.into_body(), 1024 * 1024)
+            .await
+            .unwrap();
+        let idle_scrape = std::str::from_utf8(&idle_bytes).unwrap();
+        for sample in [
+            r#"powercontext_gateway_tokens_total{direction="input",completeness="known"} 0"#,
+            r#"powercontext_gateway_tokens_missing_total{direction="cache_write"} 0"#,
+            r#"powercontext_gateway_prepare_total{result="prepared"} 0"#,
+            r#"powercontext_gateway_blocked_total{reason_class="core_send"} 0"#,
+            r#"powercontext_gateway_withheld_total{retryable="true"} 0"#,
+        ] {
+            assert!(
+                idle_scrape.lines().any(|line| line == sample),
+                "missing {sample}"
+            );
+        }
+        assert!(!idle_scrape.contains("powercontext_gateway_calls_total"));
         for (route, body) in [
             (
                 "chat/completions",

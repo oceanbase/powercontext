@@ -224,8 +224,9 @@ Docker 必须能够访问网关的 HTTP 监听地址。在 Linux 上通过宿主
 powercontext observability check --exercise
 ```
 
-该检查验证网关抓取当前可用，并确认 Grafana 使用的模型调用指标存在。演练只主动发送一个只读的
-Server 请求。网关模型流量需要单独发送。在 Grafana 中打开 **PowerContext · Model Gateway**
+该检查验证网关抓取当前可用，且网关仪表盘使用的所有指标均可查询。检查需要观测到模型流量，但不要求出现
+阻止、暂扣或其他少见结果；相应计数可以为零。演练只主动发送一个只读的 Server 请求。网关模型流量
+需要单独发送。在 Grafana 中打开 **PowerContext · Model Gateway**
 （`pc-gateway`）。选择调用耗时面板上的 exemplar，即可在 Tempo 中打开该采样调用。
 同一个 Collector 也可以将网关 trace 发送至 Phoenix。单位、标签定义和采样见
 [网关遥测](observability.md#gateway-telemetry)。要为已有托管部署添加网关监控并保留其配置，
