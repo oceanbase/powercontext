@@ -201,8 +201,7 @@ impl EvidenceSink for ModelCall {
             "calls",
             format!(
                 "{{route=\"{}\",turn_kind=\"{}\",terminal=\"{terminal}\",outcome=\"{outcome}\"}}",
-                self.route,
-                turn_kind
+                self.route, turn_kind
             ),
             1,
         );

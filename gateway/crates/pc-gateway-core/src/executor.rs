@@ -1021,8 +1021,9 @@ where
                 prepared
             }
             None => {
-                let Some((prepared, expires_at)) =
-                    self.prepare_turn(call, evidence, recording, execution).await
+                let Some((prepared, expires_at)) = self
+                    .prepare_turn(call, evidence, recording, execution)
+                    .await
                 else {
                     return;
                 };
