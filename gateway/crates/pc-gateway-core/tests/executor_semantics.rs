@@ -19,7 +19,9 @@ use pc_gateway_core::{
     LifecycleStopReason, ManagedCall, ManagedOutcome, ModelSendState, RequestControl,
     TurnCounterSnapshot,
 };
-use pc_gateway_evidence::{BufferedEvidenceSink, NoopEvidenceSink};
+use pc_gateway_evidence::{
+    BufferedEvidenceSink, CallEvidence, EvidenceSink, NoopEvidenceSink, PrepareResult,
+};
 use pc_gateway_protocol::{
     CanonicalMessage, CanonicalRequest, OutputLimits, RenderedPayload, Role, WireRenderer,
 };
@@ -297,6 +299,7 @@ fn call(degrade: DegradePolicy) -> ManagedCall {
         capture_prefix: false,
         conversation_id: None,
         sediment: false,
+        internal: false,
         prepared_contexts: Vec::new(),
     }
 }
@@ -2847,6 +2850,46 @@ async fn evidence_records_the_turn_kind_for_chat_and_responses_requests() {
         .map(|call| call.prepare_skipped)
         .collect();
     assert_eq!(skipped, vec![false, true, true, true, true]);
+}
+
+#[tokio::test]
+async fn cold_tool_continuation_records_one_prepare_skip() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    #[derive(Default)]
+    struct PrepareEvidence {
+        calls: BufferedEvidenceSink,
+        skipped: AtomicUsize,
+    }
+
+    impl EvidenceSink for PrepareEvidence {
+        fn record_call(&self, call: &CallEvidence) {
+            self.calls.record_call(call);
+        }
+
+        fn record_prepare(&self, result: PrepareResult) {
+            if matches!(result, PrepareResult::Skipped) {
+                self.skipped.fetch_add(1, Ordering::Relaxed);
+            }
+        }
+    }
+
+    let (executor, renderer, _transport, gate) = harness(allow_runs(1), vec![raw_response()], 2);
+    let evidence = PrepareEvidence::default();
+    let mut continuation = tool_loop_call("hello", 1, false);
+    continuation.conversation_id = Some("cold-tool-turn".into());
+    executor
+        .run(
+            request_control(),
+            continuation,
+            &RendererRef(renderer.clone()),
+            &evidence,
+        )
+        .await;
+
+    assert!(gate.prepare_queries.lock().unwrap().is_empty());
+    assert!(evidence.calls.calls()[0].prepare_skipped);
+    assert_eq!(evidence.skipped.load(Ordering::Relaxed), 1);
 }
 
 #[tokio::test]

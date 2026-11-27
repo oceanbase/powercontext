@@ -16,6 +16,7 @@ import asyncio
 import base64
 import logging
 from collections.abc import AsyncIterator
+from contextlib import AsyncExitStack
 from pathlib import Path
 from typing import cast
 
@@ -429,13 +430,24 @@ def test_remote_enrollment_rejects_non_loopback_cleartext_http() -> None:
     asyncio.run(scenario())
 
 
-def test_remote_enrollment_allows_non_loopback_cleartext_http_only_after_server_opt_in() -> None:
+@pytest.mark.parametrize("configured_server", [False, True], ids=["http-adapter", "configured-server"])
+def test_remote_enrollment_allows_non_loopback_cleartext_http_only_after_server_opt_in(
+    configured_server: bool, tmp_path: Path
+) -> None:
     async def scenario() -> None:
-        async with open_builtin_runtime(BuiltinConfig(database=SQLiteConfig())) as runtime:
-            app = create_app(
-                application=cast(ServerApplication, runtime),
-                allow_insecure_remote_http=True,
-            )
+        async with AsyncExitStack() as stack:
+            if configured_server:
+                app = create_server_app(
+                    settings=ServerSettings(
+                        database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'runtime.db'}"),
+                        mcp=McpConfig(enabled=False),
+                        allow_insecure_http=True,
+                    )
+                )
+                await stack.enter_async_context(app.router.lifespan_context(app))
+            else:
+                runtime = await stack.enter_async_context(open_builtin_runtime(BuiltinConfig(database=SQLiteConfig())))
+                app = create_app(application=cast(ServerApplication, runtime), allow_insecure_remote_http=True)
             async with httpx.AsyncClient(
                 transport=httpx.ASGITransport(app=app, client=("203.0.113.10", 43120)),
                 base_url="http://localhost",

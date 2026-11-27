@@ -1701,8 +1701,8 @@
           "content": {
             "type": "string",
             "minLength": 1,
-            "maxLength": 200000,
-            "description": "Raw integration content. Server-reserved payload schemas, including handoff receipts, are rejected on this generic capture operation and must be created through their dedicated workflow."
+            "maxLength": 1000000,
+            "description": "Raw integration content. Server-reserved payload schemas, including handoff receipts, are rejected on this generic capture operation and must be created through their dedicated workflow. The deployment's effective limit is reported by `GET /v1/source-limits` as `source_content_max_chars`."
           },
           "metadata": {
             "anyOf": [

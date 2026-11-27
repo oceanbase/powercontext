@@ -81,6 +81,8 @@ pub struct ManagedCall {
     /// 沉淀时保留本回合的上游请求与响应输出，供 Core 复用前缀缓存抽取记忆（#2413，默认关）。
     pub capture_prefix: bool,
     pub sediment: bool,
+    /// The host marked this request as a non-turn (`X-PowerContext-Turn: internal`).
+    pub internal: bool,
     pub prepared_contexts: Vec<PreparedContextLocation>,
 }
 
@@ -358,6 +360,7 @@ where
                 "messages" => Some(UsageMapping::OpenAiChat),
                 _ => None,
             },
+            call.internal,
         );
         let mut execution = control.start();
         let lifecycle = execution.lifecycle();
@@ -507,6 +510,7 @@ where
                                 capture_prefix: false,
                                 conversation_id: None,
                                 sediment: false,
+                                internal: call.internal,
                                 prepared_contexts: Vec::new(),
                             };
                             degraded_call.request.stream = call.request.stream;
@@ -1007,6 +1011,7 @@ where
         if cached.is_none() && !policy.allows_prepare() {
             self.turn_counters.record_skipped_prepare();
             recording.prepare_skipped();
+            recording.sink().record_prepare(PrepareResult::Skipped);
             tracing::debug!(
                 turn_kind = policy.kind.as_str(),
                 "skipping prepare for a non-user turn without a replay entry"
