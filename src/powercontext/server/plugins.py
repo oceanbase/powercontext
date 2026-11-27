@@ -864,13 +864,25 @@ class PluginManager:
         assert declared is not None and declared.collect is not None  # noqa: S101 - collecting plugins only
         schedule = declared.collect.schedule
         while True:
-            if isinstance(schedule, Interval):
-                delay = schedule.seconds
-            else:
-                zone = ZoneInfo(schedule.timezone or tzlocal.get_localzone_name())
-                now = datetime.now(UTC)
-                upcoming = CronTrigger.from_crontab(schedule.expression, timezone=zone).get_next_fire_time(None, now)
-                delay = 60.0 if upcoming is None else max(0.0, (upcoming - now).total_seconds())
+            try:
+                if isinstance(schedule, Interval):
+                    delay = schedule.seconds
+                else:
+                    # A machine without any time zone configuration has no local zone name;
+                    # UTC is tzlocal's documented default for that state.
+                    zone = ZoneInfo(schedule.timezone or tzlocal.get_localzone_name() or "UTC")
+                    now = datetime.now(UTC)
+                    upcoming = CronTrigger.from_crontab(schedule.expression, timezone=zone).get_next_fire_time(
+                        None, now
+                    )
+                    delay = 60.0 if upcoming is None else max(0.0, (upcoming - now).total_seconds())
+            except Exception as error:
+                # The load validated the declaration, so a failure here is this machine's time zone
+                # configuration. Keep the task alive like _tick does: retry the schedule after a
+                # default delay and collect nothing off-schedule; the other plugins keep collecting.
+                log_safely(logger, logging.WARNING, f"Plugin {manifest.name} schedule failed ({type(error).__name__})")
+                await asyncio.sleep(60.0)
+                continue
             await asyncio.sleep(delay)
             await self.request_collection(manifest.name)
 
