@@ -1,0 +1,471 @@
+{
+  "dataset_sha256": "0d19b20f8c5d5879aa8243f29dc4134c19ee7097d35da101dc2f789e57f10884",
+  "embedding": {
+    "fastembed": "0.9.1",
+    "files": {
+      "config.json": "9088751d39abbf86ec3d19ffca92ad62ad19075f7e59712e6c71217fa125d1d3",
+      "model_optimized.onnx": "1294ea4b6331115a353d81f96b85e8c8d7fdcc284453d5b2fab5b016230aad38",
+      "special_tokens_map.json": "b6d346be366a7d1d48332dbc9fdf3bf8960b5d879522b7799ddba59e76237ee3",
+      "tokenizer.json": "48cea5d44424912a6fd1ea647bf4fe50b55ab8b1e5879c3275f80e339e8fae26",
+      "tokenizer_config.json": "e6f3b96db926a37d4039995fbf5ad17de158dfb8f6343d607e4dbaad18d75f5a"
+    },
+    "model": "BAAI/bge-small-zh-v1.5",
+    "onnxruntime": "1.32.0",
+    "repository": "Qdrant/bge-small-zh-v1.5",
+    "revision": "46fbe35fd4374a00fee7de77dfddaeb6dd6a2c59"
+  },
+  "expected": {
+    "cooling.txt": {
+      "blocks": [
+        {
+          "locator": {
+            "characters": {
+              "end": 7,
+              "start": 0
+            },
+            "kind": "characters"
+          },
+          "text": "检查😀冷却泵。"
+        }
+      ],
+      "coverage": {
+        "covered": 1,
+        "total": 1,
+        "unit": "block",
+        "warnings": []
+      },
+      "query": "应该检查哪台冷却设备?"
+    },
+    "drainage.pdf": {
+      "blocks": [
+        {
+          "locator": {
+            "kind": "page",
+            "page": 0
+          },
+          "region_center": [
+            [
+              0.49,
+              0.7
+            ],
+            [
+              0.3,
+              0.48
+            ]
+          ],
+          "text": "Emergency drainage"
+        },
+        {
+          "locator": {
+            "kind": "page",
+            "page": 1
+          },
+          "region_center": [
+            [
+              0.22,
+              0.46
+            ],
+            [
+              0.45,
+              0.59
+            ]
+          ],
+          "text": "Close the drainage gate"
+        }
+      ],
+      "coverage": {
+        "covered": 2,
+        "total": 2,
+        "unit": "page",
+        "warnings": []
+      },
+      "query": "What action is required at the drainage gate?"
+    },
+    "filter.webp": {
+      "blocks": [
+        {
+          "locator": {
+            "index": 0,
+            "kind": "image"
+          },
+          "region_center": [
+            [
+              0.18,
+              0.43
+            ],
+            [
+              0.33,
+              0.56
+            ]
+          ],
+          "text": "Clean the intake filter"
+        }
+      ],
+      "coverage": {
+        "covered": 1,
+        "total": null,
+        "unit": "block",
+        "warnings": [
+          {
+            "code": "coverage_unknown",
+            "feature": "unrecognized_image_content"
+          }
+        ]
+      },
+      "query": "Which filter should be cleaned?"
+    },
+    "meter.jpg": {
+      "blocks": [
+        {
+          "locator": {
+            "index": 0,
+            "kind": "image"
+          },
+          "region_center": [
+            [
+              0.18,
+              0.43
+            ],
+            [
+              0.33,
+              0.56
+            ]
+          ],
+          "text": "Inspect the pressure gauge"
+        }
+      ],
+      "coverage": {
+        "covered": 1,
+        "total": null,
+        "unit": "block",
+        "warnings": [
+          {
+            "code": "coverage_unknown",
+            "feature": "unrecognized_image_content"
+          }
+        ]
+      },
+      "query": "How do I check the pressure instrument?"
+    },
+    "radio.jpeg": {
+      "blocks": [
+        {
+          "locator": {
+            "index": 0,
+            "kind": "image"
+          },
+          "region_center": [
+            [
+              0.18,
+              0.43
+            ],
+            [
+              0.33,
+              0.56
+            ]
+          ],
+          "text": "Calibrate the receiver"
+        }
+      ],
+      "coverage": {
+        "covered": 1,
+        "total": null,
+        "unit": "block",
+        "warnings": [
+          {
+            "code": "coverage_unknown",
+            "feature": "unrecognized_image_content"
+          }
+        ]
+      },
+      "query": "What radio component needs calibration?"
+    },
+    "seal.docx": {
+      "blocks": [
+        {
+          "locator": {
+            "kind": "paragraph",
+            "paragraph": 0
+          },
+          "text": "Replace the valve seal"
+        },
+        {
+          "locator": {
+            "columns": {
+              "end": 1,
+              "start": 0
+            },
+            "kind": "table",
+            "rows": {
+              "end": 1,
+              "start": 0
+            },
+            "table": 0
+          },
+          "text": "Gasket"
+        }
+      ],
+      "coverage": {
+        "covered": 2,
+        "total": 2,
+        "unit": "block",
+        "warnings": []
+      },
+      "query": "What should be replaced on the valve?"
+    },
+    "service.md": {
+      "blocks": [
+        {
+          "locator": {
+            "kind": "lines",
+            "lines": {
+              "end": 1,
+              "start": 0
+            }
+          },
+          "text": "# Maintenance"
+        },
+        {
+          "locator": {
+            "kind": "lines",
+            "lines": {
+              "end": 3,
+              "start": 2
+            }
+          },
+          "text": "Check fan bearings."
+        }
+      ],
+      "coverage": {
+        "covered": 2,
+        "total": 2,
+        "unit": "block",
+        "warnings": []
+      },
+      "query": "Which part of the fan should be checked?"
+    },
+    "shift.csv": {
+      "blocks": [
+        {
+          "locator": {
+            "columns": {
+              "end": 1,
+              "start": 0
+            },
+            "kind": "records",
+            "rows": {
+              "end": 1,
+              "start": 0
+            }
+          },
+          "text": "shift"
+        },
+        {
+          "locator": {
+            "columns": {
+              "end": 2,
+              "start": 1
+            },
+            "kind": "records",
+            "rows": {
+              "end": 1,
+              "start": 0
+            }
+          },
+          "text": "task"
+        },
+        {
+          "locator": {
+            "columns": {
+              "end": 1,
+              "start": 0
+            },
+            "kind": "records",
+            "rows": {
+              "end": 2,
+              "start": 1
+            }
+          },
+          "text": "2"
+        },
+        {
+          "locator": {
+            "columns": {
+              "end": 2,
+              "start": 1
+            },
+            "kind": "records",
+            "rows": {
+              "end": 2,
+              "start": 1
+            }
+          },
+          "text": "Stow tools, close bay"
+        }
+      ],
+      "coverage": {
+        "covered": 2,
+        "total": 2,
+        "unit": "record",
+        "warnings": []
+      },
+      "query": "What should the second shift do before leaving?"
+    },
+    "stock.xlsx": {
+      "blocks": [
+        {
+          "locator": {
+            "columns": {
+              "end": 1,
+              "start": 0
+            },
+            "kind": "sheet",
+            "rows": {
+              "end": 1,
+              "start": 0
+            },
+            "sheet": 0
+          },
+          "text": "Copper inventory"
+        },
+        {
+          "locator": {
+            "columns": {
+              "end": 2,
+              "start": 1
+            },
+            "kind": "sheet",
+            "rows": {
+              "end": 1,
+              "start": 0
+            },
+            "sheet": 0
+          },
+          "text": "17"
+        }
+      ],
+      "coverage": {
+        "covered": 1,
+        "total": 1,
+        "unit": "sheet",
+        "warnings": []
+      },
+      "query": "Where is the copper stock listed?"
+    },
+    "vault.png": {
+      "blocks": [
+        {
+          "locator": {
+            "index": 0,
+            "kind": "image"
+          },
+          "region_center": [
+            [
+              0.18,
+              0.43
+            ],
+            [
+              0.33,
+              0.56
+            ]
+          ],
+          "text": "Rotate the backup token"
+        }
+      ],
+      "coverage": {
+        "covered": 1,
+        "total": null,
+        "unit": "block",
+        "warnings": [
+          {
+            "code": "coverage_unknown",
+            "feature": "unrecognized_image_content"
+          }
+        ]
+      },
+      "query": "What do I rotate to secure backups?"
+    },
+    "wind.pptx": {
+      "blocks": [
+        {
+          "locator": {
+            "kind": "slide",
+            "shape_path": [
+              0
+            ],
+            "slide": 0
+          },
+          "text": "Wind turbine inspection"
+        }
+      ],
+      "coverage": {
+        "covered": 1,
+        "total": 1,
+        "unit": "slide",
+        "warnings": []
+      },
+      "query": "Which turbine is scheduled for inspection?"
+    }
+  },
+  "expected_sha256": "15420b0b6f3d3592e08babe44f58092296992c9c4ced16da6f43002c4e139764",
+  "files": {
+    "cooling.txt": "947d168a5bf11b65246b6e77ae7625cf1a6c9f0cdab3a6b88ee43ef89cdc83d1",
+    "drainage.pdf": "cae446b981687e825e1ac3721a7b12f6e39df1737e7ab94b257266b76683d433",
+    "filter.webp": "081353a7d60dfeb7e3f6d2aa9d5fed94cdf8192c8a09cbf19f87a0ae656571ce",
+    "meter.jpg": "f74267a38110565abd7619cc7402b044d021c454e11585c4d3f416e5ea561856",
+    "radio.jpeg": "d293bfeaaa4770f0d37e3b43f9e2d00d77d181477b0551c82c43ae9c0336708e",
+    "seal.docx": "ecc3c72fec43883a2a30d3e844a1ebf91a11d4fba29a06033766fb9156f0e41e",
+    "service.md": "c870de2ea547718db27a2e0d7beb59ef929b169bc5d9f2c3e4e3b3f415283840",
+    "shift.csv": "f46485e401b799a256e69786e3e3d10c88fbb1226553692aea72ca4b5ee4ccf0",
+    "stock.xlsx": "c8b85da731f8e62c4ceb3e0b1018fb7bcaff7336e23c4bc621e8bd26f19aa2f8",
+    "vault.png": "10b8aa84dcba51dcf09e7984f662bafd70d50c104d5c29ef2e8fe4a6c78f8555",
+    "wind.pptx": "180fb4369633163bef378f0e6b61ad935a37902653d9d22433b048061fc65cff"
+  },
+  "future_parser_stacks": {
+    "docx/xlsx/pptx": "NOT_IMPLEMENTED; proposed bounded stdlib ZIP + defusedxml 0.7.1",
+    "pdf": "NOT_IMPLEMENTED; proposed pypdfium2 5.15.2 / PDFium 159.0.8149.0",
+    "txt/csv": "stdlib Python 3.12.14"
+  },
+  "generator_sha256": "5a5e13adc5e2d55cacb8852496d7efa9a59c58c828f64e94be3878f2151d6497",
+  "license": "Apache-2.0",
+  "ocr_assets": {
+    "config.yaml": "06623941e188461a0bc263fe16175cb5e5f6f6b01f4387e546d3a741569fc021",
+    "models/PP-OCRv6_det_small.onnx": "090f04abcd9d9a7498bc4ebf677e4cb9bdce1fe4197ddb7e529f1ef44e1ff94f",
+    "models/PP-OCRv6_rec_small.onnx": "6f327246b50388f3c176ae304bd95767ea6dc0c9ae92153ef8cbe210b3c14884",
+    "models/ch_ppocr_mobile_v2.0_cls_mobile.onnx": "e47acedf663230f8863ff1ab0e64dd2d82b838fceb5957146dab185a89d6215c"
+  },
+  "parser_packages": {
+    "markdown-it-py": "4.2.0",
+    "pillow": "12.3.0",
+    "rapidocr": "3.10.0"
+  },
+  "provisional_retrieval": {
+    "basis": "Proposed policy for 11 independently labeled queries, allowing at most one top-three miss and requiring at least 7.7 reciprocal-rank points. No observed embedding scores informed these values.",
+    "mrr_at_3": 0.7,
+    "recall_at_3": 0.9,
+    "status": "BLOCKED_PENDING_THRESHOLD_APPROVAL"
+  },
+  "raster_assets_sha256": "256350ff40410fe1738c3e65d255aa3b668ee335a917724b91e4615a76a30896",
+  "raster_toolchain": {
+    "arch": "arm64",
+    "freetype": "2.14.3",
+    "libjpeg_api": "6.2",
+    "libwebp": "1.6.0",
+    "os": "macOS 26.5.1",
+    "pillow": "12.3.0",
+    "python": "CPython 3.12.14",
+    "zlib": "1.3.1.zlib-ng"
+  },
+  "replay_toolchain": {
+    "implementation": "CPython",
+    "python": "3.12.14",
+    "unicode": "15.0.0"
+  },
+  "schema_version": 1,
+  "scorer_sha256": "3287a2d86949fb7ffddd36b6cc93f300855fd59c07285ed1483195150e7a86ab",
+  "thresholds": {
+    "coverage": 1.0,
+    "min_text_similarity": 0.98,
+    "ordered_locations": 1.0
+  }
+}
