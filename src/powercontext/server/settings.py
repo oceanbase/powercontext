@@ -39,6 +39,7 @@ from powercontext.builtin.runtime.config import (
     InferenceConfig,
     RuntimeConfig,
 )
+from powercontext.limits import MAX_SOURCE_CONTENT_CHARS, MAX_SOURCE_CONTENT_CHARS_CEILING
 from powercontext.paths import default_database_path, default_seekdb_path, powercontext_data_dir, sqlite_url
 from powercontext.transport import is_loopback_host
 
@@ -260,6 +261,8 @@ class ServerSettings(BaseSettings):
     plugin_total_host_processes: int | None = Field(default=None, ge=1)
     database: DatabaseConfig = Field(default_factory=_default_database, discriminator="kind")
     handoff_report: HandoffReportConfig = Field(default_factory=HandoffReportConfig)
+    # Effective maximum characters accepted in one Content Source capture on this deployment.
+    source_content_max_chars: int = Field(default=MAX_SOURCE_CONTENT_CHARS, ge=1, le=MAX_SOURCE_CONTENT_CHARS_CEILING)
     inference: InferenceConfig = Field(default_factory=InferenceConfig)
     external_skills: ExternalSkillsConfig = Field(default_factory=ExternalSkillsConfig)
 
