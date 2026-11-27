@@ -142,6 +142,16 @@ powercontext doctor pi
 `doctor pi` 会检查 Pi 可执行文件是否存在，以及 Pi 是否列出了 PowerContext package。修改 PowerContext 环境变量后
 需要重启 Pi。
 
+## 移除 package
+
+```bash
+powercontext setup pi --remove
+```
+
+该命令对 setup 注册的 package 运行 `pi remove`，并删除 PowerContext 数据目录中 `plugins/pi` 下由 PowerContext
+拥有的副本。它还会删除 `~/.pi/agent/powercontext/credentials.json` 中的凭据和已保存的 Pi 连接。
+其他 Pi package 会保留。`PATH` 中必须有 Pi CLI。移除会保留哪些内容见 [CLI](../develop/interfaces.md#cli)。
+
 ## 环境变量
 
 | 变量 | 默认值 | 含义 |

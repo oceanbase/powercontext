@@ -205,3 +205,23 @@ def setup(
         for note in getattr(error, "__notes__", ()):
             failure.add_note(note)
         raise failure from error
+
+
+def remove(host: str, **options: Any) -> dict[str, Any]:
+    """Undo what setup wrote for one agent; keep the package, Server, data, and Scope bindings."""
+    installer_type = installers()[host]
+    if not hasattr(installer_type, "remove"):
+        # Hermes and OpenClaw activate PowerContext through their own CLIs, and MiniMax keeps enablement in its own
+        # state; setup records nothing that tells those settings apart from the user's.
+        message = (
+            f"Automatic removal is not available for {host}; remove the plugin with {host}'s own plugin management"
+        )
+        raise SetupError(message)
+    try:
+        removed = installer_type(**options).remove()
+    except (OSError, ValueError) as error:
+        failure = SetupError(f"Could not remove {host}: {error}")
+        for note in getattr(error, "__notes__", ()):
+            failure.add_note(note)
+        raise failure from error
+    return {"status": "ok", "removal": "removed" if removed else "not_set_up", "result": {"removed": removed}}

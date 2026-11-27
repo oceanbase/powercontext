@@ -35,7 +35,7 @@ from uuid import uuid4
 from powercontext.cli.guidance import HOST_GUIDANCE, SKILL_FILE, refresh_skill, write_if_changed
 from powercontext.cli.installation import publish
 from powercontext.cli.system import Diagnostic, DiagnosticStatus, SetupError
-from powercontext.cli.transport import configure_connection
+from powercontext.cli.transport import configure_connection, remove_connection
 from powercontext.paths import powercontext_data_dir
 
 OPENCODE_PLUGIN_NAME = "powercontext-opencode"
@@ -580,6 +580,41 @@ class OpenCodeInstaller:
         if not (opencode_config_dir() / "plugins" / f"{OPENCODE_PLUGIN_NAME}.js").is_file():
             raise SetupError("PowerContext is not installed in opencode; run powercontext setup opencode")  # noqa: TRY003
         return {"authorization_state": configure_connection(connection)}
+
+    def remove(self) -> list[str]:
+        """Delete the owned plugin, manifest, and Skill, drop PowerContext TUI entries, and forget the connection."""
+        from powercontext.cli.git_source import linked_checkout
+
+        root = opencode_config_dir()
+        plugin = root / "plugins" / f"{OPENCODE_PLUGIN_NAME}.js"
+        skill = root / "skills" / "powercontext-project-context"
+        writes: dict[Path, bytes | None] = {}
+        if _owned_plugin(plugin):
+            for path in (plugin, plugin.with_name(f"{OPENCODE_PLUGIN_NAME}-tui.js"), _plugin_manifest_path(plugin)):
+                if path.is_file() or path.is_symlink():
+                    writes[path] = None
+        if _owned_skill(skill) and not skill.is_symlink():
+            writes[skill] = None
+        config_path = _tui_config_path(root)
+        if config_path.exists():
+            try:
+                payload, plugins = _read_tui_config(config_path)
+            except (OSError, TypeError, ValueError) as error:
+                raise SetupError(f"Cannot read OpenCode TUI config at {config_path}: {error}") from error  # noqa: TRY003
+            owned = [entry for entry in plugins if _owns_tui_entry(entry, target=plugin)]
+            if owned:
+                kept = [entry for entry in plugins if entry not in owned]
+                text = _rewrite_jsonc_plugin_array(config_path.read_text(encoding="utf-8"), kept)
+                payload["plugin"] = kept
+                writes[config_path] = (text if text is not None else json.dumps(payload, indent=2) + "\n").encode()
+                for entry in owned:
+                    path = _tui_entry_path(entry)
+                    checkout = linked_checkout(path) if path is not None else None
+                    if checkout is not None and checkout.is_dir():
+                        writes[checkout] = None
+        publish(writes=writes)
+        removed = [f"{config_path} plugin" if path == config_path else str(path) for path in writes]
+        return removed + remove_connection("opencode")
 
     def verify(self) -> dict[str, Diagnostic]:
         """Collect model-free diagnostics for the optional OpenCode integration."""

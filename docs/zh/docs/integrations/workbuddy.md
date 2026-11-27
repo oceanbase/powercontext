@@ -274,6 +274,17 @@ query、scope、prepared content、citation、response body 或 authorization va
 
 ## 卸载
 
+```bash
+powercontext setup workbuddy --remove
+```
+
+该命令从 `~/.workbuddy/settings.json` 删除 PowerContext 的 `UserPromptSubmit` 条目，从 `~/.workbuddy/mcp.json`
+删除 `powercontext` 条目，从 `~/.workbuddy/hooks` 删除 hook 文件和 scope resolver，并删除由 PowerContext 拥有的
+`~/.workbuddy/skills/powercontext-project-context` Skill、`~/.workbuddy/powercontext/credentials.json`
+中的凭据和已保存的 WorkBuddy 连接。其他 hook、MCP server 和设置会保留。移除会保留哪些内容见 [CLI](../develop/interfaces.md#cli)。
+
+撤销手动安装：
+
 1. 从 `~/.workbuddy/settings.json` 删除 `UserPromptSubmit` 中的 PowerContext 条目。
 2. 从 `~/.workbuddy/mcp.json` 删除 `powercontext` 条目。
 3. 从 `<WORKBUDDY_HOOKS_DIR>` 删除 hook 文件和 scope resolver。

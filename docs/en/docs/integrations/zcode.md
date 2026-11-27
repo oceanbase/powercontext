@@ -465,9 +465,14 @@ Server URL was saved; it cannot change the MCP endpoint in a normal installation
 
 ## Uninstall
 
-Remove only the PowerContext path from `plugins.dirs` in `~/.zcode/cli/config.json`. Delete
-`~/.zcode/cli/plugins/powercontext` only after confirming it contains `.powercontext-owned`. Fully quit and reopen
-ZCode. Uninstalling the plugin does not remove Server data or ZCode model configuration.
+```bash
+powercontext setup zcode --remove
+```
+
+This removes only the PowerContext path from `plugins.dirs` in `~/.zcode/cli/config.json`, deletes
+`~/.zcode/cli/plugins/powercontext` when it contains `.powercontext-owned`, and deletes the saved ZCode connection.
+That directory holds the saved capture and boundary choices. Fully quit and reopen ZCode. Removal does not remove
+Server data or ZCode model configuration. See [CLI](../develop/interfaces.md#cli) for what removal keeps.
 
 ## Automatic input privacy
 

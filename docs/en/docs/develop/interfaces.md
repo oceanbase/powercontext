@@ -146,6 +146,7 @@ Set `POWERCONTEXT_SCOPE_ID` to an existing ID returned by `create_scope` before 
 ```text
 powercontext setup [agents...]
 powercontext setup codex dsh
+powercontext setup codex --remove --json
 powercontext config agent codex dsh --server-url https://memory.example
 powercontext config init --output .env
 powercontext config show --env-file .env
@@ -181,6 +182,10 @@ current directory; pass `--env-file` to select another file or `--no-env-file` t
 Use `codex`, `claude-code`, `dsh`, `hermes`, `kimi-code`, `openclaw`, `opencode`, `pi`, `workbuddy`, or `zcode` for agents.
 `powercontext setup` offers interactive selection; explicit agent names support non-interactive and multi-agent setup.
 Setup installs, configures, activates where supported, and runs doctor. Failures remain isolated per agent; completed installation is reported even when diagnostics fail.
+
+`powercontext setup [agents...] --remove` undoes setup for the selected agents. It removes the native plugin registrations, the files and directories that PowerContext owns, the stored credential, and the agent's `hosts.<agent>` entry in the Client settings. It keeps the PowerContext package, the Server and its service, stored memory, Scope bindings, and settings that you added yourself. A rerun of setup needs the token again for an authenticated Server.
+Non-interactive runs require agent names, and setup-only options are rejected; `--profile` and `--dsh-command` select a DSH profile. Each agent succeeds or fails on its own. `--json` prints the setup and doctor envelope, where each removed agent reports `"status": "ok"` and `"removal": "removed"`, or `"not_set_up"` when nothing was installed. For an agent that setup left partly installed, removal deletes whatever setup did write.
+Hermes, OpenClaw, and MiniMax fail with an explanation because setup activates them in host state that it cannot attribute to itself. `powercontext service uninstall` is separate: it removes only the personal Server service.
 
 `powercontext config agent [agents...]` updates installed connections without reinstalling or enabling plugins.
 `powercontext doctor [agents...]` checks the selected agents, or saved connections when none are selected.

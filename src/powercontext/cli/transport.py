@@ -20,6 +20,7 @@ import json
 import os
 import re
 import sys
+from contextlib import suppress
 from contextvars import ContextVar
 from dataclasses import dataclass
 from pathlib import Path
@@ -315,3 +316,31 @@ def setup_transport_updates(settings: SetupTransport, *, dsh_target: DshTarget |
     except (OSError, ValueError) as error:
         raise SetupError(f"Could not save PowerContext Client settings at {path}") from error  # noqa: TRY003
     return updates
+
+
+def remove_connection(host: str) -> list[str]:
+    """Undo ``configure_connection``: delete the host's stored credential, then its saved Client settings."""
+    from powercontext.cli.authorization import clear_stored_authorization, credential_path
+    from powercontext.cli.installation import write_bytes
+    from powercontext.cli.system import SetupError
+
+    removed: list[str] = []
+    try:
+        credential = credential_path(host)
+    except ValueError:
+        credential = None  # This host keeps no PowerContext-owned credential.
+    if credential is not None and clear_stored_authorization(credential) == "cleared":
+        removed.append(str(credential))
+        with suppress(OSError):
+            credential.parent.rmdir()  # Only the directory setup created, and only once it is empty.
+    path = client_config_file()
+    try:
+        config: Any = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {"version": 1, "hosts": {}}
+        if not isinstance(config, dict) or config.get("version") != 1 or not isinstance(config.get("hosts"), dict):
+            raise ValueError  # noqa: TRY301 - normalize invalid persisted configuration.
+        if config["hosts"].pop(host, None) is not None:
+            write_bytes(path, (json.dumps(config, ensure_ascii=False, indent=2) + "\n").encode())
+            removed.append(f"{path} hosts.{host}")
+    except (OSError, ValueError) as error:
+        raise SetupError(f"Could not update PowerContext Client settings at {path}") from error  # noqa: TRY003
+    return removed

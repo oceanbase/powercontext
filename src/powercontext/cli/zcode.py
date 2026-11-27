@@ -31,7 +31,7 @@ from powercontext.cli.authorization import normalize_authorization
 from powercontext.cli.guidance import HOST_GUIDANCE, preserve_installed_guidance
 from powercontext.cli.installation import publish
 from powercontext.cli.system import Diagnostic, DiagnosticStatus, SetupError
-from powercontext.cli.transport import setup_environment, setup_transport_updates
+from powercontext.cli.transport import remove_connection, setup_environment, setup_transport_updates
 from powercontext.client.transport_policy import normalize_client_url
 
 PLUGIN_RELATIVE = Path(HOST_GUIDANCE["zcode"].plugin)
@@ -305,6 +305,23 @@ class ZCodeInstaller:
             }
         )
         return {"server_url": endpoint}
+
+    def remove(self) -> list[str]:
+        """Drop the plugin directory from ``plugins.dirs``, delete the owned copy, and forget the connection."""
+        config_path, destination = zcode_config_file(), zcode_plugin_dir()
+        config = _read_config(config_path)
+        writes: dict[Path, bytes | None] = {}
+        removed: list[str] = []
+        plugins = config.get("plugins", {})
+        if str(destination) in plugins.get("dirs", []):
+            plugins["dirs"] = [item for item in plugins["dirs"] if item != str(destination)]
+            writes[config_path] = (json.dumps(config, ensure_ascii=False, indent=2) + "\n").encode()
+            removed.append(f"{config_path} plugins.dirs {destination}")
+        if (destination / OWNER_MARKER).is_file() and not destination.is_symlink():
+            writes[destination] = None
+            removed.append(str(destination))
+        publish(writes=writes)
+        return removed + remove_connection("zcode")
 
     def verify(self, *, runtime_data_dir: Path | None = None, prepare: bool = False) -> dict[str, Diagnostic]:
         """Check CLI, registration, Hook, MCP, and Server independently."""

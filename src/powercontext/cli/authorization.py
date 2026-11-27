@@ -224,12 +224,27 @@ def read_codex_desktop_authorization() -> str | None:
         return None
 
 
-def _write_windows_user_environment(name: str, value: str) -> None:
-    import ctypes
+def clear_codex_desktop_authorization(expected: str) -> bool:
+    """Delete the Windows user environment value used by Desktop when setup wrote ``expected`` there."""
 
+    if sys.platform != "win32" or read_codex_desktop_authorization() != normalize_authorization(expected):
+        return False
+    winreg = vars(import_module("winreg"))
+    with winreg["OpenKey"](winreg["HKEY_CURRENT_USER"], "Environment", 0, winreg["KEY_SET_VALUE"]) as key:
+        winreg["DeleteValue"](key, _CODEX_AUTHORIZATION_ENVIRONMENT)
+    _notify_windows_environment_change()
+    return True
+
+
+def _write_windows_user_environment(name: str, value: str) -> None:
     winreg = vars(import_module("winreg"))
     with winreg["CreateKeyEx"](winreg["HKEY_CURRENT_USER"], "Environment", access=winreg["KEY_SET_VALUE"]) as key:
         winreg["SetValueEx"](key, name, 0, winreg["REG_SZ"], value)
+    _notify_windows_environment_change()
+
+
+def _notify_windows_environment_change() -> None:
+    import ctypes
 
     result = ctypes.c_size_t()
     ctypes_members = vars(ctypes)
@@ -267,6 +282,7 @@ def _read_windows_user_environment(name: str) -> str | None:
 __all__ = [
     "AuthorizationResolution",
     "AuthorizationStatus",
+    "clear_codex_desktop_authorization",
     "clear_stored_authorization",
     "configure_codex_desktop_authorization",
     "credential_path",

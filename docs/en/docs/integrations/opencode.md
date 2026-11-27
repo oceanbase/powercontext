@@ -145,6 +145,18 @@ powercontext doctor opencode
 The integration-specific doctor checks the OpenCode version, resolved plugin configuration, and the owned Skill.
 An unavailable Server does not block OpenCode and is checked separately by the default doctor command.
 
+## Remove the plugin
+
+```bash
+powercontext setup opencode --remove
+```
+
+This deletes `plugins/powercontext-opencode.js` with its `.powercontext-opencode.json` manifest, the owned
+`skills/powercontext-project-context` Skill, and the PowerContext entries in `tui.json` or `tui.jsonc`. Other entries
+and comments stay. It also deletes the checkout that setup cloned for a remote source under the PowerContext data
+directory, the credential at `$OPENCODE_CONFIG_DIR/powercontext/credentials.json`, and the saved OpenCode connection.
+The OpenCode CLI must be on `PATH` because it reports the configuration directory. See [CLI](../develop/interfaces.md#cli) for what removal keeps.
+
 ## Automatic input privacy
 
 See [Automatic prompt privacy](index.md#automatic-prompt-privacy) for this host's capture default, disable control, credential recognition limits and independent read-only query handling. Recognized inputs are skipped for capture; accepted Source content and event identity are not rewritten.

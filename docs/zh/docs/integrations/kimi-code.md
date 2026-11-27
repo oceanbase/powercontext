@@ -112,7 +112,7 @@ doctor 只读检查注册/启用状态、Node、MCP/Hook 声明、Server readine
 
 `--mcp` 额外建立有界 MCP transport session，发现 Server 工具（包含分页），核对所选 profile 后关闭 session。`mcp` 表示已安装声明，`mcp_discovery` 表示当前 Server 发现结果；两者均不证明当前 Kimi 窗口已加载工具，也不证明领域操作成功。发现检查不执行领域工具、不采集、不 flush。
 
-使用 Kimi 的 /plugins remove powercontext 移除注册。宿主保留受管理副本；确认注册已移除并检查 .powercontext-owned 标记后，才删除 PowerContext 管理目录。接入不添加全局 Hook 或项目配置。
+运行 `powercontext setup kimi-code --remove`，从 `plugins/installed.json` 删除 `powercontext` 记录；`plugins/managed/powercontext` 带有 `.powercontext-owned` 标记时，也会删除该目录。该目录保存了已选的 Scope、采集和 profile 设置，所以再次 setup 时需要重新传入 `--scope-id` 或 `--workspace-scope`。移除还会删除已保存的 Kimi Code 连接；Kimi Code 不保存 PowerContext 凭据，接入也不添加全局 Hook 或项目配置。移除会保留哪些内容见 [CLI](../develop/interfaces.md#cli)。
 
 ## 查看 Hook 运行观测
 

@@ -112,7 +112,7 @@ doctor is readonly: it checks registration/enablement, Node, MCP/Hook declaratio
 
 `--mcp` additionally initializes a bounded MCP transport session, discovers Server tools (including pagination), compares the selected profile, and closes the session. `mcp` reports installed declarations; `mcp_discovery` reports current Server discovery. Neither proves that the current Kimi window loaded those tools or that a domain operation succeeded. Discovery executes no domain tools and does not capture or flush.
 
-Use Kimi's /plugins remove powercontext to remove registration. Kimi keeps the managed copy on disk. Delete only the PowerContext-owned managed directory after verifying its .powercontext-owned marker and removal of its registration. No global Hook or project configuration is added.
+Run `powercontext setup kimi-code --remove` to remove the `powercontext` record from `plugins/installed.json` and delete `plugins/managed/powercontext` when it carries the `.powercontext-owned` marker. That directory holds the saved Scope, capture, and profile choices, so the next setup needs `--scope-id` or `--workspace-scope` again. Removal also deletes the saved Kimi Code connection; Kimi Code keeps no PowerContext credential, and the integration adds no global Hook or project configuration. See [CLI](../develop/interfaces.md#cli) for what removal keeps.
 
 ## Inspect Hook observations
 

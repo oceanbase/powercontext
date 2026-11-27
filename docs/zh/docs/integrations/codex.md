@@ -486,6 +486,18 @@ Hook 的 Server 地址从已安装插件 `.mcp.json` 派生，MCP 也读取同�
 MCP 显示 connected 也不等于 Source 已采集。
 最后完成[Source、主题演进与新会话召回验收](../get-started/quickstart.md#4-按所选模式验收记忆)。
 
+## 移除插件
+
+```bash
+powercontext setup codex --remove
+```
+
+该命令用 `codex plugin remove` 卸载插件；`powercontext` marketplace 只提供 PowerContext、
+且没有已安装插件使用它时，也会被移除。它还会删除 setup 保存在
+`$CODEX_HOME/powercontext/credentials.json` 的凭据和已保存的 Codex 连接。在 Windows 上，
+如果 setup 为 Codex Desktop 写入的用户环境变量 `POWERCONTEXT_CODEX_AUTHORIZATION` 仍是已保存的凭据，
+该值也会被删除。`PATH` 中必须有 Codex CLI。移除会保留哪些内容见 [CLI](../develop/interfaces.md#cli)。
+
 ## 环境变量
 
 | 变量 | 默认值 | 含义 |

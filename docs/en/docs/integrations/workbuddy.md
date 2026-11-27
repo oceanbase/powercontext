@@ -314,6 +314,17 @@ message. Verify the whole installation with `powercontext doctor`.
 
 ## Uninstall
 
+```bash
+powercontext setup workbuddy --remove
+```
+
+This removes the PowerContext `UserPromptSubmit` entry from `~/.workbuddy/settings.json`, the `powercontext` entry from
+`~/.workbuddy/mcp.json`, the hook files and scope resolver from `~/.workbuddy/hooks`, the owned
+`~/.workbuddy/skills/powercontext-project-context` Skill, the credential at `~/.workbuddy/powercontext/credentials.json`,
+and the saved WorkBuddy connection. Other hooks, MCP servers, and settings stay. See [CLI](../develop/interfaces.md#cli) for what removal keeps.
+
+To undo a manual installation:
+
 1. Remove the `UserPromptSubmit` PowerContext entry from `~/.workbuddy/settings.json`.
 2. Remove the `powercontext` entry from `~/.workbuddy/mcp.json`.
 3. Remove the hook files and the scope resolver from `<WORKBUDDY_HOOKS_DIR>`.

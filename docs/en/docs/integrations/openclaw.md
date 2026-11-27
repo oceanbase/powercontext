@@ -265,3 +265,9 @@ powercontext doctor openclaw
 `doctor openclaw` checks that the OpenClaw CLI is available and that `openclaw plugins list --enabled --json` reports
 `memory-powercontext` as loaded and selected for the memory slot. Restart the OpenClaw gateway after changing
 PowerContext configuration.
+
+## Remove the plugin
+
+`powercontext setup openclaw --remove` reports a failure for OpenClaw. Setup changes the memory slot, the tool
+allowlist, and the plugin configuration through `openclaw config`, then restarts the gateway, without recording the
+values that it replaced. Remove the plugin with OpenClaw's own plugin commands.

@@ -98,3 +98,8 @@ MiniMax 独立暴露私有连接和插件内连接，工具名可能分别包含
 缺少 CLI 时，复制的文件会报告为已安装，原生验证为降级，整体退出码非零。桌面安装需要安装受支持 CLI，或通过 `--minimax-command` 提供现有可执行启动程序；仅复制文件不等于桌面端验收。doctor 不安装包、不改写配置、不启用插件，也不初始化真实数据目录。原生 CLI 只在私有临时快照内维护运行记录，完成后删除快照。验证需要临时空间保存插件及用于读取启用状态的原生数据库/WAL 副本；不会把无关会话和 provider 状态导入诊断运行时。不支持的原生状态格式会明确报错。首次 setup 之前，使用原生启动程序进行诊断时应提供 `--minimax-data-dir` 或目录环境变量；doctor 不会通过启动真实家目录中的宿主来探测目标。
 
 在 `/plugins` 中按 `Ctrl+R` 刷新 Local 列表，或使用同一数据目录重启 MiniMax。升级保留用户禁用状态。需要启用时，为所选启动程序设置目标 `MINIMAX_DATA_DIR`，执行 `plugin enable powercontext@local --json`，然后重新运行 doctor。修改已经使用过的连接后，应重启 MiniMax。宿主中的实际 MCP 工具结果需要与 CLI 检查分开验证。
+
+## 移除插件
+
+`powercontext setup minimax --remove` 对 MiniMax 会报告失败。MiniMax 在自己的状态中保存插件启用状态，
+setup 既不修改也不记录它；直接删除文件，可能让 MiniMax 留下一个已启用但不存在的插件。请在 MiniMax 中禁用并移除插件。

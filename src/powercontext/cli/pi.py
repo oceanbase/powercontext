@@ -26,7 +26,7 @@ from shutil import which
 from powercontext.cli.guidance import HOST_GUIDANCE, SKILL_FILE, preserve_installed_guidance
 from powercontext.cli.installation import SetupError, publish
 from powercontext.cli.system import Diagnostic, DiagnosticStatus
-from powercontext.cli.transport import configure_connection
+from powercontext.cli.transport import configure_connection, remove_connection
 from powercontext.paths import powercontext_data_dir
 
 PI_PACKAGE_NAME = "powercontext-pi"
@@ -89,6 +89,23 @@ def _run_pi(*arguments: str) -> str:
     return completed.stdout or ""
 
 
+def _user_packages(output: str) -> list[tuple[str, Path]]:
+    """Pair each user-scope package source in ``pi list`` output with its resolved path."""
+    packages = []
+    user_packages = False
+    registered_source = None
+    for line in output.splitlines():
+        if line and not line.startswith(" "):
+            user_packages = line == "User packages:"
+            registered_source = None
+        elif user_packages and line.startswith("    "):
+            if registered_source is not None:
+                packages.append((registered_source, Path(line.strip())))
+        elif user_packages and line.startswith("  "):
+            registered_source = line.strip()
+    return packages
+
+
 __all__ = ["PI_PACKAGE_NAME", "pi_executable", "pi_package_installed", "require_pi_package"]
 
 
@@ -102,26 +119,13 @@ class PiInstaller:
             if destination.exists() and not (destination / marker).is_file():
                 raise SetupError(f"Pi package path {destination} is not owned by PowerContext")  # noqa: TRY003
             superseded = []
-            user_packages = False
-            registered_source = None
-            for line in _run_pi("list").splitlines():
-                if line and not line.startswith(" "):
-                    user_packages = line == "User packages:"
-                    registered_source = None
-                elif user_packages and line.startswith("    "):
-                    resolved = Path(line.strip())
-                    if (
-                        registered_source is not None
-                        and resolved.resolve() != destination.resolve()
-                        and HOST_GUIDANCE["pi"].recognizes(resolved)
-                    ):
-                        if registered_source.endswith(" (filtered)"):
-                            raise SetupError(  # noqa: TRY003
-                                f"Pi package {resolved} has resource filters. Migrate its package entry and filters to {destination} in Pi settings before retrying setup."
-                            )
-                        superseded.append(registered_source)
-                elif user_packages and line.startswith("  "):
-                    registered_source = line.strip()
+            for registered_source, resolved in _user_packages(_run_pi("list")):
+                if resolved.resolve() != destination.resolve() and HOST_GUIDANCE["pi"].recognizes(resolved):
+                    if registered_source.endswith(" (filtered)"):
+                        raise SetupError(  # noqa: TRY003
+                            f"Pi package {resolved} has resource filters. Migrate its package entry and filters to {destination} in Pi settings before retrying setup."
+                        )
+                    superseded.append(registered_source)
             destination.parent.mkdir(parents=True, exist_ok=True)
             with tempfile.TemporaryDirectory(prefix=".powercontext-", dir=destination.parent) as temporary:
                 candidate = Path(temporary) / "package"
@@ -136,6 +140,19 @@ class PiInstaller:
                 "package_path": str(destination),
                 "data_dir": str(powercontext_data_dir()),
             }
+
+    def remove(self) -> list[str]:
+        """Unregister and delete the owned package copy, then forget the connection."""
+        pi_executable()
+        destination = powercontext_data_dir() / "plugins" / "pi"
+        removed: list[str] = []
+        if any(resolved.resolve() == destination.resolve() for _, resolved in _user_packages(_run_pi("list"))):
+            _run_pi("remove", str(destination))  # The source that setup passed to `pi install`.
+            removed.append(f"Pi package {destination}")
+        if (destination / ".powercontext-owned").is_file() and not destination.is_symlink():
+            publish(writes={destination: None})
+            removed.append(str(destination))
+        return removed + remove_connection("pi")
 
     def configure(self, connection):
         if not (powercontext_data_dir() / "plugins/pi/.powercontext-owned").is_file():

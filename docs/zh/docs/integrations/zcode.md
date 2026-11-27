@@ -410,9 +410,14 @@ Server URL 时作为 Hook 的回退值，不能用于修改正常安装的 MCP �
 
 ## 卸载
 
-从 `~/.zcode/cli/config.json` 的 `plugins.dirs` 中只移除 PowerContext 路径；确认
-`~/.zcode/cli/plugins/powercontext` 中存在 `.powercontext-owned` 后，再删除该受管理目录。
-最后完全退出并重启 ZCode。卸载插件不会删除 Server 数据或 ZCode 模型配置。
+```bash
+powercontext setup zcode --remove
+```
+
+该命令只从 `~/.zcode/cli/config.json` 的 `plugins.dirs` 中移除 PowerContext 路径；
+`~/.zcode/cli/plugins/powercontext` 中存在 `.powercontext-owned` 时，删除该目录，并删除已保存的 ZCode 连接。
+该目录保存了已选的采集和边界处理设置。最后完全退出并重启 ZCode。移除不会删除 Server 数据或 ZCode 模型配置。
+移除会保留哪些内容见 [CLI](../develop/interfaces.md#cli)。
 
 ## 自动输入隐私
 

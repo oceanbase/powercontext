@@ -149,6 +149,16 @@ powercontext doctor pi
 `doctor pi` checks that the Pi executable is available and that Pi lists the PowerContext package. Restart Pi after
 changing PowerContext environment variables.
 
+## Remove the package
+
+```bash
+powercontext setup pi --remove
+```
+
+This runs `pi remove` for the package that setup registered and deletes its PowerContext-owned copy at `plugins/pi` in
+the PowerContext data directory. It also deletes the credential at `~/.pi/agent/powercontext/credentials.json` and the
+saved Pi connection. Other Pi packages stay. The Pi CLI must be on `PATH`. See [CLI](../develop/interfaces.md#cli) for what removal keeps.
+
 ## Environment variables
 
 | Variable | Default | Meaning |
