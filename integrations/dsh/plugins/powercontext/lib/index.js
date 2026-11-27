@@ -5736,16 +5736,19 @@ function registerRecall(ctx, runtime, createUserMessage, resolveSessionScope) {
 /** The gateway prepares once per user message and captures turns per conversation named by this header. */
 const CONVERSATION_HEADER = "X-PowerContext-Conversation-ID";
 const CONVERSATION_ID = /^[\x21-\x7e]{1,256}$/;
+/** With the value `internal`, the gateway neither prepares, injects nor captures the request as a turn. */
+const TURN_HEADER = "X-PowerContext-Turn";
 /**
 * Name the gateway conversation on each model request of a session's agent loop. DSH marks its other model
-* requests in the session, such as compaction, session titles and auto review, with a `purpose`; they are not
-* turns of the conversation and carry no header. The hook is synchronous and must not throw.
+* requests, such as compaction, session titles and auto review, with a `purpose`; they are not turns of the
+* conversation, so they are marked internal instead. The hook is synchronous and must not throw.
 */
-function registerConversationHeader(ctx) {
+function registerGatewayHeaders(ctx) {
 	ctx.on("llm-pi-ai/request-headers", ((request$2, _headers, next) => {
 		const result = next();
 		const conversation = request$2.sessionId;
-		if (request$2.purpose === void 0 && typeof conversation === "string" && CONVERSATION_ID.test(conversation)) result.set(CONVERSATION_HEADER, conversation);
+		if (request$2.purpose !== void 0) result.set(TURN_HEADER, "internal");
+		else if (typeof conversation === "string" && CONVERSATION_ID.test(conversation)) result.set(CONVERSATION_HEADER, conversation);
 		return result;
 	}));
 }
@@ -5773,7 +5776,7 @@ async function apply(ctx, config) {
 	registerSkill(ctx);
 	registerGuidance(ctx);
 	registerRecall(ctx, runtime, llmMod.createUserMessage, sessionScope.forPreStep);
-	if (!runtime.config.promptRecall) registerConversationHeader(ctx);
+	if (!runtime.config.promptRecall) registerGatewayHeaders(ctx);
 	registerCommands(ctx, runtime);
 	if (runtime.config.promptRecall) registerCompanionMemory(ctx, runtime);
 	registerStatusBridge(ctx, runtime);

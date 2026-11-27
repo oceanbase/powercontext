@@ -602,7 +602,7 @@ fails before the model receives it.
 Keep the plugin defaults where DSH calls its model directly, because the gateway does not carry that traffic. To route
 DSH through the gateway, configure Core, DSH, the plugin, and the gateway as follows. These steps apply to DSH
 `0.2.2-rc.1` and later 0.2.2 prereleases, which reach the gateway through a custom `llm-pi-ai` provider. DSH 0.2.1
-and earlier do not let the plugin send the conversation header described below.
+and earlier do not let the plugin send the gateway headers described below.
 
 ### Choose the Core target
 
@@ -715,13 +715,14 @@ same across gateway restarts; an inferred ID is local to the gateway process and
 standalone gateway (`PC_GATEWAY_CORE_BASE`) injects only with `PC_GATEWAY_INJECTION=on`. See
 [Gateway context injection](../operate/deploy-server.md#gateway-context-injection).
 
-DSH sends the header to whichever provider serves the request, including one it calls directly. Its Responses requests
-already carry the same ID as `prompt_cache_key` unless the provider sets `cacheRetention: "none"`. DSH's compaction,
-session-title, and auto-review requests carry no header, so the gateway does not count them as turns of the session's
-conversation. The gateway can still infer a conversation from such a request's opening and inject context into its
-prompt; Memory recalled for a compaction prompt can then appear in the summary that DSH stores in the session. With
-`PC_GATEWAY_SEDIMENT=on`, it also captures such a request as a turn of that inferred conversation, so each session
-title adds a Source whose user text is DSH's title prompt.
+DSH's compaction, session-title, and auto-review requests are not turns of the session's conversation. The plugin
+sends no conversation header on them and marks them with `X-PowerContext-Turn: internal` instead. The gateway still
+checks such a request with Core, but does not prepare or inject context for it, does not add its cost guidance, and
+does not capture it as a turn.
+
+DSH sends these headers to whichever provider serves the request, including one it calls directly; the gateway does
+not forward them upstream. DSH's Responses requests already carry the session ID as `prompt_cache_key` unless the
+provider sets `cacheRetention: "none"`.
 
 DSH adds its own runtime-context reminder, a user message that holds only a `<system-reminder>` block, after the
 prompt on the first turn of a session and whenever that context changes, including inside a tool loop. On those
@@ -746,8 +747,9 @@ default. Set:
 - `PC_GATEWAY_SEDIMENT=on`, so that the gateway captures each completed turn as a Source.
 - `PC_GATEWAY_DEFAULT_SCOPE` to the Scope this plugin resolves for the workspace, which `/pc` prints.
 
-The gateway prepares and captures every conversation in the one Scope set by `PC_GATEWAY_DEFAULT_SCOPE`, not in the
-Scope this plugin resolves for each workspace. For the gateway's authentication settings and request size limit, see
+The plugin does not send `X-PowerContext-Scope-ID`, so the gateway prepares and captures every conversation in the one
+Scope set by `PC_GATEWAY_DEFAULT_SCOPE`, not in the Scope this plugin resolves for each workspace. For the gateway's
+authentication settings and request size limit, see
 [Deploy the Server](../operate/deploy-server.md#gateway-authentication-boundaries).
 
 ## Connect to an authenticated local Server
@@ -784,7 +786,7 @@ powercontext doctor dsh
 | `POWERCONTEXT_DSH_ALLOW_INSECURE_HTTP` | `false` | Explicitly permit non-loopback plaintext HTTP |
 | `POWERCONTEXT_DSH_SCOPE_ID` | unset | Explicit existing Scope before workspace binding and Server default |
 | `POWERCONTEXT_DSH_AUTHORIZATION` | unset | Complete `Bearer <token>` header for MCP and lifecycle HTTP requests |
-| `POWERCONTEXT_DSH_PROMPT_RECALL` | `true` | Prepare and add context before each model step and provide the companion memory service; `false` leaves prompt-time context to the gateway and sends the gateway conversation header |
+| `POWERCONTEXT_DSH_PROMPT_RECALL` | `true` | Prepare and add context before each model step and provide the companion memory service; `false` leaves prompt-time context to the gateway and sends the gateway conversation and internal-turn headers |
 | `POWERCONTEXT_DSH_CAPTURE_PROMPTS` | `true` | Capture user prompts as Source evidence |
 | `POWERCONTEXT_DSH_FLUSH_ON_CAPTURE` | `false` | Wait for Source processing after capture |
 

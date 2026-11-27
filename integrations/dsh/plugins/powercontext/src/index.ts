@@ -165,13 +165,15 @@ function registerRecall(
 const CONVERSATION_HEADER = 'X-PowerContext-Conversation-ID'
 // The gateway accepts 1-256 visible ASCII characters and ignores anything else.
 const CONVERSATION_ID = /^[\x21-\x7e]{1,256}$/
+/** With the value `internal`, the gateway neither prepares, injects nor captures the request as a turn. */
+const TURN_HEADER = 'X-PowerContext-Turn'
 
 /**
  * Name the gateway conversation on each model request of a session's agent loop. DSH marks its other model
- * requests in the session, such as compaction, session titles and auto review, with a `purpose`; they are not
- * turns of the conversation and carry no header. The hook is synchronous and must not throw.
+ * requests, such as compaction, session titles and auto review, with a `purpose`; they are not turns of the
+ * conversation, so they are marked internal instead. The hook is synchronous and must not throw.
  */
-function registerConversationHeader(ctx: Context): void {
+function registerGatewayHeaders(ctx: Context): void {
   ctx.on('llm-pi-ai/request-headers', ((
     request: { sessionId?: unknown; purpose?: unknown },
     _headers: Headers,
@@ -179,7 +181,9 @@ function registerConversationHeader(ctx: Context): void {
   ) => {
     const result = next()
     const conversation = request.sessionId
-    if (request.purpose === undefined && typeof conversation === 'string' && CONVERSATION_ID.test(conversation)) {
+    if (request.purpose !== undefined) {
+      result.set(TURN_HEADER, 'internal')
+    } else if (typeof conversation === 'string' && CONVERSATION_ID.test(conversation)) {
       result.set(CONVERSATION_HEADER, conversation)
     }
     return result
@@ -208,9 +212,9 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   registerSkill(ctx)
   registerGuidance(ctx)
   registerRecall(ctx, runtime, llmMod.createUserMessage, sessionScope.forPreStep)
-  // Prompt recall is off when the gateway injects context. Only then does the session id name a gateway
-  // conversation, so a provider that DSH calls directly while recall is on does not receive it.
-  if (!runtime.config.promptRecall) registerConversationHeader(ctx)
+  // Prompt recall is off when the gateway injects context. Only then are the gateway headers sent, so a
+  // provider that DSH calls directly while recall is on does not receive them.
+  if (!runtime.config.promptRecall) registerGatewayHeaders(ctx)
   registerCommands(ctx, runtime)
   // Its content carries a prepared-context block, which a gateway rejects unless the gateway injected it.
   if (runtime.config.promptRecall) registerCompanionMemory(ctx, runtime)

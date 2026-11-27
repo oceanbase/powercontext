@@ -508,7 +508,7 @@ DeepSeek Harness 的模型请求经过 PowerContext gateway 时，gateway 为每
 
 DSH 直接调用模型时，gateway 不承载这些流量，请保留插件的默认值。要让 DSH 经过 gateway，
 按下面的步骤配置 Core、DSH、插件和 gateway。这些步骤适用于 DSH `0.2.2-rc.1` 及之后的 0.2.2 预发布版本，
-它们通过自定义 `llm-pi-ai` provider 访问 gateway。DSH 0.2.1 及更早的版本不允许插件发送下文所述的会话请求头。
+它们通过自定义 `llm-pi-ai` provider 访问 gateway。DSH 0.2.1 及更早的版本不允许插件发送下文所述的 gateway 请求头。
 
 ### 选择 Core 目标
 
@@ -615,13 +615,12 @@ Scope 解析成功后，`prepare` 阶段也是如此。
 推导出的 ID 仅在当前 gateway 进程内用于重放准备结果。独立运行的 gateway（`PC_GATEWAY_CORE_BASE`）
 只有设置 `PC_GATEWAY_INJECTION=on` 才会注入。见[网关上下文注入](../operate/deploy-server.md#网关上下文注入)。
 
-DSH 会把这个请求头发给处理该请求的任何 provider，包括它直接调用的 provider。
-除非 provider 设置了 `cacheRetention: "none"`，DSH 的 Responses 请求本来就以 `prompt_cache_key` 携带同一个 ID。
-DSH 的压缩、会话标题和 auto review 请求不带这个请求头，因此 gateway 不会把它们算作该会话的一轮。
-gateway 仍可能根据这类请求的开头推导会话，并向它的提示词注入上下文；
-为压缩提示词召回的 Memory 随后可能出现在 DSH 存入会话的摘要中。
-在 `PC_GATEWAY_SEDIMENT=on` 时，gateway 还会把这类请求作为推导出的会话的一轮来捕获，
-因此每次生成会话标题都会新增一个 Source，其用户文本是 DSH 的标题提示词。
+DSH 的压缩、会话标题和 auto review 请求不是该会话的轮次。
+插件不给它们发送会话请求头，而是用 `X-PowerContext-Turn: internal` 标记它们。
+gateway 仍会让 Core 检查这类请求，但不为它准备或注入上下文，不加入成本指导指令，也不把它采集为一轮。
+
+DSH 会把这些请求头发给处理该请求的任何 provider，包括它直接调用的 provider；gateway 不会把它们转发给上游。
+除非 provider 设置了 `cacheRetention: "none"`，DSH 的 Responses 请求本来就以 `prompt_cache_key` 携带会话 ID。
 
 DSH 会在会话的第一轮，以及运行时上下文变化时（包括工具循环之中），在提示词之后加入自己的运行时上下文提醒。
 这是一条只含 `<system-reminder>` 块的用户消息。在这些请求上，gateway 把这条提醒当作这一轮的消息：
@@ -643,7 +642,8 @@ DSH 之后的请求会再次发送它们，因此 Core 会拒绝这些请求。g
 - `PC_GATEWAY_SEDIMENT=on`，让 gateway 把每个完成的轮次采集为 Source。
 - `PC_GATEWAY_DEFAULT_SCOPE` 设为插件为该 workspace 解析的 Scope，`/pc` 会打印这个 Scope。
 
-gateway 把所有会话都放在 `PC_GATEWAY_DEFAULT_SCOPE` 指定的同一个 Scope 中准备和采集，
+插件不发送 `X-PowerContext-Scope-ID`，
+因此 gateway 把所有会话都放在 `PC_GATEWAY_DEFAULT_SCOPE` 指定的同一个 Scope 中准备和采集，
 而不是插件为每个 workspace 解析的 Scope。gateway 的鉴权设置和请求大小上限，
 见[部署 Server](../operate/deploy-server.md#网关认证边界)。
 
@@ -681,7 +681,7 @@ powercontext doctor dsh
 | `POWERCONTEXT_DSH_ALLOW_INSECURE_HTTP` | `false` | 显式允许非环回明文 HTTP |
 | `POWERCONTEXT_DSH_SCOPE_ID` | 未设置 | 在 workspace binding 和 Server 默认值之前显式选择已有 Scope |
 | `POWERCONTEXT_DSH_AUTHORIZATION` | 未设置 | MCP 与生命周期 HTTP 请求使用的完整 `Bearer <token>` header |
-| `POWERCONTEXT_DSH_PROMPT_RECALL` | `true` | 每次模型调用前准备并添加上下文，并提供桌宠记忆服务；`false` 把提示词时上下文交给 gateway，并发送 gateway 会话请求头 |
+| `POWERCONTEXT_DSH_PROMPT_RECALL` | `true` | 每次模型调用前准备并添加上下文，并提供桌宠记忆服务；`false` 把提示词时上下文交给 gateway，并发送 gateway 会话请求头和 internal 轮次请求头 |
 | `POWERCONTEXT_DSH_CAPTURE_PROMPTS` | `true` | 把用户提示词采集为 Source 证据 |
 | `POWERCONTEXT_DSH_FLUSH_ON_CAPTURE` | `false` | 采集后等待 Source 处理 |
 

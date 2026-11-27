@@ -516,15 +516,21 @@ describe('registered automatic path', () => {
     expect(h.diagnostics()).toEqual([])
   })
 
-  it('names the gateway conversation on agent-loop model requests only while recall is off', async () => {
+  it('sends gateway headers on model requests only while recall is off', async () => {
     expect((await fixture(successfulRequest)).providerHeaders).toBeUndefined()
     const h = await fixture(successfulRequest, { promptRecall: false })
     const route = { provider: 'powercontext-gateway', model: 'approved-model', baseURL: 'http://127.0.0.1:8787/gateway/v1' }
     expect(h.providerHeaders!({ ...route, sessionId: 'session-01' })).toEqual({
       'x-route': 'configured', 'x-powercontext-conversation-id': 'session-01',
     })
+    // Requests with a purpose are not turns of the conversation: internal, with no conversation header.
     for (const purpose of ['compaction', 'session-title', 'auto-review']) {
-      expect(h.providerHeaders!({ ...route, sessionId: 'session-01', purpose })).toEqual({ 'x-route': 'configured' })
+      expect(h.providerHeaders!({ ...route, sessionId: 'session-01', purpose })).toEqual({
+        'x-route': 'configured', 'x-powercontext-turn': 'internal',
+      })
+      expect(h.providerHeaders!({ ...route, purpose })).toEqual({
+        'x-route': 'configured', 'x-powercontext-turn': 'internal',
+      })
     }
     for (const sessionId of [undefined, '', 'has space', 'x'.repeat(257), '会话']) {
       expect(h.providerHeaders!({ ...route, sessionId })).toEqual({ 'x-route': 'configured' })
