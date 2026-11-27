@@ -111,6 +111,9 @@ parsing and application overhead; replay briefly copies each accepted body once 
 
 Public routes that do not use a request body, such as health probes and enabled Dashboard assets, still check a
 declared `Content-Length` and skip buffering. Dashboard login uses the smaller of the configured limit and 32 KiB.
+Remote Skill enrollment accepts only `POST`. Before reading the JSON body, the Server requires HTTPS or a loopback
+peer unless `POWERCONTEXT_SERVER_ALLOW_INSECURE_HTTP` is enabled. The enrollment body limit is the smaller of
+8 KiB and the configured request body limit.
 Remote Skill reconciliation, Receipts, and package downloads require a valid Receiver credential before the Server
 reads the body.
 
@@ -134,6 +137,7 @@ still occupies an HTTP slot until it finishes; reserve other slots for concurren
 | `POWERCONTEXT_SERVER_PLUGIN_API_MAX_BODY_BYTES` | `33554432` | Request and response body limit of plugin routes (`/v1/plugins/{name}/api/...` and their Dashboard page forwarding), in place of the previous setting; a plugin route may declare a lower limit, never a higher one |
 | `POWERCONTEXT_SERVER_PLUGIN_HOST_PROCESSES` | `{}` | JSON object overriding plugins' declared `host_processes` by plugin name, such as `{"knowledge-base": 4}`; each value is the most host processes of that plugin in each Server process |
 | `POWERCONTEXT_SERVER_PLUGIN_TOTAL_HOST_PROCESSES` | unset | The most host processes of all plugins in each Server process; at the limit, no process is added for load and requests queue on existing ones. Each plugin's first, always-running process is exempt |
+| `POWERCONTEXT_SERVER_SOURCE_CONTENT_MAX_CHARS` | `200000` | Effective maximum characters accepted in one Content Source write, including capture, batch, Working Note and content Source creation; `1` to `1000000`. Lowering it keeps existing Sources readable and only rejects new captures over the new limit. Built-in integrations and the Gateway still size captures for 200,000 characters and do not read this endpoint yet, so lowering the limit can reject their writes between the new value and 200,000. `GET /v1/source-limits` reports the effective value as `source_content_max_chars` |
 | `POWERCONTEXT_SERVER_HTTP_MAX_CONCURRENT_REQUESTS` | `64` | Per-process external HTTP requests in flight, including full streaming responses |
 | `POWERCONTEXT_SERVER_WORKSPACE` | Server startup directory | Resolution root for local project Agent Skill folders |
 | `POWERCONTEXT_SERVER_MCP_ENABLED` | `true` | Enable Streamable HTTP MCP |
