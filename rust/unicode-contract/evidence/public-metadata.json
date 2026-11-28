@@ -1,0 +1,52 @@
+{
+  "schema": "powercontext.unicode-contract.public-metadata.v1",
+  "retrieved_on": "2026-11-22",
+  "evidence_kind": "READ_ONLY_PUBLIC_METADATA_NOT_NATIVE_EXECUTION",
+  "packages": [
+    {
+      "name": "pyo3",
+      "version": "0.30.1",
+      "source": "https://crates.io/api/v1/crates/pyo3/0.30.1",
+      "repository": "https://github.com/pyo3/pyo3",
+      "license": "MIT OR Apache-2.0",
+      "rust_version": "1.85",
+      "crate_size": 1345706,
+      "checksum": "229ca13b8a15bb0d1487b81ab975bfcd97513416499a8312011b6036e42e0de4",
+      "yanked": false
+    },
+    {
+      "name": "jieba-rs",
+      "version": "0.11.0",
+      "source": "https://crates.io/api/v1/crates/jieba-rs/0.11.0",
+      "repository": "https://github.com/messense/jieba-rs",
+      "license": "MIT",
+      "rust_version": null,
+      "crate_size": 4857048,
+      "checksum": "0a3a7d02ea31e6fc6f2fe10495dc7c5efcf381e1f21d7172f58ba792efa1c2fd",
+      "yanked": false
+    },
+    {
+      "name": "unicode-normalization",
+      "version": "0.1.24",
+      "source": "https://crates.io/api/v1/crates/unicode-normalization/0.1.24",
+      "repository": "https://github.com/unicode-rs/unicode-normalization",
+      "license": "MIT/Apache-2.0",
+      "rust_version": "1.36",
+      "crate_size": 126536,
+      "checksum": "5033c97c4262335cded6d6fc3e5c18ab755e1a3dc96376350f3d8e9f009ad956",
+      "yanked": false
+    }
+  ],
+  "pyo3_guides": [
+    {
+      "url": "https://pyo3.rs/v0.30.1/features.html",
+      "fact": "abi3-py311 selects a minimum stable-ABI version; abi3 wheels do not support free-threaded builds."
+    },
+    {
+      "url": "https://pyo3.rs/v0.30.1/free-threading.html",
+      "fact": "free-threaded CPython has a different ABI and needs version-specific wheels; abi3/abi3-pyxx is ignored with a warning for those builds."
+    }
+  ],
+  "native_execution": "NOT_RUN",
+  "production_dependency_change": false
+}

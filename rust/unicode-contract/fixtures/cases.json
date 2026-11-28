@@ -1,0 +1,33 @@
+{
+  "schema": "powercontext.unicode-contract.fixtures.v1",
+  "encoding": "Strings are arrays of Unicode codepoint integers; no UTF-16 or UTF-8 decoding is performed.",
+  "reference": "ca935e10daa68e5302cc0a5b1392618f49265932",
+  "cases": [
+    {"id": "empty", "input": {"type": "str", "codepoints": []}},
+    {"id": "whitespace", "input": {"type": "str", "codepoints": [32, 9, 13, 10]}},
+    {"id": "none", "input": {"type": "none"}},
+    {"id": "zero", "input": {"type": "int", "value": 0}},
+    {"id": "false", "input": {"type": "bool", "value": false}},
+    {"id": "nfc_j_caron", "input": {"type": "str", "codepoints": [496]}},
+    {"id": "decomposed_j_caron", "input": {"type": "str", "codepoints": [106, 780]}},
+    {"id": "capital_i_with_dot", "input": {"type": "str", "codepoints": [73, 304, 105]}},
+    {"id": "sharp_s", "input": {"type": "str", "codepoints": [115, 116, 114, 97, 223, 101]}},
+    {"id": "capital_sharp_s", "input": {"type": "str", "codepoints": [7838]}},
+    {"id": "combining_marks", "input": {"type": "str", "codepoints": [65, 778, 769, 66, 789, 768]}},
+    {"id": "non_ascii_numbers", "input": {"type": "str", "codepoints": [49, 65297, 1635, 1778, 2405, 120792]}},
+    {"id": "han_and_extensions", "input": {"type": "str", "codepoints": [27721, 23383, 13312, 131072, 173782, 63744]}},
+    {"id": "apostrophes", "input": {"type": "str", "codepoints": [100, 111, 110, 39, 116, 32, 99, 97, 110, 8217, 116, 32, 39, 113, 117, 111, 116, 101, 100, 39]}},
+    {"id": "non_ascii_whitespace", "input": {"type": "str", "codepoints": [65, 160, 8199, 8239, 66]}},
+    {"id": "lone_high_surrogate", "input": {"type": "str", "codepoints": [65, 55296, 66]}},
+    {"id": "lone_low_surrogate", "input": {"type": "str", "codepoints": [65, 56320, 66]}},
+    {"id": "explicit_surrogate_pair", "input": {"type": "str", "codepoints": [65, 55357, 56832, 66]}},
+    {"id": "real_scalar_emoji", "input": {"type": "str", "codepoints": [65, 128512, 66]}},
+    {"id": "pair_only", "input": {"type": "str", "codepoints": [55357, 56832]}},
+    {"id": "scalar_only", "input": {"type": "str", "codepoints": [128512]}},
+    {"id": "str_subclass", "input": {"type": "str_subclass", "codepoints": [83, 116, 114, 97, 223, 101, 304, 496]}},
+    {"id": "crlf_emoji_combining", "input": {"type": "str", "codepoints": [35, 32, 72, 128512, 13, 10, 13, 10, 65, 778, 32, 120, 13, 10, 121]}},
+    {"id": "ucd_105d2_combining", "input": {"type": "str", "codepoints": [65, 67026, 775, 66]}},
+    {"id": "ucd_1e4ec_combining", "input": {"type": "str", "codepoints": [97, 124140, 768, 98]}},
+    {"id": "ucd16_cyrillic_tje", "input": {"type": "str", "codepoints": [65, 7305, 66]}}
+  ]
+}

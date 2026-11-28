@@ -1,0 +1,74 @@
+{
+  "schema": "powercontext.unicode-contract.negative-controls.v1",
+  "evidence_kind": "REAL_TARGETED_ASSERTION_FAILURES_IN_DISPOSABLE_COPIES",
+  "python": "3.12.16 (main, Oct 26 2026, 14:10:56) [MSC v.1944 64 bit (AMD64)]",
+  "executable": "C:\\Users\\AORUS\\AppData\\Local\\Temp\\opencode\\pc2739-matrix\\env-312\\Scripts\\python.exe",
+  "pair_merge": {
+    "command": [
+      "C:\\Users\\AORUS\\AppData\\Local\\Temp\\opencode\\pc2739-matrix\\env-312\\Scripts\\python.exe",
+      "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739\\rust\\unicode-contract\\probes\\contract_probe.py",
+      "--fixtures",
+      "C:\\Users\\AORUS\\AppData\\Local\\Temp\\opencode\\pc2739-matrix\\pc2739-negative-fjljaxba\\pair\\cases.json",
+      "--output",
+      "C:\\Users\\AORUS\\AppData\\Local\\Temp\\opencode\\pc2739-matrix\\pc2739-negative-fjljaxba\\pair\\actual.json",
+      "--check",
+      "C:\\Users\\AORUS\\AppData\\Local\\Temp\\opencode\\pc2739-matrix\\pc2739-negative-fjljaxba\\pair\\reference.json"
+    ],
+    "exit_code": 1,
+    "stdout": "",
+    "stderr": "C:\\Users\\AORUS\\AppData\\Local\\Temp\\opencode\\pc2739-matrix\\env-312\\Lib\\site-packages\\jieba\\__init__.py:44: SyntaxWarning: invalid escape sequence '\\.'\n  re_han_default = re.compile(\"([\\u4E00-\\u9FD5a-zA-Z0-9+#&\\._%\\-]+)\", re.U)\nC:\\Users\\AORUS\\AppData\\Local\\Temp\\opencode\\pc2739-matrix\\env-312\\Lib\\site-packages\\jieba\\__init__.py:46: SyntaxWarning: invalid escape sequence '\\s'\n  re_skip_default = re.compile(\"(\\r\\n|\\s)\", re.U)\nC:\\Users\\AORUS\\AppData\\Local\\Temp\\opencode\\pc2739-matrix\\env-312\\Lib\\site-packages\\jieba\\finalseg\\__init__.py:78: SyntaxWarning: invalid escape sequence '\\.'\n  re_skip = re.compile(\"([a-zA-Z0-9]+(?:\\.\\d+)?%?)\")\nTraceback (most recent call last):\n  File \"C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739\\rust\\unicode-contract\\probes\\contract_probe.py\", line 352, in <module>\n    main()\n  File \"C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739\\rust\\unicode-contract\\probes\\contract_probe.py\", line 344, in main\n    check(actual, json.loads(arguments.check.read_text(encoding=\"utf-8\")))\n  File \"C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739\\rust\\unicode-contract\\probes\\contract_probe.py\", line 332, in check\n    raise AssertionError(message)\nAssertionError: target mismatch at cases[19].observations.spans.normalized.value.codepoints: length 2 != 1\n",
+    "mismatch_location": "cases[19].observations.spans.normalized.value.codepoints: length 2 != 1",
+    "target_assertion_failed": true,
+    "merged_codepoints": [
+      128512
+    ],
+    "mutated_field": "observations.spans.normalized.value.codepoints"
+  },
+  "wrong_ucd": {
+    "command": [
+      "C:\\Users\\AORUS\\AppData\\Local\\Temp\\opencode\\pc2739-matrix\\env-312\\Scripts\\python.exe",
+      "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739\\rust\\unicode-contract\\probes\\contract_probe.py",
+      "--fixtures",
+      "C:\\Users\\AORUS\\AppData\\Local\\Temp\\opencode\\pc2739-matrix\\pc2739-negative-fjljaxba\\ucd\\cases.json",
+      "--output",
+      "C:\\Users\\AORUS\\AppData\\Local\\Temp\\opencode\\pc2739-matrix\\pc2739-negative-fjljaxba\\ucd\\actual.json",
+      "--check",
+      "C:\\Users\\AORUS\\AppData\\Local\\Temp\\opencode\\pc2739-matrix\\pc2739-negative-fjljaxba\\ucd\\reference.json"
+    ],
+    "exit_code": 1,
+    "stdout": "",
+    "stderr": "C:\\Users\\AORUS\\AppData\\Local\\Temp\\opencode\\pc2739-matrix\\env-312\\Lib\\site-packages\\jieba\\__init__.py:44: SyntaxWarning: invalid escape sequence '\\.'\n  re_han_default = re.compile(\"([\\u4E00-\\u9FD5a-zA-Z0-9+#&\\._%\\-]+)\", re.U)\nC:\\Users\\AORUS\\AppData\\Local\\Temp\\opencode\\pc2739-matrix\\env-312\\Lib\\site-packages\\jieba\\__init__.py:46: SyntaxWarning: invalid escape sequence '\\s'\n  re_skip_default = re.compile(\"(\\r\\n|\\s)\", re.U)\nC:\\Users\\AORUS\\AppData\\Local\\Temp\\opencode\\pc2739-matrix\\env-312\\Lib\\site-packages\\jieba\\finalseg\\__init__.py:78: SyntaxWarning: invalid escape sequence '\\.'\n  re_skip = re.compile(\"([a-zA-Z0-9]+(?:\\.\\d+)?%?)\")\nTraceback (most recent call last):\n  File \"C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739\\rust\\unicode-contract\\probes\\contract_probe.py\", line 352, in <module>\n    main()\n  File \"C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739\\rust\\unicode-contract\\probes\\contract_probe.py\", line 344, in main\n    check(actual, json.loads(arguments.check.read_text(encoding=\"utf-8\")))\n  File \"C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739\\rust\\unicode-contract\\probes\\contract_probe.py\", line 332, in check\n    raise AssertionError(message)\nAssertionError: target mismatch at cases[23].observations.character_properties[1].assigned_by_generator_rule: False != True\n",
+    "mismatch_location": "cases[23].observations.character_properties[1].assigned_by_generator_rule: False != True",
+    "target_assertion_failed": true,
+    "mutated_case": "ucd_105d2_combining",
+    "wrong_expectation": {
+      "codepoint": "U+105D2",
+      "field": "assigned_by_generator_rule",
+      "reference_value": false,
+      "wrong_value": true
+    }
+  },
+  "reference_before": {
+    "fixtures": {
+      "bytes": 2666,
+      "sha256": "f8917c72321d29e637efc120db26c8223a526f2a1e8649e218fb6417e6d1e77b"
+    },
+    "reference": {
+      "bytes": 328408,
+      "sha256": "c2270a6f0dc060a9659e2b0c9edf92e723da917dc6f6d4e5ca1fa81542c5dbca"
+    }
+  },
+  "reference_after": {
+    "fixtures": {
+      "bytes": 2666,
+      "sha256": "f8917c72321d29e637efc120db26c8223a526f2a1e8649e218fb6417e6d1e77b"
+    },
+    "reference": {
+      "bytes": 328408,
+      "sha256": "c2270a6f0dc060a9659e2b0c9edf92e723da917dc6f6d4e5ca1fa81542c5dbca"
+    }
+  },
+  "reference_unchanged": true,
+  "status": "PASS",
+  "native_execution": "NOT_RUN"
+}

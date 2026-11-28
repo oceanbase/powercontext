@@ -1,0 +1,41 @@
+{
+  "schema": "powercontext.unicode-contract.generator-result.v1",
+  "evidence_kind": "REAL_CPYTHON_GENERATOR_IN_DISPOSABLE_COPY",
+  "candidate": "a774fd0b8b2ac1729f5dd9121c34e968dd980905",
+  "python": "3.14.10 (main, Oct 26 2026, 14:10:46) [MSC v.1944 64 bit (AMD64)]",
+  "executable": "C:\\Users\\AORUS\\AppData\\Local\\Temp\\pc2739-matrix\\env-314\\Scripts\\python.exe",
+  "unicodedata_version": "16.0.0",
+  "command": [
+    "C:\\Users\\AORUS\\AppData\\Local\\Temp\\pc2739-matrix\\env-314\\Scripts\\python.exe",
+    "<disposable>/scripts/generate_lexical_unicode.py"
+  ],
+  "exit_code": 0,
+  "stdout": "unicode16.json: Unicode 16.0.0\n",
+  "stderr": "",
+  "wall_seconds_one_sample": 0.24414170000000013,
+  "status": "PASS",
+  "candidate_generator_git_blob": {
+    "bytes": 2025,
+    "sha256": "36e6dc3777c3fddaf7beb8bbce3fcb99d305e497bae400196ccaeb8c9cc0770f",
+    "lf_bytes": 2025,
+    "lf_sha256": "36e6dc3777c3fddaf7beb8bbce3fcb99d305e497bae400196ccaeb8c9cc0770f"
+  },
+  "candidate_generator_unchanged_after_run": true,
+  "candidate_table_git_blob": {
+    "bytes": 86475,
+    "sha256": "6eff99a899ea87ad25c2e2c2fd1ca4a02ddd47741892169e5df0e2eb02076c13",
+    "lf_bytes": 86475,
+    "lf_sha256": "6eff99a899ea87ad25c2e2c2fd1ca4a02ddd47741892169e5df0e2eb02076c13"
+  },
+  "generated_table": {
+    "bytes": 94050,
+    "sha256": "1f0266379411cb0b7ca9607719d8604e5c9f83576071a3d7bd57862d8045729b",
+    "lf_bytes": 86475,
+    "lf_sha256": "6eff99a899ea87ad25c2e2c2fd1ca4a02ddd47741892169e5df0e2eb02076c13"
+  },
+  "semantic_json_match": true,
+  "lf_bytes_match": true,
+  "raw_bytes_match": false,
+  "raw_mismatch_explanation": "Windows text-mode CRLF is compared separately from Git LF bytes",
+  "native_execution": "NOT_RUN"
+}

@@ -1,0 +1,743 @@
+{
+ "schema": "powercontext.unicode-contract.matrix-run.v1",
+ "candidate": "a774fd0b8b2ac1729f5dd9121c34e968dd980905",
+ "native_execution": "NOT_RUN",
+ "commands": [
+  {
+   "purpose": "candidate_inventory",
+   "command": [
+    "C:\\Users\\AORUS\\AppData\\Local\\Temp\\opencode\\pc2739-matrix\\env-313\\Scripts\\python.exe",
+    "-B",
+    "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739\\rust\\unicode-contract\\probes\\candidate_inventory.py",
+    "--candidate",
+    "a774fd0b8b2ac1729f5dd9121c34e968dd980905",
+    "--output",
+    "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739\\rust\\unicode-contract\\evidence\\candidate-inventory.json"
+   ],
+   "cwd": "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739",
+   "exit_code": 0,
+   "stdout": "inventoried 4 fixed tables; 337951 bytes; native=NOT_RUN\n",
+   "stderr": "",
+   "outcome": "EXECUTED_EXIT_0",
+   "wall_seconds": 0.39372739999998885,
+   "requested_python": "metadata"
+  },
+  {
+   "purpose": "locked_sync",
+   "command": [
+    "uv",
+    "sync",
+    "--locked",
+    "--no-dev",
+    "--group",
+    "resource-build",
+    "--extra",
+    "builtin",
+    "--python",
+    "C:\\Users\\AORUS\\AppData\\Local/Temp/opencode/pc2739-matrix/env-311/Scripts/python.exe"
+   ],
+   "cwd": "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739",
+   "exit_code": 0,
+   "stdout": "",
+   "stderr": "Resolved 296 packages in 3ms\nChecked 81 packages in 5ms\n",
+   "outcome": "EXECUTED_EXIT_0",
+   "wall_seconds": 0.06182579999949667,
+   "requested_python": "3.11"
+  },
+  {
+   "purpose": "identity",
+   "command": [
+    "C:\\Users\\AORUS\\AppData\\Local\\Temp\\opencode\\pc2739-matrix\\env-311\\Scripts\\python.exe",
+    "-B",
+    "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739\\rust\\unicode-contract\\probes\\pyver.py"
+   ],
+   "cwd": "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739",
+   "exit_code": 0,
+   "stdout": "executable: C:\\Users\\AORUS\\AppData\\Local\\Temp\\opencode\\pc2739-matrix\\env-311\\Scripts\\python.exe\nversion: 3.11.14 (main, Dec  9 2025, 18:59:10) [MSC v.1944 64 bit (AMD64)]\nversion_info: (3, 11, 14, 'final', 0)\nimplementation: cpython\nplatform: Windows-10-10.0.19045-SP0\nsysconfig_platform: win-amd64\nmaxunicode: 1114111\nunicodedata_version: 14.0.0\nbyteorder: little\nabi_flags: None\nexe_sha256: 1475a1410f8c3a098398a92dcc547cb9bc7d89572ed20f2db0c487d6672edd7a\n",
+   "stderr": "",
+   "outcome": "EXECUTED_EXIT_0",
+   "wall_seconds": 0.22574290000011388,
+   "requested_python": "3.11"
+  },
+  {
+   "purpose": "dependency_resolution",
+   "command": [
+    "uv",
+    "pip",
+    "list",
+    "--python",
+    "C:\\Users\\AORUS\\AppData\\Local\\Temp\\opencode\\pc2739-matrix\\env-311\\Scripts\\python.exe",
+    "--format=json"
+   ],
+   "cwd": "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739",
+   "exit_code": 0,
+   "stdout": "[{\"name\":\"aiomysql\",\"version\":\"0.3.2\"},{\"name\":\"aiosqlite\",\"version\":\"0.22.1\"},{\"name\":\"alembic\",\"version\":\"1.20.0\"},{\"name\":\"annotated-types\",\"version\":\"0.7.0\"},{\"name\":\"anthropic\",\"version\":\"2.3.0\"},{\"name\":\"anyio\",\"version\":\"4.14.2\"},{\"name\":\"apscheduler\",\"version\":\"3.11.3\"},{\"name\":\"attrs\",\"version\":\"26.1.0\"},{\"name\":\"bracex\",\"version\":\"3.0.1\"},{\"name\":\"certifi\",\"version\":\"2026.10.19\"},{\"name\":\"cffi\",\"version\":\"2.1.0\"},{\"name\":\"charset-normalizer\",\"version\":\"3.4.9\"},{\"name\":\"click\",\"version\":\"8.4.2\"},{\"name\":\"colorama\",\"version\":\"0.4.6\"},{\"name\":\"cryptography\",\"version\":\"50.0.0\"},{\"name\":\"docstring-parser\",\"version\":\"0.18.0\"},{\"name\":\"filelock\",\"version\":\"3.29.5\"},{\"name\":\"genai-prices\",\"version\":\"0.2.1\"},{\"name\":\"greenlet\",\"version\":\"3.5.4\"},{\"name\":\"griffelib\",\"version\":\"2.1.0\"},{\"name\":\"h11\",\"version\":\"0.16.0\"},{\"name\":\"httpcore\",\"version\":\"1.0.9\"},{\"name\":\"httpcore2\",\"version\":\"2.12.0\"},{\"name\":\"httpx\",\"version\":\"0.28.1\"},{\"name\":\"httpx2\",\"version\":\"2.12.0\"},{\"name\":\"idna\",\"version\":\"3.18\"},{\"name\":\"iniconfig\",\"version\":\"2.3.0\"},{\"name\":\"jieba\",\"version\":\"0.42.1\"},{\"name\":\"jiter\",\"version\":\"0.16.0\"},{\"name\":\"jsonschema\",\"version\":\"4.26.0\"},{\"name\":\"jsonschema-specifications\",\"version\":\"2025.9.1\"},{\"name\":\"logfire-api\",\"version\":\"4.38.0\"},{\"name\":\"mako\",\"version\":\"1.4.3\"},{\"name\":\"markdown-it-py\",\"version\":\"4.2.0\"},{\"name\":\"markupsafe\",\"version\":\"3.0.3\"},{\"name\":\"mdurl\",\"version\":\"0.1.2\"},{\"name\":\"numpy\",\"version\":\"2.4.6\"},{\"name\":\"openai\",\"version\":\"3.42.1\"},{\"name\":\"opentelemetry-api\",\"version\":\"1.45.2\"},{\"name\":\"opentelemetry-sdk\",\"version\":\"1.45.2\"},{\"name\":\"opentelemetry-semantic-conventions\",\"version\":\"0.66b2\"},{\"name\":\"orjson\",\"version\":\"3.12.0\"},{\"name\":\"packaging\",\"version\":\"26.3\"},{\"name\":\"platformdirs\",\"version\":\"4.10.0\"},{\"name\":\"pluggy\",\"version\":\"1.6.0\"},{\"name\":\"powercontext\",\"version\":\"1.5.3.dev251+gca935e10d\",\"editable_project_location\":\"C:\\\\Users\\\\AORUS\\\\work\\\\oss-camp\\\\wt-pc2739\"},{\"name\":\"pycasbin\",\"version\":\"2.8.0\"},{\"name\":\"pycparser\",\"version\":\"3.0\"},{\"name\":\"pydantic\",\"version\":\"2.13.4\"},{\"name\":\"pydantic-ai-slim\",\"version\":\"2.64.0\"},{\"name\":\"pydantic-core\",\"version\":\"2.46.4\"},{\"name\":\"pydantic-graph\",\"version\":\"2.64.0\"},{\"name\":\"pydantic-settings\",\"version\":\"2.14.2\"},{\"name\":\"pygments\",\"version\":\"2.20.0\"},{\"name\":\"pymysql\",\"version\":\"1.2.0\"},{\"name\":\"pyobvector\",\"version\":\"0.2.28\"},{\"name\":\"pytest\",\"version\":\"9.1.1\"},{\"name\":\"python-dotenv\",\"version\":\"1.2.2\"},{\"name\":\"pyyaml\",\"version\":\"6.0.3\"},{\"name\":\"referencing\",\"version\":\"0.37.0\"},{\"name\":\"regex\",\"version\":\"2026.7.19\"},{\"name\":\"requests\",\"version\":\"2.34.2\"},{\"name\":\"rfc8785\",\"version\":\"0.1.4\"},{\"name\":\"rich\",\"version\":\"15.0.0\"},{\"name\":\"rpds-py\",\"version\":\"2026.6.3\"},{\"name\":\"ruff\",\"version\":\"0.15.20\"},{\"name\":\"simpleeval\",\"version\":\"1.0.7\"},{\"name\":\"sniffio\",\"version\":\"1.3.1\"},{\"name\":\"sqlalchemy\",\"version\":\"2.0.51\"},{\"name\":\"sqlglot\",\"version\":\"30.13.0\"},{\"name\":\"sqlite-vec\",\"version\":\"0.1.9\"},{\"name\":\"tiktoken\",\"version\":\"0.13.0\"},{\"name\":\"truststore\",\"version\":\"0.10.4\"},{\"name\":\"ty\",\"version\":\"0.0.56\"},{\"name\":\"typing-extensions\",\"version\":\"4.16.0\"},{\"name\":\"typing-inspection\",\"version\":\"0.4.2\"},{\"name\":\"tzdata\",\"version\":\"2026.3\"},{\"name\":\"tzlocal\",\"version\":\"5.4.4\"},{\"name\":\"urllib3\",\"version\":\"2.8.0\"},{\"name\":\"wcmatch\",\"version\":\"11.0.1\"},{\"name\":\"zstandard\",\"version\":\"0.25.0\"}]\n",
+   "stderr": "Using Python 3.11.14 environment at: C:\\Users\\AORUS\\AppData\\Local\\Temp\\opencode\\pc2739-matrix\\env-311\n",
+   "outcome": "EXECUTED_EXIT_0",
+   "wall_seconds": 0.026757400000860798,
+   "requested_python": "3.11"
+  },
+  {
+   "purpose": "record_public_entries",
+   "command": [
+    "C:\\Users\\AORUS\\AppData\\Local\\Temp\\opencode\\pc2739-matrix\\env-311\\Scripts\\python.exe",
+    "-B",
+    "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739\\rust\\unicode-contract\\probes\\contract_probe.py",
+    "--fixtures",
+    "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739\\rust\\unicode-contract\\fixtures\\cases.json",
+    "--output",
+    "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739\\rust\\unicode-contract\\evidence\\cpython-3.11.json"
+   ],
+   "cwd": "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739",
+   "exit_code": 0,
+   "stdout": "recorded 26 cases; CPython 3.11.14; UCD 14.0.0; output=C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739\\rust\\unicode-contract\\evidence\\cpython-3.11.json\n",
+   "stderr": "",
+   "outcome": "EXECUTED_EXIT_0",
+   "wall_seconds": 1.4054654999999912,
+   "requested_python": "3.11"
+  },
+  {
+   "purpose": "verify_public_entries",
+   "command": [
+    "C:\\Users\\AORUS\\AppData\\Local\\Temp\\opencode\\pc2739-matrix\\env-311\\Scripts\\python.exe",
+    "-B",
+    "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739\\rust\\unicode-contract\\probes\\contract_probe.py",
+    "--fixtures",
+    "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739\\rust\\unicode-contract\\fixtures\\cases.json",
+    "--output",
+    "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739\\rust\\unicode-contract\\evidence\\cpython-3.11-replay.json",
+    "--check",
+    "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739\\rust\\unicode-contract\\evidence\\cpython-3.11.json"
+   ],
+   "cwd": "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739",
+   "exit_code": 0,
+   "stdout": "recorded 26 cases; CPython 3.11.14; UCD 14.0.0; output=C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739\\rust\\unicode-contract\\evidence\\cpython-3.11-replay.json\n",
+   "stderr": "",
+   "outcome": "EXECUTED_EXIT_0",
+   "wall_seconds": 1.0705941999995048,
+   "requested_python": "3.11"
+  },
+  {
+   "purpose": "fixed_generator",
+   "command": [
+    "C:\\Users\\AORUS\\AppData\\Local\\Temp\\opencode\\pc2739-matrix\\env-311\\Scripts\\python.exe",
+    "-B",
+    "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739\\rust\\unicode-contract\\probes\\generator_probe.py",
+    "--candidate",
+    "a774fd0b8b2ac1729f5dd9121c34e968dd980905",
+    "--output",
+    "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739\\rust\\unicode-contract\\evidence\\generator-3.11.json",
+    "--temp-root",
+    "C:\\Users\\AORUS\\AppData\\Local\\Temp\\opencode\\pc2739-matrix"
+   ],
+   "cwd": "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739",
+   "exit_code": 0,
+   "stdout": "PASS: UCD 14.0.0; semantic=True; LF=True; raw=False; 0.238s\n",
+   "stderr": "",
+   "outcome": "EXECUTED_EXIT_0",
+   "wall_seconds": 0.391005700000278,
+   "requested_python": "3.11"
+  },
+  {
+   "purpose": "negative_controls",
+   "command": [
+    "C:\\Users\\AORUS\\AppData\\Local\\Temp\\opencode\\pc2739-matrix\\env-311\\Scripts\\python.exe",
+    "-B",
+    "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739\\rust\\unicode-contract\\probes\\negative_controls.py",
+    "--fixtures",
+    "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739\\rust\\unicode-contract\\fixtures\\cases.json",
+    "--reference",
+    "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739\\rust\\unicode-contract\\evidence\\cpython-3.11.json",
+    "--output",
+    "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739\\rust\\unicode-contract\\evidence\\negative-3.11.json",
+    "--temp-root",
+    "C:\\Users\\AORUS\\AppData\\Local\\Temp\\opencode\\pc2739-matrix"
+   ],
+   "cwd": "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739",
+   "exit_code": 0,
+   "stdout": "PASS: pair_exit=1; ucd_exit=1; reference_unchanged=True\n",
+   "stderr": "",
+   "outcome": "EXECUTED_EXIT_0",
+   "wall_seconds": 2.254673499999626,
+   "requested_python": "3.11"
+  },
+  {
+   "purpose": "existing_tests",
+   "command": [
+    "C:\\Users\\AORUS\\AppData\\Local\\Temp\\opencode\\pc2739-matrix\\env-311\\Scripts\\python.exe",
+    "-B",
+    "-m",
+    "pytest",
+    "tests/builtin/artifacts/test_text_search_admission.py",
+    "tests/builtin/artifacts/topic_memory/test_chunking.py",
+    "-q",
+    "-rs"
+   ],
+   "cwd": "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739",
+   "exit_code": 0,
+   "stdout": ".............                                                            [100%]\n============================== warnings summary ===============================\ntests/builtin/artifacts/test_text_search_admission.py::test_query_normalization_preserves_quotes_domain_conditions_and_identifiers[\\u8bf7\\u4fdd\\u7559 release_gate_v3 \\u5e76\\u4e14\\u4e0d\\u8981\\u90e8\\u7f72\\u672a\\u5ba1\\u6838\\u7684\\u7248\\u672c\\u3002-release_gate_v3 \\u4e0d\\u8981\\u90e8\\u7f72\\u672a\\u5ba1\\u6838\\u7248\\u672c]\n  C:\\Users\\AORUS\\AppData\\Local\\Temp\\opencode\\pc2739-matrix\\env-311\\Lib\\site-packages\\jieba\\__init__.py:44: DeprecationWarning: invalid escape sequence '\\.'\n    re_han_default = re.compile(\"([\\u4E00-\\u9FD5a-zA-Z0-9+#&\\._%\\-]+)\", re.U)\n\ntests/builtin/artifacts/test_text_search_admission.py::test_query_normalization_preserves_quotes_domain_conditions_and_identifiers[\\u8bf7\\u4fdd\\u7559 release_gate_v3 \\u5e76\\u4e14\\u4e0d\\u8981\\u90e8\\u7f72\\u672a\\u5ba1\\u6838\\u7684\\u7248\\u672c\\u3002-release_gate_v3 \\u4e0d\\u8981\\u90e8\\u7f72\\u672a\\u5ba1\\u6838\\u7248\\u672c]\n  C:\\Users\\AORUS\\AppData\\Local\\Temp\\opencode\\pc2739-matrix\\env-311\\Lib\\site-packages\\jieba\\__init__.py:46: DeprecationWarning: invalid escape sequence '\\s'\n    re_skip_default = re.compile(\"(\\r\\n|\\s)\", re.U)\n\ntests/builtin/artifacts/test_text_search_admission.py::test_query_normalization_preserves_quotes_domain_conditions_and_identifiers[\\u8bf7\\u4fdd\\u7559 release_gate_v3 \\u5e76\\u4e14\\u4e0d\\u8981\\u90e8\\u7f72\\u672a\\u5ba1\\u6838\\u7684\\u7248\\u672c\\u3002-release_gate_v3 \\u4e0d\\u8981\\u90e8\\u7f72\\u672a\\u5ba1\\u6838\\u7248\\u672c]\n  C:\\Users\\AORUS\\AppData\\Local\\Temp\\opencode\\pc2739-matrix\\env-311\\Lib\\site-packages\\jieba\\finalseg\\__init__.py:78: DeprecationWarning: invalid escape sequence '\\.'\n    re_skip = re.compile(\"([a-zA-Z0-9]+(?:\\.\\d+)?%?)\")\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n13 passed, 3 warnings in 1.50s\n",
+   "stderr": "",
+   "outcome": "EXECUTED_EXIT_0",
+   "wall_seconds": 2.1023628000002645,
+   "requested_python": "3.11"
+  },
+  {
+   "purpose": "locked_sync",
+   "command": [
+    "uv",
+    "sync",
+    "--locked",
+    "--no-dev",
+    "--group",
+    "resource-build",
+    "--extra",
+    "builtin",
+    "--python",
+    "C:\\Users\\AORUS\\AppData\\Local/Temp/opencode/pc2739-matrix/env-312/Scripts/python.exe"
+   ],
+   "cwd": "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739",
+   "exit_code": 0,
+   "stdout": "",
+   "stderr": "Resolved 296 packages in 3ms\nChecked 81 packages in 7ms\n",
+   "outcome": "EXECUTED_EXIT_0",
+   "wall_seconds": 0.06370150000020658,
+   "requested_python": "3.12"
+  },
+  {
+   "purpose": "identity",
+   "command": [
+    "C:\\Users\\AORUS\\AppData\\Local\\Temp\\opencode\\pc2739-matrix\\env-312\\Scripts\\python.exe",
+    "-B",
+    "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739\\rust\\unicode-contract\\probes\\pyver.py"
+   ],
+   "cwd": "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739",
+   "exit_code": 0,
+   "stdout": "executable: C:\\Users\\AORUS\\AppData\\Local\\Temp\\opencode\\pc2739-matrix\\env-312\\Scripts\\python.exe\nversion: 3.12.16 (main, Oct 26 2026, 14:10:56) [MSC v.1944 64 bit (AMD64)]\nversion_info: (3, 12, 16, 'final', 0)\nimplementation: cpython\nplatform: Windows-10-10.0.19045-SP0\nsysconfig_platform: win-amd64\nmaxunicode: 1114111\nunicodedata_version: 15.0.0\nbyteorder: little\nabi_flags: None\nexe_sha256: fcbcba14502b6dca3e1df82d60a703eeb3cc22bba90af5c1b3a949766f669157\n",
+   "stderr": "",
+   "outcome": "EXECUTED_EXIT_0",
+   "wall_seconds": 0.12338369999997667,
+   "requested_python": "3.12"
+  },
+  {
+   "purpose": "dependency_resolution",
+   "command": [
+    "uv",
+    "pip",
+    "list",
+    "--python",
+    "C:\\Users\\AORUS\\AppData\\Local\\Temp\\opencode\\pc2739-matrix\\env-312\\Scripts\\python.exe",
+    "--format=json"
+   ],
+   "cwd": "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739",
+   "exit_code": 0,
+   "stdout": "[{\"name\":\"aiomysql\",\"version\":\"0.3.2\"},{\"name\":\"aiosqlite\",\"version\":\"0.22.1\"},{\"name\":\"alembic\",\"version\":\"1.20.0\"},{\"name\":\"annotated-types\",\"version\":\"0.7.0\"},{\"name\":\"anthropic\",\"version\":\"2.3.0\"},{\"name\":\"anyio\",\"version\":\"4.14.2\"},{\"name\":\"apscheduler\",\"version\":\"3.11.3\"},{\"name\":\"attrs\",\"version\":\"26.1.0\"},{\"name\":\"bracex\",\"version\":\"3.0.1\"},{\"name\":\"certifi\",\"version\":\"2026.10.19\"},{\"name\":\"cffi\",\"version\":\"2.1.0\"},{\"name\":\"charset-normalizer\",\"version\":\"3.4.9\"},{\"name\":\"click\",\"version\":\"8.4.2\"},{\"name\":\"colorama\",\"version\":\"0.4.6\"},{\"name\":\"cryptography\",\"version\":\"50.0.0\"},{\"name\":\"docstring-parser\",\"version\":\"0.18.0\"},{\"name\":\"filelock\",\"version\":\"3.29.5\"},{\"name\":\"genai-prices\",\"version\":\"0.2.1\"},{\"name\":\"greenlet\",\"version\":\"3.5.4\"},{\"name\":\"griffelib\",\"version\":\"2.1.0\"},{\"name\":\"h11\",\"version\":\"0.16.0\"},{\"name\":\"httpcore\",\"version\":\"1.0.9\"},{\"name\":\"httpcore2\",\"version\":\"2.12.0\"},{\"name\":\"httpx\",\"version\":\"0.28.1\"},{\"name\":\"httpx2\",\"version\":\"2.12.0\"},{\"name\":\"idna\",\"version\":\"3.18\"},{\"name\":\"iniconfig\",\"version\":\"2.3.0\"},{\"name\":\"jieba\",\"version\":\"0.42.1\"},{\"name\":\"jiter\",\"version\":\"0.16.0\"},{\"name\":\"jsonschema\",\"version\":\"4.26.0\"},{\"name\":\"jsonschema-specifications\",\"version\":\"2025.9.1\"},{\"name\":\"logfire-api\",\"version\":\"4.38.0\"},{\"name\":\"mako\",\"version\":\"1.4.3\"},{\"name\":\"markdown-it-py\",\"version\":\"4.2.0\"},{\"name\":\"markupsafe\",\"version\":\"3.0.3\"},{\"name\":\"mdurl\",\"version\":\"0.1.2\"},{\"name\":\"numpy\",\"version\":\"2.5.1\"},{\"name\":\"openai\",\"version\":\"3.42.1\"},{\"name\":\"opentelemetry-api\",\"version\":\"1.45.2\"},{\"name\":\"opentelemetry-sdk\",\"version\":\"1.45.2\"},{\"name\":\"opentelemetry-semantic-conventions\",\"version\":\"0.66b2\"},{\"name\":\"orjson\",\"version\":\"3.12.0\"},{\"name\":\"packaging\",\"version\":\"26.3\"},{\"name\":\"platformdirs\",\"version\":\"4.10.0\"},{\"name\":\"pluggy\",\"version\":\"1.6.0\"},{\"name\":\"powercontext\",\"version\":\"1.5.3.dev251+gca935e10d\",\"editable_project_location\":\"C:\\\\Users\\\\AORUS\\\\work\\\\oss-camp\\\\wt-pc2739\"},{\"name\":\"pycasbin\",\"version\":\"2.8.0\"},{\"name\":\"pycparser\",\"version\":\"3.0\"},{\"name\":\"pydantic\",\"version\":\"2.13.4\"},{\"name\":\"pydantic-ai-slim\",\"version\":\"2.64.0\"},{\"name\":\"pydantic-core\",\"version\":\"2.46.4\"},{\"name\":\"pydantic-graph\",\"version\":\"2.64.0\"},{\"name\":\"pydantic-settings\",\"version\":\"2.14.2\"},{\"name\":\"pygments\",\"version\":\"2.20.0\"},{\"name\":\"pymysql\",\"version\":\"1.2.0\"},{\"name\":\"pyobvector\",\"version\":\"0.2.28\"},{\"name\":\"pytest\",\"version\":\"9.1.1\"},{\"name\":\"python-dotenv\",\"version\":\"1.2.2\"},{\"name\":\"pyyaml\",\"version\":\"6.0.3\"},{\"name\":\"referencing\",\"version\":\"0.37.0\"},{\"name\":\"regex\",\"version\":\"2026.7.19\"},{\"name\":\"requests\",\"version\":\"2.34.2\"},{\"name\":\"rfc8785\",\"version\":\"0.1.4\"},{\"name\":\"rich\",\"version\":\"15.0.0\"},{\"name\":\"rpds-py\",\"version\":\"2026.6.3\"},{\"name\":\"ruff\",\"version\":\"0.15.20\"},{\"name\":\"simpleeval\",\"version\":\"1.0.7\"},{\"name\":\"sniffio\",\"version\":\"1.3.1\"},{\"name\":\"sqlalchemy\",\"version\":\"2.0.51\"},{\"name\":\"sqlglot\",\"version\":\"30.13.0\"},{\"name\":\"sqlite-vec\",\"version\":\"0.1.9\"},{\"name\":\"tiktoken\",\"version\":\"0.13.0\"},{\"name\":\"truststore\",\"version\":\"0.10.4\"},{\"name\":\"ty\",\"version\":\"0.0.56\"},{\"name\":\"typing-extensions\",\"version\":\"4.16.0\"},{\"name\":\"typing-inspection\",\"version\":\"0.4.2\"},{\"name\":\"tzdata\",\"version\":\"2026.3\"},{\"name\":\"tzlocal\",\"version\":\"5.4.4\"},{\"name\":\"urllib3\",\"version\":\"2.8.0\"},{\"name\":\"wcmatch\",\"version\":\"11.0.1\"},{\"name\":\"zstandard\",\"version\":\"0.25.0\"}]\n",
+   "stderr": "Using Python 3.12.16 environment at: C:\\Users\\AORUS\\AppData\\Local\\Temp\\opencode\\pc2739-matrix\\env-312\n",
+   "outcome": "EXECUTED_EXIT_0",
+   "wall_seconds": 0.026574900000014168,
+   "requested_python": "3.12"
+  },
+  {
+   "purpose": "record_public_entries",
+   "command": [
+    "C:\\Users\\AORUS\\AppData\\Local\\Temp\\opencode\\pc2739-matrix\\env-312\\Scripts\\python.exe",
+    "-B",
+    "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739\\rust\\unicode-contract\\probes\\contract_probe.py",
+    "--fixtures",
+    "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739\\rust\\unicode-contract\\fixtures\\cases.json",
+    "--output",
+    "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739\\rust\\unicode-contract\\evidence\\cpython-3.12.json"
+   ],
+   "cwd": "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739",
+   "exit_code": 0,
+   "stdout": "recorded 26 cases; CPython 3.12.16; UCD 15.0.0; output=C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739\\rust\\unicode-contract\\evidence\\cpython-3.12.json\n",
+   "stderr": "C:\\Users\\AORUS\\AppData\\Local\\Temp\\opencode\\pc2739-matrix\\env-312\\Lib\\site-packages\\jieba\\__init__.py:44: SyntaxWarning: invalid escape sequence '\\.'\n  re_han_default = re.compile(\"([\\u4E00-\\u9FD5a-zA-Z0-9+#&\\._%\\-]+)\", re.U)\nC:\\Users\\AORUS\\AppData\\Local\\Temp\\opencode\\pc2739-matrix\\env-312\\Lib\\site-packages\\jieba\\__init__.py:46: SyntaxWarning: invalid escape sequence '\\s'\n  re_skip_default = re.compile(\"(\\r\\n|\\s)\", re.U)\nC:\\Users\\AORUS\\AppData\\Local\\Temp\\opencode\\pc2739-matrix\\env-312\\Lib\\site-packages\\jieba\\finalseg\\__init__.py:78: SyntaxWarning: invalid escape sequence '\\.'\n  re_skip = re.compile(\"([a-zA-Z0-9]+(?:\\.\\d+)?%?)\")\n",
+   "outcome": "EXECUTED_EXIT_0",
+   "wall_seconds": 1.3954600999995819,
+   "requested_python": "3.12"
+  },
+  {
+   "purpose": "verify_public_entries",
+   "command": [
+    "C:\\Users\\AORUS\\AppData\\Local\\Temp\\opencode\\pc2739-matrix\\env-312\\Scripts\\python.exe",
+    "-B",
+    "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739\\rust\\unicode-contract\\probes\\contract_probe.py",
+    "--fixtures",
+    "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739\\rust\\unicode-contract\\fixtures\\cases.json",
+    "--output",
+    "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739\\rust\\unicode-contract\\evidence\\cpython-3.12-replay.json",
+    "--check",
+    "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739\\rust\\unicode-contract\\evidence\\cpython-3.12.json"
+   ],
+   "cwd": "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739",
+   "exit_code": 0,
+   "stdout": "recorded 26 cases; CPython 3.12.16; UCD 15.0.0; output=C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739\\rust\\unicode-contract\\evidence\\cpython-3.12-replay.json\n",
+   "stderr": "C:\\Users\\AORUS\\AppData\\Local\\Temp\\opencode\\pc2739-matrix\\env-312\\Lib\\site-packages\\jieba\\__init__.py:44: SyntaxWarning: invalid escape sequence '\\.'\n  re_han_default = re.compile(\"([\\u4E00-\\u9FD5a-zA-Z0-9+#&\\._%\\-]+)\", re.U)\nC:\\Users\\AORUS\\AppData\\Local\\Temp\\opencode\\pc2739-matrix\\env-312\\Lib\\site-packages\\jieba\\__init__.py:46: SyntaxWarning: invalid escape sequence '\\s'\n  re_skip_default = re.compile(\"(\\r\\n|\\s)\", re.U)\nC:\\Users\\AORUS\\AppData\\Local\\Temp\\opencode\\pc2739-matrix\\env-312\\Lib\\site-packages\\jieba\\finalseg\\__init__.py:78: SyntaxWarning: invalid escape sequence '\\.'\n  re_skip = re.compile(\"([a-zA-Z0-9]+(?:\\.\\d+)?%?)\")\n",
+   "outcome": "EXECUTED_EXIT_0",
+   "wall_seconds": 1.2386888000000909,
+   "requested_python": "3.12"
+  },
+  {
+   "purpose": "fixed_generator",
+   "command": [
+    "C:\\Users\\AORUS\\AppData\\Local\\Temp\\opencode\\pc2739-matrix\\env-312\\Scripts\\python.exe",
+    "-B",
+    "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739\\rust\\unicode-contract\\probes\\generator_probe.py",
+    "--candidate",
+    "a774fd0b8b2ac1729f5dd9121c34e968dd980905",
+    "--output",
+    "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739\\rust\\unicode-contract\\evidence\\generator-3.12.json",
+    "--temp-root",
+    "C:\\Users\\AORUS\\AppData\\Local\\Temp\\opencode\\pc2739-matrix"
+   ],
+   "cwd": "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739",
+   "exit_code": 0,
+   "stdout": "PASS: UCD 15.0.0; semantic=True; LF=True; raw=False; 0.238s\n",
+   "stderr": "",
+   "outcome": "EXECUTED_EXIT_0",
+   "wall_seconds": 0.3921173999997336,
+   "requested_python": "3.12"
+  },
+  {
+   "purpose": "negative_controls",
+   "command": [
+    "C:\\Users\\AORUS\\AppData\\Local\\Temp\\opencode\\pc2739-matrix\\env-312\\Scripts\\python.exe",
+    "-B",
+    "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739\\rust\\unicode-contract\\probes\\negative_controls.py",
+    "--fixtures",
+    "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739\\rust\\unicode-contract\\fixtures\\cases.json",
+    "--reference",
+    "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739\\rust\\unicode-contract\\evidence\\cpython-3.12.json",
+    "--output",
+    "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739\\rust\\unicode-contract\\evidence\\negative-3.12.json",
+    "--temp-root",
+    "C:\\Users\\AORUS\\AppData\\Local\\Temp\\opencode\\pc2739-matrix"
+   ],
+   "cwd": "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739",
+   "exit_code": 0,
+   "stdout": "PASS: pair_exit=1; ucd_exit=1; reference_unchanged=True\n",
+   "stderr": "",
+   "outcome": "EXECUTED_EXIT_0",
+   "wall_seconds": 2.58847489999971,
+   "requested_python": "3.12"
+  },
+  {
+   "purpose": "existing_tests",
+   "command": [
+    "C:\\Users\\AORUS\\AppData\\Local\\Temp\\opencode\\pc2739-matrix\\env-312\\Scripts\\python.exe",
+    "-B",
+    "-m",
+    "pytest",
+    "tests/builtin/artifacts/test_text_search_admission.py",
+    "tests/builtin/artifacts/topic_memory/test_chunking.py",
+    "-q",
+    "-rs"
+   ],
+   "cwd": "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739",
+   "exit_code": 0,
+   "stdout": ".............                                                            [100%]\n============================== warnings summary ===============================\ntests/builtin/artifacts/test_text_search_admission.py::test_query_normalization_preserves_quotes_domain_conditions_and_identifiers[\\u8bf7\\u4fdd\\u7559 release_gate_v3 \\u5e76\\u4e14\\u4e0d\\u8981\\u90e8\\u7f72\\u672a\\u5ba1\\u6838\\u7684\\u7248\\u672c\\u3002-release_gate_v3 \\u4e0d\\u8981\\u90e8\\u7f72\\u672a\\u5ba1\\u6838\\u7248\\u672c]\n  C:\\Users\\AORUS\\AppData\\Local\\Temp\\opencode\\pc2739-matrix\\env-312\\Lib\\site-packages\\jieba\\__init__.py:44: SyntaxWarning: invalid escape sequence '\\.'\n    re_han_default = re.compile(\"([\\u4E00-\\u9FD5a-zA-Z0-9+#&\\._%\\-]+)\", re.U)\n\ntests/builtin/artifacts/test_text_search_admission.py::test_query_normalization_preserves_quotes_domain_conditions_and_identifiers[\\u8bf7\\u4fdd\\u7559 release_gate_v3 \\u5e76\\u4e14\\u4e0d\\u8981\\u90e8\\u7f72\\u672a\\u5ba1\\u6838\\u7684\\u7248\\u672c\\u3002-release_gate_v3 \\u4e0d\\u8981\\u90e8\\u7f72\\u672a\\u5ba1\\u6838\\u7248\\u672c]\n  C:\\Users\\AORUS\\AppData\\Local\\Temp\\opencode\\pc2739-matrix\\env-312\\Lib\\site-packages\\jieba\\__init__.py:46: SyntaxWarning: invalid escape sequence '\\s'\n    re_skip_default = re.compile(\"(\\r\\n|\\s)\", re.U)\n\ntests/builtin/artifacts/test_text_search_admission.py::test_query_normalization_preserves_quotes_domain_conditions_and_identifiers[\\u8bf7\\u4fdd\\u7559 release_gate_v3 \\u5e76\\u4e14\\u4e0d\\u8981\\u90e8\\u7f72\\u672a\\u5ba1\\u6838\\u7684\\u7248\\u672c\\u3002-release_gate_v3 \\u4e0d\\u8981\\u90e8\\u7f72\\u672a\\u5ba1\\u6838\\u7248\\u672c]\n  C:\\Users\\AORUS\\AppData\\Local\\Temp\\opencode\\pc2739-matrix\\env-312\\Lib\\site-packages\\jieba\\finalseg\\__init__.py:78: SyntaxWarning: invalid escape sequence '\\.'\n    re_skip = re.compile(\"([a-zA-Z0-9]+(?:\\.\\d+)?%?)\")\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n13 passed, 3 warnings in 1.79s\n",
+   "stderr": "",
+   "outcome": "EXECUTED_EXIT_0",
+   "wall_seconds": 2.440696599999683,
+   "requested_python": "3.12"
+  },
+  {
+   "purpose": "locked_sync",
+   "command": [
+    "uv",
+    "sync",
+    "--locked",
+    "--no-dev",
+    "--group",
+    "resource-build",
+    "--extra",
+    "builtin",
+    "--python",
+    "C:\\Users\\AORUS\\AppData\\Local/Temp/opencode/pc2739-matrix/env-313/Scripts/python.exe"
+   ],
+   "cwd": "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739",
+   "exit_code": 0,
+   "stdout": "",
+   "stderr": "Resolved 296 packages in 3ms\nChecked 81 packages in 3ms\n",
+   "outcome": "EXECUTED_EXIT_0",
+   "wall_seconds": 0.039356400000542635,
+   "requested_python": "3.13"
+  },
+  {
+   "purpose": "identity",
+   "command": [
+    "C:\\Users\\AORUS\\AppData\\Local\\Temp\\opencode\\pc2739-matrix\\env-313\\Scripts\\python.exe",
+    "-B",
+    "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739\\rust\\unicode-contract\\probes\\pyver.py"
+   ],
+   "cwd": "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739",
+   "exit_code": 0,
+   "stdout": "executable: C:\\Users\\AORUS\\AppData\\Local\\Temp\\opencode\\pc2739-matrix\\env-313\\Scripts\\python.exe\nversion: 3.13.3 (tags/v3.13.3:6280bb5, Apr  8 2025, 14:47:33) [MSC v.1943 64 bit (AMD64)]\nversion_info: (3, 13, 3, 'final', 0)\nimplementation: cpython\nplatform: Windows-10-10.0.19045-SP0\nsysconfig_platform: win-amd64\nmaxunicode: 1114111\nunicodedata_version: 15.1.0\nbyteorder: little\nabi_flags: None\nexe_sha256: 4febf6a25b0c0fdfad27707e8b89aafc0fb76485e9fe7e0e2b523eb3374e4e4f\n",
+   "stderr": "",
+   "outcome": "EXECUTED_EXIT_0",
+   "wall_seconds": 0.08263309999983903,
+   "requested_python": "3.13"
+  },
+  {
+   "purpose": "dependency_resolution",
+   "command": [
+    "uv",
+    "pip",
+    "list",
+    "--python",
+    "C:\\Users\\AORUS\\AppData\\Local\\Temp\\opencode\\pc2739-matrix\\env-313\\Scripts\\python.exe",
+    "--format=json"
+   ],
+   "cwd": "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739",
+   "exit_code": 0,
+   "stdout": "[{\"name\":\"aiomysql\",\"version\":\"0.3.2\"},{\"name\":\"aiosqlite\",\"version\":\"0.22.1\"},{\"name\":\"alembic\",\"version\":\"1.20.0\"},{\"name\":\"annotated-types\",\"version\":\"0.7.0\"},{\"name\":\"anthropic\",\"version\":\"2.3.0\"},{\"name\":\"anyio\",\"version\":\"4.14.2\"},{\"name\":\"apscheduler\",\"version\":\"3.11.3\"},{\"name\":\"attrs\",\"version\":\"26.1.0\"},{\"name\":\"bracex\",\"version\":\"3.0.1\"},{\"name\":\"certifi\",\"version\":\"2026.10.19\"},{\"name\":\"cffi\",\"version\":\"2.1.0\"},{\"name\":\"charset-normalizer\",\"version\":\"3.4.9\"},{\"name\":\"click\",\"version\":\"8.4.2\"},{\"name\":\"colorama\",\"version\":\"0.4.6\"},{\"name\":\"cryptography\",\"version\":\"50.0.0\"},{\"name\":\"docstring-parser\",\"version\":\"0.18.0\"},{\"name\":\"filelock\",\"version\":\"3.29.5\"},{\"name\":\"genai-prices\",\"version\":\"0.2.1\"},{\"name\":\"greenlet\",\"version\":\"3.5.4\"},{\"name\":\"griffelib\",\"version\":\"2.1.0\"},{\"name\":\"h11\",\"version\":\"0.16.0\"},{\"name\":\"httpcore\",\"version\":\"1.0.9\"},{\"name\":\"httpcore2\",\"version\":\"2.12.0\"},{\"name\":\"httpx\",\"version\":\"0.28.1\"},{\"name\":\"httpx2\",\"version\":\"2.12.0\"},{\"name\":\"idna\",\"version\":\"3.18\"},{\"name\":\"iniconfig\",\"version\":\"2.3.0\"},{\"name\":\"jieba\",\"version\":\"0.42.1\"},{\"name\":\"jiter\",\"version\":\"0.16.0\"},{\"name\":\"jsonschema\",\"version\":\"4.26.0\"},{\"name\":\"jsonschema-specifications\",\"version\":\"2025.9.1\"},{\"name\":\"logfire-api\",\"version\":\"4.38.0\"},{\"name\":\"mako\",\"version\":\"1.4.3\"},{\"name\":\"markdown-it-py\",\"version\":\"4.2.0\"},{\"name\":\"markupsafe\",\"version\":\"3.0.3\"},{\"name\":\"mdurl\",\"version\":\"0.1.2\"},{\"name\":\"numpy\",\"version\":\"2.5.1\"},{\"name\":\"openai\",\"version\":\"3.42.1\"},{\"name\":\"opentelemetry-api\",\"version\":\"1.45.2\"},{\"name\":\"opentelemetry-sdk\",\"version\":\"1.45.2\"},{\"name\":\"opentelemetry-semantic-conventions\",\"version\":\"0.66b2\"},{\"name\":\"orjson\",\"version\":\"3.12.0\"},{\"name\":\"packaging\",\"version\":\"26.3\"},{\"name\":\"platformdirs\",\"version\":\"4.10.0\"},{\"name\":\"pluggy\",\"version\":\"1.6.0\"},{\"name\":\"powercontext\",\"version\":\"1.5.3.dev251+gca935e10d\",\"editable_project_location\":\"C:\\\\Users\\\\AORUS\\\\work\\\\oss-camp\\\\wt-pc2739\"},{\"name\":\"pycasbin\",\"version\":\"2.8.0\"},{\"name\":\"pycparser\",\"version\":\"3.0\"},{\"name\":\"pydantic\",\"version\":\"2.13.4\"},{\"name\":\"pydantic-ai-slim\",\"version\":\"2.64.0\"},{\"name\":\"pydantic-core\",\"version\":\"2.46.4\"},{\"name\":\"pydantic-graph\",\"version\":\"2.64.0\"},{\"name\":\"pydantic-settings\",\"version\":\"2.14.2\"},{\"name\":\"pygments\",\"version\":\"2.20.0\"},{\"name\":\"pymysql\",\"version\":\"1.2.0\"},{\"name\":\"pyobvector\",\"version\":\"0.2.28\"},{\"name\":\"pytest\",\"version\":\"9.1.1\"},{\"name\":\"python-dotenv\",\"version\":\"1.2.2\"},{\"name\":\"pyyaml\",\"version\":\"6.0.3\"},{\"name\":\"referencing\",\"version\":\"0.37.0\"},{\"name\":\"regex\",\"version\":\"2026.7.19\"},{\"name\":\"requests\",\"version\":\"2.34.2\"},{\"name\":\"rfc8785\",\"version\":\"0.1.4\"},{\"name\":\"rich\",\"version\":\"15.0.0\"},{\"name\":\"rpds-py\",\"version\":\"2026.6.3\"},{\"name\":\"ruff\",\"version\":\"0.15.20\"},{\"name\":\"simpleeval\",\"version\":\"1.0.7\"},{\"name\":\"sniffio\",\"version\":\"1.3.1\"},{\"name\":\"sqlalchemy\",\"version\":\"2.0.51\"},{\"name\":\"sqlglot\",\"version\":\"30.13.0\"},{\"name\":\"sqlite-vec\",\"version\":\"0.1.9\"},{\"name\":\"tiktoken\",\"version\":\"0.13.0\"},{\"name\":\"truststore\",\"version\":\"0.10.4\"},{\"name\":\"ty\",\"version\":\"0.0.56\"},{\"name\":\"typing-extensions\",\"version\":\"4.16.0\"},{\"name\":\"typing-inspection\",\"version\":\"0.4.2\"},{\"name\":\"tzdata\",\"version\":\"2026.3\"},{\"name\":\"tzlocal\",\"version\":\"5.4.4\"},{\"name\":\"urllib3\",\"version\":\"2.8.0\"},{\"name\":\"wcmatch\",\"version\":\"11.0.1\"},{\"name\":\"zstandard\",\"version\":\"0.25.0\"}]\n",
+   "stderr": "Using Python 3.13.3 environment at: C:\\Users\\AORUS\\AppData\\Local\\Temp\\opencode\\pc2739-matrix\\env-313\n",
+   "outcome": "EXECUTED_EXIT_0",
+   "wall_seconds": 0.026567400000203634,
+   "requested_python": "3.13"
+  },
+  {
+   "purpose": "record_public_entries",
+   "command": [
+    "C:\\Users\\AORUS\\AppData\\Local\\Temp\\opencode\\pc2739-matrix\\env-313\\Scripts\\python.exe",
+    "-B",
+    "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739\\rust\\unicode-contract\\probes\\contract_probe.py",
+    "--fixtures",
+    "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739\\rust\\unicode-contract\\fixtures\\cases.json",
+    "--output",
+    "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739\\rust\\unicode-contract\\evidence\\cpython-3.13.json"
+   ],
+   "cwd": "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739",
+   "exit_code": 0,
+   "stdout": "recorded 26 cases; CPython 3.13.3; UCD 15.1.0; output=C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739\\rust\\unicode-contract\\evidence\\cpython-3.13.json\n",
+   "stderr": "",
+   "outcome": "EXECUTED_EXIT_0",
+   "wall_seconds": 0.6747505000003002,
+   "requested_python": "3.13"
+  },
+  {
+   "purpose": "verify_public_entries",
+   "command": [
+    "C:\\Users\\AORUS\\AppData\\Local\\Temp\\opencode\\pc2739-matrix\\env-313\\Scripts\\python.exe",
+    "-B",
+    "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739\\rust\\unicode-contract\\probes\\contract_probe.py",
+    "--fixtures",
+    "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739\\rust\\unicode-contract\\fixtures\\cases.json",
+    "--output",
+    "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739\\rust\\unicode-contract\\evidence\\cpython-3.13-replay.json",
+    "--check",
+    "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739\\rust\\unicode-contract\\evidence\\cpython-3.13.json"
+   ],
+   "cwd": "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739",
+   "exit_code": 0,
+   "stdout": "recorded 26 cases; CPython 3.13.3; UCD 15.1.0; output=C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739\\rust\\unicode-contract\\evidence\\cpython-3.13-replay.json\n",
+   "stderr": "",
+   "outcome": "EXECUTED_EXIT_0",
+   "wall_seconds": 0.6743092999995497,
+   "requested_python": "3.13"
+  },
+  {
+   "purpose": "fixed_generator",
+   "command": [
+    "C:\\Users\\AORUS\\AppData\\Local\\Temp\\opencode\\pc2739-matrix\\env-313\\Scripts\\python.exe",
+    "-B",
+    "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739\\rust\\unicode-contract\\probes\\generator_probe.py",
+    "--candidate",
+    "a774fd0b8b2ac1729f5dd9121c34e968dd980905",
+    "--output",
+    "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739\\rust\\unicode-contract\\evidence\\generator-3.13.json",
+    "--temp-root",
+    "C:\\Users\\AORUS\\AppData\\Local\\Temp\\opencode\\pc2739-matrix"
+   ],
+   "cwd": "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739",
+   "exit_code": 0,
+   "stdout": "PASS: UCD 15.1.0; semantic=True; LF=True; raw=False; 0.209s\n",
+   "stderr": "",
+   "outcome": "EXECUTED_EXIT_0",
+   "wall_seconds": 0.3482816999994611,
+   "requested_python": "3.13"
+  },
+  {
+   "purpose": "negative_controls",
+   "command": [
+    "C:\\Users\\AORUS\\AppData\\Local\\Temp\\opencode\\pc2739-matrix\\env-313\\Scripts\\python.exe",
+    "-B",
+    "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739\\rust\\unicode-contract\\probes\\negative_controls.py",
+    "--fixtures",
+    "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739\\rust\\unicode-contract\\fixtures\\cases.json",
+    "--reference",
+    "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739\\rust\\unicode-contract\\evidence\\cpython-3.13.json",
+    "--output",
+    "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739\\rust\\unicode-contract\\evidence\\negative-3.13.json",
+    "--temp-root",
+    "C:\\Users\\AORUS\\AppData\\Local\\Temp\\opencode\\pc2739-matrix"
+   ],
+   "cwd": "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739",
+   "exit_code": 0,
+   "stdout": "PASS: pair_exit=1; ucd_exit=1; reference_unchanged=True\n",
+   "stderr": "",
+   "outcome": "EXECUTED_EXIT_0",
+   "wall_seconds": 1.4540630000001329,
+   "requested_python": "3.13"
+  },
+  {
+   "purpose": "existing_tests",
+   "command": [
+    "C:\\Users\\AORUS\\AppData\\Local\\Temp\\opencode\\pc2739-matrix\\env-313\\Scripts\\python.exe",
+    "-B",
+    "-m",
+    "pytest",
+    "tests/builtin/artifacts/test_text_search_admission.py",
+    "tests/builtin/artifacts/topic_memory/test_chunking.py",
+    "-q",
+    "-rs"
+   ],
+   "cwd": "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739",
+   "exit_code": 0,
+   "stdout": ".............                                                            [100%]\n13 passed in 1.09s\n",
+   "stderr": "",
+   "outcome": "EXECUTED_EXIT_0",
+   "wall_seconds": 1.6866010999992795,
+   "requested_python": "3.13"
+  },
+  {
+   "purpose": "candidate_inventory",
+   "command": [
+    "C:\\Users\\AORUS\\work\\oss-camp\\pwctx-repair\\.venv\\Scripts\\python.exe",
+    "-B",
+    "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739\\rust\\unicode-contract\\probes\\candidate_inventory.py",
+    "--candidate",
+    "a774fd0b8b2ac1729f5dd9121c34e968dd980905",
+    "--output",
+    "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739\\rust\\unicode-contract\\evidence\\candidate-inventory.json"
+   ],
+   "cwd": "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739",
+   "exit_code": 0,
+   "stdout": "inventoried 4 fixed tables; 337951 bytes; native=NOT_RUN\n",
+   "stderr": "",
+   "outcome": "EXECUTED_EXIT_0",
+   "wall_seconds": 0.42248039999958564,
+   "requested_python": "metadata"
+  },
+  {
+   "purpose": "locked_sync",
+   "command": [
+    "uv",
+    "sync",
+    "--locked",
+    "--no-dev",
+    "--group",
+    "resource-build",
+    "--extra",
+    "builtin",
+    "--python",
+    "C:/Users/AORUS/AppData/Roaming/uv/python/cpython-3.14-windows-x86_64-none/python.exe"
+   ],
+   "cwd": "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739",
+   "exit_code": 0,
+   "stdout": "",
+   "stderr": "Using CPython 3.14.10 interpreter at: C:\\Users\\AORUS\\AppData\\Roaming\\uv\\python\\cpython-3.14-windows-x86_64-none\\python.exe\nCreating virtual environment at: C:\\Users\\AORUS\\AppData\\Local\\Temp\\pc2739-matrix\\env-314\nResolved 296 packages in 4ms\nDownloading pydantic-core (2.0MiB)\nDownloading numpy (12.0MiB)\nDownloading sqlalchemy (2.0MiB)\n Downloaded pydantic-core\n Downloaded sqlalchemy\n Downloaded numpy\nPrepared 14 packages in 3.43s\nInstalled 81 packages in 1.68s\n + aiomysql==0.3.2\n + aiosqlite==0.22.1\n + alembic==1.20.0\n + annotated-types==0.7.0\n + anthropic==2.3.0\n + anyio==4.14.2\n + apscheduler==3.11.3\n + attrs==26.1.0\n + bracex==3.0.1\n + certifi==2026.10.19\n + cffi==2.1.0\n + charset-normalizer==3.4.9\n + click==8.4.2\n + colorama==0.4.6\n + cryptography==50.0.0\n + docstring-parser==0.18.0\n + filelock==3.29.5\n + genai-prices==0.2.1\n + greenlet==3.5.4\n + griffelib==2.1.0\n + h11==0.16.0\n + httpcore==1.0.9\n + httpcore2==2.12.0\n + httpx==0.28.1\n + httpx2==2.12.0\n + idna==3.18\n + iniconfig==2.3.0\n + jieba==0.42.1\n + jiter==0.16.0\n + jsonschema==4.26.0\n + jsonschema-specifications==2025.9.1\n + logfire-api==4.38.0\n + mako==1.4.3\n + markdown-it-py==4.2.0\n + markupsafe==3.0.3\n + mdurl==0.1.2\n + numpy==2.5.1\n + openai==3.42.1\n + opentelemetry-api==1.45.2\n + opentelemetry-sdk==1.45.2\n + opentelemetry-semantic-conventions==0.66b2\n + orjson==3.12.0\n + packaging==26.3\n + platformdirs==4.10.0\n + pluggy==1.6.0\n + powercontext==1.5.3.dev253+gad55f00af (from file:///C:/Users/AORUS/work/oss-camp/wt-pc2739)\n + pycasbin==2.8.0\n + pycparser==3.0\n + pydantic==2.13.4\n + pydantic-ai-slim==2.64.0\n + pydantic-core==2.46.4\n + pydantic-graph==2.64.0\n + pydantic-settings==2.14.2\n + pygments==2.20.0\n + pymysql==1.2.0\n + pyobvector==0.2.28\n + pytest==9.1.1\n + python-dotenv==1.2.2\n + pyyaml==6.0.3\n + referencing==0.37.0\n + regex==2026.7.19\n + requests==2.34.2\n + rfc8785==0.1.4\n + rich==15.0.0\n + rpds-py==2026.6.3\n + ruff==0.15.20\n + simpleeval==1.0.7\n + sniffio==1.3.1\n + sqlalchemy==2.0.51\n + sqlglot==30.13.0\n + sqlite-vec==0.1.9\n + tiktoken==0.13.0\n + truststore==0.10.4\n + ty==0.0.56\n + typing-extensions==4.16.0\n + typing-inspection==0.4.2\n + tzdata==2026.3\n + tzlocal==5.4.4\n + urllib3==2.8.0\n + wcmatch==11.0.1\n + zstandard==0.25.0\n",
+   "outcome": "EXECUTED_EXIT_0",
+   "wall_seconds": 5.217522799999642,
+   "requested_python": "3.14"
+  },
+  {
+   "purpose": "identity",
+   "command": [
+    "C:\\Users\\AORUS\\AppData\\Local\\Temp\\pc2739-matrix\\env-314\\Scripts\\python.exe",
+    "-B",
+    "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739\\rust\\unicode-contract\\probes\\pyver.py"
+   ],
+   "cwd": "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739",
+   "exit_code": 0,
+   "stdout": "executable: C:\\Users\\AORUS\\AppData\\Local\\Temp\\pc2739-matrix\\env-314\\Scripts\\python.exe\nversion: 3.14.10 (main, Oct 26 2026, 14:10:46) [MSC v.1944 64 bit (AMD64)]\nversion_info: (3, 14, 10, 'final', 0)\nimplementation: cpython\nplatform: Windows-10-10.0.19045-SP0\nsysconfig_platform: win-amd64\nmaxunicode: 1114111\nunicodedata_version: 16.0.0\nbyteorder: little\nabi_flags: None\nexe_sha256: f59c54d24ff9fc2acc557246d10f47dcd805a8ce0c7b21fbb910dc91d2678190\n",
+   "stderr": "",
+   "outcome": "EXECUTED_EXIT_0",
+   "wall_seconds": 0.11611639999955514,
+   "requested_python": "3.14"
+  },
+  {
+   "purpose": "dependency_resolution",
+   "command": [
+    "uv",
+    "pip",
+    "list",
+    "--python",
+    "C:\\Users\\AORUS\\AppData\\Local\\Temp\\pc2739-matrix\\env-314\\Scripts\\python.exe",
+    "--format=json"
+   ],
+   "cwd": "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739",
+   "exit_code": 0,
+   "stdout": "[{\"name\":\"aiomysql\",\"version\":\"0.3.2\"},{\"name\":\"aiosqlite\",\"version\":\"0.22.1\"},{\"name\":\"alembic\",\"version\":\"1.20.0\"},{\"name\":\"annotated-types\",\"version\":\"0.7.0\"},{\"name\":\"anthropic\",\"version\":\"2.3.0\"},{\"name\":\"anyio\",\"version\":\"4.14.2\"},{\"name\":\"apscheduler\",\"version\":\"3.11.3\"},{\"name\":\"attrs\",\"version\":\"26.1.0\"},{\"name\":\"bracex\",\"version\":\"3.0.1\"},{\"name\":\"certifi\",\"version\":\"2026.10.19\"},{\"name\":\"cffi\",\"version\":\"2.1.0\"},{\"name\":\"charset-normalizer\",\"version\":\"3.4.9\"},{\"name\":\"click\",\"version\":\"8.4.2\"},{\"name\":\"colorama\",\"version\":\"0.4.6\"},{\"name\":\"cryptography\",\"version\":\"50.0.0\"},{\"name\":\"docstring-parser\",\"version\":\"0.18.0\"},{\"name\":\"filelock\",\"version\":\"3.29.5\"},{\"name\":\"genai-prices\",\"version\":\"0.2.1\"},{\"name\":\"greenlet\",\"version\":\"3.5.4\"},{\"name\":\"griffelib\",\"version\":\"2.1.0\"},{\"name\":\"h11\",\"version\":\"0.16.0\"},{\"name\":\"httpcore\",\"version\":\"1.0.9\"},{\"name\":\"httpcore2\",\"version\":\"2.12.0\"},{\"name\":\"httpx\",\"version\":\"0.28.1\"},{\"name\":\"httpx2\",\"version\":\"2.12.0\"},{\"name\":\"idna\",\"version\":\"3.18\"},{\"name\":\"iniconfig\",\"version\":\"2.3.0\"},{\"name\":\"jieba\",\"version\":\"0.42.1\"},{\"name\":\"jiter\",\"version\":\"0.16.0\"},{\"name\":\"jsonschema\",\"version\":\"4.26.0\"},{\"name\":\"jsonschema-specifications\",\"version\":\"2025.9.1\"},{\"name\":\"logfire-api\",\"version\":\"4.38.0\"},{\"name\":\"mako\",\"version\":\"1.4.3\"},{\"name\":\"markdown-it-py\",\"version\":\"4.2.0\"},{\"name\":\"markupsafe\",\"version\":\"3.0.3\"},{\"name\":\"mdurl\",\"version\":\"0.1.2\"},{\"name\":\"numpy\",\"version\":\"2.5.1\"},{\"name\":\"openai\",\"version\":\"3.42.1\"},{\"name\":\"opentelemetry-api\",\"version\":\"1.45.2\"},{\"name\":\"opentelemetry-sdk\",\"version\":\"1.45.2\"},{\"name\":\"opentelemetry-semantic-conventions\",\"version\":\"0.66b2\"},{\"name\":\"orjson\",\"version\":\"3.12.0\"},{\"name\":\"packaging\",\"version\":\"26.3\"},{\"name\":\"platformdirs\",\"version\":\"4.10.0\"},{\"name\":\"pluggy\",\"version\":\"1.6.0\"},{\"name\":\"powercontext\",\"version\":\"1.5.3.dev253+gad55f00af\",\"editable_project_location\":\"C:\\\\Users\\\\AORUS\\\\work\\\\oss-camp\\\\wt-pc2739\"},{\"name\":\"pycasbin\",\"version\":\"2.8.0\"},{\"name\":\"pycparser\",\"version\":\"3.0\"},{\"name\":\"pydantic\",\"version\":\"2.13.4\"},{\"name\":\"pydantic-ai-slim\",\"version\":\"2.64.0\"},{\"name\":\"pydantic-core\",\"version\":\"2.46.4\"},{\"name\":\"pydantic-graph\",\"version\":\"2.64.0\"},{\"name\":\"pydantic-settings\",\"version\":\"2.14.2\"},{\"name\":\"pygments\",\"version\":\"2.20.0\"},{\"name\":\"pymysql\",\"version\":\"1.2.0\"},{\"name\":\"pyobvector\",\"version\":\"0.2.28\"},{\"name\":\"pytest\",\"version\":\"9.1.1\"},{\"name\":\"python-dotenv\",\"version\":\"1.2.2\"},{\"name\":\"pyyaml\",\"version\":\"6.0.3\"},{\"name\":\"referencing\",\"version\":\"0.37.0\"},{\"name\":\"regex\",\"version\":\"2026.7.19\"},{\"name\":\"requests\",\"version\":\"2.34.2\"},{\"name\":\"rfc8785\",\"version\":\"0.1.4\"},{\"name\":\"rich\",\"version\":\"15.0.0\"},{\"name\":\"rpds-py\",\"version\":\"2026.6.3\"},{\"name\":\"ruff\",\"version\":\"0.15.20\"},{\"name\":\"simpleeval\",\"version\":\"1.0.7\"},{\"name\":\"sniffio\",\"version\":\"1.3.1\"},{\"name\":\"sqlalchemy\",\"version\":\"2.0.51\"},{\"name\":\"sqlglot\",\"version\":\"30.13.0\"},{\"name\":\"sqlite-vec\",\"version\":\"0.1.9\"},{\"name\":\"tiktoken\",\"version\":\"0.13.0\"},{\"name\":\"truststore\",\"version\":\"0.10.4\"},{\"name\":\"ty\",\"version\":\"0.0.56\"},{\"name\":\"typing-extensions\",\"version\":\"4.16.0\"},{\"name\":\"typing-inspection\",\"version\":\"0.4.2\"},{\"name\":\"tzdata\",\"version\":\"2026.3\"},{\"name\":\"tzlocal\",\"version\":\"5.4.4\"},{\"name\":\"urllib3\",\"version\":\"2.8.0\"},{\"name\":\"wcmatch\",\"version\":\"11.0.1\"},{\"name\":\"zstandard\",\"version\":\"0.25.0\"}]\n",
+   "stderr": "Using Python 3.14.10 environment at: C:\\Users\\AORUS\\AppData\\Local\\Temp\\pc2739-matrix\\env-314\n",
+   "outcome": "EXECUTED_EXIT_0",
+   "wall_seconds": 0.11629839999932301,
+   "requested_python": "3.14"
+  },
+  {
+   "purpose": "record_public_entries",
+   "command": [
+    "C:\\Users\\AORUS\\AppData\\Local\\Temp\\pc2739-matrix\\env-314\\Scripts\\python.exe",
+    "-B",
+    "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739\\rust\\unicode-contract\\probes\\contract_probe.py",
+    "--fixtures",
+    "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739\\rust\\unicode-contract\\fixtures\\cases.json",
+    "--output",
+    "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739\\rust\\unicode-contract\\evidence\\cpython-3.14.json"
+   ],
+   "cwd": "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739",
+   "exit_code": 0,
+   "stdout": "recorded 26 cases; CPython 3.14.10; UCD 16.0.0; output=C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739\\rust\\unicode-contract\\evidence\\cpython-3.14.json\n",
+   "stderr": "C:\\Users\\AORUS\\AppData\\Local\\Temp\\pc2739-matrix\\env-314\\Lib\\site-packages\\jieba\\__init__.py:44: SyntaxWarning: \"\\.\" is an invalid escape sequence. Such sequences will not work in the future. Did you mean \"\\\\.\"? A raw string is also an option.\n  re_han_default = re.compile(\"([\\u4E00-\\u9FD5a-zA-Z0-9+#&\\._%\\-]+)\", re.U)\nC:\\Users\\AORUS\\AppData\\Local\\Temp\\pc2739-matrix\\env-314\\Lib\\site-packages\\jieba\\__init__.py:46: SyntaxWarning: \"\\s\" is an invalid escape sequence. Such sequences will not work in the future. Did you mean \"\\\\s\"? A raw string is also an option.\n  re_skip_default = re.compile(\"(\\r\\n|\\s)\", re.U)\nC:\\Users\\AORUS\\AppData\\Local\\Temp\\pc2739-matrix\\env-314\\Lib\\site-packages\\jieba\\finalseg\\__init__.py:78: SyntaxWarning: \"\\.\" is an invalid escape sequence. Such sequences will not work in the future. Did you mean \"\\\\.\"? A raw string is also an option.\n  re_skip = re.compile(\"([a-zA-Z0-9]+(?:\\.\\d+)?%?)\")\n",
+   "outcome": "EXECUTED_EXIT_0",
+   "wall_seconds": 1.6139701000001878,
+   "requested_python": "3.14"
+  },
+  {
+   "purpose": "verify_public_entries",
+   "command": [
+    "C:\\Users\\AORUS\\AppData\\Local\\Temp\\pc2739-matrix\\env-314\\Scripts\\python.exe",
+    "-B",
+    "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739\\rust\\unicode-contract\\probes\\contract_probe.py",
+    "--fixtures",
+    "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739\\rust\\unicode-contract\\fixtures\\cases.json",
+    "--output",
+    "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739\\rust\\unicode-contract\\evidence\\cpython-3.14-replay.json",
+    "--check",
+    "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739\\rust\\unicode-contract\\evidence\\cpython-3.14.json"
+   ],
+   "cwd": "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739",
+   "exit_code": 0,
+   "stdout": "recorded 26 cases; CPython 3.14.10; UCD 16.0.0; output=C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739\\rust\\unicode-contract\\evidence\\cpython-3.14-replay.json\n",
+   "stderr": "C:\\Users\\AORUS\\AppData\\Local\\Temp\\pc2739-matrix\\env-314\\Lib\\site-packages\\jieba\\__init__.py:44: SyntaxWarning: \"\\.\" is an invalid escape sequence. Such sequences will not work in the future. Did you mean \"\\\\.\"? A raw string is also an option.\n  re_han_default = re.compile(\"([\\u4E00-\\u9FD5a-zA-Z0-9+#&\\._%\\-]+)\", re.U)\nC:\\Users\\AORUS\\AppData\\Local\\Temp\\pc2739-matrix\\env-314\\Lib\\site-packages\\jieba\\__init__.py:46: SyntaxWarning: \"\\s\" is an invalid escape sequence. Such sequences will not work in the future. Did you mean \"\\\\s\"? A raw string is also an option.\n  re_skip_default = re.compile(\"(\\r\\n|\\s)\", re.U)\nC:\\Users\\AORUS\\AppData\\Local\\Temp\\pc2739-matrix\\env-314\\Lib\\site-packages\\jieba\\finalseg\\__init__.py:78: SyntaxWarning: \"\\.\" is an invalid escape sequence. Such sequences will not work in the future. Did you mean \"\\\\.\"? A raw string is also an option.\n  re_skip = re.compile(\"([a-zA-Z0-9]+(?:\\.\\d+)?%?)\")\n",
+   "outcome": "EXECUTED_EXIT_0",
+   "wall_seconds": 1.4332043999993402,
+   "requested_python": "3.14"
+  },
+  {
+   "purpose": "fixed_generator",
+   "command": [
+    "C:\\Users\\AORUS\\AppData\\Local\\Temp\\pc2739-matrix\\env-314\\Scripts\\python.exe",
+    "-B",
+    "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739\\rust\\unicode-contract\\probes\\generator_probe.py",
+    "--candidate",
+    "a774fd0b8b2ac1729f5dd9121c34e968dd980905",
+    "--output",
+    "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739\\rust\\unicode-contract\\evidence\\generator-3.14.json",
+    "--temp-root",
+    "C:\\Users\\AORUS\\AppData\\Local\\Temp\\pc2739-matrix"
+   ],
+   "cwd": "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739",
+   "exit_code": 0,
+   "stdout": "PASS: UCD 16.0.0; semantic=True; LF=True; raw=False; 0.244s\n",
+   "stderr": "",
+   "outcome": "EXECUTED_EXIT_0",
+   "wall_seconds": 0.4337980999998763,
+   "requested_python": "3.14"
+  },
+  {
+   "purpose": "negative_controls",
+   "command": [
+    "C:\\Users\\AORUS\\AppData\\Local\\Temp\\pc2739-matrix\\env-314\\Scripts\\python.exe",
+    "-B",
+    "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739\\rust\\unicode-contract\\probes\\negative_controls.py",
+    "--fixtures",
+    "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739\\rust\\unicode-contract\\fixtures\\cases.json",
+    "--reference",
+    "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739\\rust\\unicode-contract\\evidence\\cpython-3.14.json",
+    "--output",
+    "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739\\rust\\unicode-contract\\evidence\\negative-3.14.json",
+    "--temp-root",
+    "C:\\Users\\AORUS\\AppData\\Local\\Temp\\pc2739-matrix"
+   ],
+   "cwd": "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739",
+   "exit_code": 0,
+   "stdout": "PASS: pair_exit=1; ucd_exit=1; reference_unchanged=True\n",
+   "stderr": "",
+   "outcome": "EXECUTED_EXIT_0",
+   "wall_seconds": 3.046035700000175,
+   "requested_python": "3.14"
+  },
+  {
+   "purpose": "existing_tests",
+   "command": [
+    "C:\\Users\\AORUS\\AppData\\Local\\Temp\\pc2739-matrix\\env-314\\Scripts\\python.exe",
+    "-B",
+    "-m",
+    "pytest",
+    "tests/builtin/artifacts/test_text_search_admission.py",
+    "tests/builtin/artifacts/topic_memory/test_chunking.py",
+    "-q",
+    "-rs"
+   ],
+   "cwd": "C:\\Users\\AORUS\\work\\oss-camp\\wt-pc2739",
+   "exit_code": 0,
+   "stdout": ".............                                                            [100%]\n============================== warnings summary ===============================\ntests/builtin/artifacts/test_text_search_admission.py::test_query_normalization_preserves_quotes_domain_conditions_and_identifiers[\\u8bf7\\u4fdd\\u7559 release_gate_v3 \\u5e76\\u4e14\\u4e0d\\u8981\\u90e8\\u7f72\\u672a\\u5ba1\\u6838\\u7684\\u7248\\u672c\\u3002-release_gate_v3 \\u4e0d\\u8981\\u90e8\\u7f72\\u672a\\u5ba1\\u6838\\u7248\\u672c]\n  C:\\Users\\AORUS\\AppData\\Local\\Temp\\pc2739-matrix\\env-314\\Lib\\site-packages\\jieba\\__init__.py:44: SyntaxWarning: \"\\.\" is an invalid escape sequence. Such sequences will not work in the future. Did you mean \"\\\\.\"? A raw string is also an option.\n    re_han_default = re.compile(\"([\\u4E00-\\u9FD5a-zA-Z0-9+#&\\._%\\-]+)\", re.U)\n\ntests/builtin/artifacts/test_text_search_admission.py::test_query_normalization_preserves_quotes_domain_conditions_and_identifiers[\\u8bf7\\u4fdd\\u7559 release_gate_v3 \\u5e76\\u4e14\\u4e0d\\u8981\\u90e8\\u7f72\\u672a\\u5ba1\\u6838\\u7684\\u7248\\u672c\\u3002-release_gate_v3 \\u4e0d\\u8981\\u90e8\\u7f72\\u672a\\u5ba1\\u6838\\u7248\\u672c]\n  C:\\Users\\AORUS\\AppData\\Local\\Temp\\pc2739-matrix\\env-314\\Lib\\site-packages\\jieba\\__init__.py:46: SyntaxWarning: \"\\s\" is an invalid escape sequence. Such sequences will not work in the future. Did you mean \"\\\\s\"? A raw string is also an option.\n    re_skip_default = re.compile(\"(\\r\\n|\\s)\", re.U)\n\ntests/builtin/artifacts/test_text_search_admission.py::test_query_normalization_preserves_quotes_domain_conditions_and_identifiers[\\u8bf7\\u4fdd\\u7559 release_gate_v3 \\u5e76\\u4e14\\u4e0d\\u8981\\u90e8\\u7f72\\u672a\\u5ba1\\u6838\\u7684\\u7248\\u672c\\u3002-release_gate_v3 \\u4e0d\\u8981\\u90e8\\u7f72\\u672a\\u5ba1\\u6838\\u7248\\u672c]\n  C:\\Users\\AORUS\\AppData\\Local\\Temp\\pc2739-matrix\\env-314\\Lib\\site-packages\\jieba\\finalseg\\__init__.py:78: SyntaxWarning: \"\\.\" is an invalid escape sequence. Such sequences will not work in the future. Did you mean \"\\\\.\"? A raw string is also an option.\n    re_skip = re.compile(\"([a-zA-Z0-9]+(?:\\.\\d+)?%?)\")\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n13 passed, 3 warnings in 2.11s\n",
+   "stderr": "",
+   "outcome": "EXECUTED_EXIT_0",
+   "wall_seconds": 3.363670099999581,
+   "requested_python": "3.14"
+  }
+ ],
+ "versions": {
+  "metadata": {
+   "candidate_inventory_exit_code": 0,
+   "native_execution": "NOT_RUN"
+  },
+  "3.11": {
+   "requested_interpreter": "C:\\Users\\AORUS\\AppData\\Local/Temp/opencode/pc2739-matrix/env-311/Scripts/python.exe",
+   "status": "EXECUTED_ALL_COMMANDS_EXIT_0",
+   "steps": {
+    "locked_sync": "EXECUTED_EXIT_0",
+    "identity": "EXECUTED_EXIT_0",
+    "dependency_resolution": "EXECUTED_EXIT_0",
+    "record_public_entries": "EXECUTED_EXIT_0",
+    "verify_public_entries": "EXECUTED_EXIT_0",
+    "fixed_generator": "EXECUTED_EXIT_0",
+    "negative_controls": "EXECUTED_EXIT_0",
+    "existing_tests": "EXECUTED_EXIT_0"
+   }
+  },
+  "3.12": {
+   "requested_interpreter": "C:\\Users\\AORUS\\AppData\\Local/Temp/opencode/pc2739-matrix/env-312/Scripts/python.exe",
+   "status": "EXECUTED_ALL_COMMANDS_EXIT_0",
+   "steps": {
+    "locked_sync": "EXECUTED_EXIT_0",
+    "identity": "EXECUTED_EXIT_0",
+    "dependency_resolution": "EXECUTED_EXIT_0",
+    "record_public_entries": "EXECUTED_EXIT_0",
+    "verify_public_entries": "EXECUTED_EXIT_0",
+    "fixed_generator": "EXECUTED_EXIT_0",
+    "negative_controls": "EXECUTED_EXIT_0",
+    "existing_tests": "EXECUTED_EXIT_0"
+   }
+  },
+  "3.13": {
+   "requested_interpreter": "C:\\Users\\AORUS\\AppData\\Local/Temp/opencode/pc2739-matrix/env-313/Scripts/python.exe",
+   "status": "EXECUTED_ALL_COMMANDS_EXIT_0",
+   "steps": {
+    "locked_sync": "EXECUTED_EXIT_0",
+    "identity": "EXECUTED_EXIT_0",
+    "dependency_resolution": "EXECUTED_EXIT_0",
+    "record_public_entries": "EXECUTED_EXIT_0",
+    "verify_public_entries": "EXECUTED_EXIT_0",
+    "fixed_generator": "EXECUTED_EXIT_0",
+    "negative_controls": "EXECUTED_EXIT_0",
+    "existing_tests": "EXECUTED_EXIT_0"
+   }
+  },
+  "3.14": {
+   "requested_interpreter": "C:/Users/AORUS/AppData/Roaming/uv/python/cpython-3.14-windows-x86_64-none/python.exe",
+   "status": "EXECUTED_ALL_COMMANDS_EXIT_0",
+   "steps": {
+    "locked_sync": "EXECUTED_EXIT_0",
+    "identity": "EXECUTED_EXIT_0",
+    "dependency_resolution": "EXECUTED_EXIT_0",
+    "record_public_entries": "EXECUTED_EXIT_0",
+    "verify_public_entries": "EXECUTED_EXIT_0",
+    "fixed_generator": "EXECUTED_EXIT_0",
+    "negative_controls": "EXECUTED_EXIT_0",
+    "existing_tests": "EXECUTED_EXIT_0"
+   }
+  }
+ }
+}
