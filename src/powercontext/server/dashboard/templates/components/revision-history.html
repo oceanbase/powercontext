@@ -14,9 +14,22 @@ See the License for the specific language governing permissions and
 limitations under the License.
 -->
 {% if history %}
-<details class="supporting-details mt-4" {% if history.compare or history.compare_error or history.error %}open{% endif %}><summary>{{ t.note_history_short }}</summary>
+<details id="revision-history" class="supporting-details mt-4" {% if history.compare or history.compare_error or history.error or prompt_opened %}open{% endif %}><summary>{{ t.note_history_short }}</summary>
 <section class="card mt-4">
-  <div class="card-header"><h2 class="card-title mb-0">{{ t.revision_history }}</h2></div>
+  <div class="card-header d-flex flex-wrap align-items-center justify-content-between gap-2">
+    <h2 class="card-title mb-0">{{ t.revision_history }}</h2>
+    {% if prompt_opened %}<a class="btn btn-sm" hx-swap="outerHTML show:none" href="{{ link('prompts', prompt_key=history.artifact_id, prompt_revision=none, compare=none, rollback_error=none, prompt_saved=none) }}">{{ t.prompt_return_editor if history.artifact_id == 'profile.generate' else t.prompt_return_current }}</a>{% endif %}
+  </div>
+  {% if prompt_opened %}
+    <div class="card-body border-bottom" data-revision-preview>
+      <div class="small text-secondary mb-2"><strong>{{ t.revision }} {{ prompt_opened.revision }}</strong> &middot; {{ t.prompt_custom if prompt_opened.content.mode == 'custom' else t.prompt_auto }}</div>
+      {% if prompt_opened.content.instructions %}
+        <pre class="page-body-pre text-break mb-0">{{ prompt_opened.content.instructions }}</pre>
+      {% else %}
+        <p class="text-secondary mb-0">{{ t.prompt_opened_auto_summary }}</p>
+      {% endif %}
+    </div>
+  {% endif %}
   <div class="list-group list-group-flush">
     {% for item in history["items"] %}
       <div class="list-group-item">
@@ -24,6 +37,7 @@ limitations under the License.
           <div>
             <strong>{{ t.revision }} {{ item.revision }}</strong>
             {% if item.revision == history.head %}<span class="badge bg-blue-lt ms-2">{{ t.revision_current }}</span>{% endif %}
+            {% if item.revision == history.selected and (item.revision != history.head or prompt_opened) %}<span class="badge bg-azure-lt ms-2">{{ t.revision_viewing }}</span>{% endif %}
             {% if item.restored_from_revision %}<span class="badge bg-purple-lt ms-2">{{ t.revision_rollback_badge }}</span>{% endif %}
             <div class="text-secondary small">
               {% if item.created_at %}{{ item.created_at|display_time }}{% else %}{{ t.revision_unknown_time }}{% endif %}
@@ -38,14 +52,14 @@ limitations under the License.
             {% elif history.family == "topic-memory" %}
               <a class="btn btn-sm" href="{{ link('topics', topic_artifact=history.artifact_id, topic_revision=item.revision) }}">{{ t.revision }} {{ item.revision }}</a>
             {% elif history.family == "prompt" %}
-              <a class="btn btn-sm" href="{{ link('prompts', prompt_key=history.artifact_id, prompt_revision=item.revision) }}">{{ t.revision }} {{ item.revision }}</a>
+              <a class="btn btn-sm" hx-swap="outerHTML show:none" href="{{ link('prompts', prompt_key=history.artifact_id, prompt_revision=item.revision, compare=none) }}">{{ t.revision }} {{ item.revision }}</a>
             {% elif history.family == "atomic-memory" %}
               <a class="btn btn-sm" href="{{ link('notes', artifact=history.artifact_id, revision=item.revision, compare=none, fragment='note-reading') }}">{{ t.revision }} {{ item.revision }}</a>
             {% else %}
               <a class="btn btn-sm" href="{{ link(none, artifact=history.artifact_id, revision=item.revision) }}">{{ t.revision }} {{ item.revision }}</a>
             {% endif %}
             {% if item.revision != history.selected %}
-              <a class="btn btn-sm" href="{{ link(none, compare=item.revision) }}">{{ t.revision_compare }}</a>
+              <a class="btn btn-sm" hx-swap="outerHTML show:none" href="{{ link(none, compare=item.revision) }}">{{ t.revision_compare }}</a>
             {% endif %}
           </div>
         </div>
@@ -76,6 +90,7 @@ limitations under the License.
     </div>
   {% endif %}
   {% if history.selected != history.head %}
+    <div hx-swap="outerHTML show:none">
     <form class="card-body border-top" method="get" action="/dashboard/{{ page }}">
       <input type="hidden" name="scope" value="{{ scope }}">
       {% if return_to %}<input type="hidden" name="return_to" value="{{ return_to }}">{% endif %}
@@ -96,8 +111,10 @@ limitations under the License.
       <input class="form-control" id="compare-revision" name="compare" type="number" min="1" step="1" required value="{{ history.compare or history.head }}">
       <button class="btn mt-2" type="submit">{{ t.revision_compare }}</button>
     </form>
+    </div>
   {% endif %}
   {% if history.can_rollback and history.selected != history.head and not history.same_content %}
+    <div hx-swap="outerHTML show:none">
     <form class="card-body border-top" method="post" action="/dashboard/rollback">
       <input type="hidden" name="scope" value="{{ scope }}">
       {% if return_to %}<input type="hidden" name="return_to" value="{{ return_to }}">{% endif %}
@@ -110,6 +127,7 @@ limitations under the License.
       <input class="form-control" id="rollback-reason" name="reason" maxlength="1024" required>
       <button class="btn btn-primary mt-3" type="submit">{{ t.revision_confirm }}</button>
     </form>
+    </div>
   {% elif history.same_content and history.selected != history.head %}
     <div class="card-body text-secondary">{{ t.revision_same }}</div>
   {% endif %}

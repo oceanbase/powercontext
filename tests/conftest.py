@@ -15,6 +15,7 @@
 """Repository-wide pytest collection controls."""
 
 import hashlib
+import json
 import os
 from collections.abc import Iterator
 from pathlib import Path
@@ -76,6 +77,14 @@ def isolated_client_connection_settings(tmp_path, monkeypatch, request):
         monkeypatch.setenv("POWERCONTEXT_CLIENT_CONFIG_FILE", str(tmp_path / "client-settings.json"))
         monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes-home"))
         monkeypatch.setenv("DSH_HOME", str(tmp_path / "dsh-home"))
+
+
+@pytest.fixture(scope="session")
+def task_outcome_guidance() -> str:
+    """The exact guidance text the Rust Gateway recognizes in Codex history."""
+    path = Path(__file__).resolve().parents[1] / "gateway/crates/pc-gateway-app/src/codex_task_outcome_guidance.rs"
+    _, _, literal = path.read_text(encoding="utf-8").partition("pub(crate) const CODEX_TASK_OUTCOME_GUIDANCE: &str =")
+    return json.loads(literal.strip().removesuffix(";"))
 
 
 def pytest_addoption(parser: pytest.Parser) -> None:

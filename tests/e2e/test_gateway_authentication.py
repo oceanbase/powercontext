@@ -59,7 +59,11 @@ def gateway_environment() -> dict[str, str]:
         for key, value in os.environ.items()
         if not key.startswith("PC_GATEWAY_") and key.upper() not in {"HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY"}
     }
-    environment.update({"PC_GATEWAY_CORE_BASE": "http://127.0.0.1:1", "RUST_LOG": "info"})
+    environment.update({
+        "PC_GATEWAY_CORE_BASE": "http://127.0.0.1:1",
+        "PC_GATEWAY_CORE_TOKEN": _TOKEN,
+        "RUST_LOG": "info",
+    })
     return environment
 
 
@@ -138,20 +142,9 @@ def running_gateway(
 
 
 @pytest.mark.parametrize("host", ["127.0.0.1", "127.23.45.67", "::1"])
-def test_loopback_listener_retains_no_key_compatibility(
-    gateway_binary: Path, tmp_path: Path, short_tmp_path: Path, host: str
-) -> None:
-    socket_path = short_tmp_path / "core.sock"
-    # A live Core confirms input capacity before the malformed body reaches ingress.
-    with _running_server(tmp_path, socket_path, _environment(tmp_path)):
-        environment = gateway_environment() | {
-            "PC_GATEWAY_CORE_UDS": str(socket_path),
-            "PC_GATEWAY_CORE_TOKEN": _TOKEN,
-        }
-        with running_gateway(gateway_binary, environment, tmp_path, host=host) as client:
-            response = client.post("/gateway/v1/chat/completions", content=b"invalid json")
-            assert response.status_code == 400, response.text
-            assert response.json()["error"] == "invalid_openai_body"
+def test_loopback_listener_requires_key_before_startup(gateway_binary: Path, host: str) -> None:
+    listen = f"[{host}]:0" if ":" in host else f"{host}:0"
+    rejected_gateway(gateway_binary, gateway_environment() | {"PC_GATEWAY_LISTEN": listen})
 
 
 @pytest.mark.parametrize("route", ["chat/completions", "responses"])
@@ -208,16 +201,17 @@ def test_model_ingress_authentication_with_real_core_and_provider(
             )
             assert created.status_code == 201, created.text
             scope = created.json()["scope_id"]
-            granted = core.post(
-                "/v1/access/bindings/create",
-                json={
-                    "subject": {"type": "service", "id": "server-token"},
-                    "resource": {"type": "scope", "scope_id": scope},
-                    "role": "scope.contributor",
-                    "idempotency_key": "gateway-auth-contributor",
-                },
-            )
-            assert granted.status_code == 201, granted.text
+            for role in ("scope.contributor", "gateway.user"):
+                granted = core.post(
+                    "/v1/access/bindings/create",
+                    json={
+                        "subject": {"type": "service", "id": "server-token"},
+                        "resource": {"type": "scope", "scope_id": scope},
+                        "role": role,
+                        "idempotency_key": f"gateway-auth-{role}",
+                    },
+                )
+                assert granted.status_code == 201, granted.text
             gateway_env = gateway_environment() | {
                 "PC_GATEWAY_CORE_UDS": str(socket_path),
                 "PC_GATEWAY_CORE_TOKEN": _TOKEN,
@@ -225,8 +219,7 @@ def test_model_ingress_authentication_with_real_core_and_provider(
                 "PC_GATEWAY_UPSTREAM_API_KEY": _PROVIDER_KEY,
                 "PC_GATEWAY_DEFAULT_SCOPE": scope,
                 "PC_GATEWAY_UPSTREAM_PROFILE": "auth-test",
-                "PC_GATEWAY_UPSTREAM_URL_CHAT": endpoint,
-                "PC_GATEWAY_UPSTREAM_URL_RESPONSES": endpoint,
+                "PC_GATEWAY_UPSTREAM_PROFILE_RESPONSES": "auth-test",
                 "PC_GATEWAY_INJECTION": "off",
             }
             payload: dict[str, object] = {"model": "rfc2086-controlled-model", "stream": False}

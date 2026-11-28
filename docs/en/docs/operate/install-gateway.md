@@ -96,23 +96,59 @@ PC_GATEWAY_CORE_BASE=http://127.0.0.1:8000 \
 PC_GATEWAY_CORE_TOKEN="$POWERCONTEXT_DEPLOYMENT_TOKEN" \
 PC_GATEWAY_DEFAULT_SCOPE=your-scope \
 PC_GATEWAY_UPSTREAM_PROFILE=approved-provider \
-PC_GATEWAY_UPSTREAM_URL_CHAT=https://provider.example/v1/chat/completions \
+PC_GATEWAY_API_KEY="$GATEWAY_CLIENT_TOKEN" \
 PC_GATEWAY_UPSTREAM_API_KEY_CHAT="$PROVIDER_API_KEY" \
 pc-gateway
 ```
 
-The default Gateway listener is loopback. For a combined deployment, replace `PC_GATEWAY_CORE_BASE` with
+Core must run with `POWERCONTEXT_SERVER_ACCESS_MODE=enforced` and a supported authentication provider for every
+Gateway deployment, including combined UDS and non-enforcing inference privacy modes. A Core with authentication/access
+control disabled cannot authorize model sends. For a combined deployment, replace `PC_GATEWAY_CORE_BASE` with
 `PC_GATEWAY_CORE_UDS=/path/to/core.sock`; Core must already be listening on that private socket.
-`PC_GATEWAY_API_KEY` protects model routes and is required for a non-loopback listener. It does not replace Core's
-credentials for forwarded API, MCP or Dashboard routes. See [authentication boundaries](deploy-server.md#gateway-authentication-boundaries).
+`PC_GATEWAY_API_KEY` protects model routes and is required for every model listener, including loopback. It must be
+different from `PC_GATEWAY_CORE_TOKEN`; it does not replace Core's credentials for forwarded API, MCP or Dashboard
+routes. The selected `PC_GATEWAY_UPSTREAM_PROFILE` must already exist in Core and must contain the provider endpoint,
+model and `openai-chat` protocol. For Responses, also set `PC_GATEWAY_UPSTREAM_PROFILE_RESPONSES` to a Core target
+with the `openai-responses` protocol. Do not set `PC_GATEWAY_UPSTREAM_URL*`, and remove `PC_GATEWAY_DEGRADE` if it has any
+non-empty value; these legacy settings prevent startup.
+`PC_GATEWAY_CORE_TOKEN` must identify a service principal, and `PC_GATEWAY_API_KEY` is required even on loopback and
+must be different from the Core token. A dedicated Gateway principal needs `gateway.user` (`gateway.invoke`) on every
+Scope selected with `X-PowerContext-Scope-ID`, not only `PC_GATEWAY_DEFAULT_SCOPE`, and `server.observer`
+(`server.observe`) on the Server resource whose deployment ID is configured by
+`POWERCONTEXT_SERVER_ACCESS_DEPLOYMENT_ID` (default `powercontext`). With `PC_GATEWAY_SEDIMENT=on`, also grant
+`scope.contributor` instead of `scope.viewer`; it includes `scope.read` and `scope.contribute`. With capture off,
+`scope.viewer` is sufficient. For the built-in writable Access Provider, inspect the Gateway principal using
+`GET /v1/access/me`, then have an Access administrator create the corresponding bindings through
+`POST /v1/access/bindings/create`; see [Gateway authentication and target requirements](deploy-server.md#gateway-model-destination)
+for the complete commands. The bootstrap Server token is an administrator credential with static Scope roles; in a
+single-token setup, grant it `gateway.user` on every Scope clients select, not only the default Scope. Its admin
+authority covers `server.observer`, and its static Scope roles cover the reader/contributor permission. The following
+Scope examples show the invocation grant and the reader role for a dedicated identity:
+
+```json
+{"subject":{"type":"service","id":"server-token"},"resource":{"type":"scope","scope_id":"your-scope"},"role":"gateway.user","idempotency_key":"gateway-user-your-scope"}
+```
+
+```json
+{"subject":{"type":"service","id":"server-token"},"resource":{"type":"scope","scope_id":"your-scope"},"role":"scope.viewer","idempotency_key":"gateway-viewer-your-scope"}
+```
+
+When `PC_GATEWAY_SEDIMENT=on`, use `scope.contributor` instead of `scope.viewer`; also create the `server.observer`
+binding on `{"type":"server","deployment_id":"powercontext"}` (replace with the configured deployment ID).
+Replace `server-token` with the service identity returned for `PC_GATEWAY_CORE_TOKEN`. The complete curl commands and
+the bootstrap Server-token distinction are in [Gateway authentication and target requirements](deploy-server.md#gateway-model-destination).
 
 `curl --fail http://127.0.0.1:8787/healthz` checks the Gateway listener only. In a combined UDS deployment, an authenticated
 request to `/v1/server-info` through the Gateway should return the same Server identity as Core. Standalone HTTP mode
 does not forward Core routes. Provider/model acceptance remains separate from startup and connection checks.
 
-For an upgrade, stop the Gateway, download and verify the matching release, replace the executable, then restart with
-the existing configuration. Follow the Server's database maintenance requirements separately. Keep the previous binary
-for operational rollback; replacing a Gateway binary does not roll back Core's database.
+For an upgrade, stop the Gateway, download and verify the matching release, and replace the executable. Before restart,
+remove any `PC_GATEWAY_UPSTREAM_URL*` settings, configure the approved Core profile and distinct mandatory Gateway/Core
+tokens, and grant the Gateway service `gateway.invoke`, `server.observe`, and (when capture is enabled)
+`scope.read` plus `scope.contribute` on their respective resources. Deployments that selected
+different models per request need a separate Gateway instance for each model; provider endpoints must be directly
+reachable without an ambient HTTP proxy. Follow the Server's database maintenance requirements separately. Keep the
+previous binary for operational rollback; replacing a Gateway binary does not roll back Core's database.
 
 ## Build from source
 

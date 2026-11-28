@@ -14,7 +14,9 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
+import os
 from pathlib import Path
 from typing import Any
 
@@ -35,6 +37,7 @@ from powercontext.http import (
     ScopeDescriptor,
     SourceReference,
 )
+from tests.git_worktree_support import ScopeBindings, make_git_layout
 
 _DESTINATION_ID = "https://server-a.example"
 
@@ -292,6 +295,60 @@ def test_import_sessions_skips_unresolved_scope_without_default_fallback(tmp_pat
     assert result.skipped == 1
     assert result.skipped_by_reason == {"unresolved_scope": 1}
     assert client.capture_requests == []
+
+
+def test_import_sessions_resolves_a_linked_worktree_to_its_checkouts_binding(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    layout = make_git_layout(tmp_path / "git", monkeypatch)
+    checkout_key = hashlib.sha256(os.fsencode(layout.checkout)).hexdigest()
+    bindings = ScopeBindings()
+    bindings.set({"integration": "codex", "kind": "workspace", "external_id": checkout_key}, "checkout-scope")
+
+    class BoundClient(_ImportClient):
+        async def resolve_scope_binding(self, request: Any) -> ScopeDescriptor:
+            self.resolve_scope_requests.append(request)
+            scope_id = bindings.resolve(request.binding_keys)
+            if scope_id == "default":
+                raise ServerResponseError(status_code=404, request_id=None)
+            return ScopeDescriptor(
+                scope_id=scope_id,
+                title="Scope",
+                summary="Scope",
+                context_references=[],
+                external_references=[],
+                version=1,
+            )
+
+    codex_home = tmp_path / "codex"
+    session_dir = codex_home / "sessions"
+    session_dir.mkdir(parents=True)
+    _write_jsonl(
+        session_dir / "rollout.jsonl",
+        [
+            {"ordinal": 0, "type": "session_meta", "payload": {"cwd": str(layout.worktree_sub)}},
+            {
+                "ordinal": 1,
+                "type": "response_item",
+                "payload": {
+                    "type": "message",
+                    "role": "user",
+                    "content": [{"type": "input_text", "text": "in a worktree"}],
+                },
+            },
+        ],
+    )
+    client = BoundClient()
+
+    result = _run(import_sessions(client, host="codex", destination_id=_DESTINATION_ID, codex_home=codex_home))
+
+    assert result.imported == 1
+    # The worktree's own key, the hash of its Git top level as before, comes first, so its own binding would win.
+    assert [key.external_id for key in client.resolve_scope_requests[0].binding_keys] == [
+        hashlib.sha256(os.fsencode(layout.worktree)).hexdigest(),
+        checkout_key,
+    ]
+    assert client.capture_requests[0].scope_id == "checkout-scope"
 
 
 def test_import_sessions_uses_live_hook_source_identity(tmp_path: Path) -> None:

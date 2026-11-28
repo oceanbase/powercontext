@@ -25,7 +25,7 @@ Prompt 自定义功能位于当前 `master`。它修改一个 Scope 内的操作
 3. 通过 Artifact API 创建或条件替换 Prompt。保存成功产生不可变 Revision；遇到版本冲突时重新读取后再协调修改。
 4. 再次运行目标操作并检查输出。保存 Prompt 不会重新处理历史 Sources 或重跑先前操作。
 
-下面用 `memory.extract` 演示首次创建和条件替换。可用的 key 包括 `memory.extract`、`memory.rerank`、
+下面用 `memory.extract` 演示首次创建和条件替换。可用的 key 包括 `profile.generate`、`memory.extract`、`memory.rerank`、
 `experience.incubate`、`experience.generate`、`skill.generate` 和 `handoff.generate`；先用 GET 检查目标操作是否
 支持自定义。
 
@@ -62,7 +62,14 @@ curl --fail --request PUT \
 检查输出；如果返回 `409` 或 `412`，先重新 GET 再协调修改。
 
 保存 Auto 模式可使用当前部署的内置指令。恢复历史内容时创建新的 Revision，保留中间历史；
-恢复 Auto 模式会使用当前内置指令。Dashboard 不提供 Prompt 编辑页面。
+恢复 Auto 模式会使用当前内置指令。Dashboard `/dashboard/prompts` 页面为 `profile.generate` 提供编辑入口，
+可从 **Profile → 画像生成提示词** 进入：选择 Scope，查看 Auto/Custom 模式、当前生效指令、内置默认值、
+能力状态及已保存版本；首次切换到 Custom 以内置默认值为起点；保存新版本不会调用推理、启用生成或重处理历史
+Source。enforced 模式下写入需要当前 `scope.admin`；`disabled` 模式无强制检查。只有能力状态为
+`supported` 时才允许保存 Custom 指令；能力为 `disabled` 时仍可查看且已有 Custom 配置仍可切回 Auto，但不能在 Dashboard 保存新的 Custom 指令；
+没有指令的外部管理 Prompt 显示为不可用。编辑指令会保留已有 demonstrations。创建冲突（`409`）和版本冲突（`412`）会保留草稿并
+把提交目标对准最新 ETag 供协调修改。切换回 Auto 时显式保存空 `instructions` 和 `demonstrations` 以使用部署内置默认值。
+版本历史不可变，历史内容可作为新 Revision 恢复。其他 Prompt key 在 Dashboard 中仍为只读。
 
 在 enforced 模式下，创建、替换、切换 Auto 和恢复都需要当前 `scope.admin` 权限。
 Scope 角色被撤销后，拥有 Prompt Artifact 也不能继续修改它。

@@ -48,6 +48,9 @@ Go 条件编译文件仍可检索，其相关关系降为候选，不按当前�
 在源码安装中执行 `uv sync --extra code`；部署包需要安装 `powercontext[server,cli,code]`。
 先创建一个已有访问控制约束的 Scope，再由服务运维者配置该 Scope 对应的本地 Git 根目录。
 同一仓库的不同 worktree 使用不同 Scope 绑定。HTTP 客户端不能提交任意服务器目录。
+没有自己 workspace binding 的 linked Git worktree 中的宿主会话，会使用其主 checkout 的 Scope，
+因此代码证据来自为该 Scope 配置的仓库，也就是主 checkout 的根目录。要让 worktree 使用单独的代码仓库 Scope，
+给 worktree 建立指向该 Scope 的 workspace binding。
 
 在 Server 环境文件中设置以下 JSON，将示例 Scope 和绝对路径替换为实际值：
 

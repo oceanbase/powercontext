@@ -15,7 +15,7 @@
 
 use super::*;
 use axum::{routing::post, Router};
-use pc_gateway_core::{DegradePolicy, Executor, HttpGateClient};
+use pc_gateway_core::{Executor, HttpGateClient};
 use pc_gateway_evidence::NoopEvidenceSink;
 use pc_gateway_protocol::{GatewayRenderer, SubscriptionProtocol, SubscriptionRenderer};
 use pc_gateway_transport::ReqwestTransport;
@@ -27,6 +27,7 @@ struct Peers {
     reply: Mutex<Bytes>,
     reply_error: Mutex<Option<StatusCode>>,
     block_body: Mutex<Option<Bytes>>,
+    target: Mutex<String>,
     sent: Mutex<Vec<Bytes>>,
     checks: Mutex<Vec<Value>>,
 }
@@ -62,7 +63,9 @@ async fn magpie_tool_selection_and_identity_survive_checks_and_client_json_or_ss
                     Json(json!({"schema":"powercontext.context-check.v1", "phase":phase,
                 "decision":if blocked {"block"} else {"allow"}, "reason_codes":if blocked {vec!["forbidden_content"]} else {vec![]},
                 "coverage":{"profile":"text-and-tools.v1","complete":true},
-                "policy_version":"test", "valid_until":"2999-01-01T00:00:00Z", "binding":"test"
+                "policy_version":"test", "valid_until":"2999-01-01T00:00:00Z", "binding":"test",
+                "target_endpoint": if phase == "before_send" { Some(peers.target.lock().unwrap().clone()) } else { None },
+                "target_protocol": "openai-responses"
             })).into_response()
                 },
             ),
@@ -70,29 +73,26 @@ async fn magpie_tool_selection_and_identity_survive_checks_and_client_json_or_ss
         .with_state(peers.clone());
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let base = format!("http://{}", listener.local_addr().unwrap());
+    *peers.target.lock().unwrap() = format!("{base}/v1/responses");
     let server = tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
-    // Port zero cannot host Core; its connection failure exercises permitted degradation.
-    let executors = [base.as_str(), "http://127.0.0.1:0"].map(|core| {
-        Executor::new(
-            HttpGateClient::with_token(core, None),
-            ReqwestTransport::new(Duration::from_secs(10)),
-            NonZeroU32::new(1).unwrap(),
-        )
-        .with_core_enforcement(false)
-    });
+    let executor = Executor::new(
+        HttpGateClient::with_token(&base, None),
+        ReqwestTransport::new(Duration::from_secs(10)),
+        NonZeroU32::new(1).unwrap(),
+    )
+    .with_core_enforcement(false);
     let renderer = SubscriptionRenderer {
         inner: GatewayRenderer::Responses(Default::default()),
         subscription: Some(SubscriptionProtocol::Grok),
     };
     for case in fixture["cases"].as_array().unwrap() {
-        for (stream, degraded, upstream_error) in [
-            (false, false, None),
-            (true, false, None),
-            (true, true, None),
-            (false, false, Some(StatusCode::TOO_MANY_REQUESTS)),
-            (true, true, Some(StatusCode::BAD_GATEWAY)),
+        for (stream, upstream_error) in [
+            (false, None),
+            (true, None),
+            (false, Some(StatusCode::TOO_MANY_REQUESTS)),
+            (true, Some(StatusCode::BAD_GATEWAY)),
         ] {
-            if (degraded || upstream_error.is_some()) && case["id"] != "namespaced-calls" {
+            if upstream_error.is_some() && case["id"] != "namespaced-calls" {
                 continue;
             }
             *peers.reply_error.lock().unwrap() = upstream_error;
@@ -107,13 +107,9 @@ async fn magpie_tool_selection_and_identity_survive_checks_and_client_json_or_ss
                 scope_id: "test".into(),
                 target_profile: "test".into(),
                 request: canonical,
-                target_url: format!("{base}/v1/responses"),
+                target_protocol: "openai-responses".into(),
+                credential_target: None,
                 headers: vec![],
-                degrade_policy: if degraded {
-                    DegradePolicy::PassthroughWithoutMemory
-                } else {
-                    DegradePolicy::Pause
-                },
                 inject_context: false,
                 include_code: false,
                 capture_prefix: false,
@@ -122,7 +118,7 @@ async fn magpie_tool_selection_and_identity_survive_checks_and_client_json_or_ss
                 internal: false,
                 prepared_contexts: vec![],
             };
-            let outcome = executors[usize::from(degraded)]
+            let outcome = executor
                 .run(
                     RequestControl::new(
                         tokio::time::Instant::now() + Duration::from_secs(10),
@@ -149,12 +145,6 @@ async fn magpie_tool_selection_and_identity_survive_checks_and_client_json_or_ss
                 assert_eq!(peers.sent.lock().unwrap().len(), 1);
                 continue;
             }
-            if degraded && status == StatusCode::OK {
-                assert_eq!(
-                    response.headers()["x-pc-degraded"],
-                    "passthrough_without_memory"
-                );
-            }
             let body = axum::body::to_bytes(response.into_body(), usize::MAX)
                 .await
                 .unwrap();
@@ -166,7 +156,7 @@ async fn magpie_tool_selection_and_identity_survive_checks_and_client_json_or_ss
             assert_eq!(
                 status,
                 StatusCode::OK,
-                "{} / {stream} / {degraded}: {body:?}",
+                "{} / {stream}: {body:?}",
                 case["id"]
             );
             let client: Value = if stream {
@@ -207,7 +197,7 @@ async fn magpie_tool_selection_and_identity_survive_checks_and_client_json_or_ss
                 assert!(wire["input"][1].get("namespace").is_none());
                 assert_eq!(wire["input"][1]["call_id"], wire["input"][2]["call_id"]);
             }
-            if !degraded {
+            {
                 let checks = peers.checks.lock().unwrap();
                 assert_eq!(
                     checks[0]["payload"]["body"].as_str().unwrap().as_bytes(),
@@ -240,10 +230,7 @@ async fn magpie_tool_selection_and_identity_survive_checks_and_client_json_or_ss
         (duplicate_arguments.as_slice(), false),
         (duplicate_metadata.as_slice(), false),
     ] {
-        for degraded in [false, true] {
-            if block_original && degraded {
-                continue;
-            }
+        {
             peers.sent.lock().unwrap().clear();
             peers.checks.lock().unwrap().clear();
             *peers.reply.lock().unwrap() = Bytes::copy_from_slice(reply);
@@ -254,13 +241,9 @@ async fn magpie_tool_selection_and_identity_survive_checks_and_client_json_or_ss
                 scope_id: "test".into(),
                 target_profile: "test".into(),
                 request: to_canonical_responses(serde_json::from_value(request).unwrap()).unwrap(),
-                target_url: format!("{base}/v1/responses"),
+                target_protocol: "openai-responses".into(),
+                credential_target: None,
                 headers: vec![],
-                degrade_policy: if degraded {
-                    DegradePolicy::PassthroughWithoutMemory
-                } else {
-                    DegradePolicy::Pause
-                },
                 inject_context: false,
                 include_code: false,
                 capture_prefix: false,
@@ -269,7 +252,7 @@ async fn magpie_tool_selection_and_identity_survive_checks_and_client_json_or_ss
                 internal: false,
                 prepared_contexts: vec![],
             };
-            let outcome = executors[usize::from(degraded)]
+            let outcome = executor
                 .run(
                     RequestControl::new(
                         tokio::time::Instant::now() + Duration::from_secs(10),

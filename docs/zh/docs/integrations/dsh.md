@@ -406,7 +406,9 @@ finalization 结果，不额外包装或只提取其中的内容。
 
 插件按 `POWERCONTEXT_DSH_SCOPE_ID`、session workspace 持久 binding、Server 默认 Scope 的顺序解析一个由
 Server 管理的 Scope。workspace 路径只会哈希为外部 binding key。缺少 workspace 时使用 Server 默认 Scope，
-不会把 Harness 进程目录作为 Scope。
+不会把 Harness 进程目录作为 Scope。在没有自己 workspace binding 的 linked Git worktree 中，
+解析会使用主 checkout 中同一目录的绑定，所以 checkout 的绑定也覆盖它的 linked worktree。这个回退来自 Git 报告的真实路径，
+因此只有 checkout 的绑定建立时所用路径不含符号链接，才能匹配。
 
 插件在模型分析提示词前只调用一次 `POST /v1/context/prepare`。显式 `remember_memory` 不需要模型。
 

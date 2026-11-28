@@ -37,6 +37,12 @@ it('exposes guidance through the actual system transform and resolves its tool n
   for (const name of (output.system.join('\n') + tools.map(tool => tool.description).join('\n')).match(/\bpc_[a-z_]+\b/g) ?? []) {
     expect(names.has(name), `unavailable tool referenced in OpenCode guidance: ${name}`).toBe(true)
   }
+  const outcome = tools.find(tool => tool.name === 'pc_task_outcome')!
+  const outcomeSchema = tool.schema.toJSONSchema(tool.schema.object(outcome.args))
+  // This is serialized for every model request, so protect the model-facing cost
+  // independently of the Server's complete TaskOutcome validation.
+  expect(JSON.stringify({ name: outcome.name, description: outcome.description, parameters: outcomeSchema }).length)
+    .toBeLessThan(4500)
   const directory = process.env.POWERCONTEXT_GUIDANCE_EXPORT
   if (directory) writeFileSync(join(directory, 'opencode.json'), JSON.stringify({
     host: 'opencode', guidance: output.system.join('\n'),

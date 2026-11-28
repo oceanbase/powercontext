@@ -18,13 +18,11 @@ from __future__ import annotations
 
 import json
 import os
-import subprocess
 from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import StrEnum
 from hashlib import sha256
 from pathlib import Path
-from shutil import which
 from typing import Literal, Protocol, cast
 
 from powercontext.client.errors import ClientError, ServerResponseError
@@ -36,6 +34,7 @@ from powercontext.http import (
     ScopeDescriptor,
 )
 from powercontext.redaction import redact_known_secrets
+from powercontext_integration_lifecycle.git_worktree import workspace_paths
 
 SUPPORTED_SESSION_IMPORT_HOSTS = ("codex",)
 _MAX_CONTENT_LENGTH = 200_000
@@ -452,7 +451,7 @@ async def _resolve_codex_scope(client: SessionImportClient, prompt: ImportedProm
                 allow_default=False,
                 binding_keys=[
                     *_session_binding_keys(prompt.session_id),
-                    _workspace_binding_key(prompt.cwd),
+                    *_workspace_binding_keys(prompt.cwd),
                 ],
             )
         )
@@ -567,11 +566,16 @@ def _session_binding_keys(session_id: str | None) -> tuple[ScopeBindingKey, ...]
     return (ScopeBindingKey(integration="codex", kind="session", external_id=value),)
 
 
-def _workspace_binding_key(cwd: str) -> ScopeBindingKey:
-    root_value = _git_value(cwd, "rev-parse", "--show-toplevel")
-    root = Path(root_value or cwd).resolve(strict=False)
-    external_id = sha256(os.fsencode(root)).hexdigest()
-    return ScopeBindingKey(integration="codex", kind="workspace", external_id=external_id)
+def _workspace_binding_keys(cwd: str) -> list[ScopeBindingKey]:
+    # Codex keys the Git top level; in a linked worktree that still exists, its main checkout's key follows.
+    return [
+        ScopeBindingKey(
+            integration="codex",
+            kind="workspace",
+            external_id=sha256(os.fsencode(Path(path).resolve(strict=False))).hexdigest(),
+        )
+        for path in workspace_paths(cwd, git_root=True)
+    ]
 
 
 def _metadata(prompt: ImportedPrompt) -> dict[str, object]:
@@ -676,24 +680,6 @@ def _cwd_from_environment_context(content: str) -> str | None:
         if stripped.startswith("<cwd>") and stripped.endswith("</cwd>"):
             return stripped.removeprefix("<cwd>").removesuffix("</cwd>")
     return None
-
-
-def _git_value(cwd: str, *arguments: str) -> str | None:
-    executable = which("git")
-    if executable is None:
-        return None
-    try:
-        completed = subprocess.run(  # noqa: S603 - git executable is discovered and arguments are fixed internally.
-            [executable, *arguments],
-            cwd=cwd,
-            check=True,
-            capture_output=True,
-            text=True,
-            timeout=2,
-        )
-    except (OSError, subprocess.SubprocessError):
-        return None
-    return completed.stdout.strip() or None
 
 
 def _string(value: object) -> str | None:

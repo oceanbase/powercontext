@@ -93,21 +93,55 @@ PC_GATEWAY_CORE_BASE=http://127.0.0.1:8000 \
 PC_GATEWAY_CORE_TOKEN="$POWERCONTEXT_DEPLOYMENT_TOKEN" \
 PC_GATEWAY_DEFAULT_SCOPE=your-scope \
 PC_GATEWAY_UPSTREAM_PROFILE=approved-provider \
-PC_GATEWAY_UPSTREAM_URL_CHAT=https://provider.example/v1/chat/completions \
+PC_GATEWAY_API_KEY="$GATEWAY_CLIENT_TOKEN" \
 PC_GATEWAY_UPSTREAM_API_KEY_CHAT="$PROVIDER_API_KEY" \
 pc-gateway
 ```
 
+所有 Gateway 部署（包括组合 UDS 和非 enforcing 推理隐私模式）都要求 Core 设置
+`POWERCONTEXT_SERVER_ACCESS_MODE=enforced` 并配置受支持的认证 Provider。关闭认证/访问控制的 Core 无法批准模型发送。
 Gateway 默认监听回环地址。同机组合部署时，将 `PC_GATEWAY_CORE_BASE` 替换为
 `PC_GATEWAY_CORE_UDS=/path/to/core.sock`；Core 必须已经监听该私有 socket。
-`PC_GATEWAY_API_KEY` 保护模型路由，监听非回环地址时必须配置；它不替代转发 API、MCP 和 Dashboard 路由所需的
-Core 凭据。详见[认证边界](deploy-server.md#网关认证边界)。
+`PC_GATEWAY_API_KEY` 保护模型路由，包括回环监听在内的所有模型监听都必须配置。它必须与
+`PC_GATEWAY_CORE_TOKEN` 不同；它不替代转发 API、MCP 和 Dashboard 路由所需的 Core 凭据。
+`PC_GATEWAY_UPSTREAM_PROFILE` 必须已存在于 Core，并包含服务商 endpoint、模型和 `openai-chat` 协议。
+Responses 路由还要设置 `PC_GATEWAY_UPSTREAM_PROFILE_RESPONSES`，并配置 `openai-responses` 目标。不要设置
+`PC_GATEWAY_UPSTREAM_URL*`；如果 `PC_GATEWAY_DEGRADE` 有任何非空值也要移除，这些旧设置都会导致启动失败。
+`PC_GATEWAY_CORE_TOKEN` 必须代表服务主体；即使监听回环地址，
+也必须配置非空且不同于 Core Token 的 `PC_GATEWAY_API_KEY`。专用 Gateway 主体需要在客户端通过
+`X-PowerContext-Scope-ID` 选择的每个 Scope 上获得 `gateway.user`（`gateway.invoke`），而不只是
+`PC_GATEWAY_DEFAULT_SCOPE`；同时要在 deployment ID 对应的 Server resource 上获得 `server.observer`
+（`server.observe`）。ID 由 `POWERCONTEXT_SERVER_ACCESS_DEPLOYMENT_ID` 配置，默认值为 `powercontext`。
+设置 `PC_GATEWAY_SEDIMENT=on` 时，还需授予 `scope.contributor` 替代 `scope.viewer`；它同时包含 `scope.read` 和
+`scope.contribute`。关闭采集时，`scope.viewer` 即可。使用内置可写 Access Provider 时，先携带 Gateway Token
+调用 `GET /v1/access/me`，再由 Access 管理员通过 `POST /v1/access/bindings/create` 创建对应绑定；完整命令见
+[网关认证与目标要求](deploy-server.md#网关模型目标)。引导 Server Token 是管理员凭据并拥有静态 Scope 角色；
+单 Token 部署仍需在客户端选择的每个 Scope 上授予它 `gateway.user`，而不只是默认 Scope。管理员权限覆盖
+`server.observer`，静态 Scope 角色覆盖
+reader/contributor 权限。下面的 Scope 示例展示模型调用授权及专用身份使用的 reader 角色：
+
+```json
+{"subject":{"type":"service","id":"server-token"},"resource":{"type":"scope","scope_id":"your-scope"},"role":"gateway.user","idempotency_key":"gateway-user-your-scope"}
+```
+
+```json
+{"subject":{"type":"service","id":"server-token"},"resource":{"type":"scope","scope_id":"your-scope"},"role":"scope.viewer","idempotency_key":"gateway-viewer-your-scope"}
+```
+
+设置 `PC_GATEWAY_SEDIMENT=on` 时，请用 `scope.contributor` 替代 `scope.viewer`；还要在
+`{"type":"server","deployment_id":"powercontext"}` 上创建 `server.observer` 绑定（替换为实际 deployment ID）。
+将 `server-token` 替换为 `PC_GATEWAY_CORE_TOKEN` 对应的 service 主体。完整 curl 命令和引导 Server Token 的区别见
+[网关认证与目标要求](deploy-server.md#网关模型目标)。
 
 `curl --fail http://127.0.0.1:8787/healthz` 只检查 Gateway 监听状态。同机 UDS 部署时，通过 Gateway
 携带认证请求 `/v1/server-info` 应返回与 Core 相同的 Server 身份。独立 HTTP 模式不转发 Core 路由。
 供应商和模型验收与启动、连接检查相互独立。
 
-升级时先停止 Gateway，下载并校验匹配版本，替换可执行文件后使用原配置重启。
+升级时先停止 Gateway，下载并校验匹配版本，然后替换可执行文件。重启前删除所有
+`PC_GATEWAY_UPSTREAM_URL*` 配置，配置 Core 批准的 profile 和相互不同的必填 Gateway/Core token，并为 Gateway
+服务身份在相应资源上授予 `gateway.invoke`、`server.observe`，以及（开启采集时）`scope.read` 和
+`scope.contribute`。此前按请求选择不同模型的部署需为每个模型
+单独配置 Gateway 实例；服务商 endpoint 必须可直连，不能依赖进程环境中的 HTTP 代理。
 Server 的数据库维护要求需要单独遵循。保留旧二进制以便回退程序；替换 Gateway 二进制不会回退 Core 数据库。
 
 ## 从源码构建

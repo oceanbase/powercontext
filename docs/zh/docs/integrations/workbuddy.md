@@ -69,6 +69,7 @@ cp "$PLUGIN"/hooks/workbuddy_powercontext_hook.py \
    "$PLUGIN"/hooks/powercontext_client_config.py \
    "$PLUGIN"/hooks/prepared_context.py \
    "$PLUGIN"/hooks/prompt_privacy.py \
+   "$PLUGIN"/hooks/git_worktree.py \
    "$WORKBUDDY_HOOKS_DIR"/
 cp "$PLUGIN/scripts/workspace_scope.py" \
    "$WORKBUDDY_HOOKS_DIR/powercontext_scope_binding.py"
@@ -221,6 +222,10 @@ Server 按以下顺序为 WorkBuddy 解析 Scope：
 
 同一工作区后续开启的新 WorkBuddy 会话会复用同一个 Scope。`powercontext-project-context` Skill 的 `--bind-scope` 操作会在
 PowerContext 中持久化 workspace binding。插件只把 workspace 路径哈希用作外部 binding key，不会据此生成 Scope ID。
+
+workspace 指 Git 根目录。没有自己 workspace binding 的 linked Git worktree 会使用其主 checkout 的绑定，
+所以 checkout 的绑定也覆盖它的 linked worktree。要让 worktree 使用单独的 Scope，在 worktree 内执行绑定；
+在那里绑定或清除，只会改动该 worktree 自己的绑定。
 
 ## 连接启用鉴权的本地 Server
 

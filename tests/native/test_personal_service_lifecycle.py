@@ -402,7 +402,12 @@ def test_native_public_migration_switches_an_installed_130_service(
                 if failure in {"startup", "switch"}:
                     assert applied.exit_code == 1, applied.output
                     assert result["error"] == "service_start_failed"
-                    assert result["database_state"] == "ready" and result["revision"] == "000"
+                    assert result["database_state"] == "ready"
+                    assert result["revision"] == reviewed["target_revision"]
+                    with sqlite3.connect(database.as_uri() + "?mode=ro", uri=True) as migrated:
+                        assert migrated.execute("SELECT version_num FROM pc_schema_revision").fetchone() == (
+                            reviewed["target_revision"],
+                        )
                     assert adapter.manager_state() in {ManagerState.INACTIVE, ManagerState.FAILED}
                     phase = "switching" if failure == "switch" else "start_failed"
                     assert json.loads(controller.maintenance_path.read_text())["phase"] == phase

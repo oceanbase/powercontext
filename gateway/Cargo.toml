@@ -51,6 +51,7 @@ getrandom = "0.4.3"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }
+url = "2"
 hyper = { version = "1", features = ["client", "http1"] }
 tower = { version = "0.5", features = ["util"] }
 hyper-util = { version = "0.1", features = ["client", "client-legacy", "tokio", "http1"] }

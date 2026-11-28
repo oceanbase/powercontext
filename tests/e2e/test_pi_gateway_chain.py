@@ -197,6 +197,16 @@ def pi_gateway(tmp_path: Path, short_tmp_path: Path) -> Iterator[PiGatewayStack]
         )
         assert created.status_code == 201, created.text
         scope_id = created.json()["scope_id"]
+        granted = core.post(
+            "/v1/access/bindings/create",
+            json={
+                "subject": {"type": "service", "id": "server-token"},
+                "resource": {"type": "scope", "scope_id": scope_id},
+                "role": "gateway.user",
+                "idempotency_key": "pi-gw-gateway-user",
+            },
+        )
+        assert granted.status_code == 201, granted.text
         remembered = core.post("/v1/memory/remember", json={"scope_id": scope_id, "kind": "decision", "text": FACT})
         assert remembered.status_code in {200, 201}, remembered.text
         gateway = stack.enter_context(
@@ -207,9 +217,8 @@ def pi_gateway(tmp_path: Path, short_tmp_path: Path) -> Iterator[PiGatewayStack]
                     "PC_GATEWAY_CORE_UDS": str(short_tmp_path / "core.sock"),
                     "PC_GATEWAY_CORE_TOKEN": _TOKEN,
                     "PC_GATEWAY_API_KEY": GATEWAY_KEY,
-                    "PC_GATEWAY_UPSTREAM_API_KEY": "synthetic-provider-key",
-                    "PC_GATEWAY_UPSTREAM_PROFILE": PROFILE,
-                    "PC_GATEWAY_UPSTREAM_URL_RESPONSES": upstream,
+                    "PC_GATEWAY_UPSTREAM_API_KEY_RESPONSES": "synthetic-provider-key",
+                    "PC_GATEWAY_UPSTREAM_PROFILE_RESPONSES": PROFILE,
                     "PC_GATEWAY_DEFAULT_SCOPE": scope_id,
                     "PC_GATEWAY_SEDIMENT": "on",
                 },

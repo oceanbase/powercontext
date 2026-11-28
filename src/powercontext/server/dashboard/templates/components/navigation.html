@@ -31,6 +31,7 @@ limitations under the License.
       <input type="hidden" name="period" value="{{ period }}">
       {% if page == 'processing' %}<input type="hidden" name="record_type" value="{{ processing_kind }}">{% endif %}
       {% if page == 'methods' or parent_page == 'methods' %}<input type="hidden" name="kind" value="{{ page if parent_page else method_kind }}">{% endif %}
+      {% if page == 'prompts' and prompt_key %}<input type="hidden" name="prompt_key" value="{{ prompt_key }}">{% endif %}
       {% include 'components/scope-options.html' %}
       <noscript><button class="btn mt-2" type="submit">{{ t.apply }}</button></noscript>
       <p class="small mt-2" data-scope-error {% if not errors.get('scopes') %}hidden{% endif %}>{{ t.scope_list_unavailable }}</p>

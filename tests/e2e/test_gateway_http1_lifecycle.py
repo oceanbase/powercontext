@@ -151,7 +151,7 @@ class _ProviderHandler(BaseHTTPRequestHandler):
 
 
 @contextmanager
-def _gateway(binary, directory, uds, upstream, scope):
+def _gateway(binary, directory, uds, scope):
     with socket.socket() as reserved:
         reserved.bind(("127.0.0.1", 0))
         address = reserved.getsockname()
@@ -160,9 +160,8 @@ def _gateway(binary, directory, uds, upstream, scope):
         "PC_GATEWAY_LISTEN": f"{address[0]}:{address[1]}",
         "PC_GATEWAY_CORE_UDS": str(uds),
         "PC_GATEWAY_CORE_TOKEN": _TOKEN,
-        "PC_GATEWAY_UPSTREAM_URL": upstream,
-        "PC_GATEWAY_UPSTREAM_URL_RESPONSES": upstream,
         "PC_GATEWAY_UPSTREAM_PROFILE": "model",
+        "PC_GATEWAY_UPSTREAM_PROFILE_RESPONSES": "model",
         "PC_GATEWAY_DEFAULT_SCOPE": scope,
         "PC_GATEWAY_API_KEY": _KEY,
         "PC_GATEWAY_INJECTION": "off",
@@ -259,17 +258,18 @@ def test_real_core_uds_model_disconnect_delivery_and_fallback(tmp_path, short_tm
                 },
             )
             assert created.status_code == 201, created.text
-            granted = core.post(
-                "/v1/access/bindings/create",
-                json={
-                    "subject": {"type": "service", "id": "server-token"},
-                    "resource": {"type": "scope", "scope_id": created.json()["scope_id"]},
-                    "role": "scope.contributor",
-                    "idempotency_key": "gateway-contributor",
-                },
-            )
-            assert granted.status_code == 201, granted.text
-            with _gateway(gateway_binary, tmp_path, uds, endpoint, created.json()["scope_id"]) as (
+            for role in ("scope.contributor", "gateway.user"):
+                granted = core.post(
+                    "/v1/access/bindings/create",
+                    json={
+                        "subject": {"type": "service", "id": "server-token"},
+                        "resource": {"type": "scope", "scope_id": created.json()["scope_id"]},
+                        "role": role,
+                        "idempotency_key": f"gateway-{role}",
+                    },
+                )
+                assert granted.status_code == 201, granted.text
+            with _gateway(gateway_binary, tmp_path, uds, created.json()["scope_id"]) as (
                 address,
                 client,
                 _process,
@@ -460,17 +460,18 @@ def test_real_core_uds_staged_shutdown(tmp_path, short_tmp_path, gateway_binary,
             )
             assert created.status_code == 201, created.text
             scope = created.json()["scope_id"]
-            granted = core.post(
-                "/v1/access/bindings/create",
-                json={
-                    "subject": {"type": "service", "id": "server-token"},
-                    "resource": {"type": "scope", "scope_id": scope},
-                    "role": "scope.contributor",
-                    "idempotency_key": "shutdown-contributor",
-                },
-            )
-            assert granted.status_code == 201, granted.text
-            with _gateway(gateway_binary, tmp_path, short_tmp_path / "core.sock", endpoint, scope) as (
+            for role in ("scope.contributor", "gateway.user"):
+                granted = core.post(
+                    "/v1/access/bindings/create",
+                    json={
+                        "subject": {"type": "service", "id": "server-token"},
+                        "resource": {"type": "scope", "scope_id": scope},
+                        "role": role,
+                        "idempotency_key": f"shutdown-{role}",
+                    },
+                )
+                assert granted.status_code == 201, granted.text
+            with _gateway(gateway_binary, tmp_path, short_tmp_path / "core.sock", scope) as (
                 address,
                 client,
                 process,

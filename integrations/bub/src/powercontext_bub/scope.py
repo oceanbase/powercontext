@@ -22,12 +22,30 @@ from pathlib import Path
 from powercontext.client import PowerContextClient
 from powercontext.http import ResolveScopeBindingRequest, ScopeBindingKey
 
+from ._git_worktree import workspace_paths
+
 
 def workspace_binding_key(workspace: str | Path | None) -> ScopeBindingKey | None:
     """Return an opaque binding key for the workspace identity exposed by Bub."""
 
     if workspace is None:
         return None
+    return _workspace_key(workspace)
+
+
+def workspace_binding_keys(workspace: str | Path | None) -> list[ScopeBindingKey]:
+    """Return the workspace keys that resolution tries in order.
+
+    They are the workspace's own and, in a linked Git worktree, the same directory's in the main checkout, so a binding
+    made there applies until the worktree has its own.
+    """
+
+    if workspace is None:
+        return []
+    return [_workspace_key(path) for path in workspace_paths(str(Path(workspace).expanduser()), git_root=False)]
+
+
+def _workspace_key(workspace: str | Path) -> ScopeBindingKey:
     workspace_identity = str(Path(workspace).expanduser().resolve())
     return ScopeBindingKey(
         integration="bub",

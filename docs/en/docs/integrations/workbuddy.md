@@ -75,6 +75,7 @@ cp "$PLUGIN"/hooks/workbuddy_powercontext_hook.py \
    "$PLUGIN"/hooks/powercontext_client_config.py \
    "$PLUGIN"/hooks/prepared_context.py \
    "$PLUGIN"/hooks/prompt_privacy.py \
+   "$PLUGIN"/hooks/git_worktree.py \
    "$WORKBUDDY_HOOKS_DIR"/
 cp "$PLUGIN/scripts/workspace_scope.py" \
    "$WORKBUDDY_HOOKS_DIR/powercontext_scope_binding.py"
@@ -250,6 +251,10 @@ The Server resolves Scope for WorkBuddy in this order:
 Later WorkBuddy sessions in the same workspace reuse that Scope. The `powercontext-project-context` Skill's `--bind-scope`
 operation persists the workspace binding in PowerContext. The workspace path is hashed only as an external binding
 key; the plugin never derives a Scope ID from it.
+
+The workspace is the Git root. A linked Git worktree that has no workspace binding of its own uses its main checkout's
+binding, so a checkout's binding also covers its linked worktrees. Bind inside the worktree to give it a separate
+Scope; binding and clearing there change only the worktree's own binding.
 
 ## Connect to an authenticated local Server
 

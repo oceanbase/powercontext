@@ -487,7 +487,10 @@ flow, pass activation's top-level `draft` to finalization and transfer the compl
 
 The plugin resolves one Server-owned Scope in this order: `POWERCONTEXT_DSH_SCOPE_ID`, a durable binding for the
 session workspace, then the Server default. The workspace path is hashed only as an external binding key. A missing
-workspace therefore uses the Server default instead of the Harness process directory.
+workspace therefore uses the Server default instead of the Harness process directory. In a linked Git worktree that
+has no workspace binding of its own, the binding of the same directory in the main checkout applies, so a checkout's
+binding also covers its linked worktrees. That fallback comes from the real path that Git reports, so it matches a
+checkout binding made from a path without symlinks.
 
 The plugin calls `POST /v1/context/prepare` once before the model analyzes the prompt. Explicit `remember_memory` calls do not require a model.
 

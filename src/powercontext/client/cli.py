@@ -23,12 +23,10 @@ import hashlib
 import json
 import os
 import socket
-import subprocess
 import tempfile
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from shutil import which
 from typing import Annotated, Never, TypeAlias
 from uuid import uuid4
 
@@ -160,6 +158,7 @@ from powercontext.http._generated.models import (
     TopicMemoryProcessingStatus,
     TopicMemoryProcessingStatusRequest,
 )
+from powercontext_integration_lifecycle.git_worktree import workspace_paths
 
 HELP_OPTION_NAMES = ("-h", "--help")
 _ClientResponse: TypeAlias = (
@@ -354,34 +353,24 @@ _BINDING_KIND_WORKSPACE = "workspace"
 _DEFAULT_BINDING_INTEGRATION = "opencode"
 
 
-def _workspace_binding_external_id(cwd: Path, integration: str) -> str:
-    if integration in {"codex", "claude-code"}:
-        # These hosts bind the canonical repository root, including when invoked from a subdirectory.
-        root = cwd
-        executable = which("git")
-        if executable is not None:
-            try:
-                result = subprocess.run(  # noqa: S603 - fixed Git arguments, without a shell.
-                    [executable, "rev-parse", "--show-toplevel"],
-                    cwd=cwd,
-                    check=True,
-                    capture_output=True,
-                    text=True,
-                    timeout=2.0,
-                )
-                if result.stdout.strip():
-                    root = Path(result.stdout.strip())
-            except (OSError, subprocess.SubprocessError):
-                pass
-        return hashlib.sha256(os.fsencode(root.resolve(strict=False))).hexdigest()
-    if integration in {"hermes", "kimi-code"}:
-        return hashlib.sha256(os.fsencode(cwd.resolve(strict=False))).hexdigest()
+def _workspace_binding_external_ids(cwd: Path, integration: str) -> list[str]:
+    """Return the workspace identities that the integration's plugin resolves, its own first.
+
+    In a linked Git worktree, the identity of the main checkout follows, as the plugins send it.
+    """
+
+    if integration not in {"codex", "claude-code", "hermes", "kimi-code", "opencode", "pi"}:
+        raise typer.BadParameter(  # noqa: TRY003 - user-facing CLI validation.
+            "Unsupported workspace integration; use an explicit binding key instead.", param_hint="--integration"
+        )
+    # Claude Code and Codex bind the Git top level, including when invoked from a subdirectory.
+    paths = workspace_paths(str(cwd), git_root=integration in {"codex", "claude-code"})
     if integration in {"opencode", "pi"}:
         # Node hosts use path.resolve without resolving symlinks.
-        return hashlib.sha256(os.path.abspath(cwd).encode("utf-8")).hexdigest()
-    raise typer.BadParameter(  # noqa: TRY003 - user-facing CLI validation.
-        "Unsupported workspace integration; use an explicit binding key instead.", param_hint="--integration"
-    )
+        identities = [os.path.abspath(path).encode("utf-8") for path in paths]
+    else:
+        identities = [os.fsencode(Path(path).resolve(strict=False)) for path in paths]
+    return [hashlib.sha256(identity).hexdigest() for identity in identities]
 
 
 def _binding_key(integration: str, kind: str, external_id: str) -> ScopeBindingKey:
@@ -516,8 +505,9 @@ def resolve_scope(
         if session_id is not None and session_id.strip():
             binding_keys.append(_binding_key(integration, _BINDING_KIND_SESSION, session_id.strip()))
         workspace = cwd if cwd is not None else Path.cwd()
-        binding_keys.append(
-            _binding_key(integration, _BINDING_KIND_WORKSPACE, _workspace_binding_external_id(workspace, integration))
+        binding_keys.extend(
+            _binding_key(integration, _BINDING_KIND_WORKSPACE, external_id)
+            for external_id in _workspace_binding_external_ids(workspace, integration)
         )
     request = ResolveScopeBindingRequest(
         explicit_scope_id=scope_id,

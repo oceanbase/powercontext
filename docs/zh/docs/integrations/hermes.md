@@ -61,7 +61,9 @@ Hermes tools。
 
 provider 默认连接 `http://127.0.0.1:8000`。Server 依次解析显式 Scope、持久 session binding、持久 workspace
 binding 和默认 Scope。Hermes 只把 workspace 路径哈希用作外部 binding key，不会根据 profile、user、repository
-或目录生成 Scope ID。
+或目录生成 Scope ID。在没有自己 workspace binding 的 linked Git worktree 中，解析会使用主 checkout 中同一目录的绑定，
+所以 checkout 的绑定也覆盖它的 linked worktree。在 worktree 中建立的绑定优先；在那里绑定或清除，
+只会改动该 worktree 自己的绑定。
 
 ## 配置连接
 
@@ -186,9 +188,9 @@ enforcing 模式的 Core 会扣留流式 Chat Completions 响应，gateway 返�
 
 ### 选择 Core 目标
 
-在任何隐私模式下（包括 `disabled`），
-Core 都需要为 `PC_GATEWAY_UPSTREAM_PROFILE` 指定的 profile（未设置时为 `default`）配置目标。
-没有目标时，Core 以 `target_unsupported` 暂缓每个请求，gateway 对每一轮都返回 HTTP 400。
+在任何隐私模式下（包括 `disabled`），Core 都需要为 `PC_GATEWAY_UPSTREAM_PROFILE_RESPONSES` 指定的 profile
+配置目标。请将该变量设为包含 Hermes 获准 endpoint、模型和协议的 Responses profile。没有该 profile 时，Core
+以 `target_unsupported` 暂缓每个请求，gateway 对每一轮都返回 HTTP 400。
 见[配置受支持的目标](../operate/inference-protection.md#配置受支持的目标)。
 
 Hermes 0.20.4 向自定义端点发送的每个 Responses 请求都带有 `store: false` 和 `prompt_cache_key`，
@@ -208,9 +210,11 @@ gateway 在启动时发现 Core 的模式，修改模式后请重启 gateway。
 
 ### 配置 gateway
 
-- 把 `PC_GATEWAY_UPSTREAM_URL_RESPONSES` 和 `PC_GATEWAY_UPSTREAM_API_KEY_RESPONSES` 设为供应商的 Responses 端点和密钥，
-  把 `PC_GATEWAY_API_KEY` 设为 Hermes 发送的密钥，设置 `PC_GATEWAY_SEDIMENT=on`；
-  Core 启用鉴权时还要设置 `PC_GATEWAY_CORE_TOKEN`。
+- 把 `PC_GATEWAY_UPSTREAM_PROFILE_RESPONSES` 设为 Hermes Responses 路由使用的 Core profile。不要设置
+  `PC_GATEWAY_UPSTREAM_URL*`；这些旧变量会阻止启动。把 `PC_GATEWAY_UPSTREAM_API_KEY_RESPONSES` 设为供应商密钥，
+  把 `PC_GATEWAY_API_KEY` 设为 Hermes 发送的密钥，把 `PC_GATEWAY_CORE_TOKEN` 设为 Gateway 服务凭据，并设置
+  `PC_GATEWAY_SEDIMENT=on`。Core 的访问控制必须为 `enforced`；为服务身份授予 `gateway.user` 和 `server.observer`，
+  开启采集时再授予 `scope.contributor`。绑定命令见[网关模型目标](../operate/deploy-server.md#网关模型目标)。
 - gateway 在 `PC_GATEWAY_DEFAULT_SCOPE` 指定的同一个 Scope 中准备和采集所有会话，
   而不是 provider 为每个 workspace 解析的 Scope。
   请把 `PC_GATEWAY_DEFAULT_SCOPE` 设为 `hermes powercontext status` 输出的 `scope_id`，

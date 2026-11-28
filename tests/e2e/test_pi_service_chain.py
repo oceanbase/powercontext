@@ -14,15 +14,16 @@
 
 """Actual Pi RPC with the Pi package's PowerContext extension against a real PowerContext Server.
 
-Pi loads the extension directly with a pinned Scope, so package installation, bundled skills, and Scope resolution are
-outside these cases. The host model and the Server's generation model are deterministic local fixtures. These cases
-establish the local Pi, extension, and Server chain and the package's documented lifecycle; they do not qualify
-live-model behavior.
+Pi loads the extension directly, so package installation and bundled skills are outside these cases. Every case but the
+linked-worktree one pins a Scope; that one resolves workspace bindings. The host model and the Server's generation
+model are deterministic local fixtures. These cases establish the local Pi, extension, and Server chain and the
+package's documented lifecycle; they do not qualify live-model behavior.
 """
 
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import os
 import shutil
@@ -30,7 +31,7 @@ import threading
 import time
 from collections.abc import Callable, Iterator
 from contextlib import ExitStack, contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Literal
 
@@ -46,6 +47,7 @@ from powercontext.server.settings import BearerAuthConfig, ServerSettings
 from tests.e2e.cross_host_work_continuity.pi import PiHost
 from tests.e2e.zcode_acceptance.protocol import HostModelFixture, ObserveServer, WireEvidence, strings
 from tests.e2e.zcode_acceptance.runner import serve
+from tests.git_worktree_support import make_git_layout
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 PI_PLUGIN = PROJECT_ROOT / "integrations" / "pi" / "plugins" / "powercontext"
@@ -103,10 +105,26 @@ class PiStack:
         response.raise_for_status()
         return {entry["text"]: entry for entry in response.json()["entries"]}
 
-    def sources(self) -> list[Any]:
-        response = self.server.get(f"/v1/scopes/{self.scope_id}/sources")
+    def sources(self, scope_id: str | None = None) -> list[Any]:
+        response = self.server.get(f"/v1/scopes/{scope_id or self.scope_id}/sources")
         response.raise_for_status()
         return [item["content"] for item in response.json()["items"]]
+
+    def create_scope(self, title: str) -> str:
+        response = self.server.post(
+            "/v1/scopes", json={"title": title, "summary": "Disposable Pi host acceptance.", "idempotency_key": title}
+        )
+        response.raise_for_status()
+        return response.json()["scope_id"]
+
+    def bind_workspace(self, scope_id: str) -> None:
+        # Node hosts key a workspace by the SHA-256 of its resolved path, without resolving symlinks.
+        external_id = hashlib.sha256(os.path.abspath(self.workspace).encode()).hexdigest()
+        response = self.server.put(
+            "/v1/scope-bindings",
+            json={"key": {"integration": "pi", "kind": "workspace", "external_id": external_id}, "scope_id": scope_id},
+        )
+        response.raise_for_status()
 
     def flush_statuses(self) -> list[int]:
         return [record["status"] for record in self.wire.records if record["path"] == "/v1/memory/flush"]
@@ -300,6 +318,35 @@ def test_pi_memory_tools_write_only_after_user_confirmation(pi_stack: PiStack) -
         assert entry["artifact"]["artifact_id"] in json.dumps(found)
     finally:
         host.close()
+
+
+def test_pi_linked_worktree_falls_back_to_its_checkout_binding(
+    pi_stack: PiStack, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    layout = make_git_layout(tmp_path / "git", monkeypatch)
+    replace(pi_stack, workspace=layout.checkout).bind_workspace(pi_stack.scope_id)
+    # Without the pinned Scope, the extension resolves the workspace binding.
+    unpinned = {name: value for name, value in pi_stack.environment.items() if name != "POWERCONTEXT_PI_SCOPE_ID"}
+    worktree = replace(pi_stack, workspace=layout.worktree, environment=unpinned)
+
+    def prompt(text: str) -> None:
+        host = worktree.open()
+        try:
+            host.prompt(text)
+        finally:
+            host.close()
+
+    # Until the worktree has a binding of its own, its prompts are captured in its checkout's Scope.
+    unbound = "Synthetic orchid prompt from the unbound worktree."
+    prompt(unbound)
+    _wait_until(lambda: pi_stack.sources() == [unbound], "pi_worktree_checkout_source_missing")
+
+    # The worktree's own binding wins over its checkout's.
+    worktree_scope = pi_stack.create_scope("Pi worktree")
+    worktree.bind_workspace(worktree_scope)
+    bound = "Synthetic orchid prompt from the bound worktree."
+    prompt(bound)
+    _wait_until(lambda: pi_stack.sources(worktree_scope) == [bound], "pi_worktree_own_source_missing")
 
 
 @contextmanager

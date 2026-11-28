@@ -76,6 +76,11 @@ _COMPATIBILITY_OR_AVAILABILITY_PATHS = frozenset({
     "/v1/context/prepare",
     "/v1/scope-bindings/resolve",
 })
+_TASK_OUTCOME_GUIDANCE = (
+    "PowerContext task outcome guidance: Only when the task is actually complete or explicitly interrupted, "
+    "call the PowerContext record_task_outcome tool if available. Skip it on intermediate turns. "
+    "A prompt boundary, Stop, or session end alone is insufficient. Report the actual status and omit secrets."
+)
 _AUTOMATIC_OPERATION_PATHS = {
     "scope_resolve": "/v1/scope-bindings/resolve",
     "context_prepare": "/v1/context/prepare",
@@ -131,6 +136,15 @@ class SubmittedPrompt:
     scrubbed_prompt: str
     context: str | None
     diagnostics: list[dict[str, object]]
+
+    @property
+    def agent_context(self) -> str | None:
+        """Place trusted guidance before the unchanged historical context once a Scope is resolved."""
+        if self.scope_id is None:
+            return None
+        if self.context:
+            return f"{_TASK_OUTCOME_GUIDANCE}\n\n{self.context}"
+        return _TASK_OUTCOME_GUIDANCE
 
 
 def payload_identifier(payload: Mapping[str, object], *names: str) -> str | None:

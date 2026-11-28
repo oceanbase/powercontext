@@ -22,15 +22,14 @@ use std::future::Future;
 /// 实现：TCP（独立部署形态）或 UDS（同机组合部署形态）；
 /// 嵌入式实现直接进程内调用等价算法。
 ///
-/// Gate 不可用 → `GateUnavailable`。是否降级为无记忆直通由调用方
-/// 的 `DegradePolicy` 决定（仅对未配置强制规则的 Scope 允许）。
+/// Gate 不可用 → `GateUnavailable`；没有 Core 签发的目标时，调用方不得发送。
 pub trait GateClient: Send + Sync {
     fn check(
         &self,
         request: ContextCheckRequest,
     ) -> impl Future<Output = Result<ContextCheckResult, GateError>> + Send;
 
-    /// GET_CAPABILITIES 能力发现：获知支持的模式、必需规则、可降级性等。
+    /// GET_CAPABILITIES 能力发现：获知支持的模式、必需规则等。
     fn capabilities(&self) -> impl Future<Output = Result<serde_json::Value, GateError>> + Send;
 
     /// PREPARE_CONTEXT：检索并装配注入内容（智力全在 Core；网关只放置）。

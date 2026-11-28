@@ -15,13 +15,15 @@
  */
 
 import assert from 'node:assert/strict'
-import { spawn } from 'node:child_process'
+import { execFile, spawn } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import { createServer } from 'node:http'
-import { cp, mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
+import { cp, mkdtemp, mkdir, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import test from 'node:test'
+import { promisify } from 'node:util'
 
 const plugin = fileURLToPath(new URL('..', import.meta.url))
 
@@ -121,6 +123,59 @@ test('installed Scope resolver agrees with Hook and keeps binding writes distinc
     assert.equal(partial.code, 1)
     assert.equal(partial.body.binding.status, 'saved')
     assert.equal(partial.body.code, 'server_unavailable')
+  } finally {
+    await new Promise(resolve => server.close(resolve))
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('a linked Git worktree uses its checkout binding until it binds its own', async () => {
+  const root = await realpath(await mkdtemp(join(tmpdir(), 'pc-zcode-worktree-')))
+  const bindings = new Map()
+  const resolved = []
+  const server = createServer(async (req, res) => {
+    let raw = ''
+    for await (const chunk of req) raw += chunk
+    const body = JSON.parse(raw)
+    res.setHeader('Content-Type', 'application/json')
+    if (req.url === '/v1/scope-bindings' && req.method === 'PUT') {
+      bindings.set(body.key.external_id, body.scope_id)
+      res.end(JSON.stringify(body))
+    } else if (req.url === '/v1/scope-bindings/clear') {
+      res.end(JSON.stringify({ cleared: bindings.delete(body.key.external_id) }))
+    } else if (req.url === '/v1/scope-bindings/resolve') {
+      resolved.push(body.binding_keys)
+      res.end(JSON.stringify({ scope_id: body.binding_keys.map(key => bindings.get(key.external_id)).find(Boolean) ?? 'default' }))
+    } else { res.statusCode = 404; res.end('{}') }
+  })
+  try {
+    await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
+    const installed = join(root, 'plugin')
+    await cp(plugin, installed, { recursive: true, filter: path => !path.includes('node_modules') })
+    await writeFile(join(installed, 'powercontext.json'), JSON.stringify({ server_url: `http://127.0.0.1:${server.address().port}`, capture_prompts: false }))
+    const git = (...args) => promisify(execFile)('git', ['-c', 'user.name=test', '-c', 'user.email=test@example.com', ...args])
+    const checkout = join(root, 'checkout'), worktree = join(root, 'worktree')
+    await git('init', '-q', checkout)
+    await git('-C', checkout, 'commit', '-q', '--allow-empty', '-m', 'init')
+    await git('-C', checkout, 'worktree', 'add', '-q', worktree)
+    await mkdir(join(worktree, 'sub'))
+    const scope = async (action, cwd, extra = []) => {
+      const result = await run(join(installed, 'scripts', 'scope.mjs'), [action, '--cwd', cwd, ...extra], {})
+      assert.equal(result.stderr, '')
+      return JSON.parse(result.stdout)
+    }
+    const hash = path => createHash('sha256').update(path).digest('hex')
+
+    assert.equal((await scope('bind', checkout, ['--scope-id', 'checkout-scope'])).binding.status, 'saved')
+    assert.equal((await scope('resolve', join(worktree, 'sub'))).scope_id, 'checkout-scope')
+    // ZCode still keys the real Git top level first, so bindings made before keep matching.
+    assert.deepEqual(resolved.at(-1).map(key => key.external_id), [hash(worktree), hash(checkout)])
+    assert.equal((await scope('bind', join(worktree, 'sub'), ['--scope-id', 'worktree-scope'])).binding.status, 'saved')
+    assert.equal((await scope('resolve', worktree)).scope_id, 'worktree-scope')
+    assert.equal((await scope('resolve', checkout)).scope_id, 'checkout-scope')
+    assert.equal((await scope('unbind', worktree)).binding.status, 'cleared')
+    assert.equal((await scope('resolve', worktree)).scope_id, 'checkout-scope')
+    assert.equal((await scope('resolve', checkout)).scope_id, 'checkout-scope')
   } finally {
     await new Promise(resolve => server.close(resolve))
     await rm(root, { recursive: true, force: true })

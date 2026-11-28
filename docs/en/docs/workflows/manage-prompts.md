@@ -33,7 +33,18 @@ no related memory or related earlier candidate does not get that second check.
 4. Run the intended operation and inspect its output. Saving a Prompt does not reprocess historical Sources or rerun operations.
 
 Save Auto mode to use the current deployment's built-in guidance. Restore historical content as a new Revision,
-preserving intervening history; restoring Auto uses current built-in instructions. The Dashboard has no Prompt editor.
+preserving intervening history; restoring Auto uses current built-in instructions. The Dashboard `/dashboard/prompts`
+page includes an editor for `profile.generate`, accessible from **Profile → Generation prompt**: select the Scope,
+view Auto/Custom mode, effective instructions, built-in defaults, capability status, and any saved revision; switch to
+Custom starting from built-in defaults; save a new Revision. Saving does not call inference, enable generation, or
+reprocess historical Sources. Write access requires current `scope.admin` in enforced mode; `disabled` mode allows
+reads and writes without enforcement. Saving Custom instructions requires the `supported` capability; a `disabled`
+capability stays readable without Custom writes (existing Custom configurations can still return to Auto), and an
+externally managed Prompt without instructions is shown as unavailable. Editing instructions preserves existing
+demonstrations. Creation conflicts (`409`) and revision conflicts (`412`) preserve the draft and
+target the latest revision ETag for reconciliation. Returning to Auto explicitly saves empty `instructions` and
+`demonstrations` to use deployed defaults. Revision history is immutable; prior content can be restored as a new
+Revision. Other Prompt keys remain read-only in the Dashboard.
 
 In enforced mode, creation, replacement, switching to Auto, and restoration require current `scope.admin` authority.
 Owning a Prompt Artifact does not permit changes after that Scope role is revoked.

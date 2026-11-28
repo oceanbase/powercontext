@@ -57,6 +57,7 @@ WORKBUDDY_HOOK_MODULES = (
     "powercontext_client_config.py",
     "prepared_context.py",
     "prompt_privacy.py",
+    "git_worktree.py",
 )
 WORKBUDDY_SCRIPT_MODULES = ("__init__.py", "workspace_scope.py")
 WORKBUDDY_SERVER_URL_ENV = "POWERCONTEXT_WORKBUDDY_SERVER_URL"

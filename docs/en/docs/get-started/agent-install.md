@@ -108,6 +108,11 @@ OPENAI_API_KEY=
 - Leave the `OPENAI_API_KEY=` line empty and ask the user to fill it in with an editor. Continue after the user confirms.
 - Wrap the JSON value in single quotes; otherwise configuration parsing strips its double quotes.
 - Inference protection must stay `disabled` with the `approved-codex` target. Codex subscription requests carry no output limit, and enabled protection withholds them.
+- Core authentication is required even in this personal, loopback Gateway setup. Append the enforced access mode and generate a random Server token without printing it:
+
+  ```bash
+  printf 'POWERCONTEXT_SERVER_ACCESS_MODE=enforced\nPOWERCONTEXT_SERVER_AUTH_TOKEN=%s\n' "$(python3 -c 'import secrets; print(secrets.token_urlsafe(32))')" >> "$HOME/powercontext/.env"
+  ```
 
 Validate the configuration and register the personal service. The service starts at login: a systemd user service on Linux, a LaunchAgent on macOS.
 
@@ -117,11 +122,12 @@ powercontext config validate --env-file .env
 powercontext service install --env-file .env
 powercontext service status
 export POWERCONTEXT_CLIENT_SERVER_URL=http://127.0.0.1:17429
+export POWERCONTEXT_CLIENT_API_TOKEN="$(sed -n 's/^POWERCONTEXT_SERVER_AUTH_TOKEN=//p' "$HOME/powercontext/.env")"
 powercontext ready
 powercontext scope create --title personal --summary "Personal coding context"
 ```
 
-The last command prints a line such as `scp_... personal (version 1)`. The leading `scp_...` is the Scope ID, written `<scope_id>` below.
+Keep `POWERCONTEXT_CLIENT_API_TOKEN` in the shell that launches the CLI and host plugin; Core authentication applies to them too, and the Gateway key does not replace their Core credential. The last command prints a line such as `scp_... personal (version 1)`. The leading `scp_...` is the Scope ID, written `<scope_id>` below.
 
 **Check:** `service status` shows `server liveness: live`. In `ready`, `database`, `inference.generation` and `runtime` are `ready`, and so is `inference.embedding` when an embedding model is configured.
 
@@ -136,10 +142,24 @@ PC_GATEWAY_INJECTION=on
 PC_GATEWAY_SEDIMENT=on
 PC_GATEWAY_SUBSCRIPTION=codex
 PC_GATEWAY_SUBSCRIPTION_CREDENTIALS=<HOME>/.codex/auth.json
-PC_GATEWAY_UPSTREAM_PROFILE=approved-codex
+PC_GATEWAY_UPSTREAM_PROFILE_RESPONSES=approved-codex
 ```
 
-The Gateway connects to the Server over HTTP, so it injects context only with `PC_GATEWAY_INJECTION=on`.
+The Gateway connects to the Server over HTTP, so it injects context only with `PC_GATEWAY_INJECTION=on`. Give it the Server token and generate a distinct client-facing key without displaying either value:
+
+```bash
+printf 'PC_GATEWAY_CORE_TOKEN=%s\n' "$(sed -n 's/^POWERCONTEXT_SERVER_AUTH_TOKEN=//p' "$HOME/powercontext/.env")" >> "$HOME/powercontext/gateway.env"
+printf 'PC_GATEWAY_API_KEY=%s\n' "$(python3 -c 'import secrets; print(secrets.token_urlsafe(32))')" >> "$HOME/powercontext/gateway.env"
+chmod 600 "$HOME/powercontext/gateway.env"
+```
+
+This personal flow reuses the Server token created above: `CORE_URL` is the value of `PC_GATEWAY_CORE_BASE`, and
+`PC_GATEWAY_CORE_BASE` and `PC_GATEWAY_CORE_TOKEN` are in `gateway.env`; `ACCESS_ADMIN_TOKEN` is the
+`POWERCONTEXT_SERVER_AUTH_TOKEN` in `.env`. The Server token is the
+bootstrap administrator and has static Scope roles. Grant it `gateway.user` on `<scope_id>` before starting the
+Gateway. A separate least-privilege Gateway identity instead needs `gateway.user`, `server.observer` on the Server
+resource, and—because this setup enables capture—`scope.contributor` on the Scope. See [Gateway authentication and
+target requirements](../operate/deploy-server.md#gateway-model-destination) for `/v1/access/me` and binding commands.
 
 Create the launch script `<HOME>/powercontext/run-gateway.sh` and run `chmod 755` on it. It starts the Gateway after the Server is ready:
 
@@ -152,7 +172,12 @@ until curl -sf http://127.0.0.1:17429/health/ready >/dev/null; do sleep 2; done
 exec "<absolute path of pc-gateway>" >>"$HOME/powercontext/gateway.log" 2>&1
 ```
 
-Get the absolute path with `command -v pc-gateway`.
+Get the absolute path with `command -v pc-gateway`. Because prefix extraction is enabled above, also add the Gateway key to the Server callback headers and reload the Server configuration:
+
+```bash
+printf "POWERCONTEXT_SERVER_INFERENCE_PREFIX_EXTRACTION_GATEWAY_HEADERS='{\"Authorization\":\"Bearer %s\"}'\n" "$(sed -n 's/^PC_GATEWAY_API_KEY=//p' "$HOME/powercontext/gateway.env")" >> "$HOME/powercontext/.env"
+powercontext service install --env-file "$HOME/powercontext/.env"
+```
 
 ### Start the Gateway automatically
 
@@ -333,9 +358,9 @@ OPENAI_API_KEY=
 POWERCONTEXT_SERVER_HTTP_HOST=0.0.0.0
 ```
 
-Without authentication, also append `POWERCONTEXT_SERVER_ALLOW_UNAUTHENTICATED_NON_LOOPBACK=true`.
+Without authentication and without the Gateway, also append `POWERCONTEXT_SERVER_ALLOW_UNAUTHENTICATED_NON_LOOPBACK=true`.
 
-**With authentication,** append `POWERCONTEXT_SERVER_ACCESS_MODE=enforced`, and generate the token straight into the file with the command below. Do not show the token; tell the administrator that it is stored as `POWERCONTEXT_SERVER_AUTH_TOKEN` in `.env`:
+**When deploying the Gateway, authentication is required even on loopback.** It is also required when the administrator otherwise chooses authenticated access. Append `POWERCONTEXT_SERVER_ACCESS_MODE=enforced`, and generate the token straight into the file without showing it; tell the administrator it is stored as `POWERCONTEXT_SERVER_AUTH_TOKEN` in `.env`:
 
 ```bash
 printf 'POWERCONTEXT_SERVER_AUTH_TOKEN=%s\n' "$(python3 -c 'import secrets; print(secrets.token_urlsafe(32))')" >> "$HOME/powercontext/.env"
@@ -351,12 +376,6 @@ With prefix extraction, also append:
 
 ```dotenv
 POWERCONTEXT_SERVER_INFERENCE_PREFIX_EXTRACTION_GATEWAY_URL=http://127.0.0.1:8787
-```
-
-The Server must also send the Gateway key when calling the Gateway. After writing the Gateway configuration, append it with the command below, without showing the key:
-
-```bash
-printf 'POWERCONTEXT_SERVER_INFERENCE_PREFIX_EXTRACTION_GATEWAY_HEADERS='"'"'{"Authorization":"Bearer %s"}'"'"'\n' "$(sed -n 's/^PC_GATEWAY_API_KEY=//p' "$HOME/powercontext/gateway.env")" >> "$HOME/powercontext/.env"
 ```
 
 Without one-pass, append `POWERCONTEXT_SERVER_RUNTIME_ATOMIC_MEMORY_PROCESSING_MODE=per_candidate`.
@@ -396,7 +415,7 @@ loginctl enable-linger "$USER"
 
 `enable-linger` keeps the services running after the administrator logs out. If the command fails, ask the administrator to run it with an account that has permission.
 
-Then check the Server and create the Scope the team uses. With authentication, read the token from `.env` first without showing it:
+Then check the Server and create the Scope the team uses. When deploying the Gateway or using any authenticated setup, read the token from `.env` first without showing it; clients and plugins must use their own Core credentials, not the Gateway API key:
 
 ```bash
 export POWERCONTEXT_CLIENT_SERVER_URL=http://127.0.0.1:17429
@@ -418,26 +437,40 @@ PC_GATEWAY_CORE_BASE=http://127.0.0.1:17429
 PC_GATEWAY_DEFAULT_SCOPE=<scope_id>
 PC_GATEWAY_INJECTION=on
 PC_GATEWAY_SEDIMENT=on
-PC_GATEWAY_UPSTREAM_PROFILE=team-upstream
-PC_GATEWAY_UPSTREAM_URL_RESPONSES=<upstream-endpoint>
+PC_GATEWAY_UPSTREAM_PROFILE_RESPONSES=team-upstream
 PC_GATEWAY_UPSTREAM_API_KEY_RESPONSES=
 ```
 
 - Leave `PC_GATEWAY_UPSTREAM_API_KEY_RESPONSES=` empty and ask the administrator to fill in the upstream API key. Start the Gateway only after the administrator confirms.
 - To turn injection off, use `PC_GATEWAY_INJECTION=off`; to turn capture off, delete `PC_GATEWAY_SEDIMENT=on`. To turn Steering off, append `PC_GATEWAY_STEERING=off`; for team instructions, append `PC_GATEWAY_STEERING_FILE=<file path>`. To turn prefix extraction off, append `PC_GATEWAY_PREFIX_EXTRACTION=off`.
-- With authentication, the Gateway needs the same token to call the Server. Copy it with the command below, without showing it:
+- The Gateway always needs the authenticated Server token to call Core. Copy it with the command below, without showing it; it must differ from `PC_GATEWAY_API_KEY`:
 
   ```bash
   printf 'PC_GATEWAY_CORE_TOKEN=%s\n' "$(sed -n 's/^POWERCONTEXT_SERVER_AUTH_TOKEN=//p' "$HOME/powercontext/.env")" >> "$HOME/powercontext/gateway.env"
   ```
 
-- Members reach the Gateway through a reverse proxy or the network, so generate the Gateway key they use, without showing it:
+- The Gateway requires a nonempty client-facing key on every listener, including loopback. Members use this key for model routes; it must differ from the Core token. Generate it without showing it:
 
   ```bash
   printf 'PC_GATEWAY_API_KEY=%s\n' "$(python3 -c 'import secrets; print(secrets.token_urlsafe(32))')" >> "$HOME/powercontext/gateway.env"
   ```
 
 - When listening on a network address, also append `PC_GATEWAY_LISTEN=0.0.0.0:8787`.
+
+In this flow, `CORE_URL` is `PC_GATEWAY_CORE_BASE` from `gateway.env`, `PC_GATEWAY_CORE_TOKEN` is also in that file,
+and `ACCESS_ADMIN_TOKEN` is the Server token in `.env`; that token is the bootstrap administrator credential. If you
+replace it with a dedicated Gateway identity, bind `gateway.user`, `server.observer` and (because capture is enabled)
+`scope.contributor` as described in [Gateway authentication and target requirements](../operate/deploy-server.md#gateway-model-destination).
+
+With prefix extraction enabled, set the callback header from the Gateway key and reload the Server:
+
+```bash
+printf "POWERCONTEXT_SERVER_INFERENCE_PREFIX_EXTRACTION_GATEWAY_HEADERS='{\"Authorization\":\"Bearer %s\"}'\n" "$(sed -n 's/^PC_GATEWAY_API_KEY=//p' "$HOME/powercontext/gateway.env")" >> "$HOME/powercontext/.env"
+powercontext config validate --env-file "$HOME/powercontext/.env"
+powercontext service install --env-file "$HOME/powercontext/.env"
+```
+
+This team flow also uses the bootstrap Server token as the Gateway credential. Grant it `gateway.user` on `<scope_id>`; a dedicated Gateway identity instead needs the grants described above. The Gateway API key only authenticates model-route requests, while Core clients and plugins need their own Core credentials.
 
 Run `chmod 600 "$HOME/powercontext/gateway.env"`, then create `run-gateway.sh` and start the Gateway automatically as in [step 3a](#start-the-gateway-automatically).
 

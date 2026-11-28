@@ -43,6 +43,10 @@ traffic goes through the gateway, turn prompt-time recall off so the gateway pre
 Named `pc_*` tools expose curated Memory, Handoff, Experience, Skill, and read-only Candidate operations. OpenCode
 asks for confirmation before a durable mutation. Candidate approval and rejection remain explicit human CLI actions.
 
+The plugin gives OpenCode per-turn guidance to call `pc_task_outcome` when the task is actually complete or
+explicitly interrupted. Intermediate turns, `Stop`, and session end leave the task outcome open on their own.
+Recording uses the current Scope and the `record_task_outcome` permission pattern.
+
 The confirmation is OpenCode's `powercontext` permission, which the plugin sets to `ask`. A rule you configure that
 matches it, such as `"*": "allow"` in `permission` or in an agent's `permission`, takes precedence. Each request uses
 the operation as its pattern, so `"permission": {"powercontext": {"remember_memory": "allow"}}` saves memories
@@ -64,7 +68,9 @@ opencode
 
 Each OpenCode session resolves an explicit `POWERCONTEXT_OPENCODE_SCOPE_ID`, its durable Session binding, its
 workspace binding, then the Server default. The resolved Scope is fixed to the Session so resume keeps the same
-boundary. Set the explicit variable only to an existing Server-owned Scope.
+boundary. In a linked Git worktree that has no workspace binding of its own, the binding of the same directory in the
+main checkout applies, so a checkout's binding also covers its linked worktrees. That fallback comes from the real path
+that Git reports, so it matches a checkout binding made from a path without symlinks. Set the explicit variable only to an existing Server-owned Scope.
 
 For a Server using optional bearer authentication, set the complete header in
 `POWERCONTEXT_OPENCODE_AUTHORIZATION`. Never put credentials in the URL. Plain HTTP is allowed on loopback by default;
@@ -112,16 +118,22 @@ OpenCode always streams. Configure the OpenCode provider that points at the gate
 `@ai-sdk/openai`, which uses the Responses route. The gateway requests a Responses result from the upstream model
 without streaming and replays the released result as a stream, so streaming does not stop these turns or their
 capture in any Core [privacy mode](../operate/inference-protection.md#configure-a-supported-target). An enforcing
-Core still applies its other request and response rules. `@ai-sdk/openai-compatible` uses the Chat Completions route.
+Core still applies its other request and response rules. `@ai-sdk/openai-compatible` uses the Chat Completions route
+and requires a Core target profile with the `openai-chat` protocol.
 An enforcing Core withholds streamed Chat Completions responses, and the gateway returns HTTP 400. With a
 non-enforcing Core, including the default `disabled` mode, the gateway releases the stream unchanged. With
 `PC_GATEWAY_SEDIMENT=on`, it also assembles the assistant's text from a terminal stream and captures the completed turn.
 
-Core also needs a target for the profile that `PC_GATEWAY_UPSTREAM_PROFILE` names (`default` unless set), in every
-privacy mode, including `disabled`. Without one, Core withholds each request with `target_unsupported`, and the gateway
-returns HTTP 400 for every turn on either route, not only for streamed Chat Completions turns. The `reason_codes` field
-of the gateway's response body names the reason and tells the two cases apart. See
-[Configure a supported target](../operate/inference-protection.md#configure-a-supported-target).
+`@ai-sdk/openai-compatible` uses the Chat route and requires `PC_GATEWAY_UPSTREAM_PROFILE` to select a Core target
+whose endpoint, `openai-chat` protocol and model match the request. `@ai-sdk/openai` uses Responses and requires
+`PC_GATEWAY_UPSTREAM_PROFILE_RESPONSES` to select the corresponding `openai-responses` target; the Chat setting does
+not enable Responses. Without the Responses setting, requests return HTTP 501 `responses_route_disabled`. Do not set
+`PC_GATEWAY_UPSTREAM_URL*`; these legacy variables prevent startup. Core access control must be `enforced`,
+`PC_GATEWAY_CORE_TOKEN` must identify an authenticated service principal, and a nonempty `PC_GATEWAY_API_KEY` is
+mandatory even on loopback. Grant the service principal `gateway.user` on every Scope selected with
+`X-PowerContext-Scope-ID`, not only `PC_GATEWAY_DEFAULT_SCOPE`, and `server.observer` on the Server resource for
+`POWERCONTEXT_SERVER_ACCESS_DEPLOYMENT_ID` (default `powercontext`). Because capture is
+enabled, grant `scope.contributor` instead of `scope.viewer`. See [Gateway authentication and target requirements](../operate/deploy-server.md#gateway-model-destination).
 
 ## Verify the installation
 

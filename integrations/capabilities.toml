@@ -735,6 +735,9 @@ capabilities = ["handoff"]
 id = "pc_handoff_continue:continue_handoff"
 capabilities = ["handoff"]
 [[toolsets.tools]]
+id = "pc_task_outcome:record_task_outcome"
+capabilities = ["task_outcome"]
+[[toolsets.tools]]
 id = "pc_experience_generate:generate_experience"
 capabilities = ["experience_read_or_generate"]
 [[toolsets.tools]]
@@ -1030,7 +1033,7 @@ tests = ["integrations/openclaw/plugins/memory-powercontext/src/lifecycle.test.t
 id = "opencode"
 kind = "agent_host"
 availability = "master_only"
-capabilities = ["memory_read", "memory_write", "source_capture", "context_injection", "handoff", "experience_read_or_generate", "skill_read_or_generate", "candidate_review"]
+capabilities = ["memory_read", "memory_write", "source_capture", "context_injection", "handoff", "task_outcome", "experience_read_or_generate", "skill_read_or_generate", "candidate_review"]
 profiles = ["minimal"]
 toolsets = ["opencode-tools"]
 [integrations.lifecycle.pre_compaction]

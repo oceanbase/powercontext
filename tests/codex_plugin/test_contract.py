@@ -43,7 +43,7 @@ def test_scope_resolver_uses_server_binding_and_fixes_new_session(
         return {"scope_id": "scp_00000000000000000000000000"}
 
     monkeypatch.setattr(scope_binding_client, "_request_json", post)
-    monkeypatch.setattr(scope_binding_client, "_git_value", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(scope_binding_client, "workspace_paths", lambda cwd, **_kwargs: [cwd])
 
     resolved = scope_binding_client.resolve_scope_id(
         scope_module.CODEX,
