@@ -2052,6 +2052,46 @@ async fn prefix_extraction_defaults_on_but_respects_off_and_subscription_boundar
 }
 
 #[test]
+fn removed_degrade_setting_rejects_startup() {
+    for degrade in [
+        "passthrough",
+        "Passthrough",
+        " passthrough ",
+        "passthrough_v1",
+    ] {
+        let mut child = Command::new(env!("CARGO_BIN_EXE_pc-gateway"))
+            .env_clear()
+            .env("PC_GATEWAY_LISTEN", "127.0.0.1:0")
+            .env("PC_GATEWAY_CORE_BASE", "http://127.0.0.1:9")
+            .env("PC_GATEWAY_API_KEY", "gateway-test-key")
+            .env("PC_GATEWAY_CORE_TOKEN", "core-test-key")
+            .env("PC_GATEWAY_DEGRADE", degrade)
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        let mut exited = false;
+        while std::time::Instant::now() < deadline {
+            if child.try_wait().unwrap().is_some() {
+                exited = true;
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        if !exited {
+            child.kill().unwrap();
+        }
+        let result = child.wait_with_output().unwrap();
+        assert!(exited, "PC_GATEWAY_DEGRADE={degrade:?} was accepted");
+        assert_eq!(result.status.code(), Some(2));
+        assert!(String::from_utf8(result.stderr)
+            .unwrap()
+            .contains("PC_GATEWAY_DEGRADE"));
+    }
+}
+
+#[test]
 fn invalid_default_feature_switches_reject_startup() {
     for setting in ["PC_GATEWAY_STEERING", "PC_GATEWAY_PREFIX_EXTRACTION"] {
         let mut child = Command::new(env!("CARGO_BIN_EXE_pc-gateway"))

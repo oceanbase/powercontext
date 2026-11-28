@@ -206,14 +206,18 @@ impl Admission {
         let (binding, valid_until_ms) =
             validate_allow(result, CheckPhase::BeforeSend, require_privacy_coverage)?;
         let target_endpoint = approved_target(result, protocol)?;
-        if credential_target.is_some_and(|target| target != target_endpoint) {
-            return Err(ManagedOutcome::GatePaused(
-                "malformed_verdict: subscription target mismatch".into(),
-            ));
+        if let Some(credential_target) = credential_target {
+            let credential_url = reqwest::Url::parse(credential_target)
+                .map_err(|_| ManagedOutcome::GatePaused("subscription_target_mismatch".into()))?;
+            if credential_url != target_endpoint {
+                return Err(ManagedOutcome::GatePaused(
+                    "subscription_target_mismatch".into(),
+                ));
+            }
         }
         Ok(Self {
             binding,
-            target_endpoint,
+            target_endpoint: target_endpoint.to_string(),
             valid_until_ms,
         })
     }
@@ -1201,7 +1205,10 @@ fn validate_allow(
 }
 
 /// An allow without the Core-derived endpoint and matching renderer protocol is not a send plan.
-fn approved_target(result: &ContextCheckResult, protocol: &str) -> Result<String, ManagedOutcome> {
+fn approved_target(
+    result: &ContextCheckResult,
+    protocol: &str,
+) -> Result<reqwest::Url, ManagedOutcome> {
     if result.target_protocol.as_deref() != Some(protocol) {
         return Err(ManagedOutcome::GatePaused(
             "malformed_verdict: target protocol mismatch".into(),
@@ -1224,7 +1231,7 @@ fn approved_target(result: &ContextCheckResult, protocol: &str) -> Result<String
             "malformed_verdict: unsafe approved target".into(),
         ));
     }
-    Ok(url.to_owned())
+    Ok(parsed)
 }
 
 fn classify_gate_error(e: GateError) -> String {

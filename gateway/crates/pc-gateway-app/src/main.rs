@@ -177,12 +177,9 @@ async fn main() {
         .and_then(|v| v.parse().ok())
         .filter(|v| *v > 0)
         .unwrap_or(64);
-    if matches!(
-        std::env::var("PC_GATEWAY_DEGRADE").as_deref(),
-        Ok("passthrough")
-    ) {
+    if std::env::var("PC_GATEWAY_DEGRADE").is_ok_and(|value| !value.trim().is_empty()) {
         tracing::error!(
-            "passthrough without a Core-issued destination is unsafe; remove PC_GATEWAY_DEGRADE"
+            "PC_GATEWAY_DEGRADE is no longer accepted; remove it and configure Core target profiles"
         );
         std::process::exit(2);
     }

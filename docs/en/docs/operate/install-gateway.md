@@ -109,7 +109,8 @@ control disabled cannot authorize model sends. For a combined deployment, replac
 different from `PC_GATEWAY_CORE_TOKEN`; it does not replace Core's credentials for forwarded API, MCP or Dashboard
 routes. The selected `PC_GATEWAY_UPSTREAM_PROFILE` must already exist in Core and must contain the provider endpoint,
 model and `openai-chat` protocol. For Responses, also set `PC_GATEWAY_UPSTREAM_PROFILE_RESPONSES` to a Core target
-with the `openai-responses` protocol. Do not set `PC_GATEWAY_UPSTREAM_URL*`; those legacy variables prevent startup.
+with the `openai-responses` protocol. Do not set `PC_GATEWAY_UPSTREAM_URL*`, and remove `PC_GATEWAY_DEGRADE` if it has any
+non-empty value; these legacy settings prevent startup.
 `PC_GATEWAY_CORE_TOKEN` must identify a service principal, and `PC_GATEWAY_API_KEY` is required even on loopback and
 must be different from the Core token. A dedicated Gateway principal needs `gateway.user` (`gateway.invoke`) on every
 Scope selected with `X-PowerContext-Scope-ID`, not only `PC_GATEWAY_DEFAULT_SCOPE`, and `server.observer`

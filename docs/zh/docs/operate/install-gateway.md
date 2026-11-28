@@ -106,7 +106,8 @@ Gateway 默认监听回环地址。同机组合部署时，将 `PC_GATEWAY_CORE_
 `PC_GATEWAY_CORE_TOKEN` 不同；它不替代转发 API、MCP 和 Dashboard 路由所需的 Core 凭据。
 `PC_GATEWAY_UPSTREAM_PROFILE` 必须已存在于 Core，并包含服务商 endpoint、模型和 `openai-chat` 协议。
 Responses 路由还要设置 `PC_GATEWAY_UPSTREAM_PROFILE_RESPONSES`，并配置 `openai-responses` 目标。不要设置
-`PC_GATEWAY_UPSTREAM_URL*`；旧变量会导致启动失败。`PC_GATEWAY_CORE_TOKEN` 必须代表服务主体；即使监听回环地址，
+`PC_GATEWAY_UPSTREAM_URL*`；如果 `PC_GATEWAY_DEGRADE` 有任何非空值也要移除，这些旧设置都会导致启动失败。
+`PC_GATEWAY_CORE_TOKEN` 必须代表服务主体；即使监听回环地址，
 也必须配置非空且不同于 Core Token 的 `PC_GATEWAY_API_KEY`。专用 Gateway 主体需要在客户端通过
 `X-PowerContext-Scope-ID` 选择的每个 Scope 上获得 `gateway.user`（`gateway.invoke`），而不只是
 `PC_GATEWAY_DEFAULT_SCOPE`；同时要在 deployment ID 对应的 Server resource 上获得 `server.observer`

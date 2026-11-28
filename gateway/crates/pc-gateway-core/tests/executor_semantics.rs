@@ -1072,8 +1072,38 @@ async fn subscription_credentials_never_leave_for_a_different_core_approved_targ
             &NoopEvidenceSink,
         )
         .await;
-    assert!(matches!(outcome, ManagedOutcome::GatePaused(_)));
+    assert!(matches!(
+        outcome,
+        ManagedOutcome::GatePaused(ref reason) if reason == "subscription_target_mismatch"
+    ));
     assert!(transport.destinations.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn equivalent_subscription_target_reaches_the_core_approved_destination() {
+    let (executor, renderer, transport, _) = harness(
+        vec![
+            Ok(result(CheckPhase::BeforeSend, CheckDecision::Allow, &[])),
+            Ok(result(CheckPhase::BeforeRelease, CheckDecision::Allow, &[])),
+        ],
+        vec![raw_response()],
+        2,
+    );
+    let mut request = call();
+    request.credential_target = Some("http://UPSTREAM.INVALID:80/v1/chat/completions".into());
+    let outcome = executor
+        .run(
+            request_control(),
+            request,
+            &RendererRef(renderer),
+            &NoopEvidenceSink,
+        )
+        .await;
+    assert!(matches!(outcome, ManagedOutcome::Released { .. }));
+    assert_eq!(
+        transport.destinations.lock().unwrap().as_slice(),
+        ["http://upstream.invalid/v1/chat/completions"]
+    );
 }
 
 #[tokio::test]

@@ -1863,7 +1863,7 @@ pub(crate) mod tests {
     }
 
     #[tokio::test]
-    async fn real_listener_cannot_redirect_core_profile_a_to_client_target_b() {
+    async fn real_listener_sends_only_to_the_core_approved_target() {
         use axum::routing::post;
         use std::sync::atomic::{AtomicUsize, Ordering};
 
