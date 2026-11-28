@@ -3991,3 +3991,37 @@ POWERCONTEXT_SERVER_ACCESS_MODE=enforced POWERCONTEXT_SERVER_AUTH_TOKEN=qualific
   POWERCONTEXT_SERVER_SOURCE_CONTENT_MAX_CHARS=64 \
   /tmp/pc-venv-limit7/bin/powercontext server run --host 127.0.0.1 --port 8246 --no-env-file
 ```
+
+## Server 2e111d6 tag limits protocol qualification
+
+`sqlite-tag-limits-2e111d6-v1` covers all thirteen Desktop protocol operations against Server source
+`2e111d697503982ad50f8912a9ef50bca715b1ad`. The contract makes the per-Artifact and per-query tag limits deployment
+settings, widens the candidate response contract to the same ceiling, rejects over-limit proposals and revisions before
+they are stored, and applies the query limit to plugin listings; the Desktop operations and their request or response
+shapes are unchanged.
+
+- Normalized OpenAPI SHA-256: `4a632917abc6a54f117d2c7dd299b105534a5cbe576f653750cf130ada1e69d5`.
+- Wheel: `powercontext-0.1.dev2+g2e111d697-py3-none-any.whl`.
+- Wheel SHA-256: `49871396c906c882b45f2185a9e93e707822fba1052cb273f111204f5eeda5c9`.
+
+On 2026-11-28, Linux x86_64 (WSL2) with Python 3.14 and that wheel passed static Bearer mode with an enforced token:
+unauthenticated requests returned 401, and the bundled Python client exercised all thirteen operations. The Server ran
+with `POWERCONTEXT_SERVER_RUNTIME_TAG_MAX_PER_ARTIFACT=64` and `POWERCONTEXT_SERVER_RUNTIME_TAG_MAX_QUERY_LABELS=20`:
+64 Artifact labels were accepted and 65 rejected with a `422` naming the limit; a 20-label tag query succeeded and a
+21-label query was rejected with a `400` naming the limit; a 21-label Atomic Memory list filter was rejected with the
+same `422` query-limit error.
+
+The native `server_probe` was not rebuilt for this record because the validation environment has no Rust toolchain. This
+record therefore establishes HTTP protocol compatibility between the new client contract and the exact wheel; it does not
+establish native-probe, installed-WebView, Windows/macOS or release acceptance.
+
+Reproduce against the recorded artifact:
+
+```sh
+uv build --wheel --out-dir /tmp/pc-wheel-tags6
+uv pip install --python /tmp/pc-venv-tags5/bin/python \
+  "/tmp/pc-wheel-tags6/powercontext-0.1.dev2+g2e111d697-py3-none-any.whl[server,cli]"
+POWERCONTEXT_SERVER_ACCESS_MODE=enforced POWERCONTEXT_SERVER_AUTH_TOKEN=qualification-token \
+  POWERCONTEXT_SERVER_RUNTIME_TAG_MAX_PER_ARTIFACT=64 POWERCONTEXT_SERVER_RUNTIME_TAG_MAX_QUERY_LABELS=20 \
+  /tmp/pc-venv-tags5/bin/powercontext server run --host 127.0.0.1 --port 8249 --no-env-file
+```
