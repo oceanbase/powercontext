@@ -520,6 +520,10 @@ starting more model work. Common `error_code` values are:
 
 - `window_attempt_limit`: the same frontier has used three attempts and has not completed. Attempts that lost a
   Topic head conflict to a concurrent replace or Dream are not counted. Request and token budgets may still be available.
+- `invalid_topic_placeholder` or `invalid_topic_coordination_content`: the frontier used its three attempts and the
+  final one was rejected with this [recoverable code](#topic-generation-rejection-codes). When the final attempt failed
+  for another reason, the block reports `window_attempt_limit` even if an earlier attempt was rejected with one of
+  these codes.
 - `window_provider_budget_exceeded`: the same frontier reached its request or token budget.
 - `source_complexity_limit`: the Source window exceeds the processing limit.
 
@@ -612,7 +616,10 @@ Exact reads do not enter the retrieval denominator or establish semantic relevan
 Topic processing may report `invalid_topic_placeholder` for recognizable numbered placeholder bodies or
 `invalid_topic_coordination_content` for identity-coordination-only bodies. These content-free diagnostic codes
 identify recoverable generation rejection, not successful NOOP. Retries use the existing durable Window budget;
-exhaustion retains the pending frontier. Existing worker events and correlation fields carry the diagnostic code.
+exhaustion retains the pending frontier. A recorded code applies to the attempt that produced it: the next attempt
+clears it, so a block names it only when the final attempt was rejected with it. Each attempt's
+`artifact_processing.worker.failed` and `artifact_processing.failed` events carry its code with the correlation
+fields, so codes from earlier attempts remain in the processing logs.
 Source text, generated bodies and provider responses must not be added to operational logs.
 
 

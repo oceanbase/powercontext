@@ -38,12 +38,13 @@ from powercontext.builtin.artifacts.topic_memory.generation import (
     TopicMemoryReductionOutput,
     TopicMemoryTemporaryOutput,
 )
-from powercontext.builtin.inference import TokenEstimator, character_token_estimator
+from powercontext.builtin.inference import InferenceUnavailableError, TokenEstimator, character_token_estimator
 from powercontext.builtin.persistence.cursors import SourceCursorRepository
 from powercontext.builtin.persistence.sources import SourceRepository
 from powercontext.builtin.persistence.supervision import ArtifactProcessingLeaseRepository
 from powercontext.builtin.persistence.topic_memory_budget import require_topic_memory_work_available
 from powercontext.builtin.runtime.topic_memory_processing import TopicMemoryAtomicPublisher, TopicMemoryProcessor
+from powercontext.builtin.runtime.topic_memory_scope import topic_memory_processing_block
 from powercontext.builtin.sources import CONTENT_SOURCE_ADAPTER, ContentCapture
 from powercontext.sources import SourceMaterialization
 from tests.builtin.persistence.contract import SOURCE_ADAPTERS, NoteSource
@@ -219,6 +220,90 @@ def test_rejected_content_recovers_or_exhausts_the_original_budget(recover):
                         await SourceCursorRepository().load(connection, "scope-a", TOPIC_MEMORY_SOURCE_WINDOW_BINDING)
                         is None
                     )
+        finally:
+            await manager.__aexit__(None, None, None)
+
+    asyncio.run(scenario())
+
+
+class _Unavailable:
+    async def generate(self, _value, /):
+        raise InferenceUnavailableError("generate", "provider timeout")
+
+
+@pytest.mark.parametrize(
+    "sequence,blocked",
+    [
+        (("rejected", "unavailable", "unplanned"), "window_attempt_limit"),
+        (("rejected", "rejected", "unavailable"), "window_attempt_limit"),
+        (("unavailable", "unavailable", "rejected"), "invalid_topic_placeholder"),
+    ],
+    ids=["rejection-then-other-failures", "rejection-twice-then-timeout", "final-attempt-rejected"],
+)
+def test_exhaustion_names_a_recoverable_rejection_only_when_the_final_attempt_hit_it(sequence, blocked):
+    """A recoverable rejection on an earlier attempt is not the cause of a block it did not end."""
+
+    async def scenario():
+        manager, profile, sources, topics = await _repositories()
+        try:
+            leases = ArtifactProcessingLeaseRepository()
+            async with profile.database.transaction() as connection:
+                await sources.add(
+                    connection,
+                    "scope-a",
+                    NoteSource(
+                        name="target",
+                        materialization=SourceMaterialization.CAPTURED,
+                        body="Zircon deployment checks pass.",
+                    ),
+                )
+                term = await leases.start_single_process_term(connection, "holder")
+            assignment = _assignment(term.fence("single-process"))
+            probe = TopicMemoryProbeOutput(probes=(TopicMemoryProbe(query="zircon", evidence_ids=("evidence-0001",)),))
+
+            def rejected():
+                return _stages(
+                    probe=probe,
+                    global_output=TopicMemoryGlobalOutput(
+                        proposals=(TopicMemoryProposal(content=_placeholder(), evidence_ids=("evidence-0001",)),)
+                    ),
+                )
+
+            def unplanned():
+                return _stages(
+                    probe=probe,
+                    global_output=TopicMemoryGlobalOutput(ambiguous=True),
+                    planner=TopicMemoryPlannerOutput(items=(TopicMemoryPlanItem(probe_ids=("probe-0002",)),)),
+                )
+
+            attempts = {
+                "rejected": (rejected, TopicMemoryGenerationError, "invalid_topic_placeholder"),
+                "unavailable": (
+                    lambda: replace(rejected(), probe=_Unavailable()),
+                    InferenceUnavailableError,
+                    "generate",
+                ),
+                "unplanned": (unplanned, TopicMemoryGenerationError, "invalid_plan"),
+            }
+            for name in sequence:
+                stages, error, match = attempts[name]
+                processor = TopicMemoryProcessor(
+                    database=profile.database,
+                    sources=sources,
+                    topics=topics,
+                    stages=stages(),
+                    publisher=TopicMemoryAtomicPublisher(profile.database, sources, topics, leases=leases),
+                )
+                with pytest.raises(error, match=match):
+                    await processor.process(assignment)
+            assert (await _budget_row(profile))["attempts"] == 3
+            async with profile.database.transaction() as connection:
+                with pytest.raises(TopicMemoryGenerationError, match=blocked):
+                    await require_topic_memory_work_available(
+                        connection, "scope-a", TOPIC_MEMORY_SOURCE_WINDOW_BINDING, 0
+                    )
+                block = await topic_memory_processing_block(connection, "scope-a", TOPIC_MEMORY_SOURCE_WINDOW_BINDING)
+            assert block is not None and block.error_code == blocked
         finally:
             await manager.__aexit__(None, None, None)
 
