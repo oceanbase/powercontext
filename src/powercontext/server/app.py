@@ -62,6 +62,13 @@ from powercontext.builtin.artifacts.atomic_memory.errors import (
 from powercontext.builtin.artifacts.atomic_memory.models import (
     AtomicMemoryContent,
 )
+from powercontext.builtin.artifacts.atomic_memory.processing import (
+    AtomicMemoryBlockConflictError,
+    AtomicMemoryBlockNotFoundError,
+    AtomicMemoryBlockSourceIneligibleError,
+    AtomicMemoryInputBudgetError,
+    AtomicMemoryRecoveryUnavailableError,
+)
 from powercontext.builtin.artifacts.experience import Experience
 from powercontext.builtin.artifacts.handoff import (
     HandoffCitation,
@@ -394,6 +401,7 @@ from powercontext.builtin.runtime.context_check import (
     ContextCheckResult as RuntimeContextCheckResult,
 )
 from powercontext.builtin.runtime.models import BUILTIN_CONTEXT_FAMILIES, ContextPluginHit
+from powercontext.builtin.runtime.processing_contracts import ArtifactProcessingBlockedError
 from powercontext.builtin.runtime.skill_search import search_skill_library
 from powercontext.builtin.scope import (
     ScopeApplication,
@@ -1584,6 +1592,7 @@ def create_app(
     @app.exception_handler(SourceNotEligibleError)
     @app.exception_handler(PluginCallError)
     @app.exception_handler(SourceCollectionError)
+    @app.exception_handler(ArtifactProcessingBlockedError)
     @app.exception_handler(PowerContextError)
     @app.exception_handler(PersistenceError)
     async def application_error(request: Request, error: Exception) -> JSONResponse:
@@ -7777,7 +7786,56 @@ def _map_report_error(error: Exception) -> tuple[int, str, str, dict[str, Any] |
     return None
 
 
+def _map_atomic_recovery_error(error: Exception) -> tuple[int, str, str, dict[str, Any] | None] | None:
+    if isinstance(error, ArtifactProcessingBlockedError) and error.block.stage == "atomic_memory":
+        return (
+            status.HTTP_409_CONFLICT,
+            "atomic_memory_processing_blocked",
+            "Memory processing is blocked; inspect the budget and explicitly recover this block.",
+            {"block_id": error.block.key},
+        )
+    if isinstance(error, AtomicMemoryBlockNotFoundError):
+        return (
+            status.HTTP_404_NOT_FOUND,
+            "atomic_memory_block_not_found",
+            "The Memory block was not found in this Scope.",
+            None,
+        )
+    if isinstance(error, AtomicMemoryBlockConflictError):
+        return (
+            status.HTTP_409_CONFLICT,
+            "atomic_memory_block_conflict",
+            "The Memory block no longer owns this frontier.",
+            None,
+        )
+    if isinstance(error, AtomicMemoryBlockSourceIneligibleError):
+        return (
+            status.HTTP_409_CONFLICT,
+            "atomic_memory_block_source_ineligible",
+            "The blocked Source no longer qualifies for Memory processing; the block remains blocked.",
+            {"block_id": error.block_id, "source_ref": error.source_ref.model_dump(mode="json")},
+        )
+    if isinstance(error, AtomicMemoryInputBudgetError):
+        return (
+            status.HTTP_409_CONFLICT,
+            "input_budget_exceeded",
+            "The complete Memory input still exceeds its budget.",
+            None,
+        )
+    if isinstance(error, AtomicMemoryRecoveryUnavailableError):
+        return (
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "atomic_memory_recovery_unavailable",
+            "Memory recovery needs a generation pipeline.",
+            None,
+        )
+    return None
+
+
 def _map_domain_error(error: Exception) -> tuple[int, str, str, dict[str, Any] | None]:
+    atomic_recovery = _map_atomic_recovery_error(error)
+    if atomic_recovery is not None:
+        return atomic_recovery
     if isinstance(error, TopicMemoryBlockNotFoundError):
         return (
             status.HTTP_404_NOT_FOUND,

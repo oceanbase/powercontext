@@ -1211,6 +1211,66 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/atomic-memory/processing/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Inspect Atomic Memory processing and its input-budget block
+         * @description Return the current Source cursor, head and persisted input-budget block. This read never prepares input, calls a model, grants recovery or changes processing state.
+         */
+        post: operations["get_atomic_memory_processing_status"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/atomic-memory/processing/blocks/get": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Get a retained Atomic Memory processing block
+         * @description Return the exact retained budget rejection and any accepted recovery receipt within the selected Scope.
+         */
+        post: operations["get_atomic_memory_processing_block"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/atomic-memory/processing/retry": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Conditionally recover one Atomic Memory input-budget block
+         * @description Require scope.admin and the exact observed block_id. Unaccepted recovery also requires Source-read and Memory-create access for preflight. Recheck the complete extraction input using the current effective prompt, renderer, estimator and budget without calling a model. If it fits, atomically retain one recovery receipt and request processing. Sources and the cursor position remain unchanged. Repeated accepted IDs return the original receipt, including after restart or disabling generation. Stale unretried IDs and inputs that still exceed the budget return 409. A later Worker always checks its input again.
+         */
+        post: operations["retry_atomic_memory_processing"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/topic-memory/processing/status": {
         parameters: {
             query?: never;
@@ -1322,7 +1382,7 @@ export interface paths {
         put?: never;
         /**
          * Process the pending Source window into Memory
-         * @description Run one bounded Source-to-Memory activation for operational control and testing. Request processing of pending Source evidence when the user explicitly requests a flush or checkpoint. Processing depends on configured capabilities and may produce no Memory. Do not flush every turn or use it instead of an explicit Memory save. Report the actual processing result.
+         * @description Run one bounded Source-to-Memory activation for operational control and testing. Request processing of pending Source evidence when the user explicitly requests a flush or checkpoint. Processing depends on configured capabilities and may produce no Memory. Do not flush every turn or use it instead of an explicit Memory save. Report the actual processing result. An oversized single Source returns a persistent block with HTTP 409; ordinary flushes cannot clear it.
          */
         post: operations["flush_memory"];
         delete?: never;
@@ -5060,6 +5120,51 @@ export interface components {
              */
             hold_codes: string[];
         };
+        AtomicMemoryProcessingStatusRequest: {
+            scope_id: string;
+        };
+        GetAtomicMemoryProcessingBlockRequest: {
+            scope_id: string;
+            block_id: string;
+        };
+        RetryAtomicMemoryProcessingRequest: {
+            scope_id: string;
+            block_id: string;
+        };
+        AtomicMemoryProcessingBlock: {
+            /** Format: uuid */
+            block_id: string;
+            scope_id: string;
+            binding_name: string;
+            source_after: number;
+            source_through: number;
+            /** @description SHA-256 of the complete rendered extraction input and effective instructions at rejection; no input content is returned. */
+            input_fingerprint: string;
+            estimated_input_tokens: number;
+            effective_budget: number;
+            token_estimator_id: string;
+            /** @enum {string} */
+            failure_location: "atomic_memory.extract";
+            /** @enum {string} */
+            error_code: "input_budget_exceeded";
+            /** Format: date-time */
+            blocked_at: string;
+            /** Format: date-time */
+            retried_at: string | null;
+            retry_request_generation: number | null;
+        };
+        AtomicMemoryProcessingStatus: {
+            /** @enum {string} */
+            state: "idle" | "pending" | "blocked";
+            source_cursor: number;
+            source_head: number;
+            block: components["schemas"]["AtomicMemoryProcessingBlock"] | null;
+        };
+        RetryAtomicMemoryProcessingResponse: {
+            /** @enum {string} */
+            status: "accepted";
+            block: components["schemas"]["AtomicMemoryProcessingBlock"];
+        };
         TopicMemoryProcessingStatusRequest: {
             scope_id: string;
         };
@@ -8736,6 +8841,99 @@ export interface operations {
             503: components["responses"]["Unavailable"];
         };
     };
+    get_atomic_memory_processing_status: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AtomicMemoryProcessingStatusRequest"];
+            };
+        };
+        responses: {
+            /** @description Current durable processing state. */
+            200: {
+                headers: {
+                    "X-PowerContext-Request-ID": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AtomicMemoryProcessingStatus"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["InvalidRequest"];
+            500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    get_atomic_memory_processing_block: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GetAtomicMemoryProcessingBlockRequest"];
+            };
+        };
+        responses: {
+            /** @description The exact retained block. */
+            200: {
+                headers: {
+                    "X-PowerContext-Request-ID": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AtomicMemoryProcessingBlock"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["InvalidRequest"];
+            500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    retry_atomic_memory_processing: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RetryAtomicMemoryProcessingRequest"];
+            };
+        };
+        responses: {
+            /** @description Recovery was durably accepted, including duplicate acceptance. */
+            200: {
+                headers: {
+                    "X-PowerContext-Request-ID": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RetryAtomicMemoryProcessingResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["InvalidRequest"];
+            500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+        };
+    };
     get_topic_memory_processing_status: {
         parameters: {
             query?: never;
@@ -8915,6 +9113,7 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
             422: components["responses"]["InvalidRequest"];
             500: components["responses"]["InternalError"];
             503: components["responses"]["Unavailable"];

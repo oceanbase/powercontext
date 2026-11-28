@@ -36,6 +36,8 @@ not applicable for explicit-only Families; missing observations remain absent, n
 No artifact-completion percentage is derived. The HTTP contract and Dashboard section/details
 presentation are separate deliverables and are not supplied by this inspection layer.
 
+Memory input-budget blocks are read from `pc_memory_work_blocks`, matched to the current cursor. Rejection-time estimates, effective budgets and estimator IDs remain available after restart; provider usage counters are not inferred.
+
 ## Add an operational event
 
 Use a module logger and `powercontext._logging.log_safely`. Keep the message fixed and put approved diagnostic values

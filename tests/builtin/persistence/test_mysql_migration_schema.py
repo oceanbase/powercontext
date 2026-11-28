@@ -358,6 +358,47 @@ def test_registered_next_revision_executes_directly_and_sequentially_on_real_see
             lease.close()
 
 
+@pytest.mark.skipif(os.environ.get("POWERCONTEXT_TEST_MIGRATION_SEEKDB") != "1", reason="real seekdb probe not enabled")
+def test_real_seekdb_server_draft_creates_memory_recovery_storage(short_tmp_path: Path) -> None:
+    from powercontext.builtin.runtime.config import BuiltinConfig
+    from powercontext.builtin.runtime.processing_registry import canonical_processing_manifest
+
+    binding = pytest.importorskip("pylibseekdb")
+    target = short_tmp_path / "server"
+    lease = asyncio.run(binding.aopen(str(target)))
+    try:
+        connections = MaintenanceConnections(SeekDBConfig(path=target))
+        bundle = server_bundle()
+        runner = MySQLMigrationRunner(
+            connections,
+            bundle,
+            evidence_directory=short_tmp_path / "evidence",
+            configuration={
+                "processing_manifest": canonical_processing_manifest(BuiltinConfig()),
+                "embedding_enabled": False,
+            },
+        )
+        plan = runner.plan(backup_policy="skip")
+        result = runner.apply(
+            plan_id=plan.plan_id,
+            backup_policy="skip",
+            accepted=True,
+            maintenance_confirmed=True,
+            accept_no_backup=True,
+        )
+        assert result.changed and result.revision == bundle.head
+        assert runner.verify().readiness_scope == "server"
+
+        def count_blocks(connection, _identity, _verify):
+            assert connection is not None
+            return connection.exec_driver_sql("SELECT COUNT(*) FROM pc_memory_work_blocks").scalar_one()
+
+        assert connections.run(count_blocks) == 0
+        assert not runner.apply().changed
+    finally:
+        lease.close()
+
+
 def _append_clause(statement: str, clause: str) -> str:
     return statement.replace("\n)", ",\n\t" + clause + "\n)")
 

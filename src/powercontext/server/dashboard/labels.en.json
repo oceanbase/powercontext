@@ -978,5 +978,11 @@
   "topic_processing_last_error": "Last error code retained with this block",
   "topic_processing_observed_at": "Block first observed at (not failure time)",
   "topic_processing_block_target": "Target when the block was observed",
-  "topic_processing_no_block": "No applicable retained block diagnostic is available. This does not establish healthy execution; this page does not create missing legacy diagnostics."
+  "topic_processing_no_block": "No applicable retained block diagnostic is available. This does not establish healthy execution; this page does not create missing legacy diagnostics.",
+  "auto_block_input_budget_exceeded": "The complete single-Source input exceeds its budget",
+  "auto_next_input_budget": "Check the input budget, prompt and actual model capacity. After correcting the cause, use atomic-memory retry with the recorded block ID. Restarting with the same configuration does not clear the block.",
+  "auto_estimated_input_tokens": "Estimated input tokens at rejection",
+  "auto_effective_budget": "Effective input budget at rejection (tokens)",
+  "auto_token_estimator": "Token estimator",
+  "auto_block_id": "Block ID"
 }

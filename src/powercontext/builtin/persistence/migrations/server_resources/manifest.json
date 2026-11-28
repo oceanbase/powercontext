@@ -113,7 +113,7 @@
       "ecebbef5e9c33c1445a3686a1e6753b7e513c13db70ab8fe79483eceba1930c7"
     ],
     "000": [
-      "7a748a60138e2c22057ed757927573a77790efa55956119138f07fed7e79b9ad"
+      "4689e44809853bf8828c45a56ad6e01f009a0dcea48dd5196027db75b3d06497"
     ]
   },
   "affected_objects": [
@@ -235,7 +235,8 @@
     "pc_topic_memory_work_budgets",
     "pc_source_runners",
     "pc_source_collect_targets",
-    "pc_atomic_memory_alias"
+    "pc_atomic_memory_alias",
+    "pc_memory_work_blocks"
   ],
   "readiness_scope": "server",
   "retained_objects": [

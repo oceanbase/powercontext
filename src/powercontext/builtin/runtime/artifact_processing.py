@@ -1336,7 +1336,7 @@ class ArtifactProcessingSupervisor:
         diagnostics: ProcessingDiagnostics | None = None,
     ) -> None:
         if diagnostics is None:
-            diagnostics = classify_block_code(block.stage, block.error_code)
+            diagnostics = block.diagnostics or classify_block_code(block.stage, block.error_code)
         previous = state.retries.get(assignment.scope_id)
         if previous is None or previous.block != block:
             last_error_trace_id = None if previous is None else previous.last_error_trace_id

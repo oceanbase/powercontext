@@ -529,6 +529,36 @@ MEMORY_SOURCE_WINDOWS_TABLE = Table(
     CheckConstraint("source_through > 0 AND window_limit > 0", name="ck_pc_memory_source_window_positive"),
 )
 
+MEMORY_WORK_BLOCKS_TABLE = Table(
+    "pc_memory_work_blocks",
+    SHARED_METADATA,
+    Column("block_id", identity_string(36), primary_key=True),
+    Column("scope_id", identity_string(MAX_SCOPE_ID_LENGTH), nullable=False),
+    Column("binding_name", identity_string(MAX_BINDING_NAME_LENGTH), nullable=False),
+    Column("source_after", BigInteger, nullable=False),
+    Column("source_through", BigInteger, nullable=False),
+    Column("active", Integer, nullable=True),
+    Column("input_fingerprint", identity_string(64), nullable=False),
+    Column("estimated_input_tokens", BigInteger, nullable=False),
+    Column("effective_budget", BigInteger, nullable=False),
+    Column("token_estimator_id", String(128), nullable=False),
+    Column("failure_location", identity_string(32), nullable=False),
+    Column("blocked_at", DateTime(timezone=False).with_variant(DATETIME(fsp=6), "mysql"), nullable=False),
+    Column("retried_at", DateTime(timezone=False).with_variant(DATETIME(fsp=6), "mysql"), nullable=True),
+    Column("retry_request_generation", BigInteger, nullable=True),
+    CheckConstraint("source_after >= 0 AND source_through = source_after + 1", name="ck_pc_memory_block_window"),
+    CheckConstraint(
+        "effective_budget > 0 AND estimated_input_tokens > effective_budget", name="ck_pc_memory_block_budget"
+    ),
+    CheckConstraint(
+        "(active IS NOT NULL AND active = 1 AND retried_at IS NULL AND retry_request_generation IS NULL) OR "
+        "(active IS NULL AND retried_at IS NOT NULL AND retry_request_generation IS NOT NULL "
+        "AND retry_request_generation > 0)",
+        name="ck_pc_memory_block_acceptance",
+    ),
+    UniqueConstraint("scope_id", "binding_name", "source_after", "active", name="uq_pc_memory_block_frontier"),
+)
+
 SOURCE_CURSORS_TABLE = Table(
     "pc_source_cursors",
     SHARED_METADATA,
@@ -1153,6 +1183,7 @@ SHARED_TABLES = (
     PROFILE_POLICIES_TABLE,
     SOURCE_CURSORS_TABLE,
     MEMORY_SOURCE_WINDOWS_TABLE,
+    MEMORY_WORK_BLOCKS_TABLE,
     ARTIFACT_PROCESSING_LEASES_TABLE,
     ARTIFACT_PROCESSING_BINDING_STATES_TABLE,
     TOPIC_MEMORY_WORK_BUDGETS_TABLE,

@@ -1,5 +1,97 @@
 # Desktop validation
 
+## Atomic Memory extraction budget recovery qualification
+
+`sqlite-atomic-extract-2b7dd519-v1` qualifies the thirteen generated Desktop operations against
+Server source snapshot `working-tree-sha256:2b7dd519291ef7047b98a0770050e33ced47d4a7f7bfb633edf39771e505621c`.
+The source snapshot uses base commit `389c44088be086231e92f73f0b2ed5068101be0a` with extraction-budget blocking,
+conditional recovery, exact extraction-input hashing and Source-eligibility checks. Reconcile budget recovery is outside this snapshot.
+This is a source snapshot identity, not a published commit or release.
+
+- Normalized OpenAPI SHA-256: `8d1e099157f062d8c10309fcc9daf75bd64eb44e8be39acfa748929ae2fe9bbb`.
+- Wheel: `powercontext-1.6.0.dev0+pc2573.base2b7dd519-py3-none-any.whl`.
+- Wheel SHA-256: `9be1fe0a697fb57b816c786c48ab22de3a5224f1813f3cb00c3b9cb3c320f5ec`.
+
+All 844 packaged runtime files across `powercontext`, `powercontext_service_bootstrap` and
+`powercontext_integration_lifecycle` match the source byte for byte. The source identity hashes sorted
+`path sha256` lines, each ending in a newline, for those files at their `src/` paths plus `pyproject.toml`,
+`uv.lock` and `openapi/powercontext.yaml`.
+
+On 2026-11-28, Linux x86_64, Python 3.11.15 and Rust 1.95.0 passed all four modes through
+`desktop/tests/real_server.py` and the native `server_probe`: anonymous loopback, static Bearer,
+HTTPS with an explicit CA/base path, and enforced authentication Provider. The harness selected the
+bundled product record, verified the actual wheel hash, and started independent real SQLite Server processes.
+Save, search, exact revision reads, Scope selection/pagination, identity changes, same-identity revocation,
+scoped authorization without Server observation, committed writes with lost responses without replay,
+and Server survival after client exit passed.
+
+All 27 copied native files, excluding the isolated crate entry, match product source byte for byte.
+The native probe uses dependency versions, sources and checksums from the product Cargo lock.
+The host lacks DBus development headers, so the isolated crate uses vendored DBus and excludes the Tauri UI entry;
+OpenSSL development headers were extracted into temporary storage. No product dependency or lock change is required.
+These results qualify the recorded SQLite protocol operations. Installed GUI, system credential stores,
+Windows/macOS, OceanBase/seekDB and external model providers require separate acceptance.
+The three Atomic Memory recovery operations have independent HTTP behavior tests and are outside the Desktop operation set.
+
+```sh
+uv run --no-sync python desktop/tests/real_server.py \
+  --product-qualification sqlite-atomic-extract-2b7dd519-v1 \
+  --wheel desktop/.artifacts/atomic-memory-budget-extract-only/powercontext-1.6.0.dev0+pc2573.base2b7dd519-py3-none-any.whl
+```
+
+The wheel, source manifest, source/protocol equivalence records and four-mode aggregate report
+are retained under ignored `desktop/.artifacts/atomic-memory-budget-extract-only/`.
+Per-mode process evidence remains under ignored `desktop/.artifacts/real-server-*/`.
+Historical qualifications retain their exact source, contract and artifact identities.
+
+## Atomic Memory budget recovery protocol qualification
+
+`sqlite-atomic-budget-7fe26e07-v1` qualifies the thirteen generated Desktop operations
+against the Server source snapshot identified by
+`working-tree-sha256:7fe26e07cd5aeb591e1d52504c74109bfa5d18512725f3e39adae318ef0c6063`.
+The snapshot is based on Git commit `389c44088be086231e92f73f0b2ed5068101be0a` with the
+Atomic Memory budget recovery implementation applied. It is an uncommitted source identity,
+not a Git commit or a published release.
+
+- Normalized OpenAPI SHA-256: `8d1e099157f062d8c10309fcc9daf75bd64eb44e8be39acfa748929ae2fe9bbb`.
+- Wheel: `powercontext-1.6.0.dev0+pc2573-py3-none-any.whl`.
+- Wheel SHA-256: `9fff079f2fb2f33cc4f80e8d80b3da6868fc5962fe9f0e3348c9ffe21f02aea1`.
+
+All 844 packaged runtime files across `powercontext`, `powercontext_service_bootstrap`
+and `powercontext_integration_lifecycle` match the working sources byte for byte.
+The source snapshot digest hashes sorted `path sha256` lines, each ending in a newline,
+for those files at their `src/` paths plus `pyproject.toml`, `uv.lock` and
+`openapi/powercontext.yaml`.
+
+On 2026-11-27, Linux x86_64, Python 3.11.15 and Rust 1.95.0 passed anonymous loopback,
+static Bearer, HTTPS with an explicit CA/base path, and enforced authentication Provider
+modes through `desktop/tests/real_server.py` and the native `server_probe`.
+The harness selected the bundled product record and verified the wheel hash before
+starting independent real SQLite Server processes. Checks cover save, search, exact revision
+reads, Scope selection and pagination, identity changes, same-identity revocation,
+scoped authorization without Server observation, committed writes with lost responses
+without replay, and Server survival after client exit.
+
+The isolated protocol crate uses the current native modules and unchanged probe, with
+all dependency versions and checksums matching the product Cargo lock. Its 27 copied
+protocol files match the product source byte for byte. The host lacks DBus development
+headers, so the isolated crate builds vendored DBus and excludes the Tauri UI entry.
+This qualifies the recorded SQLite protocol operations; installed GUI, system credential
+stores, Windows/macOS, external model providers and OceanBase/seekDB require separate
+acceptance. The three Atomic Memory recovery HTTP operations are outside the Desktop
+operation set and have their own HTTP behavior tests.
+
+```sh
+uv run --no-sync python desktop/tests/real_server.py \
+  --product-qualification sqlite-atomic-budget-7fe26e07-v1 \
+  --wheel desktop/.artifacts/atomic-memory-budget/powercontext-1.6.0.dev0+pc2573-py3-none-any.whl
+```
+
+The wheel, source manifest, source-equivalence records, protocol-client lock and aggregate
+report are retained under ignored `desktop/.artifacts/atomic-memory-budget/`.
+Per-mode process evidence remains under ignored `desktop/.artifacts/real-server-*/`.
+Historical qualification records retain their original identities and evidence.
+
 ## Server 5fb2b2d1 Gateway contract qualification
 
 `sqlite-gateway-5fb2b2d1-v1` qualifies the thirteen generated Desktop operations against

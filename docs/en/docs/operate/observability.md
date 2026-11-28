@@ -619,3 +619,13 @@ Source text, generated bodies and provider responses must not be added to operat
 LangChain adapter-owned Client spans additionally use content-free GenAI attributes: `gen_ai.provider.name=powercontext`; `gen_ai.operation.name=retrieval` plus logical `gen_ai.data_source.id=powercontext` for prepare-context; bounded custom `powercontext.<operation_id>` operation names for supporting context-service calls. The context is task-local and reset on exit. It changes neither global provider/export configuration nor standalone SDK telemetry. See the LangChain integration guide.
 Rust Gateway call/attempt/usage and HTTP-framework observations use a separate
 [bounded evidence output](gateway-evidence.md); they do not add Python log fields or establish client receipt.
+
+## Atomic Memory input-budget recovery
+
+A minimum Source-window extraction rejection produces `artifact_processing.worker.blocked` and
+`artifact_processing.blocked`, with `error_code="input_budget_exceeded"` and the existing safe fields
+`processing_stage`, `failure_reason`, `input_item_count`, `estimated_input_tokens`, `effective_budget`,
+`token_estimator_id` and `failure_location`. The Scope/binding and exact Source interval identify the blocked work.
+Metadata probes do not repeat generation or preparation. `atomic_memory.retry.wake_failed` means that the
+best-effort Supervisor wake failed after a recovery receipt and intent committed; the acceptance remains valid.
+See [Atomic Memory recovery](../../rfcs/2573-atomic-memory-budget-recovery.md) for management commands and permissions.

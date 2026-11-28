@@ -2476,6 +2476,134 @@ paths:
           $ref: "#/components/responses/Unavailable"
         "500":
           $ref: "#/components/responses/InternalError"
+  /v1/atomic-memory/processing/status:
+    post:
+      description: Return the current Source cursor, head and persisted input-budget block. This read never prepares input,
+        calls a model, grants recovery or changes processing state.
+      operationId: get_atomic_memory_processing_status
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AtomicMemoryProcessingStatusRequest'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AtomicMemoryProcessingStatus'
+          description: Current durable processing state.
+          headers:
+            X-PowerContext-Request-ID:
+              $ref: '#/components/headers/RequestId'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/InvalidRequest'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+      summary: Inspect Atomic Memory processing and its input-budget block
+      tags:
+      - atomic-memory
+      x-powercontext-access:
+        action: scope.read
+        resource:
+          scope-id-from: scope_id
+          type: scope
+      x-powercontext-scope-mode: current
+  /v1/atomic-memory/processing/blocks/get:
+    post:
+      description: Return the exact retained budget rejection and any accepted recovery receipt within the selected Scope.
+      operationId: get_atomic_memory_processing_block
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GetAtomicMemoryProcessingBlockRequest'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AtomicMemoryProcessingBlock'
+          description: The exact retained block.
+          headers:
+            X-PowerContext-Request-ID:
+              $ref: '#/components/headers/RequestId'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/InvalidRequest'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+      summary: Get a retained Atomic Memory processing block
+      tags:
+      - atomic-memory
+      x-powercontext-access:
+        action: scope.read
+        resource:
+          scope-id-from: scope_id
+          type: scope
+      x-powercontext-scope-mode: current
+  /v1/atomic-memory/processing/retry:
+    post:
+      description: Require scope.admin and the exact observed block_id. Unaccepted recovery also requires Source-read and Memory-create access for preflight. Recheck the complete extraction input using the
+        current effective prompt, renderer, estimator and budget without calling a model. If it fits, atomically retain
+        one recovery receipt and request processing. Sources and the cursor position remain unchanged. Repeated accepted
+        IDs return the original receipt, including after restart or disabling generation. Stale unretried IDs and inputs
+        that still exceed the budget return 409. A later Worker always checks its input again.
+      operationId: retry_atomic_memory_processing
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RetryAtomicMemoryProcessingRequest'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RetryAtomicMemoryProcessingResponse'
+          description: Recovery was durably accepted, including duplicate acceptance.
+          headers:
+            X-PowerContext-Request-ID:
+              $ref: '#/components/headers/RequestId'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/InvalidRequest'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+      summary: Conditionally recover one Atomic Memory input-budget block
+      tags:
+      - atomic-memory
+      x-powercontext-access:
+        action: scope.admin
+        resource:
+          scope-id-from: scope_id
+          type: scope
+      x-powercontext-scope-mode: current
   /v1/topic-memory/processing/status:
     post:
       tags: [topic-memory]
@@ -2654,7 +2782,8 @@ paths:
         Run one bounded Source-to-Memory activation for operational control and testing. Request processing of pending
         Source evidence when the user explicitly requests a flush or checkpoint. Processing depends on configured
         capabilities and may produce no Memory. Do not flush every turn or use it instead of an explicit Memory save.
-        Report the actual processing result.
+        Report the actual processing result. An oversized single Source returns a persistent block with HTTP 409;
+        ordinary flushes cannot clear it.
       operationId: flush_memory
       x-powercontext-access: {action: scope.contribute, resource: {type: scope, scope-id-from: scope_id}}
       x-powercontext-scope-mode: current
@@ -2678,6 +2807,8 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
         "422":
           $ref: "#/components/responses/InvalidRequest"
         "503":
@@ -11731,6 +11862,155 @@ components:
           default: []
           description: >-
             Gate rejection codes reported for this window; empty unless held_count is 1.
+    AtomicMemoryProcessingStatusRequest:
+      type: object
+      additionalProperties: false
+      required:
+      - scope_id
+      properties:
+        scope_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+          pattern: .*\S.*
+    GetAtomicMemoryProcessingBlockRequest:
+      type: object
+      additionalProperties: false
+      required:
+      - scope_id
+      - block_id
+      properties:
+        scope_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+          pattern: .*\S.*
+        block_id:
+          type: string
+          minLength: 1
+          maxLength: 36
+    RetryAtomicMemoryProcessingRequest:
+      type: object
+      additionalProperties: false
+      required:
+      - scope_id
+      - block_id
+      properties:
+        scope_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+          pattern: .*\S.*
+        block_id:
+          type: string
+          minLength: 1
+          maxLength: 36
+    AtomicMemoryProcessingBlock:
+      type: object
+      additionalProperties: false
+      required:
+      - block_id
+      - scope_id
+      - binding_name
+      - source_after
+      - source_through
+      - input_fingerprint
+      - estimated_input_tokens
+      - effective_budget
+      - token_estimator_id
+      - failure_location
+      - error_code
+      - blocked_at
+      - retried_at
+      - retry_request_generation
+      properties:
+        block_id:
+          type: string
+          format: uuid
+        scope_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+        binding_name:
+          type: string
+          maxLength: 128
+        source_after:
+          type: integer
+          minimum: 0
+        source_through:
+          type: integer
+          minimum: 1
+        input_fingerprint:
+          type: string
+          pattern: ^[a-f0-9]{64}$
+          description: SHA-256 of the complete rendered extraction input and effective instructions at rejection; no
+            input content is returned.
+        estimated_input_tokens:
+          type: integer
+          minimum: 1
+        effective_budget:
+          type: integer
+          minimum: 1
+        token_estimator_id:
+          type: string
+          maxLength: 128
+        failure_location:
+          type: string
+          enum:
+          - atomic_memory.extract
+        error_code:
+          type: string
+          enum:
+          - input_budget_exceeded
+        blocked_at:
+          type: string
+          format: date-time
+        retried_at:
+          type: string
+          format: date-time
+          nullable: true
+        retry_request_generation:
+          type: integer
+          minimum: 1
+          nullable: true
+    AtomicMemoryProcessingStatus:
+      type: object
+      additionalProperties: false
+      required:
+      - state
+      - source_cursor
+      - source_head
+      - block
+      properties:
+        state:
+          type: string
+          enum:
+          - idle
+          - pending
+          - blocked
+        source_cursor:
+          type: integer
+          minimum: 0
+        source_head:
+          type: integer
+          minimum: 0
+        block:
+          allOf:
+          - $ref: '#/components/schemas/AtomicMemoryProcessingBlock'
+          nullable: true
+    RetryAtomicMemoryProcessingResponse:
+      type: object
+      additionalProperties: false
+      required:
+      - status
+      - block
+      properties:
+        status:
+          type: string
+          enum:
+          - accepted
+        block:
+          $ref: '#/components/schemas/AtomicMemoryProcessingBlock'
     TopicMemoryProcessingStatusRequest:
       type: object
       additionalProperties: false

@@ -57,6 +57,13 @@ from powercontext.builtin.artifacts.atomic_memory.prefixed_extraction import (
     prefix_start,
     source_records,
 )
+from powercontext.builtin.artifacts.atomic_memory.processing import (
+    AtomicMemoryBlockConflictError,
+    AtomicMemoryBlockSourceIneligibleError,
+    AtomicMemoryInputBudgetError,
+    AtomicMemoryRecoveryUnavailableError,
+    AtomicMemoryRetryResult,
+)
 from powercontext.builtin.artifacts.atomic_memory.reconciliation import (
     ATOMIC_MEMORY_RECONCILIATION_INSTRUCTIONS,
     AtomicMemoryArtifactEvidence,
@@ -100,7 +107,17 @@ from powercontext.builtin.persistence.errors import (
     GenerationConflictError,
     RepositoryNotFoundError,
 )
+from powercontext.builtin.persistence.memory_recovery import (
+    accept_memory_retry,
+    current_memory_block,
+    get_memory_block,
+    lock_memory_frontier,
+    memory_block_diagnostics,
+    record_memory_block,
+)
 from powercontext.builtin.persistence.memory_windows import MemorySourceWindowRepository
+from powercontext.builtin.persistence.processing import ArtifactProcessingPendingRepository
+from powercontext.builtin.persistence.processing_intents import ArtifactProcessingIntentRepository
 from powercontext.builtin.persistence.sources import SourceRepository
 from powercontext.builtin.persistence.tables import (
     ARTIFACT_HEADS_TABLE,
@@ -113,10 +130,13 @@ from powercontext.builtin.processing_diagnostics import (
     ProcessingStage,
     attach_diagnostics,
     classify_processing_storage_failure,
+    diagnostics_of,
 )
 from powercontext.builtin.runtime.atomic_memory import AtomicMemoryApplication, deferred_decision_audit
+from powercontext.builtin.runtime.atomic_memory_recovery import processing_block
 from powercontext.builtin.runtime.decision_policy import emit_decision_observation
 from powercontext.builtin.runtime.models import MemoryFlushResult
+from powercontext.builtin.runtime.processing_contracts import ArtifactProcessingBlockedError
 from powercontext.builtin.runtime.processing_execution import ScopeInvocation
 from powercontext.builtin.runtime.protocols import RuntimeTracing
 from powercontext.builtin.source_eligibility import is_generation_eligible
@@ -213,18 +233,108 @@ class AtomicMemorySourceWindowProcessor:
         # decision events after every business transaction in this operation closes.
         async with deferred_decision_audit(selected_context):
             with self._stage("memory.flush", {"powercontext.memory.flush.source_count": 0}) as span:
-                if self.prompts is not None:
-                    keys = ("memory.extract", "atomic_memory.extract", "atomic_memory.reconcile")
-                    async with self.prompts.snapshot(scope_id, keys):
-                        legacy = await self.prompts.read_configuration(scope_id, "memory.extract")
-                        if legacy.mode == "custom":
-                            raise PromptError("legacy_memory_prompt_unsupported", during_inference=True)
-                        async with (
-                            self.prompts.bind(scope_id, "atomic_memory.extract"),
-                            self.prompts.bind(scope_id, "atomic_memory.reconcile"),
-                        ):
-                            return await self._retry_window(scope_id, limit, processing, selected_context, span)
-                return await self._retry_window(scope_id, limit, processing, selected_context, span)
+                async with self._bind_processing_prompts(scope_id):
+                    return await self._retry_window(scope_id, limit, processing, selected_context, span)
+
+    @asynccontextmanager
+    async def _bind_processing_prompts(self, scope_id):
+        if self.prompts is None:
+            yield
+            return
+        keys = ("memory.extract", "atomic_memory.extract", "atomic_memory.reconcile")
+        async with self.prompts.snapshot(scope_id, keys):
+            legacy = await self.prompts.read_configuration(scope_id, "memory.extract")
+            if legacy.mode == "custom":
+                raise PromptError("legacy_memory_prompt_unsupported", during_inference=True)
+            async with (
+                self.prompts.bind(scope_id, "atomic_memory.extract"),
+                self.prompts.bind(scope_id, "atomic_memory.reconcile"),
+            ):
+                yield
+
+    async def retry_block(self, scope_id, block_id, *, context=None) -> AtomicMemoryRetryResult:
+        async with deferred_decision_audit(context):
+            async with self.application.database.transaction() as connection:
+                block = await get_memory_block(connection, scope_id, SOURCE_WINDOW_TRIGGER_NAME, block_id)
+                if block.retried_at is not None:
+                    return AtomicMemoryRetryResult(block=block)
+                await self.application.security.authorize(connection, scope_id, context, "read")
+                cursor = await self.cursors.load(connection, scope_id, SOURCE_WINDOW_TRIGGER_NAME)
+                if cursor is None or cursor.cursor.sequence != block.source_after:
+                    raise AtomicMemoryBlockConflictError
+                await self.application.security.authorize(connection, scope_id, context, "create")
+                eligible = await self._eligible_window(connection, scope_id, context, block)
+            if self.pipeline is None:
+                raise AtomicMemoryRecoveryUnavailableError
+            async with self._bind_processing_prompts(scope_id):
+                value = await self._extraction_input(eligible)
+                self._require_budget(self.pipeline, value, "atomic_memory.extract")
+                async with self.application.database.transaction() as connection:
+                    await lock_memory_frontier(connection, scope_id)
+                    # A concurrent accepted retry returns its original receipt, even
+                    # if another Worker has already advanced the frontier.
+                    block = await get_memory_block(connection, scope_id, SOURCE_WINDOW_TRIGGER_NAME, block_id)
+                    if block.retried_at is not None:
+                        return AtomicMemoryRetryResult(block=block)
+                    current = await self.cursors.load(connection, scope_id, SOURCE_WINDOW_TRIGGER_NAME, for_update=True)
+                    if current is None or current.generation != cursor.generation:
+                        raise AtomicMemoryBlockConflictError
+                    await self.application.security.authorize(connection, scope_id, context, "create")
+                    # Re-read the original Source and re-verify read authorization and
+                    # eligibility at the commit boundary. The supported write paths do
+                    # not change a Source's generation eligibility today; this re-check
+                    # guards against a future eligibility rule change accepting a stale
+                    # preflight result.
+                    await self._eligible_window(connection, scope_id, context, block)
+                    await self.cursors.save(
+                        connection,
+                        scope_id,
+                        SOURCE_WINDOW_TRIGGER_NAME,
+                        current.cursor,
+                        expected_generation=current.generation,
+                    )
+                    await ArtifactProcessingPendingRepository().request_flush(
+                        connection, scope_id, SOURCE_WINDOW_TRIGGER_NAME
+                    )
+                    intent = await ArtifactProcessingIntentRepository().request(
+                        connection, scope_id, SOURCE_WINDOW_TRIGGER_NAME
+                    )
+                    accepted = await accept_memory_retry(connection, block, intent.requested_generation)
+                    return AtomicMemoryRetryResult(block=accepted)
+
+    async def _eligible_window(self, connection, scope_id, context, block):
+        """Read and authorize the block's exact journal window; reject ineligibility.
+
+        Authorize read on the ORIGINAL window's Sources before filtering by
+        eligibility, so an ineligible Source cannot bypass its read check through
+        an empty eligible list. An ineligible Source leaves the block untouched.
+        """
+
+        window = await self.sources.list_window(
+            connection, scope_id, after=block.source_after, through=block.source_through
+        )
+        self._require_window(window, block.source_after, block.source_through)
+        await self.application.security.authorize_sources(
+            connection, scope_id, context, tuple(item.ref for item in window)
+        )
+        eligible = tuple(item for item in window if is_generation_eligible(item.value))
+        if not eligible:
+            raise AtomicMemoryBlockSourceIneligibleError(block_id=block.block_id, source_ref=window[0].ref)
+        return eligible
+
+    async def _extraction_input(self, eligible):
+        return AtomicMemoryExtractionInput(
+            evidence=tuple([
+                await project_atomic_memory_evidence(item, self.sources, evidence_id=f"source:{item.journal_position}")
+                for item in eligible
+            ])
+        )
+
+    @staticmethod
+    def _blocked_error(block):
+        return attach_diagnostics(
+            ArtifactProcessingBlockedError(processing_block(block)), memory_block_diagnostics(block)
+        )
 
     async def _retry_window(self, scope_id, limit, processing, context, span) -> MemoryFlushResult:
         for attempt in range(3):
@@ -250,6 +360,9 @@ class AtomicMemorySourceWindowProcessor:
             await application.security.authorize(connection, scope_id, context, "create")
             cursor = await self.cursors.load(connection, scope_id, SOURCE_WINDOW_TRIGGER_NAME)
             state = trigger.initial_state() if cursor is None else cursor.cursor
+            block = await current_memory_block(connection, scope_id, SOURCE_WINDOW_TRIGGER_NAME)
+            if block is not None:
+                raise self._blocked_error(block)
             high_watermark, limit = await self.windows.signal(connection, scope_id, state.sequence, limit)
             signal = SourceHighWatermark(sequence=high_watermark, limit=limit)
             transition = trigger.activate(signal, state)
@@ -281,11 +394,9 @@ class AtomicMemorySourceWindowProcessor:
                 workset, consulted_artifacts = await self._prepare(scope_id, eligible, pipeline, context)
             prepared, decision, observation = await self._inspect_decisions(scope_id, workset, context)
         except (InferenceTimeoutError, InvalidInferenceOutputError) as error:
-            reducible = (isinstance(error, InferenceTimeoutError) and error.operation == "generate") or (
-                isinstance(error, InvalidInferenceOutputError) and error.operation == "atomic-memory-input-budget"
+            await self._recover_input_failure(
+                scope_id, context, processing, cursor, state, action, high_watermark, error
             )
-            if reducible and action.through - action.after > 1:
-                await self._reduce_window(scope_id, context, processing, cursor, state, action, high_watermark)
             raise
         try:
             finalized = await self._publish(
@@ -317,6 +428,43 @@ class AtomicMemorySourceWindowProcessor:
             held=decision is not None and decision.verdict is MemoryWriteVerdict.HOLD,
             hold_codes=() if decision is None or decision.code is None else (decision.code.value,),
         )
+
+    async def _recover_input_failure(self, scope_id, context, processing, cursor, state, action, high_watermark, error):
+        application = self.application
+        reducible = (isinstance(error, InferenceTimeoutError) and error.operation == "generate") or (
+            isinstance(error, InvalidInferenceOutputError) and error.operation == "atomic-memory-input-budget"
+        )
+        if reducible and action.through - action.after > 1:
+            await self._reduce_window(scope_id, context, processing, cursor, state, action, high_watermark)
+        elif (
+            isinstance(error, AtomicMemoryInputBudgetError)
+            and error.input_fingerprint is not None
+            and (diagnostics := diagnostics_of(error)) is not None
+            and diagnostics.failure_location == "atomic_memory.extract"
+        ):
+            async with application.database.transaction() as connection:
+                # Match Atomic publication and Source capture: journal before intent/cursor.
+                await lock_memory_frontier(connection, scope_id)
+                if processing is not None:
+                    await processing.guard(connection)
+                await application.security.authorize(connection, scope_id, context, "create")
+                await self.cursors.save(
+                    connection,
+                    scope_id,
+                    SOURCE_WINDOW_TRIGGER_NAME,
+                    state,
+                    expected_generation=None if cursor is None else cursor.generation,
+                )
+                block = await record_memory_block(
+                    connection,
+                    scope_id,
+                    SOURCE_WINDOW_TRIGGER_NAME,
+                    source_after=action.after,
+                    source_through=action.through,
+                    input_fingerprint=error.input_fingerprint,
+                    diagnostics=diagnostics,
+                )
+            raise self._blocked_error(block) from error
 
     async def _reduce_window(self, scope_id, context, processing, cursor, state, action, high_watermark):
         async with self.application.database.transaction() as connection:
@@ -1268,7 +1416,7 @@ class AtomicMemorySourceWindowProcessor:
     def _stage(self, name, attributes):
         return nullcontext(None) if self.tracing is None else self.tracing.stage(name, attributes=attributes)
 
-    def _estimate(self, pipeline, value, key):
+    def _budget_input(self, pipeline, value, key):
         prompt = current_prompt(key)
         instructions = (
             (
@@ -1280,16 +1428,26 @@ class AtomicMemorySourceWindowProcessor:
             else prompt.compiled_instructions
         )
         payload = value.model_dump_json() if pipeline.input_renderer is None else pipeline.input_renderer(value)
-        return pipeline.estimator.estimate(f"{instructions}\n{payload}")
+        return f"{instructions}\n{payload}"
+
+    def _estimate(self, pipeline, value, key):
+        return pipeline.estimator.estimate(self._budget_input(pipeline, value, key))
 
     def _require_budget(self, pipeline, value, key, *, estimated=None):
+        rendered = None
         if estimated is None:
-            estimated = self._estimate(pipeline, value, key)
+            rendered = self._budget_input(pipeline, value, key)
+            estimated = pipeline.estimator.estimate(rendered)
         if estimated <= self.config.input_tokens_limit:
             return
-        error = InvalidInferenceOutputError(
-            "atomic-memory-input-budget", "A complete comparison input exceeds its token budget"
-        )
+        # Only extraction has a stable rejection snapshot in this recovery contract.
+        # Reconcile retains its existing reduction/retry behavior and no fingerprint.
+        fingerprint = None
+        if key == "atomic_memory.extract":
+            if rendered is None:
+                rendered = self._budget_input(pipeline, value, key)
+            fingerprint = sha256(rendered.encode("utf-8")).hexdigest()
+        error = AtomicMemoryInputBudgetError(fingerprint)
         raise attach_diagnostics(
             error,
             ProcessingDiagnostics(
@@ -1297,8 +1455,8 @@ class AtomicMemorySourceWindowProcessor:
                 reason=ProcessingFailureReason.CONTEXT_OVERFLOW,
                 input_item_count=_input_item_count(value),
                 estimated_input_tokens=estimated,
-                token_estimator_id=pipeline.estimator.profile.estimator_id,
                 effective_budget=self.config.input_tokens_limit,
+                token_estimator_id=pipeline.estimator.profile.estimator_id,
                 failure_location=key,
             ),
         )

@@ -978,5 +978,11 @@
   "topic_processing_last_error": "此阻塞保留的最后错误代码",
   "topic_processing_observed_at": "首次观察到阻塞的时间（并非失败时间）",
   "topic_processing_block_target": "观察到阻塞时的目标位置",
-  "topic_processing_no_block": "没有适用的保留阻塞诊断。这不能证明执行正常；此页面不会补建缺失的旧数据诊断。"
+  "topic_processing_no_block": "没有适用的保留阻塞诊断。这不能证明执行正常；此页面不会补建缺失的旧数据诊断。",
+  "auto_block_input_budget_exceeded": "单个 Source 的完整输入超过预算",
+  "auto_next_input_budget": "检查输入预算、提示词和模型实际容量，调整后使用 atomic-memory retry 和记录中的阻塞 ID 显式恢复。相同配置下的重启不会解除阻塞。",
+  "auto_estimated_input_tokens": "阻塞时估算输入 token 数",
+  "auto_effective_budget": "阻塞时生效的输入预算（token）",
+  "auto_token_estimator": "Token 估算器",
+  "auto_block_id": "阻塞 ID"
 }

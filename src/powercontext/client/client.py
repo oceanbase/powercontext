@@ -218,9 +218,15 @@ from powercontext.http._generated import operations as atomic_operations
 from powercontext.http._generated.models import (
     ArtifactTagPage,
     ArtifactTagSet,
+    AtomicMemoryProcessingBlock,
+    AtomicMemoryProcessingStatus,
+    AtomicMemoryProcessingStatusRequest,
+    GetAtomicMemoryProcessingBlockRequest,
     GetTopicMemoryProcessingBlockRequest,
     QueryArtifactTagsRequest,
     ReplaceArtifactTagsRequest,
+    RetryAtomicMemoryProcessingRequest,
+    RetryAtomicMemoryProcessingResponse,
     RetryTopicMemoryProcessingRequest,
     RetryTopicMemoryProcessingResponse,
     TopicMemoryProcessingBlock,
@@ -263,6 +269,8 @@ from powercontext.http._generated.operations import (
     GET_ARTIFACT,
     GET_ARTIFACT_REVISION,
     GET_ARTIFACT_TAGS,
+    GET_ATOMIC_MEMORY_PROCESSING_BLOCK,
+    GET_ATOMIC_MEMORY_PROCESSING_STATUS,
     GET_CANDIDATE,
     GET_CANDIDATE_HISTORY,
     GET_CAPABILITIES,
@@ -335,6 +343,7 @@ from powercontext.http._generated.operations import (
     RESOLVE_SCOPE_BINDING,
     RESOLVE_SCOPE_SELECTION,
     RETIRE_MEMORY_ENTRY,
+    RETRY_ATOMIC_MEMORY_PROCESSING,
     RETRY_TOPIC_MEMORY_PROCESSING,
     REVISE_CANDIDATE,
     REVISE_MEMORY_ENTRY,
@@ -1006,6 +1015,24 @@ class PowerContextClient:
     ) -> RetryTopicMemoryProcessingResponse:
         """Idempotently request one fresh bounded allowance for an observed block."""
         return await self._request(RETRY_TOPIC_MEMORY_PROCESSING, request)
+
+    async def get_atomic_memory_processing_status(
+        self, request: AtomicMemoryProcessingStatusRequest
+    ) -> AtomicMemoryProcessingStatus:
+        """Inspect the durable Source frontier without preparing model input."""
+        return await self._request(GET_ATOMIC_MEMORY_PROCESSING_STATUS, request)
+
+    async def get_atomic_memory_processing_block(
+        self, request: GetAtomicMemoryProcessingBlockRequest
+    ) -> AtomicMemoryProcessingBlock:
+        """Read the original budget rejection and its recovery receipt."""
+        return await self._request(GET_ATOMIC_MEMORY_PROCESSING_BLOCK, request)
+
+    async def retry_atomic_memory_processing(
+        self, request: RetryAtomicMemoryProcessingRequest
+    ) -> RetryAtomicMemoryProcessingResponse:
+        """Recover once only when the current complete input passes preflight."""
+        return await self._request(RETRY_ATOMIC_MEMORY_PROCESSING, request)
 
     async def get_atomic_memory_state(self, scope_id: str, artifact_id: str) -> atomic_models.AtomicMemoryStateResponse:
         """Read current state independently of an immutable content revision."""

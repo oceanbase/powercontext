@@ -33,6 +33,7 @@ from powercontext.builtin.inference import GenerationResult, InvalidInferenceOut
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.runtime.composition import open_builtin_contexts
 from powercontext.builtin.runtime.config import BuiltinConfig, RuntimeConfig
+from powercontext.builtin.runtime.processing_contracts import ArtifactProcessingBlockedError
 from powercontext.builtin.sources import ContentCapture, ContentSource, ContentTextEvidenceProjection
 from powercontext.sources import SourceRef
 from tests.e2e.dream_support import atomic_memory_pipeline
@@ -308,7 +309,7 @@ def test_capture_coverage_cost_obeys_existing_budget_and_window_reduction(tmp_pa
             candidate_pipeline=pipeline,
         ) as contexts:
             assert (await contexts.process_memory("without", 1)).current_cursor == 1
-            with pytest.raises(InvalidInferenceOutputError, match="atomic-memory-input-budget"):
+            with pytest.raises(ArtifactProcessingBlockedError, match="input_budget_exceeded"):
                 await contexts.process_memory("with", 1)
             context = await contexts.get("with")
             assert (await context.triggers.cursor()).sequence == 0

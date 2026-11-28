@@ -542,3 +542,12 @@ Topic 处理可通过 `invalid_topic_placeholder` 标识可识别的编号占位
 LangChain 适配层范围内的 Client span 另含不携带正文的 GenAI 属性：`gen_ai.provider.name=powercontext`；上下文准备采用 `gen_ai.operation.name=retrieval` 和逻辑来源 `gen_ai.data_source.id=powercontext`，辅助调用使用有界的 `powercontext.<operation_id>` 操作名。该语义范围按任务隔离并在退出时重置，不修改全局 provider/exporter，也不改变独立 SDK 调用的遥测。详见 LangChain 集成指南。
 Rust Gateway 的调用/尝试/usage 与 HTTP 框架观测使用独立的[有界证据输出](gateway-evidence.md)，
 不新增 Python 日志字段，也不证明客户端已收到内容。
+
+## Atomic Memory 输入预算恢复
+
+最小 Source 窗口的提取拒绝产生 `artifact_processing.worker.blocked` 和 `artifact_processing.blocked`，
+使用 `error_code="input_budget_exceeded"` 及现有安全字段 `processing_stage`、`failure_reason`、`input_item_count`、
+`estimated_input_tokens`、`effective_budget`、`token_estimator_id` 和 `failure_location`。
+Scope/binding 与精确 Source 区间标识阻塞工作。元数据检查不重复执行生成或准备。
+`atomic_memory.retry.wake_failed` 表示恢复回执与 intent 已提交，但尽力唤醒 Supervisor 失败；接受结果仍然有效。
+管理命令与权限见 [Atomic Memory 恢复](../../rfcs/2573-atomic-memory-budget-recovery.md)。
