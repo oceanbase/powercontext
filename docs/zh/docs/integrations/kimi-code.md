@@ -122,10 +122,12 @@ Kimi 会把一些提醒作为单独的用户消息放在提示词之后：会话
 Core 需要为 `PC_GATEWAY_UPSTREAM_PROFILE` 指定的 profile（未设置时为 `default`）配置 target。Kimi 发送
 `max_output_tokens`、`store: false`，并把会话 ID 作为 `prompt_cache_key` 发送，因此当 target 声明
 `context_window_tokens`、`max_output_tokens` 和 `validated_utf8_token_bound`，并在 `allowed_cache_retention` 中列出
-`provider-default` 时，enforcing 模式的 Core 会接纳它的请求。Kimi 把 `max_output_tokens` 设为模型的
-`max_output_size`；未设置时设为 `max_context_size`，所以请把 `max_output_size` 设为不超过 target 的
-`max_output_tokens`。窗口检查把每个 UTF-8 字节算作一个 token，而 Kimi 的第一个请求已有约 90 KB。选择模式前请先阅读
-[上下文复用与最终准入](../operate/context-protection.md)。
+`provider-default` 时，enforcing 模式的 Core 会接纳它的请求。Kimi 把模型的 `max_output_size` 作为
+`max_output_tokens` 发送，所以请把它设为不超过 target 的 `max_output_tokens`。
+未设置 `max_output_size` 时，Kimi 2.1.1 的源码改用模型的 `max_context_size`。
+窗口检查把请求的每个 UTF-8 字节算作一个 token，因此请在 `context_window_tokens` 中为 Kimi 的工具定义、
+系统提示词和会话留出空间。gateway 在启动时发现 Core 的模式，因此修改模式后请重启 gateway。
+选择模式前请阅读[上下文复用与最终准入](../operate/context-protection.md)和[推理隐私保护](../operate/inference-protection.md)。
 
 ### 让 Kimi 指向 gateway
 
@@ -156,11 +158,12 @@ capabilities = ["tool_use"]
 在 Chat Completions 路由（`type = "openai"`）上，enforcing 模式的 Core 会扣留流式响应，这一轮会失败。
 
 `X-PowerContext-Scope-ID` 选择 gateway 准备、检查和采集所用的 Scope。
-请把它设为 `node "<Kimi home>/plugins/managed/powercontext/scripts/scope.mjs" resolve --cwd /absolute/project`
-输出的 `scope_id`。Kimi 在每个会话的每个请求中都发送 provider 的 `custom_headers`，
-因此一个 provider 只选择一个 Scope。环境变量 `KIMI_CODE_CUSTOM_HEADERS` 为单个 Kimi 进程设置请求头，
-每行一个 `Name: value`；provider 的 `custom_headers` 优先于它。未发送该请求头时，
-gateway 使用 `PC_GATEWAY_DEFAULT_SCOPE`。
+gateway 使用该请求头指定的 Scope；未发送该请求头时使用 `PC_GATEWAY_DEFAULT_SCOPE`（未设置时为 `gateway:default`），
+而不是插件为每个 workspace 解析的 Scope。Kimi 在每个会话的每个请求中都发送 provider 的 `custom_headers`，
+因此一个 provider 条目只选择一个 Scope。请让两者保持一致：运行 setup 时把 `--scope-id` 设为该请求头的 Scope，
+或为每个项目添加一个 provider 条目。
+`node "<Kimi home>/plugins/managed/powercontext/scripts/scope.mjs" resolve --cwd /absolute/project`
+会输出插件当前的 `scope_id`。
 
 在组合部署（`PC_GATEWAY_CORE_UDS`）中，gateway 用客户端自己的凭据把 Core API 请求转发给 Core，因此插件的 Server
 URL（Hook 和 MCP 工具共用）可以是 gateway 的地址。
@@ -173,8 +176,17 @@ powercontext setup kimi-code --source /path/to/powercontext --no-capture-prompts
 kimi
 ```
 
-关闭召回后，Hook 不发送准备请求，也不注入任何内容。除非 setup 关闭了采集，它仍会采集提示词；
-两项都关闭时，它不再为提示词发送任何请求。MCP 工具和 Skill 照常工作，它们不返回 prepared-context 块。
+Hook 从启动 Kimi 时的环境中读取 `POWERCONTEXT_KIMI_PROMPT_RECALL`，因此请在 shell 中，
+或在启动 Kimi 的 IDE 或 ACP 启动器中设置它；setup 不保存它。它默认为 `true`。
+`false`、`0`、`no` 和 `off` 关闭召回，`true`、`1`、`yes` 和 `on` 保持开启；
+其他值会让 Hook 以 `invalid_settings` 跳过这条提示词。
+
+关闭召回后，Hook 不发送准备请求，也不注入任何内容，因此它的消息不再带有本次请求的绑定元数据。
+这时 Skill 用它的 `scope.mjs resolve` 脚本解析 Scope，这是一条 Kimi 可能请你批准的 shell 命令。
+除非 setup 关闭了采集，Hook 仍会采集提示词；两项都关闭时，它不再为提示词发送任何请求。
+MCP 工具和 Skill 照常工作，它们不返回 prepared-context 块。发送提示词后，
+在 workspace 中运行 `powercontext doctor kimi-code --runtime --json`，runtime 检查会把 `prepare` 报告为
+`skipped: disabled`。
 
 修改后请开启新会话。Kimi 把每个 Hook 结果保存在会话中，并在之后的每一轮再次发送，
 因此在召回开启时运行过的会话会保留插件的块，Core 会拒绝该会话之后的每个请求。
@@ -195,10 +207,11 @@ kimi
 - 推导出的 ID 仅在当前 gateway 进程内用于重放准备结果。
   `instructions` 和第一条用户消息相同的会话共用同一个 ID。
   gateway 仍会采集每个完成的回合。没有会话头时，采集没有在 gateway 重启后保持不变的会话标识，也无法使用前缀提取。
-- Kimi 把压缩请求发往同一个 provider。该请求带有会话历史，并把 Kimi 的摘要指令作为最后一条用户消息，
+- 根据其源码，Kimi 2.1.1 把压缩请求发往同一个 provider。该请求带有会话历史，并把 Kimi 的摘要指令作为最后一条用户消息，
   而 Kimi 无法把它标记为内部请求。因此，gateway 把它当作一轮：为该指令准备上下文；
-  设置 `PC_GATEWAY_SEDIMENT=on` 后，还会把摘要作为一轮采集。Kimi 向自己的 Kimi Code 服务请求会话标题，
-  不经过这个 provider。
+  设置 `PC_GATEWAY_SEDIMENT=on` 后，还会把摘要作为一轮采集。压缩会用摘要替换之前的会话，
+  因此压缩之后，gateway 可能推导出一个新会话，并重新准备。
+  Kimi 2.1.1 只向自己的 Kimi Code 服务请求会话标题，不经过这个 provider。
 - 独立部署的 gateway（`PC_GATEWAY_CORE_BASE`）只有在 `PC_GATEWAY_INJECTION=on` 时才注入。
   不要在 `custom_headers` 中放固定的 `X-PowerContext-Conversation-ID`，否则 gateway 会把所有会话当作同一个会话。
 

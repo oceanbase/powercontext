@@ -124,10 +124,13 @@ prompt as the turn's text. It forwards the reminders to the model unchanged.
 Core needs a target for the profile that `PC_GATEWAY_UPSTREAM_PROFILE` names (`default` unless set). Kimi sends
 `max_output_tokens`, `store: false`, and its session ID as `prompt_cache_key`, so an enforcing Core admits its requests
 when the target declares `context_window_tokens`, `max_output_tokens`, and `validated_utf8_token_bound`, and lists
-`provider-default` in `allowed_cache_retention`. Kimi sets `max_output_tokens` to the model's `max_output_size`, or to
-its `max_context_size` when that is not set, so set `max_output_size` no higher than the target's `max_output_tokens`.
-The window check counts each UTF-8 byte as a token, and Kimi's first request is already about 90 KB. See
-[Context reuse and final admission](../operate/context-protection.md) before choosing a mode.
+`provider-default` in `allowed_cache_retention`. Kimi sends the model's `max_output_size` as `max_output_tokens`, so
+set it no higher than the target's `max_output_tokens`. When `max_output_size` is not set, Kimi 2.1.1's source falls
+back to the model's `max_context_size`. The window check counts each UTF-8 byte of the request as a token, so leave
+room in `context_window_tokens` for Kimi's tool definitions, system prompt and conversation. Restart the gateway after
+changing Core's mode, because it discovers the mode at startup. See
+[Context reuse and final admission](../operate/context-protection.md) and
+[Inference privacy protection](../operate/inference-protection.md) before choosing a mode.
 
 ### Point Kimi at the gateway
 
@@ -157,12 +160,12 @@ Use the Responses API. Kimi always streams. On the Responses route, the gateway 
 replays the checked response to Kimi as a stream, so the turn completes and is captured. On the Chat Completions route
 (`type = "openai"`), an enforcing Core withholds the streamed response and the turn fails.
 
-`X-PowerContext-Scope-ID` selects the Scope in which the gateway prepares, checks, and captures. Set it to the
-`scope_id` that `node "<Kimi home>/plugins/managed/powercontext/scripts/scope.mjs" resolve --cwd /absolute/project`
-prints. Kimi sends a provider's `custom_headers` with every request of every session, so one provider selects one
-Scope. The `KIMI_CODE_CUSTOM_HEADERS` environment variable sets headers, one `Name: value` per line, for a single Kimi
-process; a provider's `custom_headers` take precedence over it. Without the header, the gateway uses
-`PC_GATEWAY_DEFAULT_SCOPE`.
+`X-PowerContext-Scope-ID` selects the Scope in which the gateway prepares, checks, and captures. The gateway uses the
+Scope that this header names, or `PC_GATEWAY_DEFAULT_SCOPE` without it (`gateway:default` when that is unset), not the
+Scope the plugin resolves for each workspace. Kimi sends a provider's `custom_headers` with every request of every
+session, so one provider entry selects one Scope. Keep the two Scopes the same: run setup with `--scope-id` set to the
+header's Scope, or add one provider entry per project. `node "<Kimi home>/plugins/managed/powercontext/scripts/scope.mjs"
+resolve --cwd /absolute/project` prints the plugin's current `scope_id`.
 
 In a combined deployment (`PC_GATEWAY_CORE_UDS`), the gateway forwards Core API requests to Core with the client's own
 credentials, so the plugin's Server URL, which its hook and MCP tools share, can be the gateway's address.
@@ -175,9 +178,17 @@ powercontext setup kimi-code --source /path/to/powercontext --no-capture-prompts
 kimi
 ```
 
-With recall off, the hook sends no preparation request and injects nothing. It still captures prompts unless setup
-turned capture off; with both off, it sends no request for a prompt. The MCP tools and the Skill keep working; they
-return no prepared-context block.
+The hook reads `POWERCONTEXT_KIMI_PROMPT_RECALL` from the environment Kimi starts with, so set it in the shell or in
+the IDE or ACP launcher that starts Kimi; setup does not store it. It defaults to `true`. `false`, `0`, `no` and `off`
+turn recall off, `true`, `1`, `yes` and `on` keep it on, and any other value makes the hook skip the prompt with
+`invalid_settings`.
+
+With recall off, the hook sends no preparation request and injects nothing, so its message no longer carries this
+request's binding metadata. The Skill then resolves the Scope with its `scope.mjs resolve` script, a shell command that
+Kimi may ask you to approve. The hook still captures prompts unless setup turned capture off; with both off, it sends no
+request for a prompt. The MCP tools and the Skill keep working; they return no prepared-context block. After a prompt,
+`powercontext doctor kimi-code --runtime --json` in the workspace reports the runtime check's `prepare` as
+`skipped: disabled`.
 
 Start a new session after the change. Kimi stores each hook result in the session and sends it again with every later
 turn, so a session that ran with recall on keeps the plugin's block, and Core rejects every later request of that
@@ -200,10 +211,12 @@ session.
   instructions and first user message share one. The gateway still captures each completed turn. Without a
   conversation header, capture has no conversation identity that survives a gateway restart, and prefix extraction is
   not available.
-- Kimi sends its compaction request to the same provider. The request carries the session's history and Kimi's
-  summary instruction as the last user message, and Kimi cannot mark it as internal. The gateway therefore treats it
-  as a turn: it prepares context for the instruction and, with `PC_GATEWAY_SEDIMENT=on`, captures the summary as a
-  turn. Kimi requests session titles from its own Kimi Code service, not from this provider.
+- According to its source, Kimi 2.1.1 sends its compaction request to the same provider. The request carries the
+  session's history and Kimi's summary instruction as the last user message, and Kimi cannot mark it as internal. The
+  gateway therefore treats it as a turn: it prepares context for the instruction and, with `PC_GATEWAY_SEDIMENT=on`,
+  captures the summary as a turn. Compaction replaces the earlier conversation with the summary, so afterwards the
+  gateway can infer a new conversation and prepare again. Kimi 2.1.1 requests session titles only from its own Kimi
+  Code service, not from this provider.
 - A standalone gateway (`PC_GATEWAY_CORE_BASE`) injects only with `PC_GATEWAY_INJECTION=on`. Do not put a fixed
   `X-PowerContext-Conversation-ID` in `custom_headers`, because the gateway would then treat every session as one
   conversation.
