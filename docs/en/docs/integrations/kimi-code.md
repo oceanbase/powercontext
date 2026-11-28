@@ -151,7 +151,7 @@ X-PowerContext-Scope-ID = "<the plugin's Scope ID>"
 [models.gateway]
 provider = "powercontext-gateway"
 model = "approved-model"
-max_context_size = 400000
+max_context_size = 128000
 max_output_size = 32000
 capabilities = ["tool_use"]
 ```
@@ -159,6 +159,14 @@ capabilities = ["tool_use"]
 Use the Responses API. Kimi always streams. On the Responses route, the gateway calls the model without streaming and
 replays the checked response to Kimi as a stream, so the turn completes and is captured. On the Chat Completions route
 (`type = "openai"`), an enforcing Core withholds the streamed response and the turn fails.
+
+The gateway accepts a model request of at most 1 MiB, measured after it injects context and adds its cost guidance,
+and configuration cannot raise this ceiling; see [Gateway byte capacity](../operate/deploy-server.md#gateway-byte-capacity).
+A request that arrives larger fails with HTTP 413, and one that grows past it through injection or cost guidance fails with
+HTTP 403 `request_payload_too_large`, before the model is called. Kimi sends the whole history on every request, so a
+long session reaches the ceiling unless Kimi compacts it first. Set `max_context_size` low enough that Kimi compacts
+well before a request reaches 1 MiB. The example's `128000` is a conservative bound derived from the ceiling, assuming
+about four UTF-8 bytes per token plus JSON overhead; it was not measured against Kimi's compaction.
 
 `X-PowerContext-Scope-ID` selects the Scope in which the gateway prepares, checks, and captures. The gateway uses the
 Scope that this header names, or `PC_GATEWAY_DEFAULT_SCOPE` without it (`gateway:default` when that is unset), not the

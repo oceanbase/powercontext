@@ -148,7 +148,7 @@ X-PowerContext-Scope-ID = "<插件的 Scope ID>"
 [models.gateway]
 provider = "powercontext-gateway"
 model = "approved-model"
-max_context_size = 400000
+max_context_size = 128000
 max_output_size = 32000
 capabilities = ["tool_use"]
 ```
@@ -156,6 +156,14 @@ capabilities = ["tool_use"]
 请使用 Responses API。Kimi 总是发送流式请求。在 Responses 路由上，gateway 以非流式方式调用模型，
 再把检查过的响应以流的形式回放给 Kimi，因此这一轮能完成并被采集。
 在 Chat Completions 路由（`type = "openai"`）上，enforcing 模式的 Core 会扣留流式响应，这一轮会失败。
+
+gateway 接受的模型请求最多为 1 MiB，按注入上下文并加入成本指引之后的大小计算，配置无法提高这个上限；
+见 [Gateway 字节容量](../operate/deploy-server.md#gateway-字节容量)。到达时就超过上限的请求以 HTTP 413 失败，
+因注入或成本指引而超过上限的请求在调用模型之前以 HTTP 403 `request_payload_too_large` 失败。
+Kimi 在每个请求中发送完整历史，因此长会话会达到这个上限，除非 Kimi 先压缩会话。
+请把 `max_context_size` 设得足够低，让 Kimi 在请求接近 1 MiB 之前就压缩。
+示例中的 `128000` 是根据这个上限推算的保守值，假设每个 token 约占四个 UTF-8 字节，另加 JSON 开销；
+它没有针对 Kimi 的压缩实际测量。
 
 `X-PowerContext-Scope-ID` 选择 gateway 准备、检查和采集所用的 Scope。
 gateway 使用该请求头指定的 Scope；未发送该请求头时使用 `PC_GATEWAY_DEFAULT_SCOPE`（未设置时为 `gateway:default`），
