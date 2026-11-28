@@ -57,6 +57,7 @@ from pydantic_ai.models.function import AgentInfo, FunctionModel
 from pydantic_ai.models.instrumented import InstrumentationSettings, InstrumentedModel
 from pydantic_ai.models.openai import OpenAIChatModel, OpenAIChatModelSettings
 from pydantic_ai.models.test import TestModel
+from pydantic_ai.profiles.openai import OpenAIModelProfile
 from pydantic_ai.providers.anthropic import AnthropicProvider
 from pydantic_ai.providers.openai import OpenAIProvider
 from pydantic_ai.settings import ModelSettings
@@ -235,21 +236,26 @@ def test_structured_generator_passes_explicit_model_settings() -> None:
 
 
 @pytest.mark.parametrize(
-    ("model_name", "overrides"),
+    ("model_name", "overrides", "profile"),
     [
-        ("o3", {}),
-        ("gpt-4o", {}),
-        ("gpt-5.1", {}),
-        ("gpt-5.1", {"openai_reasoning_effort": "low"}),
-        ("gpt-5.1", {"openai_reasoning_effort": "none"}),
-        ("gpt-5.1", {"thinking": "medium"}),
-        ("gpt-5.1", {"thinking": False}),
-        ("gpt-5.1", {"openai_reasoning_effort": "none", "thinking": "medium"}),
+        ("o3", {}, None),
+        ("gpt-4o", {}, None),
+        ("gpt-5.1", {}, None),
+        ("gpt-5.1", {"openai_reasoning_effort": "low"}, None),
+        ("gpt-5.1", {"openai_reasoning_effort": "none"}, None),
+        ("gpt-5.1", {"thinking": "medium"}, None),
+        ("gpt-5.1", {"thinking": False}, None),
+        ("gpt-5.1", {"openai_reasoning_effort": "none", "thinking": "medium"}, None),
+        # Reasons by default but can turn reasoning off.
+        ("gpt-5.5", {}, None),
+        ("gpt-5.5", {"thinking": False}, None),
+        # Pinned accepted efforts decide whether reasoning can be turned off.
+        ("gpt-5.1", {}, OpenAIModelProfile(openai_reasoning_efforts=frozenset({"low", "medium", "high"}))),
     ],
 )
 @pytest.mark.filterwarnings("ignore:Sampling parameters.*:UserWarning")
 def test_structured_generator_receipt_uses_reasoning_provider_settings(
-    model_name: str, overrides: OpenAIChatModelSettings
+    model_name: str, overrides: OpenAIChatModelSettings, profile: OpenAIModelProfile | None
 ) -> None:
     requests: list[dict[str, object]] = []
 
@@ -278,7 +284,9 @@ def test_structured_generator_receipt_uses_reasoning_provider_settings(
             settings: OpenAIChatModelSettings = {"temperature": 0.0, "top_p": 0.2, "max_tokens": 512}
             settings.update(overrides)
             generator = PydanticAIStructuredGenerator(
-                model=OpenAIChatModel(model_name, provider=OpenAIProvider(api_key="test", http_client=client)),
+                model=OpenAIChatModel(
+                    model_name, provider=OpenAIProvider(api_key="test", http_client=client), profile=profile
+                ),
                 instructions="Return a value.",
                 input_type=Question,
                 output_type=Answer,

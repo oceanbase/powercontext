@@ -146,22 +146,29 @@ def _receipt_model_settings(model: Model, settings: ModelSettings | None) -> dic
     if profile.get("anthropic_disallows_sampling_settings", False):
         for setting in _ANTHROPIC_SAMPLING_PARAMS:
             effective.pop(setting, None)
-        return effective
-    if not profile.get("openai_supports_reasoning", False):
-        return effective
-
-    reasoning_effort = effective.get("openai_reasoning_effort")
-    if reasoning_effort is not None:
-        reasoning_active = reasoning_effort != "none"
-    elif (thinking := effective.get("thinking")) is not None and profile.get("supports_thinking", False):
-        reasoning_active = thinking is not False
-    else:
-        reasoning_active = bool(profile.get("openai_reasoning_enabled_by_default", False))
-    if profile.get("openai_supports_reasoning_effort_none", False) and not reasoning_active:
-        return effective
-    for setting in SAMPLING_PARAMS:
-        effective.pop(setting, None)
+    elif _openai_reasoning_drops_sampling(profile, effective):
+        for setting in SAMPLING_PARAMS:
+            effective.pop(setting, None)
     return effective
+
+
+def _openai_reasoning_drops_sampling(profile: Any, settings: dict[str, object]) -> bool:
+    """Whether the pinned OpenAI adapter drops sampling settings because reasoning is active or always on."""
+
+    if not profile.get("openai_supports_reasoning", False):
+        return False
+    efforts = profile.get("openai_reasoning_efforts")
+    supports_effort_none = (
+        "none" in efforts if efforts is not None else profile.get("openai_supports_reasoning_effort_none", False)
+    )
+    if not supports_effort_none:
+        return True
+    reasoning_effort = settings.get("openai_reasoning_effort")
+    if reasoning_effort is not None:
+        return reasoning_effort != "none"
+    if (thinking := settings.get("thinking")) is not None and profile.get("supports_thinking", False):
+        return thinking is not False
+    return bool(profile.get("thinking_enabled_by_default", False))
 
 
 class InferenceLimits(BaseModel):
