@@ -51,10 +51,11 @@ test('SessionStart restores only compact/resume and records readonly empty/failu
     await mkdir(cwd)
     const settings = { serverUrl: `http://127.0.0.1:${server.address().port}`, capturePrompts: true }
     await writeFile(join(installed, 'powercontext.json'), JSON.stringify({ server_url: settings.serverUrl }))
-    async function invoke(source) {
+    async function invoke(source, environment = {}) {
       const input = { hookEventName: 'SessionStart', source, sessionId: `session-${source}`, cwd }
       const env = { ...process.env, ZCODE_PLUGIN_DATA: data }
       for (const key of Object.keys(env)) if (key.startsWith('POWERCONTEXT_ZCODE_') || key === 'ZCODE_SESSION_ID') delete env[key]
+      Object.assign(env, environment)
       const result = await new Promise((resolve, reject) => {
         const child = spawn(process.execPath, [join(installed, 'hooks/session_start.mjs')], { env, stdio: ['pipe', 'pipe', 'pipe'] })
         let stdout = '', stderr = ''
@@ -88,6 +89,17 @@ test('SessionStart restores only compact/resume and records readonly empty/failu
       assert.match(result.output.hookSpecificOutput.additionalContext,
         /\}\n\nPowerContext context for this request\.\n\nHistorical project decision: validation uses frost-917\.$/)
       assert.equal(result.observation.stages.prepare.query_source, 'lifecycle_generic')
+    }
+    for (const source of ['compact', 'resume']) {
+      calls.length = 0
+      // Behind the PowerContext gateway the gateway prepares context, so restoring it here would duplicate it.
+      const result = await invoke(source, { POWERCONTEXT_ZCODE_PROMPT_RECALL: 'false' })
+      assert.deepEqual(calls, [])
+      assert.equal(result.output.hookSpecificOutput.additionalContext, '')
+      assert.equal(result.observation.stages.scope.reason, 'not_requested')
+      assert.equal(result.observation.stages.prepare.reason, 'prompt_recall_disabled')
+      assert.equal(result.observation.stages.context_output.state, 'skipped')
+      assert.equal(result.observation.stages.context_output.reason, 'prompt_recall_disabled')
     }
     prepared = 'empty'
     assert.equal((await invoke('resume')).output.hookSpecificOutput.additionalContext, '')

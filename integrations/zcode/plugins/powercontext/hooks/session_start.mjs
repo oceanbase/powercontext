@@ -39,15 +39,20 @@ async function sessionStart(input, signal) {
     keys = bindingKeys(input, settings)
     try { observation = await startObservation(input, settings, keys) }
     catch { diagnostic('runtime', process.env.ZCODE_PLUGIN_DATA ? 'runtime_state_unavailable' : 'runtime_data_unavailable') }
-    await observe('scope', stageResult('running'))
-    scope = await resolveScope(input, settings, signal, keys)
-    await observe('scope', stageResult('resolved'), scope.scopeId)
+    // The Scope serves only the restored context and its binding note, so with prompt recall off no Server request is sent.
+    if (!settings.promptRecall) await observe('scope', stageResult('skipped', { reason: 'not_requested' }))
+    else {
+      await observe('scope', stageResult('running'))
+      scope = await resolveScope(input, settings, signal, keys)
+      await observe('scope', stageResult('resolved'), scope.scopeId)
+    }
   } catch (error) {
     diagnostic('scope', failureCode(error))
     await observe('scope', failureResult(error))
   }
   let context = ''
-  if (scope && ['compact', 'resume'].includes(input.source)) {
+  if (!settings.promptRecall) await observe('prepare', stageResult('skipped', { reason: 'prompt_recall_disabled' }))
+  else if (scope && ['compact', 'resume'].includes(input.source)) {
     try {
       await observe('prepare', stageResult('running', { query_source: 'lifecycle_generic' }))
       const response = await request(settings, 'POST', '/v1/context/prepare', {
@@ -70,7 +75,9 @@ async function sessionStart(input, signal) {
       process.stdout.write(`${JSON.stringify({ hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: context } })}\n`,
         error => error ? reject(error) : resolve())
     })
-    await observe('context_output', stageResult(context ? 'emitted' : 'empty', { content_bytes: Buffer.byteLength(context, 'utf8') }))
+    await observe('context_output', settings.promptRecall
+      ? stageResult(context ? 'emitted' : 'empty', { content_bytes: Buffer.byteLength(context, 'utf8') })
+      : stageResult('skipped', { reason: 'prompt_recall_disabled' }))
   } catch { await observe('context_output', stageResult('failed', { code: 'output_unavailable' })) }
   try { await observation?.finish() } catch { diagnostic('runtime', 'runtime_state_unavailable') }
 }

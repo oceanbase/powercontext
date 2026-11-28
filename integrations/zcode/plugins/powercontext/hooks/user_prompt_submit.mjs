@@ -73,6 +73,17 @@ async function run(input) {
     keys = bindingKeys(input, SETTINGS)
     try { observation = await startObservation(input, SETTINGS, keys) }
     catch { diagnostic('runtime', process.env.ZCODE_PLUGIN_DATA ? 'runtime_state_unavailable' : 'runtime_data_unavailable') }
+    if (!SETTINGS.promptRecall && !SETTINGS.capturePrompts) {
+      // Nothing left to do for this prompt, so no Server request is sent.
+      await observe('scope', stageResult('skipped', { reason: 'not_requested' }))
+      await observe('prepare', stageResult('skipped', { reason: 'prompt_recall_disabled' }))
+      await observe('capture', stageResult('skipped', { reason: 'capture_disabled' }))
+      await observe('flush', stageResult('skipped', { reason: 'awaiting_stop' }))
+      await observe('context_output', stageResult('skipped', { reason: 'prompt_recall_disabled' }))
+      await finish()
+      await emit({ hookSpecificOutput: { hookEventName: event, additionalContext: '' } })
+      return
+    }
     await observe('scope', stageResult('running'))
     const resolved = await resolveScope(input, SETTINGS, budgetSignal, keys)
     scopeId = resolved.scopeId
@@ -89,11 +100,14 @@ async function run(input) {
 
   // Ordinary tool processes need not inherit Hook-only session variables. Keep the current
   // binding separate from recalled history so explicit MCP calls can reuse the exact identity.
-  const binding = bindingContext(scopeId, keys)
+  // With prompt recall off the binding note is withheld too: the gateway owns prompt-time context.
+  const binding = SETTINGS.promptRecall ? bindingContext(scopeId, keys) : ''
   let context = ''
   const safePrompt = scrubSecrets(input.prompt, SETTINGS.authorization)
   const query = boundedQuery(safePrompt)
-  if (query) {
+  if (!SETTINGS.promptRecall) {
+    await observe('prepare', stageResult('skipped', { reason: 'prompt_recall_disabled' }))
+  } else if (query) {
     try {
       await observe('prepare', stageResult('running'))
       const result = await request(SETTINGS, 'POST', '/v1/context/prepare', {
@@ -152,7 +166,9 @@ async function run(input) {
   await observe('flush', stageResult('skipped', { reason: 'awaiting_stop' }))
   try {
     await emit({ hookSpecificOutput: { hookEventName: event, additionalContext: binding + context } })
-    await observe('context_output', stageResult('emitted', { content_bytes: Buffer.byteLength(binding + context, 'utf8') }))
+    await observe('context_output', SETTINGS.promptRecall
+      ? stageResult('emitted', { content_bytes: Buffer.byteLength(binding + context, 'utf8') })
+      : stageResult('skipped', { reason: 'prompt_recall_disabled' }))
   } catch {
     await observe('context_output', stageResult('failed', { code: 'output_unavailable' }))
   }

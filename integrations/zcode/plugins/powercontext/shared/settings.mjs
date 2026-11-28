@@ -49,11 +49,14 @@ export function loadSettings() {
   }
   const boundary = process.env.POWERCONTEXT_ZCODE_BOUNDARY_FLUSH
   const capture = process.env.POWERCONTEXT_ZCODE_CAPTURE_PROMPTS
+  const recall = process.env.POWERCONTEXT_ZCODE_PROMPT_RECALL
   return {
     serverUrl: installed.server_url || process.env.POWERCONTEXT_ZCODE_SERVER_URL || 'http://127.0.0.1:8000',
     serverUrlSource: installed.server_url ? 'installed' : process.env.POWERCONTEXT_ZCODE_SERVER_URL ? 'environment' : 'default',
     allowInsecureHttp: installed.allow_insecure_http === true,
     capturePrompts: capture !== undefined ? !['0', 'false', 'no', 'off'].includes(capture.toLowerCase()) : installed.capture_prompts !== false,
+    // Off when the PowerContext gateway carries ZCode's model traffic and injects context itself.
+    promptRecall: recall !== undefined ? !['0', 'false', 'no', 'off'].includes(recall.toLowerCase()) : true,
     boundaryFlush: boundary !== undefined ? !['0', 'false', 'no', 'off'].includes(boundary.toLowerCase()) : installed.boundary_flush === true,
     authorization: process.env.POWERCONTEXT_ZCODE_AUTHORIZATION,
     remoteWorkspace: enabled(process.env.POWERCONTEXT_ZCODE_REMOTE_WORKSPACE),
