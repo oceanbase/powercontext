@@ -86,6 +86,12 @@ TYPESCRIPT_COPIES = {
         f"{_OPENCODE}/src/prompt-privacy.ts",
         f"{_PI}/src/prompt-privacy.ts",
     ),
+    "recall-query.ts": (
+        f"{_DSH}/src/recall-query.ts",
+        f"{_OPENCLAW}/src/recall-query.ts",
+        f"{_OPENCODE}/src/recall-query.ts",
+        f"{_PI}/src/recall-query.ts",
+    ),
     "transport.ts": (
         f"{_DSH}/src/transport.ts",
         f"{_OPENCLAW}/src/transport.ts",
@@ -99,6 +105,10 @@ JAVASCRIPT_COPIES = {
     "prompt-privacy.ts": (
         f"{_KIMI_CODE}/shared/prompt-privacy.mjs",
         f"{_ZCODE}/shared/prompt-privacy.mjs",
+    ),
+    "recall-query.ts": (
+        f"{_KIMI_CODE}/shared/recall-query.mjs",
+        f"{_ZCODE}/shared/recall-query.mjs",
     ),
 }
 # The single-file copies, each table with the directory its modules come from.
@@ -143,7 +153,7 @@ _CONST_ASSERTION = re.compile(r"(?<=[\])}])\s+as\s+const(?=[;,)]?$)")
 _TYPESCRIPT_ONLY = re.compile(
     r"^\s*(?:export\s+)?(?:declare|type|interface|enum|namespace|abstract)\b|^\s*(?:import|export)\s+type\b|"
     r"^\s*(?:export\s+)?(?:const|let|var)\s+\w+\s*[!:]|\bfunction\b|\([^()]*:[^()]*\)\s*(?::[^=]*)?=>|"
-    r"\bas\s+\S|\bsatisfies\b|\b(?:private|protected|public|readonly)\s+\w|\w!\.|\w<(?![<=])"
+    r"\bas\s+\S|\bsatisfies\b|\b(?:private|protected|public|readonly)\s+\w|[\w$)\]]!(?!=)|\w<(?![<=])"
 )
 # Stands in for every character of a comment or literal, so that no pattern matches inside one.
 _MASK = "\0"

@@ -2179,7 +2179,7 @@ function storedAuthorization(env, baseUrl) {
 }
 
 //#endregion
-//#region src/prepared-context.ts
+//#region src/recall-query.ts
 const MAX_QUERY_CHARACTERS = 8192;
 const MAX_QUERY_BYTES = 8192;
 /**
@@ -2192,7 +2192,7 @@ function boundedRecallQuery(prompt) {
 	let start = characters.length;
 	let bytes = 0;
 	while (start > 0 && characters.length - start < MAX_QUERY_CHARACTERS) {
-		const size = Buffer.byteLength(characters[start - 1], "utf8");
+		const size = Buffer.byteLength(characters[start - 1] ?? "", "utf8");
 		if (bytes + size > MAX_QUERY_BYTES) break;
 		bytes += size;
 		start -= 1;

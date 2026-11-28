@@ -16,7 +16,7 @@
 
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
-import { boundedRecallQuery, MAX_QUERY_BYTES, MAX_QUERY_CHARACTERS } from '../src/prepared-context.ts'
+import { boundedRecallQuery, MAX_QUERY_BYTES, MAX_QUERY_CHARACTERS } from '../src/recall-query.ts'
 import { messagesToQuery, messagesToUserPrompt } from '../src/recall.ts'
 
 interface Segment { text: string; repeat?: number }

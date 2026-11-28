@@ -21,10 +21,9 @@ import { failureResult, stageResult, startObservation } from '../shared/observat
 import { beginCaptureTracking } from '../shared/pending.mjs'
 import { failureCode, HOOK_BUDGET_MS, request } from '../shared/transport.mjs'
 import { scrubSecrets } from '../shared/prompt-privacy.mjs'
+import { boundedRecallQuery } from '../shared/recall-query.mjs'
 
 const SETTINGS = loadSettings()
-const MAX_QUERY_CHARACTERS = 8_192
-const MAX_QUERY_BYTES = 8_192
 const MAX_SOURCE_CHARACTERS = 200_000
 
 function diagnostic(stage, code) {
@@ -35,19 +34,6 @@ function emit(output) {
   return new Promise((resolve, reject) => {
     process.stdout.write(`${JSON.stringify(output)}\n`, error => error ? reject(error) : resolve())
   })
-}
-
-function boundedQuery(prompt) {
-  const characters = Array.from(prompt.trim())
-  let start = characters.length
-  let bytes = 0
-  while (start > 0 && characters.length - start < MAX_QUERY_CHARACTERS) {
-    const size = Buffer.byteLength(characters[start - 1], 'utf8')
-    if (bytes + size > MAX_QUERY_BYTES) break
-    bytes += size
-    start -= 1
-  }
-  return characters.slice(start).join('').trim()
 }
 
 function sourceId(input, scopeId, prompt) {
@@ -92,7 +78,7 @@ async function run(input) {
   const binding = bindingContext(scopeId, keys)
   let context = ''
   const safePrompt = scrubSecrets(input.prompt, SETTINGS.authorization)
-  const query = boundedQuery(safePrompt)
+  const query = boundedRecallQuery(safePrompt)
   if (query) {
     try {
       await observe('prepare', stageResult('running'))

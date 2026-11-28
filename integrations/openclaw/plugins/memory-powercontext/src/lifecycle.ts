@@ -20,7 +20,6 @@ import { normalizeAgentId, parseAgentSessionKey } from "openclaw/plugin-sdk/rout
 import type { PowerContextConfig } from "./config.js";
 import { opaqueSessionId } from "./config.js";
 import {
-  boundedRecallQuery,
   captureTranscript,
   deterministicSourceId,
   escapePowerContextBoundary,
@@ -31,6 +30,7 @@ import {
 import type { PowerContextClient } from "./http.js";
 import { createDiagnosticEmitter, failureEvent } from "./diagnostics.js";
 import { type FlushProgress, nonNegativeInteger, readFlushProgress, scopeCorrelation } from "./flush-progress.js";
+import { boundedRecallQuery } from "./recall-query.js";
 import { resolvePowerContextScope } from "./scope.js";
 import { containsSecret, scrubSecrets } from "./prompt-privacy.js";
 import { isPowerContextCapabilities, isPreparedContext } from "./types.js";

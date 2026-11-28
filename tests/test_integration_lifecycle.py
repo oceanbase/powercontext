@@ -124,6 +124,9 @@ def test_javascript_copies_drop_parameter_types_and_const_assertions(typescript:
         "const scrub = (text?) => text",
         "const scrub = (\n  limit?,\n  text: string,\n) => text",
         "const { limit }: Options = options",
+        "  const size = Buffer.byteLength(characters[start - 1]!, 'utf8')",
+        "  return scrub(text)!.trim()",
+        "  return limit!",
     ],
 )
 def test_javascript_copies_refuse_typescript_they_cannot_drop(typescript: str) -> None:
@@ -147,9 +150,10 @@ def test_javascript_copies_refuse_typescript_they_cannot_drop(typescript: str) -
         "switch (true) {\n  case text.startsWith('key'):\n    break\n  case (flag ? 1 : 2):\n    break\n}",
         "const limit = flag ? (first) : second",
         "outer: for (const item of items) {\n  break outer\n}",
+        "const changed = limit!==other && (first)!=second && !flag && ![value].includes(other)",
     ],
 )
-def test_javascript_copies_keep_colons_that_javascript_allows(javascript_source: str) -> None:
+def test_javascript_copies_keep_colons_and_negations_that_javascript_allows(javascript_source: str) -> None:
     source = f"{javascript_source}\n"
     assert javascript(TYPESCRIPT_SOURCE / "prompt-privacy.ts", source) == source
 

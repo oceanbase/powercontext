@@ -19,6 +19,7 @@ import { fileURLToPath } from 'node:url'
 import { authorization, diagnostic, Failure, loadSettings, MAX_CONTEXT_BYTES, preparedText, request, resolveScope } from '../shared/runtime.mjs'
 import { startObservation } from '../shared/observations.mjs'
 import { scrubSecrets } from '../shared/prompt-privacy.mjs'
+import { boundedRecallQuery } from '../shared/recall-query.mjs'
 
 const MAX_SOURCE_CHARACTERS = 200000
 const HOOK_DEADLINE_MS = 4000
@@ -46,16 +47,6 @@ function promptText(value) {
   return value.filter(part => part?.type === 'text' && typeof part.text === 'string').map(part => part.text).join('\n')
 }
 
-function boundedQuery(text) {
-  let query = '', bytes = 0
-  for (const character of [...text.trim()].reverse()) {
-    bytes += Buffer.byteLength(character, 'utf8')
-    if (bytes > 8192) break
-    query = character + query
-  }
-  return query.trim()
-}
-
 async function run(input) {
   if (input?.hook_event_name !== 'UserPromptSubmit') return
   const prompt = promptText(input.prompt)
@@ -77,7 +68,7 @@ async function run(input) {
   const safePrompt = scrubSecrets(prompt, settings.authorization)
   try {
     const { value } = await request(settings, 'POST', '/v1/context/prepare', {
-      scope_id: scopeId, query: boundedQuery(safePrompt), max_bytes: MAX_CONTEXT_BYTES,
+      scope_id: scopeId, query: boundedRecallQuery(safePrompt), max_bytes: MAX_CONTEXT_BYTES,
     }, signal)
     context = preparedText(value)
     observation?.record('prepare', context ? 'ready' : 'empty', { content_bytes: value.content_bytes })
