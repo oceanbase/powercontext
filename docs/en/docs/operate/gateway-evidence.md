@@ -124,6 +124,9 @@ such a tail does not hide that user turn. Classification itself reads no message
 request. Only a user turn queries Core for context; every other kind reuses the turn's prepared block when a replay
 entry exists and otherwise skips preparation and replay.
 
+`turn_kind` describes the shape of the request; `internal` records that the host marked it. A request can be both
+`user_turn` and `internal` when a host sends a user-shaped request that is not a turn.
+
 The executor also emits one debug-level structured event per decision with a `turn_kind` field; raise `RUST_LOG` for
 the core crate to record it. Per-kind totals are process-local cumulative counters (`Executor::turn_counters()`) that
 cover every classified call, including requests that are not eligible for context injection. The skipped-preparation
@@ -137,7 +140,9 @@ and `RUST_LOG` filtering applies.
 ## Terminal and send facts
 
 The `call` record contains `terminal`, `sending`, `attempts`, `upstream_status`, normalized `usage`, optional
-`interruption`, and timing fields. Terminal values are `release_authorized`, `blocked`, `withheld`,
+`interruption`, `internal`, and timing fields. `internal` is true when the host marked the request with
+`X-PowerContext-Turn: internal`; the request is still checked and forwarded, but it is never prepared, injected,
+replayed or captured as a turn. Terminal values are `release_authorized`, `blocked`, `withheld`,
 `send_indeterminate`, `not_sent`, `gate_paused`, `degraded`, `admission_expired`, and `abandoned`.
 A known lifecycle stop is encoded as `{"stopped":"deadline_exceeded"}`, `{"stopped":"gateway_shutdown"}`,
 or `{"stopped":"request_cancelled"}`.

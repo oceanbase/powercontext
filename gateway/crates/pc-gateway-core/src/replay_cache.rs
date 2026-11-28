@@ -19,6 +19,7 @@
 //! 区分工具续写（锚点相同 → 重放同一内容与绑定）和新的用户消息（锚点变化 → 准备一次）。
 //! 锚点只在同一重放会话内比较，不用作会话身份。
 
+use crate::turn_message::last_user_index;
 use pc_gateway_protocol::CanonicalRequest;
 use std::collections::hash_map::DefaultHasher;
 use std::collections::VecDeque;
@@ -54,10 +55,7 @@ pub(crate) struct ReplayCache {
 
 /// 消息锚点：截至最后一条用户消息（含）的原始消息摘要；没有用户消息时为 `None`。
 pub(crate) fn message_anchor(request: &CanonicalRequest) -> Option<u64> {
-    let last_user = request
-        .messages
-        .iter()
-        .rposition(|m| matches!(m.role, pc_gateway_protocol::Role::User))?;
+    let last_user = last_user_index(request)?;
     let prefix = serde_json::to_string(&request.messages[..=last_user]).ok()?;
     let mut hasher = DefaultHasher::new();
     prefix.hash(&mut hasher);

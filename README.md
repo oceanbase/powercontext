@@ -233,7 +233,7 @@ Codex is officially maintained; other Agent and Python framework integrations ar
 ## Learn more
 
 - [Core concepts](https://powercontext.oceanbase.io/en/docs/get-started/core-concepts/) · [Architecture and responsibilities](https://powercontext.oceanbase.io/en/docs/workflows/architecture/) · [Plugins](https://powercontext.oceanbase.io/en/docs/develop/plugins/)
-- [Python / HTTP / MCP interfaces](https://powercontext.oceanbase.io/en/docs/develop/interfaces/) · [Deploy the Server](https://powercontext.oceanbase.io/en/docs/operate/deploy-server/)
+- [Python / HTTP / MCP interfaces](https://powercontext.oceanbase.io/en/docs/develop/interfaces/) · [Deploy the Server](https://powercontext.oceanbase.io/en/docs/operate/deploy-server/) · [Select a Scope per Gateway request](docs/en/docs/operate/deploy-server.md#gateway-request-scope)
 - [Token benchmark report](docs/benchmarks/token-savings/README.md) · [Blog](https://powercontext.oceanbase.io/en/blog/)
 
 ## Community

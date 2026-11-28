@@ -234,3 +234,62 @@ def test_a_cancelled_wait_for_a_retiring_version_still_stops_its_processes(tmp_p
     manager = SimpleNamespace(_retiring={})
     asyncio.run(scenario())
     assert events == [("closed", {tmp_path: 1})] and manager._retiring == {tmp_path: 0}
+
+
+def test_a_server_schedule_failure_keeps_the_collection_loop_alive(monkeypatch, caplog):
+    import logging
+    from zoneinfo import ZoneInfoNotFoundError
+
+    import tzlocal
+
+    from powercontext.plugins import Cron
+
+    requested = []
+    collected = asyncio.Event()
+    parked = asyncio.Event()
+
+    async def request_collection(name):
+        requested.append(name)
+        collected.set()
+        # One collection only: the scenario cancels the task while it waits here.
+        await parked.wait()
+
+    manager = SimpleNamespace(request_collection=request_collection)
+    manifest = SimpleNamespace(
+        name="ticket-chat",
+        source=SimpleNamespace(collect=SimpleNamespace(schedule=Cron(expression="*/5 * * * *"))),
+    )
+    # The machine's zone name cannot be resolved on the first attempt, then resolves.
+    state = {"failed": False}
+
+    def local_zone_name():
+        if not state["failed"]:
+            state["failed"] = True
+            raise ZoneInfoNotFoundError()
+        return "UTC"
+
+    monkeypatch.setattr(tzlocal, "get_localzone_name", local_zone_name)
+
+    real_sleep = asyncio.sleep
+
+    async def instant(seconds):
+        # Yield like the real sleep so the waiting scenario and a cancel are delivered.
+        await real_sleep(0)
+
+    monkeypatch.setattr(asyncio, "sleep", instant)
+
+    async def scenario():
+        task = asyncio.create_task(PluginManager._collect_due(cast(Any, manager), cast(Any, manifest)))
+        # A loop that dies on the scheduling failure never collects; fail instead of hanging.
+        await asyncio.wait_for(collected.wait(), 5)
+        # The task is parked inside request_collection after its first call, so canceling there
+        # keeps the count below exact regardless of how the recovered iterations interleave.
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+    with caplog.at_level(logging.WARNING):
+        asyncio.run(scenario())
+    # The failed iteration warned and collected nothing off-schedule; the recovered one collected.
+    assert requested == ["ticket-chat"]
+    assert any("ticket-chat schedule failed" in record.getMessage() for record in caplog.records)

@@ -67,6 +67,15 @@ CANDIDATE = {
 }
 
 
+def test_scope_routing_metadata_is_not_part_of_the_extraction_contract() -> None:
+    value = AtomicMemoryExtractionInput(evidence=(), scope_id="project")
+
+    assert value.scope_id == "project"
+    assert value.model_dump(mode="json") == {"evidence": []}
+    assert set(AtomicMemoryExtractionInput.model_json_schema()["properties"]) == {"evidence"}
+    assert set(AtomicMemoryExtractionInput.model_json_schema(mode="serialization")["properties"]) == {"evidence"}
+
+
 class _Extractor:
     def __init__(self) -> None:
         self.calls = 0
@@ -100,12 +109,15 @@ class _Gateway:
         self.status = status
         self.payload = payload
         self.requests: list[dict[str, object]] = []
+        self.request_scopes: list[str | None] = []
+        self.source_scope: str | None = None
         # Atomic Memory text in the Scope after the flush.
         self.memories: list[str] = []
 
     def __call__(self, request: httpx.Request) -> httpx.Response:
         assert request.url.path == "/gateway/v1/extract"
         assert request.headers["authorization"] == "Bearer gateway-key"
+        self.request_scopes.append(request.headers.get("x-powercontext-scope-id"))
         self.requests.append(json.loads(request.content))
         return httpx.Response(self.status, json=self.payload)
 
@@ -133,7 +145,7 @@ def _flush(tmp_path, gateway: _Gateway, sources: list[dict[str, object]]) -> _Ex
         ),
     )
     with TestClient(app) as test_client:
-        scope_id = test_client.get("/v1/scopes/default").json()["scope_id"]
+        scope_id = gateway.source_scope = _create_source_scope(test_client)
         for source in sources:
             captured = test_client.post("/v1/sources/content", json={"scope_id": scope_id, **source})
             assert captured.status_code == 202, captured.text
@@ -143,6 +155,14 @@ def _flush(tmp_path, gateway: _Gateway, sources: list[dict[str, object]]) -> _Ex
         assert listed.status_code == 200, listed.text
         gateway.memories = [entry["text"] for entry in listed.json()["entries"]]
     return extractor
+
+
+def _create_source_scope(client: TestClient) -> str:
+    response = client.post(
+        "/v1/scopes", json={"title": "Project", "summary": "Memory for this project", "idempotency_key": "project"}
+    )
+    assert response.status_code == 201, response.text
+    return cast("str", response.json()["scope_id"])
 
 
 def _turn(
@@ -164,6 +184,7 @@ def test_a_gateway_turn_is_extracted_over_its_prefix_without_resending_the_trans
 
     assert extractor.calls == 0
     assert gateway.memories == [CANDIDATE["text"]]
+    assert gateway.request_scopes == [gateway.source_scope]
     (request,) = gateway.requests
     assert request["handle"] == "a" * 32
     instruction = request["instruction"]
@@ -339,7 +360,7 @@ def _flush_one_pass(tmp_path, gateway: _Gateway, source: dict[str, object], *fal
         ),
     )
     with TestClient(app) as test_client:
-        scope_id = test_client.get("/v1/scopes/default").json()["scope_id"]
+        scope_id = gateway.source_scope = _create_source_scope(test_client)
         captured = test_client.post("/v1/sources/content", json={"scope_id": scope_id, **source})
         assert captured.status_code == 202, captured.text
         flushed = test_client.post("/v1/memory/flush", json={"scope_id": scope_id})
@@ -366,6 +387,7 @@ def test_a_one_pass_window_continues_the_prefix_through_every_step(tmp_path, cap
 
     assert conversation.turns == []
     assert gateway.memories == [CANDIDATE["text"]]
+    assert gateway.request_scopes == [gateway.source_scope, gateway.source_scope]
     first, second = gateway.requests
     instruction = first["instruction"]
     assert isinstance(instruction, str)

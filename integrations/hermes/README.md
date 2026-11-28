@@ -42,6 +42,7 @@ Configuration can also be stored manually in `$HERMES_HOME/powercontext/config.j
   "base_url": "http://127.0.0.1:8000",
   "max_bytes": 8000,
   "timeout": 5,
+  "prompt_recall": true,
   "capture_turns": true,
   "flush_on_session_end": true,
   "capture_pre_compress": false,
@@ -61,6 +62,7 @@ Environment variables override file values:
 | `POWERCONTEXT_HERMES_SCOPE_ID` | Explicit server-owned Scope ID |
 | `POWERCONTEXT_HERMES_MAX_BYTES` | Maximum prepared context size, 512 to 32768 |
 | `POWERCONTEXT_HERMES_TIMEOUT` | HTTP request timeout in seconds |
+| `POWERCONTEXT_HERMES_PROMPT_RECALL` | Prepare and inject context for each prompt and offer `powercontext_prepare_context`; defaults to `true`. Set `false` when Hermes' model requests go through the PowerContext gateway, which then injects context itself. |
 | `POWERCONTEXT_HERMES_CAPTURE_TURNS` | Capture completed turns as PowerContext Sources |
 | `POWERCONTEXT_HERMES_FLUSH_ON_SESSION_END` | Run memory extraction at session end |
 | `POWERCONTEXT_HERMES_CAPTURE_PRE_COMPRESS` | Capture filtered new user/assistant turns before compression; disabled by default |
