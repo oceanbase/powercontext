@@ -57,7 +57,9 @@ struct Peers {
     replies: Mutex<VecDeque<Reply>>,
     sent: Mutex<Vec<(HeaderMap, Bytes)>>,
     checks: Mutex<Vec<Value>>,
+    queries: Mutex<Vec<Value>>,
     prepares: Mutex<Vec<Value>>,
+    fixed_preparation: Mutex<bool>,
     captures: Mutex<Vec<Value>>,
     deny: Option<(&'static str, &'static str)>,
 }
@@ -137,22 +139,35 @@ async fn check(
     .into_response()
 }
 
-async fn capture(State(peers): State<Arc<Peers>>, Json(request): Json<Value>) -> Json<Value> {
-    peers.captures.lock().unwrap().push(request);
-    Json(json!({}))
-}
+const PREPARED_BLOCK: &str = "Recall: température";
 
 async fn prepare(State(peers): State<Arc<Peers>>, Json(request): Json<Value>) -> Json<Value> {
-    let mut prepares = peers.prepares.lock().unwrap();
-    prepares.push(request);
-    let content = format!("Prepared context {}", prepares.len());
+    peers.queries.lock().unwrap().push(request["query"].clone());
+    let preparation = {
+        let mut prepares = peers.prepares.lock().unwrap();
+        prepares.push(request);
+        prepares.len()
+    };
+    let (content, binding) = if *peers.fixed_preparation.lock().unwrap() {
+        (PREPARED_BLOCK.to_owned(), "test-reuse".to_owned())
+    } else {
+        (
+            format!("Prepared context {preparation}"),
+            format!("reuse-{preparation}"),
+        )
+    };
     Json(json!({
         "schema": "powercontext.prepared-context-with-reuse.v1",
         "context": {"schema": "powercontext.prepared-context.v1", "status": "ready",
             "content": content, "content_bytes": content.len()},
-        "reuse": {"schema": "powercontext.context-reuse.v1", "expires_at": "2999-01-01T00:00:00Z",
-            "binding": format!("reuse-{}", prepares.len())}
+        "reuse": {"schema": "powercontext.context-reuse.v1",
+            "expires_at": "2999-01-01T00:00:00Z", "binding": binding}
     }))
+}
+
+async fn capture(State(peers): State<Arc<Peers>>, Json(request): Json<Value>) -> Json<Value> {
+    peers.captures.lock().unwrap().push(request);
+    Json(json!({}))
 }
 
 struct Gateway {
@@ -187,6 +202,29 @@ impl Gateway {
     async fn start(replies: Vec<Reply>, deny: Option<(&'static str, &'static str)>) -> Self {
         // Golden protocol fixtures exercise requests without operator steering.
         Self::start_with_env(replies, deny, &[("PC_GATEWAY_STEERING", "off")], true).await
+    }
+
+    async fn start_with_memory(
+        replies: Vec<Reply>,
+        deny: Option<(&'static str, &'static str)>,
+        memory: bool,
+    ) -> Self {
+        let setting = if memory { "on" } else { "off" };
+        let gateway = Self::start_with_env(
+            replies,
+            deny,
+            &[
+                ("PC_GATEWAY_STEERING", "off"),
+                // Reminder tests compare captures byte-for-byte without opaque prefix handles.
+                ("PC_GATEWAY_PREFIX_EXTRACTION", "off"),
+                ("PC_GATEWAY_INJECTION", setting),
+                ("PC_GATEWAY_SEDIMENT", setting),
+            ],
+            true,
+        )
+        .await;
+        *gateway.peers.fixed_preparation.lock().unwrap() = true;
+        gateway
     }
 
     async fn start_with_env(
@@ -893,6 +931,191 @@ async fn responses_preserves_tool_continuations_and_stream_arguments() {
             gateway.assert_forwarded(&expected, &bodies);
         }
     }
+}
+
+#[tokio::test]
+async fn responses_reminders_preserve_recall_and_turn_capture() {
+    let case = "fantasy_responses_tool";
+    let replies = vec![
+        Reply::fixture(case, 0),
+        Reply::fixture(case, 1),
+        Reply::fixture(case, 1),
+    ];
+    let bodies: Vec<_> = replies.iter().map(|reply| reply.body.clone()).collect();
+    let gateway = Gateway::start_with_env(
+        replies,
+        None,
+        &[
+            ("PC_GATEWAY_STEERING", "off"),
+            ("PC_GATEWAY_PREFIX_EXTRACTION", "on"),
+            ("PC_GATEWAY_INJECTION", "on"),
+            ("PC_GATEWAY_SEDIMENT", "on"),
+        ],
+        true,
+    )
+    .await;
+    *gateway.peers.fixed_preparation.lock().unwrap() = true;
+    let mut baseline = request("responses", "tool", false);
+    let prompt = baseline["input"][1]["content"][0]["text"].clone();
+    let startup = json!({"role": "user", "content": "<system-reminder>Auto mode is active</system-reminder>"});
+    let reminder = json!({"type": "message", "role": "user", "content": [
+        {"type": "input_text", "text": " <conversation_history_summary>Last turn</conversation_history_summary>\n"},
+        {"type": "input_text", "text": "<cb_summary>Compacted history</cb_summary> "},
+        {"type": "input_text", "text": "<task-notification id=\"test\">Tool finished</task-notification>"}
+    ]});
+    let mut initial = baseline.clone();
+    initial["input"]
+        .as_array_mut()
+        .unwrap()
+        .push(startup.clone());
+    let tool_call: Value =
+        serde_json::from_slice::<Value>(&bodies[0]).unwrap()["output"][0].clone();
+    let arguments = tool_call["arguments"].clone();
+    let tool_output = json!({
+        "type": "function_call_output", "output": "Warm", "call_id": tool_call["call_id"]
+    });
+    baseline["input"]
+        .as_array_mut()
+        .unwrap()
+        .extend([tool_call, tool_output]);
+    let mut continuation = baseline.clone();
+    continuation["input"]
+        .as_array_mut()
+        .unwrap()
+        .insert(2, startup);
+    continuation["input"].as_array_mut().unwrap().push(reminder);
+
+    let mut expected = Vec::new();
+    for (body, reply) in [initial, continuation, baseline].into_iter().zip(&bodies) {
+        let response = gateway
+            .client
+            .post(format!("{}/responses", gateway.base))
+            .bearer_auth("gateway-test-key")
+            .header("x-powercontext-conversation-id", "reminder-turn")
+            .json(&body)
+            .send()
+            .await
+            .unwrap();
+        released_responses(response, reply, false).await;
+        let mut sent = body;
+        // Responses renders canonical user messages without the optional item type.
+        if let Some(item) = sent["input"].get_mut(5) {
+            item.as_object_mut().unwrap().remove("type");
+        }
+        sent["input"][1]["content"][0]["text"] =
+            json!(format!("{PREPARED_BLOCK}\n\n{}", prompt.as_str().unwrap()));
+        expected.push(sent);
+    }
+
+    assert_eq!(
+        gateway.peers.queries.lock().unwrap().as_slice(),
+        std::slice::from_ref(&prompt)
+    );
+    gateway.assert_forwarded(&expected, &bodies);
+    let checks = gateway.peers.checks.lock().unwrap();
+    for send in checks.iter().step_by(2) {
+        let locations = send["prepared_contexts"].as_array().unwrap();
+        assert_eq!(locations.len(), 1);
+        assert_eq!(locations[0]["binding"], "test-reuse");
+        assert_eq!(
+            locations[0]["location"]["pointer"],
+            "/input/1/content/0/text"
+        );
+        assert_eq!(locations[0]["location"]["start_byte"], 0);
+        assert_eq!(locations[0]["location"]["end_byte"], PREPARED_BLOCK.len());
+    }
+
+    let captures = gateway.peers.captures.lock().unwrap();
+    assert_eq!(captures.len(), 2);
+    let reminder_source = &captures[0]["sources"][0];
+    let ordinary_source = &captures[1]["sources"][0];
+    assert!(
+        reminder_source["metadata"].get("prefix_handle").is_none(),
+        "a retained prefix would make the trailing reminder the evidence boundary"
+    );
+    assert!(
+        ordinary_source["metadata"]["prefix_handle"].is_string(),
+        "unaffected turns should still offer prefix extraction"
+    );
+    assert_eq!(reminder_source["source_id"], ordinary_source["source_id"]);
+    assert_eq!(reminder_source["content"], ordinary_source["content"]);
+    let sources = captures[0]["sources"].as_array().unwrap();
+    assert_eq!(sources.len(), 1);
+    let transcript: Value = serde_json::from_str(sources[0]["content"].as_str().unwrap()).unwrap();
+    assert_eq!(transcript["user"], prompt);
+    assert_eq!(
+        transcript["steps"],
+        json!([
+            {"type": "tool_call", "name": "weather", "arguments": arguments},
+            {"type": "tool_output", "output": "Warm"}
+        ])
+    );
+}
+
+#[tokio::test]
+async fn chat_reminders_preserve_mixed_user_content() {
+    let reminder = "<system-reminder>Auto mode is active</system-reminder>";
+    let prompt = "Explain these tags.";
+    let unclosed = "<system-reminder> Explain this unclosed tag";
+    let mixed = json!([
+        {"type": "text", "text": reminder},
+        {"type": "text", "text": prompt}
+    ]);
+    let multimodal = json!([
+        {"type": "text", "text": reminder},
+        {"type": "image_url", "image_url": {"url": "https://example.com/image.png"}}
+    ]);
+    let replies: Vec<_> = (0..4)
+        .map(|_| Reply::fixture("fantasy_chat_simple", 0))
+        .collect();
+    let bodies: Vec<_> = replies.iter().map(|reply| reply.body.clone()).collect();
+    let gateway = Gateway::start_with_memory(replies, None, true).await;
+    let mut expected = Vec::new();
+    for (content, injected) in [
+        (json!(reminder), json!(reminder)),
+        (mixed.clone(), {
+            let mut parts = mixed;
+            parts[0]["text"] = json!(format!("{PREPARED_BLOCK}\n\n{reminder}"));
+            parts
+        }),
+        (multimodal.clone(), {
+            let mut parts = multimodal;
+            parts[0]["text"] = json!(format!("{PREPARED_BLOCK}\n\n{reminder}"));
+            parts
+        }),
+        (
+            json!(unclosed),
+            json!(format!("{PREPARED_BLOCK}\n\n{unclosed}")),
+        ),
+    ] {
+        let mut body = request("chat", "simple", false);
+        body["messages"][1]["content"] = content;
+        body["messages"].as_array_mut().unwrap().push(json!({
+            "role": "user", "content": [{"type": "text", "text": reminder}]
+        }));
+        let response = gateway.post("chat/completions", &body).await;
+        assert_eq!(response.status(), 200);
+        body["messages"][1]["content"] = injected;
+        expected.push(body);
+    }
+    assert_eq!(
+        *gateway.peers.queries.lock().unwrap(),
+        [
+            json!(format!("{reminder}\n{prompt}")),
+            json!(reminder),
+            json!(unclosed)
+        ]
+    );
+    gateway.assert_forwarded(&expected, &bodies);
+    let captures = gateway.peers.captures.lock().unwrap();
+    assert_eq!(captures.len(), 3);
+    let transcript: Value =
+        serde_json::from_str(captures[1]["sources"][0]["content"].as_str().unwrap()).unwrap();
+    assert_eq!(
+        transcript["user"],
+        format!("{reminder}\n[image_url: https://example.com/image.png]")
+    );
+    assert_eq!(transcript["steps"], json!([]));
 }
 
 #[tokio::test]
