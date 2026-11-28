@@ -58,6 +58,7 @@ def test_packaged_dashboards_separate_main_and_advanced_folders():
     advanced = {path.name for path in (grafana / "dashboards/advanced").glob("*.json")}
     assert main == {
         "pc-flow.json",
+        "pc-gateway.json",
         "pc-overview.json",
         "pc-processing.json",
         "pc-providers.json",

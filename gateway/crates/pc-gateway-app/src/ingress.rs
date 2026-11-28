@@ -473,8 +473,24 @@ async fn ingress_common(
     let lifecycle = control.lifecycle();
     let observation = control.observation();
     let cancellation = control.cancellation();
+    let telemetry = state.telemetry.call(
+        state.evidence.clone(),
+        &headers,
+        match format {
+            Format::Chat => "chat_completions",
+            Format::Responses => "responses",
+        },
+        observation.call_id(),
+    );
     let mut response = match lifecycle
-        .run(ingress_model(state.clone(), headers, req, format, control))
+        .run(ingress_model(
+            state,
+            headers,
+            req,
+            format,
+            control,
+            telemetry.as_ref(),
+        ))
         .await
     {
         Ok(response) => response,
@@ -497,7 +513,7 @@ async fn ingress_common(
             crate::evidence_body::EvidenceBody::wrap(
                 body,
                 observation.clone(),
-                state.evidence.clone(),
+                telemetry,
                 first_content,
             ),
         );
@@ -518,6 +534,7 @@ async fn ingress_model(
     req: Request,
     format: Format,
     control: RequestControl,
+    telemetry: &crate::telemetry::ModelCall,
 ) -> Response {
     if let Some(rejected) = unauthorized(&state, &headers) {
         return rejected;
@@ -585,6 +602,8 @@ async fn ingress_model(
             },
         );
     }
+    use pc_gateway_evidence::{CallStage, StageTimer};
+    let classify = StageTimer::new(telemetry, CallStage::Classify);
     let mut client_stream = false;
     let canonical = match format {
         Format::Chat => {
@@ -659,6 +678,7 @@ async fn ingress_model(
             }
         }
     };
+    drop(classify);
     // P1 review：未配置的上游禁用路由（不默认到任何第三方）。
     let target_profile = match format {
         Format::Chat => state.chat_profile_name.clone(),
@@ -796,7 +816,7 @@ async fn ingress_model(
             control,
             call,
             &channel.renderer,
-            state.evidence.as_ref(),
+            telemetry,
             history_id.as_deref(),
         )
         .await;
@@ -1753,11 +1773,26 @@ pub(crate) mod tests {
     async fn lifecycle_router_with_evidence(
         evidence: Arc<dyn pc_gateway_evidence::EvidenceSink>,
     ) -> (axum::Router, tokio::task::JoinHandle<()>, Arc<Receivers>) {
-        lifecycle_router_with_steering(evidence, None).await
+        lifecycle_router_with_options(evidence, None, None).await
+    }
+
+    async fn lifecycle_router_with_telemetry(
+        evidence: Arc<dyn pc_gateway_evidence::EvidenceSink>,
+        exporter: Option<crate::otlp::Exporter>,
+    ) -> (axum::Router, tokio::task::JoinHandle<()>, Arc<Receivers>) {
+        lifecycle_router_with_options(evidence, exporter, None).await
     }
 
     async fn lifecycle_router_with_steering(
         evidence: Arc<dyn pc_gateway_evidence::EvidenceSink>,
+        steering: Option<String>,
+    ) -> (axum::Router, tokio::task::JoinHandle<()>, Arc<Receivers>) {
+        lifecycle_router_with_options(evidence, None, steering).await
+    }
+
+    async fn lifecycle_router_with_options(
+        evidence: Arc<dyn pc_gateway_evidence::EvidenceSink>,
+        exporter: Option<crate::otlp::Exporter>,
         steering: Option<String>,
     ) -> (axum::Router, tokio::task::JoinHandle<()>, Arc<Receivers>) {
         use axum::routing::post;
@@ -1870,6 +1905,7 @@ pub(crate) mod tests {
                 ),
                 std::num::NonZeroU32::new(2).unwrap(),
             )),
+            telemetry: Arc::new(crate::telemetry::Telemetry::new(evidence.clone(), exporter)),
             evidence,
             chat_profile_name: "test".into(),
             responses_profile_name: Some("test-responses".into()),
@@ -2461,6 +2497,7 @@ pub(crate) mod tests {
     /// 只用于取上游通道的网关状态，不连接 Core 或上游。
     fn channel_state(subscription: Option<pc_gateway_auth::SubscriptionAuth>) -> Arc<AppState> {
         use pc_gateway_core::{Executor, HttpGateClient};
+        let evidence = Arc::new(pc_gateway_evidence::NoopEvidenceSink);
         Arc::new(AppState {
             executor: Arc::new(Executor::new(
                 crate::link::CoreLink::Http(HttpGateClient::with_token("http://127.0.0.1:9", None)),
@@ -2469,7 +2506,8 @@ pub(crate) mod tests {
                 ),
                 std::num::NonZeroU32::new(1).unwrap(),
             )),
-            evidence: Arc::new(pc_gateway_evidence::NoopEvidenceSink),
+            telemetry: Arc::new(crate::telemetry::Telemetry::new(evidence.clone(), None)),
+            evidence,
             chat_profile_name: "test".into(),
             responses_profile_name: Some("test-responses".into()),
             upstream_chat: String::new(),
@@ -3259,6 +3297,242 @@ pub(crate) mod tests {
         fn flush(&mut self) -> std::io::Result<()> {
             Ok(())
         }
+    }
+
+    #[tokio::test]
+    async fn gateway_scrape_reports_model_traffic() {
+        use tower::ServiceExt;
+        let (router, server, _) = lifecycle_router().await;
+        let idle_response = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/gateway/metrics")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(idle_response.status(), StatusCode::OK);
+        let idle_bytes = axum::body::to_bytes(idle_response.into_body(), 1024 * 1024)
+            .await
+            .unwrap();
+        let idle_scrape = std::str::from_utf8(&idle_bytes).unwrap();
+        for sample in [
+            r#"powercontext_gateway_tokens_total{direction="input",completeness="known"} 0"#,
+            r#"powercontext_gateway_tokens_missing_total{direction="cache_write"} 0"#,
+            r#"powercontext_gateway_prepare_total{result="prepared"} 0"#,
+            r#"powercontext_gateway_blocked_total{reason_class="core_send"} 0"#,
+            r#"powercontext_gateway_withheld_total{retryable="true"} 0"#,
+        ] {
+            assert!(
+                idle_scrape.lines().any(|line| line == sample),
+                "missing {sample}"
+            );
+        }
+        assert!(!idle_scrape.contains("powercontext_gateway_calls_total"));
+        for (route, body) in [
+            (
+                "chat/completions",
+                r#"{"model":"private-model","messages":[{"role":"user","content":"private-prompt"}]}"#,
+            ),
+            (
+                "responses",
+                r#"{"model":"private-model","input":"private-prompt","store":false}"#,
+            ),
+        ] {
+            let request = Request::builder()
+                .method("POST")
+                .uri(format!("/gateway/v1/{route}"))
+                .header(header::AUTHORIZATION, "Bearer gateway-key")
+                .body(axum::body::Body::from(body))
+                .unwrap();
+            let response = router.clone().oneshot(request).await.unwrap();
+            assert!(response.status().is_success());
+            axum::body::to_bytes(response.into_body(), 1024 * 1024)
+                .await
+                .unwrap();
+        }
+
+        let response = router
+            .oneshot(
+                Request::builder()
+                    .uri("/metrics")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            response.status(),
+            StatusCode::OK,
+            "Gateway must own its scrape endpoint"
+        );
+        assert!(response.headers()[header::CONTENT_TYPE]
+            .to_str()
+            .unwrap()
+            .starts_with("application/openmetrics-text"));
+        let bytes = axum::body::to_bytes(response.into_body(), 1024 * 1024)
+            .await
+            .unwrap();
+        let scrape = std::str::from_utf8(&bytes).unwrap();
+        for line in [
+            r#"powercontext_gateway_tokens_total{direction="input",completeness="known"} 180"#,
+            r#"powercontext_gateway_tokens_total{direction="cache_read",completeness="known"} 100"#,
+            r#"powercontext_gateway_tokens_missing_total{direction="cache_write"} 2"#,
+            "powercontext_gateway_response_first_byte_ms_count 2",
+            "powercontext_gateway_in_flight 0",
+        ] {
+            assert!(
+                scrape.lines().any(|sample| sample == line),
+                "missing {line} in {scrape}"
+            );
+        }
+        for excluded in [
+            "private-model",
+            "private-prompt",
+            "gateway-key",
+            "call_id=",
+            "127.0.0.1",
+        ] {
+            assert!(!scrape.contains(excluded), "{excluded} leaked in scrape");
+        }
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn gateway_exports_a_parented_trace_with_delivery_and_no_model_content() {
+        use tower::ServiceExt;
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let endpoint = format!("http://{}/v1/traces", listener.local_addr().unwrap());
+        let (capture, mut exports) = tokio::sync::mpsc::channel(1);
+        let receiver = tokio::spawn(async move {
+            let app = axum::Router::new().route(
+                "/v1/traces",
+                axum::routing::post(
+                    move |headers: HeaderMap, Json(payload): Json<serde_json::Value>| {
+                        let capture = capture.clone();
+                        async move {
+                            assert_eq!(headers[header::AUTHORIZATION], "Basic dGVzdA==");
+                            capture.send(payload).await.unwrap();
+                            StatusCode::SERVICE_UNAVAILABLE
+                        }
+                    },
+                ),
+            );
+            axum::serve(listener, app).await.unwrap();
+        });
+        let exporter = crate::otlp::Exporter::new(
+            &endpoint,
+            [("Authorization".into(), "Basic%20dGVzdA%3D%3D".into())].into(),
+        )
+        .await
+        .unwrap();
+        let (router, server, _) = lifecycle_router_with_telemetry(
+            Arc::new(pc_gateway_evidence::NoopEvidenceSink),
+            Some(exporter.clone()),
+        )
+        .await;
+        let trace_id = "4bf92f3577b34da6a3ce929d0e0e4736";
+        let parent_id = "00f067aa0ba902b7";
+        let request = Request::builder()
+            .method("POST").uri("/gateway/v1/responses")
+            .header(header::AUTHORIZATION, "Bearer gateway-key")
+            .header("traceparent", format!("00-{trace_id}-{parent_id}-01"))
+            .header("tracestate", "vendor=private-tracestate")
+            .header("baggage", "vendor=private-baggage")
+            .body(axum::body::Body::from(
+                r#"{"model":"private-model","input":[{"role":"user","content":"private-prompt"},{"type":"function_call_output","call_id":"private-tool-id","output":"private-output"},{"role":"developer","content":"private-developer"}],"store":false}"#,
+            )).unwrap();
+        let response = router.clone().oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        axum::body::to_bytes(response.into_body(), 1024 * 1024)
+            .await
+            .unwrap();
+        exporter.shutdown().await;
+        let payload = tokio::time::timeout(std::time::Duration::from_secs(3), exports.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        let spans = payload["resourceSpans"][0]["scopeSpans"][0]["spans"]
+            .as_array()
+            .unwrap();
+        let names: Vec<_> = spans
+            .iter()
+            .map(|span| span["name"].as_str().unwrap())
+            .collect();
+        assert_eq!(
+            names,
+            [
+                "gateway.model_call",
+                "classify",
+                "enrich",
+                "check.before_send",
+                "upstream.send",
+                "check.before_release",
+                "delivery"
+            ]
+        );
+        assert_eq!(spans[0]["parentSpanId"], parent_id);
+        assert!(spans.iter().all(|span| span["traceId"] == trace_id));
+        assert!(spans[1..]
+            .iter()
+            .all(|span| span["parentSpanId"] == spans[0]["spanId"]));
+        let text = payload.to_string();
+        assert!(!text.contains("private-"));
+        assert!(!text.contains("gateway-key"));
+        assert!(!text.contains("SYNTHETIC_SENSITIVE"));
+        assert!(text.contains("tool_continuation"));
+        assert!(text.contains("body_completed"));
+        let scrape = router
+            .oneshot(
+                Request::builder()
+                    .uri("/gateway/metrics")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let body = axum::body::to_bytes(scrape.into_body(), 1024 * 1024)
+            .await
+            .unwrap();
+        assert!(std::str::from_utf8(&body)
+            .unwrap()
+            .contains(&format!(" # {{trace_id=\"{trace_id}\"}}")));
+        receiver.abort();
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn gateway_model_call_succeeds_when_otlp_collector_is_unreachable() {
+        use tower::ServiceExt;
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let endpoint = format!("http://{}/v1/traces", listener.local_addr().unwrap());
+        drop(listener);
+        let exporter = crate::otlp::Exporter::new(&endpoint, Default::default())
+            .await
+            .unwrap();
+        let (router, server, _) = lifecycle_router_with_telemetry(
+            Arc::new(pc_gateway_evidence::NoopEvidenceSink),
+            Some(exporter.clone()),
+        )
+        .await;
+        let request = Request::builder()
+            .method("POST")
+            .uri("/gateway/v1/responses")
+            .header(header::AUTHORIZATION, "Bearer gateway-key")
+            .body(axum::body::Body::from(
+                r#"{"model":"private-model","input":"private-prompt","store":false}"#,
+            ))
+            .unwrap();
+        let response = router.oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let bytes = axum::body::to_bytes(response.into_body(), 1024 * 1024)
+            .await
+            .unwrap();
+        assert!(String::from_utf8_lossy(&bytes).contains("SYNTHETIC_SENSITIVE_RESPONSE"));
+        exporter.shutdown().await;
+        server.abort();
     }
 
     #[tokio::test]

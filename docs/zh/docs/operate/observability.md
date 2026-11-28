@@ -400,6 +400,44 @@ Worker 报告覆盖使用同一窗口的 `received / (received + missing)`，不
 HTTP 状态或最终模型结果；展开记录可打开调用链。日志筛选要求 `service_target` 与 Prometheus `instance` 一致。
 缺失日志或 Trace 保持证据不足，不能仅凭 ID 判断为未采样、未导出或已过期。
 
+## 网关遥测 [#gateway-telemetry]
+
+Rust 网关在 `/gateway/metrics` 导出进程级 OpenMetrics，独立运行时也可使用 `/metrics`。
+通过 UDS 转发到 Core 时，`/metrics` 继续沿用 Server 的认证和指标处理逻辑。
+[参考栈](reference-observability-stack.md)可使用 `job="powercontext-gateway"` 抓取网关指标。
+
+以下网关指标名称以 `powercontext_gateway_` 开头。
+
+- `calls_total` 按路由、回合类型、执行终态和发送结果统计受管理的模型调用。回合类型包括
+  `user_turn`、`tool_continuation`、`assistant_only` 和 `empty`。`outcome` 标签包括 `no_send`（未尝试发送）、
+  `definitely_not_sent`（确认未发送）、`possibly_sent`（可能已发送但未收到完整响应）、
+  `upstream_error`（收到 HTTP 状态码为 400 或更高的响应）和 `response_received`（收到其他完整上游响应）。
+  入口校验未通过的请求及抽取请求不计入该指标。`attempts_total` 按路由和尝试结果统计执行器向传输层交接的次数。
+- `in_flight` 涵盖模型入口至可观测的框架响应体处理。`admitted_in_flight` 仅统计通过 Core 发送准入的
+  调用。进程级仪表值无法证明客户端已收到响应。
+- `tokens_total` 按方向与完整性累计服务商报告的数量。`tokens_missing_total` 统计对应方向缺少数量的完整
+  上游响应。明确报告的零属于已知数量。OpenAI 协议报告的输入数量包含缓存读取，缓存写入数量可能未知。
+- `call_duration_ms`、`attempt_duration_ms`、`response_first_byte_ms`、`release_decision_ms`、
+  `release_authorized_ms`、`prepare_duration_ms` 和两项 `check_before_*_duration_ms` 均为以毫秒为
+  单位的直方图。响应首字节取第一个非空的上游 HTTP 响应体分块。放行时间从请求控制对象创建时开始计算。
+  模型首 token 时间仍然未知。
+- `prepare_total` 按 `hit_replay`、`prepared`、`skipped`、`failed` 或 `empty` 统计准备决定。
+  `injected_bytes_total` 和 `injected_contexts_total` 统计发送准入时的 UTF-8 字节与声明的上下文块。
+  `context_refresh_total` 统计准备上下文的绑定失效后触发的恢复。
+- `blocked_total` 按 `local`、`core_send` 或 `core_release` 统计阻止。`withheld_total` 按是否
+  可重试统计暂扣。`degraded_total`、`send_indeterminate_total`、`evidence_dropped_total` 和
+  `evidence_write_failed_total` 分别统计降级调用、可能已发送但未得到完整响应的调用、证据队列丢弃和
+  证据写入失败。
+
+设置 `PC_GATEWAY_OTLP=on` 启用 OTLP/HTTP JSON trace，并用 `OTEL_EXPORTER_OTLP_ENDPOINT` 配置接收端
+基础地址。要配置完整的 trace URL，请设置 `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`。使用
+`OTEL_EXPORTER_OTLP_HEADERS` 或 `OTEL_EXPORTER_OTLP_TRACES_HEADERS` 配置导出凭据。
+有效的 00 版本 `traceparent` 提供父级标识和采样标志。启用导出时，无有效父级的调用会创建网关 trace。
+`gateway.model_call` span 使用证据中的 `call_id` 作为属性。子 span 覆盖实际观测到的分类、上下文补充、
+检查、上游尝试和框架交付。导出使用有界的尽力而为队列。Exemplar 标识已采样的调用，其 trace 可能仍在等待
+导出，也可能已被丢弃。指标与 span 不包含请求或响应体、凭据、模型名称、原始 URL 或会话标识。调用标识仅
+出现在 span 中，trace ID 可出现在 exemplar 中。这些观测无法证明计费准确性、token 节省或任务成功。
+
 ## Tracing
 
 安装 `tracing-otlp` extra，启用 `POWERCONTEXT_SERVER_TRACING_ENABLED=true`，并配置 OTLP HTTP 接收端。

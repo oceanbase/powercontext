@@ -61,6 +61,7 @@ def test_distribution_ships_runtime_templates_and_excludes_local_state(tmp_path)
         for target in (
             "observability/resources/stats-proxy.py",
             "observability/resources/compose.yaml",
+            "observability/resources/grafana/dashboards/main/pc-gateway.json",
             "observability/resources/grafana/dashboards/main/pc-overview.json",
             "observability/resources/grafana/dashboards/main/pc-providers.json",
             "observability/resources/grafana/dashboards/advanced/pc-business.json",

@@ -1,0 +1,351 @@
+{
+  "uid": "pc-gateway",
+  "title": "PowerContext · Model Gateway",
+  "schemaVersion": 40,
+  "version": 1,
+  "tags": [
+    "powercontext"
+  ],
+  "timezone": "browser",
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "refresh": "15s",
+  "panels": [
+    {
+      "id": 1,
+      "title": "Model calls",
+      "type": "timeseries",
+      "datasource": {
+        "uid": "prometheus",
+        "type": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "cps"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "uid": "prometheus",
+            "type": "prometheus"
+          },
+          "expr": "sum by (turn_kind, terminal) (rate(powercontext_gateway_calls_total{job=\"powercontext-gateway\"}[$__rate_interval]))",
+          "legendFormat": "{{turn_kind}} · {{terminal}}"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Provider-reported tokens",
+      "type": "timeseries",
+      "datasource": {
+        "uid": "prometheus",
+        "type": "prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 0,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "suffix: tokens/s"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "uid": "prometheus",
+            "type": "prometheus"
+          },
+          "expr": "sum by (direction, completeness) (rate(powercontext_gateway_tokens_total{job=\"powercontext-gateway\"}[$__rate_interval]))",
+          "legendFormat": "{{direction}} · {{completeness}}"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Missing token counts",
+      "type": "timeseries",
+      "datasource": {
+        "uid": "prometheus",
+        "type": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 8,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "cps"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "uid": "prometheus",
+            "type": "prometheus"
+          },
+          "expr": "sum by (direction) (rate(powercontext_gateway_tokens_missing_total{job=\"powercontext-gateway\"}[$__rate_interval]))",
+          "legendFormat": "{{direction}}"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Context preparation",
+      "type": "timeseries",
+      "datasource": {
+        "uid": "prometheus",
+        "type": "prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 8,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "cps"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "uid": "prometheus",
+            "type": "prometheus"
+          },
+          "expr": "sum by (result) (rate(powercontext_gateway_prepare_total{job=\"powercontext-gateway\"}[$__rate_interval]))",
+          "legendFormat": "{{result}}"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "Model call duration p95",
+      "type": "timeseries",
+      "datasource": {
+        "uid": "prometheus",
+        "type": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 16,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "uid": "prometheus",
+            "type": "prometheus"
+          },
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(powercontext_gateway_call_duration_ms_bucket{job=\"powercontext-gateway\"}[$__rate_interval])))",
+          "legendFormat": "Model call p95",
+          "exemplar": true
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "Upstream HTTP first body byte p95",
+      "type": "timeseries",
+      "datasource": {
+        "uid": "prometheus",
+        "type": "prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 16,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "uid": "prometheus",
+            "type": "prometheus"
+          },
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(powercontext_gateway_response_first_byte_ms_bucket{job=\"powercontext-gateway\"}[$__rate_interval])))",
+          "legendFormat": "First HTTP body byte p95"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "title": "Calls in flight",
+      "type": "timeseries",
+      "datasource": {
+        "uid": "prometheus",
+        "type": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 24,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "uid": "prometheus",
+            "type": "prometheus"
+          },
+          "expr": "sum(powercontext_gateway_in_flight{job=\"powercontext-gateway\"})",
+          "legendFormat": "In flight"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "uid": "prometheus",
+            "type": "prometheus"
+          },
+          "expr": "sum(powercontext_gateway_admitted_in_flight{job=\"powercontext-gateway\"})",
+          "legendFormat": "Admitted"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "title": "Admission and sending",
+      "type": "timeseries",
+      "datasource": {
+        "uid": "prometheus",
+        "type": "prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 24,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "cps"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "uid": "prometheus",
+            "type": "prometheus"
+          },
+          "expr": "sum by (reason_class) (rate(powercontext_gateway_blocked_total{job=\"powercontext-gateway\"}[$__rate_interval]))",
+          "legendFormat": "Blocked · {{reason_class}}"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "uid": "prometheus",
+            "type": "prometheus"
+          },
+          "expr": "sum by (retryable) (rate(powercontext_gateway_withheld_total{job=\"powercontext-gateway\"}[$__rate_interval]))",
+          "legendFormat": "Withheld · retryable={{retryable}}"
+        },
+        {
+          "refId": "C",
+          "datasource": {
+            "uid": "prometheus",
+            "type": "prometheus"
+          },
+          "expr": "sum (rate(powercontext_gateway_degraded_total{job=\"powercontext-gateway\"}[$__rate_interval]))",
+          "legendFormat": "Degraded"
+        },
+        {
+          "refId": "D",
+          "datasource": {
+            "uid": "prometheus",
+            "type": "prometheus"
+          },
+          "expr": "sum (rate(powercontext_gateway_send_indeterminate_total{job=\"powercontext-gateway\"}[$__rate_interval]))",
+          "legendFormat": "Indeterminate send"
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "title": "Evidence loss",
+      "type": "timeseries",
+      "datasource": {
+        "uid": "prometheus",
+        "type": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 32,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "cps"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "uid": "prometheus",
+            "type": "prometheus"
+          },
+          "expr": "sum (rate(powercontext_gateway_evidence_dropped_total{job=\"powercontext-gateway\"}[$__rate_interval]))",
+          "legendFormat": "Queue drops"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "uid": "prometheus",
+            "type": "prometheus"
+          },
+          "expr": "sum (rate(powercontext_gateway_evidence_write_failed_total{job=\"powercontext-gateway\"}[$__rate_interval]))",
+          "legendFormat": "Write failures"
+        }
+      ]
+    }
+  ]
+}

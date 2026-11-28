@@ -54,6 +54,75 @@ def deployment(tmp_path, monkeypatch):
     return directory
 
 
+@pytest.mark.parametrize(
+    ("scraped", "missing", "exercise", "expected"),
+    [
+        (False, None, False, "metrics target is unavailable or stale"),
+        (False, None, True, "metrics target is unavailable or stale"),
+        (True, "powercontext_gateway_calls_total", True, "send a model call and wait for a scrape"),
+        (True, "powercontext_gateway_response_first_byte_ms_bucket", True, "dashboard metrics are missing"),
+        (True, "powercontext_gateway_withheld_total", True, "dashboard metrics are missing"),
+        (True, None, True, "matching trace stored in Phoenix"),
+    ],
+)
+def test_model_gateway_check_requires_scrape_and_traffic(deployment, monkeypatch, scraped, missing, exercise, expected):
+    from contextlib import nullcontext
+
+    import httpx
+
+    target = "host.docker.internal:8787"
+    initialize(
+        deployment,
+        server_url="http://127.0.0.1:8000",
+        token="",
+        grafana_port=13000,
+        gateway_port=14318,
+        model_gateway_target=target,
+    )
+    jobs = {
+        job["job_name"]: job
+        for job in yaml.safe_load((deployment / "prometheus/prometheus.yaml").read_text())["scrape_configs"]
+    }
+    assert jobs["powercontext-gateway"]["metrics_path"] == "/gateway/metrics"
+    assert jobs["powercontext-gateway"]["static_configs"] == [{"targets": [target]}]
+    assert "authorization" not in jobs["powercontext-gateway"]
+    assert (deployment / "model-gateway.env").is_file()
+
+    dashboard = json.loads((deployment / "grafana/dashboards/main/pc-gateway.json").read_text())
+    expressions = [target["expr"] for panel in dashboard["panels"] for target in panel["targets"]]
+    names = {name for expr in expressions for name in re.findall(r"\bpowercontext_gateway_\w+", expr)}
+    assert names
+
+    def prometheus(request):
+        query = request.url.params["query"]
+        assert request.url.path == "/prometheus/api/v1/query"
+        assert 'job="powercontext-gateway"' in query
+        assert f'instance="{target}"' in query
+        if query.startswith("up"):
+            data = [{"value": [time.time(), "1"]}] if scraped else []
+        else:
+            selected = re.search(r'__name__=~"([^"]+)"', query)
+            assert selected is not None
+            assert set(selected[1].split("|")) == names
+            # One series per family is enough. Rare events can all remain at zero.
+            data = [
+                {"metric": {"__name__": name}, "value": [time.time(), str(int(name.endswith("_calls_total")))]}
+                for name in sorted(names)
+                if name != missing
+            ]
+        return httpx.Response(200, json={"data": {"result": data}})
+
+    with httpx.Client(transport=httpx.MockTransport(prometheus), base_url="http://backend") as client:
+        monkeypatch.setattr("powercontext.observability.cli.backend_client", lambda *_: nullcontext(client))
+        for name in ("_sampled_request", "_verify_delivery", "wait_for_phoenix"):
+            monkeypatch.setattr(f"powercontext.observability.cli.{name}", lambda *_: None)
+        result = CliRunner().invoke(app, ["check", *(["--exercise"] if exercise else [])])
+    assert result.exit_code == (0 if scraped and missing is None else 1), result.output
+    assert expected in result.output
+    if missing:
+        assert missing in result.output
+
+
 def test_unsupported_backend_has_no_side_effects(tmp_path, monkeypatch):
     directory = tmp_path / "absent"
     monkeypatch.setenv("POWERCONTEXT_OBSERVABILITY_HOME", str(directory))

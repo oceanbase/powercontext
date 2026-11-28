@@ -76,6 +76,7 @@ Rules decide only what to keep and how to organize it. The output schema, tools 
 - **Task outcomes:** Claude Code, Codex, and OpenCode get per-turn guidance to record evidence at actual task completion or explicit interruption.
 - **Reviewed changes:** generated experiences and skills are recalled only after review; Dream revisions take effect after your approval; outdated memories can be retired while their history is kept.
 - **Clear boundaries:** Scopes isolate data and access; operational telemetry excludes prompts, content, and model responses.
+- **Model Gateway observability** provides model traffic metrics and sampled traces in the reference monitoring stack.
 
 [Review candidates →](https://powercontext.oceanbase.io/en/docs/workflows/review-candidates/) · [Scopes and access →](https://powercontext.oceanbase.io/en/docs/workflows/scopes-and-access/)
 

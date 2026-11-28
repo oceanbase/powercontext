@@ -179,6 +179,9 @@ impl JsonEvidenceSink {
     }
 }
 impl EvidenceSink for JsonEvidenceSink {
+    fn evidence_stats(&self) -> Option<EvidenceStats> {
+        Some(self.stats())
+    }
     fn record_call(&self, evidence: &CallEvidence) {
         self.submit(EvidenceEvent::Call(evidence.clone()));
     }

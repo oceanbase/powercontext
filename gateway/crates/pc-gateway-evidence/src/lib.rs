@@ -191,6 +191,48 @@ pub enum EvidenceEvent {
     Delivery(DeliveryEvidence),
 }
 
+/// Fixed stages of a managed call. Durations use a monotonic clock.
+#[derive(Clone, Copy)]
+pub enum CallStage {
+    Classify,
+    Enrich,
+    Prepare,
+    BeforeSend,
+    BeforeRelease,
+    Upstream,
+}
+
+#[derive(Clone, Copy)]
+pub enum PrepareResult {
+    Replay,
+    Prepared,
+    Skipped,
+    Failed,
+    Empty,
+}
+
+pub struct StageTimer<'a> {
+    stage: CallStage,
+    started: std::time::Instant,
+    sink: &'a dyn EvidenceSink,
+}
+
+impl<'a> StageTimer<'a> {
+    pub fn new(sink: &'a dyn EvidenceSink, stage: CallStage) -> Self {
+        Self {
+            stage,
+            started: std::time::Instant::now(),
+            sink,
+        }
+    }
+}
+
+impl Drop for StageTimer<'_> {
+    fn drop(&mut self) {
+        self.sink.record_stage(self.stage, self.started);
+    }
+}
+
 /// Synchronous submissions MUST be bounded, nonblocking and non-I/O.
 /// Use JsonEvidenceSink to isolate arbitrary I/O on a dedicated bounded worker.
 pub trait EvidenceSink: Send + Sync {
@@ -200,6 +242,15 @@ pub trait EvidenceSink: Send + Sync {
     fn record_call(&self, evidence: &CallEvidence);
     fn record_attempt_evidence(&self, _evidence: &AttemptEvidence) {}
     fn record_delivery(&self, _evidence: &DeliveryEvidence) {}
+    fn record_stage(&self, _stage: CallStage, _started: std::time::Instant) {}
+    fn record_prepare(&self, _result: PrepareResult) {}
+    fn record_context_refresh(&self) {}
+    fn record_admission(&self, _contexts: usize, _bytes: u64) {}
+    fn record_withhold(&self, _retryable: bool) {}
+    fn record_core_block(&self) {}
+    fn evidence_stats(&self) -> Option<EvidenceStats> {
+        None
+    }
 }
 
 #[derive(Debug, Default, Clone, Copy)]
