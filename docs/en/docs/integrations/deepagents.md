@@ -126,8 +126,8 @@ with Deep Agents' own `create_deep_agent`, and remove any `PowerContextMiddlewar
 subagent specifications. The middleware never stores recalled context in agent state, so an existing thread can
 continue behind the gateway.
 
-The application owns the model client. Point it at the gateway's Responses route, and name the conversation in an
-`X-PowerContext-Conversation-ID` header:
+The application owns the model client. Point it at the gateway's Responses route, name the conversation in an
+`X-PowerContext-Conversation-ID` header, and select the Scope in an `X-PowerContext-Scope-ID` header:
 
 ```python
 import os
@@ -136,13 +136,16 @@ from deepagents import create_deep_agent
 from langchain_openai import ChatOpenAI
 
 
-def gateway_agent(thread_id: str):
+def gateway_agent(thread_id: str, scope_id: str):
     model = ChatOpenAI(
         model="approved-model",
         base_url="http://127.0.0.1:8787/gateway/v1",
         api_key=os.environ["PC_GATEWAY_KEY"],
         use_responses_api=True,
-        default_headers={"X-PowerContext-Conversation-ID": thread_id},
+        default_headers={
+            "X-PowerContext-Conversation-ID": thread_id,
+            "X-PowerContext-Scope-ID": scope_id,
+        },
     )
     return create_deep_agent(model, tools=application_tools, subagents=subagents)
 ```
@@ -150,7 +153,7 @@ def gateway_agent(thread_id: str):
 Without the adapter, the gateway takes over what the adapter did:
 
 - Recall: the gateway prepares context for every model request it carries. A declarative subagent without its own
-  `model` uses the main agent's model, so its requests carry the same header; its user message is the task
+  `model` uses the main agent's model, so its requests carry the same headers; its user message is the task
   description, so the gateway prepares context for the task. A subagent that names its own `model`, and a compiled
   subagent's graph, receive context only when their model also points at the gateway.
 - Capture: `auto_capture` no longer applies. The gateway captures each released response that does not call a tool
@@ -162,14 +165,23 @@ Without the adapter, the gateway takes over what the adapter did:
 `PC_GATEWAY_KEY` holds the gateway's `PC_GATEWAY_API_KEY` value. Use one stable ID per conversation, such as the
 checkpointer's thread ID, of 1 to 256 visible ASCII characters; never one ID for every conversation. A combined
 deployment (`PC_GATEWAY_CORE_UDS`) prepares once per user message of a conversation and replays that context to the
-tool-loop steps of the message. Without the header, it infers the conversation from the opening of the request:
-`ChatOpenAI` sends the thread's full history on every call unless `use_previous_response_id=True`, and a history that
-opens with system messages and a user message qualifies. Without the header, a subagent task gets its own inferred
-conversation, because it starts a new history; a subagent with `mode: "fork"` carries the parent's history and shares
-its inferred conversation. The header still keeps apart conversations that open the same way, and gives capture and
-prefix extraction a conversation identity that stays the same across gateway restarts; an inferred ID is local to the
-gateway process and serves only preparation replay. A standalone gateway (`PC_GATEWAY_CORE_BASE`) injects only with
-`PC_GATEWAY_INJECTION=on`. See [Gateway context injection](../operate/deploy-server.md#gateway-context-injection).
+tool-loop steps of the message. Without the conversation header, it infers the conversation from the opening of the
+request: `ChatOpenAI` sends the thread's full history on every call unless `use_previous_response_id=True`, and a
+history that opens with system messages and a user message qualifies. Without the conversation header, a subagent task
+gets its own inferred conversation, because it starts a new history; a subagent with `mode: "fork"` carries the parent's
+history and shares its inferred conversation. The conversation header still keeps apart conversations that open the same
+way, and gives capture and prefix extraction a conversation identity that stays the same across gateway restarts; an
+inferred ID is local to the gateway process and serves only preparation replay. A standalone gateway
+(`PC_GATEWAY_CORE_BASE`) injects only with `PC_GATEWAY_INJECTION=on`. See [Gateway context
+injection](../operate/deploy-server.md#gateway-context-injection).
+
+`X-PowerContext-Scope-ID` selects the Scope in which the gateway prepares and captures the conversation, and Core
+checks each of its requests in that Scope. Pass the Scope the adapter used for the thread, so that the gateway recalls
+the Memory captured before, and send the same Scope on every request of a conversation. A subagent whose own model
+points at the gateway needs the header as well. Without the header, the gateway uses `PC_GATEWAY_DEFAULT_SCOPE`. When
+Core enforces authentication, the gateway's Core credential needs access to every Scope that requests select, not only
+to `PC_GATEWAY_DEFAULT_SCOPE`. Any client that can call the gateway can select any Scope that this credential can
+access; see [Gateway request Scope](../operate/deploy-server.md#gateway-request-scope).
 
 Use the Responses route (`use_responses_api=True`). There the gateway calls the model without streaming, captures the
 checked response, and replays it as a stream to a client that streams. On the Chat Completions route, an enforcing Core
@@ -187,8 +199,8 @@ Configure Core and the gateway as well:
   returns HTTP 400. See [Configure a supported target](../operate/inference-protection.md#configure-a-supported-target).
 - Set `PC_GATEWAY_UPSTREAM_URL_RESPONSES` and `PC_GATEWAY_UPSTREAM_API_KEY_RESPONSES` to the provider's Responses
   endpoint and key, `PC_GATEWAY_SEDIMENT=on`, and `PC_GATEWAY_CORE_TOKEN` when Core enforces authentication.
-- The gateway prepares and captures every conversation in the one Scope that `PC_GATEWAY_DEFAULT_SCOPE` names. Set it to
-  the Scope the adapter used, so that the gateway recalls the Memory captured before.
+- Set `PC_GATEWAY_DEFAULT_SCOPE` to the Scope for requests without `X-PowerContext-Scope-ID`. If the application does
+  not send the header, set it to the Scope the adapter used, so that the gateway recalls the Memory captured before.
 
 ## Runnable examples
 

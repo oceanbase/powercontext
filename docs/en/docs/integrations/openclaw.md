@@ -242,9 +242,15 @@ Configure Core and the gateway as well:
   [Configure a supported target](../operate/inference-protection.md#configure-a-supported-target).
 - Set `PC_GATEWAY_UPSTREAM_URL_RESPONSES` and `PC_GATEWAY_UPSTREAM_API_KEY_RESPONSES` to the provider's Responses
   endpoint and key, `PC_GATEWAY_SEDIMENT=on`, and `PC_GATEWAY_CORE_TOKEN` when Core enforces authentication.
-- The gateway prepares and captures every conversation in the one Scope that `PC_GATEWAY_DEFAULT_SCOPE` names, not in
-  the Scope this plugin resolves for each session or project. Set the plugin's `scopeId` and `PC_GATEWAY_DEFAULT_SCOPE`
-  to the same existing Scope.
+- The gateway prepares and captures in the Scope that a request selects with `X-PowerContext-Scope-ID`, and uses
+  `PC_GATEWAY_DEFAULT_SCOPE` when the header is absent. OpenClaw sends a provider's static `headers` with each request
+  to that provider, so they can select one Scope for every OpenClaw session that uses the provider, not the Scope this
+  plugin resolves for each session or project. Set the plugin's `scopeId` to an existing Scope, and either add
+  `headers: { "X-PowerContext-Scope-ID": "<scope-id>" }` with that Scope to the `powercontext-gateway` provider or set
+  `PC_GATEWAY_DEFAULT_SCOPE` to it. When Core enforces authentication, the gateway's Core credential needs access to
+  every Scope that requests select, not only to `PC_GATEWAY_DEFAULT_SCOPE`. Any client that can call the gateway can
+  select any Scope that this credential can access; see
+  [Gateway request Scope](../operate/deploy-server.md#gateway-request-scope).
 - OpenClaw 2026.8.1 sends its session headers only to OpenAI's own endpoints, and a provider's `headers` are the same
   for every session, so no OpenClaw request names a conversation. A combined deployment (`PC_GATEWAY_CORE_UDS`) infers
   it instead: on a custom provider OpenClaw sends the session's full history on every request, opening with its system

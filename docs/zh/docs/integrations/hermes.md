@@ -211,10 +211,30 @@ gateway 在启动时发现 Core 的模式，修改模式后请重启 gateway。
 - 把 `PC_GATEWAY_UPSTREAM_URL_RESPONSES` 和 `PC_GATEWAY_UPSTREAM_API_KEY_RESPONSES` 设为供应商的 Responses 端点和密钥，
   把 `PC_GATEWAY_API_KEY` 设为 Hermes 发送的密钥，设置 `PC_GATEWAY_SEDIMENT=on`；
   Core 启用鉴权时还要设置 `PC_GATEWAY_CORE_TOKEN`。
-- gateway 在 `PC_GATEWAY_DEFAULT_SCOPE` 指定的同一个 Scope 中准备和采集所有会话，
-  而不是 provider 为每个 workspace 解析的 Scope。
-  请把 `PC_GATEWAY_DEFAULT_SCOPE` 设为 `hermes powercontext status` 输出的 `scope_id`，
-  或把 provider 的 `scope_id` 和 `PC_GATEWAY_DEFAULT_SCOPE` 设为同一个已有的 Scope。
+- gateway 在请求以 `X-PowerContext-Scope-ID` 选择的 Scope 中准备和采集，
+  未发送该请求头时使用 `PC_GATEWAY_DEFAULT_SCOPE`。
+  请使用 `hermes powercontext status` 输出的 `scope_id`，或把 provider 的 `scope_id` 设为一个已有的 Scope 并使用它。
+  请把 `PC_GATEWAY_DEFAULT_SCOPE` 设为这个 Scope；gateway 只服务 Hermes 时，这样就够了。
+- 要由 Hermes 发送 Scope，请在 `~/.hermes/config.yaml` 的 `model` 部分加入 `extra_headers`：
+
+  ```yaml
+  model:
+    extra_headers:
+      X-PowerContext-Scope-ID: <scope-id>
+  ```
+
+  Hermes 0.20.4 会把这些请求头加到 agent 的模型客户端，以及它为自定义端点构建的辅助客户端上，
+  因此标题或压缩摘要等辅助请求也带有这个 Scope。Hermes 也会把它们发给它调用的其他 OpenAI 兼容端点，
+  而不只是 gateway。
+- 也可以把同样的 `extra_headers` 加到 `providers` 下的 `powercontext-gateway` 条目中。
+  Hermes 只把条目的 `extra_headers` 加到该条目端点的客户端上。
+  Hermes 0.20.4 构建辅助请求（例如标题或压缩摘要）时不带这些请求头，
+  因此 gateway 在 `PC_GATEWAY_DEFAULT_SCOPE` 中准备这些请求；设置 `PC_GATEWAY_SEDIMENT=on` 后，
+  也在其中采集它们。在与其他客户端共用的 gateway 上，这可能是另一个客户端的 Scope。
+- 无论哪种方式，这些请求头对每个会话都相同，因此所有 Hermes 会话都在这一个 Scope 中工作，
+  而不是 provider 为每个 workspace 解析的 Scope。Core 启用鉴权时，gateway 的 Core 凭据需要能访问请求选择的每个 Scope，
+  而不只是 `PC_GATEWAY_DEFAULT_SCOPE`。任何能调用 gateway 的客户端，都能选择该凭据可访问的任何 Scope。
+  见[Gateway 请求 Scope](../operate/deploy-server.md#gateway-请求-scope)。
 - 请以组合部署（`PC_GATEWAY_CORE_UDS`）运行 gateway，它默认会向 Hermes 的请求注入上下文。
   Hermes 0.20.4 不向自定义 Responses 端点发送按会话区分的请求头，而 provider 的 `extra_headers` 对每个会话都相同，
   因此 gateway 改为从请求本身推导会话。

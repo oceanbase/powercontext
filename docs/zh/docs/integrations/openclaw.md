@@ -224,8 +224,15 @@ gateway 在 Chat Completions 路由上转发流式请求，并原样放行流式
   见[配置受支持的目标](../operate/inference-protection.md#配置受支持的目标)。
 - 把 `PC_GATEWAY_UPSTREAM_URL_RESPONSES` 和 `PC_GATEWAY_UPSTREAM_API_KEY_RESPONSES` 设为供应商的 Responses 端点和密钥，
   设置 `PC_GATEWAY_SEDIMENT=on`；Core 启用鉴权时还要设置 `PC_GATEWAY_CORE_TOKEN`。
-- gateway 在 `PC_GATEWAY_DEFAULT_SCOPE` 指定的同一个 Scope 中准备和采集所有会话，而不是插件为每个会话或项目解析的
-  Scope。请把插件的 `scopeId` 和 `PC_GATEWAY_DEFAULT_SCOPE` 设为同一个已有的 Scope。
+- gateway 在请求以 `X-PowerContext-Scope-ID` 选择的 Scope 中准备和采集，
+  未发送该请求头时使用 `PC_GATEWAY_DEFAULT_SCOPE`。OpenClaw 会在发给某个 provider 的每个请求中带上该 provider 的静态
+  `headers`，因此它们可以为使用这个 provider 的所有 OpenClaw 会话选择同一个 Scope，
+  而不是插件为每个会话或项目解析的 Scope。请把插件的 `scopeId` 设为一个已有的 Scope，
+  然后在 `powercontext-gateway` provider 中加入 `headers: { "X-PowerContext-Scope-ID": "<scope-id>" }`
+  并填入这个 Scope，或把 `PC_GATEWAY_DEFAULT_SCOPE` 设为它。
+  Core 启用鉴权时，gateway 的 Core 凭据需要能访问请求选择的每个 Scope，
+  而不只是 `PC_GATEWAY_DEFAULT_SCOPE`。任何能调用 gateway 的客户端，
+  都能选择该凭据可访问的任何 Scope。见[Gateway 请求 Scope](../operate/deploy-server.md#gateway-请求-scope)。
 - OpenClaw 2026.8.1 只向 OpenAI 自己的端点发送会话头，而 provider 的 `headers` 对每个会话都相同，
   因此 OpenClaw 的请求不会标识会话。组合部署（`PC_GATEWAY_CORE_UDS`）会改为推导会话：在自定义 provider 上，
   OpenClaw 每次请求都发送会话的完整历史，开头是它的系统提示词和第一条用户消息，因此 gateway 每条用户消息准备一次，

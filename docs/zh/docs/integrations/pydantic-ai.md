@@ -148,18 +148,32 @@ agent = Agent(model, toolsets=[toolset])
 result = await agent.run(
     prompt,
     message_history=history,
-    model_settings={"extra_headers": {"X-PowerContext-Conversation-ID": conversation_id}},
+    model_settings={
+        "extra_headers": {
+            "X-PowerContext-Conversation-ID": conversation_id,
+            "X-PowerContext-Scope-ID": scope_id,
+        },
+    },
 )
 ```
 
-`PC_GATEWAY_KEY` 保存 gateway 的 `PC_GATEWAY_API_KEY` 值。这个请求头标识会话：每个会话使用一个稳定的 ID，长度为 1～256
+`PC_GATEWAY_KEY` 保存 gateway 的 `PC_GATEWAY_API_KEY` 值。`X-PowerContext-Conversation-ID` 请求头标识会话：
+每个会话使用一个稳定的 ID，长度为 1～256
 个可见 ASCII 字符；不要让所有会话共用一个 ID。组合部署（`PC_GATEWAY_CORE_UDS`）
-在一个会话中每条用户消息准备一次，并把结果重放给本次运行的工具循环步骤。没有这个请求头时，它根据请求的历史开头推导会话：
+在一个会话中每条用户消息准备一次，并把结果重放给本次运行的工具循环步骤。没有会话请求头时，它根据请求的历史开头推导会话：
 除非设置 `openai_previous_response_id` 或 `openai_conversation_id`，Pydantic AI 每次请求都发送完整的消息历史；
-以 system 消息和一条用户 prompt 开头的历史即可推导。请求头仍能区分开头相同的会话，
+以 system 消息和一条用户 prompt 开头的历史即可推导。会话请求头仍能区分开头相同的会话，
 并为采集和前缀提取提供在 gateway 重启后保持不变的会话标识；推导出的 ID 仅在当前 gateway 进程内用于重放准备结果。
 独立运行的 gateway（`PC_GATEWAY_CORE_BASE`）只有设置 `PC_GATEWAY_INJECTION=on` 才会注入。
 见[网关上下文注入](../operate/deploy-server.md#网关上下文注入)。
+
+`X-PowerContext-Scope-ID` 选择 gateway 准备和采集该会话所用的 Scope，Core 也在这个 Scope 中检查会话的每个请求。
+请传入 Toolset 为本次运行解析的 Scope，使工具搜索和写入的正是 gateway 召回的 Memory；
+同一会话的每次运行都应使用相同的 Scope。
+未发送该请求头时，gateway 使用 `PC_GATEWAY_DEFAULT_SCOPE`。
+Core 启用鉴权时，gateway 的 Core 凭据需要能访问请求选择的每个 Scope，
+而不只是 `PC_GATEWAY_DEFAULT_SCOPE`。任何能调用 gateway 的客户端，
+都能选择该凭据可访问的任何 Scope。见[Gateway 请求 Scope](../operate/deploy-server.md#gateway-请求-scope)。
 
 开始经过 gateway 时请使用新的消息历史。使用 Capability 的运行会把召回内容作为 system prompt part 保留在历史中；
 模型调用过 `powercontext_context` 的历史会保留该结果。Core 会拒绝带有其中任何一种的请求。经过 gateway 的运行，
@@ -180,8 +194,8 @@ result = await agent.run(
   见[配置受支持的目标](../operate/inference-protection.md#配置受支持的目标)。
 - 把 `PC_GATEWAY_UPSTREAM_URL_RESPONSES` 和 `PC_GATEWAY_UPSTREAM_API_KEY_RESPONSES` 设为供应商的 Responses 端点和密钥，
   设置 `PC_GATEWAY_SEDIMENT=on`；Core 启用鉴权时还要设置 `PC_GATEWAY_CORE_TOKEN`。
-- gateway 在 `PC_GATEWAY_DEFAULT_SCOPE` 指定的同一个 Scope 中准备和采集所有会话。请把它设为 Toolset 解析的 Scope，
-  使工具搜索和写入的正是 gateway 召回的 Memory。
+- 把 `PC_GATEWAY_DEFAULT_SCOPE` 设为不带 `X-PowerContext-Scope-ID` 的请求所用的 Scope。应用不发送该请求头时，
+  请把它设为 Toolset 解析的 Scope，使工具搜索和写入的正是 gateway 召回的 Memory。
 
 ## 与 MCP 备选方案比较
 
