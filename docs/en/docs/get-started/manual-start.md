@@ -29,7 +29,7 @@ Manual startup does not mean compiling PowerContext from source. It means runnin
 
 ## Prerequisites
 
-You need Python 3.11 or newer, Git, [uv](https://docs.astral.sh/uv/getting-started/installation/), and an Agent CLI such as Codex CLI if you want to connect an Agent.
+You need CPython 3.11–3.14, Git, [uv](https://docs.astral.sh/uv/getting-started/installation/), and an Agent CLI such as Codex CLI if you want to connect an Agent.
 
 ```bash
 python3 --version
@@ -49,7 +49,7 @@ source "$HOME/.local/bin/env"
 Install the PowerContext CLI and local Server:
 
 ```bash
-uv tool install --force "powercontext[cli,server]==1.6.0"
+uv tool install --python ">=3.11,<3.15" --force "powercontext[cli,server]==1.6.0"
 powercontext --version
 powercontext --help
 ```

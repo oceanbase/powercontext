@@ -16,6 +16,8 @@ Use this guide to install PowerContext and run a personal Server. For your first
 
 Windows CLI, Server, and personal-service support is experimental. Each Agent host has its own requirements. Embedded seekDB is unavailable on Windows. Bash examples below require a Bash shell.
 
+PowerContext includes a native lexical analyzer. Compatible wheels support CPython 3.11–3.14 on Linux x86_64/arm64, macOS x86_64/arm64 and Windows x86_64. Wheel installation needs no compiler. Source installation requires Rust 1.97.1 and a platform C toolchain; on Windows use MSVC. The normal built-in search path uses the native analyzer automatically. Python 3.15 and later are unsupported until their Unicode behavior is implemented and verified. uv does not enforce the upper `Requires-Python` bound, so keep the explicit `--python ">=3.11,<3.15"` selection when installing or upgrading. To upgrade an existing tool environment, use `uv tool upgrade --python ">=3.11,<3.15" powercontext`; uv selects a compatible interpreter before replacing the environment.
+
 ## Install with the recommended script
 
 The script installs the CLI and local Server in an isolated uv tool environment. It reuses compatible Python and uv, or installs the missing prerequisites in your user directory. You do not need administrator privileges.
@@ -153,7 +155,7 @@ To choose installation locations, use `UV_INSTALL_DIR` for a missing uv and `UV_
 If you already manage Python and uv, you can install or upgrade to the latest stable release directly, then install Agent integrations matching the installed version:
 
 ```bash
-uv tool install --upgrade --force "powercontext[cli,server]"
+uv tool install --python ">=3.11,<3.15" --upgrade --force "powercontext[cli,server]"
 powercontext setup codex --ref "powercontext-v$(powercontext --version)"
 ```
 
@@ -162,7 +164,7 @@ powercontext setup codex --ref "powercontext-v$(powercontext --version)"
 To pin a release, for example PowerContext 1.6.0, keep the package and Agent integration on the same version: package `1.6.0` and Git tag `powercontext-v1.6.0`.
 
 ```bash
-uv tool install --force "powercontext[cli,server]==1.6.0"
+uv tool install --python ">=3.11,<3.15" --force "powercontext[cli,server]==1.6.0"
 powercontext setup codex --ref powercontext-v1.6.0
 ```
 
@@ -170,16 +172,16 @@ Check the [capability matrix](../integrations/capabilities.md) for host support 
 
 ### Install the application
 
-You need Python 3.11 or newer, Git, and [`uv`](https://docs.astral.sh/uv/) on macOS, Linux, or Windows. Then install PowerContext from PyPI:
+You need CPython 3.11–3.14, Git, and [`uv`](https://docs.astral.sh/uv/) on macOS, Linux, or Windows. Then install PowerContext from PyPI:
 
 ```bash
-uv tool install --upgrade --force "powercontext[cli,server]"
+uv tool install --python ">=3.11,<3.15" --upgrade --force "powercontext[cli,server]"
 ```
 
 For a source installation of a pinned release, for example PowerContext 1.6.0:
 
 ```bash
-uv tool install --force "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@powercontext-v1.6.0"
+uv tool install --python ">=3.11,<3.15" --force "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@powercontext-v1.6.0"
 ```
 
 For a machine that only connects to a remote Server, the `cli` extra includes `setup`, `doctor`, and remote content commands. Add `server` to run a local Server or use the `service` commands. If a command provider has a missing dependency, the CLI reports the provider and missing module so the installation can be repaired.
@@ -237,7 +239,7 @@ This minimal launch does not enable model-backed extraction or vector search. To
 Embedded seekDB is available on Linux and macOS when a compatible `pylibseekdb` wheel is available. Windows does not support this embedded backend. Install or replace the tool with the optional seekDB extra:
 
 ```bash
-uv tool install --force "powercontext[cli,server,seekdb]==1.6.0"
+uv tool install --python ">=3.11,<3.15" --force "powercontext[cli,server,seekdb]==1.6.0"
 ```
 
 When switching from SQLite, remove `POWERCONTEXT_SERVER_DATABASE_URL` from the Server process environment. An explicit SQLAlchemy database URL is not valid for seekDB. Then select the backend and start the Server:

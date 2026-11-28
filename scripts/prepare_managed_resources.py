@@ -105,6 +105,12 @@ def target_spec(target: str, *, native: bool = True) -> dict[str, Any]:
     return spec
 
 
+def build_tool_packages(target: str) -> list[dict[str, Any]]:
+    """Select the pinned build wheels that can run on this producer target."""
+    lock = json.loads(_BUILD_TOOLS.read_bytes())
+    return [item for item in lock["packages"] if "targets" not in item or target in item["targets"]]
+
+
 def _download(url: str, partial: Path) -> None:
     command = [
         "curl",
@@ -357,14 +363,14 @@ def prepare(args: argparse.Namespace) -> None:  # noqa: C901 - ordered acquisiti
         work = Path(temporary).resolve()
         runtime = work / "runtime"
         aliases = extract_runtime(output / "python.tar.gz", runtime, case_sensitive=spec["platform"] == "linux")
-        build_lock = json.loads(_BUILD_TOOLS.read_bytes())
+        build_tools = build_tool_packages(args.target)
         tooling = work / "tooling"
         tooling.mkdir()
-        for item in build_lock["packages"]:
+        for item in build_tools:
             acquire(item, tooling / item["filename"], args.download_cache)
         tool_requirements = tooling / "requirements.lock"
         tool_requirements.write_text(
-            "".join(f"{p['name']}=={p['version']} --hash=sha256:{p['sha256']}\n" for p in build_lock["packages"]),
+            "".join(f"{p['name']}=={p['version']} --hash=sha256:{p['sha256']}\n" for p in build_tools),
             encoding="utf-8",
         )
         env = environment()
@@ -552,7 +558,7 @@ def prepare(args: argparse.Namespace) -> None:  # noqa: C901 - ordered acquisiti
             },
             "build_tools": {
                 "lock_sha256": sha256(_BUILD_TOOLS),
-                "packages": build_lock["packages"],
+                "packages": build_tools,
                 "uv_version": subprocess.check_output([uv, "--version"], text=True).strip(),
             },
             "upstream_artifacts": dependencies,

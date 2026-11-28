@@ -137,9 +137,19 @@ struct Gateway {
     server: tokio::task::JoinHandle<()>,
     state: Arc<Receiver>,
     base: String,
+    stderr: std::path::PathBuf,
     steering: Option<std::path::PathBuf>,
     uds: Option<(tokio::task::JoinHandle<()>, std::path::PathBuf)>,
 }
+
+enum StartupFailure {
+    PortInUse,
+    Exited(String),
+    TimedOut(String),
+}
+
+static NEXT_GATEWAY_ID: AtomicUsize = AtomicUsize::new(0);
+
 impl Drop for Gateway {
     fn drop(&mut self) {
         let _ = self.process.kill();
@@ -155,24 +165,12 @@ impl Drop for Gateway {
         if let Some(path) = &self.steering {
             let _ = std::fs::remove_file(path);
         }
+        let _ = std::fs::remove_file(&self.stderr);
     }
 }
 impl Gateway {
-    fn take_stderr(&mut self) -> String {
-        let mut output = String::new();
-        if let Some(mut stderr) = self.process.stderr.take() {
-            let _ = std::io::Read::read_to_string(&mut stderr, &mut output);
-        }
-        output
-    }
-
-    fn assert_running(&mut self) {
-        if let Some(status) = self.process.try_wait().unwrap() {
-            panic!(
-                "gateway exited during startup: {status}; {}",
-                self.take_stderr()
-            );
-        }
+    fn take_stderr(&self) -> String {
+        std::fs::read_to_string(&self.stderr).unwrap_or_default()
     }
 
     async fn start(
@@ -202,6 +200,45 @@ impl Gateway {
         chunked_response: bool,
         combined: bool,
     ) -> Self {
+        // The child binds its own port after the helper releases its probe. A concurrent
+        // gateway process can claim that port first, so retry only the observed bind race.
+        let mut attempt = 0;
+        loop {
+            attempt += 1;
+            assert!(
+                attempt <= 5,
+                "gateway could not bind a free port in 5 attempts"
+            );
+            match Self::start_attempt(
+                caps.clone(),
+                deployment_limit,
+                injection,
+                steering,
+                chunked_response,
+                combined,
+            )
+            .await
+            {
+                Ok(gateway) => return gateway,
+                Err(StartupFailure::PortInUse) => continue,
+                Err(StartupFailure::Exited(message)) => {
+                    panic!("gateway exited during startup: {message}")
+                }
+                Err(StartupFailure::TimedOut(message)) => {
+                    panic!("gateway startup timed out: {message}")
+                }
+            }
+        }
+    }
+
+    async fn start_attempt(
+        caps: Value,
+        deployment_limit: usize,
+        injection: Option<bool>,
+        steering: bool,
+        chunked_response: bool,
+        combined: bool,
+    ) -> Result<Self, StartupFailure> {
         let state = Arc::new(Receiver {
             caps,
             check_limit: AtomicUsize::new(CONTEXT_CHECK_BODY_LIMIT),
@@ -233,11 +270,16 @@ impl Gateway {
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let address = listener.local_addr().unwrap();
         drop(listener);
+        let gateway_id = NEXT_GATEWAY_ID.fetch_add(1, Ordering::Relaxed);
+        let stderr =
+            std::env::temp_dir().join(format!("pc2464-{}-{}.log", std::process::id(), gateway_id));
+        let stderr_file = std::fs::File::create(&stderr).unwrap();
         let mut command = Command::new(env!("CARGO_BIN_EXE_pc-gateway"));
         command
             .env_clear()
             .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
+            .stderr(Stdio::from(stderr_file))
+            .env("NO_COLOR", "1")
             .env("PC_GATEWAY_LISTEN", address.to_string())
             .env(
                 "PC_GATEWAY_UPSTREAM_API_KEY",
@@ -258,7 +300,11 @@ impl Gateway {
         }
         command.env("PC_GATEWAY_MAX_CONCURRENT", "1");
         let uds = combined.then(|| {
-            let path = std::env::temp_dir().join(format!("pc2464-{}-{}.sock", std::process::id(), address.port()));
+            let path = std::env::temp_dir().join(format!(
+                "pc2464-{}-{}.sock",
+                std::process::id(),
+                gateway_id
+            ));
             let listener = tokio::net::UnixListener::bind(&path).unwrap();
             command.env("PC_GATEWAY_CORE_UDS", &path);
             let task = tokio::spawn(async move {
@@ -288,7 +334,7 @@ impl Gateway {
             let path = std::env::temp_dir().join(format!(
                 "pc2464-{}-{}.txt",
                 std::process::id(),
-                address.port()
+                gateway_id
             ));
             std::fs::write(&path, "指令".repeat(100)).unwrap();
             command.env("PC_GATEWAY_STEERING_FILE", &path);
@@ -313,13 +359,32 @@ impl Gateway {
             server,
             state,
             base: format!("http://{address}"),
+            stderr,
             steering,
             uds,
         };
-        let client = reqwest::Client::new();
-        tokio::time::timeout(Duration::from_secs(10), async {
+        let client = reqwest::Client::builder()
+            .timeout(Duration::from_millis(250))
+            .build()
+            .unwrap();
+        let ready = tokio::time::timeout(Duration::from_secs(10), async {
             loop {
-                gateway.assert_running();
+                if let Some(status) = gateway.process.try_wait().unwrap() {
+                    let stderr = gateway.take_stderr();
+                    return if stderr.contains("Address already in use") {
+                        Err(StartupFailure::PortInUse)
+                    } else {
+                        Err(StartupFailure::Exited(format!(
+                            "exit status: {status}; {stderr}"
+                        )))
+                    };
+                }
+                let bound = std::fs::read_to_string(&gateway.stderr)
+                    .is_ok_and(|stderr| stderr.contains(&format!("addr={address}")));
+                if !bound {
+                    tokio::time::sleep(Duration::from_millis(10)).await;
+                    continue;
+                }
                 if let Ok(response) = client.get(format!("{}/healthz", gateway.base)).send().await {
                     if response.status() == StatusCode::OK
                         && response.json::<Value>().await.unwrap_or(Value::Null)["service"]
@@ -327,16 +392,20 @@ impl Gateway {
                     {
                         // The reserved port is released before spawn. A different
                         // receiver's HTTP response is not this child's readiness.
-                        gateway.assert_running();
-                        break;
+                        if gateway.process.try_wait().unwrap().is_none() {
+                            return Ok(());
+                        }
                     }
                 }
                 tokio::time::sleep(Duration::from_millis(10)).await;
             }
         })
-        .await
-        .unwrap();
-        gateway
+        .await;
+        match ready {
+            Ok(Ok(())) => Ok(gateway),
+            Ok(Err(failure)) => Err(failure),
+            Err(_) => Err(StartupFailure::TimedOut(gateway.take_stderr())),
+        }
     }
     async fn request(&self, route: &str, body: String, chunked: bool) -> (u16, String) {
         if !chunked {

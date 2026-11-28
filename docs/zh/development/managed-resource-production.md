@@ -55,7 +55,7 @@ cryptography 上游从 [49.0.0 移除了 x86_64 macOS 支持](https://cryptograp
 
 | 输入 | 固定身份 |
 | --- | --- |
-| Rust | `1.95.0`、`x86_64-apple-darwin` 分发包，SHA-256 `998af750fe2c28f0dbf193edc496c9a7407850486968f40ac11a8c8adfb7cfa6` |
+| Rust | `1.97.1`、`x86_64-apple-darwin` 分发包，SHA-256 `891c32ea77b750dccc7fb0ea98e3feb9db3d29fe0cfea5907d002f270c59cf58` |
 | OpenSSL | `4.0.3` 源码，SHA-256 `325b5c806167c13b40b1ffeadfe0248197c00eccc4cf123ec1e28d2d2fd216d9` |
 | 构建后端 | `maturin==1.14.1` 固定 Intel wheel、已有固定 setuptools，以及原生锁定的 cffi/pycparser wheel |
 | 编译器/SDK | Xcode `16.4` build `16F6`、macOS SDK `15.5`、部署目标 `10.13` |

@@ -40,8 +40,10 @@ the Server and plugin together.
 
 For this guided-setup build:
 
+This installs from source and compiles the native analyzer, so it needs Rust 1.97.1 and a platform C toolchain (MSVC on Windows); see [Platform support](../get-started/install-and-run.md#platform-support).
+
 ```bash
-uv tool install --force "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@master"
+uv tool install --python ">=3.11,<3.15" --force "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@master"
 powercontext setup dsh
 ```
 
@@ -49,10 +51,12 @@ Keep the Server package and the plugin on this same source branch when following
 
 For development, install both components from one checkout and record its commit:
 
+This installs from source and compiles the native analyzer, so it needs Rust 1.97.1 and a platform C toolchain (MSVC on Windows); see [Platform support](../get-started/install-and-run.md#platform-support).
+
 ```bash
 git clone --branch master https://github.com/oceanbase/powercontext.git powercontext-dsh-dev
 git -C powercontext-dsh-dev rev-parse HEAD
-uv tool install --force "./powercontext-dsh-dev[cli,server]"
+uv tool install --python ">=3.11,<3.15" --force "./powercontext-dsh-dev[cli,server]"
 powercontext setup dsh --source ./powercontext-dsh-dev
 ```
 

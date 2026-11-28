@@ -155,6 +155,9 @@ observability = [
   "tests/e2e/*observability*", "tests/builtin/runtime/*worker*", "tests/builtin/runtime/*model_usage*",
 ]
 packaging = [
+  "src/powercontext/builtin/artifacts/lexical/**", "src/powercontext/_lexical.pyi",
+  "scripts/build_lexical.py", "scripts/ci_verify_native_wheel.py", "scripts/ci_select_release_assets.py",
+  ".github/workflows/native-wheels.yml",
   "integrations/langchain/**", "tests/langchain_middleware/test_packaging.py",
   "website/public/install.sh", "website/public/install.ps1", ".github/workflows/installation.yml",
   "tests/test_installation_contract.py", "tests/native/test_installation.py", "tests/native/test_install_sources.py",
@@ -286,7 +289,7 @@ zcode = ["zcode-acceptance"]
 kimi = ["kimi-acceptance"]
 upgrade = ["upgrade-acceptance"]
 observability = ["worker-observability"]
-packaging = ["isolated-installations", "script-installation"]
+packaging = ["isolated-installations", "script-installation", "native-wheel-validation"]
 desktop = ["desktop-validation"]
 managed_resources = ["managed-resource-candidates"]
 candidate_replay = ["candidate-replay"]

@@ -18,6 +18,7 @@ import importlib.util
 import io
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -39,6 +40,8 @@ def _load_script(name: str) -> ModuleType:
 
 
 smoke = _load_script("ci_release_smoke")
+sys.path.insert(0, str(Path(__file__).parents[1] / "scripts"))
+selector = _load_script("ci_select_release_assets")
 
 
 @pytest.fixture
@@ -75,7 +78,9 @@ elif sys.argv[1:2] == ["venv"]:
         executable.chmod(0o755)
     output = tmp_path / "output"
 
-    def run(workflow_name: str, tag: str, package_version: str, *, with_installer=True, step_name=None):
+    def run(
+        workflow_name: str, tag: str, package_version: str, *, with_installer=True, step_name=None, portable_wheel=False
+    ):
         output.write_text("")
         workflow = yaml.safe_load(
             (Path(__file__).parents[1] / ".github" / "workflows" / workflow_name).read_text(encoding="utf-8")
@@ -95,6 +100,8 @@ elif sys.argv[1:2] == ["venv"]:
             "PATH": os.pathsep.join((str(bin_dir), str(Path(sys.executable).parent), os.environ.get("PATH", ""))),
             "PC_CI_PYTHON_INSTALLER": str(Path(__file__).parents[1] / "scripts/ci_python_mirror.py"),
             "PC_CI_PYTHON_MIRROR": "",
+            "PORTABLE_WHEEL": str(portable_wheel).lower(),
+            "UPGRADE_GATE_ROOT": str(tmp_path / "upgrade gate"),
             "RELEASE_TAG": tag,
             "RELEASE_PACKAGE": "powercontext",
             "TEST_PACKAGE_VERSION": package_version,
@@ -103,10 +110,36 @@ elif sys.argv[1:2] == ["venv"]:
             "RUNNER_ENVIRONMENT": "github-hosted",
             "GITHUB_OUTPUT": str(output),
         }
+        if portable_wheel:
+            wrapper = tmp_path / "upgrade gate" / ".github/scripts/portable-upgrade-build.sh"
+            wrapper.parent.mkdir(parents=True, exist_ok=True)
+            wrapper.write_text('#!/bin/sh\nprintf "%s\\n" "$@" > "$RUNNER_TEMP/portable-command"\nexec "$@"\n')
         if not with_installer:
             environment.pop("PC_CI_PYTHON_INSTALLER")
+        if workflow_name == "release-verify.yml":
+            metadata = tmp_path / "release.json"
+            metadata.write_text(json.dumps({"assets": [{"name": f"powercontext-{package_version}-py3-none-any.whl"}]}))
+            args = [
+                sys.executable,
+                str(Path(__file__).parents[1] / "scripts/ci_select_release_assets.py"),
+                "--metadata",
+                str(metadata),
+            ]
+            assert command == "python scripts/ci_select_release_assets.py"
+        elif os.name == "nt":
+            if step_name != "Verify package version from Release tag":
+                pytest.skip("release build shell fixtures require POSIX executable scripts")
+            source = command.removeprefix("python - <<'PY'\n").removesuffix("PY\n")
+            wrapper = (
+                "import os; from unittest.mock import patch\n"
+                "with patch('subprocess.check_output', return_value=os.environ['TEST_PACKAGE_VERSION']):\n"
+                f"    exec(compile({source!r}, 'upgrade-release.yml:version', 'exec'))\n"
+            )
+            args = [sys.executable, "-c", wrapper]
+        else:
+            args = [bash, "-eu", "-c", command]
         result = subprocess.run(
-            [bash, "-eu", "-c", command],
+            args,
             env=environment,
             cwd=tmp_path,
             capture_output=True,
@@ -141,6 +174,7 @@ def test_release_workflows_accept_python_release_versions(run_release_step, work
             "version": version,
             "wheel": f"powercontext-{version}-py3-none-any.whl",
             "sdist": f"powercontext-{version}.tar.gz",
+            "native": "false",
         }
 
 
@@ -166,15 +200,25 @@ def test_release_workflow_accepts_existing_tag_without_python_installer(run_rele
 
 
 @pytest.mark.parametrize("with_installer", [False, True])
-def test_release_build_and_fresh_install_support_tagged_setup(run_release_step, tmp_path, with_installer) -> None:
+@pytest.mark.parametrize("portable_wheel", [False, True])
+def test_release_build_and_fresh_install_support_tagged_setup(
+    run_release_step, tmp_path, with_installer, portable_wheel
+) -> None:
     result, _ = run_release_step(
         "release.yml",
         "powercontext-v1.5.2",
         "1.5.2",
         with_installer=with_installer,
         step_name="Build release distributions",
+        portable_wheel=portable_wheel,
     )
     assert result.returncode == 0, result.stderr
+    if portable_wheel:
+        command = (tmp_path / "portable-command").read_text().splitlines()
+        expected = (
+            ["python", str(Path(__file__).parents[1] / "scripts/ci_python_mirror.py")] if with_installer else ["uv"]
+        )
+        assert command == [*expected, "build", "--out-dir", "dist"]
     validated = tmp_path / "release-without-upgrades" / "validated-dist"
     shutil.copytree(tmp_path / "dist", validated)
     result, _ = run_release_step(
@@ -310,3 +354,211 @@ def test_release_smoke_resolves_console_script_from_verification_python(tmp_path
     console_script.touch()
 
     assert smoke._console_script(python) == console_script
+
+
+def _release_assets(*names: str):
+    return {"assets": [{"name": name} for name in names]}
+
+
+def test_native_release_detection_selects_the_installable_platform_wheel():
+    from packaging.tags import Tag
+
+    linux = "powercontext-1.4.1-cp311-abi3-manylinux_2_28_x86_64.whl"
+    release = _release_assets(
+        linux,
+        "powercontext-1.4.1-cp311-abi3-manylinux_2_28_aarch64.whl",
+        "powercontext-1.4.1-cp311-abi3-win_amd64.whl",
+        "powercontext-1.4.1-cp311-abi3-macosx_11_0_arm64.whl",
+        "powercontext-1.4.0-py3-none-any.whl",
+        "powercontext-1.4.1-not-a-wheel.whl",
+    )
+    result = selector.select_assets(release, "1.4.1", "auto", [Tag("cp311", "abi3", "manylinux_2_28_x86_64")])
+    assert result == {
+        "package": "powercontext",
+        "version": "1.4.1",
+        "wheel": linux,
+        "sdist": "powercontext-1.4.1.tar.gz",
+        "native": "true",
+    }
+
+
+def test_native_release_selection_follows_python_tag_preference():
+    from packaging.tags import Tag
+
+    native = "powercontext-1.4.1-cp311-abi3-manylinux_2_28_x86_64.whl"
+    pure = "powercontext-1.4.1-py3-none-any.whl"
+    result = selector.select_assets(
+        _release_assets(pure, native),
+        "1.4.1",
+        "powercontext",
+        [Tag("cp311", "abi3", "manylinux_2_28_x86_64"), Tag("py3", "none", "any")],
+    )
+    assert result["wheel"] == native
+
+
+@pytest.mark.parametrize("package", ["powercontext", "powermem"])
+def test_legacy_release_detection_accepts_pure_python_assets(package):
+    from packaging.tags import Tag
+
+    wheel = f"{package}-1.4.1-py3-none-any.whl"
+    result = selector.select_assets(_release_assets(wheel), "1.4.1", "auto", [Tag("py3", "none", "any")])
+    assert result["wheel"] == wheel
+    assert result["package"] == package
+    assert result["native"] == "false"
+
+
+def test_release_detection_rejects_ambiguous_contract_and_incompatible_wheels():
+    from packaging.tags import Tag
+
+    with pytest.raises(SystemExit, match="uniquely detect"):
+        selector.select_assets(
+            _release_assets("powercontext-1.4.1-py3-none-any.whl", "powermem-1.4.1-py3-none-any.whl"),
+            "1.4.1",
+            "auto",
+            [Tag("py3", "none", "any")],
+        )
+    with pytest.raises(SystemExit, match="compatible"):
+        selector.select_assets(
+            _release_assets("powercontext-1.4.1-cp311-abi3-win_amd64.whl"),
+            "1.4.1",
+            "auto",
+            [Tag("cp311", "abi3", "manylinux_2_28_x86_64")],
+        )
+
+
+def test_release_publication_collects_platform_wheels_without_replacing_the_candidate():
+    root = Path(__file__).parents[1]
+    release = yaml.safe_load((root / ".github/workflows/release.yml").read_text(encoding="utf-8"))
+    native_job = release["jobs"]["native-wheel-build"]
+    native = yaml.safe_load((root / native_job["uses"]).read_text(encoding="utf-8"))
+    entries = native["jobs"]["wheels"]["strategy"]["matrix"]["include"]
+    assert {entry["platform"] for entry in entries} == {
+        "manylinux-x86_64",
+        "manylinux-aarch64",
+        "macos-x86_64",
+        "macos-arm64",
+        "windows-x86_64",
+    }
+    build = next(
+        step for step in native["jobs"]["wheels"]["steps"] if step.get("run", "").startswith("python -m cibuildwheel")
+    )
+    assert build["env"]["CIBW_BUILD"] == "cp31{1,2,3,4}-*"
+    assert build["env"]["CIBW_MANYLINUX_X86_64_IMAGE"] == "manylinux_2_28"
+    for job in ("pypi-publish", "release-assets"):
+        assert "native-wheel-build" in release["jobs"][job]["needs"]
+        steps = release["jobs"][job]["steps"]
+        download = next(step["with"] for step in steps if step.get("with", {}).get("name") == "release-dists")
+        assert download["path"] == "candidate-dist/"
+        wheels = next(step["with"] for step in steps if "pattern" in step.get("with", {}))
+        assert wheels["pattern"] == "native-wheels-*"
+        assert not wheels.get("merge-multiple", False)
+        assert wheels["path"] == "native-dist/"
+        assert "native" in next(step["if"] for step in steps if step.get("with", {}).get("pattern"))
+        stage = next(step["run"] for step in steps if step.get("name") == "Verify and stage accepted publication bytes")
+        assert "scripts/ci_stage_release.py" in stage and "candidate-evidence/publication.json" in stage
+        assert "skipped" in release["jobs"][job]["if"]
+    assert "native" in native_job["if"]
+    assert release["jobs"]["release-build"]["with"]["portable_wheel"] == (
+        "${{ needs.resolve-release.outputs.native == 'true' }}"
+    )
+
+
+def test_release_selector_command_uses_current_python_tags(tmp_path, monkeypatch):
+    from packaging.tags import sys_tags
+
+    supported = next(tag for tag in sys_tags() if tag.interpreter == "cp311" and tag.abi == "abi3")
+    wheel = f"powercontext-1.4.1-{supported}.whl"
+    metadata = tmp_path / "release.json"
+    metadata.write_text(json.dumps(_release_assets(wheel)), encoding="utf-8")
+    output = tmp_path / "output"
+    monkeypatch.setenv("RELEASE_TAG", "powercontext-v1.4.1")
+    monkeypatch.setenv("RELEASE_PACKAGE", "auto")
+    monkeypatch.setenv("GITHUB_OUTPUT", str(output))
+    monkeypatch.setattr(sys, "argv", ["ci_select_release_assets.py", "--metadata", str(metadata)])
+    selector.main()
+    selected = dict(line.split("=", 1) for line in output.read_text(encoding="utf-8").splitlines())
+    assert selected["wheel"] == wheel
+    assert selected["native"] == "true"
+    assert selected["package"] == "powercontext"
+
+
+@pytest.mark.parametrize(
+    ("workflow_name", "job_name"),
+    [
+        ("desktop-candidate.yml", "contract"),
+        ("desktop-candidate.yml", "native"),
+        ("desktop-candidate.yml", "assemble"),
+        ("managed-resource-candidates.yml", "candidate"),
+        ("e2e-harness.yml", "validate"),
+        ("desktop.yml", "windows"),
+        ("desktop.yml", "macos"),
+        ("desktop.yml", "linux"),
+        ("desktop.yml", "installed-package"),
+    ],
+)
+def test_source_installation_has_a_native_compiler_before_building(workflow_name, job_name):
+    path = Path(__file__).parents[1] / ".github/workflows" / workflow_name
+    steps = yaml.safe_load(path.read_text(encoding="utf-8"))["jobs"][job_name]["steps"]
+    source_install = next(
+        i
+        for i, step in enumerate(steps)
+        if any(
+            f"{installer} {operation}" in step.get("run", "")
+            for installer in ("uv", "scripts/ci_python_mirror.py", '"$PC_CI_PYTHON_INSTALLER"')
+            for operation in ("sync", "build")
+        )
+    )
+    assert any("rustup toolchain install" in step.get("run", "") for step in steps[:source_install])
+
+
+@pytest.mark.parametrize("native", [False, True])
+def test_release_routes_tagged_sources_to_their_supported_wheel_builder(tmp_path, native):
+    workflow = yaml.safe_load((Path(__file__).parents[1] / ".github/workflows/release.yml").read_text(encoding="utf-8"))
+    inspect = next(step for step in workflow["jobs"]["resolve-release"]["steps"] if step.get("id") == "build")
+    command = inspect["run"].split("python - <<'PY'\n", 1)[1].removesuffix("PY\n")
+    requires = ["hatchling", "hatch-vcs"]
+    if native:
+        requires.extend(["maturin>=1.16,<2", "typing-extensions>=4.12,<5"])
+    (tmp_path / "tagged-pyproject.toml").write_text("[build-system]\nrequires = " + json.dumps(requires) + "\n")
+    output = tmp_path / "output"
+    result = subprocess.run(
+        [sys.executable, "-c", command],
+        env={**os.environ, "RUNNER_TEMP": str(tmp_path), "GITHUB_OUTPUT": str(output)},
+        capture_output=True,
+        text=True,
+        timeout=10,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    assert output.read_text().strip() == f"native={str(native).lower()}"
+    jobs = workflow["jobs"]
+    assert jobs["native-wheel-build"]["if"] == "needs.resolve-release.outputs.native == 'true'"
+    assert jobs["release-build"]["with"]["portable_wheel"] == "${{ needs.resolve-release.outputs.native == 'true' }}"
+
+
+@pytest.mark.parametrize("job_name", ["npm-publish", "gateway-release-verify", "release-verify", "deploy-website"])
+@pytest.mark.parametrize("state", ["legacy", "failed-dependency", "cancelled"])
+def test_legacy_release_continues_only_after_successful_direct_dependencies(job_name, state):
+    jobs = yaml.safe_load((Path(__file__).parents[1] / ".github/workflows/release.yml").read_text())["jobs"]
+    job = jobs[job_name]
+    results = dict.fromkeys(job["needs"], "success")
+    if state == "failed-dependency":
+        results[job["needs"][-1]] = "failure"
+    # A skipped native build is an ancestor even when all direct dependencies
+    # succeeded. GitHub's default success() is false for that legacy route.
+    expression = job.get("if", "success()").strip().removeprefix("${{").removesuffix("}}")
+    if not re.search(r"\b(?:success|failure|cancelled|always)\(", expression):
+        expression = f"success() && ({expression})"
+    expression = re.sub(r"needs\.([\w-]+)\.result", lambda match: f"results[{match[1]!r}]", expression)
+    expression = expression.replace("github.repository", "repository").replace("!", "not ").replace("&&", " and ")
+    selected = eval(  # noqa: S307 -- checked-in Actions expression and fixed contexts, no builtins.
+        f"({expression})",
+        {"__builtins__": {}},
+        {
+            "results": results,
+            "repository": "oceanbase/powercontext",
+            "success": lambda: False,
+            "cancelled": lambda: state == "cancelled",
+        },
+    )
+    assert selected is (state == "legacy")

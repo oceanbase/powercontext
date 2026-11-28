@@ -18,6 +18,8 @@ import csv
 import io
 import json
 import os
+import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -246,3 +248,129 @@ def assert_installation_outcome(case, tmp_path, result, environment) -> None:
     if expected["runtime_installed"] and "server_extra" in expected:
         capabilities = subprocess.check_output([str(executable), "contract-capabilities"], env=environment, text=True)
         assert json.loads(capabilities)["server_extra"] == expected["server_extra"]
+
+
+@pytest.fixture(scope="module")
+def python315():
+    uv = shutil.which("uv")
+    if not uv:
+        pytest.skip("uv is required")
+    configured = os.environ.get("POWERCONTEXT_TEST_PYTHON_315")
+    if configured:
+        python = Path(configured).resolve()
+    else:
+        interpreter = subprocess.run(
+            [uv, "python", "find", "--no-project", "--no-python-downloads", "3.15"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if interpreter.returncode:
+            pytest.skip("requires an installed CPython 3.15 to reproduce the unsupported interpreter path")
+        python = Path(interpreter.stdout.strip()).resolve()
+    if sys.platform == "win32":
+        prefix = subprocess.check_output([str(python), "-c", "import sys; print(sys.base_prefix)"], text=True).strip()
+        python = Path(prefix) / "python.exe"
+    return python
+
+
+@pytest.mark.parametrize("operation", ["installer", "install", "upgrade"])
+def test_unsupported_python_only_replaces_tool_with_a_supported_interpreter(tmp_path, operation, python315):
+    uv = shutil.which("uv")
+    assert uv is not None
+    python = python315
+    windows = sys.platform == "win32"
+    shell = (shutil.which("powershell") or shutil.which("pwsh")) if windows else shutil.which("bash")
+    if shell is None:
+        pytest.skip("native installer shell is unavailable")
+    search_path = executable_path(tmp_path, uv, windows, False)
+    # Expose only the unsupported interpreter to the installer and uv resolver.
+    paths = [part for part in search_path.split(os.pathsep) if part != str(Path(sys.executable).parent)]
+    if windows:
+        paths.insert(1, str(python.parent))
+    else:
+        (tmp_path / "tools/python").unlink()
+        (tmp_path / "tools/python").symlink_to(python)
+    packages = tmp_path / "packages"
+    packages.mkdir()
+    entry = "[console_scripts]\npowercontext = installed_cli:main\n"
+    source = "def main():\n    from importlib.metadata import version\n    print(version('powercontext'))\n"
+    for version in ("1.2.0", "1.3.0"):
+        wheel(
+            packages,
+            "powercontext",
+            {
+                "installed_cli.py": source,
+                f"powercontext-{version}.dist-info/entry_points.txt": entry,
+            },
+            "Requires-Python: >=3.11,<3.15\nProvides-Extra: cli\nProvides-Extra: server\n",
+            version=version,
+        )
+    environment = {
+        key: value
+        for key, value in os.environ.items()
+        if not key.startswith(("UV_", "PIP_", "PYTHON", "POWERCONTEXT_")) and key != "VIRTUAL_ENV"
+    }
+    environment.update({
+        "HOME": str(tmp_path),
+        "USERPROFILE": str(tmp_path),
+        "PATH": os.pathsep.join(paths),
+        "UV_TOOL_DIR": str(tmp_path / "tool"),
+        "UV_TOOL_BIN_DIR": str(tmp_path / "bin"),
+        "UV_CACHE_DIR": str(tmp_path / "cache"),
+        "UV_PYTHON_INSTALL_DIR": str(tmp_path / "managed"),
+        "UV_PYTHON_NO_REGISTRY": "1",
+        "UV_PYTHON_DOWNLOADS": "never",
+        "UV_NO_CONFIG": "1",
+        "UV_NO_INDEX": "1",
+        "UV_FIND_LINKS": str(packages),
+        "UV_OFFLINE": "1",
+    })
+    # Seed a working tool on 3.15, as a universal-wheel release could have done.
+    seed = subprocess.run(
+        [uv, "tool", "install", "--python", str(python), "powercontext==1.2.0"],
+        env=environment,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert seed.returncode == 0, seed.stderr
+    cli = tmp_path / "bin" / ("powercontext.exe" if windows else "powercontext")
+    if operation == "installer":
+        script = ROOT / "website/public" / ("install.ps1" if windows else "install.sh")
+        command = (
+            [shell, "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(script)]
+            if windows
+            else [shell, str(script)]
+        )
+        command += ["--region", "global", "--no-hosts"]
+    else:
+        guide = (ROOT / "docs/en/docs/get-started/install-and-run.md").read_text(encoding="utf-8")
+        if operation == "install":
+            documented = next(
+                line for line in guide.splitlines() if line.startswith("uv tool install") and "--upgrade" in line
+            )
+        else:
+            upgrade = re.search(r"`(uv tool upgrade [^`]+)`", guide)
+            documented = upgrade[1] if upgrade else "uv tool upgrade powercontext"
+        command = [uv, *shlex.split(documented)[1:]]
+    result = subprocess.run(command, env=environment, capture_output=True, text=True, check=False, timeout=30)
+    (tmp_path / "attempt.log").write_text(result.stdout + result.stderr, encoding="utf-8")
+    if result.returncode:
+        if operation == "installer":
+            assert "No compatible local Python" in result.stdout + result.stderr
+        assert subprocess.check_output([str(cli), "--version"], env=environment, text=True).strip() == "1.2.0"
+    else:
+        runtime = tmp_path / "tool/powercontext" / ("Scripts/python.exe" if windows else "bin/python")
+        actual = json.loads(
+            subprocess.check_output(
+                [str(runtime), "-c", "import sys,json; print(json.dumps(list(sys.version_info[:2])))"],
+                env=environment,
+                text=True,
+            )
+        )
+        assert [3, 11] <= actual < [3, 15], result.stdout + result.stderr
+        assert subprocess.check_output([str(cli), "--version"], env=environment, text=True).strip() in {
+            "1.2.0",
+            "1.3.0",
+        }

@@ -18,22 +18,29 @@ FROM docker.io/astral/uv:0.10.12 AS uv
 
 FROM docker.io/library/docker:27.5.1-dind AS docker
 
+FROM docker.io/library/rust:1.97.1-slim-bookworm AS rust
+
 FROM python:3.12-slim-bookworm
 
 COPY --from=uv /uv /uvx /bin/
 COPY --from=docker /usr/local/bin/ /usr/local/bin/
 COPY --from=docker /usr/local/libexec/docker/cli-plugins/ /usr/local/libexec/docker/cli-plugins/
+COPY --from=rust /usr/local/cargo /usr/local/cargo
+COPY --from=rust /usr/local/rustup /usr/local/rustup
 
 ARG POWERCONTEXT_E2E_DEBIAN_MIRROR_URL
 
-RUN --mount=type=bind,source=e2e/bub/scripts/configure_debian_mirror.py,target=/tmp/configure-debian-mirror.py \
-    python /tmp/configure-debian-mirror.py \
+RUN --mount=type=bind,source=docker/configure_debian_mirror.py,target=/tmp/configure-debian-mirror.py \
+    DEBIAN_MIRROR_URL="$POWERCONTEXT_E2E_DEBIAN_MIRROR_URL" python /tmp/configure-debian-mirror.py \
     && apt-get update \
-    && apt-get install --yes --no-install-recommends ca-certificates git iproute2 iptables pigz socat \
+    && apt-get install --yes --no-install-recommends build-essential ca-certificates git iproute2 iptables pigz pkg-config socat \
     && rm -rf /var/lib/apt/lists/* \
     && docker compose version
 
-ENV PATH="/workspace/powercontext/e2e/bub/.venv/bin:$PATH" \
+ENV PATH="/usr/local/cargo/bin:/workspace/powercontext/e2e/bub/.venv/bin:$PATH" \
+    RUSTUP_HOME=/usr/local/rustup \
+    CARGO_HOME=/usr/local/cargo \
+    RUSTUP_TOOLCHAIN=1.97.1 \
     PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     POWERCONTEXT_E2E_REPOSITORY=/workspace/powercontext \
@@ -53,7 +60,9 @@ RUN --mount=type=cache,id=powercontext-bub-e2e-uv,target=/root/.cache/uv \
     PC_CI_PYTHON_MIRROR="${PC_CI_PYTHON_MIRROR}" python scripts/ci_python_mirror.py \
     sync --project e2e/bub --frozen --no-dev --no-editable --refresh-package powercontext \
     && test "$(e2e/bub/.venv/bin/python -c 'from importlib.metadata import version; print(version("powercontext"))')" \
-    = "${POWERCONTEXT_VERSION}"
+    = "${POWERCONTEXT_VERSION}" \
+    && SETUPTOOLS_SCM_PRETEND_VERSION="${POWERCONTEXT_VERSION}" \
+    uv build --wheel --out-dir "dist/harness-wheels/linux/${POWERCONTEXT_VERSION}"
 
 COPY --chmod=0755 e2e/bub/container-entrypoint.sh /usr/local/bin/powercontext-e2e-container
 RUN chmod 0755 /usr/local/bin/powercontext-e2e-container && test -x /usr/local/bin/powercontext-e2e-container

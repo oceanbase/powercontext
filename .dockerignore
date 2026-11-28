@@ -29,3 +29,10 @@ tests
 
 # Generated reference-stack credentials and evidence stay outside build contexts.
 deploy/observability/.local
+
+# Native compilation outputs are rebuilt inside the builder stage.
+**/target
+.artifacts
+*.pyd
+*.so
+*.dll

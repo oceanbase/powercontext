@@ -283,7 +283,7 @@ ensure_uv() {
 }
 
 ensure_python() {
-    if PYTHON_BIN=$("$UV_BIN" python find --system --no-project --no-python-downloads '>=3.11,<4' 2>/dev/null); then
+    if PYTHON_BIN=$("$UV_BIN" python find --system --no-project --no-python-downloads '>=3.11,<3.15' 2>/dev/null); then
         printf 'Using local Python: %s\n' "$PYTHON_BIN"
         return
     fi

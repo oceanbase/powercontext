@@ -12,8 +12,10 @@ status: community
 
 从同一个 `master` revision 安装 CLI 和插件：
 
+此命令从源码安装并编译原生分析器，需要 Rust 1.97.1 和平台 C 工具链（Windows 使用 MSVC）；见[平台支持](../get-started/install-and-run.md#平台支持)。
+
 ```bash
-uv tool install --force "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@master"
+uv tool install --python ">=3.11,<3.15" --force "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@master"
 powercontext setup openclaw
 ```
 

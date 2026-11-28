@@ -75,15 +75,15 @@ Scope 选择也具有应用层等待状态。Escape、关闭按钮及遮罩可�
 
 ## 开发与构建
 
-Windows 11 x64 上需要 Node 24.14.1、pnpm 11.13.1、Rust 1.95.0 MSVC、JDK 11 或更高版本（确保 `java` 位于 `PATH` 中）、Visual Studio C++ Build Tools、Windows SDK 和 WebView2。安装后的用户程序不依赖 Node、Rust、Python 或本地 Server。
+Windows 11 x64 上需要 Node 24.14.1、pnpm 11.13.1、Rust 1.97.1 MSVC、JDK 11 或更高版本（确保 `java` 位于 `PATH` 中）、Visual Studio C++ Build Tools、Windows SDK 和 WebView2。安装后的用户程序不依赖 Node、Rust、Python 或本地 Server。
 
 `generate` 和 `generate:check` 会启动基于 Java 的 OpenAPI Generator。首次运行时，`openapi-generator-cli` 可能从 Maven Central 下载固定版本的 Generator JAR，因此首次生成或漂移检查需要网络访问；后续运行可以复用已下载的 JAR。
 
 从仓库根目录执行：
 
 ```powershell
-rustup toolchain install 1.95.0-x86_64-pc-windows-msvc --profile minimal --component clippy --component rustfmt
-$env:RUSTUP_TOOLCHAIN = '1.95.0-x86_64-pc-windows-msvc'
+rustup toolchain install 1.97.1-x86_64-pc-windows-msvc --profile minimal --component clippy --component rustfmt
+$env:RUSTUP_TOOLCHAIN = '1.97.1-x86_64-pc-windows-msvc'
 pnpm --dir desktop install --frozen-lockfile
 pnpm --dir desktop desktop:dev
 ```
@@ -226,7 +226,7 @@ Windows GitHub Actions 会构建未签名安装包，安装到临时中文路径
 
 ## 在 macOS 上构建
 
-使用 macOS 12 或更高版本、Xcode 命令行工具（`xcode-select --install`）、Node **24.14.1**、pnpm **11.13.1**、Rust **1.95.0** 和 **JDK 11 或更高版本（确保 `java` 位于 `PATH` 中）**。请在目标架构（Apple Silicon 或 Intel）上构建。
+使用 macOS 12 或更高版本、Xcode 命令行工具（`xcode-select --install`）、Node **24.14.1**、pnpm **11.13.1**、Rust **1.97.1** 和 **JDK 11 或更高版本（确保 `java` 位于 `PATH` 中）**。请在目标架构（Apple Silicon 或 Intel）上构建。
 
 `lint` 和 `build` 包含 `generate:check`，会启动 Java OpenAPI Generator。首次运行可能通过 `curl` 从 Maven Central 下载固定版本的 JAR；后续运行按上述规则校验并复用已有文件。
 

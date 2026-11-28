@@ -180,3 +180,79 @@ def test_wheel_only_pr_build_still_runs_upgrade_acceptance(publication, monkeypa
     accepted = runner.accept_distributions(dist, output, release=False, release_notes=None)
     assert tested == [sha256(wheel)]
     assert [path.name for path in accepted] == [wheel.name]
+
+
+@pytest.mark.parametrize("native", [False, True])
+def test_publication_stages_the_exact_accepted_wheel_with_other_platforms(tmp_path, native):
+    from ci_stage_release import stage
+
+    candidate = tmp_path / "candidate"
+    candidate.mkdir()
+    tag = "cp311-abi3-manylinux_2_28_x86_64" if native else "py3-none-any"
+    wheel = candidate / f"powercontext-2.0.0-{tag}.whl"
+    write_wheel(wheel, b"accepted and upgraded")
+    source = candidate / "powercontext-2.0.0.tar.gz"
+    write_source(source)
+    expected = {path.name: sha256(path) for path in (wheel, source)}
+    evidence = tmp_path / "publication.json"
+    evidence.write_text(json.dumps({"complete": True, "artifacts": expected}))
+    platforms = tmp_path / "native"
+    if native:
+        for platform, suffix in {
+            "manylinux-x86_64": "manylinux_2_28_x86_64",
+            "manylinux-aarch64": "manylinux_2_28_aarch64",
+            "macos-x86_64": "macosx_11_0_x86_64",
+            "macos-arm64": "macosx_11_0_arm64",
+            "windows-x86_64": "win_amd64",
+        }.items():
+            directory = platforms / f"native-wheels-{platform}"
+            directory.mkdir(parents=True)
+            write_wheel(directory / f"powercontext-2.0.0-cp311-abi3-{suffix}.whl", b"independent platform build")
+    output = tmp_path / "publish"
+    staged = stage(candidate, evidence, platforms, output)
+    assert all(sha256(output / name) == digest for name, digest in expected.items())
+    assert len(staged) == (6 if native else 2)
+    assert staged[wheel.name] == expected[wheel.name]
+
+
+@pytest.mark.parametrize("broken", ["wheel", "sdist", "incomplete", "raw-linux"])
+def test_publication_rejects_unaccepted_or_unpublishable_candidate_bytes(tmp_path, broken):
+    from ci_stage_release import stage
+
+    candidate = tmp_path / "candidate"
+    candidate.mkdir()
+    suffix = "cp311-abi3-linux_x86_64" if broken == "raw-linux" else "py3-none-any"
+    wheel = candidate / f"powercontext-2.0.0-{suffix}.whl"
+    write_wheel(wheel)
+    source = candidate / "powercontext-2.0.0.tar.gz"
+    write_source(source)
+    record = {"complete": broken != "incomplete", "artifacts": {p.name: sha256(p) for p in (wheel, source)}}
+    evidence = tmp_path / "publication.json"
+    evidence.write_text(json.dumps(record))
+    if broken in {"wheel", "sdist"}:
+        (wheel if broken == "wheel" else source).write_bytes(b"changed after acceptance")
+    output = tmp_path / "publish"
+    with pytest.raises(ValueError):
+        stage(candidate, evidence, tmp_path / "native", output)
+    assert not output.exists()
+
+
+@pytest.mark.parametrize("smoke", [None, "failed", "passed"])
+def test_publication_bypass_requires_successful_fresh_install_verification(tmp_path, smoke):
+    from ci_stage_release import stage
+
+    candidate = tmp_path / "candidate"
+    candidate.mkdir()
+    wheel = candidate / "powercontext-2.0.0-py3-none-any.whl"
+    write_wheel(wheel)
+    write_source(candidate / "powercontext-2.0.0.tar.gz")
+    record = {"fresh_install_smoke": smoke, "artifacts": {p.name: sha256(p) for p in candidate.iterdir()}}
+    evidence = tmp_path / "publication.json"
+    evidence.write_text(json.dumps(record))
+    output = tmp_path / "publish"
+    if smoke == "passed":
+        assert stage(candidate, evidence, tmp_path / "native", output) == record["artifacts"]
+    else:
+        with pytest.raises(ValueError, match="acceptance"):
+            stage(candidate, evidence, tmp_path / "native", output)
+        assert not output.exists()

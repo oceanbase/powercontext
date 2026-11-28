@@ -1,0 +1,54 @@
+{
+  "strict": {
+    "python": "3.14.3 (main, Mar 24 2026, 22:56:56) [MSC v.1944 64 bit (AMD64)]",
+    "unicode": "16.0.0",
+    "native_sha256": "f71d3be9567267d80d4f7ebb976842165123448868f9e8da0d57f271bb50bd92",
+    "recorded_string_cases": 2637,
+    "passed_strings": 2637,
+    "mismatches": [],
+    "type_error_cases": 7,
+    "str_subclass_cases": 1,
+    "independent_expected_cases": 3,
+    "total_executions": 2648,
+    "repeated_independent_executions": 3,
+    "N": 2645,
+    "R": 2645,
+    "F": 0,
+    "E": 0,
+    "incorrect_result_detected": true,
+    "missing_native_rejected": true,
+    "scope": "isolated native analyze_text; default production route unchanged"
+  },
+  "installed-strict": {
+    "python": "3.14.3 (main, Mar 24 2026, 22:56:56) [MSC v.1944 64 bit (AMD64)]",
+    "unicode": "16.0.0",
+    "native_sha256": "95f91b24e78cfe2ec0e3f7d52fe276d98421c0df07eab2971ee7e318da151892",
+    "recorded_string_cases": 2637,
+    "passed_strings": 2637,
+    "mismatches": [],
+    "type_error_cases": 7,
+    "str_subclass_cases": 1,
+    "independent_expected_cases": 3,
+    "total_executions": 2648,
+    "repeated_independent_executions": 3,
+    "N": 2645,
+    "R": 2645,
+    "F": 0,
+    "E": 0,
+    "incorrect_result_detected": true,
+    "missing_native_rejected": true,
+    "scope": "isolated native analyze_text; default production route unchanged"
+  },
+  "wheel": {
+    "file": "pc_lexical_pilot-0.1.0-cp39-abi3-win_amd64.whl",
+    "bytes": 2487466,
+    "sha256": "76f534ccbd988db4be14fb70827ee088451900e0179aabe9d8217f13ffbafe48"
+  },
+  "source_sha256": {
+    "src/powercontext/builtin/artifacts/search.py": "b2f6fc10c8c90c09b9ee0b41fade0541c75b2175b7728af386f0de0b4682c230",
+    "rust/lexical-rs/src/lib.rs": "dc91b3c3560e660347117c1068ad8a02a8da85d751a677a5bde1e570841bef5b",
+    "rust/lexical-rs/src/port.rs": "98142901ab9d303ea9736099ad8cbfaf0d0f0dff3039cafcc7737ababfed7e45",
+    "rust/lexical-rs/data/unicode16.json": "fb5050103409ed5fc057b39e209a8f584c3721efc84ed523322808d3b31b5a4c",
+    "rust/lexical-rs/Cargo.lock": "390168612acbad6e1f16a1e239d089fb5d1fd65ca43caedf28056c8f32d6ebb1"
+  }
+}

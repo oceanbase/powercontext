@@ -129,6 +129,7 @@ Agent 通过 Hooks、MCP 或 SDK 接入 Server；也可以让模型请求经过�
 按照 https://powercontext.oceanbase.io/zh/llms.mdx/docs/get-started/agent-install/content.md 在这台机器上安装 PowerContext。需要我决定的事先问我，不要猜；不要读取或显示我的任何密钥。
 ```
 
+PowerContext 1.6.0 包含交互式配置向导。需要 CPython 3.11–3.14、Git 和 [uv](https://docs.astral.sh/uv/getting-started/installation/)；需要时 uv 可以按需提供 Python。要接入 Agent，还需要安装对应的 CLI。向导中选择“基础记忆”即可在没有模型 API 的情况下显式保存与召回；选择“完整记忆能力”则需要独立的 Generation、Embedding API 凭据。只想启动不依赖模型 API 的本地 Server 时，请参考[安装与运行](https://powercontext.oceanbase.io/zh/docs/get-started/install-and-run/)。支持 macOS 和 Linux；Windows 支持为 `experimental`。需要自动安装 Python 和 uv 时，使用[安装脚本](https://powercontext.oceanbase.io/zh/docs/get-started/install-and-run/#使用推荐安装脚本)。
 <details>
 <summary><b>自己动手安装</b></summary>
 
@@ -137,7 +138,7 @@ Agent 通过 Hooks、MCP 或 SDK 接入 Server；也可以让模型请求经过�
 首次体验可在向导中选择**基础记忆**，显式保存与召回不需要为 Server 配置模型 API；自动提取需要选择**完整记忆能力**并配置生成模型和 Embedding 凭据。存储可先选 SQLite。
 
 ```bash
-uv tool install --force "powercontext[cli,server]==1.6.0"
+uv tool install --python ">=3.11,<3.15" --force "powercontext[cli,server]==1.6.0"
 mkdir -p powercontext-config && cd powercontext-config
 powercontext config init --language zh --output .env
 powercontext config validate --env-file .env

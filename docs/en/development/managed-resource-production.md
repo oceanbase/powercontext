@@ -70,7 +70,7 @@ The producer preserves the source lock's `50.0.0`, rather than downgrading to an
 
 | Input | Fixed identity |
 | --- | --- |
-| Rust | `1.95.0`, `x86_64-apple-darwin` distribution SHA-256 `998af750fe2c28f0dbf193edc496c9a7407850486968f40ac11a8c8adfb7cfa6` |
+| Rust | `1.97.1`, `x86_64-apple-darwin` distribution SHA-256 `891c32ea77b750dccc7fb0ea98e3feb9db3d29fe0cfea5907d002f270c59cf58` |
 | OpenSSL | `4.0.3` source SHA-256 `325b5c806167c13b40b1ffeadfe0248197c00eccc4cf123ec1e28d2d2fd216d9` |
 | Backend | `maturin==1.14.1`, pinned Intel wheel; existing pinned setuptools plus native locked cffi/pycparser wheels |
 | Compiler/SDK | Xcode `16.4` build `16F6`, macOS SDK `15.5`, deployment target `10.13` |

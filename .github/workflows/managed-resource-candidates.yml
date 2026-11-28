@@ -107,6 +107,9 @@ jobs:
         with:
           version: '0.13.5'
           enable-cache: true
+      - name: Prepare the native analyzer toolchain
+        run: rustup toolchain install 1.97.1 --profile minimal
+
       - name: Install locked build-host checks
         run: uv sync --locked --no-dev --group resource-build --python 3.12 --no-build-package cryptography --no-build-package jieba
       - name: Verify native source builders are not bootstrapped through Server extras
@@ -158,9 +161,6 @@ jobs:
             libxdo-dev \
             openjdk-17-jre-headless \
             pkg-config
-      - name: Install pinned Rust toolchain for native Ops acceptance
-        if: matrix.target == 'linux-x86_64'
-        run: rustup toolchain install 1.95.0 --profile minimal
       - name: Verify the real Linux Ops bundle through the native trust boundary
         if: matrix.target == 'linux-x86_64'
         run: |
@@ -170,7 +170,7 @@ jobs:
           {
             echo "bundle=$POWERCONTEXT_OPS_TEST_BUNDLE"
             echo "bundle_manifest_sha256=$POWERCONTEXT_OPS_TEST_BUNDLE_SHA256"
-            CARGO_BUILD_JOBS=2 rustup run 1.95.0 cargo test --locked --manifest-path desktop/src-tauri/Cargo.toml --lib actual_independent_bundle_runs_through_native_trust_and_read_only_bridge -- --ignored
+            CARGO_BUILD_JOBS=2 rustup run 1.97.1 cargo test --locked --manifest-path desktop/src-tauri/Cargo.toml --lib actual_independent_bundle_runs_through_native_trust_and_read_only_bridge -- --ignored
           } 2>&1 | tee build/resource-evidence/native-ops-bridge.txt
       - name: Retain unqualified candidate evidence
         if: success()

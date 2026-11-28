@@ -291,6 +291,7 @@ def _isolated_environment(home: Path, codex_home: Path, tmp_path: Path) -> dict[
         XDG_CACHE_HOME=str(home / "cache"),
         XDG_STATE_HOME=str(home / "state"),
         UV_CACHE_DIR=uv_cache,
+        UV_OFFLINE="1",
         # Setup and the hooks both read this, so the hooks reuse the environment setup built; uv rebuilds it for a
         # different interpreter. Without managed interpreters in the isolated home, both use the one running the tests.
         UV_PYTHON=sys.executable,

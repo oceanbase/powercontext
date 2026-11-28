@@ -18,8 +18,10 @@ provider 把召回、采集和显式操作发送给单独运行的 PowerContext 
 - 从 `master` 安装 PowerContext CLI 和 Server；
 - PowerContext Server 正在运行。
 
+此命令从源码安装并编译原生分析器，需要 Rust 1.97.1 和平台 C 工具链（Windows 使用 MSVC）；见[平台支持](../get-started/install-and-run.md#平台支持)。
+
 ```bash
-uv tool install --force "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@master"
+uv tool install --python ">=3.11,<3.15" --force "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@master"
 powercontext server run
 ```
 

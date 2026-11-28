@@ -10,9 +10,9 @@
   "deployment_target": "10.13",
   "artifacts": {
     "rust": {
-      "filename": "rust-1.95.0-x86_64-apple-darwin.tar.xz",
-      "url": "https://static.rust-lang.org/dist/rust-1.95.0-x86_64-apple-darwin.tar.xz",
-      "sha256": "998af750fe2c28f0dbf193edc496c9a7407850486968f40ac11a8c8adfb7cfa6"
+      "filename": "rust-1.97.1-x86_64-apple-darwin.tar.xz",
+      "url": "https://static.rust-lang.org/dist/rust-1.97.1-x86_64-apple-darwin.tar.xz",
+      "sha256": "891c32ea77b750dccc7fb0ea98e3feb9db3d29fe0cfea5907d002f270c59cf58"
     },
     "openssl": {
       "filename": "openssl-4.0.3.tar.gz",

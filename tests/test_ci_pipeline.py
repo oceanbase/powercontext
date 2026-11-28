@@ -354,7 +354,11 @@ def test_automatic_host_workflows_share_one_scope_and_admission_gate():
         assert {"quality", "tests"} <= set(job["needs"])
         assert "needs.quality.result == 'success'" in job["if"]
         assert "needs.tests.result" in job["if"]
-        assert child["jobs"]["changes"]["if"] == "${{ inputs.suites == '' }}"
+        if "workflow_dispatch" in child["on"]:
+            assert child["jobs"]["changes"]["if"] == "${{ inputs.suites == '' }}"
+        else:
+            # Call-only workflows receive the parent selection and cannot start an independent run.
+            assert set(child["on"]) == {"workflow_call"}
         for child_job in child["jobs"].values():
             if "needs.changes.result" in child_job.get("if", ""):
                 assert "(inputs.suites == '' && needs.changes.result != 'success')" in child_job["if"]

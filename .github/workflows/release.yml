@@ -29,6 +29,7 @@ jobs:
       tag: ${{ steps.release.outputs.tag }}
       source_sha: ${{ steps.release.outputs.source_sha }}
       prerelease: ${{ steps.release.outputs.prerelease }}
+      native: ${{ steps.build.outputs.native }}
     steps:
       - name: Resolve the published Release and pin its source
         id: release
@@ -87,6 +88,25 @@ jobs:
               output.write(f"tag={tag}\nsource_sha={commit}\n")
               output.write(f"prerelease={str(release['prerelease']).lower()}\n")
           PY
+      - name: Inspect the tagged build contract
+        id: build
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_SHA: ${{ steps.release.outputs.source_sha }}
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/contents/pyproject.toml?ref=$SOURCE_SHA" \
+            --jq .content | base64 --decode > "$RUNNER_TEMP/tagged-pyproject.toml"
+          python - <<'PY'
+          import os
+          import re
+          import tomllib
+          from pathlib import Path
+
+          project = tomllib.loads((Path(os.environ["RUNNER_TEMP"]) / "tagged-pyproject.toml").read_text())
+          native = any(re.match(r"maturin(?:\b|\[)", item) for item in project["build-system"]["requires"])
+          with open(os.environ["GITHUB_OUTPUT"], "a") as output:
+              output.write(f"native={str(native).lower()}\n")
+          PY
       - name: Preserve the Release notes used for validation
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
@@ -108,7 +128,15 @@ jobs:
       source_ref: ${{ needs.resolve-release.outputs.source_sha }}
       release_tag: ${{ needs.resolve-release.outputs.tag }}
       skip_upgrade_acceptance: ${{ github.event_name == 'workflow_dispatch' && inputs.skip_upgrade_acceptance }}
+      portable_wheel: ${{ needs.resolve-release.outputs.native == 'true' }}
       internal_runner: false
+
+  native-wheel-build:
+    if: needs.resolve-release.outputs.native == 'true'
+    needs: resolve-release
+    uses: ./.github/workflows/native-wheels.yml
+    with:
+      source_ref: ${{ needs.resolve-release.outputs.source_sha }}
 
   gateway-release-build:
     needs: resolve-release
@@ -188,7 +216,10 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     needs: [resolve-release, release-build, dsh-release-build, pypi-publish]
-    if: github.repository == 'oceanbase/powercontext'
+    if: >-
+      ${{ !cancelled() && github.repository == 'oceanbase/powercontext' &&
+      needs.resolve-release.result == 'success' && needs.release-build.result == 'success' &&
+      needs.dsh-release-build.result == 'success' && needs.pypi-publish.result == 'success' }}
     permissions:
       contents: read
       id-token: write
@@ -237,15 +268,44 @@ jobs:
   pypi-publish:
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    needs: [release-build, dsh-release-build]
+    needs: [resolve-release, release-build, native-wheel-build, dsh-release-build]
+    if: >-
+      ${{ !cancelled() && needs.release-build.result == 'success' &&
+          needs.dsh-release-build.result == 'success' &&
+          (needs.native-wheel-build.result == 'success' || needs.native-wheel-build.result == 'skipped') }}
     permissions:
+      contents: read
       id-token: write
     steps:
-      - name: Download release distributions
+      - name: Check out the publishing checks
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Download accepted candidate distributions
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           name: release-dists
-          path: dist/
+          path: candidate-dist/
+
+      - name: Download accepted publication hashes
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: release-publication
+          path: candidate-evidence/
+
+      - name: Download verified platform wheels
+        if: needs.resolve-release.outputs.native == 'true'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          pattern: native-wheels-*
+          path: native-dist/
+
+      - name: Verify and stage accepted publication bytes
+        run: >-
+          python scripts/ci_stage_release.py
+          --candidate candidate-dist --evidence candidate-evidence/publication.json
+          --native-wheels native-dist --output dist
 
       - name: Publish release distributions to PyPI
         uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # release/v1
@@ -253,21 +313,43 @@ jobs:
   release-assets:
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    needs: [resolve-release, release-build, dsh-release-build, gateway-release-build]
+    needs: [resolve-release, release-build, native-wheel-build, dsh-release-build, gateway-release-build]
+    if: >-
+      ${{ !cancelled() && needs.release-build.result == 'success' &&
+          needs.dsh-release-build.result == 'success' && needs.gateway-release-build.result == 'success' &&
+          (needs.native-wheel-build.result == 'success' || needs.native-wheel-build.result == 'skipped') }}
     permissions:
       contents: write
     steps:
-      - name: Check out the resolved source for Gateway catalog validation
+      - name: Check out the publishing checks
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          ref: ${{ needs.resolve-release.outputs.source_sha }}
+          ref: ${{ github.sha }}
           persist-credentials: false
-
-      - name: Download release distributions
+      - name: Download accepted candidate distributions
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           name: release-dists
-          path: dist/
+          path: candidate-dist/
+
+      - name: Download accepted publication hashes
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: release-publication
+          path: candidate-evidence/
+
+      - name: Download verified platform wheels
+        if: needs.resolve-release.outputs.native == 'true'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          pattern: native-wheels-*
+          path: native-dist/
+
+      - name: Verify and stage accepted publication bytes
+        run: >-
+          python scripts/ci_stage_release.py
+          --candidate candidate-dist --evidence candidate-evidence/publication.json
+          --native-wheels native-dist --output dist
 
       - name: Upload GitHub Release assets
         uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3
@@ -275,6 +357,13 @@ jobs:
           tag_name: ${{ needs.resolve-release.outputs.tag }}
           files: dist/*
           fail_on_unmatched_files: true
+
+      - name: Check out the resolved source for Gateway catalog validation
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ needs.resolve-release.outputs.source_sha }}
+          path: gateway-release-source
+          persist-credentials: false
 
       - name: Download all qualified Gateway distributions
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
@@ -290,7 +379,7 @@ jobs:
         run: |
           version="${RELEASE_TAG#powercontext-v}"
           version="${version#v}"
-          python3 scripts/gateway_distribution.py catalog --directory dist/gateway --version "$version" --commit "$SOURCE_COMMIT"
+          python3 gateway-release-source/scripts/gateway_distribution.py catalog --directory dist/gateway --version "$version" --commit "$SOURCE_COMMIT"
 
       - name: Upload Gateway distributions to the same Release
         uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3
@@ -314,6 +403,8 @@ jobs:
 
   gateway-release-verify:
     needs: [resolve-release, release-assets]
+    if: >-
+      ${{ !cancelled() && needs.resolve-release.result == 'success' && needs.release-assets.result == 'success' }}
     uses: ./.github/workflows/gateway-distribution.yml
     with:
       source_ref: ${{ needs.resolve-release.outputs.source_sha }}
@@ -322,6 +413,8 @@ jobs:
 
   release-verify:
     needs: [resolve-release, pypi-publish, release-assets]
+    if: >-
+      ${{ !cancelled() && needs.resolve-release.result == 'success' && needs.pypi-publish.result == 'success' && needs.release-assets.result == 'success' }}
     permissions:
       contents: read
     uses: ./.github/workflows/release-verify.yml
@@ -331,6 +424,8 @@ jobs:
 
   deploy-website:
     needs: [resolve-release, pypi-publish]
+    if: >-
+      ${{ !cancelled() && needs.resolve-release.result == 'success' && needs.pypi-publish.result == 'success' }}
     permissions:
       contents: read
       pages: write

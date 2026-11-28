@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Apply the optional Debian mirror before the harness image installs packages."""
+"""Apply the optional Debian mirror before an image installs packages."""
 
 import os
 import re
@@ -57,4 +57,4 @@ def configure_debian_mirror(mirror: str, *, root: Path = Path("/")) -> None:
 
 
 if __name__ == "__main__":
-    configure_debian_mirror(os.environ.get("POWERCONTEXT_E2E_DEBIAN_MIRROR_URL", ""))
+    configure_debian_mirror(os.environ.get("DEBIAN_MIRROR_URL", ""))

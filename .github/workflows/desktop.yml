@@ -62,7 +62,7 @@ jobs:
         with:
           working_directory: desktop
       - name: Install pinned Windows Rust toolchain
-        run: rustup toolchain install 1.95.0-x86_64-pc-windows-msvc --profile minimal --component rustfmt --component clippy
+        run: rustup toolchain install 1.97.1-x86_64-pc-windows-msvc --profile minimal --component rustfmt --component clippy
       - name: Cache desktop dependencies
         uses: ./.github/actions/cache-pnpm
         with:
@@ -103,6 +103,13 @@ jobs:
           cache-dependency-glob: |
             pyproject.toml
             uv.lock
+            scripts/build_lexical.py
+            src/powercontext/builtin/artifacts/lexical/Cargo.toml
+            src/powercontext/builtin/artifacts/lexical/Cargo.lock
+            src/powercontext/builtin/artifacts/lexical/build.rs
+            src/powercontext/builtin/artifacts/lexical/pyproject.toml
+            src/powercontext/builtin/artifacts/lexical/src/*.rs
+            src/powercontext/builtin/artifacts/lexical/data/*.json
             integrations/langchain/pyproject.toml
             integrations/langgraph/pyproject.toml
             integrations/opendal/pyproject.toml
@@ -191,7 +198,7 @@ jobs:
       - uses: jdx/mise-action@d5574b52816a478f9d4e6529a3f6ff17a8a36785 # v5.2.8
         with:
           working_directory: desktop
-      - run: rustup toolchain install 1.95.0 --profile minimal --component rustfmt --component clippy
+      - run: rustup toolchain install 1.97.1 --profile minimal --component rustfmt --component clippy
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           workspaces: desktop/src-tauri -> target
@@ -284,7 +291,7 @@ jobs:
         with:
           working_directory: desktop
       - name: Install pinned Linux Rust toolchain
-        run: rustup toolchain install 1.95.0 --profile minimal --component rustfmt --component clippy
+        run: rustup toolchain install 1.97.1 --profile minimal --component rustfmt --component clippy
       - name: Cache desktop dependencies
         uses: ./.github/actions/cache-pnpm
         with:
@@ -324,6 +331,13 @@ jobs:
           cache-dependency-glob: |
             pyproject.toml
             uv.lock
+            scripts/build_lexical.py
+            src/powercontext/builtin/artifacts/lexical/Cargo.toml
+            src/powercontext/builtin/artifacts/lexical/Cargo.lock
+            src/powercontext/builtin/artifacts/lexical/build.rs
+            src/powercontext/builtin/artifacts/lexical/pyproject.toml
+            src/powercontext/builtin/artifacts/lexical/src/*.rs
+            src/powercontext/builtin/artifacts/lexical/data/*.json
             integrations/langchain/pyproject.toml
             integrations/langgraph/pyproject.toml
             integrations/opendal/pyproject.toml
@@ -388,10 +402,19 @@ jobs:
           cache-dependency-glob: |
             pyproject.toml
             uv.lock
+            scripts/build_lexical.py
+            src/powercontext/builtin/artifacts/lexical/Cargo.toml
+            src/powercontext/builtin/artifacts/lexical/Cargo.lock
+            src/powercontext/builtin/artifacts/lexical/build.rs
+            src/powercontext/builtin/artifacts/lexical/pyproject.toml
+            src/powercontext/builtin/artifacts/lexical/src/*.rs
+            src/powercontext/builtin/artifacts/lexical/data/*.json
             integrations/langchain/pyproject.toml
             integrations/langgraph/pyproject.toml
             integrations/opendal/pyproject.toml
             integrations/deepagents/pyproject.toml
+      - name: Prepare the native analyzer toolchain
+        run: rustup toolchain install 1.97.1-x86_64-pc-windows-msvc --profile minimal
       - name: Prepare isolated Server fixture
         run: |
           uv sync --locked --python 3.12

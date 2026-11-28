@@ -60,10 +60,22 @@ jobs:
         env:
           # Qualify this commit using release-shaped metadata, without publishing it.
           SETUPTOOLS_SCM_PRETEND_VERSION: "1.2.0"
-        run: python3 scripts/ci_python_mirror.py build --wheel --out-dir dist/installation
+        run: |
+          python3 scripts/ci_python_mirror.py build --wheel --out-dir dist/installation
+          # The analyzer makes the wheel platform-specific, so resolve its tag instead of assuming one.
+          python -c "import pathlib; print('POWERCONTEXT_INSTALL_WHEEL=' + str(next(pathlib.Path('dist/installation').glob('powercontext-1.2.0-*.whl')).resolve()))" >> "$GITHUB_ENV"
+
+      - name: Set up the unsupported interpreter for upgrade protection checks
+        id: unsupported-python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: '3.15'
+          update-environment: false
 
       - name: Check shared installer behavior and source resolution
         shell: bash
+        env:
+          POWERCONTEXT_TEST_PYTHON_315: ${{ steps.unsupported-python.outputs.python-path }}
         run: >-
           uv run --no-sync pytest -q ${{ runner.os == 'Linux' && '-n auto' || '' }}
           tests/test_installation_contract.py tests/native/test_install_sources.py
@@ -74,7 +86,6 @@ jobs:
       - name: Exercise bootstrap, version selection, profiles, and persistent memory
         shell: bash
         env:
-          POWERCONTEXT_INSTALL_WHEEL: ${{ github.workspace }}/dist/installation/powercontext-1.2.0-py3-none-any.whl
           # Only the version/profile fixture consumes this dependency-index override.
           POWERCONTEXT_INSTALL_TEST_INDEX_URL: ${{ matrix.os == 'ubuntu-latest' && 'https://mirrors.aliyun.com/pypi/simple/' || '' }}
         run: >-

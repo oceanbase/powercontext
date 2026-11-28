@@ -330,10 +330,23 @@ jobs:
         if: matrix.suite == 'unit'
         run: uv python install 3.9
 
+      - name: Run native code and spawned Worker tests with their real deadlines
+        if: matrix.suite == 'unit'
+        # Keep the 600s build, 5s query, and 45s Worker deadlines free of xdist contention.
+        run: >-
+          uv run python -m pytest -n 0
+          tests/builtin/test_native_code.py::test_large_changes_response_obeys_elapsed_and_byte_budgets
+          tests/builtin/runtime/test_worker_prompt_usage.py::test_spawned_worker_restores_custom_prompt_and_counts_actual_requests_once
+
       - name: Run unit tests
         if: matrix.suite == 'unit'
         env:
-          PYTEST_ADDOPTS: --require-dsh-config-runtime --require-claude-code-python-floor
+          PYTEST_ADDOPTS: >-
+            --require-dsh-config-runtime --require-claude-code-python-floor
+            --deselect=tests/builtin/test_native_code.py::test_large_changes_response_obeys_elapsed_and_byte_budgets
+            --deselect=tests/builtin/runtime/test_worker_prompt_usage.py::test_spawned_worker_restores_custom_prompt_and_counts_actual_requests_once
+          # Unit tests also spawn processes and exercise short scheduling deadlines.
+          PYTEST_WORKERS: "2"
         run: |
           PYTHONPATH="$PWD/.github/scripts${PYTHONPATH:+:$PYTHONPATH}" \
             make unit-test PYTEST_ARGS="-p pytest_ci_diagnostics -o faulthandler_timeout=600 --junitxml=$RUNNER_TEMP/pytest-diagnostics/unit.xml"
@@ -364,6 +377,8 @@ jobs:
       - name: Run remaining end-to-end tests
         if: matrix.suite == 'e2e'
         env:
+          # Each E2E worker can spawn a Server, Gateway, and child workers with real readiness deadlines.
+          PYTEST_WORKERS: "2"
           PYTEST_ADDOPTS: --ci-shard-index=${{ matrix.shard-index }} --ci-shard-count=${{ matrix.shard-count }}
         run: |
           PYTHONPATH="$PWD/.github/scripts${PYTHONPATH:+:$PYTHONPATH}" \
@@ -413,6 +428,11 @@ jobs:
         uses: ./.github/actions/setup-uv
         with:
           version: "0.10.12"
+
+      - name: Set up native analyzer toolchain
+        run: |
+          rustup toolchain install 1.97.1 --profile minimal
+          echo "RUSTUP_TOOLCHAIN=1.97.1" >> "$GITHUB_ENV"
 
       - name: Build one wheel for all installation roles
         run: |
@@ -1447,6 +1467,10 @@ jobs:
           test "$("$cli" --version)" = "codex-cli $CODEX_VERSION"
           echo "CODEX_CLI_BIN=$cli" >> "$GITHUB_ENV"
 
+      - name: Prepare locked Codex plugin runtime downloads
+        # Tests find the project's uv on PATH. Its cache format can differ from setup-uv's version.
+        run: uv run --no-sync -- uv sync --frozen --project integrations/codex/plugins/powercontext
+
       - name: Run Codex with the PowerContext plugin against a real Server
         # Without the binary the cases skip, so refuse to run without it.
         run: |
@@ -1801,6 +1825,16 @@ jobs:
       targets: '["linux-x86_64"]'
       concurrency_suffix: linux
 
+  native-wheel-validation:
+    needs: [quality, tests]
+    if: >-
+      ${{ !cancelled() && needs.quality.result == 'success' &&
+          contains(fromJSON('["success","skipped"]'), needs.tests.result) &&
+          (fromJSON(needs.quality.outputs.suites || '{}').packaging) }}
+    uses: ./.github/workflows/native-wheels.yml
+    with:
+      suites: ${{ needs.quality.outputs.suites }}
+
   script-installation:
     needs: [quality, tests]
     if: >-
@@ -1934,6 +1968,7 @@ jobs:
       - quality
       - tests
       - isolated-installations
+      - native-wheel-validation
       - docs-tests
       - worker-observability
       - evaluation-tests

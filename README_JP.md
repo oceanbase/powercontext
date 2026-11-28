@@ -129,6 +129,7 @@ Agent は Hooks、MCP、SDK で Server に接続します。モデルへのリ�
 https://powercontext.oceanbase.io/en/llms.mdx/docs/get-started/agent-install/content.md の手順に従って、このマシンに PowerContext をインストールしてください。私が決めるべきことは推測せずに先に確認し、私の鍵は一切読み取ったり表示したりしないでください。
 ```
 
+PowerContext 1.6.0 には対話式セットアップウィザードが含まれています。CPython 3.11–3.14、Git、[uv](https://docs.astral.sh/uv/getting-started/installation/) が必要です。必要に応じて uv が Python を用意できます。Agent に接続するには、その CLI もインストールしてください。ウィザードでは、モデル API なしで明示的な保存と想起を試す場合は Basic memory、自動抽出を有効にする場合は Full memory を選択してください。Full memory には Generation と Embedding API の個別の認証情報が必要です。モデル API なしでローカル Server だけを起動する場合は[インストールと実行](https://powercontext.oceanbase.io/en/docs/get-started/install-and-run/)を参照してください。macOS と Linux をサポートし、Windows のサポートは `experimental` です。Python と uv を自動で用意する場合は、[インストールスクリプト](https://powercontext.oceanbase.io/en/docs/get-started/install-and-run/#install-with-the-recommended-script)を使ってください。
 <details>
 <summary><b>自分でインストールする</b></summary>
 
@@ -137,7 +138,7 @@ Python 3.11+、Git、[uv](https://docs.astral.sh/uv/getting-started/installation
 ウィザードは英語で表示されます。Server 用の追加のモデル API なしで明示的な保存と想起を試すには、**Basic memory** を選んでください。自動抽出には、Generation と Embedding の認証情報を設定した **Full memory** が必要です。最初のストレージには SQLite が手軽です。
 
 ```bash
-uv tool install --force "powercontext[cli,server]==1.6.0"
+uv tool install --python ">=3.11,<3.15" --force "powercontext[cli,server]==1.6.0"
 mkdir -p powercontext-config && cd powercontext-config
 powercontext config init --language en --output .env
 powercontext config validate --env-file .env

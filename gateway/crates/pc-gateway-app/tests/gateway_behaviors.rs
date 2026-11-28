@@ -20,7 +20,10 @@ use std::{
     collections::{BTreeMap, VecDeque},
     path::Path,
     process::{Child, Command, Stdio},
-    sync::{Arc, Mutex},
+    sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc, Mutex,
+    },
     time::Duration,
 };
 
@@ -182,6 +185,8 @@ enum Startup {
     TimedOut,
 }
 
+static NEXT_GATEWAY_ID: AtomicUsize = AtomicUsize::new(0);
+
 impl Gateway {
     async fn start(replies: Vec<Reply>, deny: Option<(&'static str, &'static str)>) -> Self {
         // Golden protocol fixtures exercise requests without operator steering.
@@ -270,11 +275,12 @@ impl Gateway {
             let log = std::env::temp_dir().join(format!(
                 "pc-gateway-behavior-{}-{}.log",
                 std::process::id(),
-                address.port()
+                NEXT_GATEWAY_ID.fetch_add(1, Ordering::Relaxed)
             ));
             let log_file = std::fs::File::create(&log).unwrap();
             let mut child = Command::new(env!("CARGO_BIN_EXE_pc-gateway"))
                 .env_clear()
+                .env("NO_COLOR", "1")
                 .env("PC_GATEWAY_LISTEN", address.to_string())
                 .env("PC_GATEWAY_CORE_BASE", &peer_base)
                 .env(
@@ -305,6 +311,14 @@ impl Gateway {
                         } else {
                             Startup::Exited(status, output)
                         };
+                    }
+                    // A concurrent gateway can claim the released port. Its health response
+                    // becomes authoritative only after this child logs that it bound that address.
+                    let bound = std::fs::read_to_string(&log)
+                        .is_ok_and(|output| output.contains(&format!("addr={address}")));
+                    if !bound {
+                        tokio::time::sleep(Duration::from_millis(20)).await;
+                        continue;
                     }
                     // Bound each probe on its own: an occupied port can accept a connection that
                     // never answers, and one such probe must not consume the whole startup window

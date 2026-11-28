@@ -28,6 +28,13 @@ inputs:
     default: |
       pyproject.toml
       uv.lock
+      scripts/build_lexical.py
+      src/powercontext/builtin/artifacts/lexical/Cargo.toml
+      src/powercontext/builtin/artifacts/lexical/Cargo.lock
+      src/powercontext/builtin/artifacts/lexical/build.rs
+      src/powercontext/builtin/artifacts/lexical/pyproject.toml
+      src/powercontext/builtin/artifacts/lexical/src/*.rs
+      src/powercontext/builtin/artifacts/lexical/data/*.json
       integrations/langchain/pyproject.toml
       integrations/langgraph/pyproject.toml
       integrations/opendal/pyproject.toml
@@ -106,6 +113,25 @@ runs:
         RUNS_ON_S3_BUCKET_ENDPOINT: ${{ env.PC_CI_CACHE_ENDPOINT }}
         RUNS_ON_S3_FORCE_PATH_STYLE: 'true'
         RUNS_ON_RUNNER_NAME: ''
+
+    - name: Set up native analyzer toolchain
+      shell: bash
+      run: |
+        toolchain=1.97.1
+        if [ "$RUNNER_OS" = "Windows" ]; then
+          toolchain=1.97.1-x86_64-pc-windows-msvc
+        fi
+        # Reuse the pinned compiler without rechecking the remote channel manifest.
+        if ! rustup run "$toolchain" rustc --version; then
+          for attempt in 1 2 3; do
+            if rustup toolchain install "$toolchain" --profile minimal; then
+              break
+            fi
+            if [ "$attempt" -eq 3 ]; then exit 1; fi
+            sleep "$((attempt * 5))"
+          done
+        fi
+        echo "RUSTUP_TOOLCHAIN=$toolchain" >> "$GITHUB_ENV"
 
     - name: Install Python dependencies
       id: dependencies

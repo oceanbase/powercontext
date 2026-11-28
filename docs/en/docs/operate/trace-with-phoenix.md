@@ -69,7 +69,7 @@ exporter.
 Recording and export require the `tracing-otlp` extra:
 
 ```bash
-uv tool install --force "powercontext[cli,server,tracing-otlp] @ git+https://github.com/oceanbase/powercontext.git@master"
+uv tool install --python ">=3.11,<3.15" --force "powercontext[cli,server,tracing-otlp] @ git+https://github.com/oceanbase/powercontext.git@master"
 ```
 
 Without this extra, enabling tracing fails at startup with an explicit error instead of silently dropping spans. This
@@ -83,7 +83,7 @@ Server terminal first, then run:
 
 ```bash
 command -v powercontext
-uv tool install --force "powercontext[cli,server,tracing-otlp] @ git+https://github.com/oceanbase/powercontext.git@master"
+uv tool install --python ">=3.11,<3.15" --force "powercontext[cli,server,tracing-otlp] @ git+https://github.com/oceanbase/powercontext.git@master"
 powercontext server run --env-file /path/to/powercontext.env
 ```
 

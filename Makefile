@@ -152,13 +152,19 @@ harness-test: ## Check harness types, scenarios and CLI without repeating format
 	@uv run --project e2e/bub python -m pytest e2e/bub/tests
 	@uv run --project e2e/bub powercontext-e2e --help >/dev/null
 
+.PHONY: harness-wheel
+harness-wheel: ## Build the current native SDK wheel for Bub's isolated task containers.
+	@harness_version="$$(uv run --project e2e/bub python -c 'from importlib.metadata import version; print(version("powercontext"))')" && \
+		docker build --file e2e/bub/wheel.Dockerfile --build-arg POWERCONTEXT_VERSION="$$harness_version" \
+			--output "type=local,dest=dist/harness-wheels/linux/$$harness_version" .
+
 .PHONY: harness-acceptance
-harness-acceptance: ## Evaluate workloads by ID or category against an existing Server.
+harness-acceptance: harness-wheel ## Evaluate workloads by ID or category against an existing Server.
 	@uv run --project e2e/bub powercontext-e2e acceptance \
 		--output "$${POWERCONTEXT_E2E_OUTPUT:-e2e/bub/results}" $(ARGS)
 
 .PHONY: harness-paired
-harness-paired: ## Compare PowerContext off and on for paired workloads against an existing Server.
+harness-paired: harness-wheel ## Compare PowerContext off and on for paired workloads against an existing Server.
 	@uv run --project e2e/bub powercontext-e2e paired \
 		--output "$${POWERCONTEXT_E2E_OUTPUT:-e2e/bub/results/paired}" $(ARGS)
 

@@ -129,6 +129,7 @@ Send this to your coding agent, such as Codex, OpenCode or Claude Code. It detec
 Install PowerContext on this machine by following https://powercontext.oceanbase.io/en/llms.mdx/docs/get-started/agent-install/content.md. Ask me before deciding anything on my behalf, don't guess, and never read or show any of my keys.
 ```
 
+PowerContext 1.6.0 includes an interactive setup wizard. You need CPython 3.11–3.14, Git, and [uv](https://docs.astral.sh/uv/getting-started/installation/); uv can provision Python when needed. To connect an Agent, also install its CLI. In the wizard, choose Basic memory for explicit saves and recall without model APIs; Full memory requires separate Generation and Embedding API credentials. For a local Server without model APIs, see [Install and run](https://powercontext.oceanbase.io/en/docs/get-started/install-and-run/). macOS and Linux are supported; Windows support is `experimental`. To provision Python and uv automatically, use the [installation script](https://powercontext.oceanbase.io/en/docs/get-started/install-and-run/#install-with-the-recommended-script).
 <details>
 <summary><b>Install it yourself</b></summary>
 
@@ -137,7 +138,7 @@ You need Python 3.11+, Git, and [uv](https://docs.astral.sh/uv/getting-started/i
 Choose **Basic memory** in the wizard to try explicit saves and recall without a separate Server model API. Automatic extraction requires **Full memory** with Generation and Embedding credentials. SQLite is a simple first storage choice.
 
 ```bash
-uv tool install --force "powercontext[cli,server]==1.6.0"
+uv tool install --python ">=3.11,<3.15" --force "powercontext[cli,server]==1.6.0"
 mkdir -p powercontext-config && cd powercontext-config
 powercontext config init --language en --output .env
 powercontext config validate --env-file .env

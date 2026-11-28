@@ -20,8 +20,10 @@ The middleware uses LangChain's public `AgentMiddleware` API. Recalled content m
 The middleware source is packaged separately as `powercontext-langchain` and requires LangChain 1.3 or later. It is
 not currently published on PyPI:
 
+This installs from source and compiles the native analyzer, so it needs Rust 1.97.1 and a platform C toolchain (MSVC on Windows); see [Platform support](../get-started/install-and-run.md#platform-support).
+
 ```bash
-uv tool install --force "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@master"
+uv tool install --python ">=3.11,<3.15" --force "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@master"
 powercontext server run
 ```
 

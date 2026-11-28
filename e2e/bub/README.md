@@ -104,6 +104,13 @@ export POWERCONTEXT_BUB_TRUST_TRANSPORT_SECURITY=true
 make harness-acceptance
 ```
 
+The acceptance and paired targets use Docker BuildKit to build the current SDK's wheel in Linux, matching the Docker
+engine's architecture, before starting Bub. This requires Docker even when the Server runs outside Compose; macOS wheels
+cannot be installed in Linux task containers. The Linux wheel is exported to
+`dist/harness-wheels/linux/<version>/`, separately from any earlier host-native wheels. Task containers use the same Docker
+engine platform and install that wheel and the local Bub plugin without compiling Rust. The Compose image prepares its
+Linux wheel during its build; when invoking the Python CLI directly, run `make harness-wheel` first.
+
 The default run executes all acceptance tasks with collect-all, then reruns `batch:acceptance` with fail-fast. LoCoMo
 stays in its own `batch:locomo`; the database decision and failure-policy tasks share `batch:acceptance`. Explicit
 selection runs only the selected workloads with the requested failure policy.
@@ -582,7 +589,7 @@ their own diagnostics, so prefer an index without URL credentials.
 `http://deb.debian.org` or `https://deb.debian.org` repository URIs ending in `/debian` or `/debian-security` with that
 base and the same repository path. Both `.list` and `.sources` formats retain their suites, components, signing keys,
 and custom repository URIs. Other operating systems keep their sources. Compose also forwards this public URL as a
-harness image build argument, so the same source selection applies before the image installs its Debian packages.
+Server and harness image build arguments, so the same source selection applies before either image installs its Debian packages.
 During the build, APT uses a host-specific `DIRECT` rule for the mirror and retains other proxy settings; during task
 setup, the mirror hostname joins the task's proxy exclusions alongside the Python index and private Server routes.
 The mirror must be directly reachable during both build and task execution. Use a public URL without credentials:

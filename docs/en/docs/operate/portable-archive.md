@@ -34,7 +34,7 @@ SQLite database at `POWERCONTEXT_HOME/powercontext.db`; without `POWERCONTEXT_HO
 system user-data directory.
 
 ```bash
-uv tool install "powercontext[cli] @ git+https://github.com/oceanbase/powercontext.git@master"
+uv tool install --python ">=3.11,<3.15" "powercontext[cli] @ git+https://github.com/oceanbase/powercontext.git@master"
 export POWERCONTEXT_HOME="$HOME/.local/share/powercontext"
 ```
 

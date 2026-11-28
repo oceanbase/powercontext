@@ -79,7 +79,7 @@ Repeated launches activate the existing window for this channel. Profile storage
 
 ## Build on Windows
 
-Use Windows 11 x64, Visual Studio C++ Build Tools with a Windows SDK, Node **24.14.1**, pnpm **11.13.1**, Rust **1.95.0 MSVC**, **JDK 11 or newer with `java` available on `PATH`**, and WebView2. `desktop/.mise.toml`, `rust-toolchain.toml`, `pnpm-lock.yaml` and `src-tauri/Cargo.lock` pin the tools and dependencies independently of Python and the website.
+Use Windows 11 x64, Visual Studio C++ Build Tools with a Windows SDK, Node **24.14.1**, pnpm **11.13.1**, Rust **1.97.1 MSVC**, **JDK 11 or newer with `java` available on `PATH`**, and WebView2. `desktop/.mise.toml`, `rust-toolchain.toml`, `pnpm-lock.yaml` and `src-tauri/Cargo.lock` pin the tools and dependencies independently of Python and the website.
 
 The OpenAPI Generator used by `generate` and `generate:check` runs on Java. Its version is pinned in
 `openapitools.json` and its SHA-256 in `openapi-generator-checksum.json`; update both when upgrading the generator.
@@ -91,8 +91,8 @@ does not discard the download. This applies to Windows, macOS, and Linux jobs.
 Some machines default to Rust's GNU host. In PowerShell, explicitly select the pinned MSVC host for this process:
 
 ```powershell
-rustup toolchain install 1.95.0-x86_64-pc-windows-msvc --profile minimal --component clippy --component rustfmt
-$env:RUSTUP_TOOLCHAIN = '1.95.0-x86_64-pc-windows-msvc'
+rustup toolchain install 1.97.1-x86_64-pc-windows-msvc --profile minimal --component clippy --component rustfmt
+$env:RUSTUP_TOOLCHAIN = '1.97.1-x86_64-pc-windows-msvc'
 pnpm --dir desktop install --frozen-lockfile
 pnpm --dir desktop desktop:dev
 ```
@@ -254,7 +254,7 @@ Historical profiles remain disabled unless separate current-client evidence qual
 ## Build on macOS
 
 Use macOS 12 or later, Xcode Command Line Tools (`xcode-select --install`), Node **24.14.1**,
-pnpm **11.13.1**, Rust **1.95.0**, and **JDK 11 or newer with `java` available on `PATH`**.
+pnpm **11.13.1**, Rust **1.97.1**, and **JDK 11 or newer with `java` available on `PATH`**.
 Build on the target architecture (Apple Silicon or Intel).
 
 `generate:check`, included in `lint` and `build`, runs the Java OpenAPI Generator. The first run
