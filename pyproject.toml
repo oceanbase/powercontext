@@ -320,6 +320,7 @@ fix = true
 # The plugins and SDK adapters ship generated copies of these modules. Ruff must check each copy like its source, or a
 # fix that it applies to a copy makes the copy drift.
 "src/powercontext_integration_lifecycle/**/*.py" = "py39"
+"integrations/antigravity/plugins/powercontext/**/*.py" = "py39"
 "integrations/codex/plugins/powercontext/powercontext_lifecycle/**/*.py" = "py39"
 "integrations/bub/src/powercontext_bub/_prompt_privacy.py" = "py39"
 "integrations/hermes/plugins/powercontext/{powercontext_client_config,prepared_context,prompt_privacy}.py" = "py39"

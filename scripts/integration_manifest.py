@@ -88,6 +88,7 @@ class PreCompactionMode(StrEnum):
 class ToolSurfaceProbe(StrEnum):
     SERVER_MCP = "server_mcp"
     JSON_PROMPT_HOOK = "json_prompt_hook"
+    ANTIGRAVITY_HOOKS = "antigravity_hooks"
     ZCODE_PROMPT_HOOK = "zcode_prompt_hook"
     KIMI_CODE_MCP = "kimi_code_mcp"
     KIMI_CODE_PROMPT_HOOK = "kimi_code_prompt_hook"
@@ -572,6 +573,8 @@ def _probe_toolset(probe: ToolSurfaceProbe, root: Path) -> set[str]:
         from mcp_catalog import server_mcp_tools
 
         return {tool.name for tool in server_mcp_tools()}
+    if probe is ToolSurfaceProbe.ANTIGRAVITY_HOOKS:
+        return _antigravity_hook_ids(root)
     if probe is ToolSurfaceProbe.JSON_PROMPT_HOOK:
         return _prompt_hook_ids(root)
     if probe is ToolSurfaceProbe.KIMI_CODE_SCOPE:
@@ -819,6 +822,23 @@ def _prompt_hook_ids(root: Path) -> set[str]:
     return result
 
 
+def _antigravity_hook_ids(root: Path) -> set[str]:
+    config = root / "integrations/antigravity/plugins/powercontext/hooks.json"
+    group = json.loads(config.read_text(encoding="utf-8"))["powercontext"]
+    if group.get("enabled") is not True:
+        return set()
+    return {
+        f"antigravity:{event}"
+        for event, hooks in group.items()
+        if isinstance(hooks, list)
+        and any(
+            hook.get("type") == "command" and hook.get("command") == f"python3 ./scripts/lifecycle.py {event}"
+            for hook in hooks
+        )
+        and (config.parent / "scripts/lifecycle.py").is_file()
+    }
+
+
 def _zcode_prompt_hook_ids(root: Path) -> set[str]:
     plugin = root / "integrations/zcode/plugins/powercontext"
     definitions = {
@@ -1031,6 +1051,12 @@ def _python_decorator_tool_ids(path: Path) -> set[str]:
 
 
 def _mcp_configuration_errors(integration_id: str, root: Path) -> list[str]:
+    if integration_id == "antigravity":
+        path = "integrations/antigravity/plugins/powercontext/mcp_config.json"
+        config = json.loads(_read(root, path))
+        if config.get("mcpServers", {}).get("memory", {}).get("url") == "http://127.0.0.1:8000/mcp":
+            return []
+        return ["antigravity: missing PowerContext MCP config"]
     paths = {
         "codex": "integrations/codex/plugins/powercontext/.mcp.json",
         "claude-code": "integrations/claude-code/plugins/powercontext/.mcp.json",

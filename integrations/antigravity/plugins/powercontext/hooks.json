@@ -1,0 +1,19 @@
+{
+  "powercontext": {
+    "enabled": true,
+    "SessionStart": [
+      {
+        "type": "command",
+        "command": "python3 ./scripts/lifecycle.py SessionStart",
+        "timeout": 10
+      }
+    ],
+    "PreInvocation": [
+      {
+        "type": "command",
+        "command": "python3 ./scripts/lifecycle.py PreInvocation",
+        "timeout": 10
+      }
+    ]
+  }
+}

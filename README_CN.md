@@ -190,6 +190,8 @@ powercontext doctor codex
 
 ## 生态
 
+原生集成 · [Antigravity](https://powercontext.oceanbase.io/zh/docs/integrations/antigravity/)
+
 <!-- Add integrations using an original logo asset, a product name, and a documentation link. -->
 <table width="100%">
   <tr>

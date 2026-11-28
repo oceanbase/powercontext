@@ -117,6 +117,7 @@ class PluginSource:
 
 
 def installers():
+    from powercontext.cli.antigravity import AntigravityInstaller
     from powercontext.cli.dsh import DshInstaller
     from powercontext.cli.hermes import HermesInstaller
     from powercontext.cli.kimi_code import KimiInstaller
@@ -140,6 +141,7 @@ def installers():
         "pi": PiInstaller,
         "workbuddy": WorkBuddyInstaller,
         "zcode": ZCodeInstaller,
+        "antigravity": AntigravityInstaller,
     }
 
 

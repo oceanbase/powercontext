@@ -190,6 +190,8 @@ Already subscribed to Codex, Claude Code, GitHub Copilot, Grok, Gemini, Qwen Cod
 
 ## Ecosystem
 
+Native integration · [Antigravity](https://powercontext.oceanbase.io/en/docs/integrations/antigravity/)
+
 <!-- Add integrations using an original logo asset, a product name, and a documentation link. -->
 <table width="100%">
   <tr>
