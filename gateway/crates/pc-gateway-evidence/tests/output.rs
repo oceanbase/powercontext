@@ -29,6 +29,14 @@ impl Write for Output {
         Ok(())
     }
 }
+#[test]
+fn call_evidence_without_internal_decodes_as_false() {
+    let mut value = serde_json::to_value(CallEvidence::default()).unwrap();
+    value.as_object_mut().unwrap().remove("internal");
+    let decoded: CallEvidence = serde_json::from_value(value).unwrap();
+    assert!(!decoded.internal);
+}
+
 fn record() -> CallEvidence {
     CallEvidence {
         call_id: new_call_id(),

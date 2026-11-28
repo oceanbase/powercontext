@@ -517,6 +517,37 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "x-powercontext-access": {"action": "server.observe", "resource": {"type": "server"}},
             }
         },
+        "/v1/source-limits": {
+            "get": {
+                "tags": ["sources"],
+                "summary": "Get effective Source capture limits",
+                "description": "Report the deployment's effective Content "
+                "Source write limit so collectors can "
+                "validate input before sending it. The "
+                "limit applies to Content Source captures, "
+                "batch items, Working Notes and Source "
+                "creation with `source_type: content`; "
+                "string content counts raw characters and "
+                "other JSON values count their canonical "
+                "JSON characters. The value comes from "
+                "deployment configuration. Storage may "
+                "already hold larger Sources written under "
+                "a higher limit; reads of those Sources "
+                "stay available.",
+                "operationId": "get_source_limits",
+                "responses": {
+                    "200": {
+                        "description": "Effective Source limits for this deployment.",
+                        "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+                        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/SourceLimits"}}},
+                    },
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "403": {"$ref": "#/components/responses/Forbidden"},
+                    "503": {"$ref": "#/components/responses/Unavailable"},
+                },
+                "x-powercontext-access": {"action": "server.observe", "resource": {"type": "server"}},
+            }
+        },
         "/v1/scopes": {
             "get": {
                 "tags": ["scopes"],
@@ -10463,7 +10494,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "source_id": {"type": "string", "maxLength": 256, "minLength": 1},
                     "content": {
                         "type": "string",
-                        "maxLength": 200000,
+                        "maxLength": 1000000,
                         "minLength": 1,
                         "description": "Raw "
                         "integration "
@@ -10488,7 +10519,18 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                         "through "
                         "their "
                         "dedicated "
-                        "workflow.",
+                        "workflow. "
+                        "The "
+                        "deployment's "
+                        "effective "
+                        "limit "
+                        "is "
+                        "reported "
+                        "by "
+                        "`GET "
+                        "/v1/source-limits` "
+                        "as "
+                        "`source_content_max_chars`.",
                     },
                     "metadata": {
                         "additionalProperties": True,
@@ -10522,7 +10564,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "source_id": {"type": "string", "maxLength": 256, "minLength": 1},
                     "content": {
                         "type": "string",
-                        "maxLength": 200000,
+                        "maxLength": 1000000,
                         "minLength": 1,
                         "description": "Raw "
                         "integration "
@@ -10603,7 +10645,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "properties": {
                     "scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
                     "source_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
-                    "content": {"type": "string", "maxLength": 200000, "minLength": 1, "pattern": ".*\\S.*"},
+                    "content": {"type": "string", "maxLength": 1000000, "minLength": 1, "pattern": ".*\\S.*"},
                     "session_id": {
                         "type": "string",
                         "maxLength": 256,
@@ -14878,6 +14920,28 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                         "plugin "
                         "Source "
                         "type. "
+                        "For "
+                        "the "
+                        "built-in "
+                        "content "
+                        "type, "
+                        "the "
+                        "size "
+                        "counts "
+                        "toward "
+                        "`source_content_max_chars` "
+                        "as "
+                        "raw "
+                        "characters "
+                        "for "
+                        "strings "
+                        "and "
+                        "canonical "
+                        "JSON "
+                        "characters "
+                        "for "
+                        "other "
+                        "values. "
                         "Server-reserved "
                         "payload "
                         "schemas, "
@@ -15555,6 +15619,67 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "type": "object",
                 "required": ["kind", "sequence"],
                 "description": "Position of this exact Source in its scope journal; zero is distinct from absence.",
+            },
+            "SourceLimits": {
+                "properties": {
+                    "source_content_max_chars": {
+                        "type": "integer",
+                        "maximum": 1000000.0,
+                        "minimum": 1.0,
+                        "description": "Effective "
+                        "maximum "
+                        "characters "
+                        "accepted "
+                        "in "
+                        "one "
+                        "Content "
+                        "Source "
+                        "write "
+                        "on "
+                        "this "
+                        "deployment. "
+                        "String "
+                        "content "
+                        "counts "
+                        "raw "
+                        "characters; "
+                        "other "
+                        "JSON "
+                        "values "
+                        "count "
+                        "their "
+                        "canonical "
+                        "JSON "
+                        "characters.",
+                    },
+                    "source_content_max_chars_ceiling": {
+                        "type": "integer",
+                        "maximum": 1000000.0,
+                        "minimum": 1.0,
+                        "description": "Largest "
+                        "limit "
+                        "this "
+                        "build "
+                        "accepts "
+                        "as "
+                        "configuration. "
+                        "Requests "
+                        "above "
+                        "the "
+                        "ceiling "
+                        "fail "
+                        "schema "
+                        "validation "
+                        "before "
+                        "the "
+                        "deployment "
+                        "limit "
+                        "applies.",
+                    },
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["source_content_max_chars", "source_content_max_chars_ceiling"],
             },
             "SourceLineRangeLocator": {
                 "properties": {

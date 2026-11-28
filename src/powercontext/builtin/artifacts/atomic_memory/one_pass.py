@@ -231,17 +231,26 @@ def apply_one_pass_operations(
     reply: str,
     labels: Mapping[str, str],
     extraction_input: AtomicMemoryExtractionInput,
+    entries: Sequence[OnePassEntry],
 ) -> tuple[AtomicMemoryWindowWorkset, tuple[str, ...]]:
     """Apply step 2 to a copy of the workset and return it with the keys of the created items.
 
-    The original workset is left unchanged, so a rejected reply can be corrected and applied again.
+    The reply needs at least one operation per step 1 entry; a noop without target declines one. The original
+    workset is left unchanged, so a rejected reply can be corrected and applied again.
     """
 
     result = workset.copy()
     evidence = {item.evidence_id: item for item in extraction_input.evidence}
+    operations = _parse(reply, OnePassOperations).operations
+    if len(operations) < len(entries):
+        # Operations carry no entry id, so fewer operations than entries leaves a listed memory undecided.
+        _invalid(
+            f"return one operation for every entry listed in step 1 ({len(entries)} entries, "
+            f"{len(operations)} operations); use noop without target_ids for an entry not worth keeping"
+        )
     created: list[str] = []
     written: set[str] = set()
-    for ordinal, operation in enumerate(_parse(reply, OnePassOperations).operations):
+    for ordinal, operation in enumerate(operations):
         targets = _targets(operation, labels)
         if operation.action == "noop":
             if len(targets) > 1:

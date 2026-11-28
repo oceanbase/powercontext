@@ -297,6 +297,7 @@ fn call(degrade: DegradePolicy) -> ManagedCall {
         capture_prefix: false,
         conversation_id: None,
         sediment: false,
+        internal: false,
         prepared_contexts: Vec::new(),
     }
 }

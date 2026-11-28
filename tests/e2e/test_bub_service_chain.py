@@ -295,6 +295,26 @@ def test_bub_capture_setting_leaves_recall_running(bub_stack: BubStack) -> None:
     assert bub_stack.calls("/v1/memory/flush", start)
 
 
+def test_bub_prompt_recall_off_leaves_prompt_time_context_to_the_gateway(bub_stack: BubStack) -> None:
+    workspace = bub_stack.workspace("workspace")
+    bub_stack.model.plan([("powercontext_search", {"query": "orchid verification color"})])
+    model_start = len(bub_stack.model.requests)
+    start = bub_stack.run(
+        workspace, QUESTION, POWERCONTEXT_BUB_PROMPT_RECALL="false", POWERCONTEXT_BUB_CAPTURE_EVENTS="true"
+    )
+    assert not bub_stack.calls("/v1/context/prepare", start)
+    requests = bub_stack.model.requests[model_start:]
+    assert LABEL not in json.dumps(requests)
+    offered = {tool["function"]["name"] for request in requests for tool in request.get("tools", [])}
+    assert "powercontext_search" in offered
+    assert "powercontext_context" not in offered
+    # The other tools, capture and the turn's flush keep working.
+    assert bub_stack.calls("/v1/memory/search", start)
+    events = [record["request"]["metadata"]["event"] for record in bub_stack.calls("/v1/sources/content", start)]
+    assert "user_prompt" in events
+    assert bub_stack.calls("/v1/memory/flush", start)
+
+
 def test_bub_memory_tools_reach_the_bound_scope(bub_stack: BubStack) -> None:
     kestrel = bub_stack.create_scope("bub-kestrel")
     workspace = bub_stack.workspace("workspace")

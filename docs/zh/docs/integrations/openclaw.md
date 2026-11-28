@@ -226,10 +226,12 @@ gateway 在 Chat Completions 路由上转发流式请求，并原样放行流式
   设置 `PC_GATEWAY_SEDIMENT=on`；Core 启用鉴权时还要设置 `PC_GATEWAY_CORE_TOKEN`。
 - gateway 在 `PC_GATEWAY_DEFAULT_SCOPE` 指定的同一个 Scope 中准备和采集所有会话，而不是插件为每个会话或项目解析的
   Scope。请把插件的 `scopeId` 和 `PC_GATEWAY_DEFAULT_SCOPE` 设为同一个已有的 Scope。
-- 设置 `PC_GATEWAY_INJECTION=on`。组合部署默认只向带有 `X-PowerContext-Conversation-ID`
-  或其他可识别会话头的请求注入上下文。OpenClaw 2026.8.1 只向 OpenAI 自己的端点发送会话头，而 provider 的 `headers`
-  对每个会话都相同，因此 OpenClaw 的请求不会标识会话。开启注入后，gateway 为每个请求分别准备，包括工具循环步骤。不要在
-  provider 的 `headers` 中放固定的 `X-PowerContext-Conversation-ID`，否则 gateway 会把所有会话当作同一个会话。
+- OpenClaw 2026.8.1 只向 OpenAI 自己的端点发送会话头，而 provider 的 `headers` 对每个会话都相同，
+  因此 OpenClaw 的请求不会标识会话。组合部署（`PC_GATEWAY_CORE_UDS`）会改为推导会话：在自定义 provider 上，
+  OpenClaw 每次请求都发送会话的完整历史，开头是它的系统提示词和第一条用户消息，因此 gateway 每条用户消息准备一次，
+  并把结果重放给工具循环步骤。系统提示词和第一条消息都相同的会话会共享推导出的会话。独立运行的
+  gateway（`PC_GATEWAY_CORE_BASE`）只有设置 `PC_GATEWAY_INJECTION=on` 才会注入。不要在 provider 的 `headers`
+  中放固定的 `X-PowerContext-Conversation-ID`，否则 gateway 会把所有会话当作同一个会话。
 
 见[网关上下文注入](../operate/deploy-server.md#网关上下文注入)和[网关认证边界](../operate/deploy-server.md#网关认证边界)。
 
