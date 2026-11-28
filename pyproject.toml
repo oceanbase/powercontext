@@ -276,6 +276,7 @@ exclude = [
     "evaluation/artifact_evolution",
     "evaluation/memory/longmemeval_v2",
     "evaluation/memory/capture_ownership",
+    "evaluation/memory/evidence_admission",
     "evaluation/skills",
     "evaluation/zcode_guidance",
     # Both plugin directories are search paths, and ty resolves powercontext_lifecycle to the Claude Code copy, so it

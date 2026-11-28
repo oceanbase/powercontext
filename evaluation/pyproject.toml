@@ -32,9 +32,11 @@ swebench-pro = "powercontext_eval_swebench_pro.cli:main"
 longmemeval-v2 = "powercontext_eval_longmemeval_v2.cli:main"
 work-continuity = "powercontext_eval_work_continuity.cli:main"
 capture-ownership = "powercontext_eval_capture_ownership.cli:main"
+evidence-admission = "powercontext_eval_evidence_admission.cli:main"
 artifact-evolution = "powercontext_eval_artifact_evolution.cli:main"
 
 [project.optional-dependencies]
+evidence-admission = ["powercontext[builtin]"]
 capture-ownership = ["powercontext[server]"]
 
 [tool.uv.sources]
@@ -42,6 +44,7 @@ powercontext = { path = "..", editable = true }
 
 [dependency-groups]
 dev = [
+  "powercontext[builtin]",
   "httpx>=0.28,<1",
   "prometheus-client>=0.21,<1",
   "pytest>=9.0.2",
@@ -55,22 +58,27 @@ packages = [
   "coding/work_continuity/src/powercontext_eval_work_continuity",
   "memory/longmemeval_v2/src/powercontext_eval_longmemeval_v2",
   "memory/capture_ownership/src/powercontext_eval_capture_ownership",
+  "memory/evidence_admission/src/powercontext_eval_evidence_admission",
   "artifact_evolution/src/powercontext_eval_artifact_evolution",
 ]
 
 [tool.hatch.build.targets.sdist]
-include = ["/artifact_evolution", "/coding/swebench_pro", "/coding/work_continuity", "/memory/longmemeval_v2", "/memory/capture_ownership", "/README.md", "/pyproject.toml", "/uv.lock"]
+include = ["/artifact_evolution", "/coding/swebench_pro", "/coding/work_continuity", "/memory/longmemeval_v2", "/memory/capture_ownership", "/memory/evidence_admission", "/README.md", "/pyproject.toml", "/uv.lock"]
 exclude = ["**/.venv", "**/node_modules", "**/dist", "**/__pycache__", "**/.ruff_cache", "**/.pytest_cache", "**/*.tsbuildinfo", "**/test-results", "**/playwright-report"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"memory/evidence_admission/manifests" = "powercontext_eval_evidence_admission/_data/manifests"
+"memory/evidence_admission/fixtures" = "powercontext_eval_evidence_admission/_data/fixtures"
 
 [tool.ty.environment]
 python = "./.venv"
 python-version = "3.11"
 
 [tool.ty.src]
-include = ["artifact_evolution/src", "coding/swebench_pro/src", "coding/work_continuity/src", "memory/longmemeval_v2/src", "memory/capture_ownership/src"]
+include = ["artifact_evolution/src", "coding/swebench_pro/src", "coding/work_continuity/src", "memory/longmemeval_v2/src", "memory/capture_ownership/src", "memory/evidence_admission/src"]
 
 [tool.pytest.ini_options]
-testpaths = ["artifact_evolution/tests", "coding/swebench_pro/tests", "coding/work_continuity/tests", "memory/longmemeval_v2/tests", "memory/capture_ownership/tests"]
+testpaths = ["artifact_evolution/tests", "coding/swebench_pro/tests", "coding/work_continuity/tests", "memory/longmemeval_v2/tests", "memory/capture_ownership/tests", "memory/evidence_admission/tests"]
 addopts = ["--import-mode=importlib"]
 markers = [
   "live: tests that require external services",
