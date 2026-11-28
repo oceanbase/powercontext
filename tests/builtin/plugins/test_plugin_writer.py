@@ -430,3 +430,23 @@ def test_revert_returns_the_target_snapshot_and_lifecycle_changes(runtime):
             assert await writer.get("a") == result.artifact
 
     asyncio.run(scenario())
+
+
+def test_plugin_listing_applies_the_configured_query_limit(runtime) -> None:
+    from powercontext.builtin.records import InvalidBaseAccessRequestError
+
+    async def scenario():
+        async with open_builtin_contexts(runtime) as contexts:
+            scope = await _scope(contexts)
+            database = contexts.database
+            async with _writer(database, scope, tag_query_limit=40).transaction() as tx:
+                page = await tx.list(tags=[f"label-{index}" for index in range(40)])
+                assert page.items == ()
+            with pytest.raises(InvalidBaseAccessRequestError, match="40-label query limit"):
+                async with _writer(database, scope, tag_query_limit=40).transaction() as tx:
+                    await tx.list(tags=[f"label-{index}" for index in range(41)])
+            with pytest.raises(InvalidBaseAccessRequestError, match="16-label query limit"):
+                async with _writer(database, scope).transaction() as tx:
+                    await tx.list(tags=[f"label-{index}" for index in range(17)])
+
+    asyncio.run(scenario())

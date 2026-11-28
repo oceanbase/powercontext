@@ -87,6 +87,8 @@ async def propose_tags(client, scope_id, current, tags_etag, evidence_source_id)
 
 Atomic Memory uses `ArtifactTagTarget(family="atomic-memory", ...)` and the exact `basis_ref`, just like other Artifacts. Its target is comparison context and cannot support its own Tag change; supply independent evidence. The resulting run has `candidate.kind="tag"`. Inspect it using `get_candidate(GetCandidateRequest(...))`; approval uses `approve_candidate(ApproveCandidateRequest(...))`. The unified `/v1/candidates/list|get|history|revise|approve|reject` interfaces preserve Tag's distinct lifecycle. Approval checks both the Tag ETag and content baseline atomically. The result contains the complete tags and new ETag, with no Artifact revision.
 
+An over-limit Dream Tag proposal fails its run with `invalid_generation_output` and creates no candidate. A revise, or an approval of a candidate created before the limit was lowered, whose `after_tags` exceeds the deployment's effective Artifact tag limit returns `422 invalid_request` with `details.field="after_tags"`, `details.reason="tag_limit_exceeded"` and the effective `details.limit`; an embedded `catalog_changes.propose` caller gets `InvalidCandidateError`. Approval leaves the target unchanged.
+
 ```sh
 powercontext candidate list --candidate-kind tag --scope-id "$SCOPE_ID"
 powercontext candidate show --scope-id "$SCOPE_ID" "$CANDIDATE_ID"

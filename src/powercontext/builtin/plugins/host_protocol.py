@@ -23,6 +23,8 @@ from contextlib import suppress
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
+from powercontext.limits import MAX_QUERY_TAG_LABELS, MAX_TARGET_TAGS
+
 HostMethod = Literal[
     "create_artifact",
     "update_artifact",
@@ -65,6 +67,8 @@ class PluginHostSpec:
     storage_root: str | None = None
     # The background identity upgrade writes act as; None when access is disabled or none is configured.
     upgrade_security: dict[str, Any] | None = None
+    tag_max_per_artifact: int = MAX_TARGET_TAGS
+    tag_max_query_labels: int = MAX_QUERY_TAG_LABELS
 
 
 @dataclass(frozen=True)

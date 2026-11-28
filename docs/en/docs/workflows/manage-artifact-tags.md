@@ -113,7 +113,9 @@ does not freeze a snapshot across requests.
 
 ## Label rules and storage
 
-- A target holds at most 32 labels; a filter accepts 1–16 labels.
+- A target holds at most the deployment's Artifact tag limit: 32 labels by default, configured with
+  `POWERCONTEXT_SERVER_RUNTIME_TAG_MAX_PER_ARTIFACT` (1–256). A filter accepts 1 label up to the deployment's
+  query-label limit: 16 by default, configured with `POWERCONTEXT_SERVER_RUNTIME_TAG_MAX_QUERY_LABELS` (1–64).
 - Each label has 1–64 Unicode code points, no outer whitespace, and no control, surrogate, or unassigned characters.
 - Matching uses NFC normalization followed by Unicode case folding. The submitted display spelling is retained.
   Normalized duplicates such as `Straße` and `STRASSE` are rejected atomically. A normalized key may not exceed 128
@@ -121,8 +123,9 @@ does not freeze a snapshot across requests.
 - Tags are Scope-local discovery metadata, not permissions or trusted instructions. They are not added to model prompts,
   Skill package frontmatter, or publication/import payloads. Published copies start without the source target's tags.
 - Inactive memories retain their authoritative tags. Rebuilding active search projections does not delete them.
-- A merge result starts with tags drawn from its inputs. When the inputs carry more than 32 distinct normalized labels,
-  the result keeps 32: labels carried by more inputs first, then code point order of the normalized key. The selection
+- A merge result starts with tags drawn from its inputs. When the inputs carry more normalized labels than the effective
+  Artifact limit, the result keeps that many: labels carried by more inputs first, then code point order of the normalized
+  key. The selection
   does not depend on input order, so repeating the same merge assigns the same tags. The merged inputs keep their
   complete tag sets, and restoration makes them active with those tags.
 

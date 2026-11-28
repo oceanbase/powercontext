@@ -3666,7 +3666,7 @@ class TagFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    tags: Annotated[list[Tag3], Field(max_length=16, min_length=1)]
+    tags: Annotated[list[Tag3], Field(max_length=64, min_length=1)]
     match: TagMatch = TagMatch.ALL
 
 
@@ -3674,14 +3674,14 @@ class ReplaceArtifactTagsRequest(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    tags: Annotated[list[Tag3], Field(max_length=32, min_length=0)]
+    tags: Annotated[list[Tag3], Field(max_length=256, min_length=0)]
 
 
 class QueryArtifactTagsRequest(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    tags: Annotated[list[Tag3], Field(max_length=16, min_length=1)]
+    tags: Annotated[list[Tag3], Field(max_length=64, min_length=1)]
     match: TagMatch = TagMatch.ALL
     families: Annotated[
         list[TaggableArtifactFamily] | None,
@@ -3703,7 +3703,7 @@ class ArtifactTagSet(BaseModel):
     )
     scope_id: StrictStr
     target: TagTarget
-    tags: Annotated[list[Tag3], Field(max_length=32, min_length=0)]
+    tags: Annotated[list[Tag3], Field(max_length=256, min_length=0)]
     tag_digest: Annotated[
         StrictStr,
         Field(
@@ -3719,7 +3719,7 @@ class TaggedTarget(BaseModel):
     )
     scope_id: StrictStr
     target: TagTarget
-    tags: Annotated[list[Tag3], Field(max_length=32, min_length=0)]
+    tags: Annotated[list[Tag3], Field(max_length=256, min_length=0)]
     tag_digest: Annotated[
         StrictStr,
         Field(
@@ -3746,7 +3746,7 @@ class ListArtifactsRequest(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    tag: Annotated[list[TagItem] | None, Field(max_length=16, min_length=1)] = None
+    tag: Annotated[list[TagItem] | None, Field(max_length=64, min_length=1)] = None
     tag_match: TagMatch | None = None
     limit: Annotated[StrictInt, Field(ge=1, le=100)] = 50
     cursor: Annotated[StrictStr | None, Field(max_length=4096, min_length=1)] = None
@@ -4693,8 +4693,8 @@ class CatalogChangeProposal(BaseModel):
     target: TagTarget
     expected_etag: Annotated[StrictStr, Field(min_length=1)]
     basis_ref: ArtifactReference
-    before_tags: Annotated[list[BeforeTag], Field(max_length=32)]
-    after_tags: Annotated[list[AfterTag], Field(max_length=32)]
+    before_tags: Annotated[list[BeforeTag], Field(max_length=256)]
+    after_tags: Annotated[list[AfterTag], Field(max_length=256)]
 
 
 class CatalogTagResult(BaseModel):
@@ -4703,7 +4703,7 @@ class CatalogTagResult(BaseModel):
     )
     scope_id: Annotated[StrictStr, Field(min_length=1)]
     target: TagTarget
-    tags: Annotated[list[Tag3], Field(max_length=32)]
+    tags: Annotated[list[Tag3], Field(max_length=256)]
     tag_digest: Annotated[StrictStr, Field(min_length=1)]
     etag: Annotated[StrictStr, Field(min_length=1)]
 
@@ -4812,7 +4812,7 @@ class RecallManifestRequest(BaseModel):
     )
     scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
     kind: Annotated[StrictStr | None, Field(min_length=1)] = None
-    tags: Annotated[list[Tag] | None, Field(max_length=16)] = None
+    tags: Annotated[list[Tag] | None, Field(max_length=64)] = None
     tag_match: TagMatch | None = None
     limit: Annotated[StrictInt, Field(ge=1, le=100)] = 50
     cursor: Annotated[StrictStr | None, Field(max_length=4096)] = None
@@ -4949,7 +4949,7 @@ class ListAtomicMemoryRequest(BaseModel):
     scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
     states: list[AtomicMemoryState] | None = None
     kind: Annotated[StrictStr | None, Field(min_length=1)] = None
-    tags: Annotated[list[Tag] | None, Field(max_length=16)] = None
+    tags: Annotated[list[Tag] | None, Field(max_length=64)] = None
     tag_match: TagMatch | None = None
     limit: Annotated[StrictInt, Field(ge=1, le=100)] = 50
     cursor: Annotated[StrictStr | None, Field(max_length=4096)] = None
@@ -4971,7 +4971,7 @@ class SearchAtomicMemoryRequest(BaseModel):
     query: Annotated[StrictStr, Field(max_length=8192, min_length=1)]
     mode: AtomicMemorySearchMode = AtomicMemorySearchMode.TEXT
     kind: Annotated[StrictStr | None, Field(min_length=1)] = None
-    tags: Annotated[list[Tag] | None, Field(max_length=16)] = None
+    tags: Annotated[list[Tag] | None, Field(max_length=64)] = None
     tag_match: TagMatch | None = None
     limit: Annotated[StrictInt, Field(ge=1, le=100)] = 20
 

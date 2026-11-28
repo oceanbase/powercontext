@@ -1773,7 +1773,7 @@
               "minLength": 1,
               "maxLength": 64
             },
-            "maxItems": 32
+            "maxItems": 256
           },
           "after_tags": {
             "type": "array",
@@ -1782,7 +1782,7 @@
               "minLength": 1,
               "maxLength": 64
             },
-            "maxItems": 32
+            "maxItems": 256
           }
         }
       },
@@ -1811,7 +1811,7 @@
               "minLength": 1,
               "maxLength": 64
             },
-            "maxItems": 32
+            "maxItems": 256
           },
           "tag_digest": {
             "type": "string",
@@ -3005,7 +3005,7 @@
               "type": "string",
               "minLength": 1
             },
-            "maxItems": 16
+            "maxItems": 64
           },
           "tag_match": {
             "$ref": "#/components/schemas/TagMatch"
@@ -5179,11 +5179,12 @@
         "required": [
           "tags"
         ],
+        "description": "Exact label filter. The deployment's configured query-label limit, 16 by default, applies.",
         "properties": {
           "tags": {
             "type": "array",
             "minItems": 1,
-            "maxItems": 16,
+            "maxItems": 64,
             "items": {
               "type": "string",
               "minLength": 1,

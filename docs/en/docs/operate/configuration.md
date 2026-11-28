@@ -64,9 +64,11 @@ changes authoritative history. For a hosted decision backend, set `MEMORY_WRITE_
 and explicitly select `MEMORY_WRITE_GATE_SANITIZER=known_secrets`. The sanitizer covers known sensitive environment/Codex
 values and a bounded set of provider-key prefixes; it is not a general PII or password detector. The sanitizer selection
 defaults to `none`, and hosted-redacted composition fails with a named configuration error until one is selected.
-The existing limit of 32 tags per Artifact still applies to a merge result. When its inputs carry more than 32 distinct
-normalized labels, the result keeps a deterministic selection of 32, and the merge and its Source window commit
-normally. See [Organize with tags](../workflows/manage-artifact-tags.md#label-rules-and-storage) for the selection order.
+The deployment's Artifact tag limit applies to a merge result. It is 32 tags by default and can be raised to 256 with
+`POWERCONTEXT_SERVER_RUNTIME_TAG_MAX_PER_ARTIFACT`; the query-label limit is 16 by default and can be raised to 64 with
+`POWERCONTEXT_SERVER_RUNTIME_TAG_MAX_QUERY_LABELS`. Both settings take effect on restart. Clients built from this contract
+are required to read or write more than 32 labels; a client built from an earlier contract rejects them. When a merge's inputs carry more normalized labels than the effective
+limit, the result keeps a deterministic selection of that size, and the merge and its Source window commit normally. See [Organize with tags](../workflows/manage-artifact-tags.md#label-rules-and-storage) for the selection order.
 
 ## User data
 
@@ -172,6 +174,8 @@ still occupies an HTTP slot until it finishes; reserve other slots for concurren
 | `POWERCONTEXT_SERVER_DATABASE_BUSY_TIMEOUT_MS` | `5000` | Milliseconds a business connection waits for SQLite's single write lock before raising; it does not govern usage accounting, which has its own bounded budget |
 | `POWERCONTEXT_SERVER_RUNTIME_SCOPE_CACHE_SIZE` | `128` | Inactive scope compositions retained by the Runtime; in-flight scopes are never evicted |
 | `POWERCONTEXT_SERVER_RUNTIME_SOURCE_WINDOW_LIMIT` | `100` | Maximum Source journal positions per activation; Memory reduces its window after generation timeouts |
+| `POWERCONTEXT_SERVER_RUNTIME_TAG_MAX_PER_ARTIFACT` | `32` | Effective maximum labels on one Artifact tag set; `1` to `256`. Applies to tag replacement, Dream/catalog approval and merge selection |
+| `POWERCONTEXT_SERVER_RUNTIME_TAG_MAX_QUERY_LABELS` | `16` | Effective maximum labels in one tag query or filter; `1` to `64`. Applies to tag queries and Artifact or Memory tag filters |
 | `POWERCONTEXT_SERVER_RUNTIME_CONTEXT_ASSEMBLY_MAX_ENTRIES` | `8` | Maximum sum of explicit `assembly.sections[].limit`; positive integer. Per-family limits still apply. |
 | `POWERCONTEXT_SERVER_RUNTIME_MEMORY_EXTRACTION_PROFILE` | `coding` | Memory selection policy: `coding` or `conversation` |
 | `POWERCONTEXT_SERVER_RUNTIME_MEMORY_RERANK_ENABLED` | `false` | Apply listwise reranking after coarse Memory retrieval |

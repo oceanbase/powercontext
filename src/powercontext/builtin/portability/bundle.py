@@ -125,6 +125,7 @@ from powercontext.builtin.sources.observation_validation import (
 )
 from powercontext.builtin.tags import normalize_tags
 from powercontext.errors import SourceError
+from powercontext.limits import MAX_TARGET_TAGS, MAX_TARGET_TAGS_CEILING
 from powercontext.sources import SourceDefinitionManifest, SourceLocator, SourceObservation, SourceRef
 from powercontext.sources.evidence import MemoryEvidenceDeclaration, SourceEvidence
 
@@ -543,8 +544,10 @@ class PortableBundleService:
         artifact_content_decoder: Callable[[Mapping[str, Any]], object] | None = None,
         candidate_decoder: Callable[[Mapping[str, Any]], object] | None = None,
         source_decoder: Callable[[Mapping[str, Any]], object] | None = None,
+        tag_limit: int = MAX_TARGET_TAGS,
     ) -> None:
         self._database = database
+        self._tag_limit = tag_limit
         self._projection_rebuilder = projection_rebuilder
         self._artifact_content_decoder = artifact_content_decoder
         self._candidate_decoder = candidate_decoder
@@ -626,7 +629,9 @@ class PortableBundleService:
             # Reject missing dependencies and size-limit breaches
             # without replacing a previous usable backup at the destination.
             _parse_bundle(archive_path)
-            with _validate_dependencies(archive_path, candidate_decoder=self._candidate_decoder):
+            with _validate_dependencies(
+                archive_path, candidate_decoder=self._candidate_decoder, maximum=MAX_TARGET_TAGS_CEILING
+            ):
                 archive_path.replace(output)
             return BundleReceipt(bundle_id=bundle_id, record_count=count, total_digest=digest)
         finally:
@@ -650,7 +655,7 @@ class PortableBundleService:
         """Verify bundle integrity, dependencies, and optional adapter support."""
 
         inspection = _parse_bundle(source, progress=progress, phase="validate")
-        with _validate_dependencies(source, candidate_decoder=self._candidate_decoder) as (
+        with _validate_dependencies(source, candidate_decoder=self._candidate_decoder, maximum=self._tag_limit) as (
             required_sources,
             required_families,
             index,
@@ -894,7 +899,7 @@ class PortableBundleService:
             if (
                 conflicts == 0
                 and ARTIFACT_TAGS_TABLE.name in existing_tables
-                and not await _validate_target_tag_sets(connection, dependency_index)
+                and not await _validate_target_tag_sets(connection, dependency_index, maximum=self._tag_limit)
             ):
                 conflicts += 1
         return already_present, conflicts
@@ -1796,7 +1801,7 @@ def _validate_record_values(record: _Record, /) -> None:  # noqa: C901 - one ver
         if identity["target_type"] == "memory_entry" and identity["family"] != "memory":
             raise BundleFormatError("artifact tag has invalid target")
         try:
-            normalized = normalize_tags((payload["tag"],))
+            normalized = normalize_tags((payload["tag"],), maximum=MAX_TARGET_TAGS_CEILING)
         except InvalidBaseAccessRequestError as error:
             raise BundleFormatError("artifact tag has invalid label") from error
         if identity["tag_key"] not in normalized:
@@ -1963,7 +1968,11 @@ def _validate_safe_value(value: object, key: str | None = None, *, host_paths: b
 
 @contextmanager
 def _validate_dependencies(
-    source: Path, /, *, candidate_decoder: Callable[[Mapping[str, Any]], object] | None = None
+    source: Path,
+    /,
+    *,
+    candidate_decoder: Callable[[Mapping[str, Any]], object] | None = None,
+    maximum: int = MAX_TARGET_TAGS,
 ) -> Iterator[tuple[set[str], set[str], sqlite3.Connection]]:
     """Validate dependencies with disk-backed identities and bounded metadata."""
 
@@ -1993,7 +2002,7 @@ def _validate_dependencies(
                     required_sources.add(str(record.identity["source_type"]))
             required_families.update(_required_artifact_families((record,)))
         _validate_publication_chains(index)
-        _validate_tag_sets(index)
+        _validate_tag_sets(index, maximum=maximum)
         yield required_sources, required_families, index
 
 
@@ -2075,7 +2084,7 @@ def _index_tag_set(index: sqlite3.Connection, record: _Record, /) -> None:
     )
 
 
-def _validate_tag_sets(index: sqlite3.Connection, /) -> None:
+def _validate_tag_sets(index: sqlite3.Connection, /, *, maximum: int = MAX_TARGET_TAGS) -> None:
     current: str | None = None
     labels: list[str] = []
     for target, label in index.execute("SELECT target, label FROM tag_labels ORDER BY target, tag_key"):
@@ -2084,12 +2093,14 @@ def _validate_tag_sets(index: sqlite3.Connection, /) -> None:
             labels.clear()
         labels.append(label)
         try:
-            normalize_tags(tuple(labels))
+            normalize_tags(tuple(labels), maximum=maximum)
         except InvalidBaseAccessRequestError as error:
             raise BundleFormatError("artifact tag set has invalid labels") from error
 
 
-async def _validate_target_tag_sets(connection: AsyncConnection, index: sqlite3.Connection, /) -> bool:
+async def _validate_target_tag_sets(
+    connection: AsyncConnection, index: sqlite3.Connection, /, *, maximum: int = MAX_TARGET_TAGS
+) -> bool:
     table = ARTIFACT_TAGS_TABLE
     fields = tuple(field for field in _SPECS["artifact_tag"].identity if field != "tag_key")
     pending = index.execute(
@@ -2114,7 +2125,7 @@ async def _validate_target_tag_sets(connection: AsyncConnection, index: sqlite3.
                 return False
             _index_tag_set(index, record)
     try:
-        _validate_tag_sets(index)
+        _validate_tag_sets(index, maximum=maximum)
     except BundleFormatError:
         return False
     return True

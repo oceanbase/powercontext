@@ -14,6 +14,8 @@
 
 """Shared identity limits that remain safe for utf8mb4 relational indexes."""
 
+from dataclasses import dataclass
+
 MAX_SCOPE_ID_LENGTH = 256
 MAX_SCOPE_TITLE_LENGTH = 256
 MAX_SCOPE_SUMMARY_LENGTH = 2_000
@@ -43,3 +45,17 @@ MAX_EXTERNAL_SKILL_HOST_ID_LENGTH = 128
 MAX_EXTERNAL_SKILL_LOCATOR_LENGTH = 2_000
 MAX_POLICY_REVISION_LENGTH = 64
 MAX_ARTIFACT_HANDLE_KEY_LENGTH = 128
+# Tag admission bounds. The defaults are the historical behaviour; a deployment may raise the effective
+# limits up to these ceilings, which the contract and the generated clients also accept.
+MAX_TARGET_TAGS = 32
+MAX_TARGET_TAGS_CEILING = 256
+MAX_QUERY_TAG_LABELS = 16
+MAX_QUERY_TAG_LABELS_CEILING = 64
+
+
+@dataclass(frozen=True, slots=True)
+class TagLimits:
+    """Effective tag admission policy for one runtime."""
+
+    max_per_artifact: int = MAX_TARGET_TAGS
+    max_query_labels: int = MAX_QUERY_TAG_LABELS

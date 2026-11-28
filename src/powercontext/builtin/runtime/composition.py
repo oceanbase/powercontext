@@ -512,7 +512,7 @@ def _artifact_merge_application(contexts: RelationalContexts, config: RuntimeCon
         artifacts=contexts.repositories.artifacts,
         adapter=ExperienceMergeAdapter(contexts.experience_index),
         security=ArtifactMergeAccess("experience"),
-        merge_tags=partial(merge_artifact_tags, family="experience"),
+        merge_tags=partial(merge_artifact_tags, family="experience", maximum=config.tag_max_per_artifact),
         preview_signer=signer,
     )
     return ArtifactMergeApplication(
@@ -1335,6 +1335,8 @@ async def open_builtin_contexts(  # noqa: C901 -- Backend admission and resource
                 memory_write_gate=memory_write_gate,
                 decision_observation_retention_days=config.runtime.decision_observation_retention_days,
                 memory_rerank_candidate_limit=config.runtime.memory_rerank_candidate_limit,
+                tag_max_per_artifact=config.runtime.tag_max_per_artifact,
+                tag_max_query_labels=config.runtime.tag_max_query_labels,
                 recall_channel_weights=config.runtime.recall_channel_weights,
                 prompt_registry=prompt_registry,
                 prompt_demonstrators=prompt_demonstrators,
@@ -1419,6 +1421,8 @@ async def open_builtin_contexts(  # noqa: C901 -- Backend admission and resource
             memory_reranker=memory_reranker,
             decision_model=decision_model,
             memory_rerank_candidate_limit=config.runtime.memory_rerank_candidate_limit,
+            tag_max_per_artifact=config.runtime.tag_max_per_artifact,
+            tag_max_query_labels=config.runtime.tag_max_query_labels,
             recall_channel_weights=config.runtime.recall_channel_weights,
             prompt_registry=prompt_registry,
             prompt_demonstrators=prompt_demonstrators,

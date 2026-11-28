@@ -48,6 +48,7 @@ from powercontext.builtin.review.errors import (
 )
 from powercontext.builtin.review.models import CandidateAudit
 from powercontext.builtin.tags import ArtifactTagSet, TagPreconditionError
+from powercontext.limits import MAX_TARGET_TAGS
 from powercontext.sources import SourceRef
 
 
@@ -63,6 +64,7 @@ class CatalogChangeService:
         tags: RelationalTagService | None = None,
         connection: AsyncConnection | None = None,
         authorization_context: Callable[[], AbstractAsyncContextManager[None]] = nullcontext,
+        tag_limit: int = MAX_TARGET_TAGS,
     ) -> None:
         self._database = database
         self._scope_id = scope_id
@@ -73,6 +75,7 @@ class CatalogChangeService:
         self._repository = CatalogCandidateRepository()
         self._bound_connection = connection
         self._authorization_context = authorization_context
+        self._tag_limit = tag_limit
         self._authorize_many = None
         self.authorize_action: Callable[[str, str, TagDreamTarget], Awaitable[None]] | None = None
 
@@ -156,6 +159,13 @@ class CatalogChangeService:
                 raise TagPreconditionError
             return current
 
+    def _require_after_tag_limit(self, proposal: CatalogChangeProposal) -> None:
+        if len(proposal.after_tags) > self._tag_limit:
+            raise InvalidCandidateError(
+                "after_tags",
+                f"the candidate exceeds the deployment's {self._tag_limit}-tag Artifact limit",
+            )
+
     async def propose(
         self,
         proposal: CatalogChangeProposal,
@@ -167,6 +177,7 @@ class CatalogChangeService:
         candidate_id: str | None = None,
         audit: CandidateAudit | None = None,
     ) -> CatalogChangeCandidate:
+        self._require_after_tag_limit(proposal)
         candidate = CatalogChangeCandidate(
             candidate_id=candidate_id or self._id_factory("candidate"),
             version=1,
@@ -244,6 +255,7 @@ class CatalogChangeService:
             if self.authorize_action is not None:
                 await self.authorize_action(self._scope_id, "revise", preview.proposal)
             expected = CatalogChangeProposal.model_validate({**preview.proposal.model_dump(), "after_tags": after_tags})
+            self._require_after_tag_limit(expected)
             if proposal is not None and proposal != expected:
                 raise InvalidCandidateError("proposal", "Tag revision cannot change its original target or baseline")
             proposal = expected
@@ -299,6 +311,7 @@ class CatalogChangeService:
             if current != preview:
                 raise CandidateConflictError(candidate_id, expected_version, current.version)
             await self._validate_audit(connection, current)
+            self._require_after_tag_limit(current.proposal)
             result = await self._tags.replace_in_transaction(
                 connection,
                 self._scope_id,

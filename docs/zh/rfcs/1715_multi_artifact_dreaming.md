@@ -298,7 +298,7 @@ Memory 条目目标将 `target` 替换为 `{"type":"memory_entry","family":"memo
 | `POST /v1/candidates/approve` | `scope_id`、`candidate_id`、`expected_version` | 通过候选版本、标签 ETag 和正文基准校验后替换标签集 |
 | `POST /v1/candidates/reject` | `scope_id`、`candidate_id`、`expected_version`、`reason` | 拒绝当前版本，不更改正式标签 |
 
-修订提交完整的类型化 proposal；服务端验证 target、expected_etag、basis 和 before_tags 与候选原始基准一致，不允许借修订绕过冲突。`after_tags` 是完整的目标标签集合（0–32 个标签，每个 1–64 个字符）；空数组表示清空标签。标签按 NFC 与 casefold 规则规范化，规范化后重复的标签会被拒绝。`expected_version` 是候选版本的并发保护值，旧版本不能被修订、批准或拒绝。
+修订提交完整的类型化 proposal；服务端验证 target、expected_etag、basis 和 before_tags 与候选原始基准一致，不允许借修订绕过冲突。`after_tags` 是完整的目标标签集合（0 到部署生效的 Artifact 标签上限，默认 32、上限 256，每个标签 1–64 个字符）；空数组表示清空标签。标签按 NFC 与 casefold 规则规范化，规范化后重复的标签会被拒绝。`expected_version` 是候选版本的并发保护值，旧版本不能被修订、批准或拒绝。
 
 修订候选的请求示例：
 

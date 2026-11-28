@@ -22,6 +22,7 @@ import binascii
 import ipaddress
 import json
 import logging
+import re
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, Sequence
 from contextlib import asynccontextmanager, suppress
 from copy import deepcopy
@@ -955,7 +956,12 @@ from powercontext.http._generated.operations import (
     Operation,
 )
 from powercontext.http._generated.schema import OPENAPI_SCHEMA
-from powercontext.limits import MAX_SOURCE_CONTENT_CHARS, MAX_SOURCE_CONTENT_CHARS_CEILING
+from powercontext.limits import (
+    MAX_QUERY_TAG_LABELS_CEILING,
+    MAX_SOURCE_CONTENT_CHARS,
+    MAX_SOURCE_CONTENT_CHARS_CEILING,
+    TagLimits,
+)
 from powercontext.server import mapping
 from powercontext.server.artifact_read_observation import observe_artifact_read
 from powercontext.server.atomic_memory import add_atomic_memory_routes
@@ -1509,6 +1515,7 @@ def create_app(
     access_mode: Literal["disabled", "enforced"] | None = None,
     authentication_provider: AuthenticationProvider | None = None,
     allow_insecure_remote_http: bool = False,
+    tag_limits: TagLimits | None = None,
 ) -> FastAPI:
     """Build the HTTP adapter around an optional Runtime application binding."""
 
@@ -1526,6 +1533,7 @@ def create_app(
     app.state.plugin_manager = None
     app.state.plugin_api_max_body_bytes = 32 * 1024 * 1024
     app.state.source_content_max_chars = MAX_SOURCE_CONTENT_CHARS
+    app.state.tag_limits = tag_limits or TagLimits()
     app.state.application = application
     app.state.capability_provider = capability_provider
     app.state.readiness_probe = readiness_probe
@@ -3217,10 +3225,12 @@ def _list_artifacts_query(
     http_request: Request,
     limit: Annotated[int, Query(ge=1, le=100)] = 50,
     cursor: Annotated[str | None, Query(min_length=1, max_length=4096)] = None,
-    tag: Annotated[list[str] | None, Query(min_length=1, max_length=16)] = None,
+    tag: Annotated[list[str] | None, Query(min_length=1, max_length=MAX_QUERY_TAG_LABELS_CEILING)] = None,
     tag_match: Annotated[TagMatch | None, Query()] = None,
 ) -> ListArtifactsRequest:
     _require_strict_query(http_request, {"limit", "cursor", "tag", "tag_match"}, repeatable={"tag"})
+    if tag is not None:
+        _require_tag_admission(http_request, len(tag), write=False, location=("query", "tag"))
     if tag is None and tag_match is not None:
         raise InvalidBaseAccessRequestError("tag_match", "requires at least one tag")
     return ListArtifactsRequest.model_validate({"limit": limit, "cursor": cursor, "tag": tag, "tag_match": tag_match})
@@ -3503,6 +3513,7 @@ async def replace_artifact_tags(
     application: Annotated[ServerApplication, Depends(_require_application)],
     if_match: Annotated[str | None, Header(alias="If-Match")] = None,
 ) -> ArtifactTagSet:
+    _require_tag_admission(http_request, len(request.tags), write=True, location=("body", "tags"))
     target = ArtifactTagTarget(family=_tag_family(family), artifact_id=artifact_id)
     if target.family == "atomic-memory":
         await _authorize_atomic_tag_write(http_request, scope_id, artifact_id, "replace_artifact_tags")
@@ -3549,6 +3560,28 @@ async def replace_memory_entry_tags(
     raise BaseOperationNotSupportedError("artifact_family", "memory", "entry tags")
 
 
+def _require_tag_admission(
+    request: Request,
+    count: int,
+    *,
+    write: bool,
+    location: tuple[str | int, ...],
+) -> None:
+    """Reject tag arrays beyond the deployment's effective policy, inside the contract ceiling."""
+
+    limits = request.app.state.tag_limits
+    limit = limits.max_per_artifact if write else limits.max_query_labels
+    if count > limit:
+        kind = "Artifact" if write else "query"
+        raise RequestValidationError([
+            {
+                "type": "too_long",
+                "loc": location,
+                "msg": f"tags must not exceed the deployment's {limit}-label {kind} limit.",
+            }
+        ])
+
+
 def _if_none_match_matches(if_none_match: str | None, etag: str) -> bool:
     if if_none_match is None:
         return False
@@ -3574,6 +3607,7 @@ async def query_artifact_tags(
     http_request: Request,
     application: Annotated[ServerApplication, Depends(_require_application)],
 ) -> ArtifactTagPage:
+    _require_tag_admission(http_request, len(request.tags), write=False, location=("body", "tags"))
     principal = current_principal()
     caller = (
         f"{principal.type}:{principal.id}"
@@ -4629,6 +4663,10 @@ async def search_memory(
     application: Annotated[ServerApplication, Depends(_require_application)],
     http_request: Request,
 ) -> SearchMemoryResponse:
+    if request.tag_filter is not None:
+        _require_tag_admission(
+            http_request, len(request.tag_filter.tags), write=False, location=("body", "tag_filter", "tags")
+        )
     result = await _scoped_atomic_memory(application, request.scope_id).search(
         request.query,
         mode="text" if request.mode.value == "fts" else request.mode.value,
@@ -5049,6 +5087,10 @@ async def list_memory_entries(
     application: Annotated[ServerApplication, Depends(_require_application)],
     http_request: Request,
 ) -> ListMemoryEntriesResponse:
+    if request.tag_filter is not None:
+        _require_tag_admission(
+            http_request, len(request.tag_filter.tags), write=False, location=("body", "tag_filter", "tags")
+        )
     result = await _scoped_atomic_memory(application, request.scope_id).list(
         states=("active", "forgotten", "merged", "retired") if request.include_inactive else ("active",),
         limit=request.limit,
@@ -7765,6 +7807,7 @@ def _map_scope_error(error: Exception) -> tuple[int, str, str, dict[str, Any] | 
 
 
 _CANDIDATE_ERROR_REASONS = {
+    ("after_tags", "the candidate exceeds the deployment's"): ("after_tags", "tag_limit_exceeded"),
     ("artifacts", "must include the exact target"): ("artifact_refs", "target_not_in_artifact_refs"),
     ("artifacts", "new managed Skill lineage"): ("artifact_refs", "skill_lineage_not_permitted"),
     ("artifacts", "managed Skill lineage"): ("artifact_refs", "target_not_in_artifact_refs"),
@@ -7776,7 +7819,12 @@ _CANDIDATE_ERROR_REASONS = {
 def _candidate_error_details(error: InvalidCandidateError) -> dict[str, Any] | None:
     for (field, prefix), (public_field, reason) in _CANDIDATE_ERROR_REASONS.items():
         if error.field == field and error.detail.startswith(prefix):
-            return {"field": public_field, "reason": reason}
+            details: dict[str, Any] = {"field": public_field, "reason": reason}
+            if field == "after_tags":
+                limit = re.search(r"deployment's (\d+)-tag", error.detail)
+                if limit is not None:
+                    details["limit"] = int(limit.group(1))
+            return details
     # Internal-only fields (audit, basis, family) and reasons shared by several
     # public fields (evidence) have no stable name a caller can act on.
     return None

@@ -312,6 +312,8 @@ class _Host:
             begin=authorize,
             transaction_timeout_seconds=spec.transaction_timeout_seconds,
             security=security,
+            tag_limit=self.spec.tag_max_per_artifact,
+            tag_query_limit=self.spec.tag_max_query_labels,
         )
 
     def _no_caller(self) -> None:
@@ -461,6 +463,8 @@ class _Host:
             context=_CURRENT.get().context,
             change=change,
             caller_scoped=True,
+            tag_limit=self.spec.tag_max_per_artifact,
+            tag_query_limit=self.spec.tag_max_query_labels,
         )
 
     async def _authorize(self, scope_id: str, action: str, artifact_id: str | None) -> None:

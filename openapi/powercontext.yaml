@@ -4728,7 +4728,7 @@ paths:
           schema:
             type: array
             minItems: 1
-            maxItems: 16
+            maxItems: 64
             items: {type: string, minLength: 1, maxLength: 64}
         - name: tag_match
           in: query
@@ -6137,7 +6137,7 @@ components:
           items:
             type: string
             minLength: 1
-          maxItems: 16
+          maxItems: 64
         tag_match:
           $ref: '#/components/schemas/TagMatch'
         limit:
@@ -6373,7 +6373,7 @@ components:
           items:
             type: string
             minLength: 1
-          maxItems: 16
+          maxItems: 64
         tag_match:
           $ref: '#/components/schemas/TagMatch'
         limit:
@@ -6427,7 +6427,7 @@ components:
           items:
             type: string
             minLength: 1
-          maxItems: 16
+          maxItems: 64
         tag_match:
           $ref: '#/components/schemas/TagMatch'
         limit:
@@ -13476,11 +13476,12 @@ components:
       type: object
       additionalProperties: false
       required: [tags]
+      description: Exact label filter. The deployment's configured query-label limit, 16 by default, applies.
       properties:
         tags:
           type: array
           minItems: 1
-          maxItems: 16
+          maxItems: 64
           items: {type: string, minLength: 1, maxLength: 64}
         match:
           $ref: '#/components/schemas/TagMatch'
@@ -13489,12 +13490,12 @@ components:
       type: object
       additionalProperties: false
       required: [tags]
-      description: Replace all labels atomically. Empty clears the set. Labels preserve display text, use NFC then casefold for exact matching, and reject normalized duplicates, outer whitespace, and Unicode control, surrogate or unassigned characters.
+      description: Replace all labels atomically. Empty clears the set. The deployment's configured Artifact tag limit, 32 by default, applies. Labels preserve display text, use NFC then casefold for exact matching, and reject normalized duplicates, outer whitespace, and Unicode control, surrogate or unassigned characters.
       properties:
         tags:
           type: array
           minItems: 0
-          maxItems: 32
+          maxItems: 256
           items: {type: string, minLength: 1, maxLength: 64}
     QueryArtifactTagsRequest:
       type: object
@@ -13504,7 +13505,7 @@ components:
         tags:
           type: array
           minItems: 1
-          maxItems: 16
+          maxItems: 64
           items: {type: string, minLength: 1, maxLength: 64}
         match:
           $ref: '#/components/schemas/TagMatch'
@@ -13535,7 +13536,7 @@ components:
         tags:
           type: array
           minItems: 0
-          maxItems: 32
+          maxItems: 256
           items: {type: string, minLength: 1, maxLength: 64}
         tag_digest:
           type: string
@@ -13551,7 +13552,7 @@ components:
         tags:
           type: array
           minItems: 0
-          maxItems: 32
+          maxItems: 256
           items: {type: string, minLength: 1, maxLength: 64}
         tag_digest:
           type: string
@@ -13575,7 +13576,7 @@ components:
         tag:
           type: array
           minItems: 1
-          maxItems: 16
+          maxItems: 64
           items: {type: string, minLength: 1, maxLength: 64}
         tag_match:
           $ref: '#/components/schemas/TagMatch'
@@ -14781,7 +14782,7 @@ components:
             type: string
             minLength: 1
             maxLength: 64
-          maxItems: 32
+          maxItems: 256
         after_tags: *id005
     CatalogTagResult:
       type: object

@@ -115,6 +115,7 @@ from powercontext.builtin.source_eligibility import (
     require_source_eligible,
 )
 from powercontext.builtin.tags import TagFilter
+from powercontext.limits import MAX_QUERY_TAG_LABELS, MAX_TARGET_TAGS
 
 logger = logging.getLogger(__name__)
 
@@ -367,6 +368,8 @@ class AtomicMemoryApplication:
         rerank_candidate_limit: int = 30,
         recall_channel_weights: RecallChannelWeights = DEFAULT_RECALL_CHANNEL_WEIGHTS,
         prompt_context_factory=None,
+        tag_limit: int = MAX_TARGET_TAGS,
+        tag_query_limit: int = MAX_QUERY_TAG_LABELS,
     ) -> None:
         if reranker is not None and not getattr(reranker, "supports_atomic_memory", False):
             raise BaseOperationNotSupportedError("artifact_family", "atomic-memory", "Atomic text candidate contract")
@@ -374,6 +377,8 @@ class AtomicMemoryApplication:
         self.rerank_candidate_limit = rerank_candidate_limit
         self.recall_channel_weights = recall_channel_weights
         self.prompt_context_factory = prompt_context_factory
+        self.tag_limit = tag_limit
+        self.tag_query_limit = tag_query_limit
         self.database = database
         self.artifacts = artifacts
         self.index = index
@@ -400,13 +405,24 @@ class AtomicMemoryApplication:
         return ScopedAtomicMemory(self, scope_id)
 
     async def merge_tags(self, connection, scope_id: str, result_id: str, input_ids: tuple[str, ...]) -> None:
-        await merge_artifact_tags(connection, scope_id, result_id, input_ids, family=self.security.family)
+        await merge_artifact_tags(
+            connection, scope_id, result_id, input_ids, family=self.security.family, maximum=self.tag_limit
+        )
 
 
 class ScopedAtomicMemory:
     def __init__(self, application: AtomicMemoryApplication, scope_id: str) -> None:
         self.application = application
         self.scope_id = scope_id
+
+    def _require_tag_query_limit(self, tag_filter: TagFilter | None) -> None:
+        if tag_filter is None:
+            return
+        limit = self.application.tag_query_limit
+        if len(tag_filter.tags) > limit:
+            raise InvalidBaseAccessRequestError(
+                "tags", f"must contain at most the deployment's {limit}-label query limit"
+            )
 
     @asynccontextmanager
     async def _read(self, context, *, pin: bool = True):
@@ -626,6 +642,7 @@ class ScopedAtomicMemory:
         context=None,
     ) -> RecallManifestPage:
         """Read only current metadata; never assemble content or infer summaries."""
+        self._require_tag_query_limit(tag_filter)
         _validate_limit(limit)
         if kind is not None:
             AtomicMemoryContent(kind=kind, text="validation", description="validation")
@@ -727,6 +744,7 @@ class ScopedAtomicMemory:
     ):
         """Build the canonical browse window; the caller owns its read transaction and PEP."""
         _validate_limit(limit)
+        self._require_tag_query_limit(tag_filter)
         if not states or len(set(states)) != len(states):
             raise InvalidBaseAccessRequestError("states", "must contain distinct lifecycle values")
         states = tuple(AtomicMemoryStateValue(state).value for state in states)
@@ -836,6 +854,7 @@ class ScopedAtomicMemory:
         cursor: str | None = None,
         context=None,
     ) -> AtomicMemoryPage:
+        self._require_tag_query_limit(tag_filter)
         async with self._read(context) as connection:
             statement, bound, after = self.list_query(
                 connection,
@@ -881,6 +900,7 @@ class ScopedAtomicMemory:
             query, mode, limit = artifact_request.query, plan.mode, artifact_request.limit
             kind, tag_filter = artifact_request.filters.kind, artifact_request.filters.as_tag_filter()
             admission = artifact_request.admission.as_floor()
+        self._require_tag_query_limit(tag_filter)
         _validate_limit(limit)
         normalize_query(query)
         if mode not in {"auto", "text", "vector", "hybrid"}:

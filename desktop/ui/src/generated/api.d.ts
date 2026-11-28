@@ -5853,12 +5853,13 @@ export interface components {
             entry_id: string;
         };
         TagTarget: components["schemas"]["ArtifactTagTarget"] | components["schemas"]["MemoryEntryTagTarget"];
+        /** @description Exact label filter. The deployment's configured query-label limit, 16 by default, applies. */
         TagFilter: {
             tags: string[];
             /** @default all */
             match: components["schemas"]["TagMatch"];
         };
-        /** @description Replace all labels atomically. Empty clears the set. Labels preserve display text, use NFC then casefold for exact matching, and reject normalized duplicates, outer whitespace, and Unicode control, surrogate or unassigned characters. */
+        /** @description Replace all labels atomically. Empty clears the set. The deployment's configured Artifact tag limit, 32 by default, applies. Labels preserve display text, use NFC then casefold for exact matching, and reject normalized duplicates, outer whitespace, and Unicode control, surrogate or unassigned characters. */
         ReplaceArtifactTagsRequest: {
             tags: string[];
         };

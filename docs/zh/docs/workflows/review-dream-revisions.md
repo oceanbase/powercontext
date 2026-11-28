@@ -9,6 +9,7 @@ description: 使用 Dream 契约 2 提议并审核 Prompt、标签和 Atomic Mem
 
 Dream 使用精确目标与证据生成待审 Candidate。生成不会批准、安装、执行或发布内容；已有自动生成流程保持原有策略。审批须由用户明确决定，并携带实际检查过的候选版本。
 
+
 ## Profile 与 Handoff 生效边界
 
 Profile Dream 在接收请求时冻结影响生成的策略配置。普通 Source 处理、待审候选指针变化和仅控制 Source 的激活配置不会使提案失效。生成配置改变需要重新发起 Dream；Profile head 改变则独立触发目标冲突。批准不消费 Source 游标，也不清除普通待审候选。
@@ -85,6 +86,8 @@ async def propose_tags(client, scope_id, current, tags_etag, evidence_source_id)
 ```
 
 Atomic Memory 与其他制品统一使用 `ArtifactTagTarget(family="atomic-memory", ...)` 和精确的 `basis_ref`。目标只作为比较上下文，不能作为自身 Tag 改动的依据；必须提供独立证据。成功生成后 `candidate.kind="tag"`，通过 `get_candidate(GetCandidateRequest(...))` 检查，通过 `approve_candidate(ApproveCandidateRequest(...))` 决定。统一的 `/v1/candidates/list|get|history|revise|approve|reject` 接口保留标签生命周期，批准时同时校验 ETag 和正文版本，原子替换标签并记录决定，不创建 Artifact Revision。
+
+超过上限的 Dream Tag 提案会让本次运行以 `invalid_generation_output` 失败，并且不创建候选。修订，或批准一个在上限调低前创建、且 `after_tags` 超过部署生效 Artifact 标签上限的候选，会返回 `422 invalid_request`，其中 `details.field="after_tags"`、`details.reason="tag_limit_exceeded"`，并带有生效的 `details.limit`；嵌入式 `catalog_changes.propose` 调用方会收到 `InvalidCandidateError`。批准被拒绝时目标保持不变。
 
 ```sh
 powercontext candidate list --candidate-kind tag --scope-id "$SCOPE_ID"
