@@ -132,10 +132,13 @@ oceanbase_acceptance = [
   "tests/e2e/server_storage.py", "tests/e2e/dream_support.py", "tests/builtin/persistence/contract.py",
   "tests/e2e/atomic_memory_migration_fixture.py", "tests/legacy_memory.py",
 ]
-# ZCode acceptance also exercises the Pi plugin and cross-host handoff fixtures.
+# ZCode acceptance also exercises the Pi plugin and cross-host handoff fixtures; the ZCode gateway chain also reuses
+# the Responses host model and the gateway and UDS Server fixtures.
 zcode = [
   "integrations/zcode/**", "evaluation/zcode_guidance/**", "tests/*zcode*", "integrations/pi/**",
   "tests/e2e/test_cross_host_work_continuity.py", "tests/e2e/cross_host_work_continuity/**",
+  "tests/e2e/host_models/responses.py", "tests/e2e/host_models/script.py",
+  "tests/e2e/test_gateway_authentication.py", "tests/e2e/test_server_uds.py",
 ]
 kimi = ["integrations/kimi-code/**", "tests/*kimi*", ".github/workflows/kimi-code-acceptance.yml"]
 upgrade = [
