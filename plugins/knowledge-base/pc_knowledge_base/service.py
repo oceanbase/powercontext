@@ -40,6 +40,13 @@ def reuse_parsed_result(pinned, content):
     return pinned_profile is None or current_profile is None or pinned_profile == current_profile
 
 
+def ensure_pinned_parser(pinned):
+    """Reject a request whose pinned parser profile this worker cannot reproduce."""
+    pinned_profile = pinned.get("parser_profile")
+    if pinned_profile is not None and pinned_profile != parser_profile(pinned["relative_path"]):
+        raise ContentError("Processing request uses a different parser profile")  # noqa: TRY003
+
+
 def query(request, key, default=None):
     return request.query.get(key, [default])[0]
 
@@ -500,6 +507,7 @@ class KnowledgeBase:
                     raise ContentError("Document was forgotten")  # noqa: TRY003, TRY301
                 if pinned["embedding_profile"] != self.embedding.profile:
                     raise ContentError("Processing request uses a different embedding profile")  # noqa: TRY003, TRY301
+                ensure_pinned_parser(pinned)
                 if (
                     current is not None
                     and not pinned.get("force_reprocess")

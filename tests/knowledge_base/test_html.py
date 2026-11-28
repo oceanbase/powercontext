@@ -24,7 +24,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "plugins" / "knowledge-base"))
 import pc_knowledge_base.content as content
 from pc_knowledge_base.content import ContentError, html_blocks, parse, parser_profile, relative_path
-from pc_knowledge_base.service import reuse_parsed_result
+from pc_knowledge_base.service import ensure_pinned_parser, reuse_parsed_result
 
 
 def test_headings_build_paths_and_do_not_rewrite_earlier_blocks():
@@ -51,6 +51,12 @@ def test_headings_build_paths_and_do_not_rewrite_earlier_blocks():
 def test_blank_heading_is_ignored_and_missing_headings_leave_an_empty_path():
     blocks = html_blocks('<doc><main><head rend="h2">  </head><p>body</p></main></doc>')
     assert [(block["text"], block["heading_path"]) for block in blocks] == [("body", [])]
+
+
+def test_heading_line_breaks_keep_separate_words():
+    blocks = html_blocks('<doc><main><head rend="h1">Restart<lb/>Checklist</head><p>body</p></main></doc>')
+    assert blocks[0]["text"] == "Restart Checklist"
+    assert blocks[1]["heading_path"] == ["Restart Checklist"]
 
 
 @pytest.mark.parametrize(
@@ -83,7 +89,7 @@ def test_table_lists_quotes_and_line_breaks_render_text():
     quotes = html_blocks("<doc><main><quote><p>first</p><p>second</p></quote></main></doc>")
     assert quotes[0]["text"] == "first\n\nsecond"
     codes = html_blocks('<doc><main><code rend="python">def run():\n    return 1</code></main></doc>')
-    assert codes[0]["text"] == "def run():\n    return 1"
+    assert codes[0]["text"] == "```python\ndef run():\n    return 1\n```"
     assert codes[0]["locator"]["language"] == "python"
     broken = html_blocks("<doc><main><p>a<lb/>b</p></main></doc>")
     assert broken[0]["text"] == "a\nb"
@@ -107,18 +113,26 @@ def test_embedded_tables_are_separated_from_surrounding_text():
     assert blocks[0]["text"] == "before\na | b\nafter"
 
 
-def test_empty_table_cells_and_rows_do_not_add_text():
+def test_empty_table_cells_keep_their_position_and_empty_rows_are_skipped():
     blocks = html_blocks(
         "<doc><main><table><row><cell>a</cell><cell/></row><row/><row><cell>b</cell><cell>c</cell></row>"
         "</table></main></doc>"
     )
-    assert blocks[0]["text"] == "a\nb | c"
+    assert blocks[0]["text"] == "a | \nb | c"
     assert (blocks[0]["locator"]["rows"], blocks[0]["locator"]["cols"]) == (2, 2)
+
+
+def test_table_empty_cells_keep_column_association():
+    leading = html_blocks("<doc><main><table><row><cell>A</cell><cell/><cell>X</cell></row></table></main></doc>")
+    trailing = html_blocks("<doc><main><table><row><cell>A</cell><cell>X</cell><cell/></row></table></main></doc>")
+    assert leading[0]["text"] == "A |  | X"
+    assert trailing[0]["text"] == "A | X | "
+    assert leading[0]["text"] != trailing[0]["text"]
 
 
 def test_table_columns_count_empty_cells():
     blocks = html_blocks("<doc><main><table><row><cell>a</cell><cell/><cell>c</cell></row></table></main></doc>")
-    assert blocks[0]["text"] == "a | c"
+    assert blocks[0]["text"] == "a |  | c"
     assert blocks[0]["locator"]["cols"] == 3
 
 
@@ -128,6 +142,16 @@ def test_list_items_separate_preformatted_code_but_keep_inline_code():
         "<item>Run this:<code>make test\nmake lint</code></item></list></main></doc>"
     )
     assert blocks[0]["text"] == "Use make build locally.\nRun this:\nmake test\nmake lint"
+
+
+def test_code_blocks_are_fenced_so_literal_markup_survives_rendering():
+    blocks = html_blocks('<doc><main><code rend="html">&lt;div&gt;hello&lt;/div&gt;</code></main></doc>')
+    assert blocks[0]["text"] == "```html\n<div>hello</div>\n```"
+
+
+def test_code_fence_outgrows_backtick_runs_in_the_content():
+    blocks = html_blocks("<doc><main><code>```\nx\n```</code></main></doc>")
+    assert blocks[0]["text"] == "````\n```\nx\n```\n````"
 
 
 def test_preformatted_code_keeps_indentation_inside_a_quote():
@@ -140,6 +164,21 @@ def test_preformatted_code_keeps_indentation_through_enclosing_containers():
         "<doc><main><list><item>Run this:<code>def f():\n    return 1</code></item></list></main></doc>"
     )
     assert blocks[0]["text"] == "Run this:\ndef f():\n    return 1"
+
+
+def test_imported_html_keeps_headings_code_and_table_columns():
+    source = (
+        b"<html><body><article><h1>Restart<br>Checklist</h1><p>Intro.</p>"
+        b"<pre><code>&lt;div&gt;hello&lt;/div&gt;</code></pre>"
+        b"<table><tr><th>Mode</th><th>Enabled</th><th>Disabled</th></tr>"
+        b"<tr><td>A</td><td></td><td>X</td></tr><tr><td>A</td><td>X</td><td></td></tr></table>"
+        b"</article></body></html>"
+    )
+    chunk = parse(source, "example.html", {"max_chars": 12000, "overlap": 0})[0]
+    assert chunk["heading_path"] == ["Restart Checklist"]
+    assert "```\n<div>hello</div>\n```" in chunk["text"]
+    assert "A |  | X" in chunk["text"]
+    assert "A | X | " in chunk["text"]
 
 
 def test_html_list_code_keeps_indentation_after_extraction():
@@ -295,3 +334,14 @@ def test_markdown_line_locators_are_unchanged():
 )
 def test_parser_profile_comparison_skips_missing_versions(pinned, current, expected):
     assert reuse_parsed_result(pinned, current) is expected
+
+
+def test_pinned_parser_profile_must_match_the_executing_worker(monkeypatch):
+    monkeypatch.setattr(content, "PARSER_PROFILE", "worker-profile")
+    pinned = {"relative_path": "guide.html", "parser_profile": "worker-profile"}
+    ensure_pinned_parser(pinned)
+    pinned["parser_profile"] = "accepted-elsewhere"
+    with pytest.raises(ContentError, match="different parser profile"):
+        ensure_pinned_parser(pinned)
+    del pinned["parser_profile"]
+    ensure_pinned_parser(pinned)

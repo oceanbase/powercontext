@@ -314,6 +314,13 @@ def _render_with_flag(element, collapse):  # noqa: C901
     return re.sub(r" *\n *", "\n", text), False
 
 
+def _fenced_code(text, language):
+    """Wrap literal code in fences so a Markdown renderer never interprets its markup."""
+    longest = max((len(run) for run in re.findall(r"`+", text)), default=0)
+    fence = "`" * max(3, longest + 1)
+    return f"{fence}{language.strip()}\n{text}\n{fence}"
+
+
 def _table_text(element):
     rows = []
     width = 0
@@ -323,8 +330,8 @@ def _table_text(element):
         cells = [" ".join(_render(cell).split()) for cell in row if cell.tag == "cell"]
         # `cols` describes the source table, so empty cells still count towards its width.
         width = max(width, len(cells))
-        cells = [cell for cell in cells if cell]
-        if not cells:
+        # Keep empty cells in place so every value stays associated with its column.
+        if not any(cells):
             continue
         rows.append(" | ".join(cells))
     return "\n".join(rows), len(rows), width
@@ -336,7 +343,8 @@ def _block_for(element, headings, tree):  # noqa: C901
         return None
     locator = {"xml_path": tree.getpath(element)}
     if tag == "head":
-        text = " ".join("".join(element.itertext()).split())
+        # Render line breaks before normalizing so `<h1>Restart<br>Checklist</h1>` keeps both words.
+        text = " ".join(_render(element).split())
         if not text:
             return None
         level = _heading_level(element)
@@ -363,7 +371,7 @@ def _block_for(element, headings, tree):  # noqa: C901
         text = _render(element, collapse=False).strip("\n")
         if not text.strip():
             return None
-        block = {"text": text, "locator": {**locator, "block_type": "code"}}
+        block = {"text": _fenced_code(text, element.get("rend") or ""), "locator": {**locator, "block_type": "code"}}
         if language := (element.get("rend") or "").strip():
             block["locator"]["language"] = language
         return block
