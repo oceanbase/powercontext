@@ -1882,6 +1882,21 @@ jobs:
     with:
       suites: ${{ needs.quality.outputs.suites }}
 
+  knowledge-base-evaluation:
+    needs: [quality, tests]
+    if: ${{ !cancelled() && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').knowledge_base) }}
+    runs-on: powercontext-ci-light
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-python-env
+        with:
+          python-version: '3.12.14'
+          sync-args: --no-default-groups --extra knowledge-base --extra knowledge-base-formats
+      - name: Verify the knowledge-base evaluation baseline
+        run: uv run --no-sync python -m evaluation.knowledge_base dry-run
+
   knowledge-base:
     needs: [quality, tests]
     if: ${{ !cancelled() && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').knowledge_base) }}
@@ -1928,6 +1943,7 @@ jobs:
   ci-result:
     name: CI result
     needs:
+      - knowledge-base-evaluation
       - seekdb-managed-startup
       - upgrade-acceptance
       - upgrade-release-gate

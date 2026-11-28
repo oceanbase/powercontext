@@ -18,21 +18,56 @@ from __future__ import annotations
 
 import hashlib
 import io
+import json
 import os
+from importlib.metadata import version
+from inspect import getsource
 from pathlib import Path, PurePosixPath
+from typing import Annotated
 from uuid import uuid4
 
 from markdown_it import MarkdownIt
 from PIL import Image
+from pydantic import Field, FiniteFloat, TypeAdapter
 
 from pc_knowledge_base.models import identity
+from pc_knowledge_base.parser_contract import (
+    ContentError,
+    Coverage,
+    FormatCapability,
+    ImageLocator,
+    LineLocator,
+    Locator,
+    ParsedBlock,
+    ParsedDocument,
+    ParserAdapter,
+    ParserOutput,
+    ParserProfile,
+    ParseWarning,
+    Point,
+    ResourceLimits,
+    Span,
+    build_parser_registry,
+    serialize_context_locator,
+)
 
 MAX_FILE_BYTES = 16 * 1024 * 1024
-EXTENSIONS = {".md", ".markdown", ".png", ".jpg", ".jpeg", ".webp"}
-
-
-class ContentError(ValueError):
-    """A deterministic input error; a later file can still be consumed."""
+MAX_IMAGE_PIXELS = 25_000_000
+OCR_ASSETS = {
+    "config.yaml": "06623941e188461a0bc263fe16175cb5e5f6f6b01f4387e546d3a741569fc021",
+    "models/PP-OCRv6_det_small.onnx": "090f04abcd9d9a7498bc4ebf677e4cb9bdce1fe4197ddb7e529f1ef44e1ff94f",
+    "models/ch_ppocr_mobile_v2.0_cls_mobile.onnx": "e47acedf663230f8863ff1ab0e64dd2d82b838fceb5957146dab185a89d6215c",
+    "models/PP-OCRv6_rec_small.onnx": "6f327246b50388f3c176ae304bd95767ea6dc0c9ae92153ef8cbe210b3c14884",
+}
+_MARKDOWN = FormatCapability(
+    format="markdown", extensions=(".md", ".markdown"), limits=ResourceLimits(input_bytes=MAX_FILE_BYTES)
+)
+_IMAGE_LIMITS = ResourceLimits(input_bytes=MAX_FILE_BYTES, pixels=MAX_IMAGE_PIXELS)
+_IMAGE_CAPABILITIES = (
+    FormatCapability(format="jpeg", extensions=(".jpg", ".jpeg"), limits=_IMAGE_LIMITS, ocr=True),
+    FormatCapability(format="png", extensions=(".png",), limits=_IMAGE_LIMITS, ocr=True),
+    FormatCapability(format="webp", extensions=(".webp",), limits=_IMAGE_LIMITS, ocr=True),
+)
 
 
 def relative_path(value):
@@ -139,12 +174,15 @@ def markdown_blocks(text):
             "ordered_list_open",
         }:
             start, end = token.map
-            blocks.append({
-                "text": "".join(lines[start:end]).rstrip(),
-                "heading_path": [title for _, title in headings],
-                "locator": {"line_start": start + 1, "line_end": end},
-                "references": required_references("".join(lines[start:end]), environment),
-            })
+            source = "".join(lines[start:end])
+            blocks.append(
+                ParsedBlock(
+                    text=source.rstrip(),
+                    heading_path=tuple(title for _, title in headings),
+                    locator=LineLocator(lines=Span(start=start, end=end)),
+                    references=tuple(required_references(source, environment).items()),
+                )
+            )
             covered = end
     return blocks
 
@@ -176,13 +214,13 @@ def parse_markdown(data):
         raise ContentError("Markdown must be UTF-8") from error  # noqa: TRY003
 
 
-def parse_image(data):
+def parse_image(data, pixel_limit):
     import numpy as np
     from rapidocr import RapidOCR
     from rapidocr.utils.output import RapidOCROutput
 
     with Image.open(io.BytesIO(data)) as source:
-        if source.width * source.height > 25_000_000:
+        if pixel_limit is not None and source.width * source.height > pixel_limit:
             raise ContentError("Image exceeds 25 million pixels")  # noqa: TRY003
         if source.has_transparency_data:
             rgba = source.convert("RGBA")
@@ -199,61 +237,187 @@ def parse_image(data):
     if result.boxes is None or result.scores is None:
         raise RuntimeError("OCR returned incomplete geometry")  # noqa: TRY003
     blocks = []
+    height, width = image.shape[:2]
     # OCR reading order is retained. Escape leading Markdown syntax to avoid inventing headings.
     for index, (value, box, score) in enumerate(zip(result.txts, result.boxes, result.scores, strict=True)):
         value = value.replace("\n", " ")
         markdown = value if not value.startswith(("#", "-", ">", "*")) else "\\" + value
-        blocks.append({
-            "text": markdown,
-            "heading_path": [],
-            "locator": {
-                "ocr_block": index,
-                "polygon": box.tolist(),
-                "confidence": float(score),
-                "image_width": image.shape[1],
-                "image_height": image.shape[0],
-            },
-        })
+        blocks.append(
+            ParsedBlock(
+                text=markdown,
+                locator=ImageLocator.from_pixels(index, width, height, box.tolist(), float(score)),
+            )
+        )
     return blocks
 
 
-PARSERS = {
-    ".md": parse_markdown,
-    ".markdown": parse_markdown,
-    ".png": parse_image,
-    ".jpg": parse_image,
-    ".jpeg": parse_image,
-    ".webp": parse_image,
-}
+def markdown_profile() -> ParserProfile:
+    return ParserProfile(
+        parser="markdown-it-py",
+        version=version("markdown-it-py"),
+        config_digest=identity(version("mdurl"), _MARKDOWN_ADAPTER_SOURCE),
+    )
 
 
-def parse(data, path, config):  # noqa: C901
-    parser = PARSERS[PurePosixPath(path).suffix.lower()]
+def image_profile() -> ParserProfile:
+    return ParserProfile(
+        parser="rapidocr",
+        version=version("rapidocr"),
+        model_digest=identity({name: digest for name, digest in OCR_ASSETS.items() if name.endswith(".onnx")}),
+        config_digest=identity(
+            OCR_ASSETS,
+            _IMAGE_ADAPTER_SOURCE,
+            *(
+                (name, version(name))
+                for name in (
+                    "pillow",
+                    "onnxruntime",
+                    "opencv-python-headless",
+                    "numpy",
+                    "pyclipper",
+                    "shapely",
+                    "omegaconf",
+                    "pyyaml",
+                )
+            ),
+        ),
+    )
+
+
+def markdown_output(data: bytes, limits: ResourceLimits) -> ParserOutput:
+    blocks = tuple(parse_markdown(data))
+    return ParserOutput(blocks, Coverage(unit="block", covered=len(blocks), total=len(blocks)))
+
+
+def image_output(data: bytes, limits: ResourceLimits) -> ParserOutput:
     try:
-        blocks = parser(data)
+        blocks = tuple(parse_image(data, limits.pixels))
     except (OSError, Image.DecompressionBombError) as error:
         raise ContentError("Image is invalid or exceeds the decoded pixel limit") from error  # noqa: TRY003
+    return ParserOutput(
+        blocks,
+        Coverage(
+            unit="block",
+            covered=len(blocks),
+            warnings=(ParseWarning(code="coverage_unknown", feature="unrecognized_image_content"),),
+        ),
+    )
+
+
+_MARKDOWN_ADAPTER_SOURCE = tuple(
+    map(getsource, (markdown_output, parse_markdown, markdown_blocks, required_references))
+)
+_IMAGE_ADAPTER_SOURCE = tuple(map(getsource, (image_output, parse_image, ImageLocator.from_pixels)))
+
+PARSERS = build_parser_registry((
+    ParserAdapter(_MARKDOWN, markdown_profile, markdown_output),
+    *(ParserAdapter(capability, image_profile, image_output) for capability in _IMAGE_CAPABILITIES),
+))
+CAPABILITIES = {extension: adapter.capability for extension, adapter in PARSERS.items()}
+EXTENSIONS = set(PARSERS)
+
+
+def parser_for(path: str) -> ParserAdapter:
+    extension = PurePosixPath(path).suffix.lower()
+    try:
+        return PARSERS[extension]
+    except KeyError:
+        raise ContentError("Only Markdown and standalone PNG, JPEG and WebP images are supported") from None  # noqa: TRY003
+
+
+def parser_profile(path: str) -> ParserProfile:
+    return parser_for(path).profile()
+
+
+def parse_document(data: bytes, path: str) -> ParsedDocument:
+    return parser_for(path).parse_document(data)
+
+
+def parse(data, path, config):
+    return chunk_document(parse_document(data, path), config, structured=False)
+
+
+def legacy_location(locator: Locator, *, legacy_lines: bool):
+    if legacy_lines and isinstance(locator, LineLocator):
+        return {"line_start": locator.lines.start + 1, "line_end": locator.lines.end}
+    if isinstance(locator, ImageLocator):
+        return {
+            "ocr_block": locator.index,
+            "polygon": [list(point) for point in locator.region.native_polygon],
+            "confidence": locator.confidence,
+            "image_width": int(locator.region.bounds[2]),
+            "image_height": int(locator.region.bounds[3]),
+        }
+    return {}
+
+
+_LEGACY_POINT = Annotated[list[FiniteFloat], Field(min_length=2, max_length=2)]
+_LEGACY_POLYGON = TypeAdapter(Annotated[list[_LEGACY_POINT], Field(min_length=3, max_length=16)])
+
+
+def project_legacy_chunk_locator(location: dict[str, object]) -> dict[str, object]:
+    """Translate the persisted Markdown or image locator for agent context."""
+
+    projection: dict[str, object] = {}
+    start, end = location.get("block_char_start"), location.get("block_char_end")
+    if type(start) is int and type(end) is int and 0 <= start < end < 2**31:
+        projection.update(block_char_start=start, block_char_end=end)
+    try:
+        line_start, line_end = location.get("line_start"), location.get("line_end")
+        if type(line_start) is int and type(line_end) is int and line_start >= 1:
+            locator: LineLocator | ImageLocator = LineLocator(lines=Span(start=line_start - 1, end=line_end))
+        else:
+            index, width, height = (location.get(key) for key in ("ocr_block", "image_width", "image_height"))
+            if type(index) is not int or type(width) is not int or type(height) is not int:
+                return projection
+            if width <= 0 or height <= 0 or width * height > MAX_IMAGE_PIXELS:
+                return projection
+            polygon = _LEGACY_POLYGON.validate_python(location.get("polygon"), strict=True)
+            points: tuple[Point, ...] = tuple((x, y) for x, y in polygon)
+            confidence = location.get("confidence")
+            if not isinstance(confidence, (int, float)) or isinstance(confidence, bool) or not 0 <= confidence <= 1:
+                confidence = None
+            locator = ImageLocator.from_pixels(index, width, height, points, confidence=confidence)
+        projection["source_locator"] = json.loads(serialize_context_locator(locator))
+    except (ValueError, OverflowError):
+        # An incomplete historical locator must not hide the cited chunk.
+        pass
+    return projection
+
+
+def pack_markdown(blocks: tuple[ParsedBlock, ...], maximum: int) -> list[ParsedBlock]:
+    # Pack adjacent Markdown blocks within a heading, retaining their complete source line range.
+    packed: list[ParsedBlock] = []
+    for block in blocks:
+        if packed and isinstance(block.locator, LineLocator):
+            previous = packed[-1]
+            if (
+                isinstance(previous.locator, LineLocator)
+                and previous.heading_path == block.heading_path
+                and len(previous.text) + len(block.text) + 2 <= maximum
+            ):
+                packed[-1] = ParsedBlock(
+                    text=f"{previous.text}\n\n{block.text}",
+                    heading_path=block.heading_path,
+                    locator=LineLocator(lines=Span(start=previous.locator.lines.start, end=block.locator.lines.end)),
+                    references=tuple((dict(previous.references) | dict(block.references)).items()),
+                )
+                continue
+        packed.append(block)
+    return packed
+
+
+def chunk_document(document: ParsedDocument, config, *, structured=True):  # noqa: C901
     maximum, overlap = config["max_chars"], config["overlap"]
     if overlap >= maximum:
         raise ContentError("Overlap must be smaller than chunk size")  # noqa: TRY003
-    # Pack adjacent Markdown blocks within a heading, retaining their complete source line range.
-    packed = []
-    for block in blocks:
-        if (
-            packed
-            and "line_start" in block["locator"]
-            and packed[-1]["heading_path"] == block["heading_path"]
-            and len(packed[-1]["text"]) + len(block["text"]) + 2 <= maximum
-        ):
-            packed[-1]["text"] += "\n\n" + block["text"]
-            packed[-1]["locator"]["line_end"] = block["locator"]["line_end"]
-            packed[-1]["references"].update(block.get("references", {}))
-        else:
-            packed.append(block)
+    markdown = document.format == "markdown"
+    packed = pack_markdown(document.blocks, maximum) if markdown else document.blocks
     chunks = []
     for block in packed:
-        value = block["text"]
-        references = block.pop("references", {})
+        value = block.text
+        legacy = legacy_location(block.locator, legacy_lines=markdown)
+        references = dict(block.references)
         included_references = set()
         environment = {}
         if references:
@@ -285,13 +449,17 @@ def parse(data, path, config):  # noqa: C901
                     end = max(start + 1, end - excess)
                 included_references.update(needed)
             item = {
-                **block,
                 "text": text,
-                "locator": {**block["locator"], "block_char_start": start, "block_char_end": end},
+                "heading_path": list(block.heading_path),
+                "locator": {**legacy, "block_char_start": start, "block_char_end": end},
                 "manually_modified": False,
                 "length": len(text),
             }
+            if not legacy:
+                item["source_locator"] = block.locator.model_dump(mode="json", exclude_none=True)
             item["chunk_id"] = identity("parsed", len(chunks), item)
+            if structured and legacy:
+                item["source_locator"] = block.locator.model_dump(mode="json", exclude_none=True)
             chunks.append(item)
             if len(chunks) > 2000:
                 raise ContentError("Document exceeds 2000 chunks; split the input document")  # noqa: TRY003

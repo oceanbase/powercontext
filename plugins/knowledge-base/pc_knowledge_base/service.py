@@ -21,9 +21,18 @@ import os
 from pathlib import Path
 from typing import NoReturn
 
-from pc_knowledge_base.content import ContentError, Snapshots, parse, relative_path
+from pc_knowledge_base.content import (
+    ContentError,
+    Snapshots,
+    chunk_document,
+    parser_for,
+    parser_profile,
+    project_legacy_chunk_locator,
+    relative_path,
+)
 from pc_knowledge_base.embedding import Embedding
 from pc_knowledge_base.models import ChunkEdit, Chunking, Retrieve, canonical, identity
+from pc_knowledge_base.parser_contract import can_reuse_parse
 from pc_knowledge_base.sources import FileEvidence, ProcessEvidence
 from pc_knowledge_base.store import Store, defaults, resources, spaces
 from powercontext.plugins import AccessDenied, ApiError, InvalidContent, Rendering, SearchHit, SearchResult
@@ -246,6 +255,8 @@ class KnowledgeBase:
             "manual_edits_policy": "replace" if replace else "reject",
             "force_reprocess": force,
         }
+        if existing is None:
+            pinned["parser_profile"] = parser_profile(path).model_dump(mode="json")
         # Implicit settings are pinned on first acceptance; a retry keeps them after configuration changes.
         digest_request = (
             identity(command) if command is not None else identity(original, pinned["manual_edits_policy"], force)
@@ -492,16 +503,40 @@ class KnowledgeBase:
                     raise ContentError("Document was forgotten")  # noqa: TRY003, TRY301
                 if pinned["embedding_profile"] != self.embedding.profile:
                     raise ContentError("Processing request uses a different embedding profile")  # noqa: TRY003, TRY301
+                adapter = parser_for(pinned["relative_path"])
+                profile = adapter.profile()
+                profile_json = profile.model_dump(mode="json")
+                if pinned.get("parser_profile", profile_json) != profile_json:
+                    raise ContentError("Processing request uses a different parser profile")  # noqa: TRY003, TRY301
                 if (
                     current is not None
                     and not pinned.get("force_reprocess")
                     and current.content["content_digest"] == pinned["content_digest"]
-                    and current.content["chunking"] == pinned["chunking"]
                 ):
-                    await self.store.observation(
-                        request.scope_id, key, state="completed", error=None, unchanged_revision=current.ref.revision
+                    recorded_profile = current.content.get("parser_profile")
+                    if recorded_profile is not None and recorded_profile != profile_json:
+                        raise ContentError("Parser profile changed; explicitly reprocess the document")  # noqa: TRY003, TRY301
+                    # Keep exact repeats of pre-profile revisions without assigning them today's parser identity.
+                    legacy_revision = (
+                        "parser_profile" not in current.content and "parsed_result_id" not in current.content
                     )
-                    continue
+                    if current.content["chunking"] == pinned["chunking"] and (
+                        legacy_revision
+                        or can_reuse_parse(
+                            current.content.get("parsed_result_id"),
+                            pinned["content_digest"],
+                            adapter.capability.format,
+                            profile,
+                        )
+                    ):
+                        await self.store.observation(
+                            request.scope_id,
+                            key,
+                            state="completed",
+                            error=None,
+                            unchanged_revision=current.ref.revision,
+                        )
+                        continue
                 if (
                     current is not None
                     and current.content.get("manually_modified")
@@ -510,12 +545,16 @@ class KnowledgeBase:
                     raise ContentError("Reprocessing would replace manual edits; explicitly choose replace")  # noqa: TRY003, TRY301
                 await self.store.observation(request.scope_id, key, state="processing", error=None)
                 data = await asyncio.to_thread(self.snapshots.read, pinned["snapshot"], pinned["content_digest"])
-                blocks = await asyncio.to_thread(parse, data, pinned["relative_path"], pinned["chunking"])
+                parsed = await asyncio.to_thread(adapter.parse_document, data, profile=profile)
+                blocks = await asyncio.to_thread(chunk_document, parsed, pinned["chunking"], structured=False)
                 manifest = await self.prepare(
                     request.scope_id,
                     document,
                     {
                         **pinned,
+                        "parser_profile": profile_json,
+                        "parsed_result_id": parsed.result_id,
+                        "parse_coverage": parsed.coverage.model_dump(mode="json"),
                         "original_source": source.projection["payload"]["original_source"],
                         "applied_request_id": key,
                         "manually_modified": False,
@@ -729,7 +768,7 @@ class KnowledgeBase:
                 "heading_path": row["heading_path"],
                 "source": row["source"],
                 "manually_modified": row["manually_modified"],
-                **row["locator"],
+                **(project_legacy_chunk_locator(row["locator"]) if request.max_bytes is not None else row["locator"]),
             }
             group["chunks"].append(location)
             # Context assembly retains text but not the structured locator.

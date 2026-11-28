@@ -124,9 +124,14 @@ source-images = [
 ]
 knowledge-base = [
     "fastembed>=0.7,<1",
+    "markdown-it-py>=4,<5",
     "onnxruntime>=1.20,<2",
     "opendal>=0.46,<1",
     "rapidocr>=3,<4",
+]
+knowledge-base-formats = [
+    "defusedxml==0.7.1",
+    "pypdfium2==5.15.2",
 ]
 
 [project.scripts]
