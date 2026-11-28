@@ -76,8 +76,7 @@ jobs:
         env:
           POWERCONTEXT_INSTALL_WHEEL: ${{ github.workspace }}/dist/installation/powercontext-1.2.0-py3-none-any.whl
           # Only the version/profile fixture consumes this dependency-index override.
-          # Native hosted runners use PyPI directly; the internal Linux runner uses the shared mirror.
-          POWERCONTEXT_INSTALL_TEST_INDEX_URL: ${{ matrix.os == 'ubuntu-latest' && 'https://mirrors.aliyun.com/pypi/simple/' || 'https://pypi.org/simple/' }}
+          POWERCONTEXT_INSTALL_TEST_INDEX_URL: ${{ matrix.os == 'ubuntu-latest' && 'https://mirrors.aliyun.com/pypi/simple/' || '' }}
         run: >-
           uv run --no-sync pytest -vv ${{ runner.os == 'Linux' && '-n auto' || '' }}
           --durations=20 tests/native/test_installation.py
