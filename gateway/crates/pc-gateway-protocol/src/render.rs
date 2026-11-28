@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{CanonicalRequest, RenderedPayload};
+use crate::{CanonicalRequest, OutputProtocol, RenderedPayload};
 
 /// 渲染错误。
 #[derive(Debug, thiserror::Error)]
@@ -38,6 +38,14 @@ pub trait WireRenderer: Send + Sync {
     fn message_list_key(&self) -> &'static str {
         "messages"
     }
+    fn output_protocol(&self) -> OutputProtocol {
+        if self.message_list_key() == "input" {
+            OutputProtocol::OpenAiResponses
+        } else {
+            OutputProtocol::OpenAiChat
+        }
+    }
+
     fn render(
         &self,
         request: &CanonicalRequest,
@@ -73,105 +81,112 @@ impl WireRenderer for OpenAiChatRenderer {
         request: &CanonicalRequest,
         cache_render_plan: Option<&serde_json::Value>,
     ) -> Result<RenderedPayload, RenderError> {
-        // OpenAI 线格式：纯文本 content 用字符串形式（部分兼容后端不接受
-        // 无 type 的部件数组）；多部件 content 按原样透传。
-        let mut messages = Vec::with_capacity(request.messages.len());
-        for m in &request.messages {
-            let content: serde_json::Value = if m.content_null {
-                serde_json::Value::Null
-            } else {
-                match m.content.as_slice() {
-                    [serde_json::Value::String(s)] => serde_json::Value::String(s.clone()),
-                    other => {
-                        serde_json::to_value(other).map_err(|e| RenderError::UnsupportedField {
-                            renderer: self.name(),
-                            field: e.to_string(),
-                        })?
-                    }
-                }
-            };
-            let mut message = serde_json::json!({
-                "role": m.role,
-                "content": content,
-            });
-            // 工具调用元数据原样透传：配对 id 与调用声明缺一不可。
-            if let Some(tool_calls) = &m.tool_calls {
-                message["tool_calls"] = serde_json::json!(tool_calls);
-            }
-            if let Some(tool_call_id) = &m.tool_call_id {
-                message["tool_call_id"] = serde_json::json!(tool_call_id);
-            }
-            for (key, value) in &m.extra_fields {
-                message
-                    .as_object_mut()
-                    .expect("message is an object")
-                    .entry(key.clone())
-                    .or_insert_with(|| value.clone());
-            }
-            messages.push(message);
-        }
-
-        // 只写入确定性的结构字段；不写请求 ID/时间戳（缓存前缀保真）。
-        let mut body = serde_json::json!({
-            "model": request.model,
-            "messages": messages,
-            "stream": request.stream,
-        });
-        if let Some(max) = request.output_limits.max_output_tokens {
-            let field = request.token_limit_field.as_deref().unwrap_or("max_tokens");
-            body[field] = serde_json::json!(max);
-        }
-        if !request.tools.is_empty() {
-            body["tools"] = serde_json::json!(request.tools);
-        }
-        if let Some(rf) = &request.response_format {
-            body["response_format"] = rf.clone();
-        }
-        if let Some(tc) = &request.tool_choice {
-            body["tool_choice"] = tc.clone();
-        }
-        if let Some(store) = request.store {
-            body["store"] = serde_json::json!(store);
-        }
-        if let Some(prev_id) = &request.previous_response_id {
-            body["previous_response_id"] = serde_json::json!(prev_id);
-        }
-        if let Some(fields) = &request.passthrough_fields {
-            for (key, value) in fields {
-                body.as_object_mut()
-                    .expect("body is an object")
-                    .entry(key.clone())
-                    .or_insert_with(|| value.clone());
-            }
-        }
-        if let Some(fields) = request.native_cache_fields.as_ref() {
-            merge_top_level(&mut body, fields).map_err(|_| RenderError::InvalidRenderPlan {
-                renderer: self.name(),
-            })?;
-        }
-        if let Some(plan) = cache_render_plan {
-            merge_top_level(&mut body, plan).map_err(|_| RenderError::InvalidRenderPlan {
-                renderer: self.name(),
-            })?;
-        }
-
-        let bytes = serde_json::to_vec(&body)
-            .map_err(|_| RenderError::InvalidRenderPlan {
-                renderer: self.name(),
-            })?
-            .into();
-        Ok(RenderedPayload {
-            bytes,
-            content_type: "application/json",
-        })
+        render_message_list(self.name(), request, cache_render_plan)
     }
 }
 
-/// 双格式渲染器：入口格式即上游格式（同格式进出，无跨格式转换）。
+/// Shared JSON envelope for Chat and Anthropic Messages. The ingress supplies native
+/// fields and content blocks for the selected protocol.
+fn render_message_list(
+    renderer: &'static str,
+    request: &CanonicalRequest,
+    cache_render_plan: Option<&serde_json::Value>,
+) -> Result<RenderedPayload, RenderError> {
+    // OpenAI 线格式：纯文本 content 用字符串形式（部分兼容后端不接受
+    // 无 type 的部件数组）；多部件 content 按原样透传。
+    let mut messages = Vec::with_capacity(request.messages.len());
+    for m in &request.messages {
+        let content: serde_json::Value = if m.content_null {
+            serde_json::Value::Null
+        } else {
+            match m.content.as_slice() {
+                [serde_json::Value::String(s)] => serde_json::Value::String(s.clone()),
+                other => {
+                    serde_json::to_value(other).map_err(|e| RenderError::UnsupportedField {
+                        renderer,
+                        field: e.to_string(),
+                    })?
+                }
+            }
+        };
+        let mut message = serde_json::json!({
+            "role": m.role,
+            "content": content,
+        });
+        // 工具调用元数据原样透传：配对 id 与调用声明缺一不可。
+        if let Some(tool_calls) = &m.tool_calls {
+            message["tool_calls"] = serde_json::json!(tool_calls);
+        }
+        if let Some(tool_call_id) = &m.tool_call_id {
+            message["tool_call_id"] = serde_json::json!(tool_call_id);
+        }
+        for (key, value) in &m.extra_fields {
+            message
+                .as_object_mut()
+                .expect("message is an object")
+                .entry(key.clone())
+                .or_insert_with(|| value.clone());
+        }
+        messages.push(message);
+    }
+
+    // 只写入确定性的结构字段；不写请求 ID/时间戳（缓存前缀保真）。
+    let mut body = serde_json::json!({
+        "model": request.model,
+        "messages": messages,
+        "stream": request.stream,
+    });
+    if let Some(max) = request.output_limits.max_output_tokens {
+        let field = request.token_limit_field.as_deref().unwrap_or("max_tokens");
+        body[field] = serde_json::json!(max);
+    }
+    if !request.tools.is_empty() {
+        body["tools"] = serde_json::json!(request.tools);
+    }
+    if let Some(rf) = &request.response_format {
+        body["response_format"] = rf.clone();
+    }
+    if let Some(tc) = &request.tool_choice {
+        body["tool_choice"] = tc.clone();
+    }
+    if let Some(store) = request.store {
+        body["store"] = serde_json::json!(store);
+    }
+    if let Some(prev_id) = &request.previous_response_id {
+        body["previous_response_id"] = serde_json::json!(prev_id);
+    }
+    if let Some(fields) = &request.passthrough_fields {
+        for (key, value) in fields {
+            body.as_object_mut()
+                .expect("body is an object")
+                .entry(key.clone())
+                .or_insert_with(|| value.clone());
+        }
+    }
+    if let Some(fields) = request.native_cache_fields.as_ref() {
+        merge_top_level(&mut body, fields)
+            .map_err(|_| RenderError::InvalidRenderPlan { renderer })?;
+    }
+    if let Some(plan) = cache_render_plan {
+        merge_top_level(&mut body, plan)
+            .map_err(|_| RenderError::InvalidRenderPlan { renderer })?;
+    }
+
+    let bytes = serde_json::to_vec(&body)
+        .map_err(|_| RenderError::InvalidRenderPlan { renderer })?
+        .into();
+    Ok(RenderedPayload {
+        bytes,
+        content_type: "application/json",
+    })
+}
+
+/// Native gateway formats. Requests retain their entry protocol upstream.
 #[derive(Debug, Clone, Copy)]
 pub enum GatewayRenderer {
     Chat(OpenAiChatRenderer),
     Responses(OpenAiResponsesRenderer),
+    Messages,
 }
 
 impl Default for GatewayRenderer {
@@ -185,6 +200,7 @@ impl WireRenderer for GatewayRenderer {
         match self {
             GatewayRenderer::Chat(r) => r.name(),
             GatewayRenderer::Responses(r) => r.name(),
+            GatewayRenderer::Messages => "anthropic-messages",
         }
     }
 
@@ -192,6 +208,15 @@ impl WireRenderer for GatewayRenderer {
         match self {
             GatewayRenderer::Chat(r) => r.message_list_key(),
             GatewayRenderer::Responses(r) => r.message_list_key(),
+            GatewayRenderer::Messages => "messages",
+        }
+    }
+
+    fn output_protocol(&self) -> OutputProtocol {
+        match self {
+            Self::Chat(_) => OutputProtocol::OpenAiChat,
+            Self::Responses(_) => OutputProtocol::OpenAiResponses,
+            Self::Messages => OutputProtocol::AnthropicMessages,
         }
     }
 
@@ -203,6 +228,9 @@ impl WireRenderer for GatewayRenderer {
         match self {
             GatewayRenderer::Chat(r) => r.render(request, cache_render_plan),
             GatewayRenderer::Responses(r) => r.render(request, cache_render_plan),
+            GatewayRenderer::Messages => {
+                render_message_list(self.name(), request, cache_render_plan)
+            }
         }
     }
 }

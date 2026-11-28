@@ -130,7 +130,7 @@ async fn magpie_tool_selection_and_identity_survive_checks_and_client_json_or_ss
                 )
                 .await;
             let response = if stream {
-                respond_responses_sse(outcome)
+                respond_buffered_sse(outcome, OutputProtocol::OpenAiResponses)
             } else {
                 respond(outcome, OutputProtocol::OpenAiResponses)
             };
@@ -263,7 +263,7 @@ async fn magpie_tool_selection_and_identity_survive_checks_and_client_json_or_ss
                     &NoopEvidenceSink,
                 )
                 .await;
-            let response = respond_responses_sse(outcome);
+            let response = respond_buffered_sse(outcome, OutputProtocol::OpenAiResponses);
             assert_eq!(
                 response.status(),
                 if block_original {

@@ -12,7 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{CanonicalRequest, GatewayRenderer, RenderError, RenderedPayload, WireRenderer};
+use crate::{
+    CanonicalRequest, GatewayRenderer, OutputProtocol, RenderError, RenderedPayload, WireRenderer,
+};
 use serde_json::{json, Value};
 
 #[derive(Clone)]
@@ -38,6 +40,10 @@ impl WireRenderer for SubscriptionRenderer {
 
     fn message_list_key(&self) -> &'static str {
         self.inner.message_list_key()
+    }
+
+    fn output_protocol(&self) -> OutputProtocol {
+        self.inner.output_protocol()
     }
 
     fn render(

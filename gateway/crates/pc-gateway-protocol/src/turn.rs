@@ -15,12 +15,13 @@
 //! 入口请求尾部的回合类型判定。
 //!
 //! 判定只使用规范化消息的角色、工具调用是否存在，以及 Responses 透传 item 自身的
-//! `role`/`type`；不读取正文，也不调用模型。Responses 入口把非用户 item 原样封装为
+//! `role`/`type`。独立宿主提醒不参与回合判定；不调用模型。Responses 入口把非用户 item 原样封装为
 //! `Role::Tool` 承载（渲染器依赖这一形态逐字透出），因此该形态必须回到 item 本身取语义角色。
 //!
 //! 判定锚点是最后一条用户消息，而不是整个列表的最后一条：客户端与网关固定指令会在用户
 //! 提问之后追加 developer/system 提示，这类尾部不构成新回合，也不应隐藏该用户回合。
 
+use crate::host_reminder::is_reminder_only;
 use crate::render::RESPONSES_LIST_KEY;
 use crate::{CanonicalMessage, CanonicalRequest, Role};
 use pc_gateway_types::TurnKind;
@@ -29,7 +30,7 @@ use serde_json::Value;
 /// 按请求尾部判定回合类型。
 ///
 /// 以最后一条用户消息为锚点，由其后的尾部决定类型：尾部只有 system/developer 时仍是该用户回合；
-/// 出现工具条目或助手消息时按它们判定。找不到用户消息时退回按最后一条消息判定。
+/// 出现工具条目或助手消息时按它们判定。独立宿主提醒不计入锚点或尾部。
 ///
 /// `list_key` 取自实际使用的 renderer。入口 format 决定 renderer，二者目前一一对应；若 renderer
 /// 将来改为按上游协议选择，需要把入口协议显式传入，不能继续由渲染形态推断。
@@ -41,7 +42,9 @@ pub fn turn_kind(request: &CanonicalRequest, list_key: &str) -> TurnKind {
     else {
         return request
             .messages
-            .last()
+            .iter()
+            .rev()
+            .find(|message| !is_host_reminder(message))
             .map_or(TurnKind::Empty, |message| classify(message, list_key));
     };
     match request.messages[last_user + 1..]
@@ -50,12 +53,23 @@ pub fn turn_kind(request: &CanonicalRequest, list_key: &str) -> TurnKind {
         .find(|message| !is_system_like(message, list_key))
     {
         Some(message) => classify(message, list_key),
-        None => TurnKind::UserTurn,
+        None => classify(&request.messages[last_user], list_key),
     }
 }
 
 fn classify(message: &CanonicalMessage, list_key: &str) -> TurnKind {
     match message.role {
+        // Native Anthropic Messages carries client tool results in user-role messages.
+        // A mixed text/result message still starts a user turn.
+        Role::User
+            if list_key != RESPONSES_LIST_KEY
+                && !message.content.is_empty()
+                && message.content.iter().all(|part| {
+                    part.get("type").and_then(Value::as_str) == Some("tool_result")
+                }) =>
+        {
+            TurnKind::ToolContinuation
+        }
         Role::User => TurnKind::UserTurn,
         Role::Assistant if has_tool_calls(message) => TurnKind::ToolContinuation,
         Role::Assistant => TurnKind::AssistantOnly,
@@ -68,7 +82,7 @@ fn classify(message: &CanonicalMessage, list_key: &str) -> TurnKind {
 /// Responses 入口把 item 封装在 `Role::Tool` 里，用户消息同样需要回到 item 自身取角色。
 fn is_user_message(message: &CanonicalMessage, list_key: &str) -> bool {
     match message.role {
-        Role::User => true,
+        Role::User => !is_host_reminder(message),
         Role::Tool if list_key == RESPONSES_LIST_KEY => {
             responses_item_role(&message.content) == Some("user")
         }
@@ -76,9 +90,14 @@ fn is_user_message(message: &CanonicalMessage, list_key: &str) -> bool {
     }
 }
 
+fn is_host_reminder(message: &CanonicalMessage) -> bool {
+    message.role == Role::User && is_reminder_only(&message.content)
+}
+
 fn is_system_like(message: &CanonicalMessage, list_key: &str) -> bool {
     match message.role {
         Role::System | Role::Developer => true,
+        Role::User => is_host_reminder(message),
         Role::Tool if list_key == RESPONSES_LIST_KEY => matches!(
             responses_item_role(&message.content),
             Some("system" | "developer")
@@ -249,6 +268,52 @@ mod tests {
         ] {
             assert_eq!(turn_kind(&request(messages), "messages"), expected);
         }
+    }
+
+    #[test]
+    fn host_reminders_do_not_change_the_latest_meaningful_turn_kind() {
+        let mut reminder = message(Role::User, None);
+        reminder.content = vec![serde_json::json!({
+            "type": "text", "text": "<system-reminder>background status</system-reminder>"
+        })];
+        let mut result = message(Role::User, None);
+        result.content = vec![serde_json::json!({
+            "type":"tool_result", "tool_use_id":"toolu_1", "content":"done"
+        })];
+        let user = message(Role::User, None);
+        for (input, expected) in [
+            (vec![reminder.clone()], TurnKind::Empty),
+            (vec![user.clone(), reminder.clone()], TurnKind::UserTurn),
+            (
+                vec![result.clone(), reminder.clone()],
+                TurnKind::ToolContinuation,
+            ),
+            (vec![user, result, reminder], TurnKind::ToolContinuation),
+        ] {
+            assert_eq!(turn_kind(&request(input), "messages"), expected);
+        }
+    }
+
+    #[test]
+    fn messages_tool_results_are_continuations_but_mixed_content_is_a_user_turn() {
+        let mut result = message(Role::User, None);
+        result.content = vec![serde_json::json!({
+            "type": "tool_result", "tool_use_id": "toolu_1", "content": "ok"
+        })];
+        assert_eq!(
+            turn_kind(
+                &request(vec![message(Role::User, None), result.clone()]),
+                "messages"
+            ),
+            TurnKind::ToolContinuation
+        );
+        result
+            .content
+            .push(serde_json::json!({"type": "text", "text": "new question"}));
+        assert_eq!(
+            turn_kind(&request(vec![result]), "messages"),
+            TurnKind::UserTurn
+        );
     }
 
     #[test]

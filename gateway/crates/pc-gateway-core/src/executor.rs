@@ -27,7 +27,7 @@ use crate::evidence::CallRecorder;
 use crate::lifecycle::Execution;
 use crate::prefix_store::{PrefixEntry, PrefixOutput, PrefixStore};
 use crate::replay_cache::{message_anchor, PreparedBlock, ReplayCache, MAX_REPLAY_MS};
-use crate::transcript::turn_transcript;
+use crate::transcript::{turn_start, turn_transcript};
 use crate::turn::{TurnCounterSnapshot, TurnCounters};
 use crate::turn_message::{is_text_part, last_user_index, text_part};
 
@@ -37,7 +37,9 @@ use crate::{GateClient, GateError};
 use crate::{LifecycleStopReason, ModelSendState, RequestControl};
 use pc_gateway_evidence::EvidenceSink;
 use pc_gateway_evidence::UsageMapping;
-use pc_gateway_protocol::{turn_kind, CanonicalRequest, Role, WireRenderer};
+use pc_gateway_protocol::{
+    turn_kind, CanonicalMessage, CanonicalRequest, OutputProtocol, Role, WireRenderer,
+};
 use pc_gateway_transport::{
     AdmittedSend, RawResponse, SendIndeterminateReason, SendOutcome, Transport,
 };
@@ -137,10 +139,12 @@ impl ManagedOutcome {
 }
 
 /// 召回策略：用户回合总是准备；复用证明失效后的重试额外放行一次非用户回合的准备。
+/// `turn_start` 是本轮可注入的起点消息（Anthropic Messages 的纯工具结果尾部没有起点）。
 #[derive(Clone, Copy)]
 struct RecallPolicy {
     kind: TurnKind,
     reprepare: bool,
+    turn_start: Option<usize>,
 }
 
 impl RecallPolicy {
@@ -364,9 +368,9 @@ where
             control.observation(),
             control.cancellation(),
             "no-upstream-send",
-            match renderer.message_list_key() {
-                "input" => Some(UsageMapping::OpenAiResponses),
-                "messages" => Some(UsageMapping::OpenAiChat),
+            match (renderer.output_protocol(), renderer.message_list_key()) {
+                (OutputProtocol::OpenAiResponses, "input") => Some(UsageMapping::OpenAiResponses),
+                (OutputProtocol::OpenAiChat, "messages") => Some(UsageMapping::OpenAiChat),
                 _ => None,
             },
             call.internal,
@@ -416,12 +420,15 @@ where
         self.turn_counters.record(kind);
         tracing::debug!(turn_kind = kind.as_str(), "gateway request turn classified");
 
+        let protocol = renderer.output_protocol();
+        let start = turn_start(&pristine_request, protocol);
         let conversation = call.conversation_id.clone();
         let replay = conversation
             .as_deref()
             .or(replay_identity)
             .filter(|_| call.inject_context)
-            .and_then(|id| Some((id, message_anchor(&pristine_request)?)));
+            .zip(start)
+            .and_then(|(id, index)| Some((id, message_anchor(&pristine_request, index)?)));
         let mut refreshed = false;
         // Core 使已重放的块失效后，本请求需要重新准备一次；`refreshed` 保证每个请求至多刷新一次。
         let mut reprepare = false;
@@ -432,7 +439,11 @@ where
             if call.inject_context {
                 self.enrich(
                     &mut call,
-                    RecallPolicy { kind, reprepare },
+                    RecallPolicy {
+                        kind,
+                        reprepare,
+                        turn_start: start,
+                    },
                     replay,
                     renderer.message_list_key(),
                     recording,
@@ -706,8 +717,8 @@ where
                                 turn_transcript(
                                     &pristine_request,
                                     &release_body,
+                                    protocol,
                                     &raw.content_type,
-                                    renderer.message_list_key(),
                                     self.source_tokens,
                                 )
                             })
@@ -726,8 +737,9 @@ where
                             (Some(transcript), Some(_)) => Some(transcript),
                         };
                         if let Some(transcript) = batch {
-                            let digest =
-                                turn_digest(&call, &pristine_request).unwrap_or_else(|| {
+                            let digest = start
+                                .and_then(|index| turn_digest(&call, &pristine_request, index))
+                                .unwrap_or_else(|| {
                                     result
                                         .binding
                                         .as_deref()
@@ -960,11 +972,15 @@ where
             );
             return;
         }
+        // Anthropic Messages tails that are pure tool results have no injectable turn start.
+        let Some(index) = policy.turn_start else {
+            return;
+        };
         let prepared = match cached {
             Some(prepared) => prepared,
             None => {
                 let Some((prepared, expires_at)) =
-                    self.prepare_turn(call, recording, execution).await
+                    self.prepare_turn(call, index, recording, execution).await
                 else {
                     return;
                 };
@@ -990,7 +1006,7 @@ where
         let Some(PreparedBlock { block, binding }) = prepared else {
             return;
         };
-        self.inject(call, &block, &binding, list_key);
+        self.inject(call, index, &block, &binding, list_key);
     }
 
     /// 调用 prepare：失败返回 None（不缓存、不阻塞主请求）；
@@ -998,10 +1014,11 @@ where
     async fn prepare_turn(
         &self,
         call: &ManagedCall,
+        index: usize,
         recording: &mut CallRecorder<'_>,
         execution: &Execution,
     ) -> Option<(Option<PreparedBlock>, Option<String>)> {
-        let query = last_user_text(&call.request)?;
+        let query = user_text(call.request.messages.get(index)?)?;
         if execution.checkpoint().is_err() {
             return None;
         }
@@ -1041,10 +1058,14 @@ where
     }
 
     /// 把准备好的块注入最后一条用户消息，并声明它在渲染后请求体中的位置。
-    fn inject(&self, call: &mut ManagedCall, block: &str, binding: &str, list_key: &str) {
-        let Some(index) = last_user_index(&call.request) else {
-            return;
-        };
+    fn inject(
+        &self,
+        call: &mut ManagedCall,
+        index: usize,
+        block: &str,
+        binding: &str,
+        list_key: &str,
+    ) {
         let Some(message) = call.request.messages.get_mut(index) else {
             return;
         };
@@ -1242,9 +1263,8 @@ fn classify_gate_error(e: GateError) -> String {
     }
 }
 
-fn last_user_text(request: &CanonicalRequest) -> Option<String> {
-    let i = last_user_index(request)?;
-    match request.messages[i].content.as_slice() {
+fn user_text(message: &CanonicalMessage) -> Option<String> {
+    match message.content.as_slice() {
         [serde_json::Value::String(s)] => Some(s.clone()),
         // typed content parts：[{"type":"text"或"input_text","text":"..."},...] → 拼接 text 字段。
         // 这是 Chat 与 Responses 的合法形态；不处理会导致沉淀 user 为空 + 注入被跳过。
@@ -1263,9 +1283,12 @@ fn last_user_text(request: &CanonicalRequest) -> Option<String> {
 /// 一个用户回合的稳定标识：Scope、可信会话 ID 与截至最后一条用户消息的注入前消息。同一回合的重试、重复或并发的
 /// 终止请求得到同一个回合摘要；Source ID 另含规范化记录摘要。没有可信会话时返回 `None`：调用方退回到每次放行
 /// 各自的标识。
-fn turn_digest(call: &ManagedCall, pristine: &CanonicalRequest) -> Option<String> {
+fn turn_digest(
+    call: &ManagedCall,
+    pristine: &CanonicalRequest,
+    last_user: usize,
+) -> Option<String> {
     let conversation = call.conversation_id.as_deref()?;
-    let last_user = last_user_index(pristine)?;
     let messages = serde_json::to_string(&pristine.messages[..=last_user]).ok()?;
     Some(simple_digest(&format!(
         "{}\n{}\n{}\n{messages}",

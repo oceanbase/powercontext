@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! 默认内置固定指令，可由 `PC_GATEWAY_STEERING_FILE` 覆盖；插入 Responses 与 Chat 入口的请求。
+//! 默认内置固定指令，可由 `PC_GATEWAY_STEERING_FILE` 覆盖；插入 Responses、Chat 与 Messages 入口的请求。
 //!
 //! 文本在启动时读取并校验一次；每个请求插入同一位置的同一文本，因此它是稳定前缀的一部分，
 //! 可复用上游前缀缓存，实际命中与计费取决于服务商。它与上下文注入、沉淀和准备结果的重放相互独立。

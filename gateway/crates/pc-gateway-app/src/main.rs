@@ -56,6 +56,8 @@ pub struct AppState {
     pub upstream_responses: String,
     pub upstream_chat_api_key: String,
     pub upstream_responses_api_key: String,
+    pub messages_profile_name: Option<String>,
+    pub upstream_messages_api_key: String,
     pub subscription: Option<pc_gateway_auth::SubscriptionAuth>,
     pub api_key: String,
     /// 是否调 prepare 注入上下文（默认关）。
@@ -67,7 +69,7 @@ pub struct AppState {
     pub inject_code: bool,
     /// 过检后同步沉淀对话（默认关）。
     pub sediment: bool,
-    /// 默认内置固定指令，插入 Responses 和 Chat 请求；文件可覆盖，`PC_GATEWAY_STEERING=off` 可关闭。
+    /// 默认内置固定指令，插入 Responses、Chat 和 Messages 请求；文件可覆盖，`PC_GATEWAY_STEERING=off` 可关闭。
     pub steering: Option<String>,
     /// 支持的上游默认保留记忆抽取前缀；`PC_GATEWAY_PREFIX_EXTRACTION=off` 可关闭（#2413）。
     pub prefix_extraction: bool,
@@ -143,6 +145,7 @@ async fn main() {
         "PC_GATEWAY_UPSTREAM_URL",
         "PC_GATEWAY_UPSTREAM_URL_CHAT",
         "PC_GATEWAY_UPSTREAM_URL_RESPONSES",
+        "PC_GATEWAY_UPSTREAM_URL_MESSAGES",
     ]
     .iter()
     .any(|name| std::env::var_os(name).is_some())
@@ -321,6 +324,12 @@ async fn main() {
             .filter(|s| !s.is_empty()),
         upstream_chat,
         upstream_responses,
+        messages_profile_name: std::env::var("PC_GATEWAY_UPSTREAM_PROFILE_MESSAGES")
+            .ok()
+            .filter(|s| !s.is_empty()),
+        upstream_messages_api_key: std::env::var("PC_GATEWAY_UPSTREAM_API_KEY_MESSAGES")
+            .or_else(|_| std::env::var("PC_GATEWAY_UPSTREAM_API_KEY"))
+            .unwrap_or_default(),
         subscription,
         upstream_chat_api_key: std::env::var("PC_GATEWAY_UPSTREAM_API_KEY_CHAT")
             .or_else(|_| std::env::var("PC_GATEWAY_UPSTREAM_API_KEY"))
@@ -437,6 +446,7 @@ fn router(state: Arc<AppState>, proxy_state: proxy::ProxyState) -> Router {
             post(ingress::chat_completions),
         )
         .route("/gateway/v1/responses", post(ingress::responses))
+        .route("/gateway/v1/messages", post(ingress::messages))
         .route("/gateway/v1/extract", post(ingress::extract))
         .fallback(proxy::fallback)
         .with_state((state, proxy_state))

@@ -155,13 +155,29 @@ Install a [prebuilt Gateway](install-gateway.md) to use the Rust executable with
 
 ### Gateway authentication boundaries
 
-`PC_GATEWAY_API_KEY` applies only to `/gateway/v1/chat/completions` and `/gateway/v1/responses`.
+`PC_GATEWAY_API_KEY` applies to `/gateway/v1/chat/completions`, `/gateway/v1/responses`, and `/gateway/v1/messages`.
 All Gateway model listeners require a valid, nonempty key; that startup check does not authenticate other routes.
 In a combined deployment (`PC_GATEWAY_CORE_UDS`), requests forwarded to Core retain the client's credentials.
 Core API, MCP and Dashboard requests follow Core's existing authentication and access-control rules.
 The Gateway key does not grant Core API access, and UDS does not replace Core authentication.
 
 Every Gateway deployment, including standalone TCP and combined UDS, requires Core access control in `enforced` mode and a valid authentication credential for the Gateway service identity. This is required for privileged target resolution even when inference privacy protection is `disabled`, `shadow`, or `advisory`; a Core with authentication/access control disabled cannot authorize Gateway model sends. Configure `POWERCONTEXT_SERVER_ACCESS_MODE=enforced` and a supported authentication provider before starting the Gateway. Clients of protected Core routes must use their own Core credentials; the reverse proxy does not substitute `PC_GATEWAY_CORE_TOKEN` for client credentials.
+
+### Gateway Anthropic Messages
+
+Configure a Core-owned target profile for the `anthropic-messages` protocol, endpoint
+and model, and set `PC_GATEWAY_UPSTREAM_PROFILE_MESSAGES` to its name. The Gateway sends
+only to the destination approved by Core. Set `PC_GATEWAY_UPSTREAM_API_KEY_MESSAGES` on the
+Gateway or use its fallback, `PC_GATEWAY_UPSTREAM_API_KEY`. The Messages route is enabled
+in API-key mode only.
+
+In Claude Code, set `ANTHROPIC_BASE_URL` to the Gateway URL ending in `/gateway`, for example
+`http://127.0.0.1:8787/gateway`. Set `ANTHROPIC_API_KEY` to the Gateway's `PC_GATEWAY_API_KEY`.
+Messages also accepts the Gateway key as a Bearer token. Core checks the exact outbound JSON
+and the complete upstream response. A client requesting SSE receives Anthropic events after
+release approval, so long generations may exceed the client's idle timeout. The optional
+Anthropic token-counting endpoint is outside this route. With capture enabled, Messages turns
+use normal memory extraction. Cached-prefix extraction applies to supported Responses upstreams.
 
 ### Gateway OAuth subscriptions
 
@@ -279,7 +295,7 @@ The gateway identifies the conversation from the first of these request headers 
 | `x-opencode-session-id` | OpenCode | the session; a child session has its own ID |
 | `thread-id` (Responses route only) | Codex | the thread; a subagent has its own thread ID |
 
-Headers that a client shares between a parent and its subagents, such as Codex `session-id` and `prompt_cache_key` or OpenCode `x-opencode-session` and `x-session-affinity`, do not identify a conversation. Claude Code speaks the Anthropic Messages API, which the gateway does not serve, so its headers apply only when a proxy in front of the gateway translates its requests to the Chat or Responses route and forwards them.
+Headers that a client shares between a parent and its subagents, such as Codex `session-id` and `prompt_cache_key` or OpenCode `x-opencode-session` and `x-session-affinity`, do not identify a conversation. Claude Code can send these session headers directly on the Messages route.
 
 When none of these headers supplies an ID, the gateway can identify a full-history Chat or Responses request using the route and a hash of the model, leading instructions, and first user message. The opening must contain a user message preceded only by system or developer messages. Responses requests linked through `previous_response_id` or `conversation` need a header for reuse. An inferred ID is local to the gateway process and applies only to preparation replay. Sessions with identical openings can share an inferred ID, so send an explicit conversation header when sessions must be distinct.
 
@@ -289,15 +305,15 @@ Set `PC_GATEWAY_INJECTION_CODE=on` to include code evidence from the Scope's cod
 
 ### Gateway instruction
 
-The gateway adds a built-in cost-guidance instruction (S) to every request on the Chat (`/gateway/v1/chat/completions`) and Responses (`/gateway/v1/responses`) routes by default. The text encourages targeted searches, batched reads, concise edits, and focused validation. `PC_GATEWAY_STEERING=off` disables it; unset or `on` enables it. Other values prevent startup.
+The gateway adds a built-in cost-guidance instruction (S) to every request on the Chat (`/gateway/v1/chat/completions`), Responses (`/gateway/v1/responses`), and Messages (`/gateway/v1/messages`) routes by default, except requests marked `X-PowerContext-Turn: internal`. The text encourages targeted searches, batched reads, concise edits, and focused validation. `PC_GATEWAY_STEERING=off` disables it; unset or `on` enables it. Other values prevent startup.
 
 `PC_GATEWAY_STEERING_FILE` replaces the built-in text with a custom instruction. When steering is enabled, the gateway reads the file once at startup. It must be UTF-8, non-empty after trimming, at most 4,096 bytes, and free of PowerContext's reserved `BEGIN_POWERCONTEXT_` markers; otherwise the gateway exits at startup instead of running with a different instruction. `PC_GATEWAY_STEERING=off` takes precedence and does not read the file.
 
-On Responses, the text becomes the first content block of the developer message that follows the client's first developer message, which is where Codex places its own `developer_instructions`. Without such a message, the gateway inserts a new developer message after the client's first developer message, or before the first user message when the request has no developer message. On Chat, the gateway appends the guidance to the first system message, or inserts a system message before the first user message. The text is identical on every request, so it stays part of the cached prefix. Core checks it as part of the final request like any other request text. It is independent of context injection, capture, and replay.
+On Responses, the text becomes the first content block of the developer message that follows the client's first developer message, which is where Codex places its own `developer_instructions`. Without such a message, the gateway inserts a new developer message after the client's first developer message, or before the first user message when the request has no developer message. On Chat, the gateway appends the guidance to the first system message, or inserts a system message before the first user message. On Messages, the Gateway appends a separate text block to the system prompt and keeps the existing system blocks in order. The text is identical on every request, so it stays part of the cached prefix. Core checks it as part of the final request like any other request text. It is independent of context injection, capture, and replay.
 
 ### Gateway byte capacity
 
-The Rust gateway discovers `context_protection` once at startup through `/v1/capabilities`. Model routes require the complete `ContextProtectionCapabilities` DTO defined by OpenAPI: `check_versions`, `payload_versions`, `reuse_versions`, `reuse_families`, `enforcing`, and `limits` with `payload_bytes`, `binding_bytes`, `prepared_contexts`, `dependencies`, `send_seconds`, and `correlate_seconds`. Missing or mistyped required fields pause admission even when the input capacity is present. The check/payload versions must include v1, and `limits.payload_bytes` must be a positive integer. A failed query, incompatible version, incomplete DTO, or invalid capacity pauses both model routes with HTTP 503; `/healthz` and configured Core/MCP forwarding remain available. Restore the Core contract and restart this gateway to rediscover capacity. Every model send and response release still requires its own Core check. If Core lowers a limit before the gateway restarts, that check can reject the call; increasing a Core limit does not enlarge this gateway's startup allowance until restart. Startup diagnostics distinguish transport failure, query rejection, malformed/incomplete responses, unsupported versions, and invalid capacity using fixed messages without Core error values.
+The Rust gateway discovers `context_protection` once at startup through `/v1/capabilities`. Model routes require the complete `ContextProtectionCapabilities` DTO defined by OpenAPI: `check_versions`, `payload_versions`, `reuse_versions`, `reuse_families`, `enforcing`, and `limits` with `payload_bytes`, `binding_bytes`, `prepared_contexts`, `dependencies`, `send_seconds`, and `correlate_seconds`. Missing or mistyped required fields pause admission even when the input capacity is present. The check/payload versions must include v1, and `limits.payload_bytes` must be a positive integer. A failed query, incompatible version, incomplete DTO, or invalid capacity pauses the model routes with HTTP 503; `/healthz` and configured Core/MCP forwarding remain available. Restore the Core contract and restart this gateway to rediscover capacity. Every model send and response release still requires its own Core check. If Core lowers a limit before the gateway restarts, that check can reject the call; increasing a Core limit does not enlarge this gateway's startup allowance until restart. Startup diagnostics distinguish transport failure, query rejection, malformed/incomplete responses, unsupported versions, and invalid capacity using fixed messages without Core error values.
 
 `PC_GATEWAY_MAX_BODY_BYTES` defaults to 16 MiB (1 MiB = 1,048,576 bytes). The effective model input limit is the minimum of that setting, the advertised input capacity, and the current 1 MiB complete-body parser ceiling. A zero deployment limit disables model input with HTTP 503 and `input_capacity_disabled`; it does not indicate a Core discovery failure. Both Content-Length and consumed chunked request bytes are limited. The executor also measures the final UTF-8 JSON body after prepared-context injection/replay, steering and protocol rendering. Initial-body overflow returns HTTP 413; final-body overflow returns HTTP 403 with `request_payload_too_large`, before any model send. Enlarging configuration cannot bypass the parser ceiling.
 

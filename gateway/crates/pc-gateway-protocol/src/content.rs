@@ -17,10 +17,11 @@ use serde::Deserialize;
 use serde_json::value::RawValue;
 use std::borrow::Cow;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OutputProtocol {
     OpenAiChat,
     OpenAiResponses,
+    AnthropicMessages,
 }
 
 /// Byte offset of the first encoded byte in a nonempty supported model-output string.
@@ -75,6 +76,10 @@ struct Fields<'a> {
     #[serde(borrow)]
     part: Option<&'a RawValue>,
     #[serde(borrow)]
+    content_block: Option<&'a RawValue>,
+    #[serde(borrow)]
+    partial_json: Option<&'a RawValue>,
+    #[serde(borrow)]
     response: Option<&'a RawValue>,
 }
 
@@ -115,6 +120,15 @@ fn part_offset(raw: Option<&RawValue>, text: &str) -> Option<usize> {
     match part.kind.as_deref() {
         Some("output_text" | "text") => string_offset(part.text, text),
         Some("refusal") => string_offset(part.refusal, text),
+        _ => None,
+    }
+}
+
+fn messages_part_offset(raw: Option<&RawValue>, text: &str) -> Option<usize> {
+    let part = fields(raw);
+    match part.kind.as_deref() {
+        Some("text") => string_offset(part.text, text),
+        Some("tool_use" | "server_tool_use" | "mcp_tool_use") => string_offset(part.name, text),
         _ => None,
     }
 }
@@ -182,6 +196,10 @@ fn json_offset(text: &str, protocol: OutputProtocol, streaming: bool) -> Option<
             })
             .min(),
         OutputProtocol::OpenAiResponses => responses_offset(root, text),
+        OutputProtocol::AnthropicMessages => array(root.content)
+            .into_iter()
+            .filter_map(|part| messages_part_offset(Some(part), text))
+            .min(),
     }
 }
 
@@ -212,6 +230,26 @@ fn response_event_offset(text: &str, event: Option<&str>) -> Option<usize> {
     }
 }
 
+fn messages_event_offset(text: &str, event: Option<&str>) -> Option<usize> {
+    let root: Fields<'_> = serde_json::from_str(text).ok()?;
+    let kind = root.kind.as_deref()?;
+    if event.is_some_and(|event| event != kind) {
+        return None;
+    }
+    match kind {
+        "content_block_start" => messages_part_offset(root.content_block, text),
+        "content_block_delta" => {
+            let delta = fields(root.delta);
+            match delta.kind.as_deref() {
+                Some("text_delta") => string_offset(delta.text, text),
+                Some("input_json_delta") => string_offset(delta.partial_json, text),
+                _ => None,
+            }
+        }
+        _ => None,
+    }
+}
+
 fn sse_offset(text: &str, protocol: OutputProtocol) -> Option<usize> {
     let mut data = String::new();
     let mut segments = Vec::new();
@@ -232,6 +270,7 @@ fn sse_offset(text: &str, protocol: OutputProtocol) -> Option<usize> {
             let offset = match protocol {
                 OutputProtocol::OpenAiChat => json_offset(&data, protocol, true),
                 OutputProtocol::OpenAiResponses => response_event_offset(&data, event),
+                OutputProtocol::AnthropicMessages => messages_event_offset(&data, event),
             };
             if let Some(offset) = offset {
                 return segments.iter().find_map(|&(joined, start, len)| {

@@ -1,24 +1,40 @@
 # PowerContext Rust Gateway
 
-The optional Rust Gateway adds PowerContext recall and conversation capture to OpenAI-compatible model traffic. PowerContext Core decides whether a request may be sent and whether its response may be released. See [RFC 2199](../docs/en/rfcs/2199-powercontext-gateway.md) for the design.
+The optional Rust Gateway adds PowerContext recall and conversation capture to OpenAI-compatible and Anthropic Messages model traffic. PowerContext Core decides whether a request may be sent and whether its response may be released. See [RFC 2199](../docs/en/rfcs/2199-powercontext-gateway.md) for the design.
 
 The optional Gateway requires Core-issued target admission for every model send. Core must run with access control enforced, including for combined UDS deployments and non-enforcing inference privacy modes. See [Gateway deployment](../docs/en/docs/operate/deploy-server.md) and [installation](../docs/en/docs/operate/install-gateway.md) for the current authentication and target requirements.
 
 ## Model traffic
 
-The Gateway serves `/gateway/v1/chat/completions` and `/gateway/v1/responses`. It checks the final request with Core before sending it, then buffers the response and checks it before releasing content. Clients requesting a stream receive buffered replay after approval, rather than live token delivery. Upstream error statuses are preserved.
+The Gateway serves `/gateway/v1/chat/completions`, `/gateway/v1/responses`, and `/gateway/v1/messages`. It checks the final request with Core before sending it, then buffers the response and checks it before releasing content. Clients requesting a stream receive buffered replay after approval, rather than live token delivery. Upstream error statuses are preserved.
 
 Requests with uncertain delivery are not automatically resent. When Core is unreachable, model traffic pauses; model requests are never sent without Core-issued target admission.
 
-The default upstream uses the same API format as the client. [Subscription adapters](SUBSCRIPTIONS.md) provide channel-specific conversions. The Gateway does not serve the Anthropic Messages API.
+The default upstream uses the same API format as the client. [Subscription adapters](SUBSCRIPTIONS.md) provide channel-specific conversions.
 
 Blocked calls return HTTP 403. Withheld calls return HTTP 400 unless the executor marks them retryable, in which case they return HTTP 409. Currently, only a nonempty reason list containing exclusively `context-refresh-required` is retryable. Admission expiry also returns HTTP 409. A retry after upstream generation may spend provider quota again.
+
+### Anthropic Messages
+
+Set `PC_GATEWAY_UPSTREAM_PROFILE_MESSAGES` to a Core-owned Anthropic Messages
+target profile and `PC_GATEWAY_UPSTREAM_API_KEY_MESSAGES` to the provider key.
+Core selects and approves the endpoint. The Messages route does not use
+subscription credentials. In Claude Code, point `ANTHROPIC_BASE_URL` at the
+Gateway URL ending in `/gateway` and set `ANTHROPIC_API_KEY` to the Gateway's
+`PC_GATEWAY_API_KEY`. The Messages route also accepts that key as a Bearer token.
+
+This route uses the API-key upstream channel. It preserves Anthropic version and
+beta headers and replays an approved JSON Message as Anthropic SSE when the
+client requests streaming. Anthropic token counting is optional for Claude Code.
+Messages uses standard memory extraction from captured Sources. See
+[deployment settings](../docs/en/docs/operate/deploy-server.md#gateway-anthropic-messages)
+for details.
 
 ## Memory
 
 In a combined UDS deployment, recall injection is enabled by default. The Gateway prepares context on a user turn and reuses that turn's prepared block for the requests that follow, without querying again. A tool continuation without a conversation ID has nothing to reuse and is sent without recall. Core verifies the injected text and its binding. Empty or failed preparation leaves the request uninjected.
 
-Use `X-PowerContext-Conversation-ID` to identify a conversation. The Gateway also recognizes client session headers from OpenCode, Codex and translated Claude Code traffic. A host that sends non-conversation model requests, such as a compaction or branch summary, can mark one with `X-PowerContext-Turn: internal`; the gateway then skips preparation, injection, replay, steering and capture for that request while still running the before-send check, and does not forward the header upstream. Only a single, case-insensitive `internal` is accepted; an empty, repeated or other value is rejected with `400 invalid_turn_header`. Without a valid header, eligible full-history requests get a process-local identity for preparation replay from their opening messages. See [context injection settings](../docs/en/docs/operate/deploy-server.md#gateway-context-injection) for header precedence and fallback behavior. Standalone deployments require `PC_GATEWAY_INJECTION=on` to enable injection.
+Use `X-PowerContext-Conversation-ID` to identify a conversation. The Gateway also recognizes client session headers from OpenCode, Codex and native and translated Claude Code traffic. A host that sends non-conversation model requests, such as a compaction or branch summary, can mark one with `X-PowerContext-Turn: internal`; the gateway then skips preparation, injection, replay, steering and capture for that request while still running the before-send check, and does not forward the header upstream. Only a single, case-insensitive `internal` is accepted; an empty, repeated or other value is rejected with `400 invalid_turn_header`. Without a valid header, eligible full-history requests get a process-local identity for preparation replay from their opening messages. See [context injection settings](../docs/en/docs/operate/deploy-server.md#gateway-context-injection) for header precedence and fallback behavior. Standalone deployments require `PC_GATEWAY_INJECTION=on` to enable injection.
 
 The Gateway classifies each request tail as `user_turn`, `tool_continuation`, `assistant_only` or `empty`, and records it in call evidence and debug logs. Responses items are classified by their own role and type rather than the verbatim carrier. Every kind other than `user_turn` reuses the turn's prepared block when a replay entry exists and otherwise skips preparation and replay.
 
@@ -33,7 +49,7 @@ For a supported Responses upstream, prefix extraction is enabled by default; `PC
 
 ## Steering
 
-Chat and Responses requests include the [built-in cost guidance](crates/pc-gateway-app/src/default_steering.txt) by default, except requests marked `X-PowerContext-Turn: internal`. Set `PC_GATEWAY_STEERING_FILE` to replace it, or `PC_GATEWAY_STEERING=off` to disable steering even when a file is configured. On Chat, the gateway appends guidance to the first system message or inserts a system message before the first user message. Both `PC_GATEWAY_STEERING` and `PC_GATEWAY_PREFIX_EXTRACTION` accept only `on` or `off` when set. See [instruction settings](../docs/en/docs/operate/deploy-server.md#gateway-instruction).
+Chat, Responses, and Messages requests include the [built-in cost guidance](crates/pc-gateway-app/src/default_steering.txt) by default, except requests marked `X-PowerContext-Turn: internal`. Set `PC_GATEWAY_STEERING_FILE` to replace it, or `PC_GATEWAY_STEERING=off` to disable steering even when a file is configured. On Chat, the gateway appends guidance to the first system message or inserts a system message before the first user message. Messages steering appends a text block to the system prompt, keeping the client’s system blocks in order. Both `PC_GATEWAY_STEERING` and `PC_GATEWAY_PREFIX_EXTRACTION` accept only `on` or `off` when set. See [instruction settings](../docs/en/docs/operate/deploy-server.md#gateway-instruction).
 
 ### Replay epoch correlation module
 

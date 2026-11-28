@@ -157,12 +157,26 @@ Server 使用 UDS 时，设备上的 `powercontext source-agent` 通过 `--serve
 
 ### 网关认证边界
 
-`PC_GATEWAY_API_KEY` 仅适用于 `/gateway/v1/chat/completions` 和 `/gateway/v1/responses`。
+`PC_GATEWAY_API_KEY` 适用于 `/gateway/v1/chat/completions`、`/gateway/v1/responses` 和 `/gateway/v1/messages`。
 所有网关模型监听都要求有效的非空 key；该启动校验不负责其他路由的认证。
 组合部署（`PC_GATEWAY_CORE_UDS`）转发到 Core 的请求会保留客户端凭据，Core API、MCP 和 Dashboard 请求
 继续遵循 Core 自身的认证与访问控制规则。Gateway key 不授予 Core API 权限，UDS 也不能替代 Core 认证。
 
 所有 Gateway 部署（包括独立 TCP 和组合 UDS）都要求 Core 将访问控制设为 `enforced`，并为 Gateway 服务身份配置有效的认证凭据。即使推理隐私保护为 `disabled`、`shadow` 或 `advisory`，特权目标解析仍要求此配置；关闭认证/访问控制的 Core 无法批准 Gateway 模型发送。启动 Gateway 前，请设置 `POWERCONTEXT_SERVER_ACCESS_MODE=enforced` 并配置受支持的认证 Provider。访问受保护 Core 路由的客户端必须使用各自的 Core 凭据；反向代理不会用 `PC_GATEWAY_CORE_TOKEN` 替换客户端凭据。
+
+### 网关 Anthropic Messages
+
+在 Core 配置 `anthropic-messages` 协议、端点和模型的目标 Profile，并将
+`PC_GATEWAY_UPSTREAM_PROFILE_MESSAGES` 设置为其名称。Gateway 只向 Core 批准的目标发送请求。
+在 Gateway 设置 `PC_GATEWAY_UPSTREAM_API_KEY_MESSAGES`，或使用回退项 `PC_GATEWAY_UPSTREAM_API_KEY`。
+Messages 入口仅在 API Key 模式下启用。
+
+在 Claude Code 中，将 `ANTHROPIC_BASE_URL` 设置为以 `/gateway` 结尾的网关 URL，例如
+`http://127.0.0.1:8787/gateway`。将 `ANTHROPIC_API_KEY` 设置为网关的 `PC_GATEWAY_API_KEY`。
+Messages 也接受以 Bearer token 提供的网关 key。Core 检查实际发出的 JSON 和完整的上游响应。
+请求 SSE 的客户端在放行后收到 Anthropic 事件，因此耗时较长的生成可能超过客户端的空闲超时。
+可选的 Anthropic token 计数端点不属于此路由。开启沉淀后，Messages 回合使用普通记忆抽取。
+缓存前缀抽取适用于受支持的 Responses 上游。
 
 ### 网关 OAuth 订阅
 
@@ -267,7 +281,7 @@ Core 无法批准目标时，Gateway 不会发送模型请求。
 | `x-opencode-session-id` | OpenCode | 会话；子会话有自己的 ID |
 | `thread-id`（仅 Responses 入口） | Codex | 线程；子代理有自己的线程 ID |
 
-客户端在父代理与子代理之间共享的头不用于确定会话，例如 Codex 的 `session-id` 和 `prompt_cache_key`，以及 OpenCode 的 `x-opencode-session` 和 `x-session-affinity`。Claude Code 使用 Anthropic Messages API，而网关不提供该接口，所以只有在网关前的代理把它的请求转换到 Chat 或 Responses 入口并转发这些头时，Claude Code 的头才会生效。
+客户端在父代理与子代理之间共享的头不用于确定会话，例如 Codex 的 `session-id` 和 `prompt_cache_key`，以及 OpenCode 的 `x-opencode-session` 和 `x-session-affinity`。Claude Code 可以直接在 Messages 入口发送这些会话头。
 
 如果这些头均未提供 ID，网关可以根据入口以及模型、开头的指令和第一条用户消息的哈希，识别携带完整历史的 Chat 或 Responses 请求。历史开头必须有用户消息，且其前面只能有 system 或 developer 消息。通过 `previous_response_id` 或 `conversation` 续接的 Responses 请求需要提供请求头才能复用准备结果。推导出的 ID 仅在当前网关进程内用于重放准备结果。开头完全相同的会话可能共享推导出的 ID，需要区分时请发送显式会话头。
 
@@ -277,15 +291,15 @@ Core 无法批准目标时，Gateway 不会发送模型请求。
 
 ### 网关固定指令
 
-网关默认向 Chat 入口（`/gateway/v1/chat/completions`）和 Responses 入口（`/gateway/v1/responses`）的每个请求加入内置的成本指导指令（S），提示模型定向搜索、合并读取、集中修改并进行针对性验证。`PC_GATEWAY_STEERING=off` 关闭指令；未设置或设为 `on` 时开启，其他值会阻止启动。
+网关默认向 Chat 入口（`/gateway/v1/chat/completions`）、Responses 入口（`/gateway/v1/responses`）和 Messages 入口（`/gateway/v1/messages`）的请求（带 `X-PowerContext-Turn: internal` 的请求除外）加入内置的成本指导指令（S），提示模型定向搜索、合并读取、集中修改并进行针对性验证。`PC_GATEWAY_STEERING=off` 关闭指令；未设置或设为 `on` 时开启，其他值会阻止启动。
 
 `PC_GATEWAY_STEERING_FILE` 用自定义指令替换内置文本。开启指令时，网关只在启动时读取一次该文件。文件必须是 UTF-8，去掉首尾空白后不能为空，不超过 4096 字节，并且不能含有 PowerContext 保留的 `BEGIN_POWERCONTEXT_` 标记；否则网关在启动时退出，不会改用其他指令。`PC_GATEWAY_STEERING=off` 优先于文件配置，关闭时不读取文件。
 
-在 Responses 入口，指令文本成为客户端第一条 developer 消息之后那条 developer 消息的第一个内容块，也就是 Codex 放置自身 `developer_instructions` 的位置。没有这样的消息时，网关在客户端第一条 developer 消息之后插入一条新的 developer 消息；请求中没有 developer 消息时，插在第一条用户消息之前。在 Chat 入口，网关将指令追加到第一条 system 消息，或在第一条用户消息之前插入一条 system 消息。每个请求中的文本都相同，因此它始终是缓存前缀的一部分。Core 把它作为最终请求的一部分，像其他请求文本一样检查。它与上下文注入、沉淀和重放相互独立。
+在 Responses 入口，指令文本成为客户端第一条 developer 消息之后那条 developer 消息的第一个内容块，也就是 Codex 放置自身 `developer_instructions` 的位置。没有这样的消息时，网关在客户端第一条 developer 消息之后插入一条新的 developer 消息；请求中没有 developer 消息时，插在第一条用户消息之前。在 Chat 入口，网关将指令追加到第一条 system 消息，或在第一条用户消息之前插入一条 system 消息。在 Messages 入口，网关在系统提示词末尾追加独立的文本块，并保留原有系统块的顺序。每个请求中的文本都相同，因此它始终是缓存前缀的一部分。Core 把它作为最终请求的一部分，像其他请求文本一样检查。它与上下文注入、沉淀和重放相互独立。
 
 ### Gateway 字节容量
 
-Rust Gateway 在启动时通过 `/v1/capabilities` 查询一次 `context_protection`。模型入口要求 OpenAPI 定义的完整 `ContextProtectionCapabilities` DTO： `check_versions`、`payload_versions`、`reuse_versions`、`reuse_families`、`enforcing`，以及包含 `payload_bytes`、`binding_bytes`、`prepared_contexts`、`dependencies`、`send_seconds` 和 `correlate_seconds` 的 `limits`。即使存在输入容量，任何必需字段缺失或类型错误也会暂停准入。 check/payload 版本必须包含 v1，且 `limits.payload_bytes` 必须是正整数。查询失败、版本不兼容、DTO 不完整或容量无效时，两个模型入口返回 HTTP 503 暂停服务； `/healthz` 和已配置的 Core/MCP 转发仍可访问。恢复 Core 契约后，重启 Gateway 以重新发现容量。每次模型发送和响应释放仍须分别通过 Core 检查。若 Core 在 Gateway 重启前收紧限制，这次检查可以拒绝调用；增大 Core 限制不会在重启前放大 Gateway 启动时确认的额度。启动诊断通过固定消息区分传输失败、查询被拒、响应畸形/不完整、版本不兼容和容量无效，不输出 Core 错误值。
+Rust Gateway 在启动时通过 `/v1/capabilities` 查询一次 `context_protection`。模型入口要求 OpenAPI 定义的完整 `ContextProtectionCapabilities` DTO： `check_versions`、`payload_versions`、`reuse_versions`、`reuse_families`、`enforcing`，以及包含 `payload_bytes`、`binding_bytes`、`prepared_contexts`、`dependencies`、`send_seconds` 和 `correlate_seconds` 的 `limits`。即使存在输入容量，任何必需字段缺失或类型错误也会暂停准入。 check/payload 版本必须包含 v1，且 `limits.payload_bytes` 必须是正整数。查询失败、版本不兼容、DTO 不完整或容量无效时，模型入口返回 HTTP 503 暂停服务； `/healthz` 和已配置的 Core/MCP 转发仍可访问。恢复 Core 契约后，重启 Gateway 以重新发现容量。每次模型发送和响应释放仍须分别通过 Core 检查。若 Core 在 Gateway 重启前收紧限制，这次检查可以拒绝调用；增大 Core 限制不会在重启前放大 Gateway 启动时确认的额度。启动诊断通过固定消息区分传输失败、查询被拒、响应畸形/不完整、版本不兼容和容量无效，不输出 Core 错误值。
 
 `PC_GATEWAY_MAX_BODY_BYTES` 默认 16 MiB（1 MiB = 1,048,576 字节）。模型输入的有效上限是该配置、 Core 声明的输入容量和当前完整正文解析器 1 MiB 硬上限的最小值。部署上限为零时，模型输入禁用，返回 HTTP 503 和 `input_capacity_disabled`，不表示 Core 能力查询失败。 Content-Length 预检和 chunked 正文实际读取都受限。执行器还会在 prepared context 注入/重放、 steering 和协议渲染后，检查最终 UTF-8 JSON 正文字节数。入口正文超限返回 HTTP 413；最终正文超限返回 HTTP 403 和 `request_payload_too_large`，不会发送模型。放大配置不能绕过解析器硬上限。
 
