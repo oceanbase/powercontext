@@ -127,6 +127,10 @@ def test_blog_language_is_consistent_in_text_examples_and_diagrams() -> None:
         "deepseek-harness-powercontext/dsh-web.png",
         "deepseek-harness-powercontext/plugin-list.png",
         "deepseek-harness-powercontext/pc-command.png",
+        # The conference photograph and original demo footage are shared across locales.
+        "xiaozhi-desktop/conference.jpg",
+        "xiaozhi-desktop/dance.gif",
+        "xiaozhi-desktop/fish.gif",
         # These supplied diagrams are intentionally shared by both locales.
         "power-system-agent-memory/memory.svg",
         "power-system-agent-memory/memory-validation.svg",
@@ -169,8 +173,13 @@ def test_blog_language_is_consistent_in_text_examples_and_diagrams() -> None:
                         counterpart = image.replace(f".{language}.png", f".{other}.png")
                         assert (ROOT / "docs/assets/blog" / counterpart).is_file()
                     continue
-                assert image.endswith(f".{language}.svg"), f"Unlocalized diagram: {source}: {image}"
                 asset = ROOT / "docs/assets/blog" / image
+                if image in {"xiaozhi-desktop/architecture.en.png", "xiaozhi-desktop/architecture.zh.png"}:
+                    assert image.endswith(f".{language}.png"), f"Wrong diagram language: {source}: {image}"
+                    assert asset.is_file()
+                    assert asset.with_name(f"architecture.{other}.png").is_file()
+                    continue
+                assert image.endswith(f".{language}.svg"), f"Unlocalized diagram: {source}: {image}"
                 svg = asset.read_text(encoding="utf-8")
                 assert asset.with_name(asset.name.replace(f".{language}.svg", f".{other}.svg")).is_file()
                 if language == "en":
