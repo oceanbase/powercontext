@@ -201,7 +201,7 @@ memory 工具照常工作，它们都不准备上下文。关闭采集后，插�
         apiKey: "${PC_GATEWAY_KEY}",
         api: "openai-responses",
         models: [
-          { id: "approved-model", name: "Approved model", contextWindow: 400000, maxTokens: 32000 },
+          { id: "approved-model", name: "Approved model", contextWindow: 128000, maxTokens: 32000 },
         ],
       },
     },
@@ -213,6 +213,19 @@ memory 工具照常工作，它们都不准备上下文。关闭采集后，插�
 以非流式方式调用模型，再把通过检查的响应以流式重放，因此流式的一轮能完成并被采集。使用 `api: "openai-completions"` 时，
 gateway 在 Chat Completions 路由上转发流式请求，并原样放行流式响应；设置 `PC_GATEWAY_SEDIMENT=on` 后，
 还会从中采集完成的一轮。
+
+PowerContext gateway 接受的模型请求最多为 1 MiB，按注入上下文并加入成本指引之后的大小计算，配置无法提高这个上限；
+见 [Gateway 字节容量](../operate/deploy-server.md#gateway-字节容量)。到达时就超过上限的请求以 HTTP 413 失败，
+因注入或成本指引而超过上限的请求在调用模型之前以 HTTP 403 `request_payload_too_large` 失败。
+OpenClaw 在每个请求中发送会话的完整历史，因此长会话会达到这个上限，除非 OpenClaw 先压缩会话。
+请把 `contextWindow` 设得足够低，让 OpenClaw 在请求接近 1 MiB 之前就压缩。
+
+根据 OpenClaw 2026.8.1-beta.2 的源码，它的内嵌 agent 在模型上一次报告的上下文超过 `contextWindow`
+减去至少 20000 个 token 的预留时压缩，报告的上下文包括工具定义和 system prompt。
+默认情况下，它在每次运行结束后、下一个提示词之前检查，不在工具循环的各个模型请求之间检查。
+因此示例中的 `128000` 最晚在 108,000 个 token 时压缩，按每个 token 约四个 UTF-8 字节计约为 432 KB，
+上限的其余部分留给注入的上下文、成本指引、JSON 开销和一次运行内的工具结果。
+这个值是根据 OpenClaw 的源码和这个上限推算的，没有实际测量。
 
 配置 Core 和 gateway 时还需要：
 

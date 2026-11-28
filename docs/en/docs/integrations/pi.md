@@ -157,7 +157,7 @@ the gateway key as its `apiKey`; Pi sends it as the bearer token:
       "baseUrl": "http://127.0.0.1:8787/gateway/v1",
       "api": "openai-responses",
       "apiKey": "$PC_GATEWAY_KEY",
-      "models": [{ "id": "approved-model", "contextWindow": 400000, "maxTokens": 32000 }]
+      "models": [{ "id": "approved-model", "contextWindow": 80000, "maxTokens": 32000 }]
     }
   }
 }
@@ -165,6 +165,26 @@ the gateway key as its `apiKey`; Pi sends it as the bearer token:
 
 Export the gateway's `PC_GATEWAY_API_KEY` value as `PC_GATEWAY_KEY` where Pi starts, then select the model with
 `/model` or `pi --provider powercontext-gateway --model approved-model`.
+
+The gateway accepts a model request of at most 1 MiB, measured after it injects context and adds its cost guidance,
+and configuration cannot raise this ceiling; see
+[Gateway byte capacity](../operate/deploy-server.md#gateway-byte-capacity). A request that arrives larger fails with
+HTTP 413, and one that grows past it through injection or cost guidance fails with HTTP 403
+`request_payload_too_large`, before the model is called. The window check of an enforcing Core is tighter: it counts
+each byte as a token, so the example target withholds a request of more than about 368,000 bytes (400000 minus the
+32000 output limit) with `context_window_exceeded`. Pi sends the session's full history on every request, so a long
+session reaches these limits unless Pi compacts it first. Set `contextWindow` low enough that Pi compacts well before
+a request reaches them.
+
+According to its source, Pi 0.82.1 compacts when the context that the model last reported, which includes the tool
+definitions and system prompt, exceeds `contextWindow` minus `compaction.reserveTokens` (16384 by default). It checks
+after each prompt's run ends and before the next prompt, not between the model requests of a tool loop. The example's
+`80000` therefore compacts above 63,616 tokens, about 254 KB at four UTF-8 bytes per token, and leaves the rest of the
+example target's limit for injected context, cost guidance, JSON overhead, and the tool results of one prompt. With a
+non-enforcing Core, only the 1 MiB ceiling applies, and `128000` compacts above 111,616 tokens, about 446 KB. These
+values are derived from Pi's source and the limits; they were not measured. A much smaller value makes Pi compact
+often, because after compaction a request still carries the tool definitions, system prompt, summary, and about 20000
+recent tokens (`compaction.keepRecentTokens`).
 
 Use the Responses API. Pi always streams. On the Responses route, the gateway calls the model without streaming and
 replays the checked response to Pi as a stream, so the turn completes and is captured. On the Chat Completions route

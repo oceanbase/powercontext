@@ -149,7 +149,7 @@ export POWERCONTEXT_SERVER_INFERENCE_PROTECTION='{
       "baseUrl": "http://127.0.0.1:8787/gateway/v1",
       "api": "openai-responses",
       "apiKey": "$PC_GATEWAY_KEY",
-      "models": [{ "id": "approved-model", "contextWindow": 400000, "maxTokens": 32000 }]
+      "models": [{ "id": "approved-model", "contextWindow": 80000, "maxTokens": 32000 }]
     }
   }
 }
@@ -157,6 +157,22 @@ export POWERCONTEXT_SERVER_INFERENCE_PROTECTION='{
 
 在启动 Pi 的环境中，把 gateway 的 `PC_GATEWAY_API_KEY` 的值导出为 `PC_GATEWAY_KEY`，然后用 `/model` 或
 `pi --provider powercontext-gateway --model approved-model` 选择这个模型。
+
+gateway 接受的模型请求最多为 1 MiB，按注入上下文并加入成本指引之后的大小计算，配置无法提高这个上限；
+见 [Gateway 字节容量](../operate/deploy-server.md#gateway-字节容量)。到达时就超过上限的请求以 HTTP 413 失败，
+因注入或成本指引而超过上限的请求在调用模型之前以 HTTP 403 `request_payload_too_large` 失败。
+enforcing 模式的 Core 的窗口检查更严格：它把每个字节计为一个 token，
+因此示例目标会以 `context_window_exceeded` 暂缓超过约 368,000 字节（400000 减去 32000 的输出上限）的请求。
+Pi 在每个请求中发送会话的完整历史，因此长会话会达到这些上限，除非 Pi 先压缩会话。
+请把 `contextWindow` 设得足够低，让 Pi 在请求接近这些上限之前就压缩。
+
+根据源码，Pi 0.82.1 在模型上一次报告的上下文超过 `contextWindow` 减去 `compaction.reserveTokens`（默认 16384）时压缩，
+报告的上下文包括工具定义和 system prompt。Pi 在每个提示词的运行结束后、下一个提示词之前检查，
+不在工具循环的各个模型请求之间检查。因此示例中的 `80000` 会在超过 63,616 个 token 时压缩，
+按每个 token 约四个 UTF-8 字节计约为 254 KB，示例目标上限的其余部分留给注入的上下文、成本指引、JSON 开销和一个提示词内的工具结果。
+Core 不处于 enforcing 模式时只有 1 MiB 上限，`128000` 会在超过 111,616 个 token、约 446 KB 时压缩。
+这些值是根据 Pi 的源码和这些上限推算的，没有实际测量。值过小会让 Pi 频繁压缩，
+因为压缩之后的请求仍包含工具定义、system prompt、摘要和约 20000 个最近的 token（`compaction.keepRecentTokens`）。
 
 请使用 Responses API。Pi 总是流式请求。在 Responses 路由上，gateway 以非流式方式调用模型，
 再把检查通过的响应以流的形式重放给 Pi，因此这一轮能够完成并被采集。在 Chat Completions 路由（`openai-completions`）上，
