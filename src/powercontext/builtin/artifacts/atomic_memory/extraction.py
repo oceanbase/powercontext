@@ -22,6 +22,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, TypeAdapter, ValidationError
+from pydantic.json_schema import SkipJsonSchema
 
 from powercontext._logging import log_safely
 from powercontext.artifacts import ArtifactRef
@@ -44,7 +45,7 @@ from powercontext.builtin.processing_diagnostics import (
     attach_diagnostics,
 )
 from powercontext.builtin.sources.content import ContentSource
-from powercontext.builtin.sources.session import SESSION_EVIDENCE_INSTRUCTIONS
+from powercontext.builtin.sources.session import render_session_evidence_input
 from powercontext.sources import (
     TEXT_EVIDENCE_PROJECTION_KEY,
     LocatedTextEvidence,
@@ -150,6 +151,8 @@ class AtomicMemoryEvidence(BaseModel):
 class AtomicMemoryExtractionInput(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
     evidence: tuple[AtomicMemoryEvidence, ...]
+    # Routing metadata for the Gateway callback, excluded from model input and its schema.
+    scope_id: SkipJsonSchema[str | None] = Field(default=None, exclude=True)
 
 
 def with_session_evidence_instructions(
@@ -157,7 +160,7 @@ def with_session_evidence_instructions(
 ) -> str:
     """Add role guidance to extraction requests with structured conversations."""
     if any(isinstance(item, AtomicMemoryEvidence) and item.is_session for item in value.evidence):
-        return f"{SESSION_EVIDENCE_INSTRUCTIONS}\n{payload}"
+        return render_session_evidence_input(payload)
     return payload
 
 

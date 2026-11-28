@@ -68,6 +68,7 @@ from powercontext.builtin.artifacts.topic_memory.generation import (
     TopicMemoryReconcileOutput,
     TopicMemoryTemporaryInput,
     TopicMemoryTemporaryOutput,
+    topic_memory_stage_budget,
     topic_memory_stage_fixed_prompt,
 )
 from powercontext.builtin.inference import (
@@ -98,6 +99,7 @@ from powercontext.builtin.persistence.tables import (
 from powercontext.builtin.persistence.topic_memory import TopicMemoryRepository
 from powercontext.builtin.persistence.topic_memory_budget import (
     MAX_TOPIC_MEMORY_WORK_ATTEMPTS,
+    MAX_TOPIC_MEMORY_WORK_REQUESTS,
     exhausted_reason,
 )
 from powercontext.builtin.persistence.topic_memory_index import (
@@ -2341,11 +2343,11 @@ def test_worker_sizes_windows_against_the_scope_custom_probe_prompt(tmp_path) ->
         messages = request["messages"]
         assert any(guidance in message["content"] for message in messages if message["role"] == "system")
         user = next(message["content"] for message in messages if message["role"] == "user")
-        role_guidance, separator, payload = user.partition("\n")
-        has_role_guidance = role_guidance == SESSION_EVIDENCE_INSTRUCTIONS
+        payload = json.loads(user)
+        has_role_guidance = payload.get("session_evidence_instructions") == SESSION_EVIDENCE_INSTRUCTIONS
         if not has_role_guidance:
             plain_requests += 1
-        evidence = json.loads(payload if has_role_guidance and separator else user)["evidence"]
+        evidence = (payload["input"] if has_role_guidance else payload)["evidence"]
         # Evidence identifiers restart in every Window: a split Window sends a second
         # probe request whose evidence does not start at the first identifier.
         assert evidence[0]["evidence_id"] == "evidence-0001"
@@ -2533,8 +2535,10 @@ def test_selector_and_worker_share_adapter_canonical_skill_evidence(source_kind:
     asyncio.run(scenario())
 
 
-@pytest.mark.parametrize("session", [False, True], ids=["plain", "session"])
-def test_oversized_source_preserves_all_evidence_and_reaches_tail_at_the_same_budget(session) -> None:
+@pytest.mark.parametrize("kind", ["plain", "long-messages", "many-messages"])
+def test_oversized_source_preserves_all_evidence_and_reaches_tail_at_the_same_budget(kind: str) -> None:
+    session = kind != "plain"
+
     async def scenario() -> None:
         manager, profile, _, topics = await _repositories()
         sources = SourceRepository((*SOURCE_ADAPTERS, CONTENT_SOURCE_ADAPTER))
@@ -2548,6 +2552,13 @@ def test_oversized_source_preserves_all_evidence_and_reaches_tail_at_the_same_bu
                     {"role": "assistant", "content": "User: verified. " + "新" * 20_000},
                 ],
             }
+            if kind == "many-messages":
+                conversation["messages"] = [
+                    {"role": "assistant" if index % 2 else "user", "content": f"{index}: " + "界" * 48}
+                    for index in range(512)
+                ]
+            context_tokens = 16_000 if session else 125_000
+            budget = topic_memory_stage_budget(context_window_tokens=context_tokens, max_requests=2, model_settings={})
             oversized_capture = ContentCapture(
                 source_id="oversized-content",
                 content=json.dumps(conversation, ensure_ascii=False) if session else "body",
@@ -2574,7 +2585,7 @@ def test_oversized_source_preserves_all_evidence_and_reaches_tail_at_the_same_bu
                 profile.database,
                 sources,
                 character_token_estimator(),
-                context_window_tokens=24_000 if session else 125_000,
+                context_window_tokens=context_tokens,
             )
             assert await selector.select("scope-a", 0, second.journal_position) == first.journal_position
 
@@ -2588,7 +2599,9 @@ def test_oversized_source_preserves_all_evidence_and_reaches_tail_at_the_same_bu
                 temporary=unexpected,
                 reconciler=unexpected,
                 estimator=character_token_estimator(),
-                input_tokens_limit=12_000 if session else 100_000,
+                input_tokens_limit=budget.input_tokens_limit,
+                transcript_reserve=budget.transcript_reserve,
+                max_requests=budget.max_requests,
                 fixed_prompts={
                     "probe": topic_memory_stage_fixed_prompt(
                         TOPIC_MEMORY_PROBE_INSTRUCTIONS,
@@ -2614,20 +2627,19 @@ def test_oversized_source_preserves_all_evidence_and_reaches_tail_at_the_same_bu
             fragments = [cast(TopicMemoryProbeInput, value).evidence[0] for value in small_probe.inputs]
             if session:
                 original = SessionSourceInput.model_validate(conversation)
-                for index, message in enumerate(original.messages):
-                    fragments_for_message = [part for part in fragments if part.metadata["message_index"] == index]
-                    texts = []
-                    for part in fragments_for_message:
-                        projected = SessionSourceInput.model_validate_json(part.content)
-                        assert projected.session_id == original.session_id
-                        (fragment,) = projected.messages
-                        assert fragment.role == message.role
-                        texts.append(fragment.content)
-                    assert "".join(texts) == message.content
-                message_indices = [part.metadata["message_index"] for part in fragments]
-                assert all(isinstance(index, int) for index in message_indices)
-                assert message_indices == sorted(cast(list[int], message_indices))
+                projected_messages: dict[int, str] = {}
+                for part in fragments:
+                    start = part.metadata["message_index"]
+                    assert isinstance(start, int)
+                    projected = SessionSourceInput.model_validate_json(part.content)
+                    assert projected.session_id == original.session_id
+                    for index, message in enumerate(projected.messages, start):
+                        assert message.role == original.messages[index].role
+                        projected_messages[index] = projected_messages.get(index, "") + message.content
+                assert list(projected_messages) == list(range(len(original.messages)))
+                assert list(projected_messages.values()) == [message.content for message in original.messages]
                 assert {part.evidence_id for part in fragments} == {"evidence-0001"}
+                assert len(fragments) * budget.max_requests < MAX_TOPIC_MEMORY_WORK_REQUESTS
             else:
                 projected = "".join(part.content for part in fragments)
                 assert json.loads(projected) == {"content": "body", "metadata": {"unbounded": oversized_metadata}}

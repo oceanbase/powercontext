@@ -909,9 +909,34 @@ class TopicMemoryProcessor:
         if (session := item.session) is None:
             yield from self._split_evidence_text(item, stage, item.content)
             return
-        for index, message in enumerate(session.messages):
-            partial = item.model_copy(update={"metadata": {**item.metadata, "message_index": index}})
-            yield from self._split_evidence_text(partial, stage, message.content, message=message)
+        # Find a fitting prefix of whole messages before slicing text. Keep the
+        # next message index even when one message requires several fragments.
+        start = 0
+        while start < len(session.messages):
+            low, high = start + 1, len(session.messages)
+            best: tuple[int, TopicMemoryEvidence] | None = None
+            metadata = {**item.metadata, "message_index": start}
+            while low <= high:
+                end = (low + high) // 2
+                fragment = TopicMemoryEvidence.from_session(
+                    item.evidence_id,
+                    item.source_type,
+                    session.model_copy(update={"messages": session.messages[start:end]}),
+                    metadata,
+                )
+                if self._evidence_batch_fits((fragment,), stage):
+                    best = (end, fragment)
+                    low = end + 1
+                else:
+                    high = end - 1
+            if best is not None:
+                start, fragment = best
+                yield fragment
+            else:
+                message = session.messages[start]
+                partial = item.model_copy(update={"metadata": metadata})
+                yield from self._split_evidence_text(partial, stage, message.content, message=message)
+                start += 1
 
     def _split_evidence_text(
         self, item: TopicMemoryEvidence, stage: str, text: str, *, message: SessionMessage | None = None
@@ -922,20 +947,22 @@ class TopicMemoryProcessor:
             size = min(fragment_size, len(text) - offset)
             while size:
                 content = text[offset : offset + size]
+                metadata = {
+                    **item.metadata,
+                    "fragment_start": offset,
+                    "fragment_end": offset + size,
+                    "source_content_length": len(text),
+                }
                 if (session := item.session) is not None and message is not None:
                     fragment_message = message.model_copy(update={"content": content})
-                    content = session.model_copy(update={"messages": (fragment_message,)}).model_dump_json()
-                fragment = item.model_copy(
-                    update={
-                        "content": content,
-                        "metadata": {
-                            **item.metadata,
-                            "fragment_start": offset,
-                            "fragment_end": offset + size,
-                            "source_content_length": len(text),
-                        },
-                    }
-                )
+                    fragment = TopicMemoryEvidence.from_session(
+                        item.evidence_id,
+                        item.source_type,
+                        session.model_copy(update={"messages": (fragment_message,)}),
+                        metadata,
+                    )
+                else:
+                    fragment = item.model_copy(update={"content": content, "metadata": metadata})
                 if self._evidence_batch_fits((fragment,), stage):
                     yield fragment
                     offset += size

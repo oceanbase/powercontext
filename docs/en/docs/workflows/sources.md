@@ -27,6 +27,25 @@ A successful capture means evidence was stored; it does not mean extraction succ
 keeping. Use Source references to trace a generated result back to its input. Do not retry a capture with changed
 content under the same identity as if it were a new observation.
 
+## Source content size
+
+One Content Source accepts at most 200,000 characters per write by default. A deployment can change that boundary with
+`POWERCONTEXT_SERVER_SOURCE_CONTENT_MAX_CHARS` (`1` to `1000000`); the ceiling keeps one Source inside a single payload
+column. `GET /v1/source-limits` reports the effective value as `source_content_max_chars`, and a write over it returns
+`422 invalid_request` with an error message naming the limit.
+
+The boundary applies to a single capture, every item of a batch, Working Notes, and `POST /v1/scopes/{scope_id}/sources`
+with `source_type: content`. String content counts its raw characters; other JSON values count their canonical JSON
+characters, the same text the Server stores.
+
+Built-in integrations and the Gateway still size captures for 200,000 characters and do not read `GET /v1/source-limits`
+yet, so lowering the limit can reject their writes between the new value and 200,000. Creating a Source through
+`POST /v1/scopes/{scope_id}/sources` with `source_type: content` now follows the same limit; before this setting it had no
+Server-side bound.
+
+Lowering the limit never rewrites or hides existing evidence: Sources written earlier stay readable through the detail
+and list endpoints and remain eligible for processing, while only new writes are validated.
+
 ## Capture a conversation segment
 
 Send the JSON object below serialized as the existing `content` string to `POST /v1/sources/content`.
@@ -66,6 +85,8 @@ invalid Session Source. Portable restore validates marked sessions before writin
 Using the same identity with different content or metadata returns HTTP 409. Overlapping segments with distinct
 identities are stored independently. Atomic Memory, Topic Memory and Profile use structured roles. Assistant
 observations provide context. Claims about completed work require corroboration. Profile updates require user evidence.
+
+The deployment's effective Content Source limit also applies to the serialized session.
 
 ## Choose a capture path
 

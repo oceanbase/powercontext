@@ -97,8 +97,11 @@ Server 在下游解析之前按实际收到的字节限制请求体，默认上�
 交给下游时会短暂复制一次已接收的请求体，随后释放输入缓冲。
 
 健康检查和已启用的 Dashboard 静态资源等不使用请求体的公开路由仍检查声明的 `Content-Length`，并跳过请求体缓冲。
-Dashboard 登录采用配置上限和 32 KiB 中较小的值。远程 Skill reconciliation、Receipt 和包下载要求 Server 在读取
-请求体前验证 Receiver 凭据。
+Dashboard 登录采用配置上限和 32 KiB 中较小的值。
+远程 Skill 注册仅接受 `POST`。除非启用 `POWERCONTEXT_SERVER_ALLOW_INSECURE_HTTP`，
+Server 在读取 JSON 请求体前要求连接使用 HTTPS 或来自回环地址。
+注册请求体上限取 8 KiB 和已配置的请求体上限中的较小值。
+远程 Skill reconciliation、Receipt 和包下载要求 Server 在读取请求体前验证 Receiver 凭据。
 
 按请求来源设置速率配额、上传超时、连接上限和跨 Server 进程的总额度由反向代理负责。
 
@@ -118,6 +121,7 @@ MCP 使用 stateless Streamable HTTP，每次工具执行都采用当前请求�
 | `POWERCONTEXT_SERVER_PLUGIN_API_MAX_BODY_BYTES` | `33554432` | 插件接口（`/v1/plugins/{name}/api/...` 及 Dashboard 插件页面的转发）的请求体和响应体上限，替代上一项；插件路由可以声明更小的上限，不能超过此值 |
 | `POWERCONTEXT_SERVER_PLUGIN_HOST_PROCESSES` | `{}` | 按插件名覆盖插件声明的 `host_processes`，JSON 对象，例如 `{"knowledge-base": 4}`；值是每个 Server 进程中该插件宿主进程数的上限 |
 | `POWERCONTEXT_SERVER_PLUGIN_TOTAL_HOST_PROCESSES` | 未设置 | 每个 Server 进程中所有插件的宿主进程总数上限；达到上限时不再为负载增加进程，请求在已有进程上排队。每个插件常驻的第一个进程不受此限制 |
+| `POWERCONTEXT_SERVER_SOURCE_CONTENT_MAX_CHARS` | `200000` | 单条 Content Source 写入（采集、批量、Working Note 或创建 content Source）的生效字符上限，取值 `1` 到 `1000000`。调低后已有 Source 仍可读取，只有超过新上限的新采集会被拒绝。内置集成与 Gateway 仍按 20 万字符准备采集，尚未读取该端点，因此调低上限可能拒绝它们在新上限到 20 万之间的写入。`GET /v1/source-limits` 通过 `source_content_max_chars` 返回生效值 |
 | `POWERCONTEXT_SERVER_HTTP_MAX_CONCURRENT_REQUESTS` | `64` | 每进程进行中的外部 HTTP 请求上限，包括完整流式响应 |
 | `POWERCONTEXT_SERVER_WORKSPACE` | Server 启动目录 | 本机项目级 Agent Skill 目录的解析根目录 |
 | `POWERCONTEXT_SERVER_MCP_ENABLED` | `true` | 启用 Streamable HTTP MCP |

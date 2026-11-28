@@ -34,6 +34,7 @@ from powercontext.builtin.runtime import BuiltinConfig, InferenceConfig, Runtime
 from powercontext.builtin.scope import ScopeDraft
 from powercontext.builtin.scope.errors import ScopeNotFoundError
 from powercontext.builtin.sources import CONTENT_SOURCE_ADAPTER, ContentCapture
+from powercontext.limits import MAX_SOURCE_CONTENT_CHARS
 from powercontext.server.factory import create_server_app
 from powercontext.server.settings import McpConfig, ServerSettings
 from tests.e2e.dream_support import atomic_memory_pipeline
@@ -56,13 +57,14 @@ def _session(messages, *, session_id="会话-1"):
     )
 
 
-def _app(tmp_path, extractor=None, *, profile_generator=None):
+def _app(tmp_path, extractor=None, *, profile_generator=None, max_content_chars=MAX_SOURCE_CONTENT_CHARS):
     return create_server_app(
         settings=ServerSettings(
             database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'runtime.db'}"),
             inference=InferenceConfig(generation_model="test"),
             runtime=RuntimeConfig(artifact_processing_families=()),
             mcp=McpConfig(enabled=False),
+            source_content_max_chars=max_content_chars,
         ),
         candidate_pipeline=None if extractor is None else atomic_memory_pipeline(extractor),
         profile_generator=profile_generator,
@@ -181,6 +183,19 @@ def test_batch_rolls_back_validation_and_identity_conflict(tmp_path):
         )
         assert accepted.status_code == 202, accepted.text
         assert [item["position"] for item in accepted.json()["sources"]] == [2, 3, 4]
+
+
+def test_session_capture_honors_the_deployment_content_limit(tmp_path):
+    at_limit = _session(LIVE)
+    with TestClient(_app(tmp_path, max_content_chars=len(at_limit))) as client:
+        scope = _scope(client)
+        assert client.get("/v1/source-limits").json()["source_content_max_chars"] == len(at_limit)
+        assert _capture(client, scope, "at-limit", at_limit).status_code == 202
+        assert _capture(client, scope, "over-limit", at_limit + " ").status_code == 422
+        rejected = _batch(client, scope, ("plain", "plain text"), ("over-limit", at_limit + " "))
+        assert rejected.status_code == 422, rejected.text
+        assert _detail(client, scope, "plain").status_code == 404
+        assert _detail(client, scope, "at-limit").json()["content"] == at_limit
 
 
 class _Extractor:

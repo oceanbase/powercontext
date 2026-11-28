@@ -42,6 +42,13 @@ SESSION_EVIDENCE_INSTRUCTIONS = (
     "as a decision. Accepting a proposal supplies no evidence that anyone implemented it."
 )
 
+
+def render_session_evidence_input(payload: str, /) -> str:
+    """Wrap a serialized stage input in inspectable JSON with trusted role guidance."""
+    guidance = json.dumps(SESSION_EVIDENCE_INSTRUCTIONS)
+    return f'{{"session_evidence_instructions":{guidance},"input":{payload}}}'
+
+
 _FIRST_MEMBER = re.compile(r"[ \t\r\n]*\{[ \t\r\n]*")
 _MEMBER_VALUE = re.compile(r"[ \t\r\n]*:[ \t\r\n]*")
 _DECODER = json.JSONDecoder()

@@ -32,7 +32,7 @@ from powercontext.builtin.processing_diagnostics import (
     ProcessingStage,
     attach_diagnostics,
 )
-from powercontext.builtin.sources.session import SESSION_EVIDENCE_INSTRUCTIONS, SessionSourceInput
+from powercontext.builtin.sources.session import SessionSourceInput, render_session_evidence_input
 
 MAX_TOPIC_MEMORY_STAGE_ITEMS = 20
 _OUTPUT_RESERVE_RATIO = 0.20
@@ -362,7 +362,7 @@ def render_topic_memory_input(value: BaseModel, /) -> str:
     if isinstance(
         value, TopicMemoryProbeInput | TopicMemoryGlobalInput | TopicMemoryEvolveInput | TopicMemoryTemporaryInput
     ) and any(item.session is not None for item in value.evidence):
-        return f"{SESSION_EVIDENCE_INSTRUCTIONS}\n{payload}"
+        return render_session_evidence_input(payload)
     return payload
 
 
