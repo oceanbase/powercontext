@@ -148,7 +148,7 @@ X-PowerContext-Scope-ID = "<插件的 Scope ID>"
 [models.gateway]
 provider = "powercontext-gateway"
 model = "approved-model"
-max_context_size = 128000
+max_context_size = 64000
 max_output_size = 32000
 capabilities = ["tool_use"]
 ```
@@ -160,10 +160,16 @@ capabilities = ["tool_use"]
 gateway 接受的模型请求最多为 1 MiB，按注入上下文并加入成本指引之后的大小计算，配置无法提高这个上限；
 见 [Gateway 字节容量](../operate/deploy-server.md#gateway-字节容量)。到达时就超过上限的请求以 HTTP 413 失败，
 因注入或成本指引而超过上限的请求在调用模型之前以 HTTP 403 `request_payload_too_large` 失败。
-Kimi 在每个请求中发送完整历史，因此长会话会达到这个上限，除非 Kimi 先压缩会话。
-请把 `max_context_size` 设得足够低，让 Kimi 在请求接近 1 MiB 之前就压缩。
-示例中的 `128000` 是根据这个上限推算的保守值，假设每个 token 约占四个 UTF-8 字节，另加 JSON 开销；
-它没有针对 Kimi 的压缩实际测量。
+enforcing 模式的 Core 的窗口检查更严格，它把每个字节计为一个 token（见[选择 Core target](#选择-core-target)）：
+按示例中 32000 的 `max_output_size`，`context_window_tokens = 400000` 的目标会以 `context_window_exceeded`
+暂缓超过约 368,000 字节的请求。Kimi 在每个请求中发送完整历史，因此长会话会达到这些上限，除非 Kimi 先压缩会话。
+请把 `max_context_size` 设得足够低，让 Kimi 在请求接近这些上限之前就压缩。
+
+Kimi 2.1.1 的压缩触发点没有记录，因此示例假设 Kimi 只在上下文达到 `max_context_size` 时才压缩。
+这样示例中的 `64000` 按每个 token 约四个 UTF-8 字节计，约在 256 KB 时压缩，
+该目标上限的其余部分留给注入的上下文、成本指引、JSON 开销和一个提示词内的工具结果。
+Core 不处于 enforcing 模式时只有 1 MiB 上限，`128000`（约 512 KB）也在上限之内。
+这些值是根据这些上限推算的，没有针对 Kimi 的压缩实际测量。
 
 `X-PowerContext-Scope-ID` 选择 gateway 准备、检查和采集所用的 Scope。
 gateway 使用该请求头指定的 Scope；未发送该请求头时使用 `PC_GATEWAY_DEFAULT_SCOPE`（未设置时为 `gateway:default`），

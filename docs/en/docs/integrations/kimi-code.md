@@ -151,7 +151,7 @@ X-PowerContext-Scope-ID = "<the plugin's Scope ID>"
 [models.gateway]
 provider = "powercontext-gateway"
 model = "approved-model"
-max_context_size = 128000
+max_context_size = 64000
 max_output_size = 32000
 capabilities = ["tool_use"]
 ```
@@ -163,10 +163,18 @@ replays the checked response to Kimi as a stream, so the turn completes and is c
 The gateway accepts a model request of at most 1 MiB, measured after it injects context and adds its cost guidance,
 and configuration cannot raise this ceiling; see [Gateway byte capacity](../operate/deploy-server.md#gateway-byte-capacity).
 A request that arrives larger fails with HTTP 413, and one that grows past it through injection or cost guidance fails with
-HTTP 403 `request_payload_too_large`, before the model is called. Kimi sends the whole history on every request, so a
-long session reaches the ceiling unless Kimi compacts it first. Set `max_context_size` low enough that Kimi compacts
-well before a request reaches 1 MiB. The example's `128000` is a conservative bound derived from the ceiling, assuming
-about four UTF-8 bytes per token plus JSON overhead; it was not measured against Kimi's compaction.
+HTTP 403 `request_payload_too_large`, before the model is called. The window check of an enforcing Core, which counts
+each byte as a token (see [Choose the Core target](#choose-the-core-target)), is tighter: with the example's
+`max_output_size` of 32000, a target with `context_window_tokens = 400000` withholds a request of more than about
+368,000 bytes with `context_window_exceeded`. Kimi sends the whole history on every request, so a long session reaches
+these limits unless Kimi compacts it first. Set `max_context_size` low enough that Kimi compacts well before a request
+reaches them.
+
+Kimi 2.1.1's compaction trigger was not recorded, so the example assumes that Kimi compacts only when the context
+reaches `max_context_size`. The example's `64000` then compacts at about 256 KB at four UTF-8 bytes per token, and
+leaves the rest of that target's limit for injected context, cost guidance, JSON overhead, and the tool results of one
+prompt. With a non-enforcing Core, only the 1 MiB ceiling applies, and `128000`, about 512 KB, fits. These values are
+derived from the limits; they were not measured against Kimi's compaction.
 
 `X-PowerContext-Scope-ID` selects the Scope in which the gateway prepares, checks, and captures. The gateway uses the
 Scope that this header names, or `PC_GATEWAY_DEFAULT_SCOPE` without it (`gateway:default` when that is unset), not the
