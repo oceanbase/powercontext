@@ -538,7 +538,10 @@ powercontext setup dsh --remove --profile desktop
 
 该 profile 的 DSH 命令不可用时（例如 DSH 已经卸载），移除仍会删除这些文件和 PowerContext 的共享状态，
 报告未检查插件注册，并给出注销插件所需的 `dsh plugin --profile <profile> remove` 命令。
-DSH 恢复可用后，用 `--profile` 再次移除即可注销插件。命令行中传入的 `--dsh-command` 必须可用。
+DSH 恢复可用后，用 `--profile` 再次移除即可注销插件。npm/pnpm 安装的 dsh 无法管理 Desktop profile，
+因此 Desktop 的提示会要求用 Desktop 安装的 dsh 运行这些命令，
+或带上 `--dsh-command /path/to/Desktop/resources/runtime/cli/bin/dsh`（Windows 上为 `dsh.cmd`）再次移除。
+命令行中传入的 `--dsh-command` 必须可用。
 
 只要还有其他 profile 注册了插件，共享的 `$DSH_HOME/skills/powercontext-project-context` Skill、
 `$DSH_HOME/powercontext/credentials.json` 中的凭据和已保存的连接就会保留；从最后一个 profile 移除插件时，

@@ -655,6 +655,32 @@ def test_dsh_remove_without_its_command_forgets_the_connection(
     assert removed_packages == [("web", "powercontext-dsh-pet"), ("web", "powercontext-dsh")]
 
 
+def test_dsh_desktop_remove_without_its_command_points_at_the_desktop_command(
+    tmp_path: Path, monkeypatch, client_config: Path
+) -> None:
+    from powercontext.cli import dsh, dsh_runtime
+    from powercontext.cli.authorization import credential_path, write_stored_authorization
+
+    home = tmp_path / "dsh"
+    monkeypatch.setenv("DSH_HOME", str(home))
+    _register_dsh(home / "profiles" / "desktop", "powercontext-dsh")
+    client_config.write_text(json.dumps({"version": 1, "hosts": {"dsh": {"profile": "desktop"}}}), encoding="utf-8")
+    write_stored_authorization(credential_path("dsh"), server_url="http://127.0.0.1:8000", value="test-token")
+    monkeypatch.setattr(dsh_runtime, "desktop_runtime", lambda _command: None)  # No Desktop-installed dsh anywhere.
+    monkeypatch.setattr(dsh, "_run_dsh", _unavailable)
+
+    code, payload = _remove("dsh")
+
+    assert code == 0
+    row = payload["hosts"]["dsh"]
+    assert row["host_registration"] == "not_checked"
+    (note,) = row["result"]["notes"]
+    assert "Desktop-installed dsh" in note
+    assert "--profile desktop --dsh-command /path/to/Desktop/resources/runtime/cli/bin/dsh" in note
+    assert not credential_path("dsh").exists()
+    assert "dsh" not in _saved_hosts(client_config)
+
+
 def test_unsupported_agent_fails_without_blocking_other_removals(
     tmp_path: Path, monkeypatch, client_config: Path
 ) -> None:

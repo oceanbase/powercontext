@@ -629,7 +629,10 @@ the pet memory state in `.powercontext-dsh-pet`, including unsent dialogue, stay
 When the profile's DSH command is unavailable, for example because DSH is already uninstalled, removal still deletes
 those files and PowerContext's shared state, reports that the plugin registration was not checked, and names the
 `dsh plugin --profile <profile> remove` commands that unregister it. Rerun removal with `--profile` once DSH is
-available again to unregister it. A `--dsh-command` passed on the command line must work.
+available again to unregister it. Because npm/pnpm dsh cannot manage the Desktop profile, the Desktop note asks you to
+run those commands with the Desktop-installed dsh, or to rerun removal with
+`--dsh-command /path/to/Desktop/resources/runtime/cli/bin/dsh` (`dsh.cmd` on Windows). A `--dsh-command` passed on
+the command line must work.
 
 While another profile still registers the plugin, the shared Skill at `$DSH_HOME/skills/powercontext-project-context`,
 the credential at `$DSH_HOME/powercontext/credentials.json`, and the saved connection stay. Removing the plugin from the

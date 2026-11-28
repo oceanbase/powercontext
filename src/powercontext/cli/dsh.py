@@ -179,6 +179,24 @@ def _removal_command(target: DshTarget) -> str | None:
         return None
 
 
+def _unregister_note(profile: DshProfile, registered: list[str]) -> str:
+    """Tell how to unregister PowerContext from ``profile`` after removal could not run its DSH command."""
+    commands = " and ".join(f"`dsh plugin --profile {profile} remove {name}`" for name in registered)
+    if profile == DshProfile.DESKTOP:
+        # npm/pnpm dsh cannot manage the Desktop profile, so point at the command Desktop installs.
+        return (
+            "The Desktop-installed dsh command is unavailable, so the Desktop plugin registration was not removed; "
+            f"if DSH Desktop is still installed, run {commands} with that command, or rerun "
+            "`powercontext setup dsh --remove --profile desktop --dsh-command "
+            "/path/to/Desktop/resources/runtime/cli/bin/dsh` (dsh.cmd on Windows)."
+        )
+    return (
+        f"The DSH command for profile {profile} is unavailable, so its plugin registration was not removed; if DSH "
+        f"is still installed, run {commands}, or rerun `powercontext setup dsh --remove --profile {profile}` once "
+        "the command is available."
+    )
+
+
 def require_built_plugin(path: Path) -> None:
     """Reject a plugin directory that cannot be loaded by DeepSeek Harness."""
 
@@ -354,12 +372,7 @@ class DshInstaller:
         # Only a registered profile needs its native carrier; Desktop's must be the Desktop-installed command.
         executable = _removal_command(target) if registered else None
         if registered and executable is None:
-            commands = " and ".join(f"`dsh plugin --profile {target.profile} remove {name}`" for name in registered)
-            notes.append(
-                f"The DSH command for profile {target.profile} is unavailable, so its plugin registration was not "
-                f"removed; if DSH is still installed, run {commands}, or rerun "
-                f"`powercontext setup dsh --remove --profile {target.profile}` once the command is available."
-            )
+            notes.append(_unregister_note(target.profile, registered))
         for name in registered if executable is not None else ():
             _run_dsh("plugin", "--profile", target.profile, "remove", name, executable=executable)
             removed.append(f"{target.directory} {name}")
