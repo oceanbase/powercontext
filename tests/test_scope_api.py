@@ -530,6 +530,10 @@ def test_historical_scope_backfill_upgrades_without_422(tmp_path) -> None:
 
 
 def test_ready_database_repairs_invalid_descriptors(tmp_path) -> None:
+    from sqlalchemy import create_engine
+
+    from powercontext.builtin.persistence.migrations import historical
+
     db_path = tmp_path / "ready_repair.db"
     settings = ServerSettings(
         database=SQLiteConfig(url=f"sqlite+aiosqlite:///{db_path}"),
@@ -553,7 +557,7 @@ def test_ready_database_repairs_invalid_descriptors(tmp_path) -> None:
             (invalid_id, invalid_id),
         )
 
-    # Server restarts against the ready database; repair path recovers the descriptor
+    # Server restarts against the ready database; read fallback recovers the descriptor while startup stays read-only
     with TestClient(create_server_app(settings=settings)) as client:
         response = client.get("/v1/scopes", params={"limit": 50})
         assert response.status_code == 200
@@ -566,4 +570,49 @@ def test_ready_database_repairs_invalid_descriptors(tmp_path) -> None:
         assert invalid_id in items
         assert items[invalid_id]["title"] == invalid_id
         assert items[invalid_id]["summary"] == invalid_id
+
+    # Managed startup did not write to the database (persistent repair belongs to explicit maintenance)
+    with sqlite3.connect(db_path) as conn:
+        row = conn.execute("SELECT title, summary FROM pc_scopes WHERE scope_id = ?", (invalid_id,)).fetchone()
+        assert row == ("", "")
+
+    # Explicit managed maintenance persistently repairs the stored descriptor
+    engine = create_engine(f"sqlite:///{db_path}")
+    with engine.begin() as connection:
+        historical._scopes(connection)
+
+    with sqlite3.connect(db_path) as conn:
+        repaired = conn.execute("SELECT title, summary FROM pc_scopes WHERE scope_id = ?", (invalid_id,)).fetchone()
+        assert repaired == (invalid_id, invalid_id)
+
+
+def test_managed_startup_succeeds_under_concurrent_database_write(tmp_path) -> None:
+    db_path = tmp_path / "concurrent_write.db"
+    settings = ServerSettings(
+        database=SQLiteConfig(url=f"sqlite+aiosqlite:///{db_path}"),
+        mcp=McpConfig(enabled=False),
+    )
+
+    with TestClient(create_server_app(settings=settings)) as client:
+        res = client.post(
+            "/v1/scopes",
+            json={"title": "Primary Scope", "summary": "Primary Summary", "idempotency_key": "c-1"},
+        )
+        assert res.status_code == 201
+
+    # Simulate an active write transaction
+    with sqlite3.connect(db_path, timeout=1.0) as writer:
+        writer.execute("BEGIN IMMEDIATE")
+        writer.execute(
+            "INSERT INTO pc_scopes (scope_id, title, summary, scope_id_search, title_search, summary_search, version) "
+            "VALUES ('scp_concurrent', 'Concurrent', 'Summary', 'scp_concurrent', 'Concurrent', 'Summary', 1)"
+        )
+
+        # Managed startup remains read-only and succeeds without write-lock collisions
+        with TestClient(create_server_app(settings=settings)) as client:
+            response = client.get("/v1/scopes", params={"limit": 50})
+            assert response.status_code == 200
+
+        writer.execute("COMMIT")
+
 

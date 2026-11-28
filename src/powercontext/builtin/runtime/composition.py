@@ -1277,8 +1277,6 @@ async def open_builtin_contexts(  # noqa: C901 -- Backend admission and resource
                 if managed:
                     await assert_processing_schema_ready(connection, canonical_processing_manifest(config))
                     await atomic_index.validate_current(connection)
-                    if not _topic_memory_worker:
-                        await ensure_scope_search_schema(connection)
                     await _initialize_archive_aware_topics(
                         connection,
                         topic_index,
@@ -1373,8 +1371,6 @@ async def open_builtin_contexts(  # noqa: C901 -- Backend admission and resource
             if managed:
                 await assert_processing_schema_ready(connection, canonical_processing_manifest(config))
                 await atomic_index.validate_current(connection)
-                if not _topic_memory_worker:
-                    await ensure_scope_search_schema(connection)
                 await _initialize_archive_aware_topics(
                     connection, topic_index, worker=_topic_memory_worker, recovery=_archive_recovery, validate_only=True
                 )
