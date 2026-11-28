@@ -617,7 +617,9 @@ Topic processing may report `invalid_topic_placeholder` for recognizable numbere
 `invalid_topic_coordination_content` for identity-coordination-only bodies. These content-free diagnostic codes
 identify recoverable generation rejection, not successful NOOP. Retries use the existing durable Window budget;
 exhaustion retains the pending frontier. A recorded code applies to the attempt that produced it: the next attempt
-clears it, so a block names it only when the final attempt was rejected with it. Existing worker events and correlation fields carry the diagnostic code.
+clears it, so a block names it only when the final attempt was rejected with it. Each attempt's
+`artifact_processing.worker.failed` and `artifact_processing.failed` events carry its code with the correlation
+fields, so codes from earlier attempts remain in the processing logs.
 Source text, generated bodies and provider responses must not be added to operational logs.
 
 

@@ -458,9 +458,9 @@ Scope 的后台处理结果尚未确认写入成功；长时间大于零可能�
 
 - `window_attempt_limit`：同一 Cursor 后的这批 Source 已尝试 3 次，仍未完成。因并发 replace 或 Dream 导致
   Topic head 冲突的尝试不计入。请求数和 Token 预算不一定用完。
-- `invalid_topic_placeholder` 或 `invalid_topic_coordination_content`：这批 Source 已尝试 3 次，最后一次以该
-  [可恢复拒绝码](#topic-生成拒绝码)被拒绝。最后一次尝试因其他原因失败时，即使更早的尝试曾以这些码被拒绝，
-  阻塞也报告 `window_attempt_limit`。
+- `invalid_topic_placeholder` 或 `invalid_topic_coordination_content`：这批 Source 已尝试 3 次，
+  最后一次以该[可恢复拒绝码](#topic-生成拒绝码)被拒绝。最后一次尝试因其他原因失败时，
+  即使更早的尝试曾以这些码被拒绝，阻塞也报告 `window_attempt_limit`。
 - `window_provider_budget_exceeded`：同一批 Source 已达到请求数或 Token 预算。
 - `source_complexity_limit`：该窗口的 Source 结构超过处理上限。
 
@@ -539,7 +539,9 @@ Topic 处理可通过 `invalid_topic_placeholder` 标识可识别的编号占位
 或通过 `invalid_topic_coordination_content` 标识纯身份协调正文。
 这些不含内容的诊断码表示可恢复的生成拒绝，不表示成功 NOOP。
 重试消耗现有 Window 持久化预算；耗尽后保留待处理前沿。记录的拒绝码只属于产生它的那次尝试：下一次尝试会清除它，
-因此只有最后一次尝试以该码被拒绝时，阻塞才会报告它。诊断码由现有 Worker 事件及关联字段承载。
+因此只有最后一次尝试以该码被拒绝时，阻塞才会报告它。
+每次尝试的 `artifact_processing.worker.failed` 和 `artifact_processing.failed` 事件都带有该次尝试的拒绝码及关联字段，
+因此更早尝试的拒绝码仍保留在处理日志中。
 不得将 Source 文本、生成正文或服务商响应写入运维日志。
 
 
