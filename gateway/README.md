@@ -59,7 +59,7 @@ If the selected Release has no Gateway archive, build from its source tag. From 
 cargo build --locked --manifest-path gateway/Cargo.toml --release
 ```
 
-For every deployment, Core must use `POWERCONTEXT_SERVER_ACCESS_MODE=enforced` and authenticate the service principal represented by `PC_GATEWAY_CORE_TOKEN`. A dedicated Gateway identity needs `gateway.invoke` (`gateway.user`) on the selected Scope and `server.observe` (`server.observer`) on the Server resource for the configured deployment ID. When `PC_GATEWAY_SEDIMENT=on`, grant `scope.contributor` instead of `scope.viewer`; it provides `scope.read` and `scope.contribute`. For the bootstrap Server token and complete role-binding commands, see [Gateway deployment](../docs/en/docs/operate/deploy-server.md#gateway-model-destination).
+For every deployment, Core must use `POWERCONTEXT_SERVER_ACCESS_MODE=enforced` and authenticate the service principal represented by `PC_GATEWAY_CORE_TOKEN`. A dedicated Gateway identity needs `gateway.invoke` (`gateway.user`) on every Scope selected with `X-PowerContext-Scope-ID`, not only `PC_GATEWAY_DEFAULT_SCOPE`, and `server.observe` (`server.observer`) on the Server resource for the configured deployment ID. When `PC_GATEWAY_SEDIMENT=on`, grant `scope.contributor` instead of `scope.viewer`; it provides `scope.read` and `scope.contribute`. For the bootstrap Server token and complete role-binding commands, see [Gateway deployment](../docs/en/docs/operate/deploy-server.md#gateway-model-destination).
 
 For a combined deployment, start Core on a private Unix socket and configure Core-owned targets and credentials:
 

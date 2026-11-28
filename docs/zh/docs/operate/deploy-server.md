@@ -203,8 +203,9 @@ Chat 入口选择 `PC_GATEWAY_UPSTREAM_PROFILE`；需要启用 Responses 入口�
 请求其他模型会在发送前被拒绝。此前按请求选择模型的部署需要为这些模型分别配置 Gateway 实例。
 `PC_GATEWAY_CORE_TOKEN` 必须代表 Gateway 服务身份，且不能与面向客户端的必填 `PC_GATEWAY_API_KEY` 相同。
 所有 Gateway 部署（包括组合 UDS 和非 enforcing 推理隐私模式）都要求 Core 将访问控制设为 `enforced`；
-关闭认证/访问控制的 Core 无法授权模型发送。专用 Gateway 服务主体需要在选定 Scope 上获得
-`gateway.user`（`gateway.invoke`），并在该部署的 Server resource 上获得 `server.observer`（`server.observe`）。
+关闭认证/访问控制的 Core 无法授权模型发送。专用 Gateway 服务主体需要在客户端通过
+`X-PowerContext-Scope-ID` 选择的每个 Scope 上获得 `gateway.user`（`gateway.invoke`），而不只是
+`PC_GATEWAY_DEFAULT_SCOPE`；同时要在该部署的 Server resource 上获得 `server.observer`（`server.observe`）。
 若设置 `PC_GATEWAY_SEDIMENT=on`，还要授予 `scope.contributor`，替代 `scope.viewer`；前者同时包含准备所需的
 `scope.read` 和 Source 采集所需的 `scope.contribute`。关闭采集时，`scope.viewer`（`scope.read`）即可。
 

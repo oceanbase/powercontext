@@ -205,8 +205,9 @@ instances for those models.
 `PC_GATEWAY_CORE_TOKEN` must identify the Gateway service principal and differ from the mandatory client-facing
 `PC_GATEWAY_API_KEY`. Core access control must be `enforced` in every Gateway deployment, including combined UDS and
 non-enforcing inference privacy modes. A Core with authentication/access control disabled cannot authorize model sends.
-Every dedicated Gateway service principal needs `gateway.user` (`gateway.invoke`) on the selected Scope and
-`server.observer` (`server.observe`) on the Server resource for that deployment. If `PC_GATEWAY_SEDIMENT=on`, grant
+Every dedicated Gateway service principal needs `gateway.user` (`gateway.invoke`) on every Scope that clients select
+with `X-PowerContext-Scope-ID`, not only `PC_GATEWAY_DEFAULT_SCOPE`, and `server.observer` (`server.observe`) on the
+Server resource for that deployment. If `PC_GATEWAY_SEDIMENT=on`, grant
 `scope.contributor` instead of `scope.viewer`; contributor includes both `scope.read` and `scope.contribute`, which
 are needed for preparation and Source capture. With capture off, `scope.viewer` (`scope.read`) is sufficient.
 
