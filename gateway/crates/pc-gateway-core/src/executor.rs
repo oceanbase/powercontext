@@ -34,6 +34,7 @@ use crate::prefix_store::{PrefixEntry, PrefixOutput, PrefixStore};
 use crate::replay_cache::{message_anchor, PreparedBlock, ReplayCache, MAX_REPLAY_MS};
 use crate::transcript::turn_transcript;
 use crate::turn::{TurnCounterSnapshot, TurnCounters};
+use crate::turn_message::{is_text_part, last_user_index, text_part};
 
 /// Core 的 before_send 在复用证明的依赖已变化或证明已失效时给出的 withhold 原因。
 const CONTEXT_REFRESH_REQUIRED: &str = "context-refresh-required";
@@ -41,7 +42,7 @@ use crate::{GateClient, GateError};
 use crate::{LifecycleStopReason, ModelSendState, RequestControl};
 use pc_gateway_evidence::EvidenceSink;
 use pc_gateway_evidence::UsageMapping;
-use pc_gateway_protocol::{turn_kind, CanonicalRequest, WireRenderer};
+use pc_gateway_protocol::{turn_kind, CanonicalRequest, Role, WireRenderer};
 use pc_gateway_transport::{
     AdmittedSend, RawResponse, SendIndeterminateReason, SendOutcome, Transport,
 };
@@ -777,6 +778,7 @@ where
                             // 前缀里、不在 Source 里，Core 的抽取指令说明标记内的内容不是证据。
                             let prefix = self.keep_prefix(
                                 &call,
+                                &pristine_request,
                                 &payload.bytes,
                                 &release_body,
                                 renderer.message_list_key(),
@@ -886,11 +888,23 @@ where
     fn keep_prefix(
         &self,
         call: &ManagedCall,
+        pristine: &CanonicalRequest,
         sent: &bytes::Bytes,
         release_body: &str,
         list_key: &str,
     ) -> Option<Vec<(&'static str, serde_json::Value)>> {
         if !call.capture_prefix {
+            return None;
+        }
+        // Core's prefix extractors start at the last wire user message. If
+        // that message is a reminder, use ordinary extraction from the
+        // captured Source, whose boundary is the actual prompt.
+        let prompt = last_user_index(pristine)?;
+        let last_user = pristine
+            .messages
+            .iter()
+            .rposition(|message| message.role == Role::User)?;
+        if prompt != last_user {
             return None;
         }
         let conversation_id = call.conversation_id.clone()?;
@@ -1303,21 +1317,6 @@ fn classify_gate_error(e: GateError) -> String {
     }
 }
 
-/// 文本内容部件：Chat 为 `text`，Responses 的用户输入为 `input_text`。
-fn is_text_part(part: &serde_json::Value) -> bool {
-    matches!(
-        part.get("type").and_then(|t| t.as_str()),
-        Some("text" | "input_text")
-    )
-}
-
-fn last_user_index(request: &CanonicalRequest) -> Option<usize> {
-    request
-        .messages
-        .iter()
-        .rposition(|m| matches!(m.role, pc_gateway_protocol::Role::User))
-}
-
 fn last_user_text(request: &CanonicalRequest) -> Option<String> {
     let i = last_user_index(request)?;
     match request.messages[i].content.as_slice() {
@@ -1325,11 +1324,7 @@ fn last_user_text(request: &CanonicalRequest) -> Option<String> {
         // typed content parts：[{"type":"text"或"input_text","text":"..."},...] → 拼接 text 字段。
         // 这是 Chat 与 Responses 的合法形态；不处理会导致沉淀 user 为空 + 注入被跳过。
         parts if !parts.is_empty() => {
-            let texts: Vec<String> = parts
-                .iter()
-                .filter(|p| is_text_part(p))
-                .filter_map(|p| p.get("text").and_then(|t| t.as_str()).map(String::from))
-                .collect();
+            let texts: Vec<_> = parts.iter().filter_map(text_part).collect();
             if texts.is_empty() {
                 None
             } else {
@@ -1345,10 +1340,7 @@ fn last_user_text(request: &CanonicalRequest) -> Option<String> {
 /// 各自的标识。
 fn turn_digest(call: &ManagedCall, pristine: &CanonicalRequest) -> Option<String> {
     let conversation = call.conversation_id.as_deref()?;
-    let last_user = pristine
-        .messages
-        .iter()
-        .rposition(|m| matches!(m.role, pc_gateway_protocol::Role::User))?;
+    let last_user = last_user_index(pristine)?;
     let messages = serde_json::to_string(&pristine.messages[..=last_user]).ok()?;
     Some(simple_digest(&format!(
         "{}\n{}\n{}\n{messages}",
