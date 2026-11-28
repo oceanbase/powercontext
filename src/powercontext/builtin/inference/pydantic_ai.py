@@ -19,7 +19,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
-from collections.abc import Awaitable, Callable, Iterator, Sequence
+from collections.abc import Awaitable, Callable, Iterator, Mapping, Sequence
 from contextlib import AsyncExitStack, contextmanager, nullcontext, suppress
 from contextvars import ContextVar
 from copy import copy
@@ -117,6 +117,7 @@ try:
     from pydantic_ai.models import Model, ModelRequestParameters
     from pydantic_ai.models.instrumented import InstrumentedModel
     from pydantic_ai.models.wrapper import WrapperModel
+    from pydantic_ai.profiles.anthropic import ANTHROPIC_THINKING_BUDGET_MAP
     from pydantic_ai.profiles.openai import SAMPLING_PARAMS
     from pydantic_ai.settings import ModelSettings, merge_model_settings
     from pydantic_ai.usage import RunUsage, UsageLimits
@@ -134,6 +135,35 @@ logger = logging.getLogger(__name__)
 
 # Sampling settings the Anthropic adapter drops for models that reject them (pydantic_ai ANTHROPIC_SAMPLING_PARAMS).
 _ANTHROPIC_SAMPLING_PARAMS = ("temperature", "top_p", "top_k")
+# The max_tokens the Anthropic adapter sends when a request sets none (pydantic_ai anthropic _default_max_tokens).
+_ANTHROPIC_DEFAULT_MAX_TOKENS = 16384
+_ANTHROPIC_LEGACY_DEFAULT_MAX_TOKENS = 4096
+_ANTHROPIC_MIN_TOKENS_AFTER_THINKING_BUDGET = 4096
+
+
+def _anthropic_default_max_tokens(profile: Any, settings: dict[str, object]) -> int:
+    """Return the max_tokens the pinned Anthropic adapter sends when the settings set none."""
+
+    if profile.get("anthropic_rejects_max_tokens_beyond_context_window", False):
+        default = _ANTHROPIC_LEGACY_DEFAULT_MAX_TOKENS
+    else:
+        default = profile.get("anthropic_max_output_tokens") or _ANTHROPIC_DEFAULT_MAX_TOKENS
+    # The wire thinking object: extra_body wins over anthropic_thinking, which wins over unified thinking.
+    extra_body = settings.get("extra_body")
+    thinking = extra_body.get("thinking") if isinstance(extra_body, Mapping) else None
+    if not isinstance(thinking, Mapping):
+        thinking = settings.get("anthropic_thinking")
+        level = settings.get("thinking")
+        if (
+            not thinking
+            and level
+            and profile.get("supports_thinking", False)
+            and not profile.get("anthropic_supports_adaptive_thinking", False)
+        ):
+            thinking = {"type": "enabled", "budget_tokens": ANTHROPIC_THINKING_BUDGET_MAP.get(level)}
+    enabled = isinstance(thinking, Mapping) and thinking.get("type") == "enabled"
+    budget = thinking.get("budget_tokens") if enabled else None
+    return max(default, (budget if isinstance(budget, int) else 0) + _ANTHROPIC_MIN_TOKENS_AFTER_THINKING_BUDGET)
 
 
 def _receipt_model_settings(model: Model, settings: ModelSettings | None) -> dict[str, object]:
@@ -143,25 +173,45 @@ def _receipt_model_settings(model: Model, settings: ModelSettings | None) -> dic
     profile = getattr(model, "profile", None)
     if not hasattr(profile, "get"):
         return effective
+    # Imported here so that building other providers' models does not load the provider SDKs.
+    from pydantic_ai.models.anthropic import AnthropicModel
+    from pydantic_ai.models.openai import OpenAIChatModel, OpenAIResponsesModel
+
+    adapter = model
+    while isinstance(adapter, WrapperModel):
+        adapter = adapter.wrapped
+    if isinstance(adapter, AnthropicModel) and "max_tokens" not in effective:
+        effective["max_tokens"] = _anthropic_default_max_tokens(profile, effective)
     if profile.get("anthropic_disallows_sampling_settings", False):
         for setting in _ANTHROPIC_SAMPLING_PARAMS:
             effective.pop(setting, None)
-        return effective
-    if not profile.get("openai_supports_reasoning", False):
-        return effective
-
-    reasoning_effort = effective.get("openai_reasoning_effort")
-    if reasoning_effort is not None:
-        reasoning_active = reasoning_effort != "none"
-    elif (thinking := effective.get("thinking")) is not None and profile.get("supports_thinking", False):
-        reasoning_active = thinking is not False
-    else:
-        reasoning_active = bool(profile.get("openai_reasoning_enabled_by_default", False))
-    if profile.get("openai_supports_reasoning_effort_none", False) and not reasoning_active:
-        return effective
-    for setting in SAMPLING_PARAMS:
-        effective.pop(setting, None)
+    elif _openai_reasoning_drops_sampling(profile, effective):
+        for setting in SAMPLING_PARAMS:
+            effective.pop(setting, None)
+    if isinstance(adapter, OpenAIChatModel | OpenAIResponsesModel):
+        # The OpenAI adapters drop these last, after deciding whether reasoning drops sampling.
+        for setting in profile.get("openai_unsupported_model_settings", ()):
+            effective.pop(setting, None)
     return effective
+
+
+def _openai_reasoning_drops_sampling(profile: Any, settings: dict[str, object]) -> bool:
+    """Whether the pinned OpenAI adapter drops sampling settings because reasoning is active or always on."""
+
+    if not profile.get("openai_supports_reasoning", False):
+        return False
+    efforts = profile.get("openai_reasoning_efforts")
+    supports_effort_none = (
+        "none" in efforts if efforts is not None else profile.get("openai_supports_reasoning_effort_none", False)
+    )
+    if not supports_effort_none:
+        return True
+    reasoning_effort = settings.get("openai_reasoning_effort")
+    if reasoning_effort is not None:
+        return reasoning_effort != "none"
+    if (thinking := settings.get("thinking")) is not None and profile.get("supports_thinking", False):
+        return thinking is not False
+    return bool(profile.get("thinking_enabled_by_default", False))
 
 
 class InferenceLimits(BaseModel):

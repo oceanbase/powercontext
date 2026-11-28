@@ -25,6 +25,7 @@ from typing import cast
 
 import httpx2
 import pytest
+from openai import AsyncOpenAI
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
@@ -52,13 +53,18 @@ from pydantic_ai.messages import (
     UserPromptPart,
 )
 from pydantic_ai.models import Model, ModelRequestParameters, ModelResponseState, StreamedResponse
-from pydantic_ai.models.anthropic import AnthropicModel
+from pydantic_ai.models.anthropic import AnthropicModel, AnthropicModelSettings
 from pydantic_ai.models.function import AgentInfo, FunctionModel
 from pydantic_ai.models.instrumented import InstrumentationSettings, InstrumentedModel
-from pydantic_ai.models.openai import OpenAIChatModel, OpenAIChatModelSettings
+from pydantic_ai.models.openai import OpenAIChatModel, OpenAIChatModelSettings, OpenAIResponsesModelSettings
+from pydantic_ai.models.openai_codex import OpenAICodexModel
 from pydantic_ai.models.test import TestModel
+from pydantic_ai.profiles import ModelProfile
+from pydantic_ai.profiles.openai import OpenAIModelProfile
+from pydantic_ai.profiles.openai_codex import openai_codex_model_profile
 from pydantic_ai.providers.anthropic import AnthropicProvider
 from pydantic_ai.providers.openai import OpenAIProvider
+from pydantic_ai.providers.openai_codex import OpenAICodexProvider
 from pydantic_ai.settings import ModelSettings
 from pydantic_ai.usage import RequestUsage
 
@@ -235,21 +241,30 @@ def test_structured_generator_passes_explicit_model_settings() -> None:
 
 
 @pytest.mark.parametrize(
-    ("model_name", "overrides"),
+    ("model_name", "overrides", "profile"),
     [
-        ("o3", {}),
-        ("gpt-4o", {}),
-        ("gpt-5.1", {}),
-        ("gpt-5.1", {"openai_reasoning_effort": "low"}),
-        ("gpt-5.1", {"openai_reasoning_effort": "none"}),
-        ("gpt-5.1", {"thinking": "medium"}),
-        ("gpt-5.1", {"thinking": False}),
-        ("gpt-5.1", {"openai_reasoning_effort": "none", "thinking": "medium"}),
+        ("o3", {"max_tokens": 512}, None),
+        ("gpt-4o", {"max_tokens": 512}, None),
+        # Non-Anthropic adapters must not inherit Anthropic's default max_tokens.
+        ("gpt-4o", {}, None),
+        ("gpt-5.1", {}, None),
+        ("gpt-5.1", {"openai_reasoning_effort": "low"}, None),
+        ("gpt-5.1", {"openai_reasoning_effort": "none"}, None),
+        ("gpt-5.1", {"thinking": "medium"}, None),
+        ("gpt-5.1", {"thinking": False}, None),
+        ("gpt-5.1", {"openai_reasoning_effort": "none", "thinking": "medium"}, None),
+        # Reasons by default but can turn reasoning off.
+        ("gpt-5.5", {}, None),
+        ("gpt-5.5", {"thinking": False}, None),
+        # Pinned accepted efforts decide whether reasoning can be turned off.
+        ("gpt-5.1", {}, OpenAIModelProfile(openai_reasoning_efforts=frozenset({"low", "medium", "high"}))),
+        # The profile's unsupported settings are dropped from the request.
+        ("gpt-4o", {"max_tokens": 512}, openai_codex_model_profile("gpt-4o")),
     ],
 )
 @pytest.mark.filterwarnings("ignore:Sampling parameters.*:UserWarning")
 def test_structured_generator_receipt_uses_reasoning_provider_settings(
-    model_name: str, overrides: OpenAIChatModelSettings
+    model_name: str, overrides: OpenAIChatModelSettings, profile: ModelProfile | None
 ) -> None:
     requests: list[dict[str, object]] = []
 
@@ -275,10 +290,12 @@ def test_structured_generator_receipt_uses_reasoning_provider_settings(
 
     async def scenario() -> None:
         async with httpx2.AsyncClient(transport=httpx2.MockTransport(respond)) as client:
-            settings: OpenAIChatModelSettings = {"temperature": 0.0, "top_p": 0.2, "max_tokens": 512}
+            settings: OpenAIChatModelSettings = {"temperature": 0.0, "top_p": 0.2}
             settings.update(overrides)
             generator = PydanticAIStructuredGenerator(
-                model=OpenAIChatModel(model_name, provider=OpenAIProvider(api_key="test", http_client=client)),
+                model=OpenAIChatModel(
+                    model_name, provider=OpenAIProvider(api_key="test", http_client=client), profile=profile
+                ),
                 instructions="Return a value.",
                 input_type=Question,
                 output_type=Answer,
@@ -291,17 +308,92 @@ def test_structured_generator_receipt_uses_reasoning_provider_settings(
             for key in ("temperature", "top_p"):
                 assert (key in effective) == (key in sent)
                 assert effective.get(key) == sent.get(key)
-            assert effective["max_tokens"] == sent["max_completion_tokens"] == 512
+            assert ("max_tokens" in effective) == ("max_completion_tokens" in sent)
+            assert effective.get("max_tokens") == sent.get("max_completion_tokens")
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("model_name", ["gpt-4o", "gpt-5.1"])
+# Reasoning that keeps sampling must not keep settings the backend rejects.
+@pytest.mark.parametrize("overrides", [{}, {"openai_reasoning_effort": "none"}])
+@pytest.mark.filterwarnings("ignore:Sampling parameters.*:UserWarning")
+def test_structured_generator_receipt_omits_settings_the_codex_backend_rejects(
+    model_name: str, overrides: OpenAIResponsesModelSettings
+) -> None:
+    requests: list[dict[str, object]] = []
+    defaults = {"item_id": "msg", "output_index": 0, "content_index": 0, "sequence_number": 0}
+    events = [
+        {**defaults, "type": "response.output_text.delta", "delta": '{"value":"stable"}'},
+        {
+            **defaults,
+            "type": "response.completed",
+            "response": {
+                "id": "resp",
+                "model": model_name,
+                "status": "completed",
+                "output": [],
+                "usage": {"input_tokens": 1, "output_tokens": 1},
+            },
+        },
+    ]
+    stream = "".join(f"data: {json.dumps(event)}\n\n" for event in events) + "data: [DONE]\n\n"
+
+    def respond(request: httpx2.Request) -> httpx2.Response:
+        requests.append(json.loads(request.content))
+        return httpx2.Response(200, content=stream, headers={"content-type": "text/event-stream"})
+
+    async def scenario() -> None:
+        async with httpx2.AsyncClient(transport=httpx2.MockTransport(respond)) as client:
+            settings: OpenAIResponsesModelSettings = {"temperature": 0.0, "top_p": 0.2, "max_tokens": 512}
+            settings.update(overrides)
+            provider = OpenAICodexProvider(openai_client=AsyncOpenAI(api_key="test", http_client=client))
+            generator = PydanticAIStructuredGenerator(
+                model=OpenAICodexModel(model_name, provider=provider),
+                instructions="Return a value.",
+                input_type=Question,
+                output_type=Answer,
+                model_settings=settings,
+            )
+            result = await generator.generate(Question("settings evidence"))
+            assert result.output == Answer("stable")
+            effective = cast(dict[str, object], generator.receipt_configuration()["effective_settings"])
+            sent = requests[0]
+            for key, wire_key in (
+                ("temperature", "temperature"),
+                ("top_p", "top_p"),
+                ("max_tokens", "max_output_tokens"),
+            ):
+                assert key not in effective
+                assert wire_key not in sent
 
     asyncio.run(scenario())
 
 
 @pytest.mark.parametrize(
-    ("model_name", "sends_sampling"),
-    [("claude-sonnet-5-5", False), ("claude-sonnet-4-5", True)],
+    ("model_name", "overrides", "sends_sampling", "wrapped"),
+    [
+        ("claude-sonnet-5-5", {"max_tokens": 512}, False, False),
+        ("claude-sonnet-4-5", {"max_tokens": 512}, True, False),
+        # Without max_tokens the adapter sends its own default, raised to leave room for a thinking budget.
+        ("claude-opus-4-1", {}, True, False),
+        ("claude-opus-4-1", {"thinking": "high"}, True, False),
+        ("claude-opus-4-1", {"anthropic_thinking": {"type": "enabled", "budget_tokens": 12000}}, True, False),
+        ("claude-opus-4-1", {"extra_body": {"thinking": {"type": "enabled", "budget_tokens": 8000}}}, True, False),
+        # Current models default to their output limit, which the adapter must stream.
+        ("claude-haiku-4-5", {}, True, False),
+        # Models without a documented output limit fall back to the adapter's default (16384).
+        ("claude-custom-future", {}, True, False),
+        # Adaptive thinking has no budget to make room for.
+        ("claude-sonnet-4-6", {"thinking": "high"}, True, False),
+        # Composition wraps the adapter for streaming and instrumentation.
+        ("claude-sonnet-4-6", {}, True, True),
+    ],
 )
 @pytest.mark.filterwarnings("ignore:Sampling parameters.*:UserWarning")
-def test_structured_generator_receipt_uses_anthropic_adapter_settings(model_name: str, sends_sampling: bool) -> None:
+def test_structured_generator_receipt_uses_anthropic_adapter_settings(
+    model_name: str, overrides: AnthropicModelSettings, sends_sampling: bool, wrapped: bool
+) -> None:
     # Use whichever HTTP library the installed Anthropic SDK builds its clients on
     # (``httpx`` for 0.117, ``httpx2`` for newer releases); importability alone is
     # not enough because other packages can pull in ``httpx2`` too.
@@ -310,30 +402,48 @@ def test_structured_generator_receipt_uses_anthropic_adapter_settings(model_name
     _http = vars(_anthropic_client).get("httpx") or vars(_anthropic_client)["httpx2"]
     requests: list[dict[str, object]] = []
 
+    message = {
+        "id": "msg_receipt",
+        "type": "message",
+        "role": "assistant",
+        "model": model_name,
+        "content": [{"type": "text", "text": '{"value":"stable"}'}],
+        "stop_reason": "end_turn",
+        "stop_sequence": None,
+        "usage": {"input_tokens": 1, "output_tokens": 1},
+    }
+    events = [
+        {"type": "message_start", "message": {**message, "content": [], "stop_reason": None}},
+        {"type": "content_block_start", "index": 0, "content_block": {"type": "text", "text": ""}},
+        {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": '{"value":"stable"}'}},
+        {"type": "content_block_stop", "index": 0},
+        {"type": "message_delta", "delta": {"stop_reason": "end_turn"}, "usage": {"output_tokens": 1}},
+        {"type": "message_stop"},
+    ]
+    stream = "".join(f"event: {event['type']}\ndata: {json.dumps(event)}\n\n" for event in events)
+
     def respond(request: _http.Request) -> _http.Response:
-        requests.append(json.loads(request.content))
-        return _http.Response(
-            200,
-            json={
-                "id": "msg_receipt",
-                "type": "message",
-                "role": "assistant",
-                "model": model_name,
-                "content": [{"type": "text", "text": '{"value":"stable"}'}],
-                "stop_reason": "end_turn",
-                "stop_sequence": None,
-                "usage": {"input_tokens": 1, "output_tokens": 1},
-            },
-        )
+        body = json.loads(request.content)
+        requests.append(body)
+        if body.get("stream"):
+            return _http.Response(200, content=stream, headers={"content-type": "text/event-stream"})
+        return _http.Response(200, json=message)
 
     async def scenario() -> None:
         async with _http.AsyncClient(transport=_http.MockTransport(respond)) as client:
+            settings: AnthropicModelSettings = {"temperature": 0.0, "top_p": 0.2}
+            settings.update(overrides)
+            model: Model = AnthropicModel(model_name, provider=AnthropicProvider(api_key="test", http_client=client))
+            if wrapped:
+                model = InstrumentedModel(
+                    StreamingAggregateModel(model), InstrumentationSettings(tracer_provider=TracerProvider())
+                )
             generator = PydanticAIStructuredGenerator(
-                model=AnthropicModel(model_name, provider=AnthropicProvider(api_key="test", http_client=client)),
+                model=model,
                 instructions="Return a value.",
                 input_type=Question,
                 output_type=Answer,
-                model_settings={"temperature": 0.0, "top_p": 0.2, "max_tokens": 512},
+                model_settings=settings,
             )
             result = await generator.generate(Question("settings evidence"))
             assert result.output == Answer("stable")
@@ -343,7 +453,8 @@ def test_structured_generator_receipt_uses_anthropic_adapter_settings(model_name
                 assert (key in sent) == sends_sampling
                 assert (key in effective) == (key in sent)
                 assert effective.get(key) == sent.get(key)
-            assert effective["max_tokens"] == sent["max_tokens"] == 512
+            assert effective.get("max_tokens") == sent["max_tokens"]
+            assert sent["max_tokens"] == overrides.get("max_tokens", sent["max_tokens"])
 
     asyncio.run(scenario())
 
