@@ -272,32 +272,68 @@ async def load_prompts(api: DashboardAPI, request: Request, ctx: dict[str, Any])
         else:
             ctx["data"]["prompts"].append(value)
     selected_key = request.query_params.get("prompt_key")
-    if not selected_key:
-        return
-    ctx["prompt_key"] = selected_key
-    configuration = next((item for item in ctx["data"]["prompts"] if item["prompt_key"] == selected_key), None)
-    artifact = None if configuration is None else configuration.get("artifact")
-    raw_revision = request.query_params.get("prompt_revision")
-    if raw_revision is None:
-        if artifact is None:
+    if selected_key:
+        ctx["prompt_key"] = selected_key
+        configuration = next((item for item in ctx["data"]["prompts"] if item["prompt_key"] == selected_key), None)
+        artifact = None if configuration is None else configuration.get("artifact")
+        if not await _open_prompt_revision(api, request, ctx, selected_key, artifact):
             return
-        raw_revision = str(artifact["revision"])
-    try:
-        selected = positive_revision(raw_revision)
-        ctx["prompt_opened"] = await api.artifact_revision(ctx["scope"], "prompt", selected_key, selected)
-    except ReadError as error:
-        # Never substitute current content for an unavailable or invalid historical revision.
-        ctx["errors"]["prompt_selected"] = error
-        return
+    if "prompts" not in ctx["errors"] and ctx["scope"]:
+        from powercontext.server.dashboard.revisions import _can_replace
+
+        ctx["profile_prompt_can_admin"] = await _can_replace(request, api, ctx["scope"], "prompt", "profile.generate")
+        ctx["prompt_saved"] = _profile_prompt_saved(request, ctx, selected_key)
+
+
+async def _open_prompt_revision(
+    api: DashboardAPI, request: Request, ctx: dict[str, Any], key: str, artifact: dict[str, Any] | None
+) -> bool:
+    """Open the requested Prompt revision, or only list history when viewing the head. False means stop."""
+
+    raw_revision = request.query_params.get("prompt_revision")
+    if raw_revision is not None:
+        # Only an explicit revision is "opened". Viewing the head leaves the editor available.
+        try:
+            selected = positive_revision(raw_revision)
+            ctx["prompt_opened"] = await api.artifact_revision(ctx["scope"], "prompt", key, selected)
+        except ReadError as error:
+            # Never substitute current content for an unavailable or invalid historical revision.
+            ctx["errors"]["prompt_selected"] = error
+            return False
+    else:
+        if artifact is None or not str(artifact.get("revision", "")).isdigit():
+            return True
+        selected = int(artifact["revision"])
     ctx["history"] = await load_history(
         api,
         request,
         ctx,
         family="prompt",
-        artifact_id=selected_key,
+        artifact_id=key,
         selected=selected,
         cursor_key="prompt_revision_cursor",
     )
+    return True
+
+
+def _profile_prompt_saved(request: Request, ctx: dict[str, Any], selected_key: str | None) -> bool:
+    """Confirm a save only when the freshly read head is at or past the revision the save created."""
+
+    if request.query_params.get("prompt_saved") != "1" or selected_key != "profile.generate":
+        return False
+    try:
+        saved_revision = positive_revision(request.query_params.get("prompt_saved_revision"))
+    except ReadError:
+        return False
+    config = next((item for item in ctx["data"]["prompts"] if item["prompt_key"] == "profile.generate"), None)
+    head = config.get("artifact") if config is not None else None
+    if not isinstance(head, dict):
+        return False
+    try:
+        head_revision = positive_revision(str(head.get("revision", "")))
+    except ReadError:
+        return False
+    return head_revision >= saved_revision
 
 
 async def load_note_history(api: DashboardAPI, request: Request, ctx: dict[str, Any], *, snapshot=None) -> None:
