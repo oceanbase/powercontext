@@ -26,6 +26,8 @@ interface PluginConfig {
   timeoutMs?: number;
   requestTimeoutMs?: number;
   maxBytes?: number;
+  /** Prepare and inject context before each model step; turn off when a gateway does this. */
+  promptRecall?: boolean;
   capturePrompts?: boolean;
   flushOnCapture?: boolean;
   flushMaxCalls?: number;

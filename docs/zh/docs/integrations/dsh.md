@@ -372,7 +372,8 @@ flush 或修改绑定。Doctor 探测和手动操作也不会覆盖自动执行�
 
 插件通过三条有明确边界的路径访问同一个 Server：
 
-- 每轮模型开口前，先请求 Runtime 准备一个最终、有界的上下文值，再把用户输入采集为 Source 证据；
+- 每轮模型开口前，先请求 Runtime 准备一个最终、有界的上下文值（[关闭提示词召回](#把提示词时上下文交给-gateway)时除外），
+  再把用户输入采集为 Source 证据；
 - DSH 原生 MCP client 连接 `/mcp/`，并将 Server 工具以 `mcp__powercontext__<operation>` 暴露给模型；
 - `/pc` 命令和自动生命周期阶段使用有界 HTTP client 执行宿主控制与诊断。
 
@@ -408,7 +409,7 @@ finalization 结果，不额外包装或只提取其中的内容。
 Server 管理的 Scope。workspace 路径只会哈希为外部 binding key。缺少 workspace 时使用 Server 默认 Scope，
 不会把 Harness 进程目录作为 Scope。
 
-插件在模型分析提示词前只调用一次 `POST /v1/context/prepare`。显式 `remember_memory` 不需要模型。
+插件在模型分析提示词前只调用一次 `POST /v1/context/prepare`，关闭提示词召回时不调用。显式 `remember_memory` 不需要模型。
 
 ## 排查 MCP 和命令的直接调用失败
 
@@ -497,6 +498,150 @@ export POWERCONTEXT_DSH_FLUSH_ON_CAPTURE=true
 
 这会给每个提示词增加推理延迟，不是日常交互设置。`timeoutMs`、`requestTimeoutMs`、`maxBytes` 和 `flushMaxCalls` 是插件 patch 配置，不是环境变量。
 
+## 把提示词时上下文交给 gateway
+
+DeepSeek Harness 的模型请求经过 PowerContext gateway 时，gateway 为每一轮准备并注入上下文；
+设置 `PC_GATEWAY_SEDIMENT=on` 后，gateway 也会采集这一轮。Core 检查 gateway 转发的每个请求，
+拒绝不是 gateway 注入的 prepared-context 块，即使 Core 处于非 enforcing 模式也是如此。
+插件的召回会把这样的块作为快照消息加入会话，DSH 之后的每个请求都会带上会话历史。
+因此 Core 以 HTTP 422 拒绝这个请求，gateway 返回 HTTP 503 `gate_paused`，这一轮在模型收到请求前失败。
+
+DSH 直接调用模型时，gateway 不承载这些流量，请保留插件的默认值。要让 DSH 经过 gateway，
+按下面的步骤配置 Core、DSH、插件和 gateway。这些步骤适用于 DSH `0.2.2-rc.1` 及之后的 0.2.2 预发布版本，
+它们通过自定义 `llm-pi-ai` provider 访问 gateway。DSH 0.2.1 及更早的版本不允许插件发送下文所述的 gateway 请求头。
+
+### 选择 Core 目标
+
+Core 需要为 `PC_GATEWAY_UPSTREAM_PROFILE` 指定的 profile（未设置时为 `default`）配置目标，
+包括 `disabled` 在内的每种隐私模式都需要。没有目标时，Core 以 `target_unsupported` 扣留每个请求，
+gateway 对每一轮都返回 HTTP 400。见[配置受支持的目标](../operate/inference-protection.md#配置受支持的目标)。
+
+DSH 发送输出上限（`max_output_tokens`，取自模型的 `maxTokens`）、`store: false`，
+并且除非 provider 设置了 `cacheRetention: "none"`，还会把会话 ID 作为 `prompt_cache_key` 发送。
+因此目标满足以下条件时，enforcing 模式的 Core 会放行它的请求：
+
+- 声明 `context_window_tokens`、不小于 DSH 模型 `maxTokens` 的 `max_output_tokens`，以及 `validated_utf8_token_bound`；
+- 在 `allowed_cache_retention` 中列出 `provider-default`；provider 设置 `cacheRetention: "long"` 时还要列出 `24h`。
+  否则 Core 以 `cache_retention_unapproved` 扣留每个请求；
+- provider 返回的模型名与 `model` 不同时，在 `response_models` 中列出这些名称。
+  否则 Core 以 `response_model_mismatch` 扣留每个响应。
+
+窗口检查把请求的每个 UTF-8 字节计为一个 token。DSH 的工具定义和 system prompt 让会话的第一个请求就已经很大，
+因此 `context_window_tokens` 过小时，每一轮都会以 `context_window_exceeded` 被扣留。例如：
+
+```bash
+export POWERCONTEXT_SERVER_INFERENCE_PROTECTION='{
+  "mode": "enforcing",
+  "targets": {
+    "default": {
+      "endpoint": "https://models.example/v1/responses",
+      "model": "approved-model",
+      "protocol": "openai-responses",
+      "context_window_tokens": 400000,
+      "max_output_tokens": 32000,
+      "validated_utf8_token_bound": true,
+      "allowed_cache_retention": ["provider-default"]
+    }
+  }
+}'
+```
+
+其中的 endpoint、模型和上限只是示例。请先为你的模型核实这个上界，再设置 `validated_utf8_token_bound`；
+gateway 在启动时发现 Core 的模式，因此修改模式后请重启 gateway。
+选择模式前请阅读[上下文复用与最终准入](../operate/context-protection.md)和[推理隐私保护](../operate/inference-protection.md)。
+
+### 让 DSH 指向 gateway
+
+在 profile 的 `cordis.patch.yml`（例如 `$DSH_HOME/profiles/web/cordis.patch.yml`）中，
+为 `llm-pi-ai` 添加指向 gateway `/gateway/v1` 的 provider，设置 `api: openai-responses`，
+并通过 `agent-default-model` 选择它的模型。`apiKeyEnv` 是保存 gateway 密钥的环境变量名；
+DSH 会把密钥作为 bearer token 发送：
+
+```yaml
+- id: llm-pi-ai
+  config:
+    providers:
+      powercontext-gateway:
+        displayName: PowerContext gateway
+        api: openai-responses
+        baseURL: http://127.0.0.1:8787/gateway/v1
+        apiKeyEnv: PC_GATEWAY_KEY
+        models:
+          - id: approved-model
+            contextWindow: 400000
+            maxTokens: 32000
+- id: agent-default-model
+  config:
+    provider: powercontext-gateway
+    model: approved-model
+```
+
+如果 profile 已经配置了 `llm-pi-ai` 的 provider，请把 `powercontext-gateway` 加到已有的 `providers` 中，
+不要再添加一个条目。在启动 DSH 的环境中，把 gateway 的 `PC_GATEWAY_API_KEY` 的值导出为 `PC_GATEWAY_KEY`。
+
+请使用 Responses API。DSH 总是流式请求。在 Responses 路由上，gateway 以非流式方式调用模型，
+再把检查通过的响应以流的形式重放给 DSH，因此这一轮能够完成并被采集。
+在 Chat Completions 路由（`api: openai-completions`）上，gateway 转发 DSH 的流式请求。
+enforcing 模式的 Core 会扣留流式响应，gateway 返回 HTTP 400。
+非 enforcing 模式的 Core（包括默认的 `disabled` 模式）下，gateway 会原样放行流式响应。
+设置 `PC_GATEWAY_SEDIMENT=on` 后，gateway 还会拼接终止流式响应中的助手文本，并采集已完成的回合。
+
+### 关闭插件的提示词召回和采集
+
+启动 DSH 前，关闭插件的提示词时召回和提示词采集：
+
+```bash
+export POWERCONTEXT_DSH_PROMPT_RECALL=false
+export POWERCONTEXT_DSH_CAPTURE_PROMPTS=false
+dsh web
+```
+
+插件 patch 配置 `promptRecall` 和 `capturePrompts` 的作用相同。关闭召回后，插件不发送准备请求，
+也不向这一步添加任何消息：既没有 PowerContext 上下文快照，也没有当前轮的 Scope 路由消息。
+gateway 把请求中最后一条用户消息当作这一轮的消息，因此加在提示词之后的任何消息，
+都会取代提示词成为 gateway 的召回查询和采集的用户文本。插件也不再提供[只读桌宠记忆服务](#只读桌宠记忆服务)，
+因为这个服务返回 prepared-context 块。
+
+插件仍会为每个提示词解析 Scope；`POWERCONTEXT_DSH_CAPTURE_PROMPTS` 为 `true` 时仍会采集提示词；
+两项都关闭时，它只为提示词解析 Scope。MCP 工具、`/pc` 命令、侧栏状态和 `/pc doctor` 照常工作，
+MCP 操作仍须使用宿主 Scope。没有路由消息时，模型在调用指定了其他 Scope 而被插件拒绝时得知这个 Scope；
+拒绝信息会写明宿主 Scope。在 `/pc` 中，`injection` 阶段报告 `skipped`，原因为 `recall_disabled`；
+Scope 解析成功后，`prepare` 阶段也是如此。
+
+关闭召回后，插件还会在会话 agent 循环的每个模型请求上，把 DSH 会话 ID 作为 `X-PowerContext-Conversation-ID` 发送。
+组合部署（`PC_GATEWAY_CORE_UDS`）在一个会话中每条用户消息准备一次，并把结果重放给这条消息的工具循环步骤。
+没有这个请求头时，它根据请求的开头推导会话，DSH 发送完整历史的请求也能推导。
+请求头仍能区分开头相同的会话，并为采集和前缀提取提供在 gateway 重启后保持不变的会话标识；
+推导出的 ID 仅在当前 gateway 进程内用于重放准备结果。独立运行的 gateway（`PC_GATEWAY_CORE_BASE`）
+只有设置 `PC_GATEWAY_INJECTION=on` 才会注入。见[网关上下文注入](../operate/deploy-server.md#网关上下文注入)。
+
+DSH 的压缩、会话标题和 auto review 请求不是该会话的轮次。
+插件不给它们发送会话请求头，而是用 `X-PowerContext-Turn: internal` 标记它们。
+gateway 仍会让 Core 检查这类请求，但不为它准备或注入上下文，不加入成本指导指令，也不把它采集为一轮。
+
+DSH 会把这些请求头发给处理该请求的任何 provider，包括它直接调用的 provider；gateway 不会把它们转发给上游。
+除非 provider 设置了 `cacheRetention: "none"`，DSH 的 Responses 请求本来就以 `prompt_cache_key` 携带会话 ID。
+
+修改这些设置后请重启 DSH，然后新建会话。插件召回过上下文的会话会在历史中保留这些上下文，
+DSH 之后的请求会再次发送它们，因此 Core 会拒绝这些请求。gateway 只从工具结果中移除插件块，
+在 Responses 路由上还会从 developer 消息中移除；插件的快照是用户消息。
+
+### 配置 gateway
+
+以组合部署（`PC_GATEWAY_CORE_UDS`）运行 gateway，它默认注入带有会话标识的请求。设置：
+
+- `PC_GATEWAY_UPSTREAM_URL_RESPONSES` 设为目标的 `endpoint`，`PC_GATEWAY_UPSTREAM_API_KEY_RESPONSES` 设为供应商密钥。
+  未设置 URL 时，Responses 路由返回 HTTP 501 `responses_route_disabled`。
+- `PC_GATEWAY_API_KEY` 设为 DSH 通过 `apiKeyEnv` 发送的密钥。监听非回环地址时必须设置。
+- Core 启用鉴权时，设置 `PC_GATEWAY_CORE_TOKEN`。
+- `PC_GATEWAY_SEDIMENT=on`，让 gateway 把每个完成的轮次采集为 Source。
+- `PC_GATEWAY_DEFAULT_SCOPE` 设为插件为该 workspace 解析的 Scope，`/pc` 会打印这个 Scope。
+
+插件不发送 `X-PowerContext-Scope-ID`，
+因此 gateway 把所有会话都放在 `PC_GATEWAY_DEFAULT_SCOPE` 指定的同一个 Scope 中准备和采集，
+而不是插件为每个 workspace 解析的 Scope。gateway 的鉴权设置和请求大小上限，
+见[部署 Server](../operate/deploy-server.md#网关认证边界)。
+
 ## 连接启用鉴权的本地 Server
 
 ```bash
@@ -531,6 +676,7 @@ powercontext doctor dsh
 | `POWERCONTEXT_DSH_ALLOW_INSECURE_HTTP` | `false` | 显式允许非环回明文 HTTP |
 | `POWERCONTEXT_DSH_SCOPE_ID` | 未设置 | 在 workspace binding 和 Server 默认值之前显式选择已有 Scope |
 | `POWERCONTEXT_DSH_AUTHORIZATION` | 未设置 | MCP 与生命周期 HTTP 请求使用的完整 `Bearer <token>` header |
+| `POWERCONTEXT_DSH_PROMPT_RECALL` | `true` | 每次模型调用前准备并添加上下文，并提供桌宠记忆服务；`false` 把提示词时上下文交给 gateway，并发送 gateway 会话请求头和 internal 轮次请求头 |
 | `POWERCONTEXT_DSH_CAPTURE_PROMPTS` | `true` | 把用户提示词采集为 Source 证据 |
 | `POWERCONTEXT_DSH_FLUSH_ON_CAPTURE` | `false` | 采集后等待 Source 处理 |
 
@@ -564,7 +710,7 @@ CAS、不自动重放写入。具体步骤见 [协议升级](../operate/atomic-m
 
 宿主插件提供可选 Cordis 服务 `powercontextCompanionMemory`，协议为
 `powercontext.companion-memory.v1`。同一宿主内受信任的插件可以通过 `ctx.get()` 软查询，
-不增加 Server HTTP 路由，也不暴露凭据或原始客户端。
+不增加 Server HTTP 路由，也不暴露凭据或原始客户端。[关闭提示词召回](#把提示词时上下文交给-gateway)时，插件不提供这个服务。
 
 `prepare({ sessionId, query?, maxBytes?, signal?, traceContext? })` 从真实宿主会话读取工作目录，复用运行中插件的
 客户端、认证、传输策略和 Scope 覆盖设置。必须有持久的 DSH 工作区绑定或显式 Scope，

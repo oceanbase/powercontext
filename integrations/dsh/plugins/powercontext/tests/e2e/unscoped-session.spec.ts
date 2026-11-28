@@ -74,6 +74,7 @@ function createPluginRuntime(
     scopeId,
     requestTimeoutMs: 5000,
     timeoutMs: 8000,
+    promptRecall: true,
     capturePrompts: true,
   }, {})
   const client = new PowerContextClient({

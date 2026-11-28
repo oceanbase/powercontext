@@ -137,6 +137,7 @@ class PluginHarness {
       baseUrl,
       scopeId,
       requestTimeoutMs: 5000,
+      promptRecall: true,
       capturePrompts: true,
     })
   }

@@ -445,7 +445,9 @@ See the [runtime test procedure](https://github.com/oceanbase/powercontext/blob/
 
 The plugin has three deliberately different paths to the same Server:
 
-- before each model step it asks the Runtime to prepare one final, bounded context value, then independently captures the user's prompt as Source evidence;
+- before each model step it asks the Runtime to prepare one final, bounded context value, unless
+  [prompt recall is off](#leave-prompt-time-context-to-the-gateway), then independently captures the user's prompt
+  as Source evidence;
 - DSH's native MCP client connects to `/mcp/` and exposes the Server tools as `mcp__powercontext__<operation>`;
 - `/pc` commands and automatic lifecycle stages use the bounded HTTP client for host control and diagnostics.
 
@@ -489,7 +491,8 @@ The plugin resolves one Server-owned Scope in this order: `POWERCONTEXT_DSH_SCOP
 session workspace, then the Server default. The workspace path is hashed only as an external binding key. A missing
 workspace therefore uses the Server default instead of the Harness process directory.
 
-The plugin calls `POST /v1/context/prepare` once before the model analyzes the prompt. Explicit `remember_memory` calls do not require a model.
+The plugin calls `POST /v1/context/prepare` once before the model analyzes the prompt, unless prompt recall is off.
+Explicit `remember_memory` calls do not require a model.
 
 ## Diagnose MCP and command failures
 
@@ -587,6 +590,162 @@ export POWERCONTEXT_DSH_FLUSH_ON_CAPTURE=true
 
 This adds inference latency to each prompt and is not the normal interactive setting. `timeoutMs`, `requestTimeoutMs`, `maxBytes`, and `flushMaxCalls` are plugin patch settings, not environment variables.
 
+## Leave prompt-time context to the gateway
+
+When DeepSeek Harness sends its model requests through the PowerContext gateway, the gateway prepares and injects
+context for each turn and, with `PC_GATEWAY_SEDIMENT=on`, captures the turn. Core checks every request the gateway
+forwards and rejects a prepared-context block that the gateway did not inject, even in a non-enforcing mode. The
+plugin's recall adds such a block to the session as a snapshot message, and DSH sends the session's history with
+every later request. Core rejects that request with HTTP 422, the gateway returns HTTP 503 `gate_paused`, and the turn
+fails before the model receives it.
+
+Keep the plugin defaults where DSH calls its model directly, because the gateway does not carry that traffic. To route
+DSH through the gateway, configure Core, DSH, the plugin, and the gateway as follows. These steps apply to DSH
+`0.2.2-rc.1` and later 0.2.2 prereleases, which reach the gateway through a custom `llm-pi-ai` provider. DSH 0.2.1
+and earlier do not let the plugin send the gateway headers described below.
+
+### Choose the Core target
+
+Core needs a target for the profile that `PC_GATEWAY_UPSTREAM_PROFILE` names (`default` unless set), in every privacy
+mode, including `disabled`. Without one, Core withholds each request with `target_unsupported`, and the gateway returns
+HTTP 400 for every turn. See [Configure a supported target](../operate/inference-protection.md#configure-a-supported-target).
+
+DSH sends an output limit (`max_output_tokens`, from the model's `maxTokens`), `store: false`, and, unless the
+provider sets `cacheRetention: "none"`, its session ID as `prompt_cache_key`. An enforcing Core admits its requests
+when the target:
+
+- declares `context_window_tokens`, `max_output_tokens` at least the DSH model's `maxTokens`, and
+  `validated_utf8_token_bound`;
+- lists `provider-default` in `allowed_cache_retention`, and also `24h` when the provider sets
+  `cacheRetention: "long"`. Otherwise Core withholds each request with `cache_retention_unapproved`;
+- lists in `response_models` the model names the provider returns when they differ from `model`. Otherwise Core
+  withholds each response with `response_model_mismatch`.
+
+The window check counts each UTF-8 byte of the request as a token. DSH's tool definitions and system prompt make even
+the first request of a session large, so a small `context_window_tokens` withholds every turn with
+`context_window_exceeded`. For example:
+
+```bash
+export POWERCONTEXT_SERVER_INFERENCE_PROTECTION='{
+  "mode": "enforcing",
+  "targets": {
+    "default": {
+      "endpoint": "https://models.example/v1/responses",
+      "model": "approved-model",
+      "protocol": "openai-responses",
+      "context_window_tokens": 400000,
+      "max_output_tokens": 32000,
+      "validated_utf8_token_bound": true,
+      "allowed_cache_retention": ["provider-default"]
+    }
+  }
+}'
+```
+
+The endpoint, model, and limits are illustrative. Set `validated_utf8_token_bound` only after checking the bound for
+your model, and restart the gateway after changing Core's mode, because it discovers the mode at startup. See
+[Context reuse and final admission](../operate/context-protection.md) and
+[Inference privacy protection](../operate/inference-protection.md) before choosing a mode.
+
+### Point DSH at the gateway
+
+In the profile's `cordis.patch.yml` (for example `$DSH_HOME/profiles/web/cordis.patch.yml`), add a provider for the
+gateway's `/gateway/v1` to `llm-pi-ai` with `api: openai-responses`, and select its model with `agent-default-model`.
+`apiKeyEnv` names the environment variable that holds the gateway key; DSH sends it as the bearer token:
+
+```yaml
+- id: llm-pi-ai
+  config:
+    providers:
+      powercontext-gateway:
+        displayName: PowerContext gateway
+        api: openai-responses
+        baseURL: http://127.0.0.1:8787/gateway/v1
+        apiKeyEnv: PC_GATEWAY_KEY
+        models:
+          - id: approved-model
+            contextWindow: 400000
+            maxTokens: 32000
+- id: agent-default-model
+  config:
+    provider: powercontext-gateway
+    model: approved-model
+```
+
+If the profile already configures `llm-pi-ai` providers, add `powercontext-gateway` to that `providers` map instead of
+adding a second entry. Export the gateway's `PC_GATEWAY_API_KEY` value as `PC_GATEWAY_KEY` where DSH starts.
+
+Use the Responses API. DSH always streams. On the Responses route, the gateway calls the model without streaming and
+replays the checked response to DSH as a stream, so the turn completes and is captured. On the Chat Completions route
+(`api: openai-completions`), the gateway forwards DSH's streamed request. An enforcing Core withholds the streamed
+response, and the gateway returns HTTP 400. With a non-enforcing Core, including the default `disabled` mode, the
+gateway releases the stream unchanged. With `PC_GATEWAY_SEDIMENT=on`, it also assembles the assistant's text from a
+terminal stream and captures the completed turn.
+
+### Turn the plugin's prompt recall and capture off
+
+Turn the plugin's prompt-time recall and prompt capture off before starting DSH:
+
+```bash
+export POWERCONTEXT_DSH_PROMPT_RECALL=false
+export POWERCONTEXT_DSH_CAPTURE_PROMPTS=false
+dsh web
+```
+
+The plugin patch settings `promptRecall` and `capturePrompts` do the same. With recall off, the plugin sends no
+preparation request and adds no message to the step: neither a PowerContext context snapshot nor the current-turn
+Scope routing message. The gateway takes a request's last user message as the turn's message, so any message added
+after the prompt would replace the prompt as the gateway's recall query and captured user text. The plugin does not
+provide the [companion memory service](#read-only-companion-memory-service) either, because that service returns a
+prepared-context block.
+
+The plugin still resolves the Scope for each prompt and still captures prompts while
+`POWERCONTEXT_DSH_CAPTURE_PROMPTS` is `true`; with both off, it sends only Scope resolution for a prompt. The MCP
+tools, `/pc` commands, the sidebar status, and `/pc doctor` keep working, and MCP operations must still use the host
+Scope. Without the routing message, the model learns that Scope when the plugin refuses a call that names another
+Scope; the refusal names the host Scope. In `/pc`, the `injection` stage reports `skipped` with `recall_disabled`, and
+so does `prepare` once the Scope is resolved.
+
+While recall is off, the plugin also sends the DSH session ID as `X-PowerContext-Conversation-ID` on each model request
+of the session's agent loop. A combined deployment (`PC_GATEWAY_CORE_UDS`) prepares once per user message of a
+conversation and replays that context to the tool-loop steps of the message. Without the header, it infers the
+conversation from the opening of the request, which DSH's full-history requests also allow. The header still keeps
+apart sessions that open the same way, and gives capture and prefix extraction a conversation identity that stays the
+same across gateway restarts; an inferred ID is local to the gateway process and serves only preparation replay. A
+standalone gateway (`PC_GATEWAY_CORE_BASE`) injects only with `PC_GATEWAY_INJECTION=on`. See
+[Gateway context injection](../operate/deploy-server.md#gateway-context-injection).
+
+DSH's compaction, session-title, and auto-review requests are not turns of the session's conversation. The plugin
+sends no conversation header on them and marks them with `X-PowerContext-Turn: internal` instead. The gateway still
+checks such a request with Core, but does not prepare or inject context for it, does not add its cost guidance, and
+does not capture it as a turn.
+
+DSH sends these headers to whichever provider serves the request, including one it calls directly; the gateway does
+not forward them upstream. DSH's Responses requests already carry the session ID as `prompt_cache_key` unless the
+provider sets `cacheRetention: "none"`.
+
+Restart DSH after changing these settings, then start a new session. A session in which the plugin recalled context
+keeps that context in its history, and DSH resends it with later requests, so Core rejects them. The gateway removes
+a plugin block only from a tool result, and on the Responses route also from a developer message; the plugin's
+snapshot is a user message.
+
+### Configure the gateway
+
+Run the gateway in a combined deployment (`PC_GATEWAY_CORE_UDS`), which injects requests that carry a conversation by
+default. Set:
+
+- `PC_GATEWAY_UPSTREAM_URL_RESPONSES` to the target's `endpoint`, and `PC_GATEWAY_UPSTREAM_API_KEY_RESPONSES` to the
+  provider key. Without the URL, the Responses route returns HTTP 501 `responses_route_disabled`.
+- `PC_GATEWAY_API_KEY` to the key that DSH sends through `apiKeyEnv`. A non-loopback listener requires it.
+- `PC_GATEWAY_CORE_TOKEN` when Core enforces authentication.
+- `PC_GATEWAY_SEDIMENT=on`, so that the gateway captures each completed turn as a Source.
+- `PC_GATEWAY_DEFAULT_SCOPE` to the Scope this plugin resolves for the workspace, which `/pc` prints.
+
+The plugin does not send `X-PowerContext-Scope-ID`, so the gateway prepares and captures every conversation in the one
+Scope set by `PC_GATEWAY_DEFAULT_SCOPE`, not in the Scope this plugin resolves for each workspace. For the gateway's
+authentication settings and request size limit, see
+[Deploy the Server](../operate/deploy-server.md#gateway-authentication-boundaries).
+
 ## Connect to an authenticated local Server
 
 ```bash
@@ -621,6 +780,7 @@ powercontext doctor dsh
 | `POWERCONTEXT_DSH_ALLOW_INSECURE_HTTP` | `false` | Explicitly permit non-loopback plaintext HTTP |
 | `POWERCONTEXT_DSH_SCOPE_ID` | unset | Explicit existing Scope before workspace binding and Server default |
 | `POWERCONTEXT_DSH_AUTHORIZATION` | unset | Complete `Bearer <token>` header for MCP and lifecycle HTTP requests |
+| `POWERCONTEXT_DSH_PROMPT_RECALL` | `true` | Prepare and add context before each model step and provide the companion memory service; `false` leaves prompt-time context to the gateway and sends the gateway conversation and internal-turn headers |
 | `POWERCONTEXT_DSH_CAPTURE_PROMPTS` | `true` | Capture user prompts as Source evidence |
 | `POWERCONTEXT_DSH_FLUSH_ON_CAPTURE` | `false` | Wait for Source processing after capture |
 
@@ -649,7 +809,8 @@ See [Connect to a remote Server](../operate/connect-remote-server.md) for setup 
 
 The host plugin provides the optional Cordis service `powercontextCompanionMemory`, with protocol
 `powercontext.companion-memory.v1`. Trusted sibling plugins can soft-look it up with `ctx.get()`;
-it adds no Server HTTP endpoint and does not expose credentials or the raw client.
+it adds no Server HTTP endpoint and does not expose credentials or the raw client. The plugin does not provide it
+while [prompt recall is off](#leave-prompt-time-context-to-the-gateway).
 
 `prepare({ sessionId, query?, maxBytes?, signal?, traceContext? })` resolves the actual host session working directory
 and uses the running plugin's client, authentication, transport policy and Scope override. A durable DSH

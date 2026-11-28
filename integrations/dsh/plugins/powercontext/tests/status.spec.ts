@@ -114,6 +114,16 @@ describe('registered /pc automatic status', () => {
       capture: { state: 'accepted' }, injection: { state: 'skipped', code: 'no_prepared_content' } })
   })
 
+  it('reports disabled prompt recall without a preparation request', async () => {
+    const h = await fixture(success, { promptRecall: false })
+    await h.run()
+    expect((await h.status()).automatic.stages).toMatchObject({
+      scope: { state: 'resolved' }, prepare: { state: 'skipped', code: 'recall_disabled' },
+      capture: { state: 'accepted' }, injection: { state: 'skipped', code: 'recall_disabled' },
+    })
+    expect(h.requests).not.toContain(PREPARE)
+  })
+
   it.each([PREPARE, CAPTURE, FLUSH])('keeps other stage outcomes when %s fails', async (path) => {
     const h = await fixture(p => p === path ? response({ error: { code: 'runtime_not_ready', message: PRIVATE } }, 503)
       : success(p), { flushOnCapture: true })

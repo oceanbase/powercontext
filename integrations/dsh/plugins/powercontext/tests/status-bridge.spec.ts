@@ -36,6 +36,7 @@ function config(overrides: Partial<ResolvedConfig> = {}): ResolvedConfig {
     timeoutMs: 4_000,
     requestTimeoutMs: 1_000,
     maxBytes: 8_000,
+    promptRecall: true,
     capturePrompts: true,
     flushOnCapture: false,
     flushMaxCalls: 4,

@@ -128,7 +128,9 @@ make js-api-generate-check
 ```
 
 The plugin resolves an explicit Scope, a durable workspace binding, or the Server default. Environment overrides use
-the `POWERCONTEXT_DSH_` prefix for `BASE_URL`, `AUTHORIZATION`, `SCOPE_ID`, `CAPTURE_PROMPTS`, and `FLUSH_ON_CAPTURE`.
+the `POWERCONTEXT_DSH_` prefix for `BASE_URL`, `AUTHORIZATION`, `SCOPE_ID`, `PROMPT_RECALL`, `CAPTURE_PROMPTS`, and
+`FLUSH_ON_CAPTURE`. Set `POWERCONTEXT_DSH_PROMPT_RECALL=false` when DeepSeek Harness reaches its model through the
+PowerContext gateway, which then prepares context for each turn.
 `timeoutMs`, `requestTimeoutMs`, `maxBytes`, `flushMaxCalls`, and `ownerLocal` are plugin patch settings. Context
 returned by recall is labelled as untrusted history. An unavailable Server never blocks normal Harness work.
 

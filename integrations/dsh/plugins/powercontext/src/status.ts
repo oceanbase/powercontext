@@ -69,6 +69,7 @@ const SKIP_REASONS = {
   empty_input: 'The supplied messages contain no non-empty text.',
   no_user_text: 'No non-empty user-authored text was eligible for capture.',
   capture_disabled: 'Automatic prompt capture is disabled in the running plugin.',
+  recall_disabled: 'Automatic prompt-time recall is disabled in the running plugin.',
   source_too_long: 'The user text exceeds the Source length limit.',
   sensitive_content: 'The user text matched the secret exclusion rules.',
   scope_unresolved: 'No Scope was resolved for this attempt.',
