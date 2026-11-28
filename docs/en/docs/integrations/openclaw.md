@@ -268,6 +268,6 @@ PowerContext configuration.
 
 ## Remove the plugin
 
-`powercontext setup openclaw --remove` reports a failure for OpenClaw. Setup changes the memory slot, the tool
-allowlist, and the plugin configuration through `openclaw config`, then restarts the gateway, without recording the
-values that it replaced. Remove the plugin with OpenClaw's own plugin commands.
+`powercontext setup openclaw --remove` is not supported for OpenClaw: setup changes the memory slot, the tool allowlist,
+and the plugin configuration through `openclaw config` without recording the values it replaced. Remove the plugin with
+OpenClaw's own plugin commands.

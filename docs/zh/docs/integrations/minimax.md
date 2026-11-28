@@ -101,5 +101,4 @@ MiniMax 独立暴露私有连接和插件内连接，工具名可能分别包含
 
 ## 移除插件
 
-`powercontext setup minimax --remove` 对 MiniMax 会报告失败。MiniMax 在自己的状态中保存插件启用状态，
-setup 既不修改也不记录它；直接删除文件，可能让 MiniMax 留下一个已启用但不存在的插件。请在 MiniMax 中禁用并移除插件。
+`powercontext setup minimax --remove` 不支持 MiniMax：MiniMax 在自己的状态中保存插件启用状态，setup 既不修改也不记录它，直接删除文件可能留下一个已启用却已不存在的插件。请在 MiniMax 中禁用并移除插件。

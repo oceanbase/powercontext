@@ -245,5 +245,5 @@ powercontext doctor openclaw
 
 ## 移除插件
 
-`powercontext setup openclaw --remove` 对 OpenClaw 会报告失败。setup 通过 `openclaw config` 修改 memory slot、
-工具允许列表和插件配置，然后重启 gateway，但没有记录被替换的原值。请使用 OpenClaw 自己的插件命令移除插件。
+`powercontext setup openclaw --remove` 不支持 OpenClaw：setup 通过 `openclaw config` 修改 memory slot、
+工具允许列表和插件配置，但没有记录被替换的原值。请使用 OpenClaw 自己的插件命令移除插件。

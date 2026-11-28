@@ -620,25 +620,17 @@ powercontext setup dsh --remove
 powercontext setup dsh --remove --profile desktop
 ```
 
-Removal uses the saved profile unless `--profile` selects one. For a profile that registers the plugin, it runs
-`dsh plugin --profile <profile> remove` for `powercontext-dsh` and, when registered, `powercontext-dsh-pet`. As with
-setup, Desktop needs its Desktop-installed command. Removal then deletes the package link that pnpm leaves in the
-profile's `node_modules` and the checkout that setup cloned for a remote source. The profile's `cordis.patch.yml` and
-the pet memory state in `.powercontext-dsh-pet`, including unsent dialogue, stay.
+Removal applies to the saved profile, or to the profile that `--profile` selects. It unregisters `powercontext-dsh`, and
+`powercontext-dsh-pet` when registered, with `dsh plugin --profile <profile> remove`, then deletes the package link and
+any source checkout that setup cloned. The profile's `cordis.patch.yml` and the dsh-pet memory state stay. Fully quit
+DSH Desktop before removing the plugin from its profile.
 
-When the profile's DSH command is unavailable, for example because DSH is already uninstalled, removal still deletes
-those files and PowerContext's shared state, reports that the plugin registration was not checked, and names the
-`dsh plugin --profile <profile> remove` commands that unregister it. Rerun removal with `--profile` once DSH is
-available again to unregister it. Because npm/pnpm dsh cannot manage the Desktop profile, the Desktop note asks you to
-run those commands with the Desktop-installed dsh, or to rerun removal with
-`--dsh-command /path/to/Desktop/resources/runtime/cli/bin/dsh` (`dsh.cmd` on Windows). A `--dsh-command` passed on
-the command line must work.
-
-While another profile still registers the plugin, the shared Skill at `$DSH_HOME/skills/powercontext-project-context`,
-the credential at `$DSH_HOME/powercontext/credentials.json`, and the saved connection stay. Removing the plugin from the
-last profile deletes them. The saved connection names only the profile of the latest setup, so the result names each
-profile that still registers the plugin and the `powercontext setup dsh --remove --profile <profile>` command that
-removes it. Fully quit DSH Desktop before removing the plugin from its profile. See [CLI](../develop/interfaces.md#cli) for what removal keeps.
+While another profile still registers the plugin, the shared Skill, the stored credential, and the saved connection
+stay; the result names each such profile and the command that removes it. If the profile's DSH command is unavailable,
+removal still deletes PowerContext's files and shared state and prints the `dsh plugin` commands to run later. For the
+Desktop profile, run them with the Desktop-installed dsh, or rerun removal with
+`--dsh-command /path/to/Desktop/resources/runtime/cli/bin/dsh` (`dsh.cmd` on Windows). See
+[CLI](../develop/interfaces.md#cli) for what removal keeps.
 
 ## Environment variables
 

@@ -557,12 +557,11 @@ Complete the [Source, topic evolution, and cross-session recall check](../get-st
 powercontext setup codex --remove
 ```
 
-This uninstalls the plugin with `codex plugin remove` and removes the `powercontext` marketplace when it offers only
-PowerContext and no installed plugin uses it. It also deletes the credential that setup saved at
-`$CODEX_HOME/powercontext/credentials.json` and the saved Codex connection. On Windows, it deletes the
-`POWERCONTEXT_CODEX_AUTHORIZATION` user environment value that setup wrote for Codex Desktop while that value still
-holds the saved credential. Without the Codex CLI on `PATH`, removal still deletes the credential, that Windows value,
-and the saved connection, and reports that the plugin registration was not checked. See [CLI](../develop/interfaces.md#cli) for what removal keeps.
+This removes the plugin with `codex plugin remove`, along with its marketplace when that marketplace offers only
+PowerContext and no other installed plugin uses it. It also deletes the stored credential and the saved Codex
+connection, and on Windows the `POWERCONTEXT_CODEX_AUTHORIZATION` value that setup wrote for Codex Desktop. If the Codex
+CLI is not on `PATH`, the plugin and its marketplace stay, and removal prints the command that removes the plugin. See
+[CLI](../develop/interfaces.md#cli) for what removal keeps.
 
 ## Environment variables
 

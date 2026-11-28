@@ -139,6 +139,6 @@ powercontext capabilities
 
 ## 移除插件
 
-`powercontext setup hermes --remove` 对 Hermes 会报告失败。setup 通过 Hermes 自身启用 PowerContext，
-把它设为 memory provider 并启用命令插件，但没有记录哪些设置来自 setup、哪些来自你。
+`powercontext setup hermes --remove` 不支持 Hermes：
+setup 通过 Hermes 自身把 PowerContext 设为 memory provider 并启用命令插件，但没有记录哪些设置来自 setup、哪些来自你。
 请使用 Hermes 自己的插件和 memory 命令移除插件。

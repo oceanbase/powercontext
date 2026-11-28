@@ -530,24 +530,16 @@ powercontext setup dsh --remove
 powercontext setup dsh --remove --profile desktop
 ```
 
-除非用 `--profile` 指定，移除使用已保存的 profile。对于注册了插件的 profile，
-该命令会对 `powercontext-dsh` 运行 `dsh plugin --profile <profile> remove`；
-如果注册了 `powercontext-dsh-pet`，也会一并移除。与 setup 一样，Desktop 需要使用 Desktop 安装的命令。
-随后，它删除 pnpm 留在该 profile `node_modules` 中的 package 链接，以及 setup 为远程源克隆的 checkout。
-该 profile 的 `cordis.patch.yml` 和 `.powercontext-dsh-pet` 中的桌宠记忆状态（包括尚未发送的对话）会保留。
+移除作用于已保存的 profile，或 `--profile` 指定的 profile。
+它用 `dsh plugin --profile <profile> remove` 注销 `powercontext-dsh`；如果注册了 `powercontext-dsh-pet`，也会一并注销。
+随后删除 package 链接，以及 setup 克隆的源码 checkout。该 profile 的 `cordis.patch.yml` 和 dsh-pet 记忆状态会保留。
+从 Desktop profile 移除插件前，请完全退出 DSH Desktop。
 
-该 profile 的 DSH 命令不可用时（例如 DSH 已经卸载），移除仍会删除这些文件和 PowerContext 的共享状态，
-报告未检查插件注册，并给出注销插件所需的 `dsh plugin --profile <profile> remove` 命令。
-DSH 恢复可用后，用 `--profile` 再次移除即可注销插件。npm/pnpm 安装的 dsh 无法管理 Desktop profile，
-因此 Desktop 的提示会要求用 Desktop 安装的 dsh 运行这些命令，
+只要还有其他 profile 注册了插件，共享的 Skill、已保存的凭据和连接就会保留，结果会列出这些 profile 和移除它们的命令。
+该 profile 的 DSH 命令不可用时，移除仍会删除 PowerContext 的文件和共享状态，并给出之后要运行的 `dsh plugin` 命令。
+对于 Desktop profile，请用 Desktop 安装的 dsh 运行这些命令，
 或带上 `--dsh-command /path/to/Desktop/resources/runtime/cli/bin/dsh`（Windows 上为 `dsh.cmd`）再次移除。
-命令行中传入的 `--dsh-command` 必须可用。
-
-只要还有其他 profile 注册了插件，共享的 `$DSH_HOME/skills/powercontext-project-context` Skill、
-`$DSH_HOME/powercontext/credentials.json` 中的凭据和已保存的连接就会保留；从最后一个 profile 移除插件时，
-才会删除它们。已保存的连接只记录最近一次 setup 的 profile，因此结果会列出仍注册了插件的每个 profile，
-以及移除它所需的 `powercontext setup dsh --remove --profile <profile>` 命令。
-从 Desktop profile 移除插件前，请完全退出 DSH Desktop。移除会保留哪些内容见 [CLI](../develop/interfaces.md#cli)。
+移除会保留哪些内容见 [CLI](../develop/interfaces.md#cli)。
 
 ## 环境变量
 

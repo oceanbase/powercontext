@@ -151,11 +151,10 @@ An unavailable Server does not block OpenCode and is checked separately by the d
 powercontext setup opencode --remove
 ```
 
-This deletes `plugins/powercontext-opencode.js` with its `.powercontext-opencode.json` manifest, the owned
-`skills/powercontext-project-context` Skill, and the PowerContext entries in `tui.json` or `tui.jsonc`. Other entries
-and comments stay. It also deletes the checkout that setup cloned for a remote source under the PowerContext data
-directory, the credential at `$OPENCODE_CONFIG_DIR/powercontext/credentials.json`, and the saved OpenCode connection.
-The OpenCode CLI must be on `PATH` because it reports the configuration directory. See [CLI](../develop/interfaces.md#cli) for what removal keeps.
+This deletes the plugin and Skill that setup installed in the OpenCode configuration directory, the PowerContext entries
+in `tui.json` or `tui.jsonc`, any source checkout that setup cloned, the stored credential, and the saved OpenCode
+connection. Other entries and comments in that file stay. Removal needs the OpenCode CLI on `PATH` to find the
+configuration directory. See [CLI](../develop/interfaces.md#cli) for what removal keeps.
 
 ## Automatic input privacy
 

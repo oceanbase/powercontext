@@ -101,6 +101,4 @@ Refresh the Local catalog with `Ctrl+R` in `/plugins`, or restart MiniMax, using
 
 ## Remove the plugin
 
-`powercontext setup minimax --remove` reports a failure for MiniMax. MiniMax keeps plugin enablement in its own state,
-which setup neither changes nor records, so deleting the files could leave MiniMax with an enabled plugin that no longer
-exists. Disable and remove the plugin in MiniMax.
+`powercontext setup minimax --remove` is not supported for MiniMax: MiniMax keeps plugin enablement in its own state, which setup neither changes nor records, so deleting the files could leave an enabled plugin that no longer exists. Disable and remove the plugin in MiniMax.

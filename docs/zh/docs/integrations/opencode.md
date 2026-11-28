@@ -137,11 +137,9 @@ doctor 单独检查；Server 不可用不会阻止 OpenCode 正常工作。
 powercontext setup opencode --remove
 ```
 
-该命令删除 `plugins/powercontext-opencode.js` 及其清单 `.powercontext-opencode.json`、
-PowerContext 拥有的 `skills/powercontext-project-context` Skill，以及 `tui.json` 或 `tui.jsonc` 中的
-PowerContext 条目。其他条目和注释会保留。它还会删除 setup 为远程源克隆到 PowerContext 数据目录中的 checkout、
-`$OPENCODE_CONFIG_DIR/powercontext/credentials.json` 中的凭据和已保存的 OpenCode 连接。
-OpenCode CLI 负责报告配置目录，所以 `PATH` 中必须有它。移除会保留哪些内容见 [CLI](../develop/interfaces.md#cli)。
+该命令删除 setup 安装在 OpenCode 配置目录中的插件和 Skill、`tui.json` 或 `tui.jsonc` 中的 PowerContext 条目、
+setup 克隆的源码 checkout，以及已保存的凭据和 OpenCode 连接。该文件中的其他条目和注释会保留。
+移除需要 `PATH` 中有 OpenCode CLI，用来找到配置目录。移除会保留哪些内容见 [CLI](../develop/interfaces.md#cli)。
 
 ## 自动输入隐私
 

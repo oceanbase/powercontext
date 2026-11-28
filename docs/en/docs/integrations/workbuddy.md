@@ -312,16 +312,15 @@ citation, response body, or authorization value.
 During each prompt you should see the hook's `Syncing PowerContext` status
 message. Verify the whole installation with `powercontext doctor`.
 
-## Uninstall
+## Remove the integration
 
 ```bash
 powercontext setup workbuddy --remove
 ```
 
-This removes the PowerContext `UserPromptSubmit` entry from `~/.workbuddy/settings.json`, the `powercontext` entry from
-`~/.workbuddy/mcp.json`, the hook files and scope resolver from `~/.workbuddy/hooks`, the owned
-`~/.workbuddy/skills/powercontext-project-context` Skill, the credential at `~/.workbuddy/powercontext/credentials.json`,
-and the saved WorkBuddy connection. Other hooks, MCP servers, and settings stay. See [CLI](../develop/interfaces.md#cli) for what removal keeps.
+This removes the PowerContext entries from `~/.workbuddy/settings.json` and `~/.workbuddy/mcp.json`. It also deletes the
+hook files, scope resolver, and Skill that setup installed, the stored credential, and the saved WorkBuddy connection.
+Other hooks, MCP servers, and settings stay. See [CLI](../develop/interfaces.md#cli) for what removal keeps.
 
 To undo a manual installation:
 

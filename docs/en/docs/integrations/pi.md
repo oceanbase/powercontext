@@ -155,11 +155,10 @@ changing PowerContext environment variables.
 powercontext setup pi --remove
 ```
 
-This runs `pi remove` for the package that setup registered and deletes its PowerContext-owned copy at `plugins/pi` in
-the PowerContext data directory. It also deletes the credential at `~/.pi/agent/powercontext/credentials.json` and the
-saved Pi connection. Other Pi packages stay. Without the Pi CLI on `PATH`, removal still deletes the owned copy, the
-credential, and the connection, and reports that the package registration was not checked. Pi then still lists the
-package entry without its directory; a later removal with the Pi CLI on `PATH` recognizes that entry and unregisters it. See [CLI](../develop/interfaces.md#cli) for what removal keeps.
+This unregisters the package with `pi remove` and deletes the copy that setup made, the stored credential, and the saved
+Pi connection. Other Pi packages stay. If the Pi CLI is not on `PATH`, the package stays registered and removal prints
+the `pi remove` command; rerunning removal once Pi is available also unregisters it. See
+[CLI](../develop/interfaces.md#cli) for what removal keeps.
 
 ## Environment variables
 
