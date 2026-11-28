@@ -1282,13 +1282,36 @@ jobs:
       - name: Test Pi package
         run: make pi-test
 
+      # The gateway e2e builds with the `cargo` on PATH. Select the pinned toolchain as rustup's default
+      # rather than through RUSTUP_TOOLCHAIN, which the cargo cache identity hashes.
+      - name: Install pinned Rust toolchain
+        run: |
+          rustup toolchain install 1.95.0 --profile minimal
+          rustup default 1.95.0
+
+      - name: Cache Gateway dependencies and compilation
+        id: cargo-cache
+        uses: ./.github/actions/setup-rust-cache
+        with:
+          workspaces: gateway -> target
+          shared-key: gateway
+          cache-bin: false
+          cache-on-failure: true
+
       - name: Verify Pi guidance adapter requests and results
         run: uv run pytest "tests/test_integration_guidance_evaluation.py::test_native_adapter_handoff_uses_real_request_mapping_and_response_envelopes[pi]"
 
-      - name: Run Pi with the PowerContext extension against a real Server
+      - name: Run Pi with the PowerContext extension against a real Server and gateway
         env:
           POWERCONTEXT_TEST_PI_HOST: "1"
-        run: uv run pytest tests/e2e/test_pi_service_chain.py
+        run: uv run pytest tests/e2e/test_pi_service_chain.py tests/e2e/test_pi_gateway_chain.py
+
+      - name: Save Gateway dependencies and compilation
+        if: (success() || failure()) && steps.cargo-cache.outputs.cache-backend == 's3' && steps.cargo-cache.outputs.cache-hit != 'true'
+        uses: ./.github/actions/cache-save
+        with:
+          path: ${{ steps.cargo-cache.outputs.cache-path }}
+          key: ${{ steps.cargo-cache.outputs.cache-key }}
 
   opencode-package:
     needs: [quality, tests]

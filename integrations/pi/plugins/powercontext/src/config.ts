@@ -25,6 +25,8 @@ export interface ResolvedConfig {
   scopeId: string | undefined
   authorization: string | undefined
   capturePrompts: boolean
+  /** Prepare context for each prompt and add it to the system prompt; off when the gateway injects context. */
+  promptRecall: boolean
   requestTimeoutMs: number
   generationTimeoutMs?: number
   httpBudgetMs: number
@@ -41,6 +43,7 @@ const DEFAULTS: ResolvedConfig = {
   scopeId: undefined,
   authorization: undefined,
   capturePrompts: true,
+  promptRecall: true,
   requestTimeoutMs: 3000,
   generationTimeoutMs: 30_000,
   httpBudgetMs: 6000,
@@ -110,6 +113,7 @@ export function resolveConfig(env: NodeJS.ProcessEnv = process.env): ResolvedCon
     scopeId: envString(env, 'POWERCONTEXT_PI_SCOPE_ID'),
     authorization: envString(env, 'POWERCONTEXT_PI_AUTHORIZATION'),
     capturePrompts: envBoolean(env, 'POWERCONTEXT_PI_CAPTURE_PROMPTS') ?? DEFAULTS.capturePrompts,
+    promptRecall: envBoolean(env, 'POWERCONTEXT_PI_PROMPT_RECALL') ?? DEFAULTS.promptRecall,
     requestTimeoutMs,
     generationTimeoutMs,
     httpBudgetMs,
