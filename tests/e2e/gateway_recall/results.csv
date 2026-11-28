@@ -1,0 +1,153 @@
+route,arm,case_id,iteration,temperature,status,latency_ms,expected_recall,expected_memory_ids,prepare_queries,injected_memory_ids,hit,main_input_tokens,main_cached_tokens,main_output_tokens,auxiliary_input_tokens,auxiliary_cached_tokens,auxiliary_output_tokens
+chat,baseline,ambiguous-login-timeout,1,cold,200,1191.78,True,"[""login-timeout""]","[""Continue.""]",[],False,1430,0,36,,,
+chat,experiment,ambiguous-login-timeout,1,cold,200,1352.99,True,"[""login-timeout""]","[""previously agreed compatibility rule for login timeout""]","[""login-timeout""]",True,1597,1280,11,1590,0,17
+chat,baseline,ambiguous-login-timeout,2,warm,200,1002.82,True,"[""login-timeout""]","[""Continue.""]",[],False,1430,1280,38,,,
+chat,experiment,ambiguous-login-timeout,2,warm,200,2626.84,True,"[""login-timeout""]","[""previously agreed compatibility rule for login timeout""]","[""login-timeout""]",True,1597,1408,32,1590,1408,17
+chat,baseline,ambiguous-login-timeout,3,warm,200,1549.01,True,"[""login-timeout""]","[""Continue.""]",[],False,1430,1280,28,,,
+chat,experiment,ambiguous-login-timeout,3,warm,200,1589.93,True,"[""login-timeout""]","[""previously agreed compatibility rule for login timeout""]","[""login-timeout""]",True,1597,1408,23,1590,1408,17
+chat,baseline,specified-login-timeout,1,cold,200,544.06,False,[],"[""Continue.""]",[],,1435,0,60,,,
+chat,experiment,specified-login-timeout,1,cold,200,1947.86,False,[],[],[],,1435,1280,34,1595,0,10
+chat,baseline,specified-login-timeout,2,warm,200,976.39,False,[],"[""Continue.""]",[],,1435,1280,61,,,
+chat,experiment,specified-login-timeout,2,warm,200,2096.06,False,[],[],[],,1435,1280,29,1595,1408,10
+chat,baseline,specified-login-timeout,3,warm,200,598.35,False,[],"[""Continue.""]",[],,1435,1280,20,,,
+chat,experiment,specified-login-timeout,3,warm,200,1072.52,False,[],[],[],,1435,1280,31,1595,1408,10
+chat,baseline,task-switch-login-timeout,1,cold,200,562.32,True,"[""login-timeout""]","[""Switch to login timeout. Which compatibility rule did we agree to follow?""]","[""login-timeout""]",True,1604,0,14,,,
+chat,experiment,task-switch-login-timeout,1,cold,200,1248.28,True,"[""login-timeout""]","[""agreed compatibility rule for login timeout""]","[""login-timeout""]",True,1604,1280,15,1597,0,16
+chat,baseline,task-switch-login-timeout,2,warm,200,1035.99,True,"[""login-timeout""]","[""Switch to login timeout. Which compatibility rule did we agree to follow?""]","[""login-timeout""]",True,1604,1408,31,,,
+chat,experiment,task-switch-login-timeout,2,warm,200,2436.49,True,"[""login-timeout""]","[""HTTP client settings login timeout compatibility rule agreed to follow""]",[],False,1437,1280,20,1597,1408,19
+chat,baseline,task-switch-login-timeout,3,warm,200,467.36,True,"[""login-timeout""]","[""Switch to login timeout. Which compatibility rule did we agree to follow?""]","[""login-timeout""]",True,1604,1408,13,,,
+chat,experiment,task-switch-login-timeout,3,warm,200,1051.34,True,"[""login-timeout""]","[""compatibility rule agreed for login timeout""]","[""login-timeout""]",True,1604,1408,10,1597,1408,16
+chat,baseline,tool-continuation-login-timeout,1,cold,200,718.59,False,[],[],[],,1686,0,16,,,
+chat,experiment,tool-continuation-login-timeout,1,cold,200,513.92,False,[],[],[],,1686,0,10,,,
+chat,baseline,tool-continuation-login-timeout,2,warm,200,870.97,False,[],[],[],,1686,1536,29,,,
+chat,experiment,tool-continuation-login-timeout,2,warm,200,443.56,False,[],[],[],,1686,1536,11,,,
+chat,baseline,tool-continuation-login-timeout,3,warm,200,714.09,False,[],[],[],,1686,1536,24,,,
+chat,experiment,tool-continuation-login-timeout,3,warm,200,848.97,False,[],[],[],,1686,1536,21,,,
+chat,baseline,ambiguous-backup-restore,1,cold,200,533.08,True,"[""backup-restore""]","[""Use the earlier one.""]","[""worker-retry"",""release-build""]",False,1694,0,17,,,
+chat,experiment,ambiguous-backup-restore,1,cold,200,1896.28,True,"[""backup-restore""]","[""previously agreed compatibility rule for backup restore""]","[""backup-restore""]",True,1602,1280,35,1593,0,17
+chat,baseline,ambiguous-backup-restore,2,warm,200,1064.5,True,"[""backup-restore""]","[""Use the earlier one.""]","[""worker-retry"",""release-build""]",False,1694,1536,51,,,
+chat,experiment,ambiguous-backup-restore,2,warm,200,1650.17,True,"[""backup-restore""]","[""previously agreed compatibility rule for backup restore""]","[""backup-restore""]",True,1602,1408,21,1593,1408,17
+chat,baseline,ambiguous-backup-restore,3,warm,200,1172.0,True,"[""backup-restore""]","[""Use the earlier one.""]","[""worker-retry"",""release-build""]",False,1694,1536,44,,,
+chat,experiment,ambiguous-backup-restore,3,warm,200,1749.87,True,"[""backup-restore""]","[""Use the earlier one.""]","[""worker-retry"",""release-build""]",False,1694,1536,40,1593,1408,17
+chat,baseline,specified-backup-restore,1,cold,200,728.47,False,[],"[""Only read the restore command in the runbook. Everything else is done.""]",[],,1450,0,18,,,
+chat,experiment,specified-backup-restore,1,cold,200,1745.53,False,[],"[""restore command in the backup restore runbook""]","[""backup-restore""]",,1619,1280,38,1610,0,18
+chat,baseline,specified-backup-restore,2,warm,200,561.31,False,[],"[""Only read the restore command in the runbook. Everything else is done.""]",[],,1450,1280,15,,,
+chat,experiment,specified-backup-restore,2,warm,200,2013.23,False,[],[],[],,1450,1280,64,1610,1408,10
+chat,baseline,specified-backup-restore,3,warm,200,795.54,False,[],"[""Only read the restore command in the runbook. Everything else is done.""]",[],,1450,1280,23,,,
+chat,experiment,specified-backup-restore,3,warm,200,1299.34,False,[],[],[],,1450,1280,11,1610,1408,10
+chat,baseline,task-switch-backup-restore,1,cold,200,872.67,True,"[""backup-restore""]","[""Switch to backup restore. Which compatibility rule did we agree to follow?""]","[""backup-restore""]",True,1604,0,11,,,
+chat,experiment,task-switch-backup-restore,1,cold,200,1628.47,True,"[""backup-restore""]","[""backup restore compatibility rule agreed to follow""]","[""backup-restore""]",True,1604,1280,8,1595,0,17
+chat,baseline,task-switch-backup-restore,2,warm,200,801.07,True,"[""backup-restore""]","[""Switch to backup restore. Which compatibility rule did we agree to follow?""]","[""backup-restore""]",True,1604,1408,7,,,
+chat,experiment,task-switch-backup-restore,2,warm,200,1428.69,True,"[""backup-restore""]","[""backup restore compatibility rule we agreed to follow""]","[""backup-restore""]",True,1604,1408,7,1595,1408,18
+chat,baseline,task-switch-backup-restore,3,warm,200,728.75,True,"[""backup-restore""]","[""Switch to backup restore. Which compatibility rule did we agree to follow?""]","[""backup-restore""]",True,1604,1408,9,,,
+chat,experiment,task-switch-backup-restore,3,warm,200,1398.75,True,"[""backup-restore""]","[""backup restore compatibility rule agreed to follow""]","[""backup-restore""]",True,1604,1408,7,1595,1408,17
+chat,baseline,tool-continuation-backup-restore,1,cold,200,804.84,False,[],[],[],,1686,0,27,,,
+chat,experiment,tool-continuation-backup-restore,1,cold,200,726.57,False,[],[],[],,1686,0,16,,,
+chat,baseline,tool-continuation-backup-restore,2,warm,200,530.89,False,[],[],[],,1686,1536,14,,,
+chat,experiment,tool-continuation-backup-restore,2,warm,200,900.42,False,[],[],[],,1686,1536,10,,,
+chat,baseline,tool-continuation-backup-restore,3,warm,200,2000.45,False,[],[],[],,1686,1536,17,,,
+chat,experiment,tool-continuation-backup-restore,3,warm,200,778.39,False,[],[],[],,1686,1536,10,,,
+chat,baseline,ambiguous-schema-rollout,1,cold,200,818.56,True,"[""schema-rollout""]","[""What was the agreed order?""]",[],False,1435,0,38,,,
+chat,experiment,ambiguous-schema-rollout,1,cold,200,1857.78,True,"[""schema-rollout""]","[""previously agreed compatibility rule and order for schema rollout""]","[""schema-rollout""]",True,1602,1280,21,1595,0,19
+chat,baseline,ambiguous-schema-rollout,2,warm,200,752.29,True,"[""schema-rollout""]","[""What was the agreed order?""]",[],False,1435,1280,22,,,
+chat,experiment,ambiguous-schema-rollout,2,warm,200,1541.06,True,"[""schema-rollout""]","[""What was the agreed order?""]",[],False,1435,1280,50,1595,1408,20
+chat,baseline,ambiguous-schema-rollout,3,warm,200,783.95,True,"[""schema-rollout""]","[""What was the agreed order?""]",[],False,1435,1280,23,,,
+chat,experiment,ambiguous-schema-rollout,3,warm,200,2101.25,True,"[""schema-rollout""]","[""agreed compatibility rule and rollout order for schema changes""]","[""schema-rollout""]",True,1602,1408,34,1595,1408,20
+chat,baseline,specified-schema-rollout,1,cold,200,519.0,False,[],"[""Only check the generated migration diff. Everything else is done.""]",[],,1445,0,18,,,
+chat,experiment,specified-schema-rollout,1,cold,200,1568.29,False,[],[],[],,1445,1280,17,1605,0,10
+chat,baseline,specified-schema-rollout,2,warm,200,617.85,False,[],"[""Only check the generated migration diff. Everything else is done.""]",[],,1445,1280,38,,,
+chat,experiment,specified-schema-rollout,2,warm,200,1064.79,False,[],[],[],,1445,1280,15,1605,1408,10
+chat,baseline,specified-schema-rollout,3,warm,200,940.06,False,[],"[""Only check the generated migration diff. Everything else is done.""]",[],,1445,1280,14,,,
+chat,experiment,specified-schema-rollout,3,warm,200,1239.46,False,[],[],[],,1445,1280,27,1605,1408,10
+chat,baseline,task-switch-schema-rollout,1,cold,200,878.4,True,"[""schema-rollout""]","[""Switch to schema rollout. Which compatibility rule did we agree to follow?""]","[""schema-rollout""]",True,1605,0,15,,,
+chat,experiment,task-switch-schema-rollout,1,cold,200,1334.73,True,"[""schema-rollout""]","[""schema rollout compatibility rule agreed to follow""]","[""schema-rollout""]",True,1605,1280,12,1598,0,16
+chat,baseline,task-switch-schema-rollout,2,warm,200,746.48,True,"[""schema-rollout""]","[""Switch to schema rollout. Which compatibility rule did we agree to follow?""]","[""schema-rollout""]",True,1605,1408,27,,,
+chat,experiment,task-switch-schema-rollout,2,warm,200,1471.04,True,"[""schema-rollout""]","[""schema rollout compatibility rule agreement""]","[""schema-rollout""]",True,1605,1408,21,1598,1408,14
+chat,baseline,task-switch-schema-rollout,3,warm,200,644.0,True,"[""schema-rollout""]","[""Switch to schema rollout. Which compatibility rule did we agree to follow?""]","[""schema-rollout""]",True,1605,1408,14,,,
+chat,experiment,task-switch-schema-rollout,3,warm,200,1382.14,True,"[""schema-rollout""]","[""schema rollout compatibility rule agreed to follow""]","[""schema-rollout""]",True,1605,1408,10,1598,1408,16
+chat,baseline,tool-continuation-schema-rollout,1,cold,200,843.01,False,[],[],[],,1687,0,12,,,
+chat,experiment,tool-continuation-schema-rollout,1,cold,200,728.06,False,[],[],[],,1687,0,11,,,
+chat,baseline,tool-continuation-schema-rollout,2,warm,200,913.67,False,[],[],[],,1687,1536,17,,,
+chat,experiment,tool-continuation-schema-rollout,2,warm,200,430.94,False,[],[],[],,1687,1536,15,,,
+chat,baseline,tool-continuation-schema-rollout,3,warm,200,1050.16,False,[],[],[],,1687,1536,28,,,
+chat,experiment,tool-continuation-schema-rollout,3,warm,200,830.05,False,[],[],[],,1687,1536,11,,,
+chat,baseline,ambiguous-worker-retry,1,cold,200,806.17,True,"[""worker-retry""]","[""You changed the wrong thing. Please follow that rule.""]",[],False,1439,0,50,,,
+chat,experiment,ambiguous-worker-retry,1,cold,200,1453.87,True,"[""worker-retry""]","[""previously agreed compatibility rule for worker retry""]","[""worker-retry""]",True,1608,1280,31,1599,0,18
+chat,baseline,ambiguous-worker-retry,2,warm,200,1012.58,True,"[""worker-retry""]","[""You changed the wrong thing. Please follow that rule.""]",[],False,1439,1280,34,,,
+chat,experiment,ambiguous-worker-retry,2,warm,200,1560.61,True,"[""worker-retry""]","[""agreed compatibility rule for worker retry worker retry compatibility rule""]","[""worker-retry""]",True,1608,1408,22,1599,1408,22
+chat,baseline,ambiguous-worker-retry,3,warm,200,1125.94,True,"[""worker-retry""]","[""You changed the wrong thing. Please follow that rule.""]",[],False,1439,1280,31,,,
+chat,experiment,ambiguous-worker-retry,3,warm,200,1393.38,True,"[""worker-retry""]","[""previously agreed compatibility rule for worker retry""]","[""worker-retry""]",True,1608,1408,27,1599,1408,18
+chat,baseline,specified-worker-retry,1,cold,200,512.73,False,[],"[""Only check the retry test output. Everything else is done.""]",[],,1446,0,24,,,
+chat,experiment,specified-worker-retry,1,cold,200,1158.9,False,[],[],[],,1446,1280,35,1606,0,10
+chat,baseline,specified-worker-retry,2,warm,200,662.61,False,[],"[""Only check the retry test output. Everything else is done.""]",[],,1446,1280,12,,,
+chat,experiment,specified-worker-retry,2,warm,200,1592.84,False,[],[],[],,1446,1280,32,1606,1408,10
+chat,baseline,specified-worker-retry,3,warm,200,606.88,False,[],"[""Only check the retry test output. Everything else is done.""]",[],,1446,1280,14,,,
+chat,experiment,specified-worker-retry,3,warm,200,1116.7,False,[],[],[],,1446,1280,58,1606,1408,10
+chat,baseline,task-switch-worker-retry,1,cold,200,462.83,True,"[""worker-retry""]","[""Switch to worker retry. Which compatibility rule did we agree to follow?""]","[""worker-retry""]",True,1606,0,14,,,
+chat,experiment,task-switch-worker-retry,1,cold,200,1542.41,True,"[""worker-retry""]","[""compatibility rule agreed to follow for worker retry""]","[""worker-retry""]",True,1606,1280,39,1597,0,19
+chat,baseline,task-switch-worker-retry,2,warm,200,1024.04,True,"[""worker-retry""]","[""Switch to worker retry. Which compatibility rule did we agree to follow?""]","[""worker-retry""]",True,1606,1408,30,,,
+chat,experiment,task-switch-worker-retry,2,warm,200,1090.12,True,"[""worker-retry""]","[""compatibility rule agreed for worker retry""]","[""worker-retry""]",True,1606,1408,11,1597,1408,17
+chat,baseline,task-switch-worker-retry,3,warm,200,500.09,True,"[""worker-retry""]","[""Switch to worker retry. Which compatibility rule did we agree to follow?""]","[""worker-retry""]",True,1606,1408,11,,,
+chat,experiment,task-switch-worker-retry,3,warm,200,1634.58,True,"[""worker-retry""]","[""worker retry compatibility rule agreed to follow""]","[""worker-retry""]",True,1606,1408,11,1597,1408,17
+chat,baseline,tool-continuation-worker-retry,1,cold,200,670.79,False,[],[],[],,1686,0,7,,,
+chat,experiment,tool-continuation-worker-retry,1,cold,200,488.94,False,[],[],[],,1686,0,16,,,
+chat,baseline,tool-continuation-worker-retry,2,warm,200,577.32,False,[],[],[],,1686,1536,12,,,
+chat,experiment,tool-continuation-worker-retry,2,warm,200,1013.2,False,[],[],[],,1686,1536,16,,,
+chat,baseline,tool-continuation-worker-retry,3,warm,200,583.77,False,[],[],[],,1686,1536,17,,,
+chat,experiment,tool-continuation-worker-retry,3,warm,200,561.17,False,[],[],[],,1686,1536,20,,,
+chat,baseline,ambiguous-scope-routing,1,cold,200,941.22,True,"[""scope-routing""]","[""Keep the same restriction.""]","[""scope-routing""]",True,1601,0,38,,,
+chat,experiment,ambiguous-scope-routing,1,cold,200,1438.25,True,"[""scope-routing""]","[""Keep the same restriction.""]","[""scope-routing""]",True,1601,1280,15,1593,0,35
+chat,baseline,ambiguous-scope-routing,2,warm,200,798.14,True,"[""scope-routing""]","[""Keep the same restriction.""]","[""scope-routing""]",True,1601,1408,37,,,
+chat,experiment,ambiguous-scope-routing,2,warm,200,2627.53,True,"[""scope-routing""]","[""previously agreed compatibility rule for scope routing""]","[""scope-routing""]",True,1601,1408,14,1593,1408,17
+chat,baseline,ambiguous-scope-routing,3,warm,200,725.61,True,"[""scope-routing""]","[""Keep the same restriction.""]","[""scope-routing""]",True,1601,1408,23,,,
+chat,experiment,ambiguous-scope-routing,3,warm,200,2855.32,True,"[""scope-routing""]","[""Keep the same restriction.""]","[""scope-routing""]",True,1601,1408,22,1593,1408,512
+chat,baseline,specified-scope-routing,1,cold,200,532.19,False,[],"[""Only open the routing test file. Everything else is done.""]",[],,1444,0,7,,,
+chat,experiment,specified-scope-routing,1,cold,200,1602.45,False,[],"[""scope routing work: which routing test file should be opened, current status and prior decisions""]",[],,1444,1280,34,1604,0,26
+chat,baseline,specified-scope-routing,2,warm,200,520.3,False,[],"[""Only open the routing test file. Everything else is done.""]",[],,1444,1280,19,,,
+chat,experiment,specified-scope-routing,2,warm,200,1229.06,False,[],[],[],,1444,1280,27,1604,1408,10
+chat,baseline,specified-scope-routing,3,warm,200,684.28,False,[],"[""Only open the routing test file. Everything else is done.""]",[],,1444,1280,23,,,
+chat,experiment,specified-scope-routing,3,warm,200,1656.46,False,[],"[""scope routing repository routing test file location""]","[""scope-routing""]",,1612,1408,9,1604,1408,16
+chat,baseline,task-switch-scope-routing,1,cold,200,930.66,True,"[""scope-routing""]","[""Switch to scope routing. Which compatibility rule did we agree to follow?""]","[""scope-routing""]",True,1603,0,56,,,
+chat,experiment,task-switch-scope-routing,1,cold,200,1503.52,True,"[""scope-routing""]","[""scope routing compatibility rule agreed to follow""]","[""scope-routing""]",True,1603,1280,11,1595,0,16
+chat,baseline,task-switch-scope-routing,2,warm,200,671.44,True,"[""scope-routing""]","[""Switch to scope routing. Which compatibility rule did we agree to follow?""]","[""scope-routing""]",True,1603,1408,18,,,
+chat,experiment,task-switch-scope-routing,2,warm,200,1242.58,True,"[""scope-routing""]","[""scope routing compatibility rule agreement""]","[""scope-routing""]",True,1603,1408,11,1595,1408,14
+chat,baseline,task-switch-scope-routing,3,warm,200,480.33,True,"[""scope-routing""]","[""Switch to scope routing. Which compatibility rule did we agree to follow?""]","[""scope-routing""]",True,1603,1408,9,,,
+chat,experiment,task-switch-scope-routing,3,warm,200,1355.8,True,"[""scope-routing""]","[""Switch to scope routing. Which compatibility rule did we agree to follow?""]","[""scope-routing""]",True,1603,1408,12,1595,1408,19
+chat,baseline,tool-continuation-scope-routing,1,cold,200,556.69,False,[],[],[],,1686,0,6,,,
+chat,experiment,tool-continuation-scope-routing,1,cold,200,618.39,False,[],[],[],,1686,0,6,,,
+chat,baseline,tool-continuation-scope-routing,2,warm,200,705.17,False,[],[],[],,1686,1536,13,,,
+chat,experiment,tool-continuation-scope-routing,2,warm,200,760.49,False,[],[],[],,1686,1536,15,,,
+chat,baseline,tool-continuation-scope-routing,3,warm,200,450.53,False,[],[],[],,1686,1536,6,,,
+chat,experiment,tool-continuation-scope-routing,3,warm,200,663.71,False,[],[],[],,1686,1536,22,,,
+chat,baseline,ambiguous-release-build,1,cold,200,1358.59,True,"[""release-build""]","[""Proceed with the agreed version.""]",[],False,1433,0,46,,,
+chat,experiment,ambiguous-release-build,1,cold,200,2101.36,True,"[""release-build""]","[""agreed compatibility rule for release build and agreed version""]","[""release-build""]",True,1602,1280,14,1593,0,19
+chat,baseline,ambiguous-release-build,2,warm,200,894.39,True,"[""release-build""]","[""Proceed with the agreed version.""]",[],False,1433,1280,33,,,
+chat,experiment,ambiguous-release-build,2,warm,200,1506.56,True,"[""release-build""]","[""Proceed with the agreed version.""]",[],False,1433,1280,47,1593,1408,29
+chat,baseline,ambiguous-release-build,3,warm,200,726.01,True,"[""release-build""]","[""Proceed with the agreed version.""]",[],False,1433,1280,33,,,
+chat,experiment,ambiguous-release-build,3,warm,200,1214.24,True,"[""release-build""]","[""Proceed with the agreed version.""]",[],False,1433,1280,30,1593,1408,32
+chat,baseline,specified-release-build,1,cold,200,502.56,False,[],"[""Only inspect the local build log. Everything else is done.""]",[],,1442,0,17,,,
+chat,experiment,specified-release-build,1,cold,200,1020.27,False,[],[],[],,1442,1280,32,1602,0,10
+chat,baseline,specified-release-build,2,warm,200,734.65,False,[],"[""Only inspect the local build log. Everything else is done.""]",[],,1442,1280,31,,,
+chat,experiment,specified-release-build,2,warm,200,2379.14,False,[],"[""local build log location and latest release build log inspection results""]","[""release-build""]",,1611,1408,9,1602,1408,20
+chat,baseline,specified-release-build,3,warm,200,544.17,False,[],"[""Only inspect the local build log. Everything else is done.""]",[],,1442,1280,18,,,
+chat,experiment,specified-release-build,3,warm,200,1444.57,False,[],[],[],,1442,1280,32,1602,1408,10
+chat,baseline,task-switch-release-build,1,cold,200,891.63,True,"[""release-build""]","[""Switch to release build. Which compatibility rule did we agree to follow?""]","[""release-build""]",True,1602,0,31,,,
+chat,experiment,task-switch-release-build,1,cold,200,1124.9,True,"[""release-build""]","[""agreed compatibility rule for release build""]","[""release-build""]",True,1602,1280,37,1593,0,16
+chat,baseline,task-switch-release-build,2,warm,200,664.18,True,"[""release-build""]","[""Switch to release build. Which compatibility rule did we agree to follow?""]","[""release-build""]",True,1602,1408,43,,,
+chat,experiment,task-switch-release-build,2,warm,200,2011.53,True,"[""release-build""]","[""compatibility rule agreed for release build and release packaging""]","[""release-build""]",True,1602,1408,42,1593,1408,19
+chat,baseline,task-switch-release-build,3,warm,200,568.78,True,"[""release-build""]","[""Switch to release build. Which compatibility rule did we agree to follow?""]","[""release-build""]",True,1602,1408,13,,,
+chat,experiment,task-switch-release-build,3,warm,200,1201.06,True,"[""release-build""]","[""release build compatibility rule agreed to follow""]","[""release-build""]",True,1602,1408,43,1593,1408,16
+chat,baseline,tool-continuation-release-build,1,cold,200,747.03,False,[],[],[],,1684,0,12,,,
+chat,experiment,tool-continuation-release-build,1,cold,200,563.02,False,[],[],[],,1684,0,9,,,
+chat,baseline,tool-continuation-release-build,2,warm,200,854.95,False,[],[],[],,1684,1536,11,,,
+chat,experiment,tool-continuation-release-build,2,warm,200,469.85,False,[],[],[],,1684,1536,7,,,
+chat,baseline,tool-continuation-release-build,3,warm,200,635.53,False,[],[],[],,1684,1536,9,,,
+chat,experiment,tool-continuation-release-build,3,warm,200,539.45,False,[],[],[],,1684,1536,11,,,
+responses,baseline,ambiguous-login-timeout,1,cold,200,694.51,True,"[""login-timeout""]","[""Continue.""]",[],False,1432,0,54,,,
+responses,experiment,ambiguous-login-timeout,1,cold,200,1300.96,True,"[""login-timeout""]","[""previously agreed compatibility rule for login timeout""]","[""login-timeout""]",True,1595,1280,57,1592,0,17
+responses,baseline,specified-login-timeout,1,cold,200,1679.99,False,[],"[""Continue.""]",[],,1437,0,21,,,
+responses,experiment,specified-login-timeout,1,cold,200,1278.49,False,[],[],[],,1437,1280,60,1597,0,10
+responses,baseline,task-switch-login-timeout,1,cold,200,927.17,True,"[""login-timeout""]","[""Switch to login timeout. Which compatibility rule did we agree to follow?""]","[""login-timeout""]",True,1602,0,39,,,
+responses,experiment,task-switch-login-timeout,1,cold,200,1154.48,True,"[""login-timeout""]","[""login timeout compatibility rule agreed to follow""]","[""login-timeout""]",True,1602,1280,12,1599,0,16
+responses,baseline,tool-continuation-login-timeout,1,cold,200,1107.42,False,[],[],[],,1688,0,85,,,
+responses,experiment,tool-continuation-login-timeout,1,cold,200,578.4,False,[],[],[],,1688,0,20,,,
