@@ -2239,6 +2239,7 @@ const WRITE_OPERATIONS = new Set([
 	"remember_memory",
 	"capture_content_source",
 	"capture_working_note",
+	"record_task_outcome",
 	"revise_memory_entry",
 	"retire_memory_entry",
 	"replace_artifact",

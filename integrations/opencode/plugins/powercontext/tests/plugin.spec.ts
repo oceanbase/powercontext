@@ -291,6 +291,51 @@ describe('PowerContextPlugin', () => {
     expect(calls.find((call) => call.url.endsWith('/v1/sources/content'))?.body.content).toBe(prompt)
   })
 
+  it('guides the agent to record a task outcome only at an actual boundary', async () => {
+    process.env.POWERCONTEXT_OPENCODE_SCOPE_ID = 'project:test'
+    const calls: Array<{ url: string; body: any }> = []
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init: RequestInit) => {
+      const body = JSON.parse(String(init.body))
+      calls.push({ url, body })
+      return bindingResponse(url, body) ?? Response.json({ position: 7 }, { status: 202 })
+    }))
+    const hooks = await PowerContextPlugin(pluginInput())
+    const output = { system: ['Existing host guidance.'] }
+    await hooks['experimental.chat.system.transform']?.({ model: {} as never }, output)
+    expect(output.system[0]).toBe('Existing host guidance.')
+    const guidance = output.system.slice(1).join('\n')
+    expect(guidance).toContain('pc_task_outcome')
+    expect(guidance).toContain('actually complete or explicitly interrupted')
+    expect(guidance).toContain('intermediate turns')
+    for (const event of ['prompt boundary', 'Stop', 'session end']) expect(guidance).toContain(event)
+    expect(calls).toEqual([])
+
+    const ask = vi.fn(async () => undefined)
+    const outcome = {
+      schema: 'powercontext.task-outcome.v1', trust: 'untrusted_observation',
+      objective: 'Fix the parser', status: 'succeeded', summary: 'The parser fix passed validation.',
+      observations: [{ text: 'The regression passes.', basis: 'declared', evidence: [] }],
+      checks: [], produced_artifacts: [], remaining_work: [],
+    }
+    const result = await hooks.tool?.pc_task_outcome?.execute(
+      { source_id: 'parser-fix-outcome', outcome },
+      {
+        sessionID: 'session-1', messageID: 'msg-1', agent: 'build',
+        directory: '/tmp/project', worktree: '/tmp/project',
+        abort: new AbortController().signal, metadata: vi.fn(), ask,
+      },
+    )
+    expect(ask).toHaveBeenCalledWith(expect.objectContaining({
+      permission: 'powercontext', patterns: ['record_task_outcome'],
+    }))
+    expect(calls.map((call) => call.url)).toEqual([
+      'http://127.0.0.1:8000/v1/scope-bindings/resolve',
+      'http://127.0.0.1:8000/v1/work/outcomes/record',
+    ])
+    expect(calls[1]?.body).toEqual({ scope_id: 'project:test', source_id: 'parser-fix-outcome', outcome })
+    expect(JSON.parse(String(result))).toMatchObject({ ok: true, status: 202 })
+  })
+
   it('asks before a durable tool operation', async () => {
     process.env.POWERCONTEXT_OPENCODE_SCOPE_ID = 'project:test'
     vi.stubGlobal('fetch', vi.fn(async (url: string, init: RequestInit) => {

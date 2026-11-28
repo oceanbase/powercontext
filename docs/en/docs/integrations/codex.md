@@ -67,6 +67,10 @@ traffic goes through the gateway, turn prompt-time recall off so the gateway pre
 [Leave prompt-time context to the gateway](#leave-prompt-time-context-to-the-gateway). The plugin also
 uses `PreToolUse` for MCP Scope binding. Loading the plugin or discovering MCP tools does not prove that these hooks ran.
 
+With recall or capture enabled and a resolved Scope, `UserPromptSubmit` also gives Codex per-turn guidance.
+When a task is actually complete or explicitly interrupted, Codex can call the MCP tool `record_task_outcome` if available.
+Intermediate turns, `Stop`, and session end leave the task outcome open on their own.
+
 If trust was skipped or denied, inspect the PowerContext entries in `/hooks` and follow the host's available controls
 to enable or trust them. Follow any instruction to open a new session; check the hooks again before retrying capture.
 Controls and prompts depend on the Codex build. If the expected hooks are absent, check plugin installation and host
@@ -399,8 +403,8 @@ codex
 You can continue an existing thread after changing these settings. When the gateway omits replayed context, it logs
 `PowerContext plugin prepared context omitted by the gateway.`
 
-With recall off, `UserPromptSubmit` sends no preparation request and adds no context. It still captures prompts while
-`POWERCONTEXT_CODEX_CAPTURE_PROMPTS` is `true`; with both off, it sends no request. The Session binding, bootstrap
+With recall off, `UserPromptSubmit` sends no preparation request. It adds task-outcome guidance when prompt capture is enabled and Scope resolution succeeds. It still captures prompts while
+`POWERCONTEXT_CODEX_CAPTURE_PROMPTS` is `true`; with both off, it sends no request and adds no prompt-hook guidance. The Gateway's default steering does not supply this task-outcome guidance. The Session binding, bootstrap
 context, MCP tools, and diagnostics keep their own settings.
 
 ### Configure the gateway

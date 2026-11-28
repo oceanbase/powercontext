@@ -108,7 +108,9 @@ def test_claude_sessions_and_codex_share_one_project_memory(
             authorization=AUTHORIZATION if authentication_enabled else None,
             scope_id=scope_id,
         )
-        assert captured.stdout == ""
+        guidance = json.loads(captured.stdout)["hookSpecificOutput"]["additionalContext"]
+        assert "record_task_outcome" in guidance
+        assert "\n\n" not in guidance
         assert AUTH_TOKEN not in captured.stderr
 
         recalled_by_claude = _run_claude_hook(
