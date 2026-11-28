@@ -171,13 +171,16 @@ from langgraph.prebuilt import create_react_agent
 from powercontext_langgraph import PowerContextScope, powercontext_remember, powercontext_search
 
 
-def gateway_agent(thread_id: str):
+def gateway_agent(thread_id: str, scope_id: str):
     model = ChatOpenAI(
         model="approved-model",
         base_url="http://127.0.0.1:8787/gateway/v1",
         api_key=os.environ["PC_GATEWAY_KEY"],
         use_responses_api=True,
-        default_headers={"X-PowerContext-Conversation-ID": thread_id},
+        default_headers={
+            "X-PowerContext-Conversation-ID": thread_id,
+            "X-PowerContext-Scope-ID": scope_id,
+        },
     )
     return create_react_agent(
         model,
@@ -192,16 +195,24 @@ gateway. A thread in which the model called `powercontext_context` keeps that re
 custom graph, remove the recall node and have the model step read `messages`: `llm_input_messages` is graph state, so
 the checkpointer keeps the last recalled context there.
 
-`PC_GATEWAY_KEY` holds the gateway's `PC_GATEWAY_API_KEY` value. The header names the conversation: use the thread ID or
-another stable ID per conversation, of 1 to 256 visible ASCII characters, and never one ID for every conversation. A
-combined deployment (`PC_GATEWAY_CORE_UDS`) prepares once per user message of a conversation and replays that context to
-the tool-loop steps of the message. Without the header, it infers the conversation from the opening of the request:
-`ChatOpenAI` sends the thread's full history on every call unless `use_previous_response_id=True`, and a history that
-opens with system messages and a user message qualifies. The header still keeps apart conversations that open the same
-way, and gives capture and prefix extraction a conversation identity that stays the same across gateway restarts; an
-inferred ID is local to the gateway process and serves only preparation replay. A standalone gateway
-(`PC_GATEWAY_CORE_BASE`) injects only with `PC_GATEWAY_INJECTION=on`. See [Gateway context
-injection](../operate/deploy-server.md#gateway-context-injection).
+`PC_GATEWAY_KEY` holds the gateway's `PC_GATEWAY_API_KEY` value. `X-PowerContext-Conversation-ID` names the
+conversation: use the thread ID or another stable ID per conversation, of 1 to 256 visible ASCII characters, and never
+one ID for every conversation. A combined deployment (`PC_GATEWAY_CORE_UDS`) prepares once per user message of a
+conversation and replays that context to the tool-loop steps of the message. Without that header, it infers the
+conversation from the opening of the request: `ChatOpenAI` sends the thread's full history on every call unless
+`use_previous_response_id=True`, and a history that opens with system messages and a user message qualifies. The
+conversation header still keeps apart conversations that open the same way, and gives capture and prefix extraction a
+conversation identity that stays the same across gateway restarts; an inferred ID is local to the gateway process and
+serves only preparation replay. A standalone gateway (`PC_GATEWAY_CORE_BASE`) injects only with
+`PC_GATEWAY_INJECTION=on`. See [Gateway context injection](../operate/deploy-server.md#gateway-context-injection).
+
+`X-PowerContext-Scope-ID` selects the Scope in which the gateway prepares and captures the conversation, and Core
+checks each of its requests in that Scope. Pass the Scope the tools resolve for the run, as described in
+[Resolve the scope](#resolve-the-scope), so that they search and write the Memory the gateway recalls, and send the
+same Scope on every request of a conversation. Without the header, the gateway uses `PC_GATEWAY_DEFAULT_SCOPE`. When
+Core enforces authentication, the gateway's Core credential needs access to every Scope that requests select, not only
+to `PC_GATEWAY_DEFAULT_SCOPE`. Any client that can call the gateway can select any Scope that this credential can
+access; see [Gateway request Scope](../operate/deploy-server.md#gateway-request-scope).
 
 Use the Responses route (`use_responses_api=True`). There the gateway calls the model without streaming, captures the
 checked response, and replays it as a stream to a client that streams. On the Chat Completions route, an enforcing Core
@@ -219,8 +230,9 @@ Configure Core and the gateway as well:
   [Configure a supported target](../operate/inference-protection.md#configure-a-supported-target).
 - Set `PC_GATEWAY_UPSTREAM_URL_RESPONSES` and `PC_GATEWAY_UPSTREAM_API_KEY_RESPONSES` to the provider's Responses
   endpoint and key, `PC_GATEWAY_SEDIMENT=on`, and `PC_GATEWAY_CORE_TOKEN` when Core enforces authentication.
-- The gateway prepares and captures every conversation in the one Scope that `PC_GATEWAY_DEFAULT_SCOPE` names. Set it to
-  the Scope the tools resolve, so that they search and write the Memory the gateway recalls.
+- Set `PC_GATEWAY_DEFAULT_SCOPE` to the Scope for requests without `X-PowerContext-Scope-ID`. If the application does
+  not send the header, set it to the Scope the tools resolve, so that they search and write the Memory the gateway
+  recalls.
 
 ## Why this package does not implement `BaseStore`
 

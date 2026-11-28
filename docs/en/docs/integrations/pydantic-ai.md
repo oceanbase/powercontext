@@ -158,20 +158,33 @@ agent = Agent(model, toolsets=[toolset])
 result = await agent.run(
     prompt,
     message_history=history,
-    model_settings={"extra_headers": {"X-PowerContext-Conversation-ID": conversation_id}},
+    model_settings={
+        "extra_headers": {
+            "X-PowerContext-Conversation-ID": conversation_id,
+            "X-PowerContext-Scope-ID": scope_id,
+        },
+    },
 )
 ```
 
-`PC_GATEWAY_KEY` holds the gateway's `PC_GATEWAY_API_KEY` value. The header names the conversation: use one stable ID
-per conversation, of 1 to 256 visible ASCII characters, and never one ID for every conversation. A combined deployment
-(`PC_GATEWAY_CORE_UDS`) prepares once per user message of a conversation and replays that context to the tool-loop steps
-of the run. Without the header, it infers the conversation from the opening of the request: Pydantic AI sends the full
-message history on every request unless `openai_previous_response_id` or `openai_conversation_id` is set, and a history
-that opens with system messages and a user prompt qualifies. The header still keeps apart conversations that open the
-same way, and gives capture and prefix extraction a conversation identity that stays the same across gateway restarts;
-an inferred ID is local to the gateway process and serves only preparation replay. A standalone gateway
-(`PC_GATEWAY_CORE_BASE`) injects only with `PC_GATEWAY_INJECTION=on`. See [Gateway context
-injection](../operate/deploy-server.md#gateway-context-injection).
+`PC_GATEWAY_KEY` holds the gateway's `PC_GATEWAY_API_KEY` value. `X-PowerContext-Conversation-ID` names the
+conversation: use one stable ID per conversation, of 1 to 256 visible ASCII characters, and never one ID for every
+conversation. A combined deployment (`PC_GATEWAY_CORE_UDS`) prepares once per user message of a conversation and replays
+that context to the tool-loop steps of the run. Without that header, it infers the conversation from the opening of the
+request: Pydantic AI sends the full message history on every request unless `openai_previous_response_id` or
+`openai_conversation_id` is set, and a history that opens with system messages and a user prompt qualifies. The
+conversation header still keeps apart conversations that open the same way, and gives capture and prefix extraction a
+conversation identity that stays the same across gateway restarts; an inferred ID is local to the gateway process and
+serves only preparation replay. A standalone gateway (`PC_GATEWAY_CORE_BASE`) injects only with
+`PC_GATEWAY_INJECTION=on`. See [Gateway context injection](../operate/deploy-server.md#gateway-context-injection).
+
+`X-PowerContext-Scope-ID` selects the Scope in which the gateway prepares and captures the conversation, and Core
+checks each of its requests in that Scope. Pass the Scope the toolset resolves for the run, so that the tools search
+and write the Memory the gateway recalls, and send the same Scope on every run of a conversation. Without the header,
+the gateway uses `PC_GATEWAY_DEFAULT_SCOPE`. When Core enforces authentication, the gateway's Core credential needs
+access to every Scope that requests select, not only to `PC_GATEWAY_DEFAULT_SCOPE`. Any client that can call the gateway
+can select any Scope that this credential can access; see
+[Gateway request Scope](../operate/deploy-server.md#gateway-request-scope).
 
 Start behind the gateway with new message history. History from runs with the capability keeps the recalled context as a
 system prompt part, and history in which the model called `powercontext_context` keeps that result; Core rejects a
@@ -194,8 +207,9 @@ Configure Core and the gateway as well:
   [Configure a supported target](../operate/inference-protection.md#configure-a-supported-target).
 - Set `PC_GATEWAY_UPSTREAM_URL_RESPONSES` and `PC_GATEWAY_UPSTREAM_API_KEY_RESPONSES` to the provider's Responses
   endpoint and key, `PC_GATEWAY_SEDIMENT=on`, and `PC_GATEWAY_CORE_TOKEN` when Core enforces authentication.
-- The gateway prepares and captures every conversation in the one Scope that `PC_GATEWAY_DEFAULT_SCOPE` names. Set it to
-  the Scope the toolset resolves, so that the tools search and write the Memory the gateway recalls.
+- Set `PC_GATEWAY_DEFAULT_SCOPE` to the Scope for requests without `X-PowerContext-Scope-ID`. If the application does
+  not send the header, set it to the Scope the toolset resolves, so that the tools search and write the Memory the
+  gateway recalls.
 
 ## Compare the MCP fallback
 

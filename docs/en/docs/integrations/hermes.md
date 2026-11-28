@@ -221,10 +221,31 @@ discovers the mode at startup. See [Context reuse and final admission](../operat
 - Set `PC_GATEWAY_UPSTREAM_URL_RESPONSES` and `PC_GATEWAY_UPSTREAM_API_KEY_RESPONSES` to the provider's Responses
   endpoint and key, `PC_GATEWAY_API_KEY` to the key Hermes sends, `PC_GATEWAY_SEDIMENT=on`, and
   `PC_GATEWAY_CORE_TOKEN` when Core enforces authentication.
-- The gateway prepares and captures every conversation in the one Scope that `PC_GATEWAY_DEFAULT_SCOPE` names, not in
-  the Scope this provider resolves for each workspace. Set `PC_GATEWAY_DEFAULT_SCOPE` to the Scope that
-  `hermes powercontext status` prints as `scope_id`, or set the provider's `scope_id` and `PC_GATEWAY_DEFAULT_SCOPE` to
-  the same existing Scope.
+- The gateway prepares and captures in the Scope that a request selects with `X-PowerContext-Scope-ID`, and uses
+  `PC_GATEWAY_DEFAULT_SCOPE` when the header is absent. Use the Scope that `hermes powercontext status` prints as
+  `scope_id`, or set the provider's `scope_id` to an existing Scope and use that one. Set `PC_GATEWAY_DEFAULT_SCOPE`
+  to it; when the gateway serves only Hermes, that is enough.
+- To send the Scope from Hermes, add `extra_headers` to the `model` section of `~/.hermes/config.yaml`:
+
+  ```yaml
+  model:
+    extra_headers:
+      X-PowerContext-Scope-ID: <scope-id>
+  ```
+
+  Hermes 0.20.4 adds these headers to the agent's model client and to the auxiliary clients it builds for a custom
+  endpoint, so auxiliary requests such as a title or a compression summary carry the Scope too. Hermes also sends them
+  to other OpenAI-compatible endpoints it calls, not only to the gateway.
+- Alternatively, add the same `extra_headers` to the `powercontext-gateway` entry under `providers`. Hermes adds an
+  entry's `extra_headers` only to clients for that entry's endpoint. Hermes 0.20.4 builds its auxiliary requests, such
+  as a title or a compression summary, without them, so the gateway prepares those requests in
+  `PC_GATEWAY_DEFAULT_SCOPE` and, with `PC_GATEWAY_SEDIMENT=on`, captures them there. On a gateway that other clients
+  share, that can be another client's Scope.
+- Either way the headers are the same for every session, so every Hermes session works in that one Scope, not in the
+  Scope this provider resolves for each workspace. When Core enforces authentication, the gateway's Core credential
+  needs access to every Scope that requests select, not only to `PC_GATEWAY_DEFAULT_SCOPE`. Any client that can call
+  the gateway can select any Scope that this credential can access; see
+  [Gateway request Scope](../operate/deploy-server.md#gateway-request-scope).
 - Run the gateway in a combined deployment (`PC_GATEWAY_CORE_UDS`), which injects Hermes' requests by default.
   Hermes 0.20.4 sends no per-session header to a custom Responses endpoint, and a provider's `extra_headers` are the
   same for every session, so the gateway infers the conversation from the request instead. Hermes sends the whole

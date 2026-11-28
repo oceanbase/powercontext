@@ -157,13 +157,16 @@ from langgraph.prebuilt import create_react_agent
 from powercontext_langgraph import PowerContextScope, powercontext_remember, powercontext_search
 
 
-def gateway_agent(thread_id: str):
+def gateway_agent(thread_id: str, scope_id: str):
     model = ChatOpenAI(
         model="approved-model",
         base_url="http://127.0.0.1:8787/gateway/v1",
         api_key=os.environ["PC_GATEWAY_KEY"],
         use_responses_api=True,
-        default_headers={"X-PowerContext-Conversation-ID": thread_id},
+        default_headers={
+            "X-PowerContext-Conversation-ID": thread_id,
+            "X-PowerContext-Scope-ID": scope_id,
+        },
     )
     return create_react_agent(
         model,
@@ -177,14 +180,23 @@ hook 从不把召回内容写入 checkpoint 历史，因此已有的 thread 可�
 `powercontext_context`，该 thread 会保留这个结果，请改用新的 thread。在自定义 graph 中，请移除召回节点，并让模型步骤读取
 `messages`：`llm_input_messages` 是 graph state，checkpointer 会在其中保留最近一次召回的上下文。
 
-`PC_GATEWAY_KEY` 保存 gateway 的 `PC_GATEWAY_API_KEY` 值。这个请求头标识会话：每个会话使用一个稳定的 ID，例如 thread
+`PC_GATEWAY_KEY` 保存 gateway 的 `PC_GATEWAY_API_KEY` 值。`X-PowerContext-Conversation-ID` 请求头标识会话：
+每个会话使用一个稳定的 ID，例如 thread
 ID，长度为 1～256 个可见 ASCII 字符；不要让所有会话共用一个 ID。组合部署（`PC_GATEWAY_CORE_UDS`）
-在一个会话中每条用户消息准备一次，并把结果重放给这条消息的工具循环步骤。没有这个请求头时，它根据请求的历史开头推导会话：
+在一个会话中每条用户消息准备一次，并把结果重放给这条消息的工具循环步骤。没有会话请求头时，它根据请求的历史开头推导会话：
 除非设置 `use_previous_response_id=True`，`ChatOpenAI` 每次调用都发送 thread 的完整历史；
-以 system 消息和一条用户消息开头的历史即可推导。请求头仍能区分开头相同的会话，
+以 system 消息和一条用户消息开头的历史即可推导。会话请求头仍能区分开头相同的会话，
 并为采集和前缀提取提供在 gateway 重启后保持不变的会话标识；推导出的 ID 仅在当前 gateway 进程内用于重放准备结果。
 独立运行的 gateway（`PC_GATEWAY_CORE_BASE`）只有设置 `PC_GATEWAY_INJECTION=on` 才会注入。
 见[网关上下文注入](../operate/deploy-server.md#网关上下文注入)。
+
+`X-PowerContext-Scope-ID` 选择 gateway 准备和采集该会话所用的 Scope，Core 也在这个 Scope 中检查会话的每个请求。
+请传入工具为本次运行解析的 Scope（见[解析 scope](#解析-scope)），使工具搜索和写入的正是 gateway 召回的 Memory；
+同一会话的每个请求都应使用相同的 Scope。
+未发送该请求头时，gateway 使用 `PC_GATEWAY_DEFAULT_SCOPE`。
+Core 启用鉴权时，gateway 的 Core 凭据需要能访问请求选择的每个 Scope，
+而不只是 `PC_GATEWAY_DEFAULT_SCOPE`。任何能调用 gateway 的客户端，
+都能选择该凭据可访问的任何 Scope。见[Gateway 请求 Scope](../operate/deploy-server.md#gateway-请求-scope)。
 
 请使用 Responses 路由（`use_responses_api=True`）。在这个路由上，gateway 以非流式方式调用模型，采集通过检查的响应，
 并以流式重放给发送流式请求的客户端。在 Chat Completions 路由上，enforcing 模式的 Core 会暂缓流式响应，gateway
@@ -200,8 +212,8 @@ ID，长度为 1～256 个可见 ASCII 字符；不要让所有会话共用一�
   见[配置受支持的目标](../operate/inference-protection.md#配置受支持的目标)。
 - 把 `PC_GATEWAY_UPSTREAM_URL_RESPONSES` 和 `PC_GATEWAY_UPSTREAM_API_KEY_RESPONSES` 设为供应商的 Responses 端点和密钥，
   设置 `PC_GATEWAY_SEDIMENT=on`；Core 启用鉴权时还要设置 `PC_GATEWAY_CORE_TOKEN`。
-- gateway 在 `PC_GATEWAY_DEFAULT_SCOPE` 指定的同一个 Scope 中准备和采集所有会话。请把它设为工具解析的 Scope，
-  使工具搜索和写入的正是 gateway 召回的 Memory。
+- 把 `PC_GATEWAY_DEFAULT_SCOPE` 设为不带 `X-PowerContext-Scope-ID` 的请求所用的 Scope。应用不发送该请求头时，
+  请把它设为工具解析的 Scope，使工具搜索和写入的正是 gateway 召回的 Memory。
 
 ## 为什么本包不实现 `BaseStore`
 

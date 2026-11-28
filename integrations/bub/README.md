@@ -163,9 +163,21 @@ the mode at startup. See [Context reuse and final admission](../../docs/en/docs/
 - Set `PC_GATEWAY_UPSTREAM_URL_RESPONSES` and `PC_GATEWAY_UPSTREAM_API_KEY_RESPONSES` to the provider's Responses
   endpoint and key, `PC_GATEWAY_API_KEY` to the key Bub sends, `PC_GATEWAY_SEDIMENT=on`, and `PC_GATEWAY_CORE_TOKEN`
   when Core enforces authentication.
-- The gateway prepares and captures every session in the one Scope that `PC_GATEWAY_DEFAULT_SCOPE` names, not in the
-  Scope this plugin resolves for each workspace. Set `POWERCONTEXT_BUB_SCOPE_ID` and `PC_GATEWAY_DEFAULT_SCOPE` to the
-  same existing Scope, so that `powercontext.search` and `powercontext.remember` use the Scope the gateway fills.
+- The gateway prepares and captures in the Scope that a request selects with `X-PowerContext-Scope-ID`, and uses
+  `PC_GATEWAY_DEFAULT_SCOPE` when the header is absent. Bub 0.6.1 sends the `headers` in `BUB_CLIENT_ARGS` with every
+  model request, so they can select one Scope for every Bub session, not the Scope this plugin resolves for each
+  workspace. Set `POWERCONTEXT_BUB_SCOPE_ID` to an existing Scope, so that `powercontext.search` and
+  `powercontext.remember` use the Scope the gateway fills. Either send that Scope in the header:
+
+  ```bash
+  export BUB_CLIENT_ARGS='{"headers": {"X-PowerContext-Scope-ID": "<scope-id>"}}'
+  ```
+
+  Merge `headers` into any `BUB_CLIENT_ARGS` you already set. Without the header, set `PC_GATEWAY_DEFAULT_SCOPE` to
+  that Scope instead. When Core enforces authentication, the gateway's Core credential needs access to every Scope that
+  requests select, not only to `PC_GATEWAY_DEFAULT_SCOPE`. Any client that can call the gateway can select any Scope
+  that this credential can access; see
+  [Gateway request Scope](../../docs/en/docs/operate/deploy-server.md#gateway-request-scope).
 - Run the gateway in a combined deployment (`PC_GATEWAY_CORE_UDS`), which injects Bub's requests by default. Bub 0.6.1
   sends no per-session header, and headers in `BUB_CLIENT_ARGS` are the same for every session, so the gateway infers
   the conversation from the request instead. Bub sends the session's tape since its last anchor on every request,
