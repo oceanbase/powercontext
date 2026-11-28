@@ -475,6 +475,12 @@ return `422` instead of being ignored.
 creates a new resource. After a client timeout, the caller must confirm the result from business context and cannot
 assume that retry is idempotent.
 
+Explicit Atomic Memory creation through `remember_memory` is outside these operations and is the only Atomic Memory
+creation path with an idempotency key. The "Idempotent explicit creation" section of
+[RFC 1809](1809-atomic-memory.md) defines its optional `idempotency_key` request body field, namespace, request
+digest, replay, and retention. That field does not apply to Source Create or Artifact Create, and no operation accepts
+an `Idempotency-Key` header. Creating an Atomic Memory through Artifact Create remains non-idempotent.
+
 ## Status and error model
 
 | Status | Scenario |
@@ -509,6 +515,9 @@ The common error body is:
 
 Errors must not reveal whether a resource in another Scope exists. Permission and invisibility scenarios return
 `403` or `404` according to the common security policy.
+
+For `remember_memory`, an idempotency key already bound to a different request returns `409` with the existing code
+`idempotency_conflict` and `details.kind` set to `memory_idempotency_key`. No new error code is introduced for it.
 
 ## OpenAPI contract
 

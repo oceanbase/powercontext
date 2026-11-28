@@ -334,6 +334,8 @@ jobs:
         if: matrix.suite == 'unit'
         env:
           PYTEST_ADDOPTS: --require-dsh-config-runtime --require-claude-code-python-floor
+          # Limit contention for tests that spawn subprocesses with fixed deadlines.
+          PYTEST_WORKERS: "8"
         run: |
           PYTHONPATH="$PWD/.github/scripts${PYTHONPATH:+:$PYTHONPATH}" \
             make unit-test PYTEST_ARGS="-p pytest_ci_diagnostics -o faulthandler_timeout=600 --junitxml=$RUNNER_TEMP/pytest-diagnostics/unit.xml"

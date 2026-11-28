@@ -83,6 +83,7 @@ def test_locators_survive_upgrade_reopen_http_and_mcp(tmp_path):
         for statement in retired["statements"]:
             connection.execute(statement)
         connection.execute("DROP TABLE pc_artifact_source_locators")
+        connection.execute("DROP TABLE pc_atomic_memory_idempotency")
         connection.execute("UPDATE pc_schema_revision SET version_num = 'v1_5_0_003'")
 
     runner = deployment_runner(_settings(database))

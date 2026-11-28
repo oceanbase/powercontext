@@ -113,7 +113,7 @@
       "ecebbef5e9c33c1445a3686a1e6753b7e513c13db70ab8fe79483eceba1930c7"
     ],
     "000": [
-      "7a748a60138e2c22057ed757927573a77790efa55956119138f07fed7e79b9ad"
+      "8797df251713f0dc6fc6c6aa67c179b7f7030ba09cf64024d0e8cd8e819f6f8b"
     ]
   },
   "affected_objects": [
@@ -165,6 +165,7 @@
     "pc_artifact_vector_spaces",
     "pc_artifact_vectors",
     "pc_artifacts",
+    "pc_atomic_memory_alias",
     "pc_atomic_memory_current",
     "pc_atomic_memory_current_fts",
     "pc_atomic_memory_current_fts_config",
@@ -175,6 +176,7 @@
     "pc_atomic_memory_evidence",
     "pc_atomic_memory_evidence_history",
     "pc_atomic_memory_evidence_schema",
+    "pc_atomic_memory_idempotency",
     "pc_candidate_heads",
     "pc_candidate_versions",
     "pc_connector_checkpoints",
@@ -207,10 +209,12 @@
     "pc_server_identity",
     "pc_skill_packages",
     "pc_skill_publications",
+    "pc_source_collect_targets",
     "pc_source_cursors",
     "pc_source_definition_manifests",
     "pc_source_evidence_bindings",
     "pc_source_journal_heads",
+    "pc_source_runners",
     "pc_source_write_plugins",
     "pc_sources",
     "pc_topic_memory_active_chunks",
@@ -232,10 +236,7 @@
     "pc_topic_memory_topic_fts_docsize",
     "pc_topic_memory_topic_fts_idx",
     "pc_topic_memory_work_blocks",
-    "pc_topic_memory_work_budgets",
-    "pc_source_runners",
-    "pc_source_collect_targets",
-    "pc_atomic_memory_alias"
+    "pc_topic_memory_work_budgets"
   ],
   "readiness_scope": "server",
   "retained_objects": [

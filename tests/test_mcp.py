@@ -47,7 +47,8 @@ def test_mcp_guidance_is_visible_without_loading_a_skill() -> None:
     assert guidance
     names = {tool.name for tool in tools}
     referenced_names = set(re.findall(r"\b[a-z]+(?:_[a-z]+)+\b", guidance))
-    assert referenced_names - {"state_version", "merged_into_id", "expected_revision", "status_code"} <= names
+    fields = {"state_version", "merged_into_id", "expected_revision", "status_code", "idempotency_key"}
+    assert referenced_names - fields - {"idempotency_conflict"} <= names
     if directory := os.environ.get("POWERCONTEXT_GUIDANCE_EXPORT"):
         root = Path(__file__).parents[1]
         for host in ("codex", "claude-code", "workbuddy", "agent-plugin", "minimax"):
