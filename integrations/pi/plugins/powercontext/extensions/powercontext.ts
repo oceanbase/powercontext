@@ -25,6 +25,13 @@ import { resolveScopeId } from '../src/scope.ts'
 import { registerTools } from '../src/tools.ts'
 import { GUIDANCE } from '../src/guidance.ts'
 
+/** The gateway prepares once per user message and captures turns per conversation named by this header. */
+const CONVERSATION_HEADER = 'X-PowerContext-Conversation-ID'
+// The gateway accepts 1-256 visible ASCII characters and ignores anything else.
+const CONVERSATION_ID = /^[\x21-\x7e]{1,256}$/
+/** Marks a model request that is not a conversation turn, so the gateway neither prepares, injects nor captures it. */
+const TURN_HEADER = 'X-PowerContext-Turn'
+
 function createRuntime(): PluginRuntime {
   const config = resolveConfig()
   const client = new PowerContextClient({
@@ -72,7 +79,13 @@ export default function powercontextPi(pi: ExtensionAPI): void {
     registerCommands(pi, runtime)
   }
 
+  // Compaction and branch summaries are standalone model requests inside the Pi session. They are not turns of the
+  // gateway conversation, so they carry no conversation header and are marked internal. Pi emits no end event for a
+  // cancelled or failed summary, so the next agent turn also ends the summary window.
+  let summarizing = false
+
   pi.on('before_agent_start', async (event, ctx) => {
+    summarizing = false
     if (!runtime) return undefined
     const systemPrompt = `${event.systemPrompt}\n\n${GUIDANCE}`
     const recalled = await recallBeforeAgentStart({
@@ -87,11 +100,37 @@ export default function powercontextPi(pi: ExtensionAPI): void {
     return recalled ?? { systemPrompt }
   })
 
+  // Prompt recall is off when the gateway injects context. Only then does the Pi session id name the gateway
+  // conversation, so a provider that Pi calls directly does not receive it as a header.
+  if (runtime && !runtime.config.promptRecall) {
+    pi.on('before_provider_headers', (event, ctx) => {
+      if (summarizing) {
+        event.headers[TURN_HEADER] = 'internal'
+        return
+      }
+      const conversation = ctx.sessionManager.getSessionId()
+      if (CONVERSATION_ID.test(conversation)) event.headers[CONVERSATION_HEADER] = conversation
+    })
+    pi.on('turn_start', () => {
+      summarizing = false
+    })
+    pi.on('session_compact', () => {
+      summarizing = false
+    })
+    pi.on('session_before_tree', () => {
+      summarizing = true
+    })
+    pi.on('session_tree', () => {
+      summarizing = false
+    })
+  }
+
   pi.on('agent_end', (_event, ctx) => {
     void runtime?.flushPending?.('agent_end', ctx.signal)
   })
 
   pi.on('session_before_compact', async (event, _ctx) => {
+    summarizing = true
     await runtime?.flushPending?.('session_before_compact', event.signal)
   })
 

@@ -3990,3 +3990,68 @@ cargo build --locked --manifest-path desktop/src-tauri/Cargo.toml --example serv
   --product-qualification sqlite-dream-operations-389c4408-v1 \
   --wheel desktop/.artifacts/dream-operations-389c4408/powercontext-1.6.0.dev0+g389c44088-py3-none-any.whl
 ```
+
+## Server 7b58ce2 source content limit protocol qualification
+
+`sqlite-source-content-limit-7b58ce2-v1` covers all thirteen Desktop protocol operations against Server source
+`7b58ce2a601dc099966363667e0d040647fc3dff`. The contract makes the Content Source character limit a deployment
+setting, adds `GET /v1/source-limits`, applies the limit to every Content Source write path, and reports the effective
+value in the MCP capture schemas; the Desktop operations and their request or response shapes are unchanged.
+
+- Normalized OpenAPI SHA-256: `29f33308b74ff51bdd3d9825f85d7dd5a2308c80a476c6b1badf32a850e662f5`.
+- Wheel: `powercontext-0.1.dev2+g7b58ce2a6-py3-none-any.whl`.
+- Wheel SHA-256: `addb6322cc6f875a4a7cccc13f87146b901928b8e43dcfc0153ed8f5d3b997b3`.
+
+On 2026-11-27, Linux x86_64 (WSL2) with Python 3.14 and that wheel passed static Bearer mode with an enforced token:
+unauthenticated requests returned 401, and the bundled Python client exercised all thirteen operations. The Server ran
+with `POWERCONTEXT_SERVER_SOURCE_CONTENT_MAX_CHARS=64`: `GET /v1/source-limits` reported 64 and the 1,000,000-character
+ceiling; a 64-character capture was accepted and a 65-character capture returned `422 invalid_request` naming the
+limit; `POST /v1/scopes/{scope_id}/sources` accepted 64 string characters and a JSON value whose canonical text is 64
+characters, and rejected the corresponding 65-character writes with the same `422`.
+
+The native `server_probe` was not rebuilt for this record because the validation environment has no Rust toolchain. This
+record therefore establishes HTTP protocol compatibility between the new client contract and the exact wheel; it does not
+establish native-probe, installed-WebView, Windows/macOS or release acceptance.
+
+Reproduce against the recorded artifact:
+
+```sh
+uv build --wheel --out-dir /tmp/pc-wheel-limit8
+uv pip install --python /tmp/pc-venv-limit7/bin/python \
+  "/tmp/pc-wheel-limit8/powercontext-0.1.dev2+g7b58ce2a6-py3-none-any.whl[server,cli]"
+POWERCONTEXT_SERVER_ACCESS_MODE=enforced POWERCONTEXT_SERVER_AUTH_TOKEN=qualification-token \
+  POWERCONTEXT_SERVER_SOURCE_CONTENT_MAX_CHARS=64 \
+  /tmp/pc-venv-limit7/bin/powercontext server run --host 127.0.0.1 --port 8246 --no-env-file
+```
+
+## Combined Dream and source limit protocol qualification
+
+`sqlite-dream-source-limit-901247c5-v1` qualifies all thirteen Desktop protocol operations for client contract
+`093153a2b3d80d9184fa4e98d2535a9d39e025bb22d7a85bbd27eed97399c292` against committed Server source
+`901247c5ffc5876501f316e9a90fd3890fc53bd6`. The contract includes the Dream operation filters and Source content
+limit discovery. The thirteen Desktop operation paths and reachable wire models are unchanged. The Server wheel
+was built from a Git archive of that commit; all 828 packaged runtime files matched the archive byte-for-byte.
+
+- Wheel: `powercontext-1.6.0.dev0+g901247c5f-py3-none-any.whl`.
+- Wheel SHA-256: `525587c6a35b6f566e7b0202b393f88c7d8d9afc797328f7b92ba65011e6e3b7`.
+- Native debug probe SHA-256: `f8d99b5e5b7109630335cf9ce29b23731f491cac7fa613d202bfbb70a28cf467`.
+- Report SHA-256: `d044c6251105ed624575df44c42a59c02245e0f98a4aa676fdc38d036a01f88c`.
+- Isolated probe Cargo lock SHA-256: `08a366f192f4fbd010c2591274f85526719bc70d5951c2a331ad1e3953099dda`.
+
+On 2026-11-28, Linux 6.8 x86_64, glibc 2.39 and Python 3.11.15 passed anonymous loopback, static Bearer,
+HTTPS with an explicit CA/base path, and injected-provider/enforced-access modes of `desktop/tests/real_server.py`.
+The ordinary product ConnectionManager selected this bundled qualification. The probe compiled unmodified product
+protocol modules in an isolated Cargo crate without Tauri/WebView or `ci-fixtures`. Direct protocol dependency pins
+match the product manifest; the isolated crate uses vendored DBus and its own transitive lock. The wheel, report and
+lock are retained under ignored `desktop/.artifacts/pr2885-merge-901247c5/`.
+
+This establishes local SQLite protocol compatibility for the recorded Server and client contract. It does not
+establish installed WebView, platform keyring, Windows/macOS, native database performance or installed-release
+upgrade acceptance. No production model was called.
+
+```sh
+cargo build --locked --manifest-path desktop/src-tauri/Cargo.toml --example server_probe
+.venv/bin/python desktop/tests/real_server.py \
+  --product-qualification sqlite-dream-source-limit-901247c5-v1 \
+  --wheel desktop/.artifacts/pr2885-merge-901247c5/powercontext-1.6.0.dev0+g901247c5f-py3-none-any.whl
+```

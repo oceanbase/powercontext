@@ -25,6 +25,7 @@ describe('Pi configuration', () => {
       POWERCONTEXT_PI_SCOPE_ID: 'project:demo',
       POWERCONTEXT_PI_AUTHORIZATION: 'Bearer token',
       POWERCONTEXT_PI_CAPTURE_PROMPTS: 'false',
+      POWERCONTEXT_PI_PROMPT_RECALL: 'off',
       POWERCONTEXT_PI_REQUEST_TIMEOUT_MS: '1200',
       POWERCONTEXT_PI_HTTP_BUDGET_MS: '5000',
       POWERCONTEXT_PI_GENERATION_TIMEOUT_MS: '20000',
@@ -35,6 +36,7 @@ describe('Pi configuration', () => {
       scopeId: 'project:demo',
       authorization: 'Bearer token',
       capturePrompts: false,
+      promptRecall: false,
       requestTimeoutMs: 1200,
       generationTimeoutMs: 20000,
       httpBudgetMs: 5000,
@@ -43,6 +45,14 @@ describe('Pi configuration', () => {
       flushMaxCalls: 4,
       diagnostics: 'off',
     })
+  })
+
+  it('prepares context for each prompt unless prompt recall is turned off', () => {
+    expect(resolveConfig({}).promptRecall).toBe(true)
+    expect(resolveConfig({ POWERCONTEXT_PI_PROMPT_RECALL: 'false' }).promptRecall).toBe(false)
+    expect(() => resolveConfig({ POWERCONTEXT_PI_PROMPT_RECALL: 'sometimes' })).toThrow(
+      'POWERCONTEXT_PI_PROMPT_RECALL must be a boolean',
+    )
   })
 
   it('keeps diagnostics silent unless a sink is configured', () => {

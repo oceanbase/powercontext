@@ -233,7 +233,7 @@ Codex 为官方维护；其余 Agent 和 Python 框架集成为社区维护；Bu
 ## 了解更多
 
 - [核心概念](https://powercontext.oceanbase.io/zh/docs/get-started/core-concepts/) · [架构与职责边界](https://powercontext.oceanbase.io/zh/docs/workflows/architecture/) · [插件开发](https://powercontext.oceanbase.io/zh/docs/develop/plugins/)
-- [Python / HTTP / MCP 接口](https://powercontext.oceanbase.io/zh/docs/develop/interfaces/) · [部署 Server](https://powercontext.oceanbase.io/zh/docs/operate/deploy-server/)
+- [Python / HTTP / MCP 接口](https://powercontext.oceanbase.io/zh/docs/develop/interfaces/) · [部署 Server](https://powercontext.oceanbase.io/zh/docs/operate/deploy-server/) · [为每个 Gateway 请求选择 Scope](docs/zh/docs/operate/deploy-server.md#gateway-请求-scope)
 - [Token 评测报告](docs/benchmarks/token-savings/README_CN.md) · [博客](https://powercontext.oceanbase.io/zh/blog/)
 
 ## 社区

@@ -22,11 +22,13 @@ from starlette.responses import JSONResponse
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from powercontext.http import ErrorDetail, ErrorResponse
+from powercontext.http._generated.operations import ENROLL_REMOTE_SKILL_TARGET
 from powercontext.server.context import is_internal_bridge
 from powercontext.server.dashboard.session import DASHBOARD_SESSION_MAX_BODY_BYTES
 from powercontext.server.middleware import is_bodyless_public_request
 
 _PLUGIN_API = re.compile(r"^/(?:v1|dashboard)/plugins/[^/]+/api/")
+_REMOTE_ENROLLMENT_MAX_BODY_BYTES = 8 * 1024
 
 
 class HttpAdmissionMiddleware:
@@ -105,6 +107,8 @@ class HttpRequestBodyLimitMiddleware:
 
     def _limit(self, scope: Scope) -> int:
         path = scope["path"]
+        if path == ENROLL_REMOTE_SKILL_TARGET.path:
+            return min(self._max_body, _REMOTE_ENROLLMENT_MAX_BODY_BYTES)
         if self._dashboard_enabled and scope["method"] == "POST" and path == "/dashboard/session":
             return min(self._max_body, DASHBOARD_SESSION_MAX_BODY_BYTES)
         return self._plugin_max_body if _PLUGIN_API.match(path) else self._max_body

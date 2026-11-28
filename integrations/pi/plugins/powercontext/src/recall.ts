@@ -62,14 +62,15 @@ export function formatUntrustedContext(content: string): string {
 
 export async function recallBeforeAgentStart(input: BeforeAgentStartInput): Promise<{ systemPrompt: string } | undefined> {
   const prompt = input.prompt.trim()
-  if (!prompt) return undefined
+  const { promptRecall, capturePrompts } = input.runtime.config
+  if (!prompt || (!promptRecall && !capturePrompts)) return undefined
 
   let scopeId: string
   try {
     scopeId = await input.runtime.resolveScope(input.cwd)
   } catch (error) {
     try {
-      input.runtime.diagnostic?.('context_prepare', error)
+      input.runtime.diagnostic?.(promptRecall ? 'context_prepare' : 'capture_source', error)
     } catch {
       // Diagnostics are best effort and must not affect the turn.
     }
@@ -89,24 +90,27 @@ export async function recallBeforeAgentStart(input: BeforeAgentStartInput): Prom
       }
     }
     let content: string | undefined
-    try {
-      const response = await input.runtime.client.request('prepare_context', {
-        scope_id: scopeId,
-        query: boundedRecallQuery(safePrompt),
-        max_bytes: input.runtime.config.maxBytes,
-        ...(input.runtime.config.contextAssembly === undefined ? {} : { assembly: input.runtime.config.contextAssembly }),
-      }, signal)
-      const prepared = validatePreparedContext(
-        response.kind === 'json' ? response.value : undefined,
-        input.runtime.config.maxBytes,
-      )
-      content = prepared.status === 'ready' && typeof prepared.content === 'string' ? prepared.content : undefined
-    } catch (error) {
-      // Recall is an optional augmentation and must not block Pi.
+    // Behind the gateway, Core rejects any prepared-context block that the gateway did not inject itself.
+    if (promptRecall) {
       try {
-        input.runtime.diagnostic?.('context_prepare', error)
-      } catch {
-        // Diagnostics are best effort and must not affect the turn.
+        const response = await input.runtime.client.request('prepare_context', {
+          scope_id: scopeId,
+          query: boundedRecallQuery(safePrompt),
+          max_bytes: input.runtime.config.maxBytes,
+          ...(input.runtime.config.contextAssembly === undefined ? {} : { assembly: input.runtime.config.contextAssembly }),
+        }, signal)
+        const prepared = validatePreparedContext(
+          response.kind === 'json' ? response.value : undefined,
+          input.runtime.config.maxBytes,
+        )
+        content = prepared.status === 'ready' && typeof prepared.content === 'string' ? prepared.content : undefined
+      } catch (error) {
+        // Recall is an optional augmentation and must not block Pi.
+        try {
+          input.runtime.diagnostic?.('context_prepare', error)
+        } catch {
+          // Diagnostics are best effort and must not affect the turn.
+        }
       }
     }
 
