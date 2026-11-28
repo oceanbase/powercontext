@@ -960,6 +960,39 @@ const OPERATIONS = {
 		successStatuses: [200],
 		emptyStatuses: []
 	},
+	get_atomic_memory_processing_status: {
+		method: "POST",
+		path: "/v1/atomic-memory/processing/status",
+		location: "body",
+		scopeMode: "current",
+		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	get_atomic_memory_processing_block: {
+		method: "POST",
+		path: "/v1/atomic-memory/processing/blocks/get",
+		location: "body",
+		scopeMode: "current",
+		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	retry_atomic_memory_processing: {
+		method: "POST",
+		path: "/v1/atomic-memory/processing/retry",
+		location: "body",
+		scopeMode: "current",
+		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
 	get_topic_memory_processing_status: {
 		method: "POST",
 		path: "/v1/topic-memory/processing/status",
