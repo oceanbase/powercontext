@@ -6,9 +6,10 @@ This package connects Bub to a running PowerContext Server through the public Py
 
 - `powercontext.remember` stores one durable decision, preference, constraint, or procedure.
 - `powercontext.search` searches durable memory.
-- `powercontext.context` prepares bounded context for a question.
+- `powercontext.context` prepares bounded context for a question; it is not offered while prompt recall is off.
 
-Before each model call, the plugin also prepares relevant context and adds it as host-supplied historical evidence.
+Before each model call, the plugin also prepares relevant context and adds it as host-supplied historical evidence,
+unless [prompt-time context is left to the gateway](#leave-prompt-time-context-to-the-gateway).
 Automatic trajectory capture is opt-in. When enabled, the plugin captures the initial task and completed LLM and tool
 events as bounded Content Sources. It periodically flushes those Sources through the Memory pipeline so later model
 steps in the same Bub run can recall earlier findings. Provider-hidden reasoning is never available to the hook and is
@@ -38,6 +39,7 @@ validated by Pydantic before the plugin starts.
 | `POWERCONTEXT_BUB_TIMEOUT` | `10` | Client timeout in seconds |
 | `POWERCONTEXT_BUB_MAX_BYTES` | `8000` | Maximum prepared-context size |
 | `POWERCONTEXT_BUB_CONTEXT_ASSEMBLY` | unset | JSON object selecting prepared-context families and output options |
+| `POWERCONTEXT_BUB_PROMPT_RECALL` | `true` | Prepare and inject context before each model call and offer `powercontext.context`; `false` [leaves prompt-time context to the gateway](#leave-prompt-time-context-to-the-gateway) |
 | `POWERCONTEXT_BUB_CAPTURE_EVENTS` | `false` | Capture completed Bub events as Content Sources |
 | `POWERCONTEXT_BUB_CAPTURE_CHECKPOINT_EVERY` | `5` | Flush Memory after this many captured events |
 | `POWERCONTEXT_BUB_CAPTURE_MAX_BYTES` | `8192` | Maximum UTF-8 bytes stored for one captured event |
@@ -77,3 +79,107 @@ uv pip install -e . -e integrations/bub
 Legacy context retrieval remains available with `powercontext==0.2.0` when `context_assembly` is unset.
 Text assembly requires a core and Server that support it; install the core and plugin together from the same checkout
 using the command above. On an older core, configuring assembly raises an explicit upgrade message at startup.
+
+## Leave prompt-time context to the gateway
+
+When Bub sends its model requests through the PowerContext gateway, the gateway prepares and injects context for each
+model request and, with `PC_GATEWAY_SEDIMENT=on`, captures the turn. Core checks every request the gateway forwards
+and rejects a prepared-context block that the gateway did not inject, in every privacy mode: Core answers HTTP 422 and
+the gateway returns HTTP 503 `gate_paused`. The plugin adds such a block before each model call, so turn recall off.
+Leave event capture off as well, because the gateway captures the turns instead. Keep the defaults where Bub calls its
+model directly, because the gateway does not carry that traffic.
+
+### Turn the plugin's prompt recall off
+
+Set the switch where Bub starts, or store `prompt_recall: false` in the `powercontext` section of Bub's configuration
+file, and leave `POWERCONTEXT_BUB_CAPTURE_EVENTS` unset or `false`:
+
+```bash
+export POWERCONTEXT_BUB_PROMPT_RECALL=false
+```
+
+With recall off, the plugin sends no preparation request and adds no context to a model call. It also does not offer
+`powercontext.context`, because Bub keeps a tool's result in the session's tape and replays it with every later model
+call, and the gateway does not remove the plugin's prepared context from a tool result; Core would reject every later
+request of that session. A call to it is answered as an unknown tool. `powercontext.search` and `powercontext.remember`
+keep working. With event capture off, the plugin stores no events and sends no flushes. The turns the gateway
+captures become Memory through the Server's scheduled extraction, which needs both a generation model and
+`POWERCONTEXT_SERVER_RUNTIME_SCHEDULE_SECONDS`; neither is set by default. See
+[Server configuration](../../docs/en/docs/operate/configuration.md#server).
+
+The context the plugin adds before a model call is not stored in the tape, so an existing session can continue behind
+the gateway. Start a new session (a new `--session-id`), or reset the tape with Bub's `tape.reset` command, only if the
+session already called `powercontext.context`.
+
+### Point Bub at the gateway
+
+Use the `openai` provider with the gateway's `/gateway/v1` as its API base, and the gateway's `PC_GATEWAY_API_KEY` value
+as Bub's API key:
+
+```bash
+export BUB_MODEL=openai:approved-model
+export BUB_API_BASE=http://127.0.0.1:8787/gateway/v1
+export BUB_API_KEY="$PC_GATEWAY_API_KEY"
+```
+
+The `openai` provider uses the Responses route, and Bub streams every model call. On the Responses route the gateway
+calls the model without streaming and replays the checked response as a stream, so a streamed turn completes and is
+captured. Do not set `"api_format": "chat"` in `BUB_CLIENT_ARGS` or use the `openai-compatible` provider, which speak
+Chat Completions: the gateway forwards a streamed request on that route. An enforcing Core withholds streamed Chat
+Completions responses, and the gateway returns HTTP 400. With a non-enforcing Core, including the default `disabled`
+mode, the gateway releases the stream unchanged. With `PC_GATEWAY_SEDIMENT=on`, it also assembles the assistant's
+text from a terminal stream and captures the completed turn.
+
+### Choose the Core target
+
+Core needs a target for the profile that `PC_GATEWAY_UPSTREAM_PROFILE` names (`default` unless set), in every privacy
+mode, including `disabled`. Without one, Core withholds each request with `target_unsupported`, and the gateway returns
+HTTP 400 for every turn. See
+[Configure a supported target](../../docs/en/docs/operate/inference-protection.md#configure-a-supported-target).
+
+Bub 0.6.1 sends `max_output_tokens` on every Responses request, set by `BUB_MAX_TOKENS` (16384 unless set). By default
+it sends neither `store` nor `prompt_cache_key`. An enforcing Core admits its requests when:
+
+- Bub sends `store: false`. Core withholds a Responses request without it with `provider_state_unsupported`, and the
+  gateway returns HTTP 400 for every turn. Bub passes its completion arguments to every model call, and their
+  `extra_body` is merged into the request body:
+
+  ```bash
+  export BUB_COMPLETION_ARGS='{"extra_body": {"store": false}}'
+  ```
+
+- the target declares `context_window_tokens`, `max_output_tokens` at least `BUB_MAX_TOKENS`, and
+  `validated_utf8_token_bound`;
+- the target lists in `response_models` the model names the provider returns when they differ from the model in
+  `BUB_MODEL`. Otherwise Core withholds each response with `response_model_mismatch`.
+
+The window check counts each UTF-8 byte of the request as a token, so leave room in `context_window_tokens` for Bub's
+tool definitions, system prompt and session tape. Restart the gateway after changing Core's mode, because it discovers
+the mode at startup. See [Context reuse and final admission](../../docs/en/docs/operate/context-protection.md) and
+[Inference privacy protection](../../docs/en/docs/operate/inference-protection.md) before choosing a mode.
+
+### Configure the gateway
+
+- Set `PC_GATEWAY_UPSTREAM_URL_RESPONSES` and `PC_GATEWAY_UPSTREAM_API_KEY_RESPONSES` to the provider's Responses
+  endpoint and key, `PC_GATEWAY_API_KEY` to the key Bub sends, `PC_GATEWAY_SEDIMENT=on`, and `PC_GATEWAY_CORE_TOKEN`
+  when Core enforces authentication.
+- The gateway prepares and captures every session in the one Scope that `PC_GATEWAY_DEFAULT_SCOPE` names, not in the
+  Scope this plugin resolves for each workspace. Set `POWERCONTEXT_BUB_SCOPE_ID` and `PC_GATEWAY_DEFAULT_SCOPE` to the
+  same existing Scope, so that `powercontext.search` and `powercontext.remember` use the Scope the gateway fills.
+- Run the gateway in a combined deployment (`PC_GATEWAY_CORE_UDS`), which injects Bub's requests by default. Bub 0.6.1
+  sends no per-session header, and headers in `BUB_CLIENT_ARGS` are the same for every session, so the gateway infers
+  the conversation from the request instead. Bub sends the session's tape since its last anchor on every request,
+  without `previous_response_id` or `conversation`. The input starts with the system prompt as a `system` message,
+  followed by the first user message of that tape. The gateway therefore prepares once per user message and replays that
+  context to the tool-loop steps.
+- The inferred ID is local to the gateway process and serves only this replay. Sessions that open with the same
+  system prompt and first user message share one; Bub's first message carries its channel and timestamp. The gateway
+  still captures each completed turn. Without a conversation header, capture has no conversation identity that
+  survives a gateway restart, and prefix extraction is not available. After `tape.handoff` or `tape.reset` the tape
+  opens with a different message, so the gateway can infer a new conversation and prepare again.
+- A standalone gateway (`PC_GATEWAY_CORE_BASE`) injects only with `PC_GATEWAY_INJECTION=on`. Do not put a fixed
+  `X-PowerContext-Conversation-ID` in `BUB_CLIENT_ARGS`, because the gateway would then treat every session as one
+  conversation.
+
+See [Gateway context injection](../../docs/en/docs/operate/deploy-server.md#gateway-context-injection) and
+[Gateway authentication boundaries](../../docs/en/docs/operate/deploy-server.md#gateway-authentication-boundaries).
