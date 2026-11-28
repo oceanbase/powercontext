@@ -183,6 +183,25 @@ impl Gateway {
         chunked_response: bool,
         combined: bool,
     ) -> Self {
+        Self::start_with_injection(
+            caps,
+            deployment_limit,
+            Some(injection),
+            steering,
+            chunked_response,
+            combined,
+        )
+        .await
+    }
+
+    async fn start_with_injection(
+        caps: Value,
+        deployment_limit: usize,
+        injection: Option<bool>,
+        steering: bool,
+        chunked_response: bool,
+        combined: bool,
+    ) -> Self {
         let state = Arc::new(Receiver {
             caps,
             check_limit: AtomicUsize::new(CONTEXT_CHECK_BODY_LIMIT),
@@ -233,8 +252,10 @@ impl Gateway {
                 "PC_GATEWAY_UPSTREAM_URL_RESPONSES",
                 format!("http://{receiver_addr}/provider"),
             )
-            .env("PC_GATEWAY_MAX_BODY_BYTES", deployment_limit.to_string())
-            .env("PC_GATEWAY_INJECTION", if injection { "on" } else { "off" });
+            .env("PC_GATEWAY_MAX_BODY_BYTES", deployment_limit.to_string());
+        if let Some(injection) = injection {
+            command.env("PC_GATEWAY_INJECTION", if injection { "on" } else { "off" });
+        }
         command.env("PC_GATEWAY_MAX_CONCURRENT", "1");
         let uds = combined.then(|| {
             let path = std::env::temp_dir().join(format!("pc2464-{}-{}.sock", std::process::id(), address.port()));
@@ -262,6 +283,7 @@ impl Gateway {
             });
             (task, path)
         });
+        command.env("PC_GATEWAY_STEERING", if steering { "on" } else { "off" });
         let steering = steering.then(|| {
             let path = std::env::temp_dir().join(format!(
                 "pc2464-{}-{}.txt",
@@ -355,6 +377,36 @@ impl Gateway {
         let status = response.split_whitespace().nth(1).unwrap().parse().unwrap();
         (status, response.split_once("\r\n\r\n").unwrap().1.into())
     }
+
+    async fn request_when_model_capacity_available(
+        &self,
+        route: &str,
+        body: String,
+        chunked: bool,
+    ) -> (u16, String) {
+        // Receiving a response, including EOF, can precede the connection owner's
+        // final permit drop. Only an explicit pre-admission refusal is safe to repeat.
+        let sends = self.state.sends.load(Ordering::SeqCst);
+        tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                let response = self.request(route, body.clone(), chunked).await;
+                let at_capacity = response.0 == 503
+                    && serde_json::from_str::<Value>(&response.1)
+                        .is_ok_and(|body| body["error"] == "concurrency_limit");
+                if !at_capacity {
+                    return response;
+                }
+                assert_eq!(
+                    self.state.sends.load(Ordering::SeqCst),
+                    sends,
+                    "a concurrency refusal must not reach the provider"
+                );
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("model capacity was not released after the completed response")
+    }
 }
 const CHAT: &str = "/gateway/v1/chat/completions";
 fn chat(text: &str) -> String {
@@ -439,14 +491,20 @@ async fn ingress_and_final_wire_bytes_obey_both_limits() {
         for chunked in [false, true] {
             assert_eq!(
                 gateway
-                    .request(CHAT, chat(&"界".repeat(100)), chunked)
+                    .request_when_model_capacity_available(CHAT, chat(&"界".repeat(100)), chunked)
                     .await
                     .0,
                 413
             );
         }
         assert_eq!(gateway.state.sends.load(Ordering::SeqCst), 0);
-        assert_eq!(gateway.request(CHAT, chat("ok"), false).await.0, 200);
+        assert_eq!(
+            gateway
+                .request_when_model_capacity_available(CHAT, chat("ok"), false)
+                .await
+                .0,
+            200
+        );
     }
     // Client bytes fit; renderer-added defaults and control-character escaping make final bytes larger.
     let gateway = Gateway::start(capabilities(json!(256)), 4096, false, false, false, false).await;
@@ -464,6 +522,7 @@ async fn ingress_and_final_wire_bytes_obey_both_limits() {
 async fn prepared_context_and_steering_cannot_bypass_final_capacity() {
     for (injection, steering, route, body) in [
         (true, false, CHAT, chat("hello")),
+        (false, true, CHAT, chat("hello")),
         (
             false,
             true,
@@ -484,6 +543,39 @@ async fn prepared_context_and_steering_cannot_bypass_final_capacity() {
         assert_eq!(status, 403, "{result}");
         assert!(result.contains("request_payload_too_large"));
         assert_eq!(gateway.state.sends.load(Ordering::SeqCst), 0);
+    }
+}
+
+#[tokio::test]
+async fn combined_default_injects_headerless_history_and_diagnoses_missing_identity() {
+    let mut gateway =
+        Gateway::start_with_injection(capabilities(json!(8192)), 8192, None, false, false, true)
+            .await;
+    let responses = "/gateway/v1/responses";
+    for (route, payload, injected) in [
+        (CHAT, chat("hello"), true),
+        (responses, json!({"model":"test", "input":"hello"}).to_string(), true),
+        (CHAT, json!({"model":"test", "messages":[{"role":"system", "content":"SYNTHETIC_INSTRUCTIONS"}]}).to_string(), false),
+        (responses, json!({"model":"test", "input":"hello", "previous_response_id":"resp_prior"}).to_string(), false),
+        (responses, json!({"model":"test", "input":"hello", "conversation":"conv_prior"}).to_string(), false),
+    ] {
+        let (status, response) = gateway
+            .request_when_model_capacity_available(route, payload, false)
+            .await;
+        assert_eq!(status, 200, "{response}");
+        let checked = gateway.state.checked.lock().unwrap();
+        assert_eq!(checked.last().unwrap().contains(&"准".repeat(128)), injected);
+    }
+    gateway.process.kill().unwrap();
+    gateway.process.wait().unwrap();
+    let logs = gateway.take_stderr();
+    assert_eq!(
+        logs.matches("context injection skipped: no conversation identity")
+            .count(),
+        3
+    );
+    for private in ["SYNTHETIC_INSTRUCTIONS", "resp_prior", "conv_prior", "准"] {
+        assert!(!logs.contains(private));
     }
 }
 
@@ -521,7 +613,13 @@ async fn lowered_core_limit_still_requires_a_new_send_verdict() {
     let gateway = Gateway::start(capabilities(json!(4096)), 4096, false, false, false, false).await;
     assert_eq!(gateway.request(CHAT, chat("hello"), false).await.0, 200);
     gateway.state.check_limit.store(32, Ordering::SeqCst);
-    assert_eq!(gateway.request(CHAT, chat("hello"), false).await.0, 503);
+    let (status, body) = gateway
+        .request_when_model_capacity_available(CHAT, chat("hello"), false)
+        .await;
+    assert_eq!(status, 503, "{body}");
+    let body: Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(body["decision"], "gate_paused");
+    assert!(body["detail"].as_str().unwrap().contains("HTTP 413"));
     assert_eq!(gateway.state.sends.load(Ordering::SeqCst), 1);
 }
 
@@ -541,7 +639,11 @@ async fn response_ceiling_is_independent_of_input_capacity_and_never_releases_a_
             .response_bytes
             .store(CONTEXT_CHECK_BODY_LIMIT + 1, Ordering::SeqCst);
         let (status, result) = gateway
-            .request(CHAT, chat("SYNTHETIC_CAPACITY_PROMPT_SECRET"), false)
+            .request_when_model_capacity_available(
+                CHAT,
+                chat("SYNTHETIC_CAPACITY_PROMPT_SECRET"),
+                false,
+            )
             .await;
         assert_eq!(status, 400);
         assert!(result.contains("response_buffer_limit_exceeded"));
@@ -604,7 +706,11 @@ async fn response_ceiling_is_independent_of_input_capacity_and_never_releases_a_
             "no automatic resend"
         );
         gateway.state.response_bytes.store(0, Ordering::SeqCst);
-        assert_eq!(gateway.request(CHAT, chat("hello"), false).await.0, 200);
+        let (status, result) = gateway
+            .request_when_model_capacity_available(CHAT, chat("hello"), false)
+            .await;
+        assert_eq!(status, 200, "{result}");
+        assert_eq!(gateway.state.sends.load(Ordering::SeqCst), 3);
     }
 }
 

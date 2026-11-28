@@ -17,9 +17,34 @@ types can refer to material supplied by a connector. Work Contracts and Task Out
 3. To process eligible evidence into Memory, configure a generation model and either scheduled processing or an
    explicit Memory flush. See [Enable extraction and vector search](../get-started/configure-models.md).
 
+Both Source reads return the `metadata` captured with a Content Source, unchanged: the detail response carries it on
+the record and the list response carries it on every item. Sources without caller metadata, including records written
+before that field existed, return `{}`. A client talking to a Server that predates the field sees it as absent (`null`),
+which is not proof that the Source has no metadata; only an explicit `{}` means the Source carries no caller metadata.
+Metadata does not participate in `content_digest`, Source identity, or journal position.
+
 A successful capture means evidence was stored; it does not mean extraction succeeded or that the result was worth
 keeping. Use Source references to trace a generated result back to its input. Do not retry a capture with changed
 content under the same identity as if it were a new observation.
+
+## Source content size
+
+One Content Source accepts at most 200,000 characters per write by default. A deployment can change that boundary with
+`POWERCONTEXT_SERVER_SOURCE_CONTENT_MAX_CHARS` (`1` to `1000000`); the ceiling keeps one Source inside a single payload
+column. `GET /v1/source-limits` reports the effective value as `source_content_max_chars`, and a write over it returns
+`422 invalid_request` with an error message naming the limit.
+
+The boundary applies to a single capture, every item of a batch, Working Notes, and `POST /v1/scopes/{scope_id}/sources`
+with `source_type: content`. String content counts its raw characters; other JSON values count their canonical JSON
+characters, the same text the Server stores.
+
+Built-in integrations and the Gateway still size captures for 200,000 characters and do not read `GET /v1/source-limits`
+yet, so lowering the limit can reject their writes between the new value and 200,000. Creating a Source through
+`POST /v1/scopes/{scope_id}/sources` with `source_type: content` now follows the same limit; before this setting it had no
+Server-side bound.
+
+Lowering the limit never rewrites or hides existing evidence: Sources written earlier stay readable through the detail
+and list endpoints and remain eligible for processing, while only new writes are validated.
 
 ## Choose a capture path
 

@@ -120,6 +120,15 @@ pub struct CallEvidence {
     pub release_authorized_ms: Option<u64>,
     /// Unavailable with the current fully buffered transport, including non-streaming Responses.
     pub upstream_ttft_ms: Option<u64>,
+    /// Canonical tail classification of the inbound request, when the executor classified it.
+    pub turn_kind: Option<pc_gateway_types::TurnKind>,
+    /// The call skipped preparation: a non-user tail with no replay entry to reuse.
+    #[serde(default)]
+    pub prepare_skipped: bool,
+    /// The host marked this request as internal (`X-PowerContext-Turn: internal`), so it was
+    /// not prepared, injected, replayed or captured as a conversation turn.
+    #[serde(default)]
+    pub internal: bool,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]

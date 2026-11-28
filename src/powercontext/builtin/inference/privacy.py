@@ -66,6 +66,8 @@ class UpstreamProfile(BaseModel):
     @field_validator("endpoint")
     @classmethod
     def exact_endpoint(cls, value: str) -> str:
+        if value == "claude-cli://execute":
+            return value
         parsed = urlsplit(value)
         if (
             parsed.scheme not in {"https", "http"}
@@ -77,6 +79,12 @@ class UpstreamProfile(BaseModel):
         ):
             raise ValueError("profile endpoint must be an exact HTTP URL without credentials or query")  # noqa: TRY003
         return value
+
+    @model_validator(mode="after")
+    def cli_destination(self) -> UpstreamProfile:
+        if (self.protocol == "claude-cli-prompt") != (self.endpoint == "claude-cli://execute"):
+            raise ValueError("claude-cli-prompt requires exactly claude-cli://execute")  # noqa: TRY003
+        return self
 
 
 class InferenceProtectionConfig(BaseModel):
@@ -129,6 +137,8 @@ _PATTERNS = {
 }
 _RELEVANT_HEADERS = frozenset({"content-type", "anthropic-version", "anthropic-beta"})
 _REQUEST_FIELDS = {
+    "google-codeassist": frozenset({"model", "project", "request", "user_prompt_id"}),
+    "google-codeassist-chat": frozenset({"model", "project", "request", "user_prompt_id"}),
     "openai-chat": frozenset({
         "model",
         "messages",
@@ -209,6 +219,8 @@ _REQUEST_FIELDS = {
     "minimax-embeddings": frozenset({"model", "texts", "type"}),
     "jev-rerank": frozenset({"model", "state", "questions"}),
 }
+
+_REQUEST_FIELDS["claude-cli-prompt"] = _REQUEST_FIELDS["openai-chat"]
 
 
 def _anthropic_cache_carriers(value: dict[str, object]) -> list[dict[str, object]]:
@@ -346,6 +358,8 @@ class PrivacyPolicy:
         profile = self.config.targets.get(target_profile)
         if profile is None:
             return self.decision(phase, "withhold", "target_unsupported")
+        if self.enforcing and profile.protocol == "claude-cli-prompt":
+            return self.decision(phase, "withhold", "cli_http_unobservable")
         if endpoint is not None and endpoint != profile.endpoint:
             return self.decision(phase, "withhold", "target_mismatch")
         limit = self.config.max_payload_bytes if phase == "before_send" else self.config.max_response_bytes
@@ -372,6 +386,10 @@ class PrivacyPolicy:
             value, strings, duplicate = parse_json_evidence(text, self.config.max_json_depth)
             if phase == "before_release" and profile.protocol == "openai-responses":
                 strings += (responses_output_text(value),)
+            if profile.protocol in {"google-codeassist", "google-codeassist-chat"}:
+                from powercontext.builtin.inference.codeassist_payload import joined_text
+
+                strings += joined_text(value)
             nested, repeated = nested_json_text(strings, self.config.max_json_depth)
             duplicate = duplicate or repeated
         except (ValueError, RecursionError, UnicodeError):
@@ -380,11 +398,17 @@ class PrivacyPolicy:
             return self.decision(phase, "block", "forbidden_content", complete=True)
         if duplicate:
             return self.decision(phase, "withhold", "json_duplicate_key")
-        if contains_opaque_content(value, protocol=profile.protocol):
+        carrier_protocol = (
+            "openai-chat"
+            if profile.protocol == "claude-cli-prompt"
+            or (phase == "before_release" and profile.protocol == "google-codeassist-chat")
+            else profile.protocol
+        )
+        if contains_opaque_content(value, protocol=carrier_protocol):
             return self.decision(phase, "withhold", "content_unsupported")
         if not all(
             complete_tool_arguments(item, self.config.max_json_depth)
-            for item in tool_arguments(value, profile.protocol)
+            for item in tool_arguments(value, carrier_protocol)
         ):
             return self.decision(phase, "withhold", "tool_arguments_incomplete")
         if phase == "before_send":
@@ -392,7 +416,9 @@ class PrivacyPolicy:
                 return self.decision(phase, "withhold", "model_mismatch")
             if set(value) - _REQUEST_FIELDS[profile.protocol]:
                 return self.decision(phase, "withhold", "content_field_unsupported")
-            if value.get("stream") is True and (not profile.allow_streaming or profile.protocol != "openai-chat"):
+            if value.get("stream") is True and (
+                not profile.allow_streaming or profile.protocol not in {"openai-chat", "openai-responses"}
+            ):
                 return self.decision(phase, "withhold", "streaming_unsupported")
             if (
                 "extra_body" in value
@@ -411,13 +437,22 @@ class PrivacyPolicy:
                     return self.decision(phase, "withhold", "embedding_content_unsupported")
             if not _cache_constraints(value, profile):
                 return self.decision(phase, "withhold", "cache_retention_unapproved")
-            budget = self._budget(value, body, strings, profile)
+            if profile.protocol in {"google-codeassist", "google-codeassist-chat"}:
+                from powercontext.builtin.inference.codeassist_payload import output_limit, request_reason
+
+                reason = request_reason(value)
+                if reason is not None:
+                    return self.decision(phase, "withhold", reason)
+                budget_value = {**value, "max_output_tokens": output_limit(value)}
+            else:
+                budget_value = value
+            budget = self._budget(budget_value, body, strings, profile)
             if budget is not None:
                 return self.decision(phase, "withhold", budget)
         else:
             if "model" in value and value["model"] not in (profile.model, *profile.response_models):
                 return self.decision(phase, "withhold", "response_model_mismatch")
-            if completion != "complete" or not complete_response(value, profile.protocol):
+            if completion != "complete" or not complete_response(value, carrier_protocol):
                 return self.decision(phase, "withhold", "response_incomplete")
         return self.decision(phase, "allow", complete=True)
 
@@ -431,7 +466,14 @@ class PrivacyPolicy:
             json_unsigned_integer(item) is None or json_unsigned_integer(item) == 0 for item in configured
         ):
             return "output_limit_invalid"
-        generating = profile.protocol in {"openai-chat", "openai-responses", "anthropic-messages"}
+        generating = profile.protocol in {
+            "openai-chat",
+            "openai-responses",
+            "anthropic-messages",
+            "google-codeassist",
+            "google-codeassist-chat",
+            "claude-cli-prompt",
+        }
         if (
             self.enforcing
             and generating

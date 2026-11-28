@@ -16,7 +16,7 @@ openapi: 3.0.3
 info:
   title: PowerContext API
   description: Remote PowerContext transport. Runtime behavior is reported by /v1/capabilities.
-  version: 1.5.2
+  version: 1.6.0
 x-powercontext-feature-contracts:
   connection.identity: {major: 1, minor: 0}
   access.principal: {major: 1, minor: 0}
@@ -599,6 +599,34 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Capabilities"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+  /v1/source-limits:
+    get:
+      tags: [sources]
+      summary: Get effective Source capture limits
+      description: >-
+        Report the deployment's effective Content Source write limit so collectors can validate input before sending
+        it. The limit applies to Content Source captures, batch items, Working Notes and Source creation with
+        `source_type: content`; string content counts raw characters and other JSON values count their canonical JSON
+        characters. The value comes from deployment configuration. Storage may already hold larger Sources written
+        under a higher limit; reads of those Sources stay available.
+      operationId: get_source_limits
+      x-powercontext-access: {action: server.observe, resource: {type: server}}
+      responses:
+        "200":
+          description: Effective Source limits for this deployment.
+          headers:
+            X-PowerContext-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SourceLimits"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -9382,10 +9410,11 @@ components:
         content:
           type: string
           minLength: 1
-          maxLength: 200000
+          maxLength: 1000000
           description: >-
             Raw integration content. Server-reserved payload schemas, including handoff receipts, are rejected on
-            this generic capture operation and must be created through their dedicated workflow.
+            this generic capture operation and must be created through their dedicated workflow. The deployment's
+            effective limit is reported by `GET /v1/source-limits` as `source_content_max_chars`.
         metadata:
           type: object
           additionalProperties: true
@@ -9405,7 +9434,7 @@ components:
         content:
           type: string
           minLength: 1
-          maxLength: 200000
+          maxLength: 1000000
           description: Raw integration content, under the rules of the single ContentSource capture operation.
         metadata:
           type: object
@@ -9472,7 +9501,7 @@ components:
         content:
           type: string
           minLength: 1
-          maxLength: 200000
+          maxLength: 1000000
           pattern: '.*\S.*'
         session_id:
           type: string
@@ -10319,6 +10348,17 @@ components:
           minLength: 2
           maxLength: 1048576
           description: Complete raw UTF-8 JSON text. Duplicate keys and non-finite numbers are unsupported.
+    UpstreamResponsePayload:
+      type: object
+      additionalProperties: false
+      required: [content_type, body]
+      properties:
+        content_type: {type: string, minLength: 1, maxLength: 1024, pattern: '^[^\r\n]+$'}
+        body:
+          type: string
+          minLength: 2
+          maxLength: 1048576
+          description: Complete raw UTF-8 provider JSON or Responses SSE before conversion.
     ModelJsonTextLocation:
       type: object
       additionalProperties: false
@@ -10362,6 +10402,10 @@ components:
         request_binding: {type: string, minLength: 1, maxLength: 65536}
         payload:
           $ref: '#/components/schemas/ModelJsonPayload'
+        upstream_payload:
+          $ref: '#/components/schemas/UpstreamResponsePayload'
+          nullable: true
+          description: Optional pre-conversion response evidence. Core inspects it in addition to the final payload; both bodies share the response byte limit.
         completion: {type: string, enum: [complete]}
     CheckContextRequest:
       oneOf:
@@ -10412,7 +10456,7 @@ components:
             X-PowerContext-Resolve-Target was authorized for a service principal.
         target_protocol:
           type: string
-          enum: [openai-chat, openai-responses, anthropic-messages, openai-embeddings, minimax-embeddings, jev-rerank]
+          enum: [openai-chat, openai-responses, anthropic-messages, openai-embeddings, minimax-embeddings, jev-rerank, google-codeassist, google-codeassist-chat, claude-cli-prompt]
           description: Protocol of the Core-configured endpoint; present under the same condition as target_endpoint.
     ContextProtectionCapabilities:
       type: object
@@ -13384,8 +13428,10 @@ components:
         content:
           description: >-
             JSON value persisted by the built-in content Source adapter, or the input of a plugin Source type.
-            Server-reserved payload schemas, including handoff receipts, are rejected and must be created through
-            their dedicated workflow. String values that are empty or whitespace-only are rejected.
+            For the built-in content type, the size counts toward `source_content_max_chars` as raw characters for
+            strings and canonical JSON characters for other values. Server-reserved payload schemas, including
+            handoff receipts, are rejected and must be created through their dedicated workflow. String values that
+            are empty or whitespace-only are rejected.
     TaggableArtifactFamily:
       type: string
       description: >-
@@ -13916,6 +13962,14 @@ components:
           pattern: '.*\S.*'
         content:
           description: Persisted canonical JSON content.
+        metadata:
+          type: object
+          additionalProperties: true
+          nullable: true
+          description: >-
+            Caller-supplied metadata for a Content Source, returned unchanged; an empty object for Sources that
+            carry no caller metadata. Responses from servers that predate this field omit it, which clients report
+            as null and must not treat as proof that the Source has no metadata.
         position:
           type: integer
           minimum: 1
@@ -13946,6 +14000,25 @@ components:
         sequence:
           type: integer
           minimum: 0
+    SourceLimits:
+      type: object
+      additionalProperties: false
+      required: [source_content_max_chars, source_content_max_chars_ceiling]
+      properties:
+        source_content_max_chars:
+          type: integer
+          minimum: 1
+          maximum: 1000000
+          description: >-
+            Effective maximum characters accepted in one Content Source write on this deployment. String content
+            counts raw characters; other JSON values count their canonical JSON characters.
+        source_content_max_chars_ceiling:
+          type: integer
+          minimum: 1
+          maximum: 1000000
+          description: >-
+            Largest limit this build accepts as configuration. Requests above the ceiling fail schema validation
+            before the deployment limit applies.
     SourceLineRangeLocator:
       type: object
       additionalProperties: false

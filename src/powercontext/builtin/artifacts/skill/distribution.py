@@ -618,6 +618,11 @@ class RemoteSkillDistributionService:
             )
             return RemoteSkillReceiptResult(accepted=True, stale=False, publication=stored)
 
+    async def authenticate_target(self, credential: str, /) -> None:
+        """Check the Receiver credential without recording an observation."""
+        async with self._database.transaction() as connection:
+            await self._authenticate(connection, credential)
+
     async def _authenticate(self, connection, credential: str) -> RemoteAgentSkillTarget:
         verifier = _digest(credential)
         target = await self._targets.find_by_credential(connection, verifier)

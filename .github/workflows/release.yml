@@ -98,6 +98,9 @@ jobs:
 
   release-build:
     needs: resolve-release
+    permissions:
+      actions: read
+      contents: read
     uses: ./.github/workflows/upgrade-release.yml
     with:
       release: true
@@ -106,6 +109,13 @@ jobs:
       release_tag: ${{ needs.resolve-release.outputs.tag }}
       skip_upgrade_acceptance: ${{ github.event_name == 'workflow_dispatch' && inputs.skip_upgrade_acceptance }}
       internal_runner: false
+
+  gateway-release-build:
+    needs: resolve-release
+    uses: ./.github/workflows/gateway-distribution.yml
+    with:
+      source_ref: ${{ needs.resolve-release.outputs.source_sha }}
+      release_tag: ${{ needs.resolve-release.outputs.tag }}
 
   dsh-release-build:
     runs-on: ubuntu-24.04
@@ -243,10 +253,16 @@ jobs:
   release-assets:
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    needs: [resolve-release, release-build, dsh-release-build]
+    needs: [resolve-release, release-build, dsh-release-build, gateway-release-build]
     permissions:
       contents: write
     steps:
+      - name: Check out the resolved source for Gateway catalog validation
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ needs.resolve-release.outputs.source_sha }}
+          persist-credentials: false
+
       - name: Download release distributions
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
@@ -258,6 +274,29 @@ jobs:
         with:
           tag_name: ${{ needs.resolve-release.outputs.tag }}
           files: dist/*
+          fail_on_unmatched_files: true
+
+      - name: Download all qualified Gateway distributions
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          pattern: gateway-dist-*
+          path: dist/gateway/
+          merge-multiple: true
+
+      - name: Require all platforms and generate checksum catalog
+        env:
+          RELEASE_TAG: ${{ needs.resolve-release.outputs.tag }}
+          SOURCE_COMMIT: ${{ needs.resolve-release.outputs.source_sha }}
+        run: |
+          version="${RELEASE_TAG#powercontext-v}"
+          version="${version#v}"
+          python3 scripts/gateway_distribution.py catalog --directory dist/gateway --version "$version" --commit "$SOURCE_COMMIT"
+
+      - name: Upload Gateway distributions to the same Release
+        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3
+        with:
+          tag_name: ${{ needs.resolve-release.outputs.tag }}
+          files: dist/gateway/*
           fail_on_unmatched_files: true
 
       - name: Download verified npm archive
@@ -272,6 +311,14 @@ jobs:
           tag_name: ${{ needs.resolve-release.outputs.tag }}
           files: dist/dsh/*.tgz
           fail_on_unmatched_files: true
+
+  gateway-release-verify:
+    needs: [resolve-release, release-assets]
+    uses: ./.github/workflows/gateway-distribution.yml
+    with:
+      source_ref: ${{ needs.resolve-release.outputs.source_sha }}
+      release_tag: ${{ needs.resolve-release.outputs.tag }}
+      published: true
 
   release-verify:
     needs: [resolve-release, pypi-publish, release-assets]

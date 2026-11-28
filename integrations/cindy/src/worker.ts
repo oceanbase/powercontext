@@ -17,7 +17,7 @@ import { createHash } from 'node:crypto'
 import { createInterface } from 'node:readline'
 import { PowerContextClient, combineSignals, type FetchFn, type JsonObject } from '../../dsh/plugins/powercontext/src/client.ts'
 import { MAX_SOURCE_LENGTH, RequestNotSentError, ServerResponseError } from '../../dsh/plugins/powercontext/src/errors.ts'
-import { validatePreparedContext } from '../../dsh/plugins/powercontext/src/prepared-context.ts'
+import { boundedRecallQuery, validatePreparedContext } from '../../dsh/plugins/powercontext/src/prepared-context.ts'
 import { containsSecret } from '../../dsh/plugins/powercontext/src/prompt-privacy.ts'
 import { normalizeServerUrl } from '../../dsh/plugins/powercontext/src/transport.ts'
 
@@ -193,11 +193,10 @@ export async function runHook(input: HookInput, credential?: string, fetchImpl?:
     } catch (error) { return { ...outcome, ok: false, code: failureCode(error) } }
 
     const prepareMs = hookEnd - CAPTURE_RESERVE_MS - Date.now()
-    if (input.text.length > 8192) outcome.prepare = 'query_too_long'
-    else if (prepareMs <= 0) outcome.prepare = 'not_sent'
+    if (prepareMs <= 0) outcome.prepare = 'not_sent'
     else try {
       const signal = combineSignals([controller.signal, AbortSignal.timeout(prepareMs)])
-      const response = await client.request('prepare_context', { scope_id: scopeId, query: input.text, max_bytes: maxBytes }, signal)
+      const response = await client.request('prepare_context', { scope_id: scopeId, query: boundedRecallQuery(input.text), max_bytes: maxBytes }, signal)
       const prepared = validatePreparedContext(response.kind === 'json' ? response.value : undefined, undefined, maxBytes)
       outcome.prepare = prepared.status
       if (prepared.content) outcome.content = prepared.content

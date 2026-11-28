@@ -19,7 +19,7 @@ description: 理解 Generation、Embedding、后台调度及各制品的触发�
 | Embedding | 语义检索与向量索引 | Embedding API 地址、凭据、模型名、模型实际支持的维度 |
 | Rerank（可选） | 对检索候选进一步排序 | 按向导选择复用生成连接或单独配置重排连接 |
 
-后台能力默认共用配置的 Generation Provider，不会自动复用 Codex/Claude 的订阅会话或登录凭据。
+后台能力共用配置的 Generation Provider。想用已有的 Codex、Claude Code 等订阅代替 API key，见[使用已有订阅](#使用已有订阅)。
 基础记忆不要求独立 Generation API：Agent 可以通过 MCP 显式保存自己整理的内容，但 Server 不会因此自动处理普通 Source。
 
 “OpenAI-compatible Chat Completions”“OpenAI Responses”“Anthropic-compatible Messages”是不同协议；
@@ -39,6 +39,53 @@ POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL=openai:gpt-4.1-mini
 Embedding 连接可以与 Generation 共用地址和凭据，但通常使用不同模型。
 向量维度必须是所选 Embedding 模型实际支持的输出维度。Embedding Profile ID 是标识这套模型、维度和向量约定的名称，
 不是额外 API key。首次使用可接受向导建议；复用已有向量数据时，必须保持其对应关系，不能随意改 ID 或维度来消除报错。
+
+## 向已初始化的部署添加生成模型
+
+首次启动时未配置模型的部署，在后续添加 Generation 时会保留其 Scope、Source 和 Memory。Server 通过一次离线的
+Processing 配置切换来采纳新能力。在切换完成之前，启动会以 `incompatible_processing_configuration` 拒绝启动，
+而不是自行修改已记录的声明。保持无模型配置的部署不受影响，其已记录的声明不会改变。
+
+备份数据库并停止旧 Server、Worker 和写入，然后依次执行 `plan`、`apply` 和 `verify`。每一步都必须加载新配置，
+来源可以是 `--env-file` 或当前目录下发现的 `.env`；三步必须使用同一个新的 migration ID，因为计划与两者绑定。
+
+```shell
+powercontext server processing-migrate --action plan --env-file powercontext.env \
+  --migration-id add-generation-1 --backup auto
+powercontext server processing-migrate --action apply --env-file powercontext.env \
+  --migration-id add-generation-1 --plan-id <plan_id> --backup auto --maintenance-confirmed --yes
+powercontext server processing-migrate --action verify --env-file powercontext.env \
+  --migration-id add-generation-1
+```
+
+`plan` 的输出里有 `apply` 接受的 `plan_id`。非交互执行时，缺少 `--plan-id`、`--backup` 和 `--yes` 的 `apply`
+会以 `confirmation_required` 停止；使用的 migration ID 与 `plan` 不同时，会以 `plan_changed` 停止。仅在 `verify`
+报告 `"state": "ready"` 后再启动新配置。交互式确认、其他备份选项以及中断后恢复 `apply` 的做法，
+见 [后台处理状态迁移](../operate/artifact-processing-migration.md)。
+
+存储向量的数据库没有已注册的 Processing 配置切换：`processing-migrate` 会拒绝它，启动时保持原有报错。
+
+## 使用已有订阅
+
+Server 可以用你已有的订阅代替 Generation API key，生成 Memory、Experience 和 Profile。支持 Codex CLI、Claude Code、
+GitHub Copilot、Grok CLI、Gemini CLI、Qwen Code 和 Kimi Code。先在 Server 所在主机上准备好订阅的登录凭据，
+再把生成模型设为该订阅的 provider 前缀。以 Codex CLI 为例：
+
+```dotenv
+POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL=openai-codex:<model-name>
+```
+
+不要设置 `POWERCONTEXT_SERVER_INFERENCE_GENERATION_BASE_URL` 和 `POWERCONTEXT_SERVER_INFERENCE_GENERATION_HEADERS`。
+向导暂不提供订阅选项，请在保存好的 `.env` 中修改这些值。
+
+切换前请确认适用范围：
+
+- 不支持 Topic Memory 和 Dream。请先移除显式的 Topic Memory 处理或调度配置。
+- 内置[推理保护](../operate/inference-protection.md)保持默认的 `disabled` 模式。
+- Embedding 仍需单独配置连接。
+- 生成请求计入订阅的用量限额，账号需要有所选模型的使用权限。
+
+各订阅的模型前缀、登录方式和凭据续期见[复用已有订阅凭据](../../development/pydantic-ai-inference.md#复用已有订阅凭据)。
 
 ## 完整能力不等于每条对话都会生成所有制品
 

@@ -359,6 +359,60 @@ def test_cancelled_checkout_does_not_keep_the_only_pool_slot(tmp_path, monkeypat
     asyncio.run(scenario())
 
 
+def test_cancelled_sqlite_connection_initialization_does_not_leave_a_worker_running(tmp_path) -> None:
+    async def scenario() -> None:
+        entered = asyncio.Event()
+        release = asyncio.Event()
+        driver: aiosqlite.Connection | None = None
+        config = SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'initialization.db'}")
+
+        async def hold_admission(connection) -> None:
+            nonlocal driver
+            driver = connection
+            entered.set()
+            await release.wait()
+
+        def hold_new_connection(dbapi_connection, _record) -> None:
+            dbapi_connection.run_async(hold_admission)
+
+        try:
+            async with SQLiteProfile.open(config, tables=()) as profile:
+                database = profile.database
+                event.listen(database.engine.sync_engine, "connect", hold_new_connection)
+                try:
+                    # Occupy the warm connection so this checkout creates a real
+                    # driver, then cancel before the pool finishes admitting it.
+                    async with database.transaction():
+
+                        async def operation() -> None:
+                            async with database.statistics_transaction(30):
+                                pytest.fail("Cancelled connection initialization reached the transaction")
+
+                        pending = asyncio.create_task(operation())
+                        try:
+                            await asyncio.wait_for(entered.wait(), 5)
+                            pending.cancel()
+                            with pytest.raises(asyncio.CancelledError):
+                                await pending
+                        finally:
+                            pending.cancel()
+                            await asyncio.gather(pending, return_exceptions=True)
+                finally:
+                    event.remove(database.engine.sync_engine, "connect", hold_new_connection)
+                await database.ping()
+            assert driver is not None
+            await asyncio.to_thread(driver._thread.join, 2)
+            assert not driver._thread.is_alive(), "Cancelled initialization left SQLite's worker running"
+        finally:
+            release.set()
+            if driver is not None:
+                # A regression must report the orphan without keeping pytest alive.
+                await driver.close()
+                await asyncio.to_thread(driver._thread.join, 2)
+
+    asyncio.run(scenario())
+
+
 @pytest.mark.parametrize("in_memory", [False, True], ids=["file", "memory"])
 def test_interrupted_write_cannot_commit_earlier_work(tmp_path, in_memory) -> None:
     """An interrupted write rolls SQLite's whole native transaction back.
@@ -644,5 +698,113 @@ def test_sqlite_pragmas_enforce_lineage_source_foreign_keys() -> None:
                             source_id="missing",
                         )
                     )
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize(
+    ("statement", "parameters", "error_type", "message"),
+    [
+        pytest.param("INSERT INTO probe VALUES (?)", (1,), IntegrityError, "UNIQUE constraint failed", id="execute"),
+        pytest.param(
+            "INSERT INTO probe VALUES (?)", [(1,), (1,)], IntegrityError, "UNIQUE constraint failed", id="executemany"
+        ),
+        # A decoding failure leaves a native statement active even on Python
+        # versions that already clear it after a duplicate-key error.
+        pytest.param("SELECT CAST(x'ff' AS TEXT)", (), OperationalError, "Could not decode", id="fetchall"),
+    ],
+)
+def test_failed_statement_collection_does_not_block_another_writer(
+    tmp_path, statement, parameters, error_type, message
+) -> None:
+    import gc
+    import weakref
+
+    async def scenario() -> None:
+        config = SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'cursor.db'}", busy_timeout_ms=2_000)
+        async with (
+            SQLiteProfile.open(config, tables=()) as profile,
+            profile.database.engine.connect() as contender,
+            profile.database.engine.connect() as writer,
+        ):
+            await writer.exec_driver_sql("CREATE TABLE probe (value INTEGER PRIMARY KEY)")
+            await writer.exec_driver_sql("INSERT INTO probe VALUES (1)")
+            await writer.commit()
+
+            async def fail_statement():
+                with pytest.raises(error_type, match=message) as raised:
+                    await contender.exec_driver_sql(statement, parameters)
+                # Model an error retained by cyclic request/diagnostic state
+                # so native cleanup cannot rely on immediate refcount disposal.
+                retained = [raised.value]
+                retained.append(retained)
+                return retained, weakref.ref(raised.value)
+
+            pending = None
+            driver = cast(aiosqlite.Connection, (await contender.get_raw_connection()).driver_connection)
+            # Clear unrelated garbage before either connection holds a write lock.
+            gc.collect()
+            collecting = gc.isenabled()
+            gc.disable()
+            try:
+                failed, error_ref = await fail_statement()
+                await contender.rollback()
+                await writer.exec_driver_sql("INSERT INTO probe VALUES (2)")
+                started = asyncio.Event()
+                loop = asyncio.get_running_loop()
+
+                def trace(statement: str) -> None:
+                    if statement == "INSERT INTO probe VALUES (3)":
+                        loop.call_soon_threadsafe(started.set)
+
+                await driver.set_trace_callback(trace)
+                pending = asyncio.create_task(contender.exec_driver_sql("INSERT INTO probe VALUES (3)"))
+                await asyncio.wait_for(started.wait(), 5)
+                # Collect the earlier exception while this connection's worker
+                # waits for the other writer. Collection must leave the event
+                # loop free to release that writer, rather than await its lock.
+                del failed
+                gc.collect(0)
+                assert error_ref() is None
+                await writer.commit()
+                await pending
+                await contender.commit()
+                assert (await contender.exec_driver_sql("SELECT value FROM probe ORDER BY value")).scalars().all() == [
+                    1,
+                    2,
+                    3,
+                ]
+            finally:
+                await writer.rollback()
+                if pending is not None:
+                    await asyncio.gather(pending, return_exceptions=True)
+                await driver.set_trace_callback(lambda _statement: None)
+                if collecting:
+                    gc.enable()
+
+    asyncio.run(scenario())
+
+
+def test_failed_cursor_cleanup_preserves_the_statement_error(tmp_path, monkeypatch) -> None:
+    async def scenario() -> None:
+        config = SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'cleanup-error.db'}")
+        async with SQLiteProfile.open(config, tables=()) as profile, profile.database.engine.connect() as connection:
+            await connection.exec_driver_sql("CREATE TABLE probe (value INTEGER PRIMARY KEY)")
+            await connection.exec_driver_sql("INSERT INTO probe VALUES (1)")
+            await connection.commit()
+            driver = cast(aiosqlite.Connection, (await connection.get_raw_connection()).driver_connection)
+            original_execute = driver._execute
+
+            async def unavailable_close(fn, *args, **kwargs):
+                if isinstance(getattr(fn, "__self__", None), sqlite3.Cursor) and fn.__name__ == "close":
+                    raise RuntimeError("cursor cleanup unavailable")  # noqa: TRY003
+                return await original_execute(fn, *args, **kwargs)
+
+            with monkeypatch.context() as patch:
+                patch.setattr(driver, "_execute", unavailable_close)
+                with pytest.raises(IntegrityError, match="UNIQUE constraint failed"):
+                    await connection.exec_driver_sql("INSERT INTO probe VALUES (1)")
+            await connection.rollback()
+            assert (await connection.exec_driver_sql("SELECT value FROM probe")).scalar_one() == 1
 
     asyncio.run(scenario())

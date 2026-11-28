@@ -73,6 +73,7 @@ class AtomicProjectionMigrationRunner(ManagedMaintenanceRunner):
         "pc_atomic_memory_current",
         "pc_atomic_memory_current_fts",
         "pc_atomic_memory_evidence",
+        "pc_atomic_memory_alias",
     )
 
     def __init__(self, *args, **kwargs):
@@ -85,9 +86,14 @@ class AtomicProjectionMigrationRunner(ManagedMaintenanceRunner):
             **kwargs,
         )
         self.affected_objects = (
-            ("pc_atomic_memory_current", "pc_atomic_memory_current_fts", "pc_atomic_memory_evidence")
+            (
+                "pc_atomic_memory_current",
+                "pc_atomic_memory_current_fts",
+                "pc_atomic_memory_evidence",
+                "pc_atomic_memory_alias",
+            )
             if isinstance(self.connections.config, SQLiteConfig)
-            else ("pc_atomic_memory_current", "pc_atomic_memory_evidence")
+            else ("pc_atomic_memory_current", "pc_atomic_memory_evidence", "pc_atomic_memory_alias")
         )
 
     def _index(self, connection):
@@ -107,6 +113,7 @@ class AtomicProjectionMigrationRunner(ManagedMaintenanceRunner):
                     batch_size=self.batch_size,
                     require_evidence=True,
                     require_evidence_projection=True,
+                    require_alias_projection=True,
                 )
             )
         except Exception as error:
@@ -125,11 +132,11 @@ class AtomicProjectionMigrationRunner(ManagedMaintenanceRunner):
                 raise
         fingerprint = digest({
             "schema": sqlite_inventory(connection) if identity.product == "sqlite" else mysql_inventory(connection),
-            "rows": self._rows_digest(connection, index.table),
+            "rows": self._rows_digest(connection, index.table, index.alias_table),
         })
         return fingerprint, required, not required
 
-    def _rows_digest(self, connection, current):
+    def _rows_digest(self, connection, current, aliases):
         snapshot = hashlib.sha256()
         for table in (
             ARTIFACTS_TABLE,
@@ -139,6 +146,7 @@ class AtomicProjectionMigrationRunner(ManagedMaintenanceRunner):
             ARTIFACT_SOURCE_LOCATORS_TABLE,
             ARTIFACT_LINEAGE_ARTIFACTS_TABLE,
             current,
+            aliases,
             ATOMIC_MEMORY_EVIDENCE_HISTORY_TABLE,
             SOURCE_EVIDENCE_BINDINGS_TABLE,
             ATOMIC_MEMORY_EVIDENCE_PROJECTION_TABLE,

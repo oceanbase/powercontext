@@ -11,6 +11,7 @@
 
 """Read durable inputs and recorded Dream executions without inferring missing history."""
 
+import asyncio
 from typing import Any, cast
 from urllib.parse import urlencode
 
@@ -115,9 +116,40 @@ async def load_topic_status(api, ctx) -> None:
         ctx["errors"]["processing_topic_status"] = error
 
 
+async def load_source_consumption(api, ctx) -> None:
+    family = {"notes": "atomic-memory", "profile": "profile", "experience": "experience"}.get(ctx["page"])
+    if ctx["page"] == "methods" and ctx["method_kind"] == "experience":
+        family = "experience"
+    if family is None or ctx["record_only"] or not ctx["scope_descriptor"]:
+        return
+    try:
+        # This projection owns a separate authorized transaction. Its failure must
+        # not invalidate the content snapshot or expose unaudited status values.
+        async with asyncio.timeout(5):
+            status = await api.project(ctx["scope"], "source_consumption", family=family)
+    except ReadError as error:
+        if error.status == 401:
+            raise
+        ctx["errors"]["source_consumption"] = error
+    except TimeoutError:
+        ctx["errors"]["source_consumption"] = ReadError(503, "service_unavailable")
+    else:
+        ctx["source_consumption"] = status
+
+
 async def load_memory_previews(api, ctx):
     for ref in (ctx.get("source_artifacts") or [])[:20]:
         await _load_memory_preview(api, ctx, ref)
+
+
+async def load_automatic_status(api, ctx):
+    """Keep each Family's evidence independent of the Source directory."""
+    for family in ("memory", "topic-memory", "profile", "experience"):
+        try:
+            status = await api.processing_status(ctx["scope"], family)
+            ctx["automatic_status"].append({"family": family, "value": status, "error": None})
+        except ReadError as error:
+            ctx["automatic_status"].append({"family": family, "value": None, "error": error})
 
 
 def _validate_selection(kind, source_id, run_id, status):
@@ -132,8 +164,7 @@ def _validate_selection(kind, source_id, run_id, status):
 
 async def load_processing(api, request, ctx):
     kind = request.query_params.get("record_type") or ("dreams" if request.query_params.get("run_id") else "sources")
-    if kind in {"overview", "attempts"}:
-        kind = "sources"
+    kind = {"overview": "sources", "attempts": "sources"}.get(kind, kind)
     source_id = request.query_params.get("source_id")
     run_id = request.query_params.get("run_id")
     status = (request.query_params.get("run_status") or None) if kind == "dreams" else None
@@ -143,6 +174,8 @@ async def load_processing(api, request, ctx):
     ctx["artifact_destination"] = lambda ref: artifact_destination(ctx, ref)
     scope = segment(ctx["scope"])
     if kind == "sources":
+        if source_id is None:
+            await load_automatic_status(api, ctx)
         if ctx["processing_show_topic_status"]:
             await load_topic_status(api, ctx)
         if source_id is not None:

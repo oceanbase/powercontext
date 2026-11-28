@@ -98,6 +98,7 @@ from .powercontext_client_config import (
     resolve_allow_insecure_http,
 )
 from .prepared_context import bounded_recall_query as _bounded_recall_query
+from .prompt_privacy import scrub_secrets as _scrub_secrets
 
 try:
     from agent.memory_provider import MemoryProvider, RecallStatus  # ty: ignore[unresolved-import]
@@ -120,6 +121,10 @@ _COMPATIBILITY_OR_AVAILABILITY_PATHS = frozenset({
     "/v1/capabilities",
     "/v1/context/prepare",
 })
+# A prepare result carries a checked prepared-context marker. Behind the PowerContext gateway the tool result stays
+# in the conversation, and Core rejects every later request that carries a marker the gateway did not inject, so the
+# tool is offered only while prompt recall is on.
+_PREPARE_CONTEXT_TOOL = "powercontext_prepare_context"
 _AUTOMATIC_OPERATION_PATHS = {
     "context_prepare": frozenset({"/v1/context/prepare"}),
     "capture_source": frozenset({"/v1/sources/content"}),
@@ -129,17 +134,36 @@ _AUTOMATIC_OPERATION_PATHS = {
 }
 
 
-def _automatic_recall_query(prompt: str) -> str:
+def _automatic_recall_query(prompt: str, authorization: str | None) -> str:
     """Return the query an automatic recall sends, or an empty query that skips the recall.
 
-    A prompt holding unpaired surrogates, such as a file name decoded with ``surrogateescape``, has no UTF-8 form, so
-    no request can carry it. Skipping the recall keeps that failure out of the Hermes turn.
+    Recognized credentials are scrubbed before the query is bounded, so a cut cannot leave a bare credential behind.
+    """
+    return _recall_query_tail(_scrub_secrets(prompt, authorization))
+
+
+def _recall_query_tail(text: str) -> str:
+    """Bound a redacted query, or return an empty query when it has no UTF-8 form.
+
+    A prompt holding unpaired surrogates, such as a file name decoded with ``surrogateescape``, cannot be carried by
+    any request. Skipping the recall keeps that failure out of the Hermes turn.
     """
     try:
-        return _bounded_recall_query(prompt)
+        return _bounded_recall_query(text)
     except UnicodeEncodeError:
         logger.debug("Skipping PowerContext automatic recall: the query is not valid UTF-8 text")
         return ""
+
+
+def _redact_credentials(text: str, authorization: str | None) -> str:
+    """Redact text with the shared rule and then the plugin's own rule.
+
+    The evaluation trace and the pre-compression checkpoint redact everything the recall query redacts, and the
+    plugin's rule then redacts what it still recognizes. The shared rule must run first: the plugin's assignment
+    pattern consumes a scheme word or the start of a private-key block (``Authorization: Bearer X`` becomes
+    ``[REDACTED] X``), and the shared rule no longer recognizes what is left.
+    """
+    return _redact_secrets(_scrub_secrets(text, authorization))
 
 
 def _precompress_content_for_entries(
@@ -272,8 +296,6 @@ class PowerContextMemoryProvider(MemoryProvider):
         self._pending_memory_writes = 0
         self._accept_memory_writes = False
         self._dropped_memory_writes = 0
-        self._prefetch_cache: dict[tuple[str, str, str, str], str] = {}
-        self._prefetch_lock = threading.Lock()
         self._last_recall: Any = None
         self._last_recall_scope_id = ""
         self._memory_extraction_supported: bool | None = None
@@ -372,6 +394,12 @@ class PowerContextMemoryProvider(MemoryProvider):
                 "default": str(int(_DEFAULT_TIMEOUT)),
                 "type": "number",
                 "minimum": 0.1,
+            },
+            {
+                "key": "prompt_recall",
+                "description": "Prepare and inject context for each prompt",
+                "default": "true",
+                "choices": ["true", "false"],
             },
             {
                 "key": "capture_turns",
@@ -630,8 +658,6 @@ class PowerContextMemoryProvider(MemoryProvider):
                 scope_id,
             )
 
-        with self._prefetch_lock:
-            self._prefetch_cache.clear()
         self._last_recall = None
         self._last_recall_scope_id = ""
         self._precompress_stream_id = f"{self._session_id}:{scope_id}"
@@ -836,11 +862,17 @@ class PowerContextMemoryProvider(MemoryProvider):
             raise PowerContextInvalidResponseError(error)
         return content
 
+    def _prompt_recall_enabled(self) -> bool:
+        return _as_bool(
+            _config_value(self._config, "prompt_recall", "POWERCONTEXT_HERMES_PROMPT_RECALL", True),
+            True,
+        )
+
     def prefetch(self, query: str, *, session_id: str = "") -> str:
         scope_id = self._scope_id
         client = self._client
-        recall_query = _automatic_recall_query(query)
-        if not client or not recall_query or not scope_id:
+        recall_query = _automatic_recall_query(query, getattr(client, "authorization", None))
+        if not client or not recall_query or not scope_id or not self._prompt_recall_enabled():
             self._last_recall = None
             self._last_recall_scope_id = ""
             return ""
@@ -850,38 +882,31 @@ class PowerContextMemoryProvider(MemoryProvider):
         except PowerContextError as error:
             self._emit_failure_diagnostic("context_prepare", error)
             return ""
-        cache_key = (scope_id, session_key, query, json.dumps(options, sort_keys=True))
-        with self._prefetch_lock:
-            cached = self._prefetch_cache.pop(cache_key, None)
-        content = cached
-        trace_status = "cache" if cached is not None else "empty"
-        if content is None:
-            try:
-                response = client.prepare_context(
-                    scope_id,
-                    recall_query,
-                    **options,
-                )
-                content = self._prepared_content(response, options)
-                trace_status = str(response.get("status", "empty"))
-            except PowerContextError as error:
-                self._emit_failure_diagnostic("context_prepare", error)
-                content = ""
-                trace_status = "error"
+        try:
+            response = client.prepare_context(
+                scope_id,
+                recall_query,
+                **options,
+            )
+            content = self._prepared_content(response, options)
+            trace_status = str(response.get("status", "empty"))
+        except PowerContextError as error:
+            self._emit_failure_diagnostic("context_prepare", error)
+            content = ""
+            trace_status = "error"
         if scope_id != self._scope_id:
             if self._last_recall_scope_id == scope_id:
                 self._last_recall = None
                 self._last_recall_scope_id = ""
             return ""
         if self._trace_enabled:
-            # Redacting the whole prompt costs time in proportion to its length, so it runs only for a recorded trace.
+            authorization = getattr(client, "authorization", None)
+            # The whole prompt is redacted before it is bounded, so a cut cannot leave a bare credential behind.
             self._record_trace_event(
                 "powercontext_injection",
                 session_id=session_key,
-                # Redact the whole prompt before bounding it: a cut inside ``api_key=<value>`` would leave a bare value
-                # that redaction no longer recognizes.
-                query=_automatic_recall_query(_redact_secrets(query)),
-                injected_text=_redact_secrets(content.strip()),
+                query=_recall_query_tail(_redact_credentials(query, authorization)),
+                injected_text=_redact_credentials(content.strip(), authorization),
                 status=trace_status,
                 content_bytes=len(content.encode("utf-8")),
             )
@@ -896,34 +921,11 @@ class PowerContextMemoryProvider(MemoryProvider):
         return "## PowerContext recalled context\n\n" + delivered
 
     def queue_prefetch(self, query: str, *, session_id: str = "") -> None:
-        scope_id = self._scope_id
-        client = self._client
-        recall_query = _automatic_recall_query(query)
-        if not client or not scope_id or not recall_query:
-            return
-        session_key = session_id or self._session_id
-        try:
-            options = self._prepare_options()
-        except PowerContextError as error:
-            self._emit_failure_diagnostic("context_prepare", error)
-            return
-        cache_key = (scope_id, session_key, query, json.dumps(options, sort_keys=True))
+        """No-op: ``prefetch`` prepares the current prompt synchronously at turn start.
 
-        def prepare() -> None:
-            try:
-                response = client.prepare_context(
-                    scope_id,
-                    recall_query,
-                    **options,
-                )
-                content = self._prepared_content(response, options)
-                if content.strip():
-                    with self._prefetch_lock:
-                        self._prefetch_cache[cache_key] = content
-            except PowerContextError as error:
-                self._emit_failure_diagnostic("context_prepare", error)
-
-        self._enqueue_memory_write(prepare)
+        Hermes queues this after turn N with that turn's text and prefetches turn N+1 with the
+        next prompt, so a result keyed on the earlier query is almost never the one recall needs.
+        """
 
     def recall_status(self):
         if self._last_recall_scope_id and self._last_recall_scope_id != self._scope_id:
@@ -957,6 +959,13 @@ class PowerContextMemoryProvider(MemoryProvider):
         assistant_content = _message_text(assistant_content)
         if not user_content and not assistant_content:
             return
+        authorization = getattr(self._client, "authorization", None)
+        for side, text in (("user", user_content), ("assistant", assistant_content)):
+            if _scrub_secrets(text, authorization) != text:
+                # A recognized credential on either side skips the whole turn; a redacted copy would be stored under
+                # the turn's identity.
+                logger.debug("Skipping PowerContext turn capture: sensitive_content in the %s text", side)
+                return
         effective_session = session_id or self._session_id
         scope_id = self._scope_id
         projected = f"[user]\n{user_content}\n\n[assistant]\n{assistant_content}"
@@ -1045,8 +1054,6 @@ class PowerContextMemoryProvider(MemoryProvider):
         self._session_id = new_session_id
         self._parent_session_id = parent_session_id
         self._trace_turn = 0
-        with self._prefetch_lock:
-            self._prefetch_cache.clear()
         self._last_recall = None
         self._last_recall_scope_id = ""
         self._record_trace_event(
@@ -1096,7 +1103,10 @@ class PowerContextMemoryProvider(MemoryProvider):
             return ""
 
         evidence = evidence_messages if evidence_messages is not None else messages
-        entries = _precompress_entries(evidence)
+        authorization = getattr(client, "authorization", None)
+        # A message is redacted in place rather than left out, so a credential in the transcript never makes a required
+        # checkpoint fail, and fingerprints still hash the original messages.
+        entries = _precompress_entries(evidence, redact=lambda text: _redact_credentials(text, authorization))
         new_entries = _new_precompress_entries(self._precompress_snapshot, entries)
         if not new_entries:
             self._precompress_snapshot = [fingerprint for fingerprint, _message in entries]
@@ -1409,13 +1419,19 @@ class PowerContextMemoryProvider(MemoryProvider):
         return commands.status_command(self)
 
     def get_tool_schemas(self) -> list[dict[str, Any]]:
-        return commands.get_tool_schemas()
+        schemas = commands.get_tool_schemas()
+        if self._prompt_recall_enabled():
+            return schemas
+        return [schema for schema in schemas if schema.get("name") != _PREPARE_CONTEXT_TOOL]
 
     @staticmethod
     def _citation_properties() -> dict[str, Any]:
         return commands.citation_properties()
 
     def handle_tool_call(self, tool_name: str, args: dict[str, Any], **kwargs: Any) -> str:
+        # Hermes indexes tool routes before initialize() merges the config file, so refuse the call here too.
+        if tool_name == _PREPARE_CONTEXT_TOOL and not self._prompt_recall_enabled():
+            return commands.tool_error(f"Unknown PowerContext tool: {tool_name}")
         return commands.handle_tool_call(self, tool_name, args, **kwargs)
 
     def _wait_for_background(self) -> None:

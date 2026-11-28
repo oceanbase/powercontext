@@ -278,6 +278,17 @@ const OPERATIONS = {
 		successStatuses: [200],
 		emptyStatuses: []
 	},
+	get_source_limits: {
+		method: "GET",
+		path: "/v1/source-limits",
+		location: null,
+		scopeMode: "none",
+		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
 	list_scopes: {
 		method: "GET",
 		path: "/v1/scopes",

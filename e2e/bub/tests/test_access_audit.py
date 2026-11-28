@@ -270,6 +270,8 @@ _SERVER_WIDE_WITHOUT_CONTENT = frozenset({
     "list_external_skills",
     "resolve_external_skill",
     "get_stats",
+    # A deployment limit, not Scope content.
+    "get_source_limits",
 })
 
 

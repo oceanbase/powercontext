@@ -22,9 +22,13 @@ from starlette.responses import JSONResponse
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from powercontext.http import ErrorDetail, ErrorResponse
+from powercontext.http._generated.operations import ENROLL_REMOTE_SKILL_TARGET
 from powercontext.server.context import is_internal_bridge
+from powercontext.server.dashboard.session import DASHBOARD_SESSION_MAX_BODY_BYTES
+from powercontext.server.middleware import is_bodyless_public_request
 
 _PLUGIN_API = re.compile(r"^/(?:v1|dashboard)/plugins/[^/]+/api/")
+_REMOTE_ENROLLMENT_MAX_BODY_BYTES = 8 * 1024
 
 
 class HttpAdmissionMiddleware:
@@ -88,30 +92,44 @@ class HttpRequestBodyLimitMiddleware:
     """Bound external request bodies before downstream parsing."""
 
     def __init__(
-        self, app: ASGIApp, *, max_request_body_bytes: int, plugin_api_max_body_bytes: int | None = None
+        self,
+        app: ASGIApp,
+        *,
+        max_request_body_bytes: int,
+        plugin_api_max_body_bytes: int | None = None,
+        dashboard_enabled: bool = False,
     ) -> None:
         self.app = app
         self._max_body = max_request_body_bytes
         # Plugin routes declare their own limits under a separate deployment ceiling.
         self._plugin_max_body = plugin_api_max_body_bytes or max_request_body_bytes
+        self._dashboard_enabled = dashboard_enabled
 
     def _limit(self, scope: Scope) -> int:
-        return self._plugin_max_body if _PLUGIN_API.match(scope.get("path", "")) else self._max_body
+        path = scope["path"]
+        if path == ENROLL_REMOTE_SKILL_TARGET.path:
+            return min(self._max_body, _REMOTE_ENROLLMENT_MAX_BODY_BYTES)
+        if self._dashboard_enabled and scope["method"] == "POST" and path == "/dashboard/session":
+            return min(self._max_body, DASHBOARD_SESSION_MAX_BODY_BYTES)
+        return self._plugin_max_body if _PLUGIN_API.match(path) else self._max_body
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http" or is_internal_bridge():
             await self.app(scope, receive, send)
             return
-        body = await self._receive_body(scope, receive, send)
+        limit = self._limit(scope)
+        if self._declared_too_large(scope, limit):
+            await _reject_body(scope, receive, send)
+            return
+        if is_bodyless_public_request(scope, dashboard_enabled=self._dashboard_enabled):
+            await self.app(scope, receive, send)
+            return
+        body = await self._receive_body(scope, receive, send, limit)
         if body is None:
             return
         await self.app(scope, _replay_body(body, receive), send)
 
-    async def _receive_body(self, scope: Scope, receive: Receive, send: Send) -> bytearray | None:
-        limit = self._limit(scope)
-        if self._declared_too_large(scope, limit):
-            await _reject_body(scope, receive, send)
-            return None
+    async def _receive_body(self, scope: Scope, receive: Receive, send: Send, limit: int) -> bytearray | None:
         body = bytearray()
         while True:
             message = await receive()

@@ -78,7 +78,7 @@ powercontext server run --env-file powercontext.env
 ```
 
 已有持久化数据库首次启用 Generation 处理能力时，直接用新配置启动可能报
-`Processing configuration differs from the completed maintenance manifest`。这时先用新配置执行只读
+`incompatible_processing_configuration: Processing ownership differs from the migrated declaration`。这时先用新配置执行只读
 `powercontext server processing-migrate --action plan --env-file powercontext.env`；备份数据库并停止旧 Server、
 Worker 和写入后，按[后台处理状态迁移](../operate/artifact-processing-migration.md)使用新的 migration ID 执行
 `apply`、`verify`。仅在验证返回 `ready: true` 后启动新配置。不要通过删除原数据库来绕过迁移。

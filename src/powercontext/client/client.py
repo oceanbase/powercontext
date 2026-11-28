@@ -203,6 +203,7 @@ from powercontext.http import (
     SkillPackageDownload,
     SkillPackageManifest,
     SourceDefinitionManifest,
+    SourceLimits,
     SourceObservationReceipt,
     SourcePage,
     SourceRecord,
@@ -284,6 +285,7 @@ from powercontext.http._generated.operations import (
     GET_SKILL,
     GET_SKILL_PACKAGE_MANIFEST,
     GET_SOURCE,
+    GET_SOURCE_LIMITS,
     GET_STATS,
     GET_TOPIC_MEMORY,
     GET_TOPIC_MEMORY_PROCESSING_BLOCK,
@@ -435,6 +437,11 @@ class PowerContextClient:
         """Read behavior enabled by the assembled runtime."""
 
         return await self._request(GET_CAPABILITIES)
+
+    async def get_source_limits(self) -> SourceLimits:
+        """Read the deployment's effective Content Source capture limit."""
+
+        return await self._request(GET_SOURCE_LIMITS)
 
     async def get_server_info(self) -> ServerInfo:
         """Read stable deployment identity and protocol compatibility metadata."""

@@ -87,7 +87,9 @@ current session ID and its latest observed hook outcome. Missing bindings allow 
 they do not trigger Scope creation or default-Scope fallback.
 
 The `will-user-message` hook recalls bounded PreparedContext and independently captures the original prompt as a
-Source before dispatch. Capture is separately selectable and does not prove extraction or Memory production.
+Source before dispatch. A prompt longer than 8,192 characters or 8,192 UTF-8 bytes recalls from its most recent
+text: the longest trailing text that fits both bounds, cut between characters. Capture is separately selectable and
+does not prove extraction or Memory production.
 The captured text is the input to this adapter before its rewrite; an earlier Ghost may already have rewritten it.
 Cindy does not supply a separate raw-draft field.
 Explicit writes, Handoffs, and review use the native MCP tools.

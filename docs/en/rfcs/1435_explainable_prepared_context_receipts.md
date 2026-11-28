@@ -337,8 +337,23 @@ results before shipping; do not silently ship consistently absent diagnostics.
 
 ## Persistence and MCP
 
-v1 does not persist Receipts and does not add a fetch-by-`receipt_id` operation. Evaluation that needs a durable record
-stores the response itself in the evaluation harness. A later opt-in store with TTL requires its own RFC.
+The default v1 path does not persist Receipts or add a fetch-by-`receipt_id` operation. Evaluation can store the response
+in its harness. The explicit Server diagnostic extension below defines a separate durable store.
+
+### Explicit Server diagnostic extension
+
+The built-in Server attempts to save observed prepare executions to `pc_context_prepare_diagnostics`; there is no enable setting.
+It captures the same authorized execution, including the original prepare query, exact final prepared text,
+Receipt when available, actual family result counts, per-stage candidate text and terminal failure/cancellation evidence.
+Authentication headers, vectors and raw model responses are not copied as separate fields. Query and candidate/final text
+are retained without redaction, including any secrets present in that text. Receipt JSON remains content-free and is never injected. The
+extension does not change host requests, responses, reuse or the public Receipt schema and never reruns prepare.
+
+Capture covers all Server Scopes and rounds. Records have permanent retention, without TTL, capacity eviction or a
+cleanup operation. Existing Dashboard authorization and completed audit
+protect reads, including current authorization of referenced Scopes before returning historical text. Persistence is
+best-effort and must not replace business results or suppress cancellation. Ordinary logs and traces remain body-free.
+See [Context diagnostics](../development/dashboard.md#context-diagnostics) for storage, pagination and display behavior.
 
 `prepare_context` remains absent from the default MCP tool surface. Receipts are not a reason to project prepare as an
 Agent-facing tool.
@@ -428,11 +443,12 @@ They cannot carry exact Memory citations as a supported API.
 already withholds it. PreparedContext selection happens after Memory search and Experience search and applies a
 different budget.
 
-**Do not persist every prepare.** Request-time recall would become an unbounded history of user queries. Evaluation can
-keep the HTTP response in the harness.
+**Do not put the diagnostic history in the public contract.** The Server diagnostic extension retains final context,
+including the original query, in a separate best-effort diagnostic record. Query text remains excluded from
+Receipt JSON and operational signals. Evaluation can keep the HTTP response in its harness.
 
 **Do not invent a progressive-content cache.** Expanding a Receipt item through existing exact-read APIs preserves
-Artifact authority. A prepare-side body cache would be a second store of Memory text keyed by an ephemeral id.
+Artifact authority. The independent diagnostic history is historical evidence, not a cache used to serve prepare or an authoritative Memory store.
 
 Impact of not doing this: hosts and benchmarks will keep reverse-engineering recall from injected text or private
 logs, and later packing experiments will have no shared omission vocabulary.
@@ -471,5 +487,5 @@ follow-up RFC.
 - Evaluation reports that join Receipt omission reasons with task scores.
 - Multi-resolution packing ([#1426](https://github.com/oceanbase/powercontext/issues/1426)) reporting selected level
   through the same Receipt `omitted` vocabulary.
-- An opt-in durable Receipt store for audits, with query digests only and a short TTL.
+- A Receipt store for audits, separate from the diagnostic history, with query digests only and a short TTL.
 - Host-visible, content-free diagnostics that log `receipt_id` and `content_digest` when recall is empty or truncated.

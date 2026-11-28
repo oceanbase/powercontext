@@ -21,6 +21,7 @@ import io
 import zipfile
 
 import pytest
+from sqlalchemy.exc import DBAPIError
 
 from powercontext.artifacts import ArtifactRef
 from powercontext.builtin.artifacts.handoff.models import (
@@ -37,6 +38,8 @@ from powercontext.builtin.artifacts.skill.package import capture_skill_archive
 from powercontext.builtin.dream.models import DreamPlan
 from powercontext.builtin.inference.models import GenerationResult, InferenceUsage
 from powercontext.builtin.persistence.artifacts import RepositoryArtifactDraft
+from powercontext.builtin.persistence.family_management import PromptManagementWriter
+from powercontext.builtin.processing_diagnostics import diagnostics_of
 from powercontext.builtin.records import ArtifactWrite
 from powercontext.builtin.review.errors import (
     ArtifactTargetConflictError,
@@ -93,8 +96,10 @@ class PromptGenerator:
         )
 
 
-@pytest.mark.parametrize("case", ["publish", "edit", "schema", "conflict"])
-def test_prompt_dream_review_publication_and_monotonic_rollback(database: DatabaseConfig, case: str) -> None:
+@pytest.mark.parametrize("case", ["publish", "edit", "schema", "conflict", "storage-failure"])
+def test_prompt_dream_review_publication_and_monotonic_rollback(
+    database: DatabaseConfig, case: str, monkeypatch, caplog
+) -> None:
     async def scenario():
         settings = BuiltinConfig(database=database, inference=InferenceConfig(generation_model="test"))
         async with open_dream_runtime(
@@ -182,6 +187,33 @@ def test_prompt_dream_review_publication_and_monotonic_rollback(database: Databa
                     )
                 )
                 assert candidate.version == 2
+            if case == "storage-failure":
+                commit_reviewed = PromptManagementWriter.commit_reviewed
+
+                async def fail_after_write(writer, connection, *args, **kwargs):
+                    await commit_reviewed(writer, connection, *args, **kwargs)
+                    await connection.exec_driver_sql("SELECT 1 FROM private_prompt_review_table")
+
+                with monkeypatch.context() as patch:
+                    patch.setattr(PromptManagementWriter, "commit_reviewed", fail_after_write)
+                    with pytest.raises(DBAPIError) as caught:
+                        await review.approve(
+                            ApproveCandidateRequest(
+                                candidate_id=candidate.candidate_id, expected_version=candidate.version
+                            )
+                        )
+                diagnostics = diagnostics_of(caught.value)
+                assert diagnostics is not None
+                assert diagnostics.stage == "persistence" and diagnostics.reason == "storage_failure"
+                (failure,) = [item for item in caplog.records if getattr(item, "operation", None) == "prompt.approve"]
+                fields = vars(failure)
+                assert fields["processing_stage"] == "persistence" and fields["failure_reason"] == "storage_failure"
+                assert fields["failure_location"] == "prompt-approval-storage"
+                assert "private_prompt_review_table" not in repr(fields)
+                assert original.instructions not in repr(fields)
+                assert failure.exc_info is None
+                assert (await records.get_artifact("prompt", "atomic_memory.extract")).revision == before.revision
+                assert (await review.get(GetCandidateRequest(candidate_id=candidate.candidate_id))).status == "pending"
             prompts = runtime._provider.prompts
             async with prompts.bind(scope.scope_id, "atomic_memory.extract") as frozen:
                 approved = await review.approve(

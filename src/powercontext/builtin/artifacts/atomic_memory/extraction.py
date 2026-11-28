@@ -22,6 +22,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, TypeAdapter, ValidationError
+from pydantic.json_schema import SkipJsonSchema
 
 from powercontext._logging import log_safely
 from powercontext.artifacts import ArtifactRef
@@ -34,6 +35,7 @@ from powercontext.builtin.artifacts.atomic_memory.summary import DESCRIPTION_RUL
 from powercontext.builtin.artifacts.atomic_memory.temporal import preserves_time_literals, source_time_literals
 from powercontext.builtin.artifacts.memory.prompts import MemoryExtractionProfile
 from powercontext.builtin.inference import InvalidInferenceOutputError, StructuredGenerator, TokenEstimator
+from powercontext.builtin.inference.models import ConversationReply, ConversationTurn
 from powercontext.builtin.persistence.records import _canonical_source_text
 from powercontext.builtin.persistence.sources import SourceRepository, StoredSource
 from powercontext.builtin.processing_diagnostics import (
@@ -142,6 +144,8 @@ class AtomicMemoryEvidence(BaseModel):
 class AtomicMemoryExtractionInput(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
     evidence: tuple[AtomicMemoryEvidence, ...]
+    # Routing metadata for the Gateway callback, excluded from model input and its schema.
+    scope_id: SkipJsonSchema[str | None] = Field(default=None, exclude=True)
 
 
 class AtomicMemoryCandidate(BaseModel):
@@ -168,6 +172,10 @@ class AtomicMemoryGenerationPipeline:
     input_renderer: Callable[[AtomicMemoryExtractionInput | AtomicMemoryReconciliationInput], str] | None = None
     # Opt-in extraction over the agent's cached conversation prefix; any failure falls back to ``extractor``.
     prefixed: StructuredGenerator[AtomicMemoryExtractionInput, AtomicMemoryExtractionOutput] | None = None
+    # One-pass processing continues one conversation instead of calling the extractor and reconciler.
+    conversation: StructuredGenerator[ConversationTurn[Any], ConversationReply[Any]] | None = None
+    # Opt-in one-pass conversation after the agent's cached prefix; any failure falls back to ``conversation``.
+    prefixed_conversation: StructuredGenerator[ConversationTurn[Any], ConversationReply[Any]] | None = None
 
     async def extract(self, value: AtomicMemoryExtractionInput) -> tuple[AtomicMemoryCandidate, ...]:
         if self.prefixed is not None and prefix_handle(value) is not None:
@@ -190,13 +198,17 @@ class AtomicMemoryGenerationPipeline:
         except InvalidInferenceOutputError:
             reason = "invalid_output"
         else:
-            _log_prefixed_extraction("success")
+            log_prefixed_extraction("success")
             return candidates
-        _log_prefixed_extraction("fallback", reason)
+        log_prefixed_extraction("fallback", reason)
         return None
 
 
-def _log_prefixed_extraction(outcome: str, reason: str | None = None) -> None:
+def log_prefixed_extraction(
+    outcome: str, reason: str | None = None, *, operation: str = "atomic_memory.extract"
+) -> None:
+    """Report whether a window's model input was read from the agent's prefix or sent the normal way."""
+
     log_safely(
         logger,
         logging.INFO,
@@ -205,7 +217,7 @@ def _log_prefixed_extraction(outcome: str, reason: str | None = None) -> None:
         else "Prefixed Atomic Memory extraction fell back",
         extra={
             "event": "atomic_memory.prefixed_extraction",
-            "operation": "atomic_memory.extract",
+            "operation": operation,
             "unit": "inference",
             "outcome": outcome,
             **({} if reason is None else {"fallback_reason": reason}),

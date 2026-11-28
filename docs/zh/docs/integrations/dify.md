@@ -24,3 +24,9 @@ description: 通过实验性 Dify 工具插件连接独立的 PowerContext Serve
 `data` 和 `error` 保存封装对象或 null，变量选择器不会展开它们的子字段。下游节点引用具体响应字段时，使用 `result.*`。
 
 详细说明见源码中的 [README](https://github.com/oceanbase/powercontext/blob/master/integrations/dify/README.md)、[工具清单](https://github.com/oceanbase/powercontext/blob/master/integrations/dify/tool-coverage.md)、[Scope 映射](https://github.com/oceanbase/powercontext/blob/master/integrations/dify/scope-mapping.md)、[隐私说明](https://github.com/oceanbase/powercontext/blob/master/integrations/dify/plugin/PRIVACY.md) 和 [验收记录](https://github.com/oceanbase/powercontext/blob/master/integrations/dify/ACCEPTANCE.md)。
+
+## 把提示词时上下文交给 gateway
+
+Dify 的模型调用经过 PowerContext gateway 时，gateway 为每次模型调用准备并注入上下文。Core 检查 gateway 转发的每个请求，拒绝不是 gateway 注入的 prepared-context 块，在每种隐私模式下都是如此：Core 返回 HTTP 422，gateway 返回 HTTP 503 `gate_paused`。插件只提供工具，没有需要关闭的提示词时召回；但 `ready` 状态的 `pc_prepare_context` 结果带有这样的块，`result.content` 和工具的文本输出中都有。经过 gateway 时，不要把 `result.content` 连接到 LLM 节点的输入，也不要把 `pc_prepare_context` 提供给 Agent：工具结果会留在 Agent 的消息中，因此 Core 会拒绝把结果返回给模型的请求，以及之后仍带有该结果的每个请求。gateway 自己的准备取代上文所说的 `pc_prepare_context` 步骤。其他工具不返回 prepared-context 块，不受影响。
+
+组合部署（`PC_GATEWAY_CORE_UDS`）能识别会话时才向请求注入上下文：会话来自 `X-PowerContext-Conversation-ID` 或其他可识别会话头，或者从携带完整历史的请求开头推导。无法识别会话的请求照常发送，不注入内容；设置 `PC_GATEWAY_INJECTION=on` 后，这类请求会各自准备。独立运行的 gateway（`PC_GATEWAY_CORE_BASE`）只有设置这一项才会注入。gateway 在 `PC_GATEWAY_DEFAULT_SCOPE` 指定的同一个 Scope 中准备和采集。请把它设为插件配置的 Scope，使 gateway 能召回工具写入的 Memory。见[网关上下文注入](../operate/deploy-server.md#网关上下文注入)。

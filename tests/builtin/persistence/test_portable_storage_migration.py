@@ -70,6 +70,7 @@ def previous_bundle(directory, embedding, *, through="s1401"):
                 manifest["mysql_state_layouts"].remove(resource)
         for version in (directory / "versions").glob(f"{revision}_*.py"):
             version.unlink()
+        (directory / "versions" / f"{revision}.py").unlink(missing_ok=True)
         (directory / "mysql" / "versions" / f"{revision}.py").unlink(missing_ok=True)
         del manifest["sqlite_fingerprints"][revision]
         del manifest["domain_readiness"][revision]
@@ -131,9 +132,11 @@ def test_registered_s1401_upgrade_preserves_completed_evidence_and_matches_fresh
         "v1_5_0_003",
         "v1_5_0_004",
         "v1_5_0_005",
-        "v1_5_2_pr2639",
+        "v1_5_0_006",
+        "v1_6_0",
+        "000",
     )
-    assert apply(upgraded).revision == "v1_5_2_pr2639"
+    assert apply(upgraded).revision == "000"
     assert upgraded.verify().state == "ready"
     assert not apply(upgraded).changed
     fresh = SQLiteMigrationRunner(tmp_path / "fresh.db", bundle, configuration=config)
@@ -200,7 +203,9 @@ def test_release_upgrade_preserves_data_and_adds_collection_runners(tmp_path, ve
             "v1_5_0_003",
             "v1_5_0_004",
             "v1_5_0_005",
-            "v1_5_2_pr2639",
+            "v1_5_0_006",
+            "v1_6_0",
+            "000",
         )
         if include_owner
         else (
@@ -212,10 +217,12 @@ def test_release_upgrade_preserves_data_and_adds_collection_runners(tmp_path, ve
             "v1_5_0_003",
             "v1_5_0_004",
             "v1_5_0_005",
-            "v1_5_2_pr2639",
+            "v1_5_0_006",
+            "v1_6_0",
+            "000",
         )
     )
-    assert apply(upgraded).revision == "v1_5_2_pr2639"
+    assert apply(upgraded).revision == "000"
     capabilities = b'[{"error":null,"name":"tickets","version":"1.0.0"}]'
     with closing(sqlite3.connect(database)) as connection, connection:
         assert connection.execute("SELECT title FROM pc_scopes").fetchall() == [("preserved",)]

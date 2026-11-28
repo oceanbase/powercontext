@@ -19,6 +19,7 @@ import json
 import logging
 from collections import deque
 from collections.abc import Sequence
+from pathlib import Path
 from typing import Literal
 
 import pytest
@@ -30,11 +31,13 @@ from starlette.requests import Request
 from starlette.responses import Response
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
+from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.http import ArtifactReference, ProposeSkillPackageRequest
 from powercontext.server.factory import create_server_app
 from powercontext.server.settings import (
     AccessControlConfig,
     BearerAuthConfig,
+    DashboardConfig,
     HttpConfig,
     McpConfig,
     MetricsConfig,
@@ -62,6 +65,7 @@ async def _invoke(
     response_send: Send | None = None,
     path: str = "/sentinel/",
     method: str = "POST",
+    client_host: str = "127.0.0.1",
 ) -> tuple[list[Message], int]:
     pending = deque(chunks)
     reads = 0
@@ -92,7 +96,7 @@ async def _invoke(
         "query_string": b"",
         "headers": [] if headers is None else headers,
         "server": ("localhost", 8000),
-        "client": ("127.0.0.1", 10000),
+        "client": (client_host, 10000),
     }
     await app(scope, receive, send)
     return output, reads
@@ -184,6 +188,141 @@ def test_unauthenticated_stalled_body_does_not_hold_server_capacity() -> None:
         finally:
             never.set()
             await stalled
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize(
+    ("path", "status"),
+    [
+        ("/health/live", 200),
+        ("/dashboard/static/layout.css", 200),
+        ("/dashboard/plugins/_client.js", 200),
+        ("/dashboard/plugins/missing/ui/index.html", 404),
+    ],
+)
+def test_public_bodyless_routes_respond_without_receiving_a_body(path: str, status: int) -> None:
+    app = create_server_app(
+        settings=ServerSettings(
+            access=AccessControlConfig(mode="enforced"),
+            auth=BearerAuthConfig(token=SecretStr("server-secret")),
+            dashboard=DashboardConfig(enabled=True),
+            mcp=McpConfig(enabled=False),
+        )
+    )
+    output, reads = asyncio.run(_invoke(app, [b"unused"], headers=[(b"content-length", b"6")], path=path, method="GET"))
+
+    assert output[0]["status"] == status
+    assert reads == 0
+
+
+def test_public_bodyless_route_keeps_the_declared_body_limit() -> None:
+    app = create_server_app(
+        settings=ServerSettings(http=HttpConfig(max_request_body_bytes=8), mcp=McpConfig(enabled=False))
+    )
+    output, reads = asyncio.run(_invoke(app, headers=[(b"content-length", b"9")], path="/health/live", method="GET"))
+
+    assert output[0]["status"] == 413
+    assert reads == 0
+
+
+def test_dashboard_login_stops_reading_at_its_body_limit() -> None:
+    app = create_server_app(
+        settings=ServerSettings(dashboard=DashboardConfig(enabled=True), mcp=McpConfig(enabled=False))
+    )
+    output, reads = asyncio.run(
+        _invoke(
+            app,
+            [b"x" * 32768, b"y", b"unused"],
+            headers=[(b"host", b"localhost"), (b"origin", b"http://localhost")],
+            path="/dashboard/session",
+        )
+    )
+
+    assert output[0]["status"] == 413
+    assert reads == 2
+
+
+def test_disabled_dashboard_login_requires_authentication_before_reading() -> None:
+    app = create_server_app(
+        settings=ServerSettings(
+            access=AccessControlConfig(mode="enforced"),
+            auth=BearerAuthConfig(token=SecretStr("server-secret")),
+            mcp=McpConfig(enabled=False),
+        )
+    )
+    output, reads = asyncio.run(_invoke(app, [b"unused"], path="/dashboard/session"))
+
+    assert output[0]["status"] == 401
+    assert reads == 0
+
+
+@pytest.mark.parametrize(
+    ("method", "client_host", "status"),
+    [("PUT", "127.0.0.1", 405), ("POST", "203.0.113.10", 422)],
+)
+def test_remote_enrollment_checks_method_and_transport_before_reading(
+    method: str, client_host: str, status: int
+) -> None:
+    app = create_server_app(
+        settings=ServerSettings(
+            access=AccessControlConfig(mode="enforced"),
+            auth=BearerAuthConfig(token=SecretStr("server-secret")),
+            mcp=McpConfig(enabled=False),
+        )
+    )
+    output, reads = asyncio.run(
+        _invoke(app, [b"{}"], path="/v1/skill/remote/target/enroll", method=method, client_host=client_host)
+    )
+
+    assert output[0]["status"] == status
+    assert reads == 0
+    if status == 405:
+        assert (b"allow", b"POST") in output[0]["headers"]
+    else:
+        assert json.loads(output[1]["body"])["error"]["code"] == "invalid_request"
+
+
+@pytest.mark.parametrize(
+    ("max_body", "headers", "chunks", "expected_reads"),
+    [
+        (16384, [(b"content-length", b"8193")], [], 0),
+        (16384, [], [b" " * 8192, b"x", b"unread"], 2),
+        (256, [(b"content-length", b"257")], [], 0),
+    ],
+)
+def test_remote_enrollment_uses_the_smaller_body_limit(
+    max_body: int, headers: list[tuple[bytes, bytes]], chunks: list[bytes], expected_reads: int
+) -> None:
+    app = create_server_app(
+        settings=ServerSettings(http=HttpConfig(max_request_body_bytes=max_body), mcp=McpConfig(enabled=False))
+    )
+    output, reads = asyncio.run(_invoke(app, chunks, headers=headers, path="/v1/skill/remote/target/enroll"))
+
+    assert output[0]["status"] == 413
+    assert json.loads(output[1]["body"])["error"]["code"] == "request_too_large"
+    assert reads == expected_reads
+
+
+def test_remote_skill_routes_authenticate_target_before_reading(tmp_path: Path) -> None:
+    app = create_server_app(
+        settings=ServerSettings(
+            database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'runtime.db'}"),
+            access=AccessControlConfig(mode="enforced"),
+            auth=BearerAuthConfig(token=SecretStr("server-secret")),
+            mcp=McpConfig(enabled=False),
+        )
+    )
+
+    async def scenario() -> None:
+        async with app.router.lifespan_context(app):
+            for path in ("reconcile", "receipt", "package/download"):
+                for headers in ([], [(b"authorization", b"Bearer server-secret")]):
+                    output, reads = await _invoke(app, [b"unused"], headers=headers, path=f"/v1/skill/remote/{path}")
+                    assert output[0]["status"] == 401
+                    assert (b"www-authenticate", b"Bearer") in output[0]["headers"]
+                    assert json.loads(output[1]["body"])["error"]["code"] == "invalid_target_credential"
+                    assert reads == 0
 
     asyncio.run(scenario())
 
