@@ -199,6 +199,12 @@ Gemini 关闭 Gateway 上下文注入。Claude CLI 只接受新的单轮文本�
 
 不要在缺少独立递归边界时，让 Core 内部生成回经自动召回或捕获对话的 Gateway。
 
+### Gateway 请求 Scope
+
+向 `/gateway/v1/chat/completions` 或 `/gateway/v1/responses` 发送 `X-PowerContext-Scope-ID` 请求头，可选择召回、Core 两阶段检查和轮次采集使用的 Scope。请发送一个 Scope ID，由 1–256 个可见 ASCII 字符组成，不含逗号。请求头无效或重复时，返回 HTTP 400 和 `invalid_scope_id`。未发送该请求头时，Gateway 使用 `PC_GATEWAY_DEFAULT_SCOPE`（默认值为 `gateway:default`）。同一对话的每个请求应使用相同的 Scope。Gateway 按 Scope 和对话 ID 隔离已准备上下文的重放。
+
+请只让受信任的客户端使用 Gateway，这些客户端可以选择其 Core 凭据可访问的 Scope。Core 按配置的访问模式检查该凭据的权限。客户端或受信任的代理可以在每个请求中设置此请求头。
+
 ### 网关上下文注入
 
 网关通过 UDS 连接 Core（`PC_GATEWAY_CORE_UDS`，即同机组合部署）时，默认向属于某个会话的 Chat 和 Responses 请求注入准备好的上下文。在同一会话内，每条新的用户消息只准备一次，该回合的后续请求（例如 Agent 的工具循环）精确重放同一结果。
@@ -216,13 +222,15 @@ Gemini 关闭 Gateway 上下文注入。Claude CLI 只接受新的单轮文本�
 
 如果这些头均未提供 ID，网关可以根据入口以及模型、开头的指令和第一条用户消息的哈希，识别携带完整历史的 Chat 或 Responses 请求。历史开头必须有用户消息，且其前面只能有 system 或 developer 消息。通过 `previous_response_id` 或 `conversation` 续接的 Responses 请求需要提供请求头才能复用准备结果。推导出的 ID 仅在当前网关进程内用于重放准备结果。开头完全相同的会话可能共享推导出的 ID，需要区分时请发送显式会话头。
 
+带 `X-PowerContext-Turn: internal` 的请求不是会话回合：网关不推导 ID，不准备、不注入、不重放上下文，也不加入固定指令，也不把响应捕获为回合。before-send 检查仍会执行，网关也不会向上游转发该请求头。该头只接受单个大小写不敏感的 `internal`；空值、重复或其他取值会返回 `400 invalid_turn_header`，而不是静默当作普通回合处理。
+
 如果既没有显式 ID 也无法推导 ID，组合部署默认跳过注入，并记录 `context injection skipped: no conversation identity`。设置 `PC_GATEWAY_INJECTION=on` 后，没有 ID 的请求如果带有可用的用户消息，就会各自准备。设置 `PC_GATEWAY_INJECTION=off` 关闭注入，设置 `PC_GATEWAY_INJECTION_RESPONSES=off` 仅关闭 Responses 入口的注入。独立部署（`PC_GATEWAY_CORE_BASE`）必须设置 `PC_GATEWAY_INJECTION=on` 才会注入。准备结果为空或准备失败时，请求照常发送，不注入内容。只有用户回合会向 Core 查询上下文；同一回合的后续请求复用已准备的块，不再查询，没有可重放身份的非用户尾部直接发送、不召回。网关为证据与日志判定每个请求尾部的类型，见[Gateway 调用证据](gateway-evidence.md#回合类型)。
 
 设置 `PC_GATEWAY_INJECTION_CODE=on` 后，准备的上下文同时包含 Scope 代码索引中的代码证据；该选项默认关闭，并要求 Scope 已配置代码仓库。重放的内容因被引用的来源变化（例如 Agent 修改了被引用的文件）而不再通过检查时，网关丢弃该会话的重放，为该请求重新准备一次，而不是把 withhold 返回给客户端。
 
 ### 网关固定指令
 
-网关默认向 Chat 入口（`/gateway/v1/chat/completions`）、Responses 入口（`/gateway/v1/responses`）和 Messages 入口（`/gateway/v1/messages`）的每个请求加入内置的成本指导指令（S），提示模型定向搜索、合并读取、集中修改并进行针对性验证。`PC_GATEWAY_STEERING=off` 关闭指令；未设置或设为 `on` 时开启，其他值会阻止启动。
+网关默认向 Chat 入口（`/gateway/v1/chat/completions`）、Responses 入口（`/gateway/v1/responses`）和 Messages 入口（`/gateway/v1/messages`）的请求（带 `X-PowerContext-Turn: internal` 的请求除外）加入内置的成本指导指令（S），提示模型定向搜索、合并读取、集中修改并进行针对性验证。`PC_GATEWAY_STEERING=off` 关闭指令；未设置或设为 `on` 时开启，其他值会阻止启动。
 
 `PC_GATEWAY_STEERING_FILE` 用自定义指令替换内置文本。开启指令时，网关只在启动时读取一次该文件。文件必须是 UTF-8，去掉首尾空白后不能为空，不超过 4096 字节，并且不能含有 PowerContext 保留的 `BEGIN_POWERCONTEXT_` 标记；否则网关在启动时退出，不会改用其他指令。`PC_GATEWAY_STEERING=off` 优先于文件配置，关闭时不读取文件。
 
@@ -232,7 +240,7 @@ Gemini 关闭 Gateway 上下文注入。Claude CLI 只接受新的单轮文本�
 
 Rust Gateway 在启动时通过 `/v1/capabilities` 查询一次 `context_protection`。模型入口要求 OpenAPI 定义的完整 `ContextProtectionCapabilities` DTO： `check_versions`、`payload_versions`、`reuse_versions`、`reuse_families`、`enforcing`，以及包含 `payload_bytes`、`binding_bytes`、`prepared_contexts`、`dependencies`、`send_seconds` 和 `correlate_seconds` 的 `limits`。即使存在输入容量，任何必需字段缺失或类型错误也会暂停准入。 check/payload 版本必须包含 v1，且 `limits.payload_bytes` 必须是正整数。查询失败、版本不兼容、DTO 不完整或容量无效时，模型入口返回 HTTP 503 暂停服务； `/healthz` 和已配置的 Core/MCP 转发仍可访问。恢复 Core 契约后，重启 Gateway 以重新发现容量。每次模型发送和响应释放仍须分别通过 Core 检查。若 Core 在 Gateway 重启前收紧限制，这次检查可以拒绝调用；增大 Core 限制不会在重启前放大 Gateway 启动时确认的额度。启动诊断通过固定消息区分传输失败、查询被拒、响应畸形/不完整、版本不兼容和容量无效，不输出 Core 错误值。
 
-`PC_GATEWAY_MAX_BODY_BYTES` 默认 16 MiB（1 MiB = 1,048,576 字节）。模型输入的有效上限是该配置、 Core 声明的输入容量和当前完整正文解析器 1 MiB 硬上限的最小值。部署上限为零时，模型输入禁用，返回 HTTP 503 和 `input_capacity_disabled`，不表示 Core 能力查询失败。 Content-Length 预检和 chunked 正文实际读取都受限。执行器还会在 prepared context 注入/重放、 steering 和协议渲染后，检查最终 UTF-8 JSON 正文字节数。入口正文超限返回 HTTP 413；最终正文超限返回 HTTP 403 和 `request_payload_too_large`，不会发送模型。放大配置不能绕过解析器硬上限。
+`PC_GATEWAY_MAX_BODY_BYTES` 默认 16 MiB（1 MiB = 1,048,576 字节）。模型输入的有效上限是该配置、 Core 声明的输入容量和当前完整正文解析器 1 MiB 硬上限的最小值。部署上限为零时，模型输入禁用，返回 HTTP 503 和 `input_capacity_disabled`，不表示 Core 能力查询失败。 Content-Length 预检和 chunked 正文实际读取都受限。执行器还会在 prepared context 注入/重放、 固定指令注入 和协议渲染后，检查最终 UTF-8 JSON 正文字节数。Chat 和 Responses 的固定指令都计入有效输入上限。客户端正文在注入前未超限，也可能因加入固定指令而超限。入口正文超限返回 HTTP 413；最终正文超限返回 HTTP 403 和 `request_payload_too_large`，不会发送模型。放大配置不能绕过解析器硬上限。
 
 固定长度和 chunked/SSE provider 响应的默认缓冲上限均为 1 MiB。传输器显式设置的缓冲上限可以进一步收紧该值。输入 `payload_bytes` **不声明**输出额度。 Core 的响应配置、内容检查以及 JSON/RPC 包装仍有各自的限制，因此低于 1 MiB 的正文也可能被拒绝。 UDS 客户端的 8 MiB RPC 响应解析上限属于另一个传输方向，不是模型正文容量。
 

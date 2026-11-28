@@ -22,6 +22,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, TypeAdapter, ValidationError
+from pydantic.json_schema import SkipJsonSchema
 
 from powercontext._logging import log_safely
 from powercontext.artifacts import ArtifactRef
@@ -143,6 +144,8 @@ class AtomicMemoryEvidence(BaseModel):
 class AtomicMemoryExtractionInput(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
     evidence: tuple[AtomicMemoryEvidence, ...]
+    # Routing metadata for the Gateway callback, excluded from model input and its schema.
+    scope_id: SkipJsonSchema[str | None] = Field(default=None, exclude=True)
 
 
 class AtomicMemoryCandidate(BaseModel):

@@ -99,9 +99,10 @@ a complete PowerContext prepared-context block, the gateway replaces that result
 `PowerContext plugin prepared context omitted by the gateway.` and keeps its tool call ID. The request and response
 still go through Core's normal checks.
 
-With recall off, prompt-time context comes only from the gateway. The gateway prepares and captures in the Scope set
-by `PC_GATEWAY_DEFAULT_SCOPE`, not in the Scope this plugin resolves for the Session or workspace. Set it to the same
-Scope.
+With recall off, prompt-time context comes only from the gateway. The gateway prepares and captures in the Scope
+selected by `X-PowerContext-Scope-ID` and uses `PC_GATEWAY_DEFAULT_SCOPE` when the header is absent. To match the Scope
+the plugin resolves for the Session or workspace, use that Scope in the header or as the default. See
+[Gateway request Scope](../operate/deploy-server.md#gateway-request-scope).
 
 OpenCode sends its session ID in the `x-opencode-session-id` header of every model request. A gateway connected to
 the Core over UDS therefore prepares and injects each OpenCode turn by default; a standalone gateway needs

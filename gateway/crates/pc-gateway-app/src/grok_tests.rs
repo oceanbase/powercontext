@@ -119,6 +119,7 @@ async fn magpie_tool_selection_and_identity_survive_checks_and_client_json_or_ss
                 capture_prefix: false,
                 conversation_id: None,
                 sediment: false,
+                internal: false,
                 prepared_contexts: vec![],
             };
             let outcome = executors[usize::from(degraded)]
@@ -265,6 +266,7 @@ async fn magpie_tool_selection_and_identity_survive_checks_and_client_json_or_ss
                 capture_prefix: false,
                 conversation_id: None,
                 sediment: false,
+                internal: false,
                 prepared_contexts: vec![],
             };
             let outcome = executors[usize::from(degraded)]
