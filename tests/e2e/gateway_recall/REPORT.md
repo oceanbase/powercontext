@@ -27,7 +27,7 @@ Gateway 现在可以在召回前用会话历史补齐短追问的指代，也能
 
 - [标注数据 JSON](../../../gateway/crates/pc-gateway-app/tests/fixtures/context_disambiguation.json) 包含完整对话、最后的用户或工具输入、应否召回、期望记忆 ID 和归属标注。两组检索使用相同的 6 条 Atomic Memory。
 - [复跑说明](README.md) 和 [评测脚本](evaluate.py) 负责启动隔离 SQLite Core 和两套 Gateway，建立同样的记忆库并记录实际的 query、注入、usage 和延迟。
-- [逐次实测数据](results.csv) 包含 Chat 完整对比和 Responses 四类样例，使用相同的列记录实际 query、注入记忆、token 和耗时。
+- [逐次实测数据](results.json) 包含 Chat 完整对比和 Responses 四类样例，使用相同的列记录实际 query、注入记忆、token 和耗时。
 
 两组使用相同的六条记忆。
 
