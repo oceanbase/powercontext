@@ -136,7 +136,7 @@ export function Documents({ kb, onOpen }: { kb: KB; onOpen(location: Location): 
               fixed: "left",
               render: (_, doc) => (
                 <Flex align="start" gap="small">
-                  {/\.(md|markdown)$/i.test(doc.content.relative_path) ? (
+                  {/\.(md|markdown|html|htm)$/i.test(doc.content.relative_path) ? (
                     <FileTextOutlined aria-hidden />
                   ) : (
                     <PictureOutlined aria-hidden />

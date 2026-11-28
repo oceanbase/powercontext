@@ -1,6 +1,6 @@
 ---
 title: Knowledge-base plugin
-description: Import Markdown and images, maintain document revisions, and search across knowledge-base Scopes.
+description: Import Markdown, HTML and images, maintain document revisions, and search across knowledge-base Scopes.
 ---
 
 # Knowledge-base plugin
@@ -57,7 +57,8 @@ name, not the core database: isolate plugin databases/accounts for independent d
 `POWERCONTEXT_KB_IMPORT_ROOTS` contains allowed local roots separated by the operating system's path separator. An empty value
 disables Server-directory imports, while browser uploads remain available. File size is limited to 16 MiB, images to 25 million
 pixels, imports to 100 explicit paths per request, and parsed documents to 2,000 chunks. Server/Worker must share the same local
-filesystem. Remote object stores, PDF/Office files, restoration, permanent cleanup and generated answers are outside this release.
+filesystem. Remote object stores, PDF/Office/EPUB files, restoration, permanent cleanup and generated answers are outside
+this release.
 
 ## Spaces, creation and retries
 
@@ -89,8 +90,10 @@ its documents, retrieval tests and settings share the full content area. The hos
 
 The Dashboard supports selecting or dragging files, and explicit Server-directory imports. Markdown references to embedded images
 remain references; independently imported PNG/JPEG/WebP images use RapidOCR with ONNX Runtime. OCR produces Markdown text blocks
-with original polygons, reading order and confidence. Both paths use heading-aware block packing followed by bounded sentence/line
-splits. Default limits are 360 characters and 40-character overlap; complete embedding input is checked against the tokenizer limit.
+with original polygons, reading order and confidence. HTML is extracted with trafilatura, which removes navigation, ads and
+footers and emits structured blocks for headings, paragraphs, lists, tables, code and quotes located by character spans.
+Markdown and HTML use heading-aware block packing, OCR text keeps its reading order, and all three
+formats then share bounded sentence/line splits. Default limits are 360 characters and 40-character overlap; complete embedding input is checked against the tokenizer limit.
 Markdown HTML blocks, including HTML tables, retain their literal content and source lines in chunks.
 
 If the Dashboard cannot read a file before its first upload, select the file again. Once an upload has been sent without a definitive receipt, it stays unconfirmed even if a retry cannot read the file. Retry those files in the open import dialog to reuse their original bytes and idempotency keys. Files with definitive receipts are skipped.

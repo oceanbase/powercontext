@@ -107,7 +107,7 @@ export function Import({ scope }: { scope: string }) {
               {mode === "upload" ? (
                 <Upload.Dragger
                   multiple
-                  accept=".md,.markdown,.png,.jpg,.jpeg,.webp"
+                  accept=".md,.markdown,.html,.htm,.png,.jpg,.jpeg,.webp"
                   disabled={mutation.isPending}
                   fileList={files.map(({ file, key }) => ({ uid: key, name: file.name, status: "done" as const }))}
                   beforeUpload={(file) => {
@@ -122,7 +122,7 @@ export function Import({ scope }: { scope: string }) {
                     <InboxOutlined aria-hidden />
                   </p>
                   <Typography.Paragraph>拖入文件，或点击选择</Typography.Paragraph>
-                  <Typography.Text type="secondary">Markdown、PNG、JPEG、WebP · 单文件不超过 16 MiB</Typography.Text>
+                  <Typography.Text type="secondary">Markdown、HTML、PNG、JPEG、WebP · 单文件不超过 16 MiB</Typography.Text>
                 </Upload.Dragger>
               ) : (
                 <Form form={form} layout="vertical" requiredMark={false} disabled={mutation.isPending || !!intent}>
