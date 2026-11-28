@@ -107,14 +107,16 @@ Gateway 默认监听回环地址。同机组合部署时，将 `PC_GATEWAY_CORE_
 `PC_GATEWAY_UPSTREAM_PROFILE` 必须已存在于 Core，并包含服务商 endpoint、模型和 `openai-chat` 协议。
 Responses 路由还要设置 `PC_GATEWAY_UPSTREAM_PROFILE_RESPONSES`，并配置 `openai-responses` 目标。不要设置
 `PC_GATEWAY_UPSTREAM_URL*`；旧变量会导致启动失败。`PC_GATEWAY_CORE_TOKEN` 必须代表服务主体；即使监听回环地址，
-也必须配置非空且不同于 Core Token 的 `PC_GATEWAY_API_KEY`。专用 Gateway 主体需要在所选 Scope 上获得
-`gateway.user`（`gateway.invoke`），并在 deployment ID 对应的 Server resource 上获得 `server.observer`
+也必须配置非空且不同于 Core Token 的 `PC_GATEWAY_API_KEY`。专用 Gateway 主体需要在客户端通过
+`X-PowerContext-Scope-ID` 选择的每个 Scope 上获得 `gateway.user`（`gateway.invoke`），而不只是
+`PC_GATEWAY_DEFAULT_SCOPE`；同时要在 deployment ID 对应的 Server resource 上获得 `server.observer`
 （`server.observe`）。ID 由 `POWERCONTEXT_SERVER_ACCESS_DEPLOYMENT_ID` 配置，默认值为 `powercontext`。
 设置 `PC_GATEWAY_SEDIMENT=on` 时，还需授予 `scope.contributor` 替代 `scope.viewer`；它同时包含 `scope.read` 和
 `scope.contribute`。关闭采集时，`scope.viewer` 即可。使用内置可写 Access Provider 时，先携带 Gateway Token
 调用 `GET /v1/access/me`，再由 Access 管理员通过 `POST /v1/access/bindings/create` 创建对应绑定；完整命令见
 [网关认证与目标要求](deploy-server.md#网关模型目标)。引导 Server Token 是管理员凭据并拥有静态 Scope 角色；
-单 Token 部署仍需在所选 Scope 上授予它 `gateway.user`。管理员权限覆盖 `server.observer`，静态 Scope 角色覆盖
+单 Token 部署仍需在客户端选择的每个 Scope 上授予它 `gateway.user`，而不只是默认 Scope。管理员权限覆盖
+`server.observer`，静态 Scope 角色覆盖
 reader/contributor 权限。下面的 Scope 示例展示模型调用授权及专用身份使用的 reader 角色：
 
 ```json

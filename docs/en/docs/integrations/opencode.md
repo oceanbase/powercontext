@@ -124,8 +124,9 @@ whose endpoint, `openai-chat` protocol and model match the request. `@ai-sdk/ope
 not enable Responses. Without the Responses setting, requests return HTTP 501 `responses_route_disabled`. Do not set
 `PC_GATEWAY_UPSTREAM_URL*`; these legacy variables prevent startup. Core access control must be `enforced`,
 `PC_GATEWAY_CORE_TOKEN` must identify an authenticated service principal, and a nonempty `PC_GATEWAY_API_KEY` is
-mandatory even on loopback. Grant the service principal `gateway.user` on the selected Scope and `server.observer` on
-the Server resource for `POWERCONTEXT_SERVER_ACCESS_DEPLOYMENT_ID` (default `powercontext`). Because capture is
+mandatory even on loopback. Grant the service principal `gateway.user` on every Scope selected with
+`X-PowerContext-Scope-ID`, not only `PC_GATEWAY_DEFAULT_SCOPE`, and `server.observer` on the Server resource for
+`POWERCONTEXT_SERVER_ACCESS_DEPLOYMENT_ID` (default `powercontext`). Because capture is
 enabled, grant `scope.contributor` instead of `scope.viewer`. See [Gateway authentication and target requirements](../operate/deploy-server.md#gateway-model-destination).
 
 ## Verify the installation

@@ -209,8 +209,9 @@ Chat 入口选择 `PC_GATEWAY_UPSTREAM_PROFILE`；需要启用 Responses 入口�
 若设置 `PC_GATEWAY_SEDIMENT=on`，还要授予 `scope.contributor`，替代 `scope.viewer`；前者同时包含准备所需的
 `scope.read` 和 Source 采集所需的 `scope.contribute`。关闭采集时，`scope.viewer`（`scope.read`）即可。
 
-引导阶段生成的 Server Token 会映射为内置管理员，并获得静态 Scope 角色。单 Token 部署仍需在所选 Scope 上为它
-授予 `gateway.user`；管理员权限覆盖 Server observer 检查，静态 Scope preset 已包含 viewer/contributor 角色。
+引导阶段生成的 Server Token 会映射为内置管理员，并获得静态 Scope 角色。单 Token 部署仍需在客户端选择的每个
+Scope 上为它授予 `gateway.user`，而不只是默认 Scope；管理员权限覆盖 Server observer 检查，静态 Scope preset 已包含
+viewer/contributor 角色。
 托管部署建议为 Gateway 使用最小权限的专用服务身份。使用内置可写 Access Provider 时，先携带 Gateway Token 调用
 `GET /v1/access/me`
 确认 Principal，再由 Access 管理员为启用的功能创建所需绑定。将下面的 `server-token` 替换为该接口返回的

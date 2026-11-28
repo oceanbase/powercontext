@@ -212,9 +212,9 @@ Server resource for that deployment. If `PC_GATEWAY_SEDIMENT=on`, grant
 are needed for preparation and Source capture. With capture off, `scope.viewer` (`scope.read`) is sufficient.
 
 The Server token generated during bootstrap is mapped to the built-in administrator and receives static Scope roles.
-In the single-token setup, grant it `gateway.user` on the selected Scope; its administrator authority covers the Server
-observer check and its static Scope preset includes the viewer/contributor roles. Prefer a dedicated, least-privilege
-service identity for the Gateway in managed deployments. For
+In the single-token setup, grant it `gateway.user` on every Scope clients select, not only the default Scope; its
+administrator authority covers the Server observer check and its static Scope preset includes the viewer/contributor
+roles. Prefer a dedicated, least-privilege service identity for the Gateway in managed deployments. For
 the built-in writable Access Provider, use the Gateway token to identify its Principal, then have an Access
 administrator create the bindings required by the enabled features:
 

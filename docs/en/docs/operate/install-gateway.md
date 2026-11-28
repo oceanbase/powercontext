@@ -111,17 +111,18 @@ routes. The selected `PC_GATEWAY_UPSTREAM_PROFILE` must already exist in Core an
 model and `openai-chat` protocol. For Responses, also set `PC_GATEWAY_UPSTREAM_PROFILE_RESPONSES` to a Core target
 with the `openai-responses` protocol. Do not set `PC_GATEWAY_UPSTREAM_URL*`; those legacy variables prevent startup.
 `PC_GATEWAY_CORE_TOKEN` must identify a service principal, and `PC_GATEWAY_API_KEY` is required even on loopback and
-must be different from the Core token. A dedicated Gateway principal needs `gateway.user` (`gateway.invoke`) on the
-selected Scope and `server.observer` (`server.observe`) on the Server resource whose deployment ID is configured by
+must be different from the Core token. A dedicated Gateway principal needs `gateway.user` (`gateway.invoke`) on every
+Scope selected with `X-PowerContext-Scope-ID`, not only `PC_GATEWAY_DEFAULT_SCOPE`, and `server.observer`
+(`server.observe`) on the Server resource whose deployment ID is configured by
 `POWERCONTEXT_SERVER_ACCESS_DEPLOYMENT_ID` (default `powercontext`). With `PC_GATEWAY_SEDIMENT=on`, also grant
 `scope.contributor` instead of `scope.viewer`; it includes `scope.read` and `scope.contribute`. With capture off,
 `scope.viewer` is sufficient. For the built-in writable Access Provider, inspect the Gateway principal using
 `GET /v1/access/me`, then have an Access administrator create the corresponding bindings through
 `POST /v1/access/bindings/create`; see [Gateway authentication and target requirements](deploy-server.md#gateway-model-destination)
 for the complete commands. The bootstrap Server token is an administrator credential with static Scope roles; in a
-single-token setup, grant it `gateway.user` on the selected Scope. Its admin authority covers `server.observer`, and
-its static Scope roles cover the reader/contributor permission. The following Scope examples show the invocation grant
-and the reader role for a dedicated identity:
+single-token setup, grant it `gateway.user` on every Scope clients select, not only the default Scope. Its admin
+authority covers `server.observer`, and its static Scope roles cover the reader/contributor permission. The following
+Scope examples show the invocation grant and the reader role for a dedicated identity:
 
 ```json
 {"subject":{"type":"service","id":"server-token"},"resource":{"type":"scope","scope_id":"your-scope"},"role":"gateway.user","idempotency_key":"gateway-user-your-scope"}
