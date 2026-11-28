@@ -405,6 +405,13 @@ async def run_acceptance(  # noqa: C901 - one bounded end-to-end acceptance life
         profile_schedule_enabled=automatic_profile,
         profile_cron="* * * * *",
         topic_memory_max_workers=1,
+        # Usage recording is best-effort and uses a short default write budget.
+        # The real-provider acceptance asserts its evidence while competing with
+        # artifact processing for SQLite's single writer slot. CI runs many
+        # pytest workers, so allow several times the slowest write observed on a
+        # loaded runner and keep each flush longer than one write, as in #2648.
+        model_usage_write_timeout_seconds=20.0,
+        model_usage_flush_timeout_seconds=30.0,
     )
     config = BuiltinConfig(database=database, runtime=runtime_config, inference=inference)
     security = WorkerSecuritySpec(
@@ -529,6 +536,11 @@ async def run_acceptance(  # noqa: C901 - one bounded end-to-end acceptance life
                 if asyncio.get_running_loop().time() >= deadline:
                     raise failed("pending-review-noop-failed")
                 await asyncio.sleep(0.25)
+            # Every processor request has been acknowledged, but usage recording is
+            # an independent best-effort write. Flush accepted records before
+            # reading the evidence table so a loaded runner cannot report usage as
+            # missing merely because the recorder has not completed its write yet.
+            await contexts.flush_model_usage()
             async with contexts.database.transaction() as connection:
                 review_count = await connection.scalar(
                     select(func.count())

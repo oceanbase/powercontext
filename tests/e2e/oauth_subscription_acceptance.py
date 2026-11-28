@@ -61,6 +61,17 @@ CHANNELS = {
         "https://api.githubcopilot.com/chat/completions",
     ),
 }
+ROUTE_TARGETS = {
+    "codex": {"responses": (CHANNELS["codex"][3], CHANNELS["codex"][0])},
+    "copilot": {
+        "chat/completions": (CHANNELS["copilot"][3], CHANNELS["copilot"][0]),
+        "responses": ("https://api.githubcopilot.com/responses", "gpt-6-luna"),
+    },
+}
+PROFILE_ENV = {
+    "chat/completions": "PC_GATEWAY_UPSTREAM_PROFILE",
+    "responses": "PC_GATEWAY_UPSTREAM_PROFILE_RESPONSES",
+}
 
 
 class AcceptanceFailure(Exception):
@@ -75,6 +86,23 @@ def require(condition: bool, reason: str) -> None:
 def environment() -> dict[str, str]:
     excluded = ("POWERCONTEXT_", "PC_GATEWAY_", "OPENAI_", "GITHUB_COPILOT_", "COPILOT_", "OTEL_")
     return {key: value for key, value in os.environ.items() if not key.startswith(excluded)}
+
+
+def gateway_profiles(channel: str) -> dict[str, str]:
+    return {PROFILE_ENV[route]: f"oauth-live-{channel}-{route.split('/')[0]}" for route in ROUTE_TARGETS[channel]}
+
+
+def inference_targets(channel: str) -> dict[str, dict[str, str | bool]]:
+    profiles = gateway_profiles(channel)
+    return {
+        profiles[PROFILE_ENV[route]]: {
+            "endpoint": endpoint,
+            "model": model,
+            "protocol": "openai-chat" if route == "chat/completions" else "openai-responses",
+            "allow_streaming": True,
+        }
+        for route, (endpoint, model) in ROUTE_TARGETS[channel].items()
+    }
 
 
 @contextmanager
@@ -113,7 +141,7 @@ async def wait_ready(child: subprocess.Popen[bytes], client: httpx.AsyncClient, 
 
 
 def core_environment(directory: Path, channel: str, token: str, gateway_token: str, port: int, via_gateway: bool):
-    model, prefix, route, target = CHANNELS[channel]
+    model, prefix, _, _ = CHANNELS[channel]
     inference = {
         "generation_model": f"openai:{model}"
         if via_gateway and channel == "codex"
@@ -125,14 +153,7 @@ def core_environment(directory: Path, channel: str, token: str, gateway_token: s
         "generation_model_settings": {"openai_reasoning_effort": "low"} if channel == "codex" else {"max_tokens": 512},
         "protection": {
             "mode": "disabled",
-            "targets": {
-                "oauth-live": {
-                    "endpoint": target,
-                    "model": model,
-                    "protocol": "openai-responses" if route == "responses" else "openai-chat",
-                    "allow_streaming": True,
-                }
-            },
+            "targets": inference_targets(channel),
         },
     }
     if via_gateway:
@@ -203,6 +224,16 @@ async def create_scope(bootstrap: httpx.AsyncClient) -> str:
         },
     )
     require(granted.status_code == 201, "scope-grant-failed")
+    gateway_granted = await bootstrap.post(
+        "/v1/access/bindings/create",
+        json={
+            "subject": {"type": "service", "id": "server-token"},
+            "resource": {"type": "scope", "scope_id": scope},
+            "role": "gateway.user",
+            "idempotency_key": "oauth-live-gateway-grant",
+        },
+    )
+    require(gateway_granted.status_code == 201, "gateway-grant-failed")
     return scope
 
 
@@ -237,7 +268,6 @@ async def exercise(directory: Path, channel: str, credentials: Path, github_toke
                     "PC_GATEWAY_LISTEN": f"127.0.0.1:{port}",
                     "PC_GATEWAY_API_KEY": gateway_token,
                     "PC_GATEWAY_DEFAULT_SCOPE": scope,
-                    "PC_GATEWAY_UPSTREAM_PROFILE": "oauth-live",
                     "PC_GATEWAY_SUBSCRIPTION": channel,
                     "PC_GATEWAY_SUBSCRIPTION_CREDENTIALS": str(credentials),
                     "PC_GATEWAY_MAX_ATTEMPTS": "1",
@@ -245,6 +275,7 @@ async def exercise(directory: Path, channel: str, credentials: Path, github_toke
                     "PC_GATEWAY_SEDIMENT": "off" if via_gateway else "on",
                     "RUST_LOG": "warn",
                 }
+                gateway_env.update(gateway_profiles(channel))
                 with process([str(BINARY)], gateway_env, directory, f"gateway-{phase}") as gateway:
                     async with httpx.AsyncClient(base_url=base, timeout=100, trust_env=False) as http:
                         await wait_ready(gateway, http, "/healthz")
@@ -444,14 +475,7 @@ async def exercise_routes(
     env["POWERCONTEXT_SERVER_INFERENCE"] = json.dumps({
         "protection": {
             "mode": "disabled",
-            "targets": {
-                "oauth-live": {
-                    "endpoint": CHANNELS[channel][3],
-                    "model": CHANNELS[channel][0],
-                    "protocol": "openai-responses" if channel == "codex" else "openai-chat",
-                    "allow_streaming": True,
-                }
-            },
+            "targets": inference_targets(channel),
         }
     })
     command = [sys.executable, "-c", "from powercontext.cli.app import main; main()", "server", "run", "--no-env-file"]
@@ -471,7 +495,6 @@ async def exercise_routes(
                 "PC_GATEWAY_LISTEN": f"127.0.0.1:{port}",
                 "PC_GATEWAY_API_KEY": gateway_token,
                 "PC_GATEWAY_DEFAULT_SCOPE": scope,
-                "PC_GATEWAY_UPSTREAM_PROFILE": "oauth-live",
                 "PC_GATEWAY_SUBSCRIPTION": channel,
                 "PC_GATEWAY_SUBSCRIPTION_CREDENTIALS": str(credentials),
                 "PC_GATEWAY_MAX_ATTEMPTS": "1",
@@ -479,6 +502,7 @@ async def exercise_routes(
                 "PC_GATEWAY_SEDIMENT": "off",
                 "RUST_LOG": "warn",
             }
+            gateway_env.update(gateway_profiles(channel))
             with process([str(BINARY)], gateway_env, directory, "gateway-routes") as gateway:
                 async with httpx.AsyncClient(base_url=base, trust_env=False) as http:
                     await wait_ready(gateway, http, "/healthz")
@@ -500,11 +524,8 @@ async def exercise_routes(
                     timeout=60,
                     http_client=httpx2.AsyncClient(trust_env=False),
                 ) as sdk:
-                    routes = [("responses", "gpt-6-luna")]
-                    if channel == "copilot":
-                        routes.insert(0, ("chat/completions", "claude-haiku-5.5"))
                     cases = result["routes"] = {}
-                    for route, model in routes:
+                    for route, (_, model) in ROUTE_TARGETS[channel].items():
                         for stream in [False, True]:
                             key = f"{route}:{'sse' if stream else 'json'}"
                             try:

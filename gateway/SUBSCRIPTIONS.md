@@ -1,6 +1,6 @@
 # OAuth subscriptions
 
-Configure one subscription channel per Gateway process. Clients still choose a model in each request; the account must have access to that model and API. Subscription credentials authenticate the upstream service, separately from Gateway and Core authentication.
+Configure one subscription channel per Gateway process. The client model must match the selected Core profile, and the account must have access to that model and API. Subscription credentials authenticate the upstream service, separately from Gateway and Core authentication.
 
 ## Choose a channel
 
@@ -12,7 +12,6 @@ Configure one subscription channel per Gateway process. Clients still choose a m
 | `qwen` | Independent Gateway device login with automatic refresh. | Qwen Code Plus/Pro Chat Completions at `api.qwen.ai/compatible-mode/v1`. Legacy free OAuth and API-key plans are separate products. |
 | `kimi` | Independent Gateway device login with automatic refresh. | Coding Chat Completions and Responses at the supported `.com` or `.ai` endpoint. Account, region and model access must match. |
 | `gemini` | Read-only Gemini CLI `oauth_creds.json`; the CLI owns renewal and onboarding. | Chat ingress converted to non-streaming Code Assist. Context injection is disabled; images and signed thought continuations are unsupported. |
-| `claude` | An installed Claude Code CLI signed in to `claude.ai`; the CLI owns renewal. | Fresh text-only Chat turns. Tools, MCP, streaming and persistent sessions are disabled. Requires a confirmed non-enforcing Core deployment. |
 
 ## Configure credentials
 
@@ -21,7 +20,9 @@ Build and run commands from `gateway/`. For an existing Codex login:
 ```bash
 PC_GATEWAY_SUBSCRIPTION=codex \
 PC_GATEWAY_SUBSCRIPTION_CREDENTIALS=/private/codex/auth.json \
-PC_GATEWAY_UPSTREAM_PROFILE=approved-codex \
+PC_GATEWAY_UPSTREAM_PROFILE_RESPONSES=approved-codex \
+PC_GATEWAY_API_KEY="$GATEWAY_CLIENT_TOKEN" \
+PC_GATEWAY_CORE_TOKEN="$POWERCONTEXT_DEPLOYMENT_TOKEN" \
 ./target/release/pc-gateway
 ```
 
@@ -45,20 +46,19 @@ All HTTP channels require `PC_GATEWAY_SUBSCRIPTION_CREDENTIALS`; the Gateway doe
 
 For Gemini, set the credential path to the existing `oauth_creds.json`. The Gateway discovers an onboarded project and tier through `loadCodeAssist`; `GOOGLE_CLOUD_PROJECT` or `GOOGLE_CLOUD_PROJECT_ID` can select an already configured project. It does not perform onboarding or enable credit overage. Google OAuth login alone does not establish Code Assist entitlement.
 
-For Claude, no Gateway credential file is needed. Sign in with `claude auth login`, set `PC_GATEWAY_SUBSCRIPTION=claude`, and optionally set `CLAUDE_CLI_EXECUTABLE` to the installed executable. API-key, custom Anthropic endpoint, cloud-backend and explicit OAuth-token environment overrides are rejected. The installed CLI must support the adapter's print-mode flags.
+Claude CLI cannot be used with Core-bound egress: its internal HTTP sends and retries are not observable by the Gateway. Selecting `PC_GATEWAY_SUBSCRIPTION=claude` fails at startup.
 
-HTTP destinations are limited to each provider's supported HTTPS endpoints, and redirects are disabled. `PC_GATEWAY_UPSTREAM_URL_CHAT` and `PC_GATEWAY_UPSTREAM_URL_RESPONSES` may select an allowed endpoint or disable a route with an empty value. Errors and uncertain delivery do not trigger authentication-layer model replay. An interrupted refresh can require a new login if the remote service rotated a token before its replacement was saved.
+HTTP subscription credentials are acquired for the provider's default endpoint, and Core must approve that exact endpoint before each send; redirects are disabled. `PC_GATEWAY_UPSTREAM_URL*` variables cause startup failure. Errors and uncertain delivery do not trigger authentication-layer model replay. An interrupted refresh can require a new login if the remote service rotated a token before its replacement was saved.
 
 ## Configure Core protection
 
-Core must approve the final target, model and protocol through `PC_GATEWAY_UPSTREAM_PROFILE`. See [inference protection](../docs/en/docs/operate/inference-protection.md) for profile configuration.
+Core must approve the final target, model and protocol through the profile selected for the route: `PC_GATEWAY_UPSTREAM_PROFILE` for Chat Completions and `PC_GATEWAY_UPSTREAM_PROFILE_RESPONSES` for Responses. See [inference protection](../docs/en/docs/operate/inference-protection.md) for profile configuration.
 
 | Channel | Profile requirement |
 | --- | --- |
 | Chat Completions channels | Use `openai-chat` with the approved model and exact endpoint. |
 | Responses channels | Use `openai-responses`. Codex and Kimi require streaming requests; complete SSE results are converted to JSON before release checking. |
 | Gemini | Use `google-codeassist-chat` with the actual Code Assist endpoint and model. Core checks the final Code Assist input and converted Chat output. |
-| Claude | Use `claude-cli-prompt` with `endpoint: "claude-cli://execute"`. Checks cover the stdin prompt and normalized result. Enforcing or unknown Core protection rejects execution. |
 
 Codex's endpoint rejects `max_output_tokens`. The Codex CLI sends none, but other agents (OpenCode, Pi, DeepSeek Harness) set one on every request, so the Gateway leaves the field out of a request to this endpoint and the reply has no output limit. A Core policy requiring that explicit output cap withholds the request with `output_limit_required`; a configured profile limit cannot make the upstream enforce an unsupported parameter.
 
@@ -68,7 +68,7 @@ The Codex endpoint routes its prompt cache by the `session-id` request header; `
 
 Memory extraction over the cached prefix is enabled by default on `codex` when Core is confirmed as non-enforcing at startup; `PC_GATEWAY_PREFIX_EXTRACTION=off` disables it. Each extraction request is sent with the credentials in the Codex login at that moment, counts against that account's usage limits, and has no output limit; a request that asks for one is refused with `output_limit_unsupported`, and Core uses normal extraction. See [prefix extraction settings](../docs/en/docs/operate/deploy-server.md#memory-extraction-over-the-cached-prefix).
 
-Gemini maps Chat output limits to `request.generationConfig.maxOutputTokens`. Responses containing thought signatures are withheld; signed tool continuations are unsupported. Plain thought text is retained in the checked result. Claude checks cannot inspect the CLI's internal HTTP calls, retries or token budget, so enforcing Core always withholds this execution path, including after a runtime policy change.
+Gemini maps Chat output limits to `request.generationConfig.maxOutputTokens`. Responses containing thought signatures are withheld; signed tool continuations are unsupported. Plain thought text is retained in the checked result.
 
 Do not route Core's own generation calls back through a Gateway with automatic recall or capture enabled without a separate recursion boundary. These global features cannot distinguish internal generation from ordinary clients.
 
@@ -92,7 +92,7 @@ DeepSeek Harness loads `$DSH_HOME/.credentials.yaml` during startup. The `0.1.0-
 
 ### Controlled protocol coverage
 
-Grok Responses follows Magpie's tool adaptation: namespaced functions are flattened for the upstream and restored before Core release checks and client JSON/SSE delivery. Codex, Copilot, Grok and Code Assist reject duplicate JSON keys before response rewriting. When identity restoration changes the response, Core checks both its original bytes and the final response before release. `allowed_tools` restricts the forwarded declarations while preserving `auto` or `required`. Ambiguous flattened names, names longer than 64 bytes, unsupported explicit tool choices and top-level union tool schemas are rejected before sending. A required choice with no supported tools is rejected. Claude CLI supports single-turn text execution rather than Magpie's persistent session and tool bridge; token-limit stops are reported as truncated responses.
+Grok Responses follows Magpie's tool adaptation: namespaced functions are flattened for the upstream and restored before Core release checks and client JSON/SSE delivery. Codex, Copilot, Grok and Code Assist reject duplicate JSON keys before response rewriting. When identity restoration changes the response, Core checks both its original bytes and the final response before release. `allowed_tools` restricts the forwarded declarations while preserving `auto` or `required`. Ambiguous flattened names, names longer than 64 bytes, unsupported explicit tool choices and top-level union tool schemas are rejected before sending. A required choice with no supported tools is rejected. The Gateway rejects the Claude CLI subscription at startup because its internal sends cannot be bound to a Core-approved destination.
 
 Run the controlled workspace tests from `gateway/`:
 

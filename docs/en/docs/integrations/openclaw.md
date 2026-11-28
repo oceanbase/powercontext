@@ -237,11 +237,15 @@ Configure Core and the gateway as well:
 - Run Core in a non-enforcing privacy mode (`disabled`, `shadow`, or `advisory`). OpenClaw sends no `store` field to a
   custom provider, so an enforcing Core withholds each of its Responses requests and the gateway returns HTTP 400.
   Restart the gateway after changing the mode, because it discovers the mode at startup.
-- Core needs a target for the profile that `PC_GATEWAY_UPSTREAM_PROFILE` names (`default` unless set), in every privacy
-  mode. Without one, Core withholds each request with `target_unsupported` and the gateway returns HTTP 400. See
-  [Configure a supported target](../operate/inference-protection.md#configure-a-supported-target).
-- Set `PC_GATEWAY_UPSTREAM_URL_RESPONSES` and `PC_GATEWAY_UPSTREAM_API_KEY_RESPONSES` to the provider's Responses
-  endpoint and key, `PC_GATEWAY_SEDIMENT=on`, and `PC_GATEWAY_CORE_TOKEN` when Core enforces authentication.
+- For this Responses route, set `PC_GATEWAY_UPSTREAM_PROFILE_RESPONSES` to a Core target whose endpoint,
+  `openai-responses` protocol and model match the request. Without it, the route returns HTTP 501
+  `responses_route_disabled`. Set `PC_GATEWAY_UPSTREAM_API_KEY_RESPONSES` to the provider key and
+  `PC_GATEWAY_SEDIMENT=on`. Do not set `PC_GATEWAY_UPSTREAM_URL*`; these legacy variables prevent startup.
+- Set a nonempty `PC_GATEWAY_API_KEY` even on loopback, and set `PC_GATEWAY_CORE_TOKEN` to an authenticated service
+  identity. Core access control must be `enforced`; grant it `gateway.user` on the selected Scope and `server.observer`
+  on the Server resource for `POWERCONTEXT_SERVER_ACCESS_DEPLOYMENT_ID` (default `powercontext`). Because this guide
+  enables capture, grant `scope.contributor` (which includes `scope.read`) rather than `scope.viewer`.
+  See [Gateway authentication and target requirements](../operate/deploy-server.md#gateway-model-destination).
 - The gateway prepares and captures every conversation in the one Scope that `PC_GATEWAY_DEFAULT_SCOPE` names, not in
   the Scope this plugin resolves for each session or project. Set the plugin's `scopeId` and `PC_GATEWAY_DEFAULT_SCOPE`
   to the same existing Scope.

@@ -18,12 +18,11 @@ use serde_json::json;
 use std::{os::unix::fs::PermissionsExt, process::Stdio, time::Duration};
 
 #[tokio::test]
-async fn enforcing_or_unknown_core_never_starts_a_model_cli() {
-    for enforcing in [Some(true), None] {
+async fn core_bound_egress_never_starts_a_model_cli() {
+    for enforcing in [Some(true), Some(false), None] {
         let directory = std::env::temp_dir().join(format!(
-            "pc-cli-enforcement-{}-{}",
-            std::process::id(),
-            enforcing.is_some()
+            "pc-cli-enforcement-{}-{enforcing:?}",
+            std::process::id()
         ));
         std::fs::create_dir_all(&directory).unwrap();
         let marker = directory.join("started");
@@ -37,9 +36,9 @@ async fn enforcing_or_unknown_core_never_starts_a_model_cli() {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let base = format!("http://{}", listener.local_addr().unwrap());
         let app=Router::new().route("/v1/capabilities",get(move ||async move {
-            Json(if enforcing.is_some() {json!({"context_protection": {
+            Json(if let Some(enforcing) = enforcing {json!({"context_protection": {
                 "check_versions":["powercontext.context-check.v1"],"payload_versions":["powercontext.model-json-payload.v1"],
-                "reuse_versions":[],"reuse_families":[],"enforcing":true,
+                "reuse_versions":[],"reuse_families":[],"enforcing":enforcing,
                 "limits":{"payload_bytes":1048576,"binding_bytes":8192,"prepared_contexts":16,
                     "dependencies":256,"send_seconds":60,"correlate_seconds":300}
             }})} else {json!({})})
@@ -51,6 +50,8 @@ async fn enforcing_or_unknown_core_never_starts_a_model_cli() {
             .env("PC_GATEWAY_CORE_BASE", base)
             .env("PC_GATEWAY_LISTEN", "127.0.0.1:0")
             .env("PC_GATEWAY_SUBSCRIPTION", "claude")
+            .env("PC_GATEWAY_API_KEY", "gateway-key")
+            .env("PC_GATEWAY_CORE_TOKEN", "core-key")
             .env("CLAUDE_CLI_EXECUTABLE", &executable)
             .env("PC_GATEWAY_EVIDENCE", "off")
             .stdout(Stdio::piped())
@@ -64,7 +65,7 @@ async fn enforcing_or_unknown_core_never_starts_a_model_cli() {
         assert_eq!(result.status.code(), Some(2));
         assert!(String::from_utf8(result.stderr)
             .unwrap()
-            .contains("Claude CLI requires confirmed non-enforcing Core"));
+            .contains("Claude CLI has unobservable internal sends"));
         assert!(!marker.exists());
         std::fs::remove_dir_all(directory).unwrap();
     }

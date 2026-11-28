@@ -282,8 +282,8 @@ Codex 直接调用模型时，gateway 不承载这些流量，请保留插件的
 Codex 不发送输出上限（`max_output_tokens`）。enforcing 模式的 Core 要求目标配置 token 预算，并要求每个生成请求
 带输出上限，因此会暂缓每个 Codex 请求（例如原因为 `output_limit_required`），gateway 返回 HTTP 400，这一轮在
 模型收到请求前失败。请把 Core 的推理保护设为 `disabled`、`shadow` 或 `advisory` 模式，并为
-`PC_GATEWAY_UPSTREAM_PROFILE` 指定的 profile（未设置时为 `default`）配置目标。任何模式下，Core 都会暂缓目标未知
-的检查。例如：
+`PC_GATEWAY_UPSTREAM_PROFILE_RESPONSES` 指定的 profile 配置目标。任何模式下，Core 都会暂缓目标未知的检查。
+例如，以下 `default` 目标需要设置 `PC_GATEWAY_UPSTREAM_PROFILE_RESPONSES=default`：
 
 ```bash
 export POWERCONTEXT_SERVER_INFERENCE_PROTECTION='{
@@ -326,8 +326,8 @@ env_key = "PC_GATEWAY_KEY"
 不接受 `config.toml` 中的 `[profiles.<name>]` 表。
 
 请在启动 Codex 的环境中，把 gateway 的 `PC_GATEWAY_API_KEY` 的值导出为 `PC_GATEWAY_KEY`；Codex 会把它作为 bearer
-token 发送。`PC_GATEWAY_KEY` 未设置时，Codex 会以 `Missing environment variable` 停止，不发送任何请求。监听回环地址
-的 gateway 可以不设置 `PC_GATEWAY_API_KEY`，此时接受任意 token，但 Codex 仍需要这个变量。
+token 发送。`PC_GATEWAY_KEY` 未设置时，Codex 会以 `Missing environment variable` 停止，不发送任何请求。即使监听
+回环地址，gateway 也要求非空的 `PC_GATEWAY_API_KEY`。
 
 在组合部署（`PC_GATEWAY_CORE_UDS`）中，gateway 把 Core API 和 MCP 请求连同客户端自己的凭据转发给 Core，因此插件
 可以把 gateway 的地址用作 Server URL（`powercontext setup codex --server-url`）。
@@ -352,15 +352,21 @@ codex
 
 以组合部署（`PC_GATEWAY_CORE_UDS`）运行 gateway，它默认注入带有对话 ID 的请求。设置：
 
-- `PC_GATEWAY_UPSTREAM_URL_RESPONSES` 设为目标的 `endpoint`，`PC_GATEWAY_UPSTREAM_API_KEY_RESPONSES` 设为供应商
-  密钥。gateway 自己向这个 URL 发送请求；未设置时，Responses 路由返回 HTTP 501 `responses_route_disabled`。
-- `PC_GATEWAY_API_KEY` 设为 Codex 以 `PC_GATEWAY_KEY` 发送的密钥。监听非回环地址时必须设置。
-- Core 启用鉴权时，设置 `PC_GATEWAY_CORE_TOKEN`。
+- `PC_GATEWAY_UPSTREAM_PROFILE_RESPONSES` 设为 Core `InferenceConfig.protection.targets` 中包含 Responses
+  endpoint、protocol 和 model 的 profile（上例为 `default`）。未设置时，Responses 路由返回 HTTP 501
+  `responses_route_disabled`。不要设置 `PC_GATEWAY_UPSTREAM_URL*`；旧 URL 变量会导致启动失败。
+- `PC_GATEWAY_UPSTREAM_API_KEY_RESPONSES` 设为该获准目标的供应商密钥。
+- `PC_GATEWAY_API_KEY` 设为 Codex 以 `PC_GATEWAY_KEY` 发送的非空密钥。
+- `PC_GATEWAY_CORE_TOKEN` 必须代表经过 Core 认证的服务身份，且与面向客户端的 Key 不同。即使推理隐私保护不是
+  enforcing，Core 访问控制也必须设为 `enforced`。在目标 Scope 上授予 `gateway.user`（`gateway.invoke`），并在
+  `POWERCONTEXT_SERVER_ACCESS_DEPLOYMENT_ID` 对应的 Server resource 上授予 `server.observer`（默认 ID 为
+  `powercontext`）。本指南开启了采集，因此还要授予 `scope.contributor`（包含 `scope.read`）来替代 `scope.viewer`。
+  `/v1/access/me` 与绑定请求见[网关认证与目标要求](../operate/deploy-server.md#网关模型目标)。
 - `PC_GATEWAY_SEDIMENT=on`，让 gateway 把每个完成的轮次采集为 Source。
 - `PC_GATEWAY_DEFAULT_SCOPE` 设为回退 Scope。若要使用插件为该 workspace 解析的 Scope，按
   [一句话交接当前工作](#一句话交接当前工作)中的说明，不带 `--bind-scope` 运行 `scope_binding.py`，即可打印这个 Scope。
 
-gateway 在启动时读取这些设置。gateway 的鉴权和注入设置见[部署 Server](../operate/deploy-server.md#网关认证边界)。
+gateway 在启动时读取这些设置。gateway 的认证与授权要求见[部署 Server](../operate/deploy-server.md#网关模型目标)。
 经过 gateway 的模型请求正文最多 1 MiB，过长的 thread 可能在发送前被拒绝，见
 [Gateway 字节容量](../operate/deploy-server.md#gateway-字节容量)。
 

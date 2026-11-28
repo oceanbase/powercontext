@@ -102,8 +102,11 @@ package 和 gateway。
 
 ### 选择 Core 目标
 
-Core 需要为 `PC_GATEWAY_UPSTREAM_PROFILE` 指定的 profile（未设置时为 `default`）配置目标。Pi
-发送输出上限（`max_output_tokens`，取自模型的 `maxTokens`）、`store: false`，以及（除非 `PI_CACHE_RETENTION=none`）
+在任何隐私模式下（包括 `disabled`），Core 都需要为 `PC_GATEWAY_UPSTREAM_PROFILE_RESPONSES` 指定的 profile
+配置目标。请将该变量设为包含 Pi 获准 endpoint、模型和协议的 Responses profile。没有该 profile 时，Core
+以 `target_unsupported` 暂缓每个请求，gateway 对每一轮都返回 HTTP 400。见[配置受支持的目标](../operate/inference-protection.md#配置受支持的目标)。
+
+Pi 发送输出上限（`max_output_tokens`，取自模型的 `maxTokens`）、`store: false`，以及（除非 `PI_CACHE_RETENTION=none`）
 `prompt_cache_key`，因此目标满足以下条件时，enforcing 模式的 Core 会放行它的请求：
 
 - 声明 `context_window_tokens`、不小于 Pi 模型 `maxTokens` 的 `max_output_tokens`，以及 `validated_utf8_token_bound`；
@@ -202,11 +205,11 @@ gateway 不会替换这段文本，因此 Core 拒绝该请求，压缩或分支
 
 以组合部署（`PC_GATEWAY_CORE_UDS`）运行 gateway，它默认注入带有会话标识的请求。设置：
 
-- `PC_GATEWAY_UPSTREAM_URL_RESPONSES` 设为目标的 `endpoint`，`PC_GATEWAY_UPSTREAM_API_KEY_RESPONSES` 设为供应商密钥。
-  未设置 URL 时，Responses 路由返回 HTTP 501 `responses_route_disabled`。
-- `PC_GATEWAY_API_KEY` 设为 Pi 作为 `apiKey` 发送的密钥。监听非回环地址时必须设置。
-- Core 启用鉴权时，设置 `PC_GATEWAY_CORE_TOKEN`。
-- `PC_GATEWAY_SEDIMENT=on`，让 gateway 把每个完成的轮次采集为 Source。
+- 将 `PC_GATEWAY_UPSTREAM_PROFILE_RESPONSES` 设为 Pi Responses 路由使用的 Core profile。不要设置
+  `PC_GATEWAY_UPSTREAM_URL*`；这些旧变量会阻止启动。将 `PC_GATEWAY_UPSTREAM_API_KEY_RESPONSES` 设为供应商密钥，
+  将 `PC_GATEWAY_API_KEY` 设为 Pi 发送的密钥，将 `PC_GATEWAY_CORE_TOKEN` 设为 Gateway 服务凭据，并设置
+  `PC_GATEWAY_SEDIMENT=on`。Core 的访问控制必须为 `enforced`；为服务身份授予 `gateway.user` 和 `server.observer`，
+  开启采集时再授予 `scope.contributor`。绑定命令见[网关模型目标](../operate/deploy-server.md#网关模型目标)。
 - `PC_GATEWAY_DEFAULT_SCOPE` 设为 package 为该 workspace 解析的 Scope，`/pc` 会打印这个 Scope。
 
 gateway 把所有会话都放在 `PC_GATEWAY_DEFAULT_SCOPE` 指定的同一个 Scope 中准备和采集，而不是 package 为每个 workspace

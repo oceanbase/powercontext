@@ -132,10 +132,10 @@ text from a terminal stream and captures the completed turn.
 
 ### Choose the Core target
 
-Core needs a target for the profile that `PC_GATEWAY_UPSTREAM_PROFILE` names (`default` unless set), in every privacy
-mode, including `disabled`. Without one, Core withholds each request with `target_unsupported`, and the gateway returns
-HTTP 400 for every turn. See
-[Configure a supported target](../../docs/en/docs/operate/inference-protection.md#configure-a-supported-target).
+Core needs a target for the profile that `PC_GATEWAY_UPSTREAM_PROFILE_RESPONSES` names, in every privacy mode,
+including `disabled`. Set that variable to the Responses profile containing Bub's approved endpoint, model and protocol.
+Without that profile, Core withholds each request with `target_unsupported`, and the gateway returns HTTP 400 for every
+turn. See [Configure a supported target](../../docs/en/docs/operate/inference-protection.md#configure-a-supported-target).
 
 Bub 0.6.1 sends `max_output_tokens` on every Responses request, set by `BUB_MAX_TOKENS` (16384 unless set). By default
 it sends neither `store` nor `prompt_cache_key`. An enforcing Core admits its requests when:
@@ -160,9 +160,12 @@ the mode at startup. See [Context reuse and final admission](../../docs/en/docs/
 
 ### Configure the gateway
 
-- Set `PC_GATEWAY_UPSTREAM_URL_RESPONSES` and `PC_GATEWAY_UPSTREAM_API_KEY_RESPONSES` to the provider's Responses
-  endpoint and key, `PC_GATEWAY_API_KEY` to the key Bub sends, `PC_GATEWAY_SEDIMENT=on`, and `PC_GATEWAY_CORE_TOKEN`
-  when Core enforces authentication.
+- Set `PC_GATEWAY_UPSTREAM_PROFILE_RESPONSES` to the Core profile for Bub's Responses route. Do not set
+  `PC_GATEWAY_UPSTREAM_URL*`; those legacy variables prevent startup. Set `PC_GATEWAY_UPSTREAM_API_KEY_RESPONSES` to
+  the provider key, `PC_GATEWAY_API_KEY` to the key Bub sends, `PC_GATEWAY_CORE_TOKEN` to the Gateway service credential,
+  and `PC_GATEWAY_SEDIMENT=on`. Core access control must be `enforced`; grant the service identity `gateway.user` and
+  `server.observer`, and grant `scope.contributor` when capture is enabled. See
+  [Gateway model destination](../../docs/en/docs/operate/deploy-server.md#gateway-model-destination) for the binding commands.
 - The gateway prepares and captures every session in the one Scope that `PC_GATEWAY_DEFAULT_SCOPE` names, not in the
   Scope this plugin resolves for each workspace. Set `POWERCONTEXT_BUB_SCOPE_ID` and `PC_GATEWAY_DEFAULT_SCOPE` to the
   same existing Scope, so that `powercontext.search` and `powercontext.remember` use the Scope the gateway fills.

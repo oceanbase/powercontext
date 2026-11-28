@@ -108,6 +108,11 @@ OPENAI_API_KEY=
 - `OPENAI_API_KEY=` 这一行留空，请用户自己在编辑器中填写。用户确认填好后再继续。
 - JSON 值必须用单引号包住，否则解析配置时会去掉其中的双引号。
 - 推理保护必须保持 `disabled`，并保留 `approved-codex` 这个目标：Codex 订阅的请求不带输出上限，开启保护会暂缓这些请求。
+- 即使是个人回环部署，Gateway 也要求 Core 开启认证。用下面的命令开启访问控制并生成 Server Token；不要显示 Token：
+
+  ```bash
+  printf 'POWERCONTEXT_SERVER_ACCESS_MODE=enforced\nPOWERCONTEXT_SERVER_AUTH_TOKEN=%s\n' "$(python3 -c 'import secrets; print(secrets.token_urlsafe(32))')" >> "$HOME/powercontext/.env"
+  ```
 
 验证配置并注册个人服务。服务在登录后自动启动：Linux 使用 systemd 用户服务，macOS 使用 LaunchAgent。
 
@@ -117,11 +122,12 @@ powercontext config validate --env-file .env
 powercontext service install --env-file .env
 powercontext service status
 export POWERCONTEXT_CLIENT_SERVER_URL=http://127.0.0.1:17429
+export POWERCONTEXT_CLIENT_API_TOKEN="$(sed -n 's/^POWERCONTEXT_SERVER_AUTH_TOKEN=//p' "$HOME/powercontext/.env")"
 powercontext ready
 powercontext scope create --title personal --summary "Personal coding context"
 ```
 
-最后一条命令输出形如 `scp_... personal (version 1)`，开头的 `scp_...` 就是 Scope ID，后文记作 `<scope_id>`。
+请在启动 CLI 和宿主插件的 shell 中保留 `POWERCONTEXT_CLIENT_API_TOKEN`；Core 认证同样适用于它们，Gateway Key 不能替代 Core 凭据。最后一条命令输出形如 `scp_... personal (version 1)`，开头的 `scp_...` 就是 Scope ID，后文记作 `<scope_id>`。
 
 **检查**：`service status` 显示 `server liveness: live`；`ready` 中 `database`、`inference.generation`、`runtime` 均为 `ready`，配置了嵌入模型时 `inference.embedding` 也为 `ready`。
 
@@ -136,10 +142,23 @@ PC_GATEWAY_INJECTION=on
 PC_GATEWAY_SEDIMENT=on
 PC_GATEWAY_SUBSCRIPTION=codex
 PC_GATEWAY_SUBSCRIPTION_CREDENTIALS=<HOME>/.codex/auth.json
-PC_GATEWAY_UPSTREAM_PROFILE=approved-codex
+PC_GATEWAY_UPSTREAM_PROFILE_RESPONSES=approved-codex
 ```
 
-网关通过 HTTP 连接 Server，必须设置 `PC_GATEWAY_INJECTION=on` 才会注入上下文。
+网关通过 HTTP 连接 Server，必须设置 `PC_GATEWAY_INJECTION=on` 才会注入上下文。为它配置 Server Token，并生成不同的面向客户端 Key；不要显示这两个值：
+
+```bash
+printf 'PC_GATEWAY_CORE_TOKEN=%s\n' "$(sed -n 's/^POWERCONTEXT_SERVER_AUTH_TOKEN=//p' "$HOME/powercontext/.env")" >> "$HOME/powercontext/gateway.env"
+printf 'PC_GATEWAY_API_KEY=%s\n' "$(python3 -c 'import secrets; print(secrets.token_urlsafe(32))')" >> "$HOME/powercontext/gateway.env"
+chmod 600 "$HOME/powercontext/gateway.env"
+```
+
+本个人安装流程复用上面生成的 Server Token：`CORE_URL` 对应 `gateway.env` 中的 `PC_GATEWAY_CORE_BASE`；
+`PC_GATEWAY_CORE_BASE` 和 `PC_GATEWAY_CORE_TOKEN` 均写入该文件，`ACCESS_ADMIN_TOKEN` 则是 `.env` 中的
+`POWERCONTEXT_SERVER_AUTH_TOKEN`。该 Server Token 是引导阶段的
+管理员凭据，并拥有静态 Scope 角色。启动 Gateway 前，请在 `<scope_id>` 上为它授予 `gateway.user`。若改用独立的
+最小权限 Gateway 身份，则需授予 `gateway.user`、Server resource 上的 `server.observer`，并且由于此配置开启了采集，
+还要在 Scope 上授予 `scope.contributor`。`/v1/access/me` 与绑定流程见[网关认证与目标要求](../operate/deploy-server.md#网关模型目标)。
 
 创建启动脚本 `<HOME>/powercontext/run-gateway.sh`，并执行 `chmod 755`。它等待 Server 就绪后再启动网关：
 
@@ -152,7 +171,12 @@ until curl -sf http://127.0.0.1:17429/health/ready >/dev/null; do sleep 2; done
 exec "<pc-gateway 的绝对路径>" >>"$HOME/powercontext/gateway.log" 2>&1
 ```
 
-用 `command -v pc-gateway` 取得绝对路径。
+用 `command -v pc-gateway` 取得绝对路径。由于上文已开启前缀抽取，还要将 Gateway Key 加入 Server 回调请求头并重新加载配置：
+
+```bash
+printf "POWERCONTEXT_SERVER_INFERENCE_PREFIX_EXTRACTION_GATEWAY_HEADERS='{\"Authorization\":\"Bearer %s\"}'\n" "$(sed -n 's/^PC_GATEWAY_API_KEY=//p' "$HOME/powercontext/gateway.env")" >> "$HOME/powercontext/.env"
+powercontext service install --env-file "$HOME/powercontext/.env"
+```
 
 ### 让网关自动启动
 
@@ -333,9 +357,9 @@ OPENAI_API_KEY=
 POWERCONTEXT_SERVER_HTTP_HOST=0.0.0.0
 ```
 
-不开启认证时还要追加 `POWERCONTEXT_SERVER_ALLOW_UNAUTHENTICATED_NON_LOOPBACK=true`。
+不部署 Gateway 且不开启认证时，网络监听还要追加 `POWERCONTEXT_SERVER_ALLOW_UNAUTHENTICATED_NON_LOOPBACK=true`。
 
-**开启认证时**追加 `POWERCONTEXT_SERVER_ACCESS_MODE=enforced`，并用下面的命令生成 Token 直接写入文件。不要显示 Token，告诉管理员它保存在 `.env` 的 `POWERCONTEXT_SERVER_AUTH_TOKEN` 中：
+**部署 Gateway 时必须开启认证，即使 Core 只监听回环地址也一样。** 其他需要认证的场景也使用此配置：追加 `POWERCONTEXT_SERVER_ACCESS_MODE=enforced`，并用下面的命令生成 Token 直接写入文件。不要显示 Token，告诉管理员它保存在 `.env` 的 `POWERCONTEXT_SERVER_AUTH_TOKEN` 中：
 
 ```bash
 printf 'POWERCONTEXT_SERVER_AUTH_TOKEN=%s\n' "$(python3 -c 'import secrets; print(secrets.token_urlsafe(32))')" >> "$HOME/powercontext/.env"
@@ -351,12 +375,6 @@ POWERCONTEXT_SERVER_INFERENCE_PROTECTION='{"mode":"disabled","targets":{"team-up
 
 ```dotenv
 POWERCONTEXT_SERVER_INFERENCE_PREFIX_EXTRACTION_GATEWAY_URL=http://127.0.0.1:8787
-```
-
-Server 调用网关时还要带上网关的 Key。写好网关配置后，用下面的命令追加，不要显示 Key：
-
-```bash
-printf 'POWERCONTEXT_SERVER_INFERENCE_PREFIX_EXTRACTION_GATEWAY_HEADERS='"'"'{"Authorization":"Bearer %s"}'"'"'\n' "$(sed -n 's/^PC_GATEWAY_API_KEY=//p' "$HOME/powercontext/gateway.env")" >> "$HOME/powercontext/.env"
 ```
 
 关闭 one-pass 时追加 `POWERCONTEXT_SERVER_RUNTIME_ATOMIC_MEMORY_PROCESSING_MODE=per_candidate`。
@@ -396,7 +414,7 @@ loginctl enable-linger "$USER"
 
 `enable-linger` 让服务在管理员退出登录后继续运行；命令失败时，请管理员用有权限的账号执行。
 
-然后检查并创建团队使用的 Scope。开启认证时，先从 `.env` 读取 Token，不要显示：
+然后检查并创建团队使用的 Scope。部署 Gateway 或启用 Core 认证时，先从 `.env` 读取 Token，不要显示；客户端和插件必须使用各自的 Core 凭据，不能用 Gateway API Key：
 
 ```bash
 export POWERCONTEXT_CLIENT_SERVER_URL=http://127.0.0.1:17429
@@ -418,26 +436,40 @@ PC_GATEWAY_CORE_BASE=http://127.0.0.1:17429
 PC_GATEWAY_DEFAULT_SCOPE=<scope_id>
 PC_GATEWAY_INJECTION=on
 PC_GATEWAY_SEDIMENT=on
-PC_GATEWAY_UPSTREAM_PROFILE=team-upstream
-PC_GATEWAY_UPSTREAM_URL_RESPONSES=<upstream-endpoint>
+PC_GATEWAY_UPSTREAM_PROFILE_RESPONSES=team-upstream
 PC_GATEWAY_UPSTREAM_API_KEY_RESPONSES=
 ```
 
 - `PC_GATEWAY_UPSTREAM_API_KEY_RESPONSES=` 留空，请管理员填写上游的 API key，确认填好后再启动网关。
 - 关闭注入时改为 `PC_GATEWAY_INJECTION=off`，关闭采集时删除 `PC_GATEWAY_SEDIMENT=on`。关闭 Steering 时追加 `PC_GATEWAY_STEERING=off`，使用团队指令时追加 `PC_GATEWAY_STEERING_FILE=<文件路径>`。关闭前缀抽取时追加 `PC_GATEWAY_PREFIX_EXTRACTION=off`。
-- 开启认证时，网关调用 Server 需要同一个 Token。用下面的命令复制，不要显示：
+- 网关调用 Core 必须使用已认证的 Server Token。用下面的命令复制，不要显示；它必须与 `PC_GATEWAY_API_KEY` 不同：
 
   ```bash
   printf 'PC_GATEWAY_CORE_TOKEN=%s\n' "$(sed -n 's/^POWERCONTEXT_SERVER_AUTH_TOKEN=//p' "$HOME/powercontext/.env")" >> "$HOME/powercontext/gateway.env"
   ```
 
-- 成员通过反向代理或网络访问网关，所以要生成成员使用的网关 Key，不要显示它：
+- 所有监听（包括回环地址）都必须配置非空的面向客户端 Key。成员用它访问模型路由，且它必须与 Core Token 不同。生成时不要显示：
 
   ```bash
   printf 'PC_GATEWAY_API_KEY=%s\n' "$(python3 -c 'import secrets; print(secrets.token_urlsafe(32))')" >> "$HOME/powercontext/gateway.env"
   ```
 
 - 直接监听网络地址时，再追加 `PC_GATEWAY_LISTEN=0.0.0.0:8787`。
+
+在本流程中，`CORE_URL` 对应 `gateway.env` 中的 `PC_GATEWAY_CORE_BASE`，`PC_GATEWAY_CORE_TOKEN` 也在该文件中，
+而 `ACCESS_ADMIN_TOKEN` 是 `.env` 中的 Server Token；它同时是引导管理员凭据。若替换为专用 Gateway 身份，则按
+[网关认证与目标要求](../operate/deploy-server.md#网关模型目标)授予 `gateway.user`、`server.observer`，以及（开启采集时）
+`scope.contributor`。
+
+开启前缀抽取时，用 Gateway Key 设置回调请求头并重新加载 Server：
+
+```bash
+printf "POWERCONTEXT_SERVER_INFERENCE_PREFIX_EXTRACTION_GATEWAY_HEADERS='{\"Authorization\":\"Bearer %s\"}'\n" "$(sed -n 's/^PC_GATEWAY_API_KEY=//p' "$HOME/powercontext/gateway.env")" >> "$HOME/powercontext/.env"
+powercontext config validate --env-file "$HOME/powercontext/.env"
+powercontext service install --env-file "$HOME/powercontext/.env"
+```
+
+本团队流程同样使用引导 Server Token 作为 Gateway 凭据，请在 `<scope_id>` 上为它授予 `gateway.user`。若改用专用 Gateway 身份，则按上文授予所需权限；Gateway API Key 只认证模型路由请求，Core 客户端和插件仍须使用各自的 Core 凭据。
 
 执行 `chmod 600 "$HOME/powercontext/gateway.env"`，然后按[第 3a 步](#让网关自动启动)创建 `run-gateway.sh` 并让网关自动启动。
 

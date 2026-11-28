@@ -88,6 +88,7 @@ impl UdsGateClient {
         path: &str,
         body: Option<&[u8]>,
         replay_safe: bool,
+        resolve_target: bool,
     ) -> Result<(u16, Vec<u8>), GateError> {
         tokio::time::timeout(READ_TIMEOUT, async {
             for attempt in 0..2 {
@@ -96,7 +97,10 @@ impl UdsGateClient {
                     // when the failed socket completed synchronously in this poll.
                     tokio::task::yield_now().await;
                 }
-                match self.request_once(method, path, body, attempt == 0).await {
+                match self
+                    .request_once(method, path, body, attempt == 0, resolve_target)
+                    .await
+                {
                     Ok(response) => return Ok(response),
                     Err(failure) => {
                         if attempt == 0
@@ -121,7 +125,16 @@ impl UdsGateClient {
         path: &str,
         body: Option<&[u8]>,
         prefer_pool: bool,
+        resolve_target: bool,
     ) -> Result<(u16, Vec<u8>), RpcFailure> {
+        if self.token.as_ref().is_some_and(|token| {
+            reqwest::header::HeaderValue::from_str(&format!("Bearer {token}")).is_err()
+        }) {
+            return Err(RpcFailure {
+                error: GateError::Malformed("invalid Core bearer token".into()),
+                handed_off: false,
+            });
+        }
         let mut leased = LeasedConnection::new(self.clone());
         let stream = leased.acquire(prefer_pool).await.map_err(|e| RpcFailure {
             error: GateError::GateUnavailable(format!("uds connect: {}", e.kind())),
@@ -135,6 +148,9 @@ impl UdsGateClient {
              x-powercontext-scope-mode: current\r\nContent-Length: {}\r\n",
             body.len()
         );
+        if resolve_target {
+            head.push_str("x-powercontext-resolve-target: true\r\n");
+        }
         if let Some(t) = &self.token {
             head.push_str(&format!("Authorization: Bearer {t}\r\n"));
         }
@@ -400,7 +416,13 @@ impl GateClient for UdsGateClient {
         let this = self.clone();
         {
             let (status, body) = this
-                .request("POST", "/v1/context/check", Some(&body), true)
+                .request(
+                    "POST",
+                    "/v1/context/check",
+                    Some(&body),
+                    true,
+                    matches!(request, ContextCheckRequest::BeforeSend { .. }),
+                )
                 .await?;
             if !(200..300).contains(&status) {
                 return Err(GateError::GateRejected(status));
@@ -413,7 +435,9 @@ impl GateClient for UdsGateClient {
     async fn capabilities(&self) -> Result<serde_json::Value, GateError> {
         let this = self.clone();
         {
-            let (status, body) = this.request("GET", "/v1/capabilities", None, true).await?;
+            let (status, body) = this
+                .request("GET", "/v1/capabilities", None, true, false)
+                .await?;
             if !(200..300).contains(&status) {
                 return Err(GateError::GateRejected(status));
             }
@@ -430,7 +454,7 @@ impl GateClient for UdsGateClient {
         let this = self.clone();
         {
             let (status, body) = this
-                .request("POST", "/v1/context/prepare", Some(&body), false)
+                .request("POST", "/v1/context/prepare", Some(&body), false, false)
                 .await?;
             if !(200..300).contains(&status) {
                 return Err(GateError::GateRejected(status));
@@ -448,7 +472,13 @@ impl GateClient for UdsGateClient {
         let this = self.clone();
         {
             let (status, body) = this
-                .request("POST", "/v1/sources/content/batch", Some(&body), true)
+                .request(
+                    "POST",
+                    "/v1/sources/content/batch",
+                    Some(&body),
+                    true,
+                    false,
+                )
                 .await?;
             if !(200..300).contains(&status) {
                 return Err(GateError::GateRejected(status));

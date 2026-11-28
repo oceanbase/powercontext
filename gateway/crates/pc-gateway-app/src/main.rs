@@ -20,9 +20,9 @@
 //! - 独立运行：`PC_GATEWAY_CORE_BASE` 直连远端 PowerContext（无代理）。
 //!
 //! 环境变量：PC_GATEWAY_LISTEN、PC_GATEWAY_CORE_UDS、PC_GATEWAY_CORE_BASE、
-//! PC_GATEWAY_API_KEY（网关密钥，替代服务商 key）、PC_GATEWAY_UPSTREAM_URL、
+//! PC_GATEWAY_API_KEY（网关密钥，替代服务商 key）、PC_GATEWAY_CORE_TOKEN、
 //! PC_GATEWAY_UPSTREAM_API_KEY、PC_GATEWAY_UPSTREAM_PROFILE、
-//! PC_GATEWAY_POLICY_VERSION、PC_GATEWAY_MAX_ATTEMPTS、PC_GATEWAY_DEGRADE。
+//! PC_GATEWAY_MAX_ATTEMPTS。
 
 mod authentication;
 mod connection;
@@ -49,16 +49,14 @@ pub struct AppState {
     /// 单一执行器；线格式渲染器按请求格式传入（同格式进出）。
     pub executor: Arc<Executor<CoreLink, GatewayTransport>>,
     pub evidence: Arc<dyn EvidenceSink>,
-    pub upstream_profile: String,
-    /// chat-completions 上游（含 key；老变量 PC_GATEWAY_UPSTREAM_URL 仍作缺省）。
+    pub chat_profile_name: String,
+    pub responses_profile_name: Option<String>,
     pub upstream_chat: String,
-    /// responses 上游。
     pub upstream_responses: String,
     pub upstream_chat_api_key: String,
     pub upstream_responses_api_key: String,
     pub subscription: Option<pc_gateway_auth::SubscriptionAuth>,
-    pub api_key: Option<String>,
-    pub degrade: pc_gateway_core::DegradePolicy,
+    pub api_key: String,
     /// 是否调 prepare 注入上下文（默认关）。
     pub injection: Injection,
     /// Responses 入口是否注入：默认跟随 injection，
@@ -76,8 +74,6 @@ pub struct AppState {
     pub default_scope: String,
     /// Confirmed model input intersection in bytes; zero pauses model routes.
     pub max_body_bytes: usize,
-    /// 启动时查 capabilities 确定降级资格：enforcing=true 或查询失败 → 不允许。
-    pub degradation_allowed: bool,
 }
 
 #[tokio::main]
@@ -132,11 +128,29 @@ async fn main() {
         )
         .init();
 
-    let (addr, api_key) = authentication::load().unwrap_or_else(|reason| {
+    let (addr, selected_key) = authentication::load().unwrap_or_else(|reason| {
         eprintln!("{reason}");
         std::process::exit(2);
     });
+    let api_key = gateway_credentials(selected_key, std::env::var("PC_GATEWAY_CORE_TOKEN").ok())
+        .unwrap_or_else(|reason| {
+            eprintln!("{reason}");
+            std::process::exit(2);
+        });
 
+    if [
+        "PC_GATEWAY_UPSTREAM_URL",
+        "PC_GATEWAY_UPSTREAM_URL_CHAT",
+        "PC_GATEWAY_UPSTREAM_URL_RESPONSES",
+    ]
+    .iter()
+    .any(|name| std::env::var_os(name).is_some())
+    {
+        tracing::error!(
+            "Gateway upstream URLs are no longer accepted; configure Core target profiles"
+        );
+        std::process::exit(2);
+    }
     let core_link = CoreLink::from_env();
     let proxy_state = proxy::ProxyState::from_env();
     let subscription = subscription_from_env().unwrap_or_else(|reason| {
@@ -146,21 +160,9 @@ async fn main() {
     let subscription_kind = subscription.as_ref().map(|auth| auth.kind());
     let (default_chat, default_responses) = subscription_kind
         .map(pc_gateway_auth::Subscription::default_targets)
-        .unwrap_or(("http://127.0.0.1:9000/v1/chat/completions", ""));
-    let upstream_chat = std::env::var("PC_GATEWAY_UPSTREAM_URL_CHAT")
-        .or_else(|_| std::env::var("PC_GATEWAY_UPSTREAM_URL"))
-        .unwrap_or_else(|_| default_chat.into());
-    let upstream_responses = std::env::var("PC_GATEWAY_UPSTREAM_URL_RESPONSES")
-        .unwrap_or_else(|_| default_responses.into());
-    if let Some(kind) = subscription_kind {
-        let valid = (!upstream_responses.is_empty() || !upstream_chat.is_empty())
-            && (upstream_responses.is_empty() || kind.validate_target(&upstream_responses).is_ok())
-            && (upstream_chat.is_empty() || kind.validate_target(&upstream_chat).is_ok());
-        if !valid {
-            eprintln!("subscription requires its approved upstream endpoints");
-            std::process::exit(2);
-        }
-    }
+        .unwrap_or(("", ""));
+    let upstream_chat = default_chat.to_string();
+    let upstream_responses = default_responses.to_string();
 
     let max_attempts: u32 = std::env::var("PC_GATEWAY_MAX_ATTEMPTS")
         .ok()
@@ -175,10 +177,12 @@ async fn main() {
         .and_then(|v| v.parse().ok())
         .filter(|v| *v > 0)
         .unwrap_or(64);
-    let degrade = match std::env::var("PC_GATEWAY_DEGRADE").as_deref() {
-        Ok("passthrough") => pc_gateway_core::DegradePolicy::PassthroughWithoutMemory,
-        _ => pc_gateway_core::DegradePolicy::Pause,
-    };
+    if std::env::var("PC_GATEWAY_DEGRADE").is_ok_and(|value| !value.trim().is_empty()) {
+        tracing::error!(
+            "PC_GATEWAY_DEGRADE is no longer accepted; remove it and configure Core target profiles"
+        );
+        std::process::exit(2);
+    }
 
     let steering_enabled = default_on("PC_GATEWAY_STEERING").unwrap_or_else(|reason| {
         eprintln!("{reason}");
@@ -249,7 +253,6 @@ async fn main() {
         .and_then(|caps| caps.input_payload_limit())
         .map(|limit| limit.min(max_body_bytes))
         .unwrap_or(0);
-    let degradation_allowed = capabilities.as_ref().is_some_and(|caps| !caps.enforcing);
     let sediment = matches!(std::env::var("PC_GATEWAY_SEDIMENT").as_deref(), Ok("on"));
     let capture_batch = capabilities
         .as_ref()
@@ -260,8 +263,8 @@ async fn main() {
             "PC_GATEWAY_SEDIMENT=on, but Core does not offer batch Source capture; turns are not sedimented until Core is upgraded and the gateway restarted"
         );
     }
-    if subscription_kind == Some(pc_gateway_auth::Subscription::Claude) && !degradation_allowed {
-        eprintln!("Claude CLI requires confirmed non-enforcing Core; its internal HTTP sends are not observable");
+    if subscription_kind == Some(pc_gateway_auth::Subscription::Claude) {
+        eprintln!("Claude CLI has unobservable internal sends and cannot use Core-bound egress");
         std::process::exit(2);
     }
     // 订阅通道里只有 Codex 支持前缀抽取。它的请求重放加密推理，enforcing 的 Core 会暂缓每个抽取请求，
@@ -269,7 +272,9 @@ async fn main() {
     let prefix_extraction = prefix_extraction_requested
         && match subscription_kind {
             None => true,
-            Some(pc_gateway_auth::Subscription::Codex) => degradation_allowed,
+            Some(pc_gateway_auth::Subscription::Codex) => {
+                capabilities.as_ref().is_some_and(|caps| !caps.enforcing)
+            }
             Some(_) => false,
         };
     if prefix_extraction_requested && !prefix_extraction {
@@ -308,8 +313,11 @@ async fn main() {
             .with_core_enforcement(capabilities.as_ref().is_none_or(|caps| caps.enforcing)),
         ),
         evidence,
-        upstream_profile: std::env::var("PC_GATEWAY_UPSTREAM_PROFILE")
+        chat_profile_name: std::env::var("PC_GATEWAY_UPSTREAM_PROFILE")
             .unwrap_or_else(|_| "default".into()),
+        responses_profile_name: std::env::var("PC_GATEWAY_UPSTREAM_PROFILE_RESPONSES")
+            .ok()
+            .filter(|s| !s.is_empty()),
         upstream_chat,
         upstream_responses,
         subscription,
@@ -320,7 +328,6 @@ async fn main() {
             .or_else(|_| std::env::var("PC_GATEWAY_UPSTREAM_API_KEY"))
             .unwrap_or_default(),
         api_key,
-        degrade,
         injection: injection_mode(
             std::env::var("PC_GATEWAY_INJECTION").ok().as_deref(),
             std::env::var("PC_GATEWAY_CORE_UDS").is_ok(),
@@ -339,7 +346,6 @@ async fn main() {
         default_scope: std::env::var("PC_GATEWAY_DEFAULT_SCOPE")
             .unwrap_or_else(|_| "gateway:default".into()),
         max_body_bytes: model_body_bytes,
-        degradation_allowed,
     });
 
     let executor = state.executor.clone();
@@ -375,6 +381,25 @@ async fn main() {
         "gateway turn classification totals"
     );
     serving.expect("serve");
+}
+
+fn gateway_credentials(
+    api_key: Option<String>,
+    core_token: Option<String>,
+) -> Result<String, &'static str> {
+    let api_key = api_key
+        .filter(|key| !key.is_empty())
+        .ok_or("PC_GATEWAY_API_KEY is required")?;
+    let core_token = core_token
+        .filter(|token| !token.is_empty())
+        .ok_or("PC_GATEWAY_CORE_TOKEN is required")?;
+    if !authentication::is_bearer_token(&core_token) {
+        return Err("PC_GATEWAY_CORE_TOKEN must be a valid Bearer token");
+    }
+    if api_key == core_token {
+        return Err("PC_GATEWAY_API_KEY must differ from PC_GATEWAY_CORE_TOKEN");
+    }
+    Ok(api_key)
 }
 
 /// Default-on feature switches reject misspellings instead of silently enabling a feature.
@@ -476,7 +501,27 @@ fn injection_mode(setting: Option<&str>, combined: bool) -> Injection {
 
 #[cfg(test)]
 mod injection_default_tests {
-    use super::{injection_mode, Injection};
+    use super::{gateway_credentials, injection_mode, Injection};
+
+    #[test]
+    fn gateway_and_core_require_separate_credentials() {
+        assert!(gateway_credentials(None, Some("core".into())).is_err());
+        assert!(gateway_credentials(Some("gateway".into()), None).is_err());
+        assert!(gateway_credentials(Some(String::new()), Some("core".into())).is_err());
+        assert!(gateway_credentials(Some("same".into()), Some("same".into())).is_err());
+        assert!(gateway_credentials(Some("gateway".into()), Some("core".into())).is_ok());
+    }
+
+    #[test]
+    fn core_token_must_be_a_valid_bearer_token() {
+        for token in [
+            "core key",
+            "core\r\nx-powercontext-resolve-target: true",
+            "core\0key",
+        ] {
+            assert!(gateway_credentials(Some("gateway".into()), Some(token.into())).is_err());
+        }
+    }
 
     #[test]
     fn combined_deployments_inject_conversations_unless_set() {
