@@ -122,11 +122,11 @@ pub struct CallEvidence {
     pub upstream_ttft_ms: Option<u64>,
     /// Canonical tail classification of the inbound request, when the executor classified it.
     pub turn_kind: Option<pc_gateway_types::TurnKind>,
-    /// The call skipped preparation: a non-user tail with no replay entry to reuse.
+    /// No preparation occurred after a non-user replay miss or a decision to skip recall.
     #[serde(default)]
     pub prepare_skipped: bool,
-    /// The host marked this request as internal (`X-PowerContext-Turn: internal`), so it was
-    /// not prepared, injected, replayed or captured as a conversation turn.
+    /// A host-marked internal request or a Gateway disambiguation call. Neither
+    /// participates in preparation, injection, replay or conversation capture.
     #[serde(default)]
     pub internal: bool,
 }

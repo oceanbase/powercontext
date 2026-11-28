@@ -55,6 +55,10 @@ impl<'a> CallRecorder<'a> {
         }
     }
 
+    pub(crate) fn sink(&self) -> &'a dyn EvidenceSink {
+        self.sink
+    }
+
     pub(crate) fn begin_attempt(&mut self) {
         self.call.attempts += 1;
         self.call.sending = Sending::PossiblySent;

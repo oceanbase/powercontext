@@ -20,7 +20,10 @@ use std::{
     collections::{BTreeMap, VecDeque},
     path::Path,
     process::{Child, Command, Stdio},
-    sync::{Arc, Mutex},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc, Mutex,
+    },
     time::Duration,
 };
 
@@ -59,6 +62,9 @@ struct Peers {
     checks: Mutex<Vec<Value>>,
     queries: Mutex<Vec<Value>>,
     prepares: Mutex<Vec<Value>>,
+    recall_fixture: Mutex<Option<Value>>,
+    check_overrides: Mutex<BTreeMap<usize, (&'static str, &'static str)>>,
+    stall_next: AtomicBool,
     fixed_preparation: Mutex<bool>,
     captures: Mutex<Vec<Value>>,
     deny: Option<(&'static str, &'static str)>,
@@ -71,6 +77,9 @@ async fn upstream(
 ) -> axum::response::Response {
     use axum::response::IntoResponse;
     peers.sent.lock().unwrap().push((headers, body));
+    if peers.stall_next.swap(false, Ordering::SeqCst) {
+        return std::future::pending().await;
+    }
     let reply = peers
         .replies
         .lock()
@@ -98,7 +107,12 @@ async fn check(
             body.contains("BEGIN_POWERCONTEXT_PREPARED_CONTEXT_V1")
                 || body.contains("BEGIN_POWERCONTEXT_PREPARED_TEXT_V1")
         });
-    peers.checks.lock().unwrap().push(request);
+    let index = {
+        let mut checks = peers.checks.lock().unwrap();
+        checks.push(request);
+        checks.len() - 1
+    };
+    let override_verdict = peers.check_overrides.lock().unwrap().get(&index).copied();
     if has_unbound_context {
         return (
             axum::http::StatusCode::UNPROCESSABLE_ENTITY,
@@ -108,15 +122,17 @@ async fn check(
     }
     Json(json!({
         "schema": "powercontext.context-check.v1", "phase": phase,
-        "decision": match peers.deny {
+        "decision": override_verdict.map_or_else(|| match peers.deny {
             Some((denied_phase, decision)) if denied_phase == phase => decision,
             _ => "allow",
-        },
-        "reason_codes": if peers.deny.is_some_and(|(denied_phase, _)| denied_phase == phase) {
-            vec!["target_unsupported"]
-        } else {
-            vec![]
-        }, "coverage": {"profile": "text-and-tools.v1", "complete": true},
+        }, |(decision, _)| decision),
+        "reason_codes": override_verdict.map_or_else(|| {
+            if peers.deny.is_some_and(|(denied_phase, _)| denied_phase == phase) {
+                vec!["target_unsupported"]
+            } else {
+                vec![]
+            }
+        }, |(_, reason)| vec![reason]), "coverage": {"profile": "text-and-tools.v1", "complete": true},
         "policy_version": "test", "valid_until": "2999-01-01T00:00:00Z",
         "binding": format!("test-{phase}")
     }))
@@ -126,7 +142,8 @@ async fn check(
 const PREPARED_BLOCK: &str = "Recall: température";
 
 async fn prepare(State(peers): State<Arc<Peers>>, Json(request): Json<Value>) -> Json<Value> {
-    peers.queries.lock().unwrap().push(request["query"].clone());
+    let query = request["query"].clone();
+    peers.queries.lock().unwrap().push(query.clone());
     let preparation = {
         let mut prepares = peers.prepares.lock().unwrap();
         prepares.push(request);
@@ -135,10 +152,26 @@ async fn prepare(State(peers): State<Arc<Peers>>, Json(request): Json<Value>) ->
     let (content, binding) = if *peers.fixed_preparation.lock().unwrap() {
         (PREPARED_BLOCK.to_owned(), "test-reuse".to_owned())
     } else {
-        (
-            format!("Prepared context {preparation}"),
-            format!("reuse-{preparation}"),
-        )
+        let content = if let Some(memories) = peers.recall_fixture.lock().unwrap().as_ref() {
+            let query = query.as_str().unwrap().to_lowercase();
+            memories
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|memory| query.contains(memory["topic"].as_str().unwrap()))
+                .map(|memory| {
+                    format!(
+                        "[{}] {}",
+                        memory["id"].as_str().unwrap(),
+                        memory["text"].as_str().unwrap()
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join("\n")
+        } else {
+            format!("Prepared context {preparation}")
+        };
+        (content, format!("reuse-{preparation}"))
     };
     Json(json!({
         "schema": "powercontext.prepared-context-with-reuse.v1",
@@ -1987,8 +2020,12 @@ async fn prefix_extraction_defaults_on_but_respects_off_and_subscription_boundar
 }
 
 #[test]
-fn invalid_default_feature_switches_reject_startup() {
-    for setting in ["PC_GATEWAY_STEERING", "PC_GATEWAY_PREFIX_EXTRACTION"] {
+fn invalid_feature_switches_reject_startup() {
+    for setting in [
+        "PC_GATEWAY_STEERING",
+        "PC_GATEWAY_PREFIX_EXTRACTION",
+        "PC_GATEWAY_CONTEXT_DISAMBIGUATION",
+    ] {
         let mut child = Command::new(env!("CARGO_BIN_EXE_pc-gateway"))
             .env_clear()
             .env("PC_GATEWAY_LISTEN", "127.0.0.1:0")
@@ -2015,4 +2052,430 @@ fn invalid_default_feature_switches_reject_startup() {
         assert_eq!(result.status.code(), Some(2));
         assert!(String::from_utf8(result.stderr).unwrap().contains(setting));
     }
+}
+
+fn decision_reply(route: &str, text: &str) -> Reply {
+    let body = if route == "responses" {
+        json!({
+            "id": "resp_test", "object": "response", "status": "completed",
+            "output": [{"type":"message","role":"assistant","status":"completed",
+                "content":[{"type":"output_text","text":text}]}]
+        })
+    } else {
+        json!({
+            "id":"chatcmpl-test", "object":"chat.completion",
+            "choices":[{"index":0,"finish_reason":"stop","message":{"role":"assistant","content":text}}]
+        })
+    };
+    Reply {
+        body: serde_json::to_vec(&body).unwrap(),
+        content_type: "application/json",
+        status: 200,
+    }
+}
+
+fn labeled_recall_request(case: &Value, route: &str) -> Value {
+    let mut messages: Vec<_> = case["history"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|item| json!({"role": item[0], "content":item[1]}))
+        .collect();
+    if case["category"] == "tool-continuation" {
+        if route == "responses" {
+            messages.push(json!({"type":"function_call","name":"inspect","arguments":"{}","call_id":"call_test"}));
+            messages.push(json!({"type":"function_call_output","call_id":"call_test","output":case["current"]}));
+        } else {
+            messages.push(json!({"role":"assistant","content":null,"tool_calls":[
+                {"type":"function","id":"call_test","function":{"name":"inspect","arguments":"{}"}}
+            ]}));
+            messages
+                .push(json!({"role":"tool","tool_call_id":"call_test","content":case["current"]}));
+        }
+    } else {
+        messages.push(json!({"role":"user","content":case["current"]}));
+    }
+    if route == "responses" {
+        json!({"model":"fixture-model","input":messages,"store":false})
+    } else {
+        json!({"model":"fixture-model","messages":messages})
+    }
+}
+
+#[tokio::test]
+async fn labeled_recall_baseline_uses_the_last_user_text() {
+    let fixture: Value =
+        serde_json::from_str(include_str!("fixtures/context_disambiguation.json")).unwrap();
+    let cases = fixture["cases"].as_array().unwrap();
+    assert_eq!(cases.len(), 24);
+    for (route, list) in [("chat/completions", "messages"), ("responses", "input")] {
+        let gateway = Gateway::start_with_env(
+            cases
+                .iter()
+                .map(|_| decision_reply(route, "Done."))
+                .collect(),
+            None,
+            &[
+                ("PC_GATEWAY_INJECTION", "on"),
+                ("PC_GATEWAY_STEERING", "off"),
+            ],
+            true,
+        )
+        .await;
+        *gateway.peers.recall_fixture.lock().unwrap() = Some(fixture["memories"].clone());
+        for (index, case) in cases.iter().enumerate() {
+            let request = labeled_recall_request(case, route);
+            let prepared_before = gateway.peers.prepares.lock().unwrap().len();
+            assert_eq!(
+                gateway.post(route, &request).await.status(),
+                200,
+                "{}",
+                case["id"]
+            );
+            let prepares = gateway.peers.prepares.lock().unwrap();
+            if case["category"] == "tool-continuation" {
+                assert_eq!(prepared_before, prepares.len(), "{}", case["id"]);
+            } else {
+                assert_eq!(prepares.len(), prepared_before + 1);
+                assert_eq!(
+                    prepares.last().unwrap()["query"],
+                    case["current"],
+                    "{}",
+                    case["id"]
+                );
+            }
+            let sent = gateway.peers.sent.lock().unwrap();
+            assert_eq!(sent.len(), index + 1);
+            let body: Value = serde_json::from_slice(&sent[index].1).unwrap();
+            let last = body[list].as_array().unwrap().last().unwrap().to_string();
+            for memory in fixture["memories"].as_array().unwrap() {
+                let id = memory["id"].as_str().unwrap();
+                assert_eq!(
+                    last.contains(&format!("[{id}]")),
+                    case["baseline_memory_ids"]
+                        .as_array()
+                        .unwrap()
+                        .contains(&memory["id"]),
+                    "{}",
+                    case["id"]
+                );
+            }
+        }
+    }
+}
+
+const DISAMBIGUATION_ENV: &[(&str, &str)] = &[
+    ("PC_GATEWAY_INJECTION", "on"),
+    ("PC_GATEWAY_STEERING", "off"),
+    ("PC_GATEWAY_CONTEXT_DISAMBIGUATION", "on"),
+];
+
+#[tokio::test]
+async fn labeled_recall_decisions_reach_prepare_on_both_routes() {
+    let fixture: Value =
+        serde_json::from_str(include_str!("fixtures/context_disambiguation.json")).unwrap();
+    for (route, list) in [("chat/completions", "messages"), ("responses", "input")] {
+        let cases = fixture["cases"].as_array().unwrap();
+        let memories = fixture["memories"].as_array().unwrap();
+        let mut replies = Vec::new();
+        for case in cases {
+            // Script the model decisions so this acceptance test verifies integration independently of model quality.
+            if case["category"] != "tool-continuation" {
+                let query = case["expected_memory_ids"][0].as_str().map(|id| {
+                    let target = memories.iter().find(|memory| memory["id"] == id).unwrap();
+                    format!(
+                        "Previously agreed compatibility rule for {}",
+                        target["topic"].as_str().unwrap()
+                    )
+                });
+                replies.push(decision_reply(
+                    route,
+                    &json!({"recall": case["recall"], "query": query}).to_string(),
+                ));
+            }
+            replies.push(decision_reply(route, "Done."));
+        }
+        let gateway = Gateway::start_with_env(replies, None, DISAMBIGUATION_ENV, true).await;
+        *gateway.peers.recall_fixture.lock().unwrap() = Some(fixture["memories"].clone());
+        for case in cases {
+            let request = labeled_recall_request(case, route);
+            let before_sends = gateway.peers.sent.lock().unwrap().len();
+            let before_prepares = gateway.peers.prepares.lock().unwrap().len();
+            let before_checks = gateway.peers.checks.lock().unwrap().len();
+            let response = gateway.post(route, &request).await;
+            assert_eq!(response.status(), 200, "{}", case["id"]);
+            assert!(response.text().await.unwrap().contains("Done."));
+            let sends = gateway.peers.sent.lock().unwrap();
+            let checks = gateway.peers.checks.lock().unwrap();
+            let prepares = gateway.peers.prepares.lock().unwrap();
+            let auxiliary = case["category"] != "tool-continuation";
+            assert_eq!(sends.len() - before_sends, 1 + usize::from(auxiliary));
+            assert_eq!(
+                checks.len() - before_checks,
+                2 * (1 + usize::from(auxiliary))
+            );
+            if auxiliary {
+                let upstream: Value = serde_json::from_slice(&sends[before_sends].1).unwrap();
+                let history = request[list].as_array().unwrap();
+                let augmented = upstream[list].as_array().unwrap();
+                assert_eq!(augmented.len(), history.len() + 1);
+                assert_eq!(augmented[0], history[0]);
+                assert!(augmented
+                    .last()
+                    .unwrap()
+                    .to_string()
+                    .contains("persistent memory"));
+                assert_eq!(checks[before_checks]["phase"], "before_send");
+                assert_eq!(checks[before_checks + 1]["phase"], "before_release");
+                assert_eq!(
+                    checks[before_checks + 1]["request_binding"],
+                    "test-before_send"
+                );
+                assert_eq!(
+                    checks[before_checks]["payload"]["body"]
+                        .as_str()
+                        .unwrap()
+                        .as_bytes(),
+                    sends[before_sends].1.as_ref()
+                );
+            }
+            let main: Value = serde_json::from_slice(&sends.last().unwrap().1).unwrap();
+            let last = main[list].as_array().unwrap().last().unwrap().to_string();
+            assert!(last.contains(case["current"].as_str().unwrap()));
+            assert!(!last.contains("persistent memory"));
+            assert_eq!(
+                prepares.len() - before_prepares,
+                usize::from(case["recall"] == true)
+            );
+            for memory in memories {
+                let id = memory["id"].as_str().unwrap();
+                assert_eq!(
+                    last.contains(&format!("[{id}]")),
+                    case["expected_memory_ids"]
+                        .as_array()
+                        .unwrap()
+                        .contains(&memory["id"]),
+                    "{}",
+                    case["id"]
+                );
+            }
+        }
+    }
+}
+
+#[tokio::test]
+async fn disambiguation_falls_back_on_denial_invalid_output_and_uncertain_send() {
+    let route = "chat/completions";
+    let query = "Continue the pending task.";
+    let request = json!({"model":"fixture-model","messages":[{"role":"user","content":query}]});
+    for (override_check, auxiliary_reply, stall) in [
+        (Some((0, ("block", "target_unsupported"))), None, false),
+        (
+            Some((1, ("refuse", "privacy"))),
+            Some(r#"{"recall":false,"query":null}"#),
+            false,
+        ),
+        (None, Some(r#"{"recall":true,"query":" "}"#), false),
+        (None, Some("not JSON"), false),
+        (None, None, true),
+    ] {
+        let mut replies = Vec::new();
+        if let Some(reply) = auxiliary_reply {
+            replies.push(decision_reply(route, reply));
+        }
+        replies.push(decision_reply(route, "Done."));
+        let gateway = Gateway::start_with_env(replies, None, DISAMBIGUATION_ENV, true).await;
+        if let Some((index, verdict)) = override_check {
+            gateway
+                .peers
+                .check_overrides
+                .lock()
+                .unwrap()
+                .insert(index, verdict);
+        }
+        gateway.peers.stall_next.store(stall, Ordering::SeqCst);
+        assert_eq!(gateway.post(route, &request).await.status(), 200);
+        let prepares = gateway.peers.prepares.lock().unwrap();
+        assert_eq!(prepares.len(), 1);
+        assert_eq!(prepares[0]["query"], query);
+        assert_eq!(
+            gateway.peers.sent.lock().unwrap().len(),
+            if auxiliary_reply.is_some() || stall {
+                2
+            } else {
+                1
+            }
+        );
+    }
+}
+
+#[tokio::test]
+async fn disambiguation_only_runs_once_across_refresh_and_replay() {
+    let route = "chat/completions";
+    let request = json!({
+        "model":"fixture-model", "prompt_cache_key":"shared-prefix",
+        "tools":[{"type":"function","function":{"name":"inspect","parameters":{"type":"object"}}}],
+        "tool_choice":"auto", "messages":[{"role":"user","content":"Continue."}]
+    });
+    let mut settings = DISAMBIGUATION_ENV.to_vec();
+    settings.push(("PC_GATEWAY_SEDIMENT", "on"));
+    let gateway = Gateway::start_with_env(
+        vec![
+            decision_reply(
+                route,
+                r#"{"recall":true,"query":"Login timeout requirements"}"#,
+            ),
+            decision_reply(route, "Done."),
+            decision_reply(route, "Done."),
+            decision_reply(route, "Done."),
+        ],
+        None,
+        &settings,
+        true,
+    )
+    .await;
+    gateway
+        .peers
+        .check_overrides
+        .lock()
+        .unwrap()
+        .insert(2, ("withhold", "context-refresh-required"));
+    assert_eq!(gateway.post_turn(&request).await.status(), 200);
+    assert_eq!(gateway.post_turn(&request).await.status(), 200);
+    let internal = gateway
+        .client
+        .post(format!("{}/{route}", gateway.base))
+        .bearer_auth("gateway-test-key")
+        .header("X-PowerContext-Turn", "internal")
+        .json(&request)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(internal.status(), 200);
+    let sent = gateway.peers.sent.lock().unwrap();
+    assert_eq!(sent.len(), 4);
+    let auxiliary: Value = serde_json::from_slice(&sent[0].1).unwrap();
+    assert_eq!(auxiliary["model"], request["model"]);
+    assert_eq!(auxiliary["tools"], request["tools"]);
+    assert_eq!(auxiliary["tool_choice"], "none");
+    assert!(auxiliary.get("response_format").is_none());
+    assert_eq!(auxiliary["prompt_cache_key"], request["prompt_cache_key"]);
+    assert_eq!(auxiliary["messages"][0], request["messages"][0]);
+    let queries: Vec<_> = gateway
+        .peers
+        .prepares
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|prepare| prepare["query"].as_str().unwrap().to_owned())
+        .collect();
+    assert_eq!(
+        queries,
+        ["Login timeout requirements", "Login timeout requirements"]
+    );
+    let captures = gateway.peers.captures.lock().unwrap();
+    assert_eq!(captures.len(), 2);
+    assert!(captures
+        .iter()
+        .all(|capture| !capture.to_string().contains("persistent memory")));
+}
+
+#[tokio::test]
+async fn disambiguation_replays_skips_and_bypasses_remote_history() {
+    let route = "responses";
+    let gateway = Gateway::start_with_env(
+        vec![
+            decision_reply(route, r#"{"recall":false,"query":null}"#),
+            decision_reply(route, "Done."),
+            decision_reply(route, "Done."),
+            decision_reply(route, "Done."),
+        ],
+        None,
+        DISAMBIGUATION_ENV,
+        true,
+    )
+    .await;
+    let post = |request: Value| {
+        gateway
+            .client
+            .post(format!("{}/{route}", gateway.base))
+            .bearer_auth("gateway-test-key")
+            .header("X-PowerContext-Conversation-ID", "responses-decision")
+            .json(&request)
+            .send()
+    };
+    let request = json!({"model":"fixture-model", "input":"Continue.", "store":false});
+    assert_eq!(post(request.clone()).await.unwrap().status(), 200);
+    assert_eq!(post(request).await.unwrap().status(), 200);
+    assert_eq!(post(json!({"model":"fixture-model","input":"A new question.", "previous_response_id":"resp_previous", "store":false})).await.unwrap().status(), 200);
+    let prepares = gateway.peers.prepares.lock().unwrap();
+    assert_eq!(prepares.len(), 1);
+    assert_eq!(prepares[0]["query"], "A new question.");
+    assert_eq!(gateway.peers.sent.lock().unwrap().len(), 4);
+}
+
+#[tokio::test]
+async fn disconnect_during_disambiguation_stops_the_parent_and_keeps_separate_send_facts() {
+    use tokio::io::AsyncWriteExt;
+
+    let gateway = Gateway::start_with_env(vec![], None, DISAMBIGUATION_ENV, true).await;
+    gateway.peers.stall_next.store(true, Ordering::SeqCst);
+    let address = gateway
+        .base
+        .strip_prefix("http://")
+        .unwrap()
+        .strip_suffix("/gateway/v1")
+        .unwrap();
+    let mut connection = tokio::net::TcpStream::connect(address).await.unwrap();
+    let body = r#"{"model":"fixture-model","messages":[{"role":"user","content":"private cancellation fixture"}]}"#;
+    let request = format!(
+        "POST /gateway/v1/chat/completions HTTP/1.1\r\nHost: {address}\r\nAuthorization: Bearer gateway-test-key\r\nContent-Type: application/json\r\nContent-Length: {}\r\nX-Request-ID: disconnect-test\r\nConnection: close\r\n\r\n{body}",
+        body.len()
+    );
+    connection.write_all(request.as_bytes()).await.unwrap();
+    tokio::time::timeout(Duration::from_secs(3), async {
+        while gateway.peers.sent.lock().unwrap().is_empty() {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap();
+    drop(connection);
+
+    let records = tokio::time::timeout(Duration::from_secs(3), async {
+        loop {
+            let log = std::fs::read_to_string(&gateway.log).unwrap();
+            assert!(!log.contains("private cancellation fixture"));
+            let records: Vec<_> = log
+                .lines()
+                .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+                .filter(|line| line["unit"] == "call")
+                .map(|line| line["evidence"].clone())
+                .collect();
+            if records.len() == 2 {
+                break records;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap();
+    let auxiliary = records
+        .iter()
+        .find(|call| call["internal"] == true)
+        .unwrap();
+    let main = records
+        .iter()
+        .find(|call| call["internal"] == false)
+        .unwrap();
+    assert_eq!(auxiliary["sending"], "possibly_sent");
+    assert_eq!(main["sending"], "no_send");
+    assert_ne!(auxiliary["call_id"], main["call_id"]);
+    assert!(main["request_id_fingerprint"].is_string());
+    assert_eq!(
+        auxiliary["request_id_fingerprint"],
+        main["request_id_fingerprint"]
+    );
+    assert!(gateway.peers.prepares.lock().unwrap().is_empty());
+    assert_eq!(gateway.peers.sent.lock().unwrap().len(), 1);
 }

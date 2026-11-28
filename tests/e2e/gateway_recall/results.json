@@ -1,0 +1,3520 @@
+[
+  {
+    "route": "chat",
+    "arm": "baseline",
+    "case_id": "ambiguous-login-timeout",
+    "iteration": 1,
+    "temperature": "cold",
+    "status": 200,
+    "latency_ms": 1191.78,
+    "expected_recall": true,
+    "expected_memory_ids": [
+      "login-timeout"
+    ],
+    "prepare_queries": [
+      "Continue."
+    ],
+    "injected_memory_ids": [],
+    "hit": false,
+    "main_input_tokens": 1430,
+    "main_cached_tokens": 0,
+    "main_output_tokens": 36,
+    "auxiliary_input_tokens": null,
+    "auxiliary_cached_tokens": null,
+    "auxiliary_output_tokens": null
+  },
+  {
+    "route": "chat",
+    "arm": "experiment",
+    "case_id": "ambiguous-login-timeout",
+    "iteration": 1,
+    "temperature": "cold",
+    "status": 200,
+    "latency_ms": 1352.99,
+    "expected_recall": true,
+    "expected_memory_ids": [
+      "login-timeout"
+    ],
+    "prepare_queries": [
+      "previously agreed compatibility rule for login timeout"
+    ],
+    "injected_memory_ids": [
+      "login-timeout"
+    ],
+    "hit": true,
+    "main_input_tokens": 1597,
+    "main_cached_tokens": 1280,
+    "main_output_tokens": 11,
+    "auxiliary_input_tokens": 1590,
+    "auxiliary_cached_tokens": 0,
+    "auxiliary_output_tokens": 17
+  },
+  {
+    "route": "chat",
+    "arm": "baseline",
+    "case_id": "ambiguous-login-timeout",
+    "iteration": 2,
+    "temperature": "warm",
+    "status": 200,
+    "latency_ms": 1002.82,
+    "expected_recall": true,
+    "expected_memory_ids": [
+      "login-timeout"
+    ],
+    "prepare_queries": [
+      "Continue."
+    ],
+    "injected_memory_ids": [],
+    "hit": false,
+    "main_input_tokens": 1430,
+    "main_cached_tokens": 1280,
+    "main_output_tokens": 38,
+    "auxiliary_input_tokens": null,
+    "auxiliary_cached_tokens": null,
+    "auxiliary_output_tokens": null
+  },
+  {
+    "route": "chat",
+    "arm": "experiment",
+    "case_id": "ambiguous-login-timeout",
+    "iteration": 2,
+    "temperature": "warm",
+    "status": 200,
+    "latency_ms": 2626.84,
+    "expected_recall": true,
+    "expected_memory_ids": [
+      "login-timeout"
+    ],
+    "prepare_queries": [
+      "previously agreed compatibility rule for login timeout"
+    ],
+    "injected_memory_ids": [
+      "login-timeout"
+    ],
+    "hit": true,
+    "main_input_tokens": 1597,
+    "main_cached_tokens": 1408,
+    "main_output_tokens": 32,
+    "auxiliary_input_tokens": 1590,
+    "auxiliary_cached_tokens": 1408,
+    "auxiliary_output_tokens": 17
+  },
+  {
+    "route": "chat",
+    "arm": "baseline",
+    "case_id": "ambiguous-login-timeout",
+    "iteration": 3,
+    "temperature": "warm",
+    "status": 200,
+    "latency_ms": 1549.01,
+    "expected_recall": true,
+    "expected_memory_ids": [
+      "login-timeout"
+    ],
+    "prepare_queries": [
+      "Continue."
+    ],
+    "injected_memory_ids": [],
+    "hit": false,
+    "main_input_tokens": 1430,
+    "main_cached_tokens": 1280,
+    "main_output_tokens": 28,
+    "auxiliary_input_tokens": null,
+    "auxiliary_cached_tokens": null,
+    "auxiliary_output_tokens": null
+  },
+  {
+    "route": "chat",
+    "arm": "experiment",
+    "case_id": "ambiguous-login-timeout",
+    "iteration": 3,
+    "temperature": "warm",
+    "status": 200,
+    "latency_ms": 1589.93,
+    "expected_recall": true,
+    "expected_memory_ids": [
+      "login-timeout"
+    ],
+    "prepare_queries": [
+      "previously agreed compatibility rule for login timeout"
+    ],
+    "injected_memory_ids": [
+      "login-timeout"
+    ],
+    "hit": true,
+    "main_input_tokens": 1597,
+    "main_cached_tokens": 1408,
+    "main_output_tokens": 23,
+    "auxiliary_input_tokens": 1590,
+    "auxiliary_cached_tokens": 1408,
+    "auxiliary_output_tokens": 17
+  },
+  {
+    "route": "chat",
+    "arm": "baseline",
+    "case_id": "specified-login-timeout",
+    "iteration": 1,
+    "temperature": "cold",
+    "status": 200,
+    "latency_ms": 544.06,
+    "expected_recall": false,
+    "expected_memory_ids": [],
+    "prepare_queries": [
+      "Continue."
+    ],
+    "injected_memory_ids": [],
+    "hit": null,
+    "main_input_tokens": 1435,
+    "main_cached_tokens": 0,
+    "main_output_tokens": 60,
+    "auxiliary_input_tokens": null,
+    "auxiliary_cached_tokens": null,
+    "auxiliary_output_tokens": null
+  },
+  {
+    "route": "chat",
+    "arm": "experiment",
+    "case_id": "specified-login-timeout",
+    "iteration": 1,
+    "temperature": "cold",
+    "status": 200,
+    "latency_ms": 1947.86,
+    "expected_recall": false,
+    "expected_memory_ids": [],
+    "prepare_queries": [],
+    "injected_memory_ids": [],
+    "hit": null,
+    "main_input_tokens": 1435,
+    "main_cached_tokens": 1280,
+    "main_output_tokens": 34,
+    "auxiliary_input_tokens": 1595,
+    "auxiliary_cached_tokens": 0,
+    "auxiliary_output_tokens": 10
+  },
+  {
+    "route": "chat",
+    "arm": "baseline",
+    "case_id": "specified-login-timeout",
+    "iteration": 2,
+    "temperature": "warm",
+    "status": 200,
+    "latency_ms": 976.39,
+    "expected_recall": false,
+    "expected_memory_ids": [],
+    "prepare_queries": [
+      "Continue."
+    ],
+    "injected_memory_ids": [],
+    "hit": null,
+    "main_input_tokens": 1435,
+    "main_cached_tokens": 1280,
+    "main_output_tokens": 61,
+    "auxiliary_input_tokens": null,
+    "auxiliary_cached_tokens": null,
+    "auxiliary_output_tokens": null
+  },
+  {
+    "route": "chat",
+    "arm": "experiment",
+    "case_id": "specified-login-timeout",
+    "iteration": 2,
+    "temperature": "warm",
+    "status": 200,
+    "latency_ms": 2096.06,
+    "expected_recall": false,
+    "expected_memory_ids": [],
+    "prepare_queries": [],
+    "injected_memory_ids": [],
+    "hit": null,
+    "main_input_tokens": 1435,
+    "main_cached_tokens": 1280,
+    "main_output_tokens": 29,
+    "auxiliary_input_tokens": 1595,
+    "auxiliary_cached_tokens": 1408,
+    "auxiliary_output_tokens": 10
+  },
+  {
+    "route": "chat",
+    "arm": "baseline",
+    "case_id": "specified-login-timeout",
+    "iteration": 3,
+    "temperature": "warm",
+    "status": 200,
+    "latency_ms": 598.35,
+    "expected_recall": false,
+    "expected_memory_ids": [],
+    "prepare_queries": [
+      "Continue."
+    ],
+    "injected_memory_ids": [],
+    "hit": null,
+    "main_input_tokens": 1435,
+    "main_cached_tokens": 1280,
+    "main_output_tokens": 20,
+    "auxiliary_input_tokens": null,
+    "auxiliary_cached_tokens": null,
+    "auxiliary_output_tokens": null
+  },
+  {
+    "route": "chat",
+    "arm": "experiment",
+    "case_id": "specified-login-timeout",
+    "iteration": 3,
+    "temperature": "warm",
+    "status": 200,
+    "latency_ms": 1072.52,
+    "expected_recall": false,
+    "expected_memory_ids": [],
+    "prepare_queries": [],
+    "injected_memory_ids": [],
+    "hit": null,
+    "main_input_tokens": 1435,
+    "main_cached_tokens": 1280,
+    "main_output_tokens": 31,
+    "auxiliary_input_tokens": 1595,
+    "auxiliary_cached_tokens": 1408,
+    "auxiliary_output_tokens": 10
+  },
+  {
+    "route": "chat",
+    "arm": "baseline",
+    "case_id": "task-switch-login-timeout",
+    "iteration": 1,
+    "temperature": "cold",
+    "status": 200,
+    "latency_ms": 562.32,
+    "expected_recall": true,
+    "expected_memory_ids": [
+      "login-timeout"
+    ],
+    "prepare_queries": [
+      "Switch to login timeout. Which compatibility rule did we agree to follow?"
+    ],
+    "injected_memory_ids": [
+      "login-timeout"
+    ],
+    "hit": true,
+    "main_input_tokens": 1604,
+    "main_cached_tokens": 0,
+    "main_output_tokens": 14,
+    "auxiliary_input_tokens": null,
+    "auxiliary_cached_tokens": null,
+    "auxiliary_output_tokens": null
+  },
+  {
+    "route": "chat",
+    "arm": "experiment",
+    "case_id": "task-switch-login-timeout",
+    "iteration": 1,
+    "temperature": "cold",
+    "status": 200,
+    "latency_ms": 1248.28,
+    "expected_recall": true,
+    "expected_memory_ids": [
+      "login-timeout"
+    ],
+    "prepare_queries": [
+      "agreed compatibility rule for login timeout"
+    ],
+    "injected_memory_ids": [
+      "login-timeout"
+    ],
+    "hit": true,
+    "main_input_tokens": 1604,
+    "main_cached_tokens": 1280,
+    "main_output_tokens": 15,
+    "auxiliary_input_tokens": 1597,
+    "auxiliary_cached_tokens": 0,
+    "auxiliary_output_tokens": 16
+  },
+  {
+    "route": "chat",
+    "arm": "baseline",
+    "case_id": "task-switch-login-timeout",
+    "iteration": 2,
+    "temperature": "warm",
+    "status": 200,
+    "latency_ms": 1035.99,
+    "expected_recall": true,
+    "expected_memory_ids": [
+      "login-timeout"
+    ],
+    "prepare_queries": [
+      "Switch to login timeout. Which compatibility rule did we agree to follow?"
+    ],
+    "injected_memory_ids": [
+      "login-timeout"
+    ],
+    "hit": true,
+    "main_input_tokens": 1604,
+    "main_cached_tokens": 1408,
+    "main_output_tokens": 31,
+    "auxiliary_input_tokens": null,
+    "auxiliary_cached_tokens": null,
+    "auxiliary_output_tokens": null
+  },
+  {
+    "route": "chat",
+    "arm": "experiment",
+    "case_id": "task-switch-login-timeout",
+    "iteration": 2,
+    "temperature": "warm",
+    "status": 200,
+    "latency_ms": 2436.49,
+    "expected_recall": true,
+    "expected_memory_ids": [
+      "login-timeout"
+    ],
+    "prepare_queries": [
+      "HTTP client settings login timeout compatibility rule agreed to follow"
+    ],
+    "injected_memory_ids": [],
+    "hit": false,
+    "main_input_tokens": 1437,
+    "main_cached_tokens": 1280,
+    "main_output_tokens": 20,
+    "auxiliary_input_tokens": 1597,
+    "auxiliary_cached_tokens": 1408,
+    "auxiliary_output_tokens": 19
+  },
+  {
+    "route": "chat",
+    "arm": "baseline",
+    "case_id": "task-switch-login-timeout",
+    "iteration": 3,
+    "temperature": "warm",
+    "status": 200,
+    "latency_ms": 467.36,
+    "expected_recall": true,
+    "expected_memory_ids": [
+      "login-timeout"
+    ],
+    "prepare_queries": [
+      "Switch to login timeout. Which compatibility rule did we agree to follow?"
+    ],
+    "injected_memory_ids": [
+      "login-timeout"
+    ],
+    "hit": true,
+    "main_input_tokens": 1604,
+    "main_cached_tokens": 1408,
+    "main_output_tokens": 13,
+    "auxiliary_input_tokens": null,
+    "auxiliary_cached_tokens": null,
+    "auxiliary_output_tokens": null
+  },
+  {
+    "route": "chat",
+    "arm": "experiment",
+    "case_id": "task-switch-login-timeout",
+    "iteration": 3,
+    "temperature": "warm",
+    "status": 200,
+    "latency_ms": 1051.34,
+    "expected_recall": true,
+    "expected_memory_ids": [
+      "login-timeout"
+    ],
+    "prepare_queries": [
+      "compatibility rule agreed for login timeout"
+    ],
+    "injected_memory_ids": [
+      "login-timeout"
+    ],
+    "hit": true,
+    "main_input_tokens": 1604,
+    "main_cached_tokens": 1408,
+    "main_output_tokens": 10,
+    "auxiliary_input_tokens": 1597,
+    "auxiliary_cached_tokens": 1408,
+    "auxiliary_output_tokens": 16
+  },
+  {
+    "route": "chat",
+    "arm": "baseline",
+    "case_id": "tool-continuation-login-timeout",
+    "iteration": 1,
+    "temperature": "cold",
+    "status": 200,
+    "latency_ms": 718.59,
+    "expected_recall": false,
+    "expected_memory_ids": [],
+    "prepare_queries": [],
+    "injected_memory_ids": [],
+    "hit": null,
+    "main_input_tokens": 1686,
+    "main_cached_tokens": 0,
+    "main_output_tokens": 16,
+    "auxiliary_input_tokens": null,
+    "auxiliary_cached_tokens": null,
+    "auxiliary_output_tokens": null
+  },
+  {
+    "route": "chat",
+    "arm": "experiment",
+    "case_id": "tool-continuation-login-timeout",
+    "iteration": 1,
+    "temperature": "cold",
+    "status": 200,
+    "latency_ms": 513.92,
+    "expected_recall": false,
+    "expected_memory_ids": [],
+    "prepare_queries": [],
+    "injected_memory_ids": [],
+    "hit": null,
+    "main_input_tokens": 1686,
+    "main_cached_tokens": 0,
+    "main_output_tokens": 10,
+    "auxiliary_input_tokens": null,
+    "auxiliary_cached_tokens": null,
+    "auxiliary_output_tokens": null
+  },
+  {
+    "route": "chat",
+    "arm": "baseline",
+    "case_id": "tool-continuation-login-timeout",
+    "iteration": 2,
+    "temperature": "warm",
+    "status": 200,
+    "latency_ms": 870.97,
+    "expected_recall": false,
+    "expected_memory_ids": [],
+    "prepare_queries": [],
+    "injected_memory_ids": [],
+    "hit": null,
+    "main_input_tokens": 1686,
+    "main_cached_tokens": 1536,
+    "main_output_tokens": 29,
+    "auxiliary_input_tokens": null,
+    "auxiliary_cached_tokens": null,
+    "auxiliary_output_tokens": null
+  },
+  {
+    "route": "chat",
+    "arm": "experiment",
+    "case_id": "tool-continuation-login-timeout",
+    "iteration": 2,
+    "temperature": "warm",
+    "status": 200,
+    "latency_ms": 443.56,
+    "expected_recall": false,
+    "expected_memory_ids": [],
+    "prepare_queries": [],
+    "injected_memory_ids": [],
+    "hit": null,
+    "main_input_tokens": 1686,
+    "main_cached_tokens": 1536,
+    "main_output_tokens": 11,
+    "auxiliary_input_tokens": null,
+    "auxiliary_cached_tokens": null,
+    "auxiliary_output_tokens": null
+  },
+  {
+    "route": "chat",
+    "arm": "baseline",
+    "case_id": "tool-continuation-login-timeout",
+    "iteration": 3,
+    "temperature": "warm",
+    "status": 200,
+    "latency_ms": 714.09,
+    "expected_recall": false,
+    "expected_memory_ids": [],
+    "prepare_queries": [],
+    "injected_memory_ids": [],
+    "hit": null,
+    "main_input_tokens": 1686,
+    "main_cached_tokens": 1536,
+    "main_output_tokens": 24,
+    "auxiliary_input_tokens": null,
+    "auxiliary_cached_tokens": null,
+    "auxiliary_output_tokens": null
+  },
+  {
+    "route": "chat",
+    "arm": "experiment",
+    "case_id": "tool-continuation-login-timeout",
+    "iteration": 3,
+    "temperature": "warm",
+    "status": 200,
+    "latency_ms": 848.97,
+    "expected_recall": false,
+    "expected_memory_ids": [],
+    "prepare_queries": [],
+    "injected_memory_ids": [],
+    "hit": null,
+    "main_input_tokens": 1686,
+    "main_cached_tokens": 1536,
+    "main_output_tokens": 21,
+    "auxiliary_input_tokens": null,
+    "auxiliary_cached_tokens": null,
+    "auxiliary_output_tokens": null
+  },
+  {
+    "route": "chat",
+    "arm": "baseline",
+    "case_id": "ambiguous-backup-restore",
+    "iteration": 1,
+    "temperature": "cold",
+    "status": 200,
+    "latency_ms": 533.08,
+    "expected_recall": true,
+    "expected_memory_ids": [
+      "backup-restore"
+    ],
+    "prepare_queries": [
+      "Use the earlier one."
+    ],
+    "injected_memory_ids": [
+      "worker-retry",
+      "release-build"
+    ],
+    "hit": false,
+    "main_input_tokens": 1694,
+    "main_cached_tokens": 0,
+    "main_output_tokens": 17,
+    "auxiliary_input_tokens": null,
+    "auxiliary_cached_tokens": null,
+    "auxiliary_output_tokens": null
+  },
+  {
+    "route": "chat",
+    "arm": "experiment",
+    "case_id": "ambiguous-backup-restore",
+    "iteration": 1,
+    "temperature": "cold",
+    "status": 200,
+    "latency_ms": 1896.28,
+    "expected_recall": true,
+    "expected_memory_ids": [
+      "backup-restore"
+    ],
+    "prepare_queries": [
+      "previously agreed compatibility rule for backup restore"
+    ],
+    "injected_memory_ids": [
+      "backup-restore"
+    ],
+    "hit": true,
+    "main_input_tokens": 1602,
+    "main_cached_tokens": 1280,
+    "main_output_tokens": 35,
+    "auxiliary_input_tokens": 1593,
+    "auxiliary_cached_tokens": 0,
+    "auxiliary_output_tokens": 17
+  },
+  {
+    "route": "chat",
+    "arm": "baseline",
+    "case_id": "ambiguous-backup-restore",
+    "iteration": 2,
+    "temperature": "warm",
+    "status": 200,
+    "latency_ms": 1064.5,
+    "expected_recall": true,
+    "expected_memory_ids": [
+      "backup-restore"
+    ],
+    "prepare_queries": [
+      "Use the earlier one."
+    ],
+    "injected_memory_ids": [
+      "worker-retry",
+      "release-build"
+    ],
+    "hit": false,
+    "main_input_tokens": 1694,
+    "main_cached_tokens": 1536,
+    "main_output_tokens": 51,
+    "auxiliary_input_tokens": null,
+    "auxiliary_cached_tokens": null,
+    "auxiliary_output_tokens": null
+  },
+  {
+    "route": "chat",
+    "arm": "experiment",
+    "case_id": "ambiguous-backup-restore",
+    "iteration": 2,
+    "temperature": "warm",
+    "status": 200,
+    "latency_ms": 1650.17,
+    "expected_recall": true,
+    "expected_memory_ids": [
+      "backup-restore"
+    ],
+    "prepare_queries": [
+      "previously agreed compatibility rule for backup restore"
+    ],
+    "injected_memory_ids": [
+      "backup-restore"
+    ],
+    "hit": true,
+    "main_input_tokens": 1602,
+    "main_cached_tokens": 1408,
+    "main_output_tokens": 21,
+    "auxiliary_input_tokens": 1593,
+    "auxiliary_cached_tokens": 1408,
+    "auxiliary_output_tokens": 17
+  },
+  {
+    "route": "chat",
+    "arm": "baseline",
+    "case_id": "ambiguous-backup-restore",
+    "iteration": 3,
+    "temperature": "warm",
+    "status": 200,
+    "latency_ms": 1172.0,
+    "expected_recall": true,
+    "expected_memory_ids": [
+      "backup-restore"
+    ],
+    "prepare_queries": [
+      "Use the earlier one."
+    ],
+    "injected_memory_ids": [
+      "worker-retry",
+      "release-build"
+    ],
+    "hit": false,
+    "main_input_tokens": 1694,
+    "main_cached_tokens": 1536,
+    "main_output_tokens": 44,
+    "auxiliary_input_tokens": null,
+    "auxiliary_cached_tokens": null,
+    "auxiliary_output_tokens": null
+  },
+  {
+    "route": "chat",
+    "arm": "experiment",
+    "case_id": "ambiguous-backup-restore",
+    "iteration": 3,
+    "temperature": "warm",
+    "status": 200,
+    "latency_ms": 1749.87,
+    "expected_recall": true,
+    "expected_memory_ids": [
+      "backup-restore"
+    ],
+    "prepare_queries": [
+      "Use the earlier one."
+    ],
+    "injected_memory_ids": [
+      "worker-retry",
+      "release-build"
+    ],
+    "hit": false,
+    "main_input_tokens": 1694,
+    "main_cached_tokens": 1536,
+    "main_output_tokens": 40,
+    "auxiliary_input_tokens": 1593,
+    "auxiliary_cached_tokens": 1408,
+    "auxiliary_output_tokens": 17
+  },
+  {
+    "route": "chat",
+    "arm": "baseline",
+    "case_id": "specified-backup-restore",
+    "iteration": 1,
+    "temperature": "cold",
+    "status": 200,
+    "latency_ms": 728.47,
+    "expected_recall": false,
+    "expected_memory_ids": [],
+    "prepare_queries": [
+      "Only read the restore command in the runbook. Everything else is done."
+    ],
+    "injected_memory_ids": [],
+    "hit": null,
+    "main_input_tokens": 1450,
+    "main_cached_tokens": 0,
+    "main_output_tokens": 18,
+    "auxiliary_input_tokens": null,
+    "auxiliary_cached_tokens": null,
+    "auxiliary_output_tokens": null
+  },
+  {
+    "route": "chat",
+    "arm": "experiment",
+    "case_id": "specified-backup-restore",
+    "iteration": 1,
+    "temperature": "cold",
+    "status": 200,
+    "latency_ms": 1745.53,
+    "expected_recall": false,
+    "expected_memory_ids": [],
+    "prepare_queries": [
+      "restore command in the backup restore runbook"
+    ],
+    "injected_memory_ids": [
+      "backup-restore"
+    ],
+    "hit": null,
+    "main_input_tokens": 1619,
+    "main_cached_tokens": 1280,
+    "main_output_tokens": 38,
+    "auxiliary_input_tokens": 1610,
+    "auxiliary_cached_tokens": 0,
+    "auxiliary_output_tokens": 18
+  },
+  {
+    "route": "chat",
+    "arm": "baseline",
+    "case_id": "specified-backup-restore",
+    "iteration": 2,
+    "temperature": "warm",
+    "status": 200,
+    "latency_ms": 561.31,
+    "expected_recall": false,
+    "expected_memory_ids": [],
+    "prepare_queries": [
+      "Only read the restore command in the runbook. Everything else is done."
+    ],
+    "injected_memory_ids": [],
+    "hit": null,
+    "main_input_tokens": 1450,
+    "main_cached_tokens": 1280,
+    "main_output_tokens": 15,
+    "auxiliary_input_tokens": null,
+    "auxiliary_cached_tokens": null,
+    "auxiliary_output_tokens": null
+  },
+  {
+    "route": "chat",
+    "arm": "experiment",
+    "case_id": "specified-backup-restore",
+    "iteration": 2,
+    "temperature": "warm",
+    "status": 200,
+    "latency_ms": 2013.23,
+    "expected_recall": false,
+    "expected_memory_ids": [],
+    "prepare_queries": [],
+    "injected_memory_ids": [],
+    "hit": null,
+    "main_input_tokens": 1450,
+    "main_cached_tokens": 1280,
+    "main_output_tokens": 64,
+    "auxiliary_input_tokens": 1610,
+    "auxiliary_cached_tokens": 1408,
+    "auxiliary_output_tokens": 10
+  },
+  {
+    "route": "chat",
+    "arm": "baseline",
+    "case_id": "specified-backup-restore",
+    "iteration": 3,
+    "temperature": "warm",
+    "status": 200,
+    "latency_ms": 795.54,
+    "expected_recall": false,
+    "expected_memory_ids": [],
+    "prepare_queries": [
+      "Only read the restore command in the runbook. Everything else is done."
+    ],
+    "injected_memory_ids": [],
+    "hit": null,
+    "main_input_tokens": 1450,
+    "main_cached_tokens": 1280,
+    "main_output_tokens": 23,
+    "auxiliary_input_tokens": null,
+    "auxiliary_cached_tokens": null,
+    "auxiliary_output_tokens": null
+  },
+  {
+    "route": "chat",
+    "arm": "experiment",
+    "case_id": "specified-backup-restore",
+    "iteration": 3,
+    "temperature": "warm",
+    "status": 200,
+    "latency_ms": 1299.34,
+    "expected_recall": false,
+    "expected_memory_ids": [],
+    "prepare_queries": [],
+    "injected_memory_ids": [],
+    "hit": null,
+    "main_input_tokens": 1450,
+    "main_cached_tokens": 1280,
+    "main_output_tokens": 11,
+    "auxiliary_input_tokens": 1610,
+    "auxiliary_cached_tokens": 1408,
+    "auxiliary_output_tokens": 10
+  },
+  {
+    "route": "chat",
+    "arm": "baseline",
+    "case_id": "task-switch-backup-restore",
+    "iteration": 1,
+    "temperature": "cold",
+    "status": 200,
+    "latency_ms": 872.67,
+    "expected_recall": true,
+    "expected_memory_ids": [
+      "backup-restore"
+    ],
+    "prepare_queries": [
+      "Switch to backup restore. Which compatibility rule did we agree to follow?"
+    ],
+    "injected_memory_ids": [
+      "backup-restore"
+    ],
+    "hit": true,
+    "main_input_tokens": 1604,
+    "main_cached_tokens": 0,
+    "main_output_tokens": 11,
+    "auxiliary_input_tokens": null,
+    "auxiliary_cached_tokens": null,
+    "auxiliary_output_tokens": null
+  },
+  {
+    "route": "chat",
+    "arm": "experiment",
+    "case_id": "task-switch-backup-restore",
+    "iteration": 1,
+    "temperature": "cold",
+    "status": 200,
+    "latency_ms": 1628.47,
+    "expected_recall": true,
+    "expected_memory_ids": [
+      "backup-restore"
+    ],
+    "prepare_queries": [
+      "backup restore compatibility rule agreed to follow"
+    ],
+    "injected_memory_ids": [
+      "backup-restore"
+    ],
+    "hit": true,
+    "main_input_tokens": 1604,
+    "main_cached_tokens": 1280,
+    "main_output_tokens": 8,
+    "auxiliary_input_tokens": 1595,
+    "auxiliary_cached_tokens": 0,
+    "auxiliary_output_tokens": 17
+  },
+  {
+    "route": "chat",
+    "arm": "baseline",
+    "case_id": "task-switch-backup-restore",
+    "iteration": 2,
+    "temperature": "warm",
+    "status": 200,
+    "latency_ms": 801.07,
+    "expected_recall": true,
+    "expected_memory_ids": [
+      "backup-restore"
+    ],
+    "prepare_queries": [
+      "Switch to backup restore. Which compatibility rule did we agree to follow?"
+    ],
+    "injected_memory_ids": [
+      "backup-restore"
+    ],
+    "hit": true,
+    "main_input_tokens": 1604,
+    "main_cached_tokens": 1408,
+    "main_output_tokens": 7,
+    "auxiliary_input_tokens": null,
+    "auxiliary_cached_tokens": null,
+    "auxiliary_output_tokens": null
+  },
+  {
+    "route": "chat",
+    "arm": "experiment",
+    "case_id": "task-switch-backup-restore",
+    "iteration": 2,
+    "temperature": "warm",
+    "status": 200,
+    "latency_ms": 1428.69,
+    "expected_recall": true,
+    "expected_memory_ids": [
+      "backup-restore"
+    ],
+    "prepare_queries": [
+      "backup restore compatibility rule we agreed to follow"
+    ],
+    "injected_memory_ids": [
+      "backup-restore"
+    ],
+    "hit": true,
+    "main_input_tokens": 1604,
+    "main_cached_tokens": 1408,
+    "main_output_tokens": 7,
+    "auxiliary_input_tokens": 1595,
+    "auxiliary_cached_tokens": 1408,
+    "auxiliary_output_tokens": 18
+  },
+  {
+    "route": "chat",
+    "arm": "baseline",
+    "case_id": "task-switch-backup-restore",
+    "iteration": 3,
+    "temperature": "warm",
+    "status": 200,
+    "latency_ms": 728.75,
+    "expected_recall": true,
+    "expected_memory_ids": [
+      "backup-restore"
+    ],
+    "prepare_queries": [
+      "Switch to backup restore. Which compatibility rule did we agree to follow?"
+    ],
+    "injected_memory_ids": [
+      "backup-restore"
+    ],
+    "hit": true,
+    "main_input_tokens": 1604,
+    "main_cached_tokens": 1408,
+    "main_output_tokens": 9,
+    "auxiliary_input_tokens": null,
+    "auxiliary_cached_tokens": null,
+    "auxiliary_output_tokens": null
+  },
+  {
+    "route": "chat",
+    "arm": "experiment",
+    "case_id": "task-switch-backup-restore",
+    "iteration": 3,
+    "temperature": "warm",
+    "status": 200,
+    "latency_ms": 1398.75,
+    "expected_recall": true,
+    "expected_memory_ids": [
+      "backup-restore"
+    ],
+    "prepare_queries": [
+      "backup restore compatibility rule agreed to follow"
+    ],
+    "injected_memory_ids": [
+      "backup-restore"
+    ],
+    "hit": true,
+    "main_input_tokens": 1604,
+    "main_cached_tokens": 1408,
+    "main_output_tokens": 7,
+    "auxiliary_input_tokens": 1595,
+    "auxiliary_cached_tokens": 1408,
+    "auxiliary_output_tokens": 17
+  },
+  {
+    "route": "chat",
+    "arm": "baseline",
+    "case_id": "tool-continuation-backup-restore",
+    "iteration": 1,
+    "temperature": "cold",
+    "status": 200,
+    "latency_ms": 804.84,
+    "expected_recall": false,
+    "expected_memory_ids": [],
+    "prepare_queries": [],
+    "injected_memory_ids": [],
+    "hit": null,
+    "main_input_tokens": 1686,
+    "main_cached_tokens": 0,
+    "main_output_tokens": 27,
+    "auxiliary_input_tokens": null,
+    "auxiliary_cached_tokens": null,
+    "auxiliary_output_tokens": null
+  },
+  {
+    "route": "chat",
+    "arm": "experiment",
+    "case_id": "tool-continuation-backup-restore",
+    "iteration": 1,
+    "temperature": "cold",
+    "status": 200,
+    "latency_ms": 726.57,
+    "expected_recall": false,
+    "expected_memory_ids": [],
+    "prepare_queries": [],
+    "injected_memory_ids": [],
+    "hit": null,
+    "main_input_tokens": 1686,
+    "main_cached_tokens": 0,
+    "main_output_tokens": 16,
+    "auxiliary_input_tokens": null,
+    "auxiliary_cached_tokens": null,
+    "auxiliary_output_tokens": null
+  },
+  {
+    "route": "chat",
+    "arm": "baseline",
+    "case_id": "tool-continuation-backup-restore",
+    "iteration": 2,
+    "temperature": "warm",
+    "status": 200,
+    "latency_ms": 530.89,
+    "expected_recall": false,
+    "expected_memory_ids": [],
+    "prepare_queries": [],
+    "injected_memory_ids": [],
+    "hit": null,
+    "main_input_tokens": 1686,
+    "main_cached_tokens": 1536,
+    "main_output_tokens": 14,
+    "auxiliary_input_tokens": null,
+    "auxiliary_cached_tokens": null,
+    "auxiliary_output_tokens": null
+  },
+  {
+    "route": "chat",
+    "arm": "experiment",
+    "case_id": "tool-continuation-backup-restore",
+    "iteration": 2,
+    "temperature": "warm",
+    "status": 200,
+    "latency_ms": 900.42,
+    "expected_recall": false,
+    "expected_memory_ids": [],
+    "prepare_queries": [],
+    "injected_memory_ids": [],
+    "hit": null,
+    "main_input_tokens": 1686,
+    "main_cached_tokens": 1536,
+    "main_output_tokens": 10,
+    "auxiliary_input_tokens": null,
+    "auxiliary_cached_tokens": null,
+    "auxiliary_output_tokens": null
+  },
+  {
+    "route": "chat",
+    "arm": "baseline",
+    "case_id": "tool-continuation-backup-restore",
+    "iteration": 3,
+    "temperature": "warm",
+    "status": 200,
+    "latency_ms": 2000.45,
+    "expected_recall": false,
+    "expected_memory_ids": [],
+    "prepare_queries": [],
+    "injected_memory_ids": [],
+    "hit": null,
+    "main_input_tokens": 1686,
+    "main_cached_tokens": 1536,
+    "main_output_tokens": 17,
+    "auxiliary_input_tokens": null,
+    "auxiliary_cached_tokens": null,
+    "auxiliary_output_tokens": null
+  },
+  {
+    "route": "chat",
+    "arm": "experiment",
+    "case_id": "tool-continuation-backup-restore",
+    "iteration": 3,
+    "temperature": "warm",
+    "status": 200,
+    "latency_ms": 778.39,
+    "expected_recall": false,
+    "expected_memory_ids": [],
+    "prepare_queries": [],
+    "injected_memory_ids": [],
+    "hit": null,
+    "main_input_tokens": 1686,
+    "main_cached_tokens": 1536,
+    "main_output_tokens": 10,
+    "auxiliary_input_tokens": null,
+    "auxiliary_cached_tokens": null,
+    "auxiliary_output_tokens": null
+  },
+  {
+    "route": "chat",
+    "arm": "baseline",
+    "case_id": "ambiguous-schema-rollout",
+    "iteration": 1,
+    "temperature": "cold",
+    "status": 200,
+    "latency_ms": 818.56,
+    "expected_recall": true,
+    "expected_memory_ids": [
+      "schema-rollout"
+    ],
+    "prepare_queries": [
+      "What was the agreed order?"
+    ],
+    "injected_memory_ids": [],
+    "hit": false,
+    "main_input_tokens": 1435,
+    "main_cached_tokens": 0,
+    "main_output_tokens": 38,
+    "auxiliary_input_tokens": null,
+    "auxiliary_cached_tokens": null,
+    "auxiliary_output_tokens": null
+  },
+  {
+    "route": "chat",
+    "arm": "experiment",
+    "case_id": "ambiguous-schema-rollout",
+    "iteration": 1,
+    "temperature": "cold",
+    "status": 200,
+    "latency_ms": 1857.78,
+    "expected_recall": true,
+    "expected_memory_ids": [
+      "schema-rollout"
+    ],
+    "prepare_queries": [
+      "previously agreed compatibility rule and order for schema rollout"
+    ],
+    "injected_memory_ids": [
+      "schema-rollout"
+    ],
+    "hit": true,
+    "main_input_tokens": 1602,
+    "main_cached_tokens": 1280,
+    "main_output_tokens": 21,
+    "auxiliary_input_tokens": 1595,
+    "auxiliary_cached_tokens": 0,
+    "auxiliary_output_tokens": 19
+  },
+  {
+    "route": "chat",
+    "arm": "baseline",
+    "case_id": "ambiguous-schema-rollout",
+    "iteration": 2,
+    "temperature": "warm",
+    "status": 200,
+    "latency_ms": 752.29,
+    "expected_recall": true,
+    "expected_memory_ids": [
+      "schema-rollout"
+    ],
+    "prepare_queries": [
+      "What was the agreed order?"
+    ],
+    "injected_memory_ids": [],
+    "hit": false,
+    "main_input_tokens": 1435,
+    "main_cached_tokens": 1280,
+    "main_output_tokens": 22,
+    "auxiliary_input_tokens": null,
+    "auxiliary_cached_tokens": null,
+    "auxiliary_output_tokens": null
+  },
+  {
+    "route": "chat",
+    "arm": "experiment",
+    "case_id": "ambiguous-schema-rollout",
+    "iteration": 2,
+    "temperature": "warm",
+    "status": 200,
+    "latency_ms": 1541.06,
+    "expected_recall": true,
+    "expected_memory_ids": [
+      "schema-rollout"
+    ],
+    "prepare_queries": [
+      "What was the agreed order?"
+    ],
+    "injected_memory_ids": [],
+    "hit": false,
+    "main_input_tokens": 1435,
+    "main_cached_tokens": 1280,
+    "main_output_tokens": 50,
+    "auxiliary_input_tokens": 1595,
+    "auxiliary_cached_tokens": 1408,
+    "auxiliary_output_tokens": 20
+  },
+  {
+    "route": "chat",
+    "arm": "baseline",
+    "case_id": "ambiguous-schema-rollout",
+    "iteration": 3,
+    "temperature": "warm",
+    "status": 200,
+    "latency_ms": 783.95,
+    "expected_recall": true,
+    "expected_memory_ids": [
+      "schema-rollout"
+    ],
+    "prepare_queries": [
+      "What was the agreed order?"
+    ],
+    "injected_memory_ids": [],
+    "hit": false,
+    "main_input_tokens": 1435,
+    "main_cached_tokens": 1280,
+    "main_output_tokens": 23,
+    "auxiliary_input_tokens": null,
+    "auxiliary_cached_tokens": null,
+    "auxiliary_output_tokens": null
+  },
+  {
+    "route": "chat",
+    "arm": "experiment",
+    "case_id": "ambiguous-schema-rollout",
+    "iteration": 3,
+    "temperature": "warm",
+    "status": 200,
+    "latency_ms": 2101.25,
+    "expected_recall": true,
+    "expected_memory_ids": [
+      "schema-rollout"
+    ],
+    "prepare_queries": [
+      "agreed compatibility rule and rollout order for schema changes"
+    ],
+    "injected_memory_ids": [
+      "schema-rollout"
+    ],
+    "hit": true,
+    "main_input_tokens": 1602,
+    "main_cached_tokens": 1408,
+    "main_output_tokens": 34,
+    "auxiliary_input_tokens": 1595,
+    "auxiliary_cached_tokens": 1408,
+    "auxiliary_output_tokens": 20
+  },
+  {
+    "route": "chat",
+    "arm": "baseline",
+    "case_id": "specified-schema-rollout",
+    "iteration": 1,
+    "temperature": "cold",
+    "status": 200,
+    "latency_ms": 519.0,
+    "expected_recall": false,
+    "expected_memory_ids": [],
+    "prepare_queries": [
+      "Only check the generated migration diff. Everything else is done."
+    ],
+    "injected_memory_ids": [],
+    "hit": null,
+    "main_input_tokens": 1445,
+    "main_cached_tokens": 0,
+    "main_output_tokens": 18,
+    "auxiliary_input_tokens": null,
+    "auxiliary_cached_tokens": null,
+    "auxiliary_output_tokens": null
+  },
+  {
+    "route": "chat",
+    "arm": "experiment",
+    "case_id": "specified-schema-rollout",
+    "iteration": 1,
+    "temperature": "cold",
+    "status": 200,
+    "latency_ms": 1568.29,
+    "expected_recall": false,
+    "expected_memory_ids": [],
+    "prepare_queries": [],
+    "injected_memory_ids": [],
+    "hit": null,
+    "main_input_tokens": 1445,
+    "main_cached_tokens": 1280,
+    "main_output_tokens": 17,
+    "auxiliary_input_tokens": 1605,
+    "auxiliary_cached_tokens": 0,
+    "auxiliary_output_tokens": 10
+  },
+  {
+    "route": "chat",
+    "arm": "baseline",
+    "case_id": "specified-schema-rollout",
+    "iteration": 2,
+    "temperature": "warm",
+    "status": 200,
+    "latency_ms": 617.85,
+    "expected_recall": false,
+    "expected_memory_ids": [],
+    "prepare_queries": [
+      "Only check the generated migration diff. Everything else is done."
+    ],
+    "injected_memory_ids": [],
+    "hit": null,
+    "main_input_tokens": 1445,
+    "main_cached_tokens": 1280,
+    "main_output_tokens": 38,
+    "auxiliary_input_tokens": null,
+    "auxiliary_cached_tokens": null,
+    "auxiliary_output_tokens": null
+  },
+  {
+    "route": "chat",
+    "arm": "experiment",
+    "case_id": "specified-schema-rollout",
+    "iteration": 2,
+    "temperature": "warm",
+    "status": 200,
+    "latency_ms": 1064.79,
+    "expected_recall": false,
+    "expected_memory_ids": [],
+    "prepare_queries": [],
+    "injected_memory_ids": [],
+    "hit": null,
+    "main_input_tokens": 1445,
+    "main_cached_tokens": 1280,
+    "main_output_tokens": 15,
+    "auxiliary_input_tokens": 1605,
+    "auxiliary_cached_tokens": 1408,
+    "auxiliary_output_tokens": 10
+  },
+  {
+    "route": "chat",
+    "arm": "baseline",
+    "case_id": "specified-schema-rollout",
+    "iteration": 3,
+    "temperature": "warm",
+    "status": 200,
+    "latency_ms": 940.06,
+    "expected_recall": false,
+    "expected_memory_ids": [],
+    "prepare_queries": [
+      "Only check the generated migration diff. Everything else is done."
+    ],
+    "injected_memory_ids": [],
+    "hit": null,
+    "main_input_tokens": 1445,
+    "main_cached_tokens": 1280,
+    "main_output_tokens": 14,
+    "auxiliary_input_tokens": null,
+    "auxiliary_cached_tokens": null,
+    "auxiliary_output_tokens": null
+  },
+  {
+    "route": "chat",
+    "arm": "experiment",
+    "case_id": "specified-schema-rollout",
+    "iteration": 3,
+    "temperature": "warm",
+    "status": 200,
+    "latency_ms": 1239.46,
+    "expected_recall": false,
+    "expected_memory_ids": [],
+    "prepare_queries": [],
+    "injected_memory_ids": [],
+    "hit": null,
+    "main_input_tokens": 1445,
+    "main_cached_tokens": 1280,
+    "main_output_tokens": 27,
+    "auxiliary_input_tokens": 1605,
+    "auxiliary_cached_tokens": 1408,
+    "auxiliary_output_tokens": 10
+  },
+  {
+    "route": "chat",
+    "arm": "baseline",
+    "case_id": "task-switch-schema-rollout",
+    "iteration": 1,
+    "temperature": "cold",
+    "status": 200,
+    "latency_ms": 878.4,
+    "expected_recall": true,
+    "expected_memory_ids": [
+      "schema-rollout"
+    ],
+    "prepare_queries": [
+      "Switch to schema rollout. Which compatibility rule did we agree to follow?"
+    ],
+    "injected_memory_ids": [
+      "schema-rollout"
+    ],
+    "hit": true,
+    "main_input_tokens": 1605,
+    "main_cached_tokens": 0,
+    "main_output_tokens": 15,
+    "auxiliary_input_tokens": null,
+    "auxiliary_cached_tokens": null,
+    "auxiliary_output_tokens": null
+  },
+  {
+    "route": "chat",
+    "arm": "experiment",
+    "case_id": "task-switch-schema-rollout",
+    "iteration": 1,
+    "temperature": "cold",
+    "status": 200,
+    "latency_ms": 1334.73,
+    "expected_recall": true,
+    "expected_memory_ids": [
+      "schema-rollout"
+    ],
+    "prepare_queries": [
+      "schema rollout compatibility rule agreed to follow"
+    ],
+    "injected_memory_ids": [
+      "schema-rollout"
+    ],
+    "hit": true,
+    "main_input_tokens": 1605,
+    "main_cached_tokens": 1280,
+    "main_output_tokens": 12,
+    "auxiliary_input_tokens": 1598,
+    "auxiliary_cached_tokens": 0,
+    "auxiliary_output_tokens": 16
+  },
+  {
+    "route": "chat",
+    "arm": "baseline",
+    "case_id": "task-switch-schema-rollout",
+    "iteration": 2,
+    "temperature": "warm",
+    "status": 200,
+    "latency_ms": 746.48,
+    "expected_recall": true,
+    "expected_memory_ids": [
+      "schema-rollout"
+    ],
+    "prepare_queries": [
+      "Switch to schema rollout. Which compatibility rule did we agree to follow?"
+    ],
+    "injected_memory_ids": [
+      "schema-rollout"
+    ],
+    "hit": true,
+    "main_input_tokens": 1605,
+    "main_cached_tokens": 1408,
+    "main_output_tokens": 27,
+    "auxiliary_input_tokens": null,
+    "auxiliary_cached_tokens": null,
+    "auxiliary_output_tokens": null
+  },
+  {
+    "route": "chat",
+    "arm": "experiment",
+    "case_id": "task-switch-schema-rollout",
+    "iteration": 2,
+    "temperature": "warm",
+    "status": 200,
+    "latency_ms": 1471.04,
+    "expected_recall": true,
+    "expected_memory_ids": [
+      "schema-rollout"
+    ],
+    "prepare_queries": [
+      "schema rollout compatibility rule agreement"
+    ],
+    "injected_memory_ids": [
+      "schema-rollout"
+    ],
+    "hit": true,
+    "main_input_tokens": 1605,
+    "main_cached_tokens": 1408,
+    "main_output_tokens": 21,
+    "auxiliary_input_tokens": 1598,
+    "auxiliary_cached_tokens": 1408,
+    "auxiliary_output_tokens": 14
+  },
+  {
+    "route": "chat",
+    "arm": "baseline",
+    "case_id": "task-switch-schema-rollout",
+    "iteration": 3,
+    "temperature": "warm",
+    "status": 200,
+    "latency_ms": 644.0,
+    "expected_recall": true,
+    "expected_memory_ids": [
+      "schema-rollout"
+    ],
+    "prepare_queries": [
+      "Switch to schema rollout. Which compatibility rule did we agree to follow?"
+    ],
+    "injected_memory_ids": [
+      "schema-rollout"
+    ],
+    "hit": true,
+    "main_input_tokens": 1605,
+    "main_cached_tokens": 1408,
+    "main_output_tokens": 14,
+    "auxiliary_input_tokens": null,
+    "auxiliary_cached_tokens": null,
+    "auxiliary_output_tokens": null
+  },
+  {
+    "route": "chat",
+    "arm": "experiment",
+    "case_id": "task-switch-schema-rollout",
+    "iteration": 3,
+    "temperature": "warm",
+    "status": 200,
+    "latency_ms": 1382.14,
+    "expected_recall": true,
+    "expected_memory_ids": [
+      "schema-rollout"
+    ],
+    "prepare_queries": [
+      "schema rollout compatibility rule agreed to follow"
+    ],
+    "injected_memory_ids": [
+      "schema-rollout"
+    ],
+    "hit": true,
+    "main_input_tokens": 1605,
+    "main_cached_tokens": 1408,
+    "main_output_tokens": 10,
+    "auxiliary_input_tokens": 1598,
+    "auxiliary_cached_tokens": 1408,
+    "auxiliary_output_tokens": 16
+  },
+  {
+    "route": "chat",
+    "arm": "baseline",
+    "case_id": "tool-continuation-schema-rollout",
+    "iteration": 1,
+    "temperature": "cold",
+    "status": 200,
+    "latency_ms": 843.01,
+    "expected_recall": false,
+    "expected_memory_ids": [],
+    "prepare_queries": [],
+    "injected_memory_ids": [],
+    "hit": null,
+    "main_input_tokens": 1687,
+    "main_cached_tokens": 0,
+    "main_output_tokens": 12,
+    "auxiliary_input_tokens": null,
+    "auxiliary_cached_tokens": null,
+    "auxiliary_output_tokens": null
+  },
+  {
+    "route": "chat",
+    "arm": "experiment",
+    "case_id": "tool-continuation-schema-rollout",
+    "iteration": 1,
+    "temperature": "cold",
+    "status": 200,
+    "latency_ms": 728.06,
+    "expected_recall": false,
+    "expected_memory_ids": [],
+    "prepare_queries": [],
+    "injected_memory_ids": [],
+    "hit": null,
+    "main_input_tokens": 1687,
+    "main_cached_tokens": 0,
+    "main_output_tokens": 11,
+    "auxiliary_input_tokens": null,
+    "auxiliary_cached_tokens": null,
+    "auxiliary_output_tokens": null
+  },
+  {
+    "route": "chat",
+    "arm": "baseline",
+    "case_id": "tool-continuation-schema-rollout",
+    "iteration": 2,
+    "temperature": "warm",
+    "status": 200,
+    "latency_ms": 913.67,
+    "expected_recall": false,
+    "expected_memory_ids": [],
+    "prepare_queries": [],
+    "injected_memory_ids": [],
+    "hit": null,
+    "main_input_tokens": 1687,
+    "main_cached_tokens": 1536,
+    "main_output_tokens": 17,
+    "auxiliary_input_tokens": null,
+    "auxiliary_cached_tokens": null,
+    "auxiliary_output_tokens": null
+  },
+  {
+    "route": "chat",
+    "arm": "experiment",
+    "case_id": "tool-continuation-schema-rollout",
+    "iteration": 2,
+    "temperature": "warm",
+    "status": 200,
+    "latency_ms": 430.94,
+    "expected_recall": false,
+    "expected_memory_ids": [],
+    "prepare_queries": [],
+    "injected_memory_ids": [],
+    "hit": null,
+    "main_input_tokens": 1687,
+    "main_cached_tokens": 1536,
+    "main_output_tokens": 15,
+    "auxiliary_input_tokens": null,
+    "auxiliary_cached_tokens": null,
+    "auxiliary_output_tokens": null
+  },
+  {
+    "route": "chat",
+    "arm": "baseline",
+    "case_id": "tool-continuation-schema-rollout",
+    "iteration": 3,
+    "temperature": "warm",
+    "status": 200,
+    "latency_ms": 1050.16,
+    "expected_recall": false,
+    "expected_memory_ids": [],
+    "prepare_queries": [],
+    "injected_memory_ids": [],
+    "hit": null,
+    "main_input_tokens": 1687,
+    "main_cached_tokens": 1536,
+    "main_output_tokens": 28,
+    "auxiliary_input_tokens": null,
+    "auxiliary_cached_tokens": null,
+    "auxiliary_output_tokens": null
+  },
+  {
+    "route": "chat",
+    "arm": "experiment",
+    "case_id": "tool-continuation-schema-rollout",
+    "iteration": 3,
+    "temperature": "warm",
+    "status": 200,
+    "latency_ms": 830.05,
+    "expected_recall": false,
+    "expected_memory_ids": [],
+    "prepare_queries": [],
+    "injected_memory_ids": [],
+    "hit": null,
+    "main_input_tokens": 1687,
+    "main_cached_tokens": 1536,
+    "main_output_tokens": 11,
+    "auxiliary_input_tokens": null,
+    "auxiliary_cached_tokens": null,
+    "auxiliary_output_tokens": null
+  },
+  {
+    "route": "chat",
+    "arm": "baseline",
+    "case_id": "ambiguous-worker-retry",
+    "iteration": 1,
+    "temperature": "cold",
+    "status": 200,
+    "latency_ms": 806.17,
+    "expected_recall": true,
+    "expected_memory_ids": [
+      "worker-retry"
+    ],
+    "prepare_queries": [
+      "You changed the wrong thing. Please follow that rule."
+    ],
+    "injected_memory_ids": [],
+    "hit": false,
+    "main_input_tokens": 1439,
+    "main_cached_tokens": 0,
+    "main_output_tokens": 50,
+    "auxiliary_input_tokens": null,
+    "auxiliary_cached_tokens": null,
+    "auxiliary_output_tokens": null
+  },
+  {
+    "route": "chat",
+    "arm": "experiment",
+    "case_id": "ambiguous-worker-retry",
+    "iteration": 1,
+    "temperature": "cold",
+    "status": 200,
+    "latency_ms": 1453.87,
+    "expected_recall": true,
+    "expected_memory_ids": [
+      "worker-retry"
+    ],
+    "prepare_queries": [
+      "previously agreed compatibility rule for worker retry"
+    ],
+    "injected_memory_ids": [
+      "worker-retry"
+    ],
+    "hit": true,
+    "main_input_tokens": 1608,
+    "main_cached_tokens": 1280,
+    "main_output_tokens": 31,
+    "auxiliary_input_tokens": 1599,
+    "auxiliary_cached_tokens": 0,
+    "auxiliary_output_tokens": 18
+  },
+  {
+    "route": "chat",
+    "arm": "baseline",
+    "case_id": "ambiguous-worker-retry",
+    "iteration": 2,
+    "temperature": "warm",
+    "status": 200,
+    "latency_ms": 1012.58,
+    "expected_recall": true,
+    "expected_memory_ids": [
+      "worker-retry"
+    ],
+    "prepare_queries": [
+      "You changed the wrong thing. Please follow that rule."
+    ],
+    "injected_memory_ids": [],
+    "hit": false,
+    "main_input_tokens": 1439,
+    "main_cached_tokens": 1280,
+    "main_output_tokens": 34,
+    "auxiliary_input_tokens": null,
+    "auxiliary_cached_tokens": null,
+    "auxiliary_output_tokens": null
+  },
+  {
+    "route": "chat",
+    "arm": "experiment",
+    "case_id": "ambiguous-worker-retry",
+    "iteration": 2,
+    "temperature": "warm",
+    "status": 200,
+    "latency_ms": 1560.61,
+    "expected_recall": true,
+    "expected_memory_ids": [
+      "worker-retry"
+    ],
+    "prepare_queries": [
+      "agreed compatibility rule for worker retry worker retry compatibility rule"
+    ],
+    "injected_memory_ids": [
+      "worker-retry"
+    ],
+    "hit": true,
+    "main_input_tokens": 1608,
+    "main_cached_tokens": 1408,
+    "main_output_tokens": 22,
+    "auxiliary_input_tokens": 1599,
+    "auxiliary_cached_tokens": 1408,
+    "auxiliary_output_tokens": 22
+  },
+  {
+    "route": "chat",
+    "arm": "baseline",
+    "case_id": "ambiguous-worker-retry",
+    "iteration": 3,
+    "temperature": "warm",
+    "status": 200,
+    "latency_ms": 1125.94,
+    "expected_recall": true,
+    "expected_memory_ids": [
+      "worker-retry"
+    ],
+    "prepare_queries": [
+      "You changed the wrong thing. Please follow that rule."
+    ],
+    "injected_memory_ids": [],
+    "hit": false,
+    "main_input_tokens": 1439,
+    "main_cached_tokens": 1280,
+    "main_output_tokens": 31,
+    "auxiliary_input_tokens": null,
+    "auxiliary_cached_tokens": null,
+    "auxiliary_output_tokens": null
+  },
+  {
+    "route": "chat",
+    "arm": "experiment",
+    "case_id": "ambiguous-worker-retry",
+    "iteration": 3,
+    "temperature": "warm",
+    "status": 200,
+    "latency_ms": 1393.38,
+    "expected_recall": true,
+    "expected_memory_ids": [
+      "worker-retry"
+    ],
+    "prepare_queries": [
+      "previously agreed compatibility rule for worker retry"
+    ],
+    "injected_memory_ids": [
+      "worker-retry"
+    ],
+    "hit": true,
+    "main_input_tokens": 1608,
+    "main_cached_tokens": 1408,
+    "main_output_tokens": 27,
+    "auxiliary_input_tokens": 1599,
+    "auxiliary_cached_tokens": 1408,
+    "auxiliary_output_tokens": 18
+  },
+  {
+    "route": "chat",
+    "arm": "baseline",
+    "case_id": "specified-worker-retry",
+    "iteration": 1,
+    "temperature": "cold",
+    "status": 200,
+    "latency_ms": 512.73,
+    "expected_recall": false,
+    "expected_memory_ids": [],
+    "prepare_queries": [
+      "Only check the retry test output. Everything else is done."
+    ],
+    "injected_memory_ids": [],
+    "hit": null,
+    "main_input_tokens": 1446,
+    "main_cached_tokens": 0,
+    "main_output_tokens": 24,
+    "auxiliary_input_tokens": null,
+    "auxiliary_cached_tokens": null,
+    "auxiliary_output_tokens": null
+  },
+  {
+    "route": "chat",
+    "arm": "experiment",
+    "case_id": "specified-worker-retry",
+    "iteration": 1,
+    "temperature": "cold",
+    "status": 200,
+    "latency_ms": 1158.9,
+    "expected_recall": false,
+    "expected_memory_ids": [],
+    "prepare_queries": [],
+    "injected_memory_ids": [],
+    "hit": null,
+    "main_input_tokens": 1446,
+    "main_cached_tokens": 1280,
+    "main_output_tokens": 35,
+    "auxiliary_input_tokens": 1606,
+    "auxiliary_cached_tokens": 0,
+    "auxiliary_output_tokens": 10
+  },
+  {
+    "route": "chat",
+    "arm": "baseline",
+    "case_id": "specified-worker-retry",
+    "iteration": 2,
+    "temperature": "warm",
+    "status": 200,
+    "latency_ms": 662.61,
+    "expected_recall": false,
+    "expected_memory_ids": [],
+    "prepare_queries": [
+      "Only check the retry test output. Everything else is done."
+    ],
+    "injected_memory_ids": [],
+    "hit": null,
+    "main_input_tokens": 1446,
+    "main_cached_tokens": 1280,
+    "main_output_tokens": 12,
+    "auxiliary_input_tokens": null,
+    "auxiliary_cached_tokens": null,
+    "auxiliary_output_tokens": null
+  },
+  {
+    "route": "chat",
+    "arm": "experiment",
+    "case_id": "specified-worker-retry",
+    "iteration": 2,
+    "temperature": "warm",
+    "status": 200,
+    "latency_ms": 1592.84,
+    "expected_recall": false,
+    "expected_memory_ids": [],
+    "prepare_queries": [],
+    "injected_memory_ids": [],
+    "hit": null,
+    "main_input_tokens": 1446,
+    "main_cached_tokens": 1280,
+    "main_output_tokens": 32,
+    "auxiliary_input_tokens": 1606,
+    "auxiliary_cached_tokens": 1408,
+    "auxiliary_output_tokens": 10
+  },
+  {
+    "route": "chat",
+    "arm": "baseline",
+    "case_id": "specified-worker-retry",
+    "iteration": 3,
+    "temperature": "warm",
+    "status": 200,
+    "latency_ms": 606.88,
+    "expected_recall": false,
+    "expected_memory_ids": [],
+    "prepare_queries": [
+      "Only check the retry test output. Everything else is done."
+    ],
+    "injected_memory_ids": [],
+    "hit": null,
+    "main_input_tokens": 1446,
+    "main_cached_tokens": 1280,
+    "main_output_tokens": 14,
+    "auxiliary_input_tokens": null,
+    "auxiliary_cached_tokens": null,
+    "auxiliary_output_tokens": null
+  },
+  {
+    "route": "chat",
+    "arm": "experiment",
+    "case_id": "specified-worker-retry",
+    "iteration": 3,
+    "temperature": "warm",
+    "status": 200,
+    "latency_ms": 1116.7,
+    "expected_recall": false,
+    "expected_memory_ids": [],
+    "prepare_queries": [],
+    "injected_memory_ids": [],
+    "hit": null,
+    "main_input_tokens": 1446,
+    "main_cached_tokens": 1280,
+    "main_output_tokens": 58,
+    "auxiliary_input_tokens": 1606,
+    "auxiliary_cached_tokens": 1408,
+    "auxiliary_output_tokens": 10
+  },
+  {
+    "route": "chat",
+    "arm": "baseline",
+    "case_id": "task-switch-worker-retry",
+    "iteration": 1,
+    "temperature": "cold",
+    "status": 200,
+    "latency_ms": 462.83,
+    "expected_recall": true,
+    "expected_memory_ids": [
+      "worker-retry"
+    ],
+    "prepare_queries": [
+      "Switch to worker retry. Which compatibility rule did we agree to follow?"
+    ],
+    "injected_memory_ids": [
+      "worker-retry"
+    ],
+    "hit": true,
+    "main_input_tokens": 1606,
+    "main_cached_tokens": 0,
+    "main_output_tokens": 14,
+    "auxiliary_input_tokens": null,
+    "auxiliary_cached_tokens": null,
+    "auxiliary_output_tokens": null
+  },
+  {
+    "route": "chat",
+    "arm": "experiment",
+    "case_id": "task-switch-worker-retry",
+    "iteration": 1,
+    "temperature": "cold",
+    "status": 200,
+    "latency_ms": 1542.41,
+    "expected_recall": true,
+    "expected_memory_ids": [
+      "worker-retry"
+    ],
+    "prepare_queries": [
+      "compatibility rule agreed to follow for worker retry"
+    ],
+    "injected_memory_ids": [
+      "worker-retry"
+    ],
+    "hit": true,
+    "main_input_tokens": 1606,
+    "main_cached_tokens": 1280,
+    "main_output_tokens": 39,
+    "auxiliary_input_tokens": 1597,
+    "auxiliary_cached_tokens": 0,
+    "auxiliary_output_tokens": 19
+  },
+  {
+    "route": "chat",
+    "arm": "baseline",
+    "case_id": "task-switch-worker-retry",
+    "iteration": 2,
+    "temperature": "warm",
+    "status": 200,
+    "latency_ms": 1024.04,
+    "expected_recall": true,
+    "expected_memory_ids": [
+      "worker-retry"
+    ],
+    "prepare_queries": [
+      "Switch to worker retry. Which compatibility rule did we agree to follow?"
+    ],
+    "injected_memory_ids": [
+      "worker-retry"
+    ],
+    "hit": true,
+    "main_input_tokens": 1606,
+    "main_cached_tokens": 1408,
+    "main_output_tokens": 30,
+    "auxiliary_input_tokens": null,
+    "auxiliary_cached_tokens": null,
+    "auxiliary_output_tokens": null
+  },
+  {
+    "route": "chat",
+    "arm": "experiment",
+    "case_id": "task-switch-worker-retry",
+    "iteration": 2,
+    "temperature": "warm",
+    "status": 200,
+    "latency_ms": 1090.12,
+    "expected_recall": true,
+    "expected_memory_ids": [
+      "worker-retry"
+    ],
+    "prepare_queries": [
+      "compatibility rule agreed for worker retry"
+    ],
+    "injected_memory_ids": [
+      "worker-retry"
+    ],
+    "hit": true,
+    "main_input_tokens": 1606,
+    "main_cached_tokens": 1408,
+    "main_output_tokens": 11,
+    "auxiliary_input_tokens": 1597,
+    "auxiliary_cached_tokens": 1408,
+    "auxiliary_output_tokens": 17
+  },
+  {
+    "route": "chat",
+    "arm": "baseline",
+    "case_id": "task-switch-worker-retry",
+    "iteration": 3,
+    "temperature": "warm",
+    "status": 200,
+    "latency_ms": 500.09,
+    "expected_recall": true,
+    "expected_memory_ids": [
+      "worker-retry"
+    ],
+    "prepare_queries": [
+      "Switch to worker retry. Which compatibility rule did we agree to follow?"
+    ],
+    "injected_memory_ids": [
+      "worker-retry"
+    ],
+    "hit": true,
+    "main_input_tokens": 1606,
+    "main_cached_tokens": 1408,
+    "main_output_tokens": 11,
+    "auxiliary_input_tokens": null,
+    "auxiliary_cached_tokens": null,
+    "auxiliary_output_tokens": null
+  },
+  {
+    "route": "chat",
+    "arm": "experiment",
+    "case_id": "task-switch-worker-retry",
+    "iteration": 3,
+    "temperature": "warm",
+    "status": 200,
+    "latency_ms": 1634.58,
+    "expected_recall": true,
+    "expected_memory_ids": [
+      "worker-retry"
+    ],
+    "prepare_queries": [
+      "worker retry compatibility rule agreed to follow"
+    ],
+    "injected_memory_ids": [
+      "worker-retry"
+    ],
+    "hit": true,
+    "main_input_tokens": 1606,
+    "main_cached_tokens": 1408,
+    "main_output_tokens": 11,
+    "auxiliary_input_tokens": 1597,
+    "auxiliary_cached_tokens": 1408,
+    "auxiliary_output_tokens": 17
+  },
+  {
+    "route": "chat",
+    "arm": "baseline",
+    "case_id": "tool-continuation-worker-retry",
+    "iteration": 1,
+    "temperature": "cold",
+    "status": 200,
+    "latency_ms": 670.79,
+    "expected_recall": false,
+    "expected_memory_ids": [],
+    "prepare_queries": [],
+    "injected_memory_ids": [],
+    "hit": null,
+    "main_input_tokens": 1686,
+    "main_cached_tokens": 0,
+    "main_output_tokens": 7,
+    "auxiliary_input_tokens": null,
+    "auxiliary_cached_tokens": null,
+    "auxiliary_output_tokens": null
+  },
+  {
+    "route": "chat",
+    "arm": "experiment",
+    "case_id": "tool-continuation-worker-retry",
+    "iteration": 1,
+    "temperature": "cold",
+    "status": 200,
+    "latency_ms": 488.94,
+    "expected_recall": false,
+    "expected_memory_ids": [],
+    "prepare_queries": [],
+    "injected_memory_ids": [],
+    "hit": null,
+    "main_input_tokens": 1686,
+    "main_cached_tokens": 0,
+    "main_output_tokens": 16,
+    "auxiliary_input_tokens": null,
+    "auxiliary_cached_tokens": null,
+    "auxiliary_output_tokens": null
+  },
+  {
+    "route": "chat",
+    "arm": "baseline",
+    "case_id": "tool-continuation-worker-retry",
+    "iteration": 2,
+    "temperature": "warm",
+    "status": 200,
+    "latency_ms": 577.32,
+    "expected_recall": false,
+    "expected_memory_ids": [],
+    "prepare_queries": [],
+    "injected_memory_ids": [],
+    "hit": null,
+    "main_input_tokens": 1686,
+    "main_cached_tokens": 1536,
+    "main_output_tokens": 12,
+    "auxiliary_input_tokens": null,
+    "auxiliary_cached_tokens": null,
+    "auxiliary_output_tokens": null
+  },
+  {
+    "route": "chat",
+    "arm": "experiment",
+    "case_id": "tool-continuation-worker-retry",
+    "iteration": 2,
+    "temperature": "warm",
+    "status": 200,
+    "latency_ms": 1013.2,
+    "expected_recall": false,
+    "expected_memory_ids": [],
+    "prepare_queries": [],
+    "injected_memory_ids": [],
+    "hit": null,
+    "main_input_tokens": 1686,
+    "main_cached_tokens": 1536,
+    "main_output_tokens": 16,
+    "auxiliary_input_tokens": null,
+    "auxiliary_cached_tokens": null,
+    "auxiliary_output_tokens": null
+  },
+  {
+    "route": "chat",
+    "arm": "baseline",
+    "case_id": "tool-continuation-worker-retry",
+    "iteration": 3,
+    "temperature": "warm",
+    "status": 200,
+    "latency_ms": 583.77,
+    "expected_recall": false,
+    "expected_memory_ids": [],
+    "prepare_queries": [],
+    "injected_memory_ids": [],
+    "hit": null,
+    "main_input_tokens": 1686,
+    "main_cached_tokens": 1536,
+    "main_output_tokens": 17,
+    "auxiliary_input_tokens": null,
+    "auxiliary_cached_tokens": null,
+    "auxiliary_output_tokens": null
+  },
+  {
+    "route": "chat",
+    "arm": "experiment",
+    "case_id": "tool-continuation-worker-retry",
+    "iteration": 3,
+    "temperature": "warm",
+    "status": 200,
+    "latency_ms": 561.17,
+    "expected_recall": false,
+    "expected_memory_ids": [],
+    "prepare_queries": [],
+    "injected_memory_ids": [],
+    "hit": null,
+    "main_input_tokens": 1686,
+    "main_cached_tokens": 1536,
+    "main_output_tokens": 20,
+    "auxiliary_input_tokens": null,
+    "auxiliary_cached_tokens": null,
+    "auxiliary_output_tokens": null
+  },
+  {
+    "route": "chat",
+    "arm": "baseline",
+    "case_id": "ambiguous-scope-routing",
+    "iteration": 1,
+    "temperature": "cold",
+    "status": 200,
+    "latency_ms": 941.22,
+    "expected_recall": true,
+    "expected_memory_ids": [
+      "scope-routing"
+    ],
+    "prepare_queries": [
+      "Keep the same restriction."
+    ],
+    "injected_memory_ids": [
+      "scope-routing"
+    ],
+    "hit": true,
+    "main_input_tokens": 1601,
+    "main_cached_tokens": 0,
+    "main_output_tokens": 38,
+    "auxiliary_input_tokens": null,
+    "auxiliary_cached_tokens": null,
+    "auxiliary_output_tokens": null
+  },
+  {
+    "route": "chat",
+    "arm": "experiment",
+    "case_id": "ambiguous-scope-routing",
+    "iteration": 1,
+    "temperature": "cold",
+    "status": 200,
+    "latency_ms": 1438.25,
+    "expected_recall": true,
+    "expected_memory_ids": [
+      "scope-routing"
+    ],
+    "prepare_queries": [
+      "Keep the same restriction."
+    ],
+    "injected_memory_ids": [
+      "scope-routing"
+    ],
+    "hit": true,
+    "main_input_tokens": 1601,
+    "main_cached_tokens": 1280,
+    "main_output_tokens": 15,
+    "auxiliary_input_tokens": 1593,
+    "auxiliary_cached_tokens": 0,
+    "auxiliary_output_tokens": 35
+  },
+  {
+    "route": "chat",
+    "arm": "baseline",
+    "case_id": "ambiguous-scope-routing",
+    "iteration": 2,
+    "temperature": "warm",
+    "status": 200,
+    "latency_ms": 798.14,
+    "expected_recall": true,
+    "expected_memory_ids": [
+      "scope-routing"
+    ],
+    "prepare_queries": [
+      "Keep the same restriction."
+    ],
+    "injected_memory_ids": [
+      "scope-routing"
+    ],
+    "hit": true,
+    "main_input_tokens": 1601,
+    "main_cached_tokens": 1408,
+    "main_output_tokens": 37,
+    "auxiliary_input_tokens": null,
+    "auxiliary_cached_tokens": null,
+    "auxiliary_output_tokens": null
+  },
+  {
+    "route": "chat",
+    "arm": "experiment",
+    "case_id": "ambiguous-scope-routing",
+    "iteration": 2,
+    "temperature": "warm",
+    "status": 200,
+    "latency_ms": 2627.53,
+    "expected_recall": true,
+    "expected_memory_ids": [
+      "scope-routing"
+    ],
+    "prepare_queries": [
+      "previously agreed compatibility rule for scope routing"
+    ],
+    "injected_memory_ids": [
+      "scope-routing"
+    ],
+    "hit": true,
+    "main_input_tokens": 1601,
+    "main_cached_tokens": 1408,
+    "main_output_tokens": 14,
+    "auxiliary_input_tokens": 1593,
+    "auxiliary_cached_tokens": 1408,
+    "auxiliary_output_tokens": 17
+  },
+  {
+    "route": "chat",
+    "arm": "baseline",
+    "case_id": "ambiguous-scope-routing",
+    "iteration": 3,
+    "temperature": "warm",
+    "status": 200,
+    "latency_ms": 725.61,
+    "expected_recall": true,
+    "expected_memory_ids": [
+      "scope-routing"
+    ],
+    "prepare_queries": [
+      "Keep the same restriction."
+    ],
+    "injected_memory_ids": [
+      "scope-routing"
+    ],
+    "hit": true,
+    "main_input_tokens": 1601,
+    "main_cached_tokens": 1408,
+    "main_output_tokens": 23,
+    "auxiliary_input_tokens": null,
+    "auxiliary_cached_tokens": null,
+    "auxiliary_output_tokens": null
+  },
+  {
+    "route": "chat",
+    "arm": "experiment",
+    "case_id": "ambiguous-scope-routing",
+    "iteration": 3,
+    "temperature": "warm",
+    "status": 200,
+    "latency_ms": 2855.32,
+    "expected_recall": true,
+    "expected_memory_ids": [
+      "scope-routing"
+    ],
+    "prepare_queries": [
+      "Keep the same restriction."
+    ],
+    "injected_memory_ids": [
+      "scope-routing"
+    ],
+    "hit": true,
+    "main_input_tokens": 1601,
+    "main_cached_tokens": 1408,
+    "main_output_tokens": 22,
+    "auxiliary_input_tokens": 1593,
+    "auxiliary_cached_tokens": 1408,
+    "auxiliary_output_tokens": 512
+  },
+  {
+    "route": "chat",
+    "arm": "baseline",
+    "case_id": "specified-scope-routing",
+    "iteration": 1,
+    "temperature": "cold",
+    "status": 200,
+    "latency_ms": 532.19,
+    "expected_recall": false,
+    "expected_memory_ids": [],
+    "prepare_queries": [
+      "Only open the routing test file. Everything else is done."
+    ],
+    "injected_memory_ids": [],
+    "hit": null,
+    "main_input_tokens": 1444,
+    "main_cached_tokens": 0,
+    "main_output_tokens": 7,
+    "auxiliary_input_tokens": null,
+    "auxiliary_cached_tokens": null,
+    "auxiliary_output_tokens": null
+  },
+  {
+    "route": "chat",
+    "arm": "experiment",
+    "case_id": "specified-scope-routing",
+    "iteration": 1,
+    "temperature": "cold",
+    "status": 200,
+    "latency_ms": 1602.45,
+    "expected_recall": false,
+    "expected_memory_ids": [],
+    "prepare_queries": [
+      "scope routing work: which routing test file should be opened, current status and prior decisions"
+    ],
+    "injected_memory_ids": [],
+    "hit": null,
+    "main_input_tokens": 1444,
+    "main_cached_tokens": 1280,
+    "main_output_tokens": 34,
+    "auxiliary_input_tokens": 1604,
+    "auxiliary_cached_tokens": 0,
+    "auxiliary_output_tokens": 26
+  },
+  {
+    "route": "chat",
+    "arm": "baseline",
+    "case_id": "specified-scope-routing",
+    "iteration": 2,
+    "temperature": "warm",
+    "status": 200,
+    "latency_ms": 520.3,
+    "expected_recall": false,
+    "expected_memory_ids": [],
+    "prepare_queries": [
+      "Only open the routing test file. Everything else is done."
+    ],
+    "injected_memory_ids": [],
+    "hit": null,
+    "main_input_tokens": 1444,
+    "main_cached_tokens": 1280,
+    "main_output_tokens": 19,
+    "auxiliary_input_tokens": null,
+    "auxiliary_cached_tokens": null,
+    "auxiliary_output_tokens": null
+  },
+  {
+    "route": "chat",
+    "arm": "experiment",
+    "case_id": "specified-scope-routing",
+    "iteration": 2,
+    "temperature": "warm",
+    "status": 200,
+    "latency_ms": 1229.06,
+    "expected_recall": false,
+    "expected_memory_ids": [],
+    "prepare_queries": [],
+    "injected_memory_ids": [],
+    "hit": null,
+    "main_input_tokens": 1444,
+    "main_cached_tokens": 1280,
+    "main_output_tokens": 27,
+    "auxiliary_input_tokens": 1604,
+    "auxiliary_cached_tokens": 1408,
+    "auxiliary_output_tokens": 10
+  },
+  {
+    "route": "chat",
+    "arm": "baseline",
+    "case_id": "specified-scope-routing",
+    "iteration": 3,
+    "temperature": "warm",
+    "status": 200,
+    "latency_ms": 684.28,
+    "expected_recall": false,
+    "expected_memory_ids": [],
+    "prepare_queries": [
+      "Only open the routing test file. Everything else is done."
+    ],
+    "injected_memory_ids": [],
+    "hit": null,
+    "main_input_tokens": 1444,
+    "main_cached_tokens": 1280,
+    "main_output_tokens": 23,
+    "auxiliary_input_tokens": null,
+    "auxiliary_cached_tokens": null,
+    "auxiliary_output_tokens": null
+  },
+  {
+    "route": "chat",
+    "arm": "experiment",
+    "case_id": "specified-scope-routing",
+    "iteration": 3,
+    "temperature": "warm",
+    "status": 200,
+    "latency_ms": 1656.46,
+    "expected_recall": false,
+    "expected_memory_ids": [],
+    "prepare_queries": [
+      "scope routing repository routing test file location"
+    ],
+    "injected_memory_ids": [
+      "scope-routing"
+    ],
+    "hit": null,
+    "main_input_tokens": 1612,
+    "main_cached_tokens": 1408,
+    "main_output_tokens": 9,
+    "auxiliary_input_tokens": 1604,
+    "auxiliary_cached_tokens": 1408,
+    "auxiliary_output_tokens": 16
+  },
+  {
+    "route": "chat",
+    "arm": "baseline",
+    "case_id": "task-switch-scope-routing",
+    "iteration": 1,
+    "temperature": "cold",
+    "status": 200,
+    "latency_ms": 930.66,
+    "expected_recall": true,
+    "expected_memory_ids": [
+      "scope-routing"
+    ],
+    "prepare_queries": [
+      "Switch to scope routing. Which compatibility rule did we agree to follow?"
+    ],
+    "injected_memory_ids": [
+      "scope-routing"
+    ],
+    "hit": true,
+    "main_input_tokens": 1603,
+    "main_cached_tokens": 0,
+    "main_output_tokens": 56,
+    "auxiliary_input_tokens": null,
+    "auxiliary_cached_tokens": null,
+    "auxiliary_output_tokens": null
+  },
+  {
+    "route": "chat",
+    "arm": "experiment",
+    "case_id": "task-switch-scope-routing",
+    "iteration": 1,
+    "temperature": "cold",
+    "status": 200,
+    "latency_ms": 1503.52,
+    "expected_recall": true,
+    "expected_memory_ids": [
+      "scope-routing"
+    ],
+    "prepare_queries": [
+      "scope routing compatibility rule agreed to follow"
+    ],
+    "injected_memory_ids": [
+      "scope-routing"
+    ],
+    "hit": true,
+    "main_input_tokens": 1603,
+    "main_cached_tokens": 1280,
+    "main_output_tokens": 11,
+    "auxiliary_input_tokens": 1595,
+    "auxiliary_cached_tokens": 0,
+    "auxiliary_output_tokens": 16
+  },
+  {
+    "route": "chat",
+    "arm": "baseline",
+    "case_id": "task-switch-scope-routing",
+    "iteration": 2,
+    "temperature": "warm",
+    "status": 200,
+    "latency_ms": 671.44,
+    "expected_recall": true,
+    "expected_memory_ids": [
+      "scope-routing"
+    ],
+    "prepare_queries": [
+      "Switch to scope routing. Which compatibility rule did we agree to follow?"
+    ],
+    "injected_memory_ids": [
+      "scope-routing"
+    ],
+    "hit": true,
+    "main_input_tokens": 1603,
+    "main_cached_tokens": 1408,
+    "main_output_tokens": 18,
+    "auxiliary_input_tokens": null,
+    "auxiliary_cached_tokens": null,
+    "auxiliary_output_tokens": null
+  },
+  {
+    "route": "chat",
+    "arm": "experiment",
+    "case_id": "task-switch-scope-routing",
+    "iteration": 2,
+    "temperature": "warm",
+    "status": 200,
+    "latency_ms": 1242.58,
+    "expected_recall": true,
+    "expected_memory_ids": [
+      "scope-routing"
+    ],
+    "prepare_queries": [
+      "scope routing compatibility rule agreement"
+    ],
+    "injected_memory_ids": [
+      "scope-routing"
+    ],
+    "hit": true,
+    "main_input_tokens": 1603,
+    "main_cached_tokens": 1408,
+    "main_output_tokens": 11,
+    "auxiliary_input_tokens": 1595,
+    "auxiliary_cached_tokens": 1408,
+    "auxiliary_output_tokens": 14
+  },
+  {
+    "route": "chat",
+    "arm": "baseline",
+    "case_id": "task-switch-scope-routing",
+    "iteration": 3,
+    "temperature": "warm",
+    "status": 200,
+    "latency_ms": 480.33,
+    "expected_recall": true,
+    "expected_memory_ids": [
+      "scope-routing"
+    ],
+    "prepare_queries": [
+      "Switch to scope routing. Which compatibility rule did we agree to follow?"
+    ],
+    "injected_memory_ids": [
+      "scope-routing"
+    ],
+    "hit": true,
+    "main_input_tokens": 1603,
+    "main_cached_tokens": 1408,
+    "main_output_tokens": 9,
+    "auxiliary_input_tokens": null,
+    "auxiliary_cached_tokens": null,
+    "auxiliary_output_tokens": null
+  },
+  {
+    "route": "chat",
+    "arm": "experiment",
+    "case_id": "task-switch-scope-routing",
+    "iteration": 3,
+    "temperature": "warm",
+    "status": 200,
+    "latency_ms": 1355.8,
+    "expected_recall": true,
+    "expected_memory_ids": [
+      "scope-routing"
+    ],
+    "prepare_queries": [
+      "Switch to scope routing. Which compatibility rule did we agree to follow?"
+    ],
+    "injected_memory_ids": [
+      "scope-routing"
+    ],
+    "hit": true,
+    "main_input_tokens": 1603,
+    "main_cached_tokens": 1408,
+    "main_output_tokens": 12,
+    "auxiliary_input_tokens": 1595,
+    "auxiliary_cached_tokens": 1408,
+    "auxiliary_output_tokens": 19
+  },
+  {
+    "route": "chat",
+    "arm": "baseline",
+    "case_id": "tool-continuation-scope-routing",
+    "iteration": 1,
+    "temperature": "cold",
+    "status": 200,
+    "latency_ms": 556.69,
+    "expected_recall": false,
+    "expected_memory_ids": [],
+    "prepare_queries": [],
+    "injected_memory_ids": [],
+    "hit": null,
+    "main_input_tokens": 1686,
+    "main_cached_tokens": 0,
+    "main_output_tokens": 6,
+    "auxiliary_input_tokens": null,
+    "auxiliary_cached_tokens": null,
+    "auxiliary_output_tokens": null
+  },
+  {
+    "route": "chat",
+    "arm": "experiment",
+    "case_id": "tool-continuation-scope-routing",
+    "iteration": 1,
+    "temperature": "cold",
+    "status": 200,
+    "latency_ms": 618.39,
+    "expected_recall": false,
+    "expected_memory_ids": [],
+    "prepare_queries": [],
+    "injected_memory_ids": [],
+    "hit": null,
+    "main_input_tokens": 1686,
+    "main_cached_tokens": 0,
+    "main_output_tokens": 6,
+    "auxiliary_input_tokens": null,
+    "auxiliary_cached_tokens": null,
+    "auxiliary_output_tokens": null
+  },
+  {
+    "route": "chat",
+    "arm": "baseline",
+    "case_id": "tool-continuation-scope-routing",
+    "iteration": 2,
+    "temperature": "warm",
+    "status": 200,
+    "latency_ms": 705.17,
+    "expected_recall": false,
+    "expected_memory_ids": [],
+    "prepare_queries": [],
+    "injected_memory_ids": [],
+    "hit": null,
+    "main_input_tokens": 1686,
+    "main_cached_tokens": 1536,
+    "main_output_tokens": 13,
+    "auxiliary_input_tokens": null,
+    "auxiliary_cached_tokens": null,
+    "auxiliary_output_tokens": null
+  },
+  {
+    "route": "chat",
+    "arm": "experiment",
+    "case_id": "tool-continuation-scope-routing",
+    "iteration": 2,
+    "temperature": "warm",
+    "status": 200,
+    "latency_ms": 760.49,
+    "expected_recall": false,
+    "expected_memory_ids": [],
+    "prepare_queries": [],
+    "injected_memory_ids": [],
+    "hit": null,
+    "main_input_tokens": 1686,
+    "main_cached_tokens": 1536,
+    "main_output_tokens": 15,
+    "auxiliary_input_tokens": null,
+    "auxiliary_cached_tokens": null,
+    "auxiliary_output_tokens": null
+  },
+  {
+    "route": "chat",
+    "arm": "baseline",
+    "case_id": "tool-continuation-scope-routing",
+    "iteration": 3,
+    "temperature": "warm",
+    "status": 200,
+    "latency_ms": 450.53,
+    "expected_recall": false,
+    "expected_memory_ids": [],
+    "prepare_queries": [],
+    "injected_memory_ids": [],
+    "hit": null,
+    "main_input_tokens": 1686,
+    "main_cached_tokens": 1536,
+    "main_output_tokens": 6,
+    "auxiliary_input_tokens": null,
+    "auxiliary_cached_tokens": null,
+    "auxiliary_output_tokens": null
+  },
+  {
+    "route": "chat",
+    "arm": "experiment",
+    "case_id": "tool-continuation-scope-routing",
+    "iteration": 3,
+    "temperature": "warm",
+    "status": 200,
+    "latency_ms": 663.71,
+    "expected_recall": false,
+    "expected_memory_ids": [],
+    "prepare_queries": [],
+    "injected_memory_ids": [],
+    "hit": null,
+    "main_input_tokens": 1686,
+    "main_cached_tokens": 1536,
+    "main_output_tokens": 22,
+    "auxiliary_input_tokens": null,
+    "auxiliary_cached_tokens": null,
+    "auxiliary_output_tokens": null
+  },
+  {
+    "route": "chat",
+    "arm": "baseline",
+    "case_id": "ambiguous-release-build",
+    "iteration": 1,
+    "temperature": "cold",
+    "status": 200,
+    "latency_ms": 1358.59,
+    "expected_recall": true,
+    "expected_memory_ids": [
+      "release-build"
+    ],
+    "prepare_queries": [
+      "Proceed with the agreed version."
+    ],
+    "injected_memory_ids": [],
+    "hit": false,
+    "main_input_tokens": 1433,
+    "main_cached_tokens": 0,
+    "main_output_tokens": 46,
+    "auxiliary_input_tokens": null,
+    "auxiliary_cached_tokens": null,
+    "auxiliary_output_tokens": null
+  },
+  {
+    "route": "chat",
+    "arm": "experiment",
+    "case_id": "ambiguous-release-build",
+    "iteration": 1,
+    "temperature": "cold",
+    "status": 200,
+    "latency_ms": 2101.36,
+    "expected_recall": true,
+    "expected_memory_ids": [
+      "release-build"
+    ],
+    "prepare_queries": [
+      "agreed compatibility rule for release build and agreed version"
+    ],
+    "injected_memory_ids": [
+      "release-build"
+    ],
+    "hit": true,
+    "main_input_tokens": 1602,
+    "main_cached_tokens": 1280,
+    "main_output_tokens": 14,
+    "auxiliary_input_tokens": 1593,
+    "auxiliary_cached_tokens": 0,
+    "auxiliary_output_tokens": 19
+  },
+  {
+    "route": "chat",
+    "arm": "baseline",
+    "case_id": "ambiguous-release-build",
+    "iteration": 2,
+    "temperature": "warm",
+    "status": 200,
+    "latency_ms": 894.39,
+    "expected_recall": true,
+    "expected_memory_ids": [
+      "release-build"
+    ],
+    "prepare_queries": [
+      "Proceed with the agreed version."
+    ],
+    "injected_memory_ids": [],
+    "hit": false,
+    "main_input_tokens": 1433,
+    "main_cached_tokens": 1280,
+    "main_output_tokens": 33,
+    "auxiliary_input_tokens": null,
+    "auxiliary_cached_tokens": null,
+    "auxiliary_output_tokens": null
+  },
+  {
+    "route": "chat",
+    "arm": "experiment",
+    "case_id": "ambiguous-release-build",
+    "iteration": 2,
+    "temperature": "warm",
+    "status": 200,
+    "latency_ms": 1506.56,
+    "expected_recall": true,
+    "expected_memory_ids": [
+      "release-build"
+    ],
+    "prepare_queries": [
+      "Proceed with the agreed version."
+    ],
+    "injected_memory_ids": [],
+    "hit": false,
+    "main_input_tokens": 1433,
+    "main_cached_tokens": 1280,
+    "main_output_tokens": 47,
+    "auxiliary_input_tokens": 1593,
+    "auxiliary_cached_tokens": 1408,
+    "auxiliary_output_tokens": 29
+  },
+  {
+    "route": "chat",
+    "arm": "baseline",
+    "case_id": "ambiguous-release-build",
+    "iteration": 3,
+    "temperature": "warm",
+    "status": 200,
+    "latency_ms": 726.01,
+    "expected_recall": true,
+    "expected_memory_ids": [
+      "release-build"
+    ],
+    "prepare_queries": [
+      "Proceed with the agreed version."
+    ],
+    "injected_memory_ids": [],
+    "hit": false,
+    "main_input_tokens": 1433,
+    "main_cached_tokens": 1280,
+    "main_output_tokens": 33,
+    "auxiliary_input_tokens": null,
+    "auxiliary_cached_tokens": null,
+    "auxiliary_output_tokens": null
+  },
+  {
+    "route": "chat",
+    "arm": "experiment",
+    "case_id": "ambiguous-release-build",
+    "iteration": 3,
+    "temperature": "warm",
+    "status": 200,
+    "latency_ms": 1214.24,
+    "expected_recall": true,
+    "expected_memory_ids": [
+      "release-build"
+    ],
+    "prepare_queries": [
+      "Proceed with the agreed version."
+    ],
+    "injected_memory_ids": [],
+    "hit": false,
+    "main_input_tokens": 1433,
+    "main_cached_tokens": 1280,
+    "main_output_tokens": 30,
+    "auxiliary_input_tokens": 1593,
+    "auxiliary_cached_tokens": 1408,
+    "auxiliary_output_tokens": 32
+  },
+  {
+    "route": "chat",
+    "arm": "baseline",
+    "case_id": "specified-release-build",
+    "iteration": 1,
+    "temperature": "cold",
+    "status": 200,
+    "latency_ms": 502.56,
+    "expected_recall": false,
+    "expected_memory_ids": [],
+    "prepare_queries": [
+      "Only inspect the local build log. Everything else is done."
+    ],
+    "injected_memory_ids": [],
+    "hit": null,
+    "main_input_tokens": 1442,
+    "main_cached_tokens": 0,
+    "main_output_tokens": 17,
+    "auxiliary_input_tokens": null,
+    "auxiliary_cached_tokens": null,
+    "auxiliary_output_tokens": null
+  },
+  {
+    "route": "chat",
+    "arm": "experiment",
+    "case_id": "specified-release-build",
+    "iteration": 1,
+    "temperature": "cold",
+    "status": 200,
+    "latency_ms": 1020.27,
+    "expected_recall": false,
+    "expected_memory_ids": [],
+    "prepare_queries": [],
+    "injected_memory_ids": [],
+    "hit": null,
+    "main_input_tokens": 1442,
+    "main_cached_tokens": 1280,
+    "main_output_tokens": 32,
+    "auxiliary_input_tokens": 1602,
+    "auxiliary_cached_tokens": 0,
+    "auxiliary_output_tokens": 10
+  },
+  {
+    "route": "chat",
+    "arm": "baseline",
+    "case_id": "specified-release-build",
+    "iteration": 2,
+    "temperature": "warm",
+    "status": 200,
+    "latency_ms": 734.65,
+    "expected_recall": false,
+    "expected_memory_ids": [],
+    "prepare_queries": [
+      "Only inspect the local build log. Everything else is done."
+    ],
+    "injected_memory_ids": [],
+    "hit": null,
+    "main_input_tokens": 1442,
+    "main_cached_tokens": 1280,
+    "main_output_tokens": 31,
+    "auxiliary_input_tokens": null,
+    "auxiliary_cached_tokens": null,
+    "auxiliary_output_tokens": null
+  },
+  {
+    "route": "chat",
+    "arm": "experiment",
+    "case_id": "specified-release-build",
+    "iteration": 2,
+    "temperature": "warm",
+    "status": 200,
+    "latency_ms": 2379.14,
+    "expected_recall": false,
+    "expected_memory_ids": [],
+    "prepare_queries": [
+      "local build log location and latest release build log inspection results"
+    ],
+    "injected_memory_ids": [
+      "release-build"
+    ],
+    "hit": null,
+    "main_input_tokens": 1611,
+    "main_cached_tokens": 1408,
+    "main_output_tokens": 9,
+    "auxiliary_input_tokens": 1602,
+    "auxiliary_cached_tokens": 1408,
+    "auxiliary_output_tokens": 20
+  },
+  {
+    "route": "chat",
+    "arm": "baseline",
+    "case_id": "specified-release-build",
+    "iteration": 3,
+    "temperature": "warm",
+    "status": 200,
+    "latency_ms": 544.17,
+    "expected_recall": false,
+    "expected_memory_ids": [],
+    "prepare_queries": [
+      "Only inspect the local build log. Everything else is done."
+    ],
+    "injected_memory_ids": [],
+    "hit": null,
+    "main_input_tokens": 1442,
+    "main_cached_tokens": 1280,
+    "main_output_tokens": 18,
+    "auxiliary_input_tokens": null,
+    "auxiliary_cached_tokens": null,
+    "auxiliary_output_tokens": null
+  },
+  {
+    "route": "chat",
+    "arm": "experiment",
+    "case_id": "specified-release-build",
+    "iteration": 3,
+    "temperature": "warm",
+    "status": 200,
+    "latency_ms": 1444.57,
+    "expected_recall": false,
+    "expected_memory_ids": [],
+    "prepare_queries": [],
+    "injected_memory_ids": [],
+    "hit": null,
+    "main_input_tokens": 1442,
+    "main_cached_tokens": 1280,
+    "main_output_tokens": 32,
+    "auxiliary_input_tokens": 1602,
+    "auxiliary_cached_tokens": 1408,
+    "auxiliary_output_tokens": 10
+  },
+  {
+    "route": "chat",
+    "arm": "baseline",
+    "case_id": "task-switch-release-build",
+    "iteration": 1,
+    "temperature": "cold",
+    "status": 200,
+    "latency_ms": 891.63,
+    "expected_recall": true,
+    "expected_memory_ids": [
+      "release-build"
+    ],
+    "prepare_queries": [
+      "Switch to release build. Which compatibility rule did we agree to follow?"
+    ],
+    "injected_memory_ids": [
+      "release-build"
+    ],
+    "hit": true,
+    "main_input_tokens": 1602,
+    "main_cached_tokens": 0,
+    "main_output_tokens": 31,
+    "auxiliary_input_tokens": null,
+    "auxiliary_cached_tokens": null,
+    "auxiliary_output_tokens": null
+  },
+  {
+    "route": "chat",
+    "arm": "experiment",
+    "case_id": "task-switch-release-build",
+    "iteration": 1,
+    "temperature": "cold",
+    "status": 200,
+    "latency_ms": 1124.9,
+    "expected_recall": true,
+    "expected_memory_ids": [
+      "release-build"
+    ],
+    "prepare_queries": [
+      "agreed compatibility rule for release build"
+    ],
+    "injected_memory_ids": [
+      "release-build"
+    ],
+    "hit": true,
+    "main_input_tokens": 1602,
+    "main_cached_tokens": 1280,
+    "main_output_tokens": 37,
+    "auxiliary_input_tokens": 1593,
+    "auxiliary_cached_tokens": 0,
+    "auxiliary_output_tokens": 16
+  },
+  {
+    "route": "chat",
+    "arm": "baseline",
+    "case_id": "task-switch-release-build",
+    "iteration": 2,
+    "temperature": "warm",
+    "status": 200,
+    "latency_ms": 664.18,
+    "expected_recall": true,
+    "expected_memory_ids": [
+      "release-build"
+    ],
+    "prepare_queries": [
+      "Switch to release build. Which compatibility rule did we agree to follow?"
+    ],
+    "injected_memory_ids": [
+      "release-build"
+    ],
+    "hit": true,
+    "main_input_tokens": 1602,
+    "main_cached_tokens": 1408,
+    "main_output_tokens": 43,
+    "auxiliary_input_tokens": null,
+    "auxiliary_cached_tokens": null,
+    "auxiliary_output_tokens": null
+  },
+  {
+    "route": "chat",
+    "arm": "experiment",
+    "case_id": "task-switch-release-build",
+    "iteration": 2,
+    "temperature": "warm",
+    "status": 200,
+    "latency_ms": 2011.53,
+    "expected_recall": true,
+    "expected_memory_ids": [
+      "release-build"
+    ],
+    "prepare_queries": [
+      "compatibility rule agreed for release build and release packaging"
+    ],
+    "injected_memory_ids": [
+      "release-build"
+    ],
+    "hit": true,
+    "main_input_tokens": 1602,
+    "main_cached_tokens": 1408,
+    "main_output_tokens": 42,
+    "auxiliary_input_tokens": 1593,
+    "auxiliary_cached_tokens": 1408,
+    "auxiliary_output_tokens": 19
+  },
+  {
+    "route": "chat",
+    "arm": "baseline",
+    "case_id": "task-switch-release-build",
+    "iteration": 3,
+    "temperature": "warm",
+    "status": 200,
+    "latency_ms": 568.78,
+    "expected_recall": true,
+    "expected_memory_ids": [
+      "release-build"
+    ],
+    "prepare_queries": [
+      "Switch to release build. Which compatibility rule did we agree to follow?"
+    ],
+    "injected_memory_ids": [
+      "release-build"
+    ],
+    "hit": true,
+    "main_input_tokens": 1602,
+    "main_cached_tokens": 1408,
+    "main_output_tokens": 13,
+    "auxiliary_input_tokens": null,
+    "auxiliary_cached_tokens": null,
+    "auxiliary_output_tokens": null
+  },
+  {
+    "route": "chat",
+    "arm": "experiment",
+    "case_id": "task-switch-release-build",
+    "iteration": 3,
+    "temperature": "warm",
+    "status": 200,
+    "latency_ms": 1201.06,
+    "expected_recall": true,
+    "expected_memory_ids": [
+      "release-build"
+    ],
+    "prepare_queries": [
+      "release build compatibility rule agreed to follow"
+    ],
+    "injected_memory_ids": [
+      "release-build"
+    ],
+    "hit": true,
+    "main_input_tokens": 1602,
+    "main_cached_tokens": 1408,
+    "main_output_tokens": 43,
+    "auxiliary_input_tokens": 1593,
+    "auxiliary_cached_tokens": 1408,
+    "auxiliary_output_tokens": 16
+  },
+  {
+    "route": "chat",
+    "arm": "baseline",
+    "case_id": "tool-continuation-release-build",
+    "iteration": 1,
+    "temperature": "cold",
+    "status": 200,
+    "latency_ms": 747.03,
+    "expected_recall": false,
+    "expected_memory_ids": [],
+    "prepare_queries": [],
+    "injected_memory_ids": [],
+    "hit": null,
+    "main_input_tokens": 1684,
+    "main_cached_tokens": 0,
+    "main_output_tokens": 12,
+    "auxiliary_input_tokens": null,
+    "auxiliary_cached_tokens": null,
+    "auxiliary_output_tokens": null
+  },
+  {
+    "route": "chat",
+    "arm": "experiment",
+    "case_id": "tool-continuation-release-build",
+    "iteration": 1,
+    "temperature": "cold",
+    "status": 200,
+    "latency_ms": 563.02,
+    "expected_recall": false,
+    "expected_memory_ids": [],
+    "prepare_queries": [],
+    "injected_memory_ids": [],
+    "hit": null,
+    "main_input_tokens": 1684,
+    "main_cached_tokens": 0,
+    "main_output_tokens": 9,
+    "auxiliary_input_tokens": null,
+    "auxiliary_cached_tokens": null,
+    "auxiliary_output_tokens": null
+  },
+  {
+    "route": "chat",
+    "arm": "baseline",
+    "case_id": "tool-continuation-release-build",
+    "iteration": 2,
+    "temperature": "warm",
+    "status": 200,
+    "latency_ms": 854.95,
+    "expected_recall": false,
+    "expected_memory_ids": [],
+    "prepare_queries": [],
+    "injected_memory_ids": [],
+    "hit": null,
+    "main_input_tokens": 1684,
+    "main_cached_tokens": 1536,
+    "main_output_tokens": 11,
+    "auxiliary_input_tokens": null,
+    "auxiliary_cached_tokens": null,
+    "auxiliary_output_tokens": null
+  },
+  {
+    "route": "chat",
+    "arm": "experiment",
+    "case_id": "tool-continuation-release-build",
+    "iteration": 2,
+    "temperature": "warm",
+    "status": 200,
+    "latency_ms": 469.85,
+    "expected_recall": false,
+    "expected_memory_ids": [],
+    "prepare_queries": [],
+    "injected_memory_ids": [],
+    "hit": null,
+    "main_input_tokens": 1684,
+    "main_cached_tokens": 1536,
+    "main_output_tokens": 7,
+    "auxiliary_input_tokens": null,
+    "auxiliary_cached_tokens": null,
+    "auxiliary_output_tokens": null
+  },
+  {
+    "route": "chat",
+    "arm": "baseline",
+    "case_id": "tool-continuation-release-build",
+    "iteration": 3,
+    "temperature": "warm",
+    "status": 200,
+    "latency_ms": 635.53,
+    "expected_recall": false,
+    "expected_memory_ids": [],
+    "prepare_queries": [],
+    "injected_memory_ids": [],
+    "hit": null,
+    "main_input_tokens": 1684,
+    "main_cached_tokens": 1536,
+    "main_output_tokens": 9,
+    "auxiliary_input_tokens": null,
+    "auxiliary_cached_tokens": null,
+    "auxiliary_output_tokens": null
+  },
+  {
+    "route": "chat",
+    "arm": "experiment",
+    "case_id": "tool-continuation-release-build",
+    "iteration": 3,
+    "temperature": "warm",
+    "status": 200,
+    "latency_ms": 539.45,
+    "expected_recall": false,
+    "expected_memory_ids": [],
+    "prepare_queries": [],
+    "injected_memory_ids": [],
+    "hit": null,
+    "main_input_tokens": 1684,
+    "main_cached_tokens": 1536,
+    "main_output_tokens": 11,
+    "auxiliary_input_tokens": null,
+    "auxiliary_cached_tokens": null,
+    "auxiliary_output_tokens": null
+  },
+  {
+    "route": "responses",
+    "arm": "baseline",
+    "case_id": "ambiguous-login-timeout",
+    "iteration": 1,
+    "temperature": "cold",
+    "status": 200,
+    "latency_ms": 694.51,
+    "expected_recall": true,
+    "expected_memory_ids": [
+      "login-timeout"
+    ],
+    "prepare_queries": [
+      "Continue."
+    ],
+    "injected_memory_ids": [],
+    "hit": false,
+    "main_input_tokens": 1432,
+    "main_cached_tokens": 0,
+    "main_output_tokens": 54,
+    "auxiliary_input_tokens": null,
+    "auxiliary_cached_tokens": null,
+    "auxiliary_output_tokens": null
+  },
+  {
+    "route": "responses",
+    "arm": "experiment",
+    "case_id": "ambiguous-login-timeout",
+    "iteration": 1,
+    "temperature": "cold",
+    "status": 200,
+    "latency_ms": 1300.96,
+    "expected_recall": true,
+    "expected_memory_ids": [
+      "login-timeout"
+    ],
+    "prepare_queries": [
+      "previously agreed compatibility rule for login timeout"
+    ],
+    "injected_memory_ids": [
+      "login-timeout"
+    ],
+    "hit": true,
+    "main_input_tokens": 1595,
+    "main_cached_tokens": 1280,
+    "main_output_tokens": 57,
+    "auxiliary_input_tokens": 1592,
+    "auxiliary_cached_tokens": 0,
+    "auxiliary_output_tokens": 17
+  },
+  {
+    "route": "responses",
+    "arm": "baseline",
+    "case_id": "specified-login-timeout",
+    "iteration": 1,
+    "temperature": "cold",
+    "status": 200,
+    "latency_ms": 1679.99,
+    "expected_recall": false,
+    "expected_memory_ids": [],
+    "prepare_queries": [
+      "Continue."
+    ],
+    "injected_memory_ids": [],
+    "hit": null,
+    "main_input_tokens": 1437,
+    "main_cached_tokens": 0,
+    "main_output_tokens": 21,
+    "auxiliary_input_tokens": null,
+    "auxiliary_cached_tokens": null,
+    "auxiliary_output_tokens": null
+  },
+  {
+    "route": "responses",
+    "arm": "experiment",
+    "case_id": "specified-login-timeout",
+    "iteration": 1,
+    "temperature": "cold",
+    "status": 200,
+    "latency_ms": 1278.49,
+    "expected_recall": false,
+    "expected_memory_ids": [],
+    "prepare_queries": [],
+    "injected_memory_ids": [],
+    "hit": null,
+    "main_input_tokens": 1437,
+    "main_cached_tokens": 1280,
+    "main_output_tokens": 60,
+    "auxiliary_input_tokens": 1597,
+    "auxiliary_cached_tokens": 0,
+    "auxiliary_output_tokens": 10
+  },
+  {
+    "route": "responses",
+    "arm": "baseline",
+    "case_id": "task-switch-login-timeout",
+    "iteration": 1,
+    "temperature": "cold",
+    "status": 200,
+    "latency_ms": 927.17,
+    "expected_recall": true,
+    "expected_memory_ids": [
+      "login-timeout"
+    ],
+    "prepare_queries": [
+      "Switch to login timeout. Which compatibility rule did we agree to follow?"
+    ],
+    "injected_memory_ids": [
+      "login-timeout"
+    ],
+    "hit": true,
+    "main_input_tokens": 1602,
+    "main_cached_tokens": 0,
+    "main_output_tokens": 39,
+    "auxiliary_input_tokens": null,
+    "auxiliary_cached_tokens": null,
+    "auxiliary_output_tokens": null
+  },
+  {
+    "route": "responses",
+    "arm": "experiment",
+    "case_id": "task-switch-login-timeout",
+    "iteration": 1,
+    "temperature": "cold",
+    "status": 200,
+    "latency_ms": 1154.48,
+    "expected_recall": true,
+    "expected_memory_ids": [
+      "login-timeout"
+    ],
+    "prepare_queries": [
+      "login timeout compatibility rule agreed to follow"
+    ],
+    "injected_memory_ids": [
+      "login-timeout"
+    ],
+    "hit": true,
+    "main_input_tokens": 1602,
+    "main_cached_tokens": 1280,
+    "main_output_tokens": 12,
+    "auxiliary_input_tokens": 1599,
+    "auxiliary_cached_tokens": 0,
+    "auxiliary_output_tokens": 16
+  },
+  {
+    "route": "responses",
+    "arm": "baseline",
+    "case_id": "tool-continuation-login-timeout",
+    "iteration": 1,
+    "temperature": "cold",
+    "status": 200,
+    "latency_ms": 1107.42,
+    "expected_recall": false,
+    "expected_memory_ids": [],
+    "prepare_queries": [],
+    "injected_memory_ids": [],
+    "hit": null,
+    "main_input_tokens": 1688,
+    "main_cached_tokens": 0,
+    "main_output_tokens": 85,
+    "auxiliary_input_tokens": null,
+    "auxiliary_cached_tokens": null,
+    "auxiliary_output_tokens": null
+  },
+  {
+    "route": "responses",
+    "arm": "experiment",
+    "case_id": "tool-continuation-login-timeout",
+    "iteration": 1,
+    "temperature": "cold",
+    "status": 200,
+    "latency_ms": 578.4,
+    "expected_recall": false,
+    "expected_memory_ids": [],
+    "prepare_queries": [],
+    "injected_memory_ids": [],
+    "hit": null,
+    "main_input_tokens": 1688,
+    "main_cached_tokens": 0,
+    "main_output_tokens": 20,
+    "auxiliary_input_tokens": null,
+    "auxiliary_cached_tokens": null,
+    "auxiliary_output_tokens": null
+  }
+]

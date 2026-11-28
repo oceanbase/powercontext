@@ -1,0 +1,1261 @@
+{
+  "model": "deepseek-flash",
+  "route": "chat/completions",
+  "native_json_comparison": {
+    "prompt_revision": "ea9fa029f",
+    "candidate_revision": "97ab095e9",
+    "method": "Same two-step prompt. Chat response_format.type=json_object in the provider_json arm.",
+    "observations": [
+      {
+        "mode": "prompt_only",
+        "case_id": "ambiguous-login-timeout",
+        "repetition": 1,
+        "valid_decision": true,
+        "expected_recall": true,
+        "expected_memory_ids": [
+          "login-timeout"
+        ],
+        "prepare_queries": [
+          "previously agreed compatibility rule for login timeout"
+        ],
+        "injected_memory_ids": [
+          "login-timeout"
+        ],
+        "hit": true
+      },
+      {
+        "mode": "provider_json",
+        "case_id": "ambiguous-login-timeout",
+        "repetition": 1,
+        "valid_decision": true,
+        "expected_recall": true,
+        "expected_memory_ids": [
+          "login-timeout"
+        ],
+        "prepare_queries": [
+          "What compatibility rule was previously agreed for login timeout?"
+        ],
+        "injected_memory_ids": [
+          "login-timeout"
+        ],
+        "hit": true
+      },
+      {
+        "mode": "prompt_only",
+        "case_id": "ambiguous-login-timeout",
+        "repetition": 2,
+        "valid_decision": true,
+        "expected_recall": true,
+        "expected_memory_ids": [
+          "login-timeout"
+        ],
+        "prepare_queries": [
+          "agreed compatibility rule for login timeout"
+        ],
+        "injected_memory_ids": [
+          "login-timeout"
+        ],
+        "hit": true
+      },
+      {
+        "mode": "provider_json",
+        "case_id": "ambiguous-login-timeout",
+        "repetition": 2,
+        "valid_decision": true,
+        "expected_recall": true,
+        "expected_memory_ids": [
+          "login-timeout"
+        ],
+        "prepare_queries": [
+          "What compatibility rule was previously agreed for login timeout?"
+        ],
+        "injected_memory_ids": [
+          "login-timeout"
+        ],
+        "hit": true
+      },
+      {
+        "mode": "prompt_only",
+        "case_id": "specified-login-timeout",
+        "repetition": 1,
+        "valid_decision": true,
+        "expected_recall": false,
+        "expected_memory_ids": [],
+        "prepare_queries": [],
+        "injected_memory_ids": [],
+        "hit": null
+      },
+      {
+        "mode": "provider_json",
+        "case_id": "specified-login-timeout",
+        "repetition": 1,
+        "valid_decision": true,
+        "expected_recall": false,
+        "expected_memory_ids": [],
+        "prepare_queries": [],
+        "injected_memory_ids": [],
+        "hit": null
+      },
+      {
+        "mode": "prompt_only",
+        "case_id": "specified-login-timeout",
+        "repetition": 2,
+        "valid_decision": true,
+        "expected_recall": false,
+        "expected_memory_ids": [],
+        "prepare_queries": [],
+        "injected_memory_ids": [],
+        "hit": null
+      },
+      {
+        "mode": "provider_json",
+        "case_id": "specified-login-timeout",
+        "repetition": 2,
+        "valid_decision": true,
+        "expected_recall": false,
+        "expected_memory_ids": [],
+        "prepare_queries": [],
+        "injected_memory_ids": [],
+        "hit": null
+      },
+      {
+        "mode": "prompt_only",
+        "case_id": "task-switch-login-timeout",
+        "repetition": 1,
+        "valid_decision": true,
+        "expected_recall": true,
+        "expected_memory_ids": [
+          "login-timeout"
+        ],
+        "prepare_queries": [
+          "Which compatibility rule did we agree to follow for login timeout?"
+        ],
+        "injected_memory_ids": [
+          "login-timeout"
+        ],
+        "hit": true
+      },
+      {
+        "mode": "provider_json",
+        "case_id": "task-switch-login-timeout",
+        "repetition": 1,
+        "valid_decision": true,
+        "expected_recall": true,
+        "expected_memory_ids": [
+          "login-timeout"
+        ],
+        "prepare_queries": [
+          "Which compatibility rule did we agree to follow for login timeout?"
+        ],
+        "injected_memory_ids": [
+          "login-timeout"
+        ],
+        "hit": true
+      },
+      {
+        "mode": "prompt_only",
+        "case_id": "task-switch-login-timeout",
+        "repetition": 2,
+        "valid_decision": true,
+        "expected_recall": true,
+        "expected_memory_ids": [
+          "login-timeout"
+        ],
+        "prepare_queries": [
+          "login timeout compatibility rule agreed to follow"
+        ],
+        "injected_memory_ids": [
+          "login-timeout"
+        ],
+        "hit": true
+      },
+      {
+        "mode": "provider_json",
+        "case_id": "task-switch-login-timeout",
+        "repetition": 2,
+        "valid_decision": true,
+        "expected_recall": true,
+        "expected_memory_ids": [
+          "login-timeout"
+        ],
+        "prepare_queries": [
+          "Which compatibility rule did we agree to follow for the login timeout task?"
+        ],
+        "injected_memory_ids": [
+          "login-timeout"
+        ],
+        "hit": true
+      },
+      {
+        "mode": "prompt_only",
+        "case_id": "ambiguous-backup-restore",
+        "repetition": 1,
+        "valid_decision": false,
+        "expected_recall": true,
+        "expected_memory_ids": [
+          "backup-restore"
+        ],
+        "prepare_queries": [
+          "Use the earlier one."
+        ],
+        "injected_memory_ids": [
+          "worker-retry",
+          "release-build"
+        ],
+        "hit": false
+      },
+      {
+        "mode": "provider_json",
+        "case_id": "ambiguous-backup-restore",
+        "repetition": 1,
+        "valid_decision": true,
+        "expected_recall": true,
+        "expected_memory_ids": [
+          "backup-restore"
+        ],
+        "prepare_queries": [
+          "What was the previously agreed compatibility rule for backup restore?"
+        ],
+        "injected_memory_ids": [
+          "backup-restore"
+        ],
+        "hit": true
+      },
+      {
+        "mode": "prompt_only",
+        "case_id": "ambiguous-backup-restore",
+        "repetition": 2,
+        "valid_decision": false,
+        "expected_recall": true,
+        "expected_memory_ids": [
+          "backup-restore"
+        ],
+        "prepare_queries": [
+          "Use the earlier one."
+        ],
+        "injected_memory_ids": [
+          "worker-retry",
+          "release-build"
+        ],
+        "hit": false
+      },
+      {
+        "mode": "provider_json",
+        "case_id": "ambiguous-backup-restore",
+        "repetition": 2,
+        "valid_decision": true,
+        "expected_recall": true,
+        "expected_memory_ids": [
+          "backup-restore"
+        ],
+        "prepare_queries": [
+          "What compatibility rule was previously agreed for backup restore?"
+        ],
+        "injected_memory_ids": [
+          "backup-restore"
+        ],
+        "hit": true
+      },
+      {
+        "mode": "prompt_only",
+        "case_id": "specified-backup-restore",
+        "repetition": 1,
+        "valid_decision": true,
+        "expected_recall": false,
+        "expected_memory_ids": [],
+        "prepare_queries": [
+          "restore command in the runbook for backup restore"
+        ],
+        "injected_memory_ids": [
+          "backup-restore"
+        ],
+        "hit": null
+      },
+      {
+        "mode": "provider_json",
+        "case_id": "specified-backup-restore",
+        "repetition": 1,
+        "valid_decision": true,
+        "expected_recall": false,
+        "expected_memory_ids": [],
+        "prepare_queries": [
+          "restore command in the backup restore runbook"
+        ],
+        "injected_memory_ids": [
+          "backup-restore"
+        ],
+        "hit": null
+      },
+      {
+        "mode": "prompt_only",
+        "case_id": "specified-backup-restore",
+        "repetition": 2,
+        "valid_decision": true,
+        "expected_recall": false,
+        "expected_memory_ids": [],
+        "prepare_queries": [
+          "restore command in the backup restore runbook"
+        ],
+        "injected_memory_ids": [
+          "backup-restore"
+        ],
+        "hit": null
+      },
+      {
+        "mode": "provider_json",
+        "case_id": "specified-backup-restore",
+        "repetition": 2,
+        "valid_decision": true,
+        "expected_recall": false,
+        "expected_memory_ids": [],
+        "prepare_queries": [],
+        "injected_memory_ids": [],
+        "hit": null
+      },
+      {
+        "mode": "prompt_only",
+        "case_id": "task-switch-backup-restore",
+        "repetition": 1,
+        "valid_decision": true,
+        "expected_recall": true,
+        "expected_memory_ids": [
+          "backup-restore"
+        ],
+        "prepare_queries": [
+          "Which backup restore compatibility rule did we agree to follow?"
+        ],
+        "injected_memory_ids": [
+          "backup-restore"
+        ],
+        "hit": true
+      },
+      {
+        "mode": "provider_json",
+        "case_id": "task-switch-backup-restore",
+        "repetition": 1,
+        "valid_decision": true,
+        "expected_recall": true,
+        "expected_memory_ids": [
+          "backup-restore"
+        ],
+        "prepare_queries": [
+          "Which compatibility rule did we agree to follow for backup restore?"
+        ],
+        "injected_memory_ids": [
+          "backup-restore"
+        ],
+        "hit": true
+      },
+      {
+        "mode": "prompt_only",
+        "case_id": "task-switch-backup-restore",
+        "repetition": 2,
+        "valid_decision": true,
+        "expected_recall": true,
+        "expected_memory_ids": [
+          "backup-restore"
+        ],
+        "prepare_queries": [
+          "Which compatibility rule did we agree to follow for backup restore?"
+        ],
+        "injected_memory_ids": [
+          "backup-restore"
+        ],
+        "hit": true
+      },
+      {
+        "mode": "provider_json",
+        "case_id": "task-switch-backup-restore",
+        "repetition": 2,
+        "valid_decision": true,
+        "expected_recall": true,
+        "expected_memory_ids": [
+          "backup-restore"
+        ],
+        "prepare_queries": [
+          "Which backup restore compatibility rule did we agree to follow?"
+        ],
+        "injected_memory_ids": [
+          "backup-restore"
+        ],
+        "hit": true
+      },
+      {
+        "mode": "prompt_only",
+        "case_id": "ambiguous-schema-rollout",
+        "repetition": 1,
+        "valid_decision": false,
+        "expected_recall": true,
+        "expected_memory_ids": [
+          "schema-rollout"
+        ],
+        "prepare_queries": [
+          "What was the agreed order?"
+        ],
+        "injected_memory_ids": [],
+        "hit": false
+      },
+      {
+        "mode": "provider_json",
+        "case_id": "ambiguous-schema-rollout",
+        "repetition": 1,
+        "valid_decision": true,
+        "expected_recall": true,
+        "expected_memory_ids": [
+          "schema-rollout"
+        ],
+        "prepare_queries": [
+          "What compatibility rule and schema rollout order were previously agreed for the schema rollout?"
+        ],
+        "injected_memory_ids": [
+          "schema-rollout"
+        ],
+        "hit": true
+      },
+      {
+        "mode": "prompt_only",
+        "case_id": "ambiguous-schema-rollout",
+        "repetition": 2,
+        "valid_decision": true,
+        "expected_recall": true,
+        "expected_memory_ids": [
+          "schema-rollout"
+        ],
+        "prepare_queries": [
+          "agreed compatibility rule and rollout order for schema rollout"
+        ],
+        "injected_memory_ids": [
+          "schema-rollout"
+        ],
+        "hit": true
+      },
+      {
+        "mode": "provider_json",
+        "case_id": "ambiguous-schema-rollout",
+        "repetition": 2,
+        "valid_decision": true,
+        "expected_recall": true,
+        "expected_memory_ids": [
+          "schema-rollout"
+        ],
+        "prepare_queries": [
+          "What was the agreed compatibility rule and rollout order for the schema rollout?"
+        ],
+        "injected_memory_ids": [
+          "schema-rollout"
+        ],
+        "hit": true
+      },
+      {
+        "mode": "prompt_only",
+        "case_id": "specified-schema-rollout",
+        "repetition": 1,
+        "valid_decision": true,
+        "expected_recall": false,
+        "expected_memory_ids": [],
+        "prepare_queries": [],
+        "injected_memory_ids": [],
+        "hit": null
+      },
+      {
+        "mode": "provider_json",
+        "case_id": "specified-schema-rollout",
+        "repetition": 1,
+        "valid_decision": true,
+        "expected_recall": false,
+        "expected_memory_ids": [],
+        "prepare_queries": [],
+        "injected_memory_ids": [],
+        "hit": null
+      },
+      {
+        "mode": "prompt_only",
+        "case_id": "specified-schema-rollout",
+        "repetition": 2,
+        "valid_decision": true,
+        "expected_recall": false,
+        "expected_memory_ids": [],
+        "prepare_queries": [
+          "schema rollout generated migration diff"
+        ],
+        "injected_memory_ids": [
+          "schema-rollout"
+        ],
+        "hit": null
+      },
+      {
+        "mode": "provider_json",
+        "case_id": "specified-schema-rollout",
+        "repetition": 2,
+        "valid_decision": true,
+        "expected_recall": false,
+        "expected_memory_ids": [],
+        "prepare_queries": [],
+        "injected_memory_ids": [],
+        "hit": null
+      },
+      {
+        "mode": "prompt_only",
+        "case_id": "task-switch-schema-rollout",
+        "repetition": 1,
+        "valid_decision": true,
+        "expected_recall": true,
+        "expected_memory_ids": [
+          "schema-rollout"
+        ],
+        "prepare_queries": [
+          "Which compatibility rule did we agree to follow for schema rollout?"
+        ],
+        "injected_memory_ids": [
+          "schema-rollout"
+        ],
+        "hit": true
+      },
+      {
+        "mode": "provider_json",
+        "case_id": "task-switch-schema-rollout",
+        "repetition": 1,
+        "valid_decision": true,
+        "expected_recall": true,
+        "expected_memory_ids": [
+          "schema-rollout"
+        ],
+        "prepare_queries": [
+          "compatibility rule agreed for schema rollout"
+        ],
+        "injected_memory_ids": [
+          "schema-rollout"
+        ],
+        "hit": true
+      },
+      {
+        "mode": "prompt_only",
+        "case_id": "task-switch-schema-rollout",
+        "repetition": 2,
+        "valid_decision": true,
+        "expected_recall": true,
+        "expected_memory_ids": [
+          "schema-rollout"
+        ],
+        "prepare_queries": [
+          "Which compatibility rule did we agree to follow for schema rollout?"
+        ],
+        "injected_memory_ids": [
+          "schema-rollout"
+        ],
+        "hit": true
+      },
+      {
+        "mode": "provider_json",
+        "case_id": "task-switch-schema-rollout",
+        "repetition": 2,
+        "valid_decision": true,
+        "expected_recall": true,
+        "expected_memory_ids": [
+          "schema-rollout"
+        ],
+        "prepare_queries": [
+          "Which compatibility rule did we agree to follow for schema rollout?"
+        ],
+        "injected_memory_ids": [
+          "schema-rollout"
+        ],
+        "hit": true
+      },
+      {
+        "mode": "prompt_only",
+        "case_id": "ambiguous-worker-retry",
+        "repetition": 1,
+        "valid_decision": true,
+        "expected_recall": true,
+        "expected_memory_ids": [
+          "worker-retry"
+        ],
+        "prepare_queries": [
+          "previously agreed compatibility rule for worker retry"
+        ],
+        "injected_memory_ids": [
+          "worker-retry"
+        ],
+        "hit": true
+      },
+      {
+        "mode": "provider_json",
+        "case_id": "ambiguous-worker-retry",
+        "repetition": 1,
+        "valid_decision": true,
+        "expected_recall": true,
+        "expected_memory_ids": [
+          "worker-retry"
+        ],
+        "prepare_queries": [
+          "previously agreed compatibility rule for worker retry"
+        ],
+        "injected_memory_ids": [
+          "worker-retry"
+        ],
+        "hit": true
+      },
+      {
+        "mode": "prompt_only",
+        "case_id": "ambiguous-worker-retry",
+        "repetition": 2,
+        "valid_decision": true,
+        "expected_recall": true,
+        "expected_memory_ids": [
+          "worker-retry"
+        ],
+        "prepare_queries": [
+          "previously agreed compatibility rule for worker retry"
+        ],
+        "injected_memory_ids": [
+          "worker-retry"
+        ],
+        "hit": true
+      },
+      {
+        "mode": "provider_json",
+        "case_id": "ambiguous-worker-retry",
+        "repetition": 2,
+        "valid_decision": false,
+        "expected_recall": true,
+        "expected_memory_ids": [
+          "worker-retry"
+        ],
+        "prepare_queries": [
+          "You changed the wrong thing. Please follow that rule."
+        ],
+        "injected_memory_ids": [],
+        "hit": false
+      },
+      {
+        "mode": "prompt_only",
+        "case_id": "specified-worker-retry",
+        "repetition": 1,
+        "valid_decision": true,
+        "expected_recall": false,
+        "expected_memory_ids": [],
+        "prepare_queries": [
+          "retry test output for worker retry"
+        ],
+        "injected_memory_ids": [
+          "worker-retry"
+        ],
+        "hit": null
+      },
+      {
+        "mode": "provider_json",
+        "case_id": "specified-worker-retry",
+        "repetition": 1,
+        "valid_decision": true,
+        "expected_recall": false,
+        "expected_memory_ids": [],
+        "prepare_queries": [],
+        "injected_memory_ids": [],
+        "hit": null
+      },
+      {
+        "mode": "prompt_only",
+        "case_id": "specified-worker-retry",
+        "repetition": 2,
+        "valid_decision": true,
+        "expected_recall": false,
+        "expected_memory_ids": [],
+        "prepare_queries": [],
+        "injected_memory_ids": [],
+        "hit": null
+      },
+      {
+        "mode": "provider_json",
+        "case_id": "specified-worker-retry",
+        "repetition": 2,
+        "valid_decision": true,
+        "expected_recall": false,
+        "expected_memory_ids": [],
+        "prepare_queries": [],
+        "injected_memory_ids": [],
+        "hit": null
+      },
+      {
+        "mode": "prompt_only",
+        "case_id": "task-switch-worker-retry",
+        "repetition": 1,
+        "valid_decision": true,
+        "expected_recall": true,
+        "expected_memory_ids": [
+          "worker-retry"
+        ],
+        "prepare_queries": [
+          "compatibility rule agreed to follow for worker retry"
+        ],
+        "injected_memory_ids": [
+          "worker-retry"
+        ],
+        "hit": true
+      },
+      {
+        "mode": "provider_json",
+        "case_id": "task-switch-worker-retry",
+        "repetition": 1,
+        "valid_decision": true,
+        "expected_recall": true,
+        "expected_memory_ids": [
+          "worker-retry"
+        ],
+        "prepare_queries": [
+          "Which compatibility rule did we agree to follow for worker retry?"
+        ],
+        "injected_memory_ids": [
+          "worker-retry"
+        ],
+        "hit": true
+      },
+      {
+        "mode": "prompt_only",
+        "case_id": "task-switch-worker-retry",
+        "repetition": 2,
+        "valid_decision": true,
+        "expected_recall": true,
+        "expected_memory_ids": [
+          "worker-retry"
+        ],
+        "prepare_queries": [
+          "compatibility rule agreed for worker retry"
+        ],
+        "injected_memory_ids": [
+          "worker-retry"
+        ],
+        "hit": true
+      },
+      {
+        "mode": "provider_json",
+        "case_id": "task-switch-worker-retry",
+        "repetition": 2,
+        "valid_decision": true,
+        "expected_recall": true,
+        "expected_memory_ids": [
+          "worker-retry"
+        ],
+        "prepare_queries": [
+          "Which compatibility rule did we agree to follow for worker retry?"
+        ],
+        "injected_memory_ids": [
+          "worker-retry"
+        ],
+        "hit": true
+      },
+      {
+        "mode": "prompt_only",
+        "case_id": "ambiguous-scope-routing",
+        "repetition": 1,
+        "valid_decision": true,
+        "expected_recall": true,
+        "expected_memory_ids": [
+          "scope-routing"
+        ],
+        "prepare_queries": [
+          "What compatibility rule for scope routing was previously agreed, and what restriction should be kept?"
+        ],
+        "injected_memory_ids": [
+          "scope-routing"
+        ],
+        "hit": true
+      },
+      {
+        "mode": "provider_json",
+        "case_id": "ambiguous-scope-routing",
+        "repetition": 1,
+        "valid_decision": true,
+        "expected_recall": true,
+        "expected_memory_ids": [
+          "scope-routing"
+        ],
+        "prepare_queries": [
+          "What is the previously agreed compatibility rule for scope routing, and what restriction must be kept?"
+        ],
+        "injected_memory_ids": [
+          "scope-routing"
+        ],
+        "hit": true
+      },
+      {
+        "mode": "prompt_only",
+        "case_id": "ambiguous-scope-routing",
+        "repetition": 2,
+        "valid_decision": false,
+        "expected_recall": true,
+        "expected_memory_ids": [
+          "scope-routing"
+        ],
+        "prepare_queries": [
+          "Keep the same restriction."
+        ],
+        "injected_memory_ids": [
+          "scope-routing"
+        ],
+        "hit": true
+      },
+      {
+        "mode": "provider_json",
+        "case_id": "ambiguous-scope-routing",
+        "repetition": 2,
+        "valid_decision": false,
+        "expected_recall": true,
+        "expected_memory_ids": [
+          "scope-routing"
+        ],
+        "prepare_queries": [
+          "Keep the same restriction."
+        ],
+        "injected_memory_ids": [
+          "scope-routing"
+        ],
+        "hit": true
+      },
+      {
+        "mode": "prompt_only",
+        "case_id": "specified-scope-routing",
+        "repetition": 1,
+        "valid_decision": true,
+        "expected_recall": false,
+        "expected_memory_ids": [],
+        "prepare_queries": [
+          "scope routing test file location and name in the repository"
+        ],
+        "injected_memory_ids": [
+          "scope-routing"
+        ],
+        "hit": null
+      },
+      {
+        "mode": "provider_json",
+        "case_id": "specified-scope-routing",
+        "repetition": 1,
+        "valid_decision": true,
+        "expected_recall": false,
+        "expected_memory_ids": [],
+        "prepare_queries": [],
+        "injected_memory_ids": [],
+        "hit": null
+      },
+      {
+        "mode": "prompt_only",
+        "case_id": "specified-scope-routing",
+        "repetition": 2,
+        "valid_decision": true,
+        "expected_recall": false,
+        "expected_memory_ids": [],
+        "prepare_queries": [],
+        "injected_memory_ids": [],
+        "hit": null
+      },
+      {
+        "mode": "provider_json",
+        "case_id": "specified-scope-routing",
+        "repetition": 2,
+        "valid_decision": true,
+        "expected_recall": false,
+        "expected_memory_ids": [],
+        "prepare_queries": [],
+        "injected_memory_ids": [],
+        "hit": null
+      },
+      {
+        "mode": "prompt_only",
+        "case_id": "task-switch-scope-routing",
+        "repetition": 1,
+        "valid_decision": true,
+        "expected_recall": true,
+        "expected_memory_ids": [
+          "scope-routing"
+        ],
+        "prepare_queries": [
+          "Which compatibility rule did we agree to follow for scope routing?"
+        ],
+        "injected_memory_ids": [
+          "scope-routing"
+        ],
+        "hit": true
+      },
+      {
+        "mode": "provider_json",
+        "case_id": "task-switch-scope-routing",
+        "repetition": 1,
+        "valid_decision": true,
+        "expected_recall": true,
+        "expected_memory_ids": [
+          "scope-routing"
+        ],
+        "prepare_queries": [
+          "compatibility rule agreed for scope routing"
+        ],
+        "injected_memory_ids": [
+          "scope-routing"
+        ],
+        "hit": true
+      },
+      {
+        "mode": "prompt_only",
+        "case_id": "task-switch-scope-routing",
+        "repetition": 2,
+        "valid_decision": true,
+        "expected_recall": true,
+        "expected_memory_ids": [
+          "scope-routing"
+        ],
+        "prepare_queries": [
+          "Which compatibility rule was agreed for scope routing?"
+        ],
+        "injected_memory_ids": [
+          "scope-routing"
+        ],
+        "hit": true
+      },
+      {
+        "mode": "provider_json",
+        "case_id": "task-switch-scope-routing",
+        "repetition": 2,
+        "valid_decision": true,
+        "expected_recall": true,
+        "expected_memory_ids": [
+          "scope-routing"
+        ],
+        "prepare_queries": [
+          "compatibility rule agreed for scope routing"
+        ],
+        "injected_memory_ids": [
+          "scope-routing"
+        ],
+        "hit": true
+      },
+      {
+        "mode": "prompt_only",
+        "case_id": "ambiguous-release-build",
+        "repetition": 1,
+        "valid_decision": false,
+        "expected_recall": true,
+        "expected_memory_ids": [
+          "release-build"
+        ],
+        "prepare_queries": [
+          "Proceed with the agreed version."
+        ],
+        "injected_memory_ids": [],
+        "hit": false
+      },
+      {
+        "mode": "provider_json",
+        "case_id": "ambiguous-release-build",
+        "repetition": 1,
+        "valid_decision": true,
+        "expected_recall": true,
+        "expected_memory_ids": [
+          "release-build"
+        ],
+        "prepare_queries": [
+          "agreed compatibility rule for release build version"
+        ],
+        "injected_memory_ids": [
+          "release-build"
+        ],
+        "hit": true
+      },
+      {
+        "mode": "prompt_only",
+        "case_id": "ambiguous-release-build",
+        "repetition": 2,
+        "valid_decision": true,
+        "expected_recall": true,
+        "expected_memory_ids": [
+          "release-build"
+        ],
+        "prepare_queries": [
+          "previously agreed compatibility rule for release build and agreed version to proceed with"
+        ],
+        "injected_memory_ids": [
+          "release-build"
+        ],
+        "hit": true
+      },
+      {
+        "mode": "provider_json",
+        "case_id": "ambiguous-release-build",
+        "repetition": 2,
+        "valid_decision": true,
+        "expected_recall": true,
+        "expected_memory_ids": [
+          "release-build"
+        ],
+        "prepare_queries": [
+          "agreed compatibility rule for release build version decision"
+        ],
+        "injected_memory_ids": [
+          "release-build"
+        ],
+        "hit": true
+      },
+      {
+        "mode": "prompt_only",
+        "case_id": "specified-release-build",
+        "repetition": 1,
+        "valid_decision": true,
+        "expected_recall": false,
+        "expected_memory_ids": [],
+        "prepare_queries": [],
+        "injected_memory_ids": [],
+        "hit": null
+      },
+      {
+        "mode": "provider_json",
+        "case_id": "specified-release-build",
+        "repetition": 1,
+        "valid_decision": true,
+        "expected_recall": false,
+        "expected_memory_ids": [],
+        "prepare_queries": [],
+        "injected_memory_ids": [],
+        "hit": null
+      },
+      {
+        "mode": "prompt_only",
+        "case_id": "specified-release-build",
+        "repetition": 2,
+        "valid_decision": true,
+        "expected_recall": false,
+        "expected_memory_ids": [],
+        "prepare_queries": [],
+        "injected_memory_ids": [],
+        "hit": null
+      },
+      {
+        "mode": "provider_json",
+        "case_id": "specified-release-build",
+        "repetition": 2,
+        "valid_decision": true,
+        "expected_recall": false,
+        "expected_memory_ids": [],
+        "prepare_queries": [],
+        "injected_memory_ids": [],
+        "hit": null
+      },
+      {
+        "mode": "prompt_only",
+        "case_id": "task-switch-release-build",
+        "repetition": 1,
+        "valid_decision": true,
+        "expected_recall": true,
+        "expected_memory_ids": [
+          "release-build"
+        ],
+        "prepare_queries": [
+          "Which compatibility rule did we agree to follow for release builds?"
+        ],
+        "injected_memory_ids": [],
+        "hit": false
+      },
+      {
+        "mode": "provider_json",
+        "case_id": "task-switch-release-build",
+        "repetition": 1,
+        "valid_decision": true,
+        "expected_recall": true,
+        "expected_memory_ids": [
+          "release-build"
+        ],
+        "prepare_queries": [
+          "compatibility rule agreed to follow for release build packaging"
+        ],
+        "injected_memory_ids": [
+          "release-build"
+        ],
+        "hit": true
+      },
+      {
+        "mode": "prompt_only",
+        "case_id": "task-switch-release-build",
+        "repetition": 2,
+        "valid_decision": true,
+        "expected_recall": true,
+        "expected_memory_ids": [
+          "release-build"
+        ],
+        "prepare_queries": [
+          "Which compatibility rule did we agree to follow for release packaging and the release build?"
+        ],
+        "injected_memory_ids": [
+          "release-build"
+        ],
+        "hit": true
+      },
+      {
+        "mode": "provider_json",
+        "case_id": "task-switch-release-build",
+        "repetition": 2,
+        "valid_decision": true,
+        "expected_recall": true,
+        "expected_memory_ids": [
+          "release-build"
+        ],
+        "prepare_queries": [
+          "compatibility rule agreed for release build"
+        ],
+        "injected_memory_ids": [
+          "release-build"
+        ],
+        "hit": true
+      }
+    ]
+  },
+  "cross_turn_prefix_cache": {
+    "revision": "97ab095e9028a43c0449caf039d3d70507a8fc69",
+    "model": "deepseek-flash",
+    "route": "chat/completions",
+    "method": "Unique leading marker per arm. Seed with one gated main request without recall, then append its actual assistant response and a follow-up. Cold control appends the same reply and follow-up to a separate unseeded prefix.",
+    "rows": [
+      {
+        "arm": "previous_main_cached",
+        "repetition": 1,
+        "previous_main": {
+          "purpose": "observed",
+          "decision": "allow",
+          "input_tokens": 1564,
+          "output_tokens": 16,
+          "cached_tokens": 0
+        },
+        "previous_main_messages_are_exact_prefix": true,
+        "shared_prefix_messages": 2,
+        "auxiliary": {
+          "purpose": "observed",
+          "decision": "allow",
+          "input_tokens": 1845,
+          "output_tokens": 23,
+          "cached_tokens": 1536
+        },
+        "main": {
+          "purpose": "observed",
+          "decision": "allow",
+          "input_tokens": 1765,
+          "output_tokens": 21,
+          "cached_tokens": 1536
+        }
+      },
+      {
+        "arm": "no_prior_request",
+        "repetition": 1,
+        "previous_main": null,
+        "previous_main_messages_are_exact_prefix": false,
+        "shared_prefix_messages": 0,
+        "auxiliary": {
+          "purpose": "observed",
+          "decision": "allow",
+          "input_tokens": 1842,
+          "output_tokens": 21,
+          "cached_tokens": 0
+        },
+        "main": {
+          "purpose": "observed",
+          "decision": "allow",
+          "input_tokens": 1762,
+          "output_tokens": 46,
+          "cached_tokens": 1408
+        }
+      },
+      {
+        "arm": "previous_main_cached",
+        "repetition": 2,
+        "previous_main": {
+          "purpose": "observed",
+          "decision": "allow",
+          "input_tokens": 1560,
+          "output_tokens": 17,
+          "cached_tokens": 0
+        },
+        "previous_main_messages_are_exact_prefix": true,
+        "shared_prefix_messages": 2,
+        "auxiliary": {
+          "purpose": "observed",
+          "decision": "allow",
+          "input_tokens": 1842,
+          "output_tokens": 17,
+          "cached_tokens": 1536
+        },
+        "main": {
+          "purpose": "observed",
+          "decision": "allow",
+          "input_tokens": 1595,
+          "output_tokens": 32,
+          "cached_tokens": 1408
+        }
+      },
+      {
+        "arm": "no_prior_request",
+        "repetition": 2,
+        "previous_main": null,
+        "previous_main_messages_are_exact_prefix": false,
+        "shared_prefix_messages": 0,
+        "auxiliary": {
+          "purpose": "observed",
+          "decision": "allow",
+          "input_tokens": 1844,
+          "output_tokens": 22,
+          "cached_tokens": 0
+        },
+        "main": {
+          "purpose": "observed",
+          "decision": "allow",
+          "input_tokens": 1764,
+          "output_tokens": 28,
+          "cached_tokens": 1408
+        }
+      },
+      {
+        "arm": "previous_main_cached",
+        "repetition": 3,
+        "previous_main": {
+          "purpose": "observed",
+          "decision": "allow",
+          "input_tokens": 1569,
+          "output_tokens": 18,
+          "cached_tokens": 0
+        },
+        "previous_main_messages_are_exact_prefix": true,
+        "shared_prefix_messages": 2,
+        "auxiliary": {
+          "purpose": "observed",
+          "decision": "allow",
+          "input_tokens": 1852,
+          "output_tokens": 22,
+          "cached_tokens": 1536
+        },
+        "main": {
+          "purpose": "observed",
+          "decision": "allow",
+          "input_tokens": 1772,
+          "output_tokens": 22,
+          "cached_tokens": 1536
+        }
+      },
+      {
+        "arm": "no_prior_request",
+        "repetition": 3,
+        "previous_main": null,
+        "previous_main_messages_are_exact_prefix": false,
+        "shared_prefix_messages": 0,
+        "auxiliary": {
+          "purpose": "observed",
+          "decision": "allow",
+          "input_tokens": 1844,
+          "output_tokens": 18,
+          "cached_tokens": 0
+        },
+        "main": {
+          "purpose": "observed",
+          "decision": "allow",
+          "input_tokens": 1764,
+          "output_tokens": 22,
+          "cached_tokens": 1408
+        }
+      }
+    ]
+  }
+}

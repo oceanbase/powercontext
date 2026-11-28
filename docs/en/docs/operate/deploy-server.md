@@ -212,6 +212,12 @@ The combined deployment default skips injection if no explicit or inferred ID is
 
 Set `PC_GATEWAY_INJECTION_CODE=on` to include code evidence from the Scope's code index in the prepared context; it is off by default and requires a configured repository for the Scope. When a replayed value no longer passes the check because a cited source changed (for example, the agent edited a cited file), the gateway discards that conversation's replay and prepares once more for the request instead of returning the withhold.
 
+### Gateway recall for follow-up requests
+
+Set `PC_GATEWAY_CONTEXT_DISAMBIGUATION=on` and restart the Gateway to let a model resolve follow-up references before recall. This option defaults to `off` and applies to the Chat and Responses routes using API upstreams. It requires context injection. A new user turn with text and no replay entry adds up to one call to the same upstream and model. Tool continuations, internal requests, replay hits, and requests that reference provider-managed history bypass disambiguation.
+
+The auxiliary request retains the conversation prefix and appends a decision instruction. Its output can select a retrieval query or skip recall. The main request keeps the user's original wording. Both calls receive independent Core send and release checks. The auxiliary call has up to eight seconds within the parent deadline. If it fails or the decision cannot be parsed, the Gateway uses the original query while the parent request is still active. A handoff with an uncertain outcome is never repeated. Actual cache reuse, latency and cost depend on the provider and the request.
+
 ### Gateway instruction
 
 The gateway adds a built-in cost-guidance instruction (S) to every request on the Chat (`/gateway/v1/chat/completions`) and Responses (`/gateway/v1/responses`) routes by default, except requests marked `X-PowerContext-Turn: internal`. The text encourages targeted searches, batched reads, concise edits, and focused validation. `PC_GATEWAY_STEERING=off` disables it; unset or `on` enables it. Other values prevent startup.
