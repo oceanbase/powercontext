@@ -14,15 +14,16 @@
 
 //! 一个用户回合的规范化记录，供网关在回合结束时沉淀。
 //!
-//! 回合从最后一条用户消息开始，到不再调用工具的响应（终止响应）结束。记录完整保留这一回合里模型读到的内容：
+//! 回合从最后一条非独立宿主提醒的用户消息开始，到不再调用工具的响应（终止响应）结束。记录保留这一回合里的：
 //! 用户文本、其后的其他消息、工具调用的全部参数字段、工具输出与错误、推理的可见摘要、无法识别的条目，以及助手
-//! 文本；字段不截断，步骤不省略。只有推理密文、各类 ID、状态、用量等传输元数据不进入记录，二进制数据（截图、
+//! 文本；字段不截断，步骤不省略。独立的宿主提醒、推理密文、各类 ID、状态、用量等传输元数据不进入记录，二进制数据（截图、
 //! 图片、文件）记为带字节数的占位文本。用户文本取自注入前的请求，不含准备结果。
 //!
 //! 一段 Source 的估算规模不超过 Core 生效的 Atomic Memory 输入上限，也不超过 [`MAX_SOURCE_TOKENS`]；超过时记录
 //! 按顺序拆成几段，每段都是独立的 Source。
 
 use crate::capture_coverage::declaration;
+use crate::turn_message::last_user_index;
 use pc_gateway_protocol::{CanonicalMessage, CanonicalRequest, Role, SseFramer};
 use serde::Serialize;
 use serde_json::{Map, Value};
@@ -127,13 +128,12 @@ pub(crate) fn turn_transcript(
             chat_final_text(&serde_json::from_str(response).ok()?)?,
         )
     };
-    let start = request
-        .messages
-        .iter()
-        .rposition(|m| matches!(m.role, Role::User))?;
+    let start = last_user_index(request)?;
     let user = parts_text(&request.messages[start].content);
     let mut steps: Vec<Step> = request.messages[start + 1..]
         .iter()
+        // Any user messages after the selected prompt are standalone reminders.
+        .filter(|m| m.role != Role::User)
         .flat_map(|m| {
             if is_responses(list_key) {
                 m.content.iter().flat_map(item_steps).collect()

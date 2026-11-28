@@ -33,6 +33,7 @@ from typing import TYPE_CHECKING, Annotated, Any, Literal, Protocol, TypeVar, ca
 from urllib.parse import quote, unquote
 from uuid import uuid4
 
+import rfc8785
 from fastapi import Depends, FastAPI, Header, Path, Query, Request, Response, status
 from fastapi import Path as PathParameter
 from fastapi.exceptions import RequestValidationError
@@ -685,6 +686,7 @@ from powercontext.http import (
     SkillPackageFile,
     SkillPackageManifest,
     SourceDefinitionManifest,
+    SourceLimits,
     SourceObservationReceipt,
     SourcePage,
     SourceRecord,
@@ -867,6 +869,7 @@ from powercontext.http._generated.operations import (
     GET_SKILL,
     GET_SKILL_PACKAGE_MANIFEST,
     GET_SOURCE,
+    GET_SOURCE_LIMITS,
     GET_STATS,
     GET_TOPIC_MEMORY,
     GET_TOPIC_MEMORY_PROCESSING_BLOCK,
@@ -952,6 +955,7 @@ from powercontext.http._generated.operations import (
     Operation,
 )
 from powercontext.http._generated.schema import OPENAPI_SCHEMA
+from powercontext.limits import MAX_SOURCE_CONTENT_CHARS, MAX_SOURCE_CONTENT_CHARS_CEILING
 from powercontext.server import mapping
 from powercontext.server.artifact_read_observation import observe_artifact_read
 from powercontext.server.atomic_memory import add_atomic_memory_routes
@@ -1521,6 +1525,7 @@ def create_app(
     app.openapi_version = OPENAPI_VERSION
     app.state.plugin_manager = None
     app.state.plugin_api_max_body_bytes = 32 * 1024 * 1024
+    app.state.source_content_max_chars = MAX_SOURCE_CONTENT_CHARS
     app.state.application = application
     app.state.capability_provider = capability_provider
     app.state.readiness_probe = readiness_probe
@@ -1612,6 +1617,7 @@ def create_app(
     _add_route(app, GET_READINESS, get_readiness)
     _add_route(app, GET_SERVER_INFO, get_server_info)
     _add_route(app, GET_CAPABILITIES, get_capabilities)
+    _add_route(app, GET_SOURCE_LIMITS, get_source_limits)
     _add_route(app, LIST_PLUGINS, list_plugins)
     _add_route(app, GET_PLUGIN, get_plugin)
     _add_route(app, GET_PLUGIN_OPENAPI, get_plugin_openapi)
@@ -2099,6 +2105,15 @@ async def get_capabilities(request: Request) -> Capabilities:
     if added:
         value = value.model_copy(update={"artifact_families": [*value.artifact_families, *added]})
     return value
+
+
+async def get_source_limits(request: Request) -> SourceLimits:
+    """Report the deployment's effective Source capture limit; reads never depend on it."""
+
+    return SourceLimits(
+        source_content_max_chars=request.app.state.source_content_max_chars,
+        source_content_max_chars_ceiling=MAX_SOURCE_CONTENT_CHARS_CEILING,
+    )
 
 
 async def get_server_info(request: Request) -> ServerInfo:
@@ -2937,6 +2952,7 @@ async def create_source(
     if request.source_type != SourceType.CONTENT:
         return await _create_plugin_source(scope_id, request, response, http_request, application)
     _reject_reserved_handoff_receipt_content(request.content)
+    _require_source_content_length(http_request, request.content, ("body", "content"))
     result = await application.records.for_scope(scope_id).create_source(
         request.source_type,
         request.content,
@@ -4029,29 +4045,61 @@ def _require_report_size(estimated_bytes: int, report: Any) -> None:
     )
 
 
+def _source_content_characters(content: JsonValue) -> int:
+    """Characters of the stored Content Source text: raw for strings, canonical JSON otherwise."""
+
+    if isinstance(content, str):
+        return len(content)
+    try:
+        return len(rfc8785.dumps(cast(Any, content)).decode("utf-8"))
+    except (TypeError, ValueError):
+        # Persistence validates JSON content and reports the contract violation.
+        return 0
+
+
+def _require_source_content_length(request: Request, content: JsonValue, location: tuple[str | int, ...]) -> None:
+    """Enforce the deployment's effective Content Source limit behind the schema's storage ceiling."""
+
+    limit = request.app.state.source_content_max_chars
+    if _source_content_characters(content) > limit:
+        raise RequestValidationError([
+            {
+                "type": "string_too_long",
+                "loc": location,
+                "msg": f"Content must not exceed the deployment's {limit}-character Source limit.",
+            }
+        ])
+
+
 async def capture_content_source(
     request: CaptureContentSourceRequest,
+    http_request: Request,
     application: Annotated[ServerApplication, Depends(_require_application)],
 ) -> CaptureContentSourceResponse:
     _reject_reserved_handoff_receipt_content(request.content)
+    _require_source_content_length(http_request, request.content, ("body", "content"))
     result = await application.sources.for_scope(request.scope_id).capture(mapping.capture_request(request))
     return mapping.capture_response(result)
 
 
 async def capture_content_sources(
     request: CaptureContentSourcesRequest,
+    http_request: Request,
     application: Annotated[ServerApplication, Depends(_require_application)],
 ) -> CaptureContentSourcesResponse:
-    for item in request.sources:
+    for index, item in enumerate(request.sources):
         _reject_reserved_handoff_receipt_content(item.content)
+        _require_source_content_length(http_request, item.content, ("body", "sources", index, "content"))
     results = await application.sources.for_scope(request.scope_id).capture_many(mapping.capture_requests(request))
     return mapping.captures_response(results)
 
 
 async def capture_working_note(
     request: CaptureWorkingNoteRequest,
+    http_request: Request,
     application: Annotated[ServerApplication, Depends(_require_application)],
 ) -> CaptureContentSourceResponse:
+    _require_source_content_length(http_request, request.content, ("body", "content"))
     result = await application.sources.for_scope(request.scope_id).capture_working_note(
         mapping.working_note_capture_request(request)
     )
@@ -5578,9 +5626,12 @@ def _remote_skill_publication(publication: SkillPublication) -> RemoteSkillPubli
 
 
 async def _authenticate_remote_skill_request(request: Request) -> Response | None:
-    # The Receiver operation checks the credential again within its transaction.
     try:
         _require_secure_remote_transport(request)
+        if request.scope["path"] == ENROLL_REMOTE_SKILL_TARGET.path:
+            # The one-time enrollment code is in the size-limited JSON body.
+            return None
+        # The Receiver operation checks the credential again within its transaction.
         credential = _target_credential(request)
         await _require_application(request).remote_skills.authenticate_target(credential)
     except (_RuntimeNotReadyError, PowerContextError, PersistenceError) as error:
@@ -7022,6 +7073,17 @@ class _EncodedPathAPIRoute(APIRoute):
         return match, child_scope
 
 
+def _operation_error_status(error: Exception) -> tuple[int, str]:
+    """Classify an endpoint exception for logs, spans and metrics."""
+
+    # Endpoints may raise a validation error after dispatch, for example a deployment-configured
+    # Source limit. Report the 422 the exception handler returns instead of an internal failure.
+    if isinstance(error, (RequestValidationError, PydanticValidationError)):
+        return status.HTTP_422_UNPROCESSABLE_CONTENT, "invalid_request"
+    response_status, error_code, _, _ = _map_error(error)
+    return response_status, error_code
+
+
 def _observe_application_operation(
     app: FastAPI,
     operation: Operation[_RequestT, _ResponseT],
@@ -7059,7 +7121,7 @@ def _observe_application_operation(
                 _finish_span(span, "cancelled")
                 raise
             except Exception as error:
-                response_status, error_code, _, _ = _map_error(error)
+                response_status, error_code = _operation_error_status(error)
                 observe_artifact_read(
                     app.state.metrics,
                     operation.operation_id,
