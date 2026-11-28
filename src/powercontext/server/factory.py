@@ -483,6 +483,7 @@ def create_server_app(  # noqa: C901
         authentication_provider=configured_authentication,
         allow_insecure_remote_http=resolved.allow_insecure_http,
     )
+    app.state.source_content_max_chars = resolved.source_content_max_chars
     # Admission must see the outward send; only non-buffering instrumentation
     # wraps it so early rejections retain the same correlation and observations.
     app.add_middleware(HttpAdmissionMiddleware, max_concurrent_requests=resolved.http.max_concurrent_requests)

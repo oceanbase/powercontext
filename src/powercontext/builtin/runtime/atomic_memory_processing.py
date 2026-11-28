@@ -112,6 +112,7 @@ from powercontext.builtin.processing_diagnostics import (
     ProcessingFailureReason,
     ProcessingStage,
     attach_diagnostics,
+    classify_processing_storage_failure,
 )
 from powercontext.builtin.runtime.atomic_memory import AtomicMemoryApplication, deferred_decision_audit
 from powercontext.builtin.runtime.decision_policy import emit_decision_observation
@@ -408,7 +409,10 @@ class AtomicMemorySourceWindowProcessor:
                 "powercontext.memory.commit.artifact_revision_count": sum(write.draft is not None for write in writes),
             },
         ):
-            async with application.database.transaction() as connection:
+            async with (
+                classify_processing_storage_failure("atomic-memory-publish-storage"),
+                application.database.transaction() as connection,
+            ):
                 # Every Atomic write uses journal -> heads. Source capture's journal
                 # reservation prevents the exact window changing under validation.
                 await connection.execute(
@@ -507,7 +511,7 @@ class AtomicMemorySourceWindowProcessor:
             await project_atomic_memory_evidence(item, self.sources, evidence_id=f"source:{item.journal_position}")
             for item in eligible
         ])
-        extraction_input = AtomicMemoryExtractionInput(evidence=evidence)
+        extraction_input = AtomicMemoryExtractionInput(evidence=evidence, scope_id=scope_id)
         self._require_budget(pipeline, extraction_input, "atomic_memory.extract")
         extraction_prompt = current_prompt("atomic_memory.extract")
         prompt_refs = (
@@ -777,7 +781,9 @@ class AtomicMemorySourceWindowProcessor:
         basis = tuple(workset.items[key] for key in shown.values())
         await self._authorize_comparison_basis(scope_id, context, basis)
         operations = await conversation.turn(
-            message, lambda reply: apply_one_pass_operations(workset, reply, shown, extraction_input), entries
+            message,
+            lambda reply: apply_one_pass_operations(workset, reply, shown, extraction_input, entries.output),
+            entries,
         )
         workset, created = operations.output
 

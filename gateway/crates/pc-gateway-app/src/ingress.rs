@@ -22,13 +22,15 @@ use axum::extract::{Request, State};
 use axum::http::{header, HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::Json;
-use pc_gateway_core::{LifecycleStopReason, ManagedCall, ManagedOutcome, RequestControl};
+use pc_gateway_core::{
+    LifecycleStopReason, ManagedCall, ManagedOutcome, PrefixOutput, RequestControl,
+};
 use pc_gateway_protocol::{
     first_model_content_offset, CanonicalMessage, CanonicalRequest, OutputLimits, OutputProtocol,
     Role,
 };
 use serde::Deserialize;
-use serde_json::Value;
+use serde_json::{json, Value};
 use std::hash::{BuildHasher, RandomState};
 use std::sync::{Arc, LazyLock};
 
@@ -223,6 +225,10 @@ pub async fn extract(
     if let Some(rejected) = unauthorized(&state, &headers) {
         return rejected;
     }
+    let scope_id = match request_scope(&headers, &state.default_scope) {
+        Ok(scope_id) => scope_id,
+        Err(error) => return error.into_response(),
+    };
     if request.instruction.trim().is_empty()
         || request.instruction.len() > MAX_EXTRACT_INSTRUCTION_BYTES
     {
@@ -238,25 +244,29 @@ pub async fn extract(
     if !valid_continuation(&request.continuation) {
         return error(StatusCode::BAD_REQUEST, "invalid_continuation");
     }
-    let Some(prefix) = state.executor.prefix(&request.handle, &state.default_scope) else {
+    let Some(prefix) = state.executor.prefix(&request.handle, scope_id) else {
         return error(StatusCode::NOT_FOUND, "prefix_unavailable");
     };
     if prefix.target_profile != state.upstream_profile {
         return error(StatusCode::CONFLICT, "target_mismatch");
     }
-    let canonical = prefixed_request(&prefix, &request)
-        .and_then(|body| serde_json::from_value::<OpenAiResponsesRequest>(body).ok())
-        .and_then(|parsed| to_canonical_responses(parsed).ok());
+    let (format, canonical) = match &prefix.response_output {
+        PrefixOutput::Chat(text) => (Format::Chat, prefixed_chat_request(&prefix, text, &request)),
+        PrefixOutput::Responses(_) => (
+            Format::Responses,
+            prefixed_request(&prefix, &request)
+                .and_then(|body| serde_json::from_value::<OpenAiResponsesRequest>(body).ok())
+                .and_then(|parsed| to_canonical_responses(parsed).ok()),
+        ),
+    };
     let Some(canonical) = canonical else {
         return error(StatusCode::INTERNAL_SERVER_ERROR, "prefix_invalid");
     };
-    let Ok(channel) =
-        upstream_channel(&state, &Format::Responses, prefix.session_id.as_deref()).await
-    else {
+    let Ok(channel) = upstream_channel(&state, &format, prefix.session_id.as_deref()).await else {
         return subscription_auth_failed();
     };
     let call = ManagedCall {
-        scope_id: state.default_scope.clone(),
+        scope_id: scope_id.to_owned(),
         target_profile: state.upstream_profile.clone(),
         request: canonical,
         target_url: channel.target_url,
@@ -267,6 +277,7 @@ pub async fn extract(
         capture_prefix: false,
         conversation_id: Some(prefix.conversation_id.clone()),
         sediment: false,
+        internal: false,
         prepared_contexts: prefix.prepared_contexts.clone(),
     };
     // 期限从连接开始接收请求时起算，读取请求体的时间也在其中。
@@ -283,17 +294,21 @@ pub async fn extract(
         .await
     {
         ManagedOutcome::Released { status, body, .. } if (200..300).contains(&status) => {
-            match serde_json::from_slice::<serde_json::Value>(&body) {
-                Ok(response) => Json(serde_json::json!({
-                    "text": responses_output_text(&response),
-                    "usage": response.get("usage").cloned().unwrap_or(serde_json::Value::Null),
-                    "model": response.get("model").cloned().unwrap_or(serde_json::Value::Null),
-                }))
-                .into_response(),
-                Err(_) => error(StatusCode::BAD_GATEWAY, "invalid_upstream_response"),
+            match serde_json::from_slice(&body)
+                .ok()
+                .and_then(|response| extraction_result(&format, response))
+            {
+                Some(result) => Json(result).into_response(),
+                None => error(StatusCode::BAD_GATEWAY, "invalid_upstream_response"),
             }
         }
-        outcome => respond(outcome, OutputProtocol::OpenAiResponses),
+        outcome => respond(
+            outcome,
+            match format {
+                Format::Chat => OutputProtocol::OpenAiChat,
+                Format::Responses => OutputProtocol::OpenAiResponses,
+            },
+        ),
     }
 }
 
@@ -306,7 +321,10 @@ fn prefixed_request(
 ) -> Option<serde_json::Value> {
     let mut body: serde_json::Value = serde_json::from_slice(&prefix.request_body).ok()?;
     let input = body.get_mut("input")?.as_array_mut()?;
-    for item in &prefix.response_output {
+    let PrefixOutput::Responses(output) = &prefix.response_output else {
+        return None;
+    };
+    for item in output {
         let mut item = item.clone();
         if let Some(fields) = item.as_object_mut() {
             fields.remove("id");
@@ -339,6 +357,75 @@ fn prefixed_request(
         body["max_output_tokens"] = limit.into();
     }
     Some(body)
+}
+
+/// Extend the exact rendered Chat history with the terminal answer and the extraction exchange.
+fn prefixed_chat_request(
+    prefix: &pc_gateway_core::PrefixEntry,
+    answer: &str,
+    request: &ExtractRequest,
+) -> Option<CanonicalRequest> {
+    let mut chat: OpenAiChatRequest = serde_json::from_slice(&prefix.request_body).ok()?;
+    let message = |role: &str, text: &str| OpenAiMessage {
+        role: role.to_owned(),
+        content: Value::from(text),
+        tool_calls: None,
+        tool_call_id: None,
+        extra: Default::default(),
+    };
+    chat.messages.push(message("assistant", answer));
+    chat.messages.push(message("user", &request.instruction));
+    chat.messages
+        .extend(request.continuation.iter().map(|turn| {
+            let role = match turn.role {
+                ContinuationRole::Assistant => "assistant",
+                ContinuationRole::User => "user",
+            };
+            message(role, &turn.text)
+        }));
+    chat.stream = Some(false);
+    if !chat.tools.is_empty() || chat.tool_choice.is_some() {
+        chat.tool_choice = Some(Value::from("none"));
+    }
+    chat.extra.remove("stream_options");
+    if let Some(limit) = request.max_output_tokens {
+        if chat.max_tokens.is_some() && chat.max_completion_tokens.is_none() {
+            chat.max_tokens = Some(limit);
+        } else {
+            chat.max_completion_tokens = Some(limit);
+        }
+    }
+    to_canonical_chat(chat).ok()
+}
+
+/// Return the protocol-independent callback shape used by Core.
+fn extraction_result(format: &Format, mut response: Value) -> Option<Value> {
+    let mut usage = response
+        .get_mut("usage")
+        .map(Value::take)
+        .unwrap_or(Value::Null);
+    let text = match format {
+        Format::Responses => responses_output_text(&response),
+        Format::Chat => {
+            if let Some(fields) = usage.as_object_mut() {
+                for (chat, portable) in [
+                    ("prompt_tokens", "input_tokens"),
+                    ("completion_tokens", "output_tokens"),
+                    ("prompt_tokens_details", "input_tokens_details"),
+                    ("completion_tokens_details", "output_tokens_details"),
+                ] {
+                    if let Some(value) = fields.remove(chat) {
+                        fields.insert(portable.into(), value);
+                    }
+                }
+            }
+            response
+                .pointer("/choices/0/message/content")?
+                .as_str()?
+                .to_owned()
+        }
+    };
+    Some(json!({"text": text, "usage": usage, "model": response.get("model")}))
 }
 
 /// Responses 响应中助手消息的文本。
@@ -429,6 +516,24 @@ async fn ingress_model(
     if let Some(rejected) = unauthorized(&state, &headers) {
         return rejected;
     }
+    let scope_id = match request_scope(&headers, &state.default_scope) {
+        Ok(scope_id) => scope_id,
+        Err(error) => return error.into_response(),
+    };
+
+    let internal = match internal_turn(&headers) {
+        Ok(value) => value,
+        Err(()) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({
+                    "error": "invalid_turn_header",
+                    "detail": "X-PowerContext-Turn only accepts internal"
+                })),
+            )
+                .into_response();
+        }
+    };
 
     if state.max_body_bytes == 0 {
         return respond(
@@ -497,7 +602,14 @@ async fn ingress_model(
                 tracing::warn!("{OMITTED_PLUGIN_CONTEXT}");
             }
             match to_canonical_chat(chat) {
-                Ok(c) => c,
+                Ok(mut canonical) => {
+                    if !internal {
+                        if let Some(text) = &state.steering {
+                            crate::steering::insert_chat(&mut canonical.messages, text);
+                        }
+                    }
+                    canonical
+                }
                 Err(msg) => {
                     return (
                         StatusCode::BAD_REQUEST,
@@ -524,8 +636,10 @@ async fn ingress_model(
             if omit_responses_plugin_context(&mut r.input) {
                 tracing::warn!("{OMITTED_PLUGIN_CONTEXT}");
             }
-            if let Some(text) = &state.steering {
-                crate::steering::insert(&mut r.input, text);
+            if !internal {
+                if let Some(text) = &state.steering {
+                    crate::steering::insert(&mut r.input, text);
+                }
             }
             match to_canonical_responses(r) {
                 Ok(c) => c,
@@ -595,29 +709,35 @@ async fn ingress_model(
         return subscription_auth_failed();
     };
 
-    let conversation = header_conversation_id(&headers, &format);
-    let injection = if subscription_kind == Some(pc_gateway_auth::Subscription::Gemini) {
+    let conversation = if internal {
+        None
+    } else {
+        header_conversation_id(&headers, &format)
+    };
+    let injection = if internal || subscription_kind == Some(pc_gateway_auth::Subscription::Gemini)
+    {
         Injection::Off
     } else {
         state.injection
     };
-    let injection_enabled = injects(&format, injection, state.inject_responses, true);
+    let injection_enabled = !internal && injects(&format, injection, state.inject_responses, true);
     let history_id = if injection_enabled && conversation.is_none() {
         history_conversation_id(&canonical, &format)
     } else {
         None
     };
-    let inject_context = injects(
-        &format,
-        injection,
-        state.inject_responses,
-        conversation.is_some() || history_id.is_some(),
-    );
+    let inject_context = !internal
+        && injects(
+            &format,
+            injection,
+            state.inject_responses,
+            conversation.is_some() || history_id.is_some(),
+        );
     if injection_enabled && !inject_context {
         tracing::warn!("context injection skipped: no conversation identity");
     }
     let call = ManagedCall {
-        scope_id: state.default_scope.clone(),
+        scope_id: scope_id.to_owned(),
         target_profile: state.upstream_profile.clone(),
         request: canonical,
         target_url,
@@ -632,9 +752,11 @@ async fn ingress_model(
         },
         inject_context,
         include_code: state.inject_code,
-        capture_prefix: state.prefix_extraction && matches!(format, Format::Responses),
+        capture_prefix: state.prefix_extraction && !internal,
         conversation_id: conversation,
-        sediment: state.sediment,
+        // An internal request is not a turn: it never prepares, replays or captures context.
+        sediment: state.sediment && !internal,
+        internal,
         prepared_contexts: Vec::new(),
     };
 
@@ -929,6 +1051,28 @@ fn injects(format: &Format, injection: Injection, responses: bool, has_conversat
     enabled && (matches!(format, Format::Chat) || responses)
 }
 
+/// Returns `Ok(true)` for the internal marker, `Ok(false)` when absent, and `Err(())` for any
+/// other present value so an empty, garbled, repeated or misspelled marker cannot silently turn a
+/// non-turn request back into one.
+fn internal_turn(headers: &HeaderMap) -> Result<bool, ()> {
+    let mut values = headers.get_all(TURN_HEADER).iter();
+    let Some(value) = values.next() else {
+        return Ok(false);
+    };
+    if values.next().is_some() {
+        return Err(());
+    }
+    let value = value.to_str().map_err(|_| ())?;
+    if !valid_id(value) {
+        return Err(());
+    }
+    if value.eq_ignore_ascii_case("internal") {
+        Ok(true)
+    } else {
+        Err(())
+    }
+}
+
 /// 请求所属的会话，决定准备结果在哪些请求之间重放。依次取：
 /// - 宿主提供的 `X-PowerContext-Conversation-ID`（RFC 2199），优先于各客户端的原生头；
 /// - Claude Code 的 `x-claude-code-session-id`：主代理与子代理共享它，子代理的请求另带
@@ -1023,6 +1167,26 @@ fn valid_id(value: &str) -> bool {
     !value.is_empty() && value.len() <= 256 && value.bytes().all(|b| b.is_ascii_graphic())
 }
 
+/// Select the Scope once for the request. Reject ambiguous or invalid explicit selections.
+fn request_scope<'a>(
+    headers: &'a HeaderMap,
+    default_scope: &'a str,
+) -> Result<&'a str, (StatusCode, Json<serde_json::Value>)> {
+    let mut values = headers.get_all(SCOPE_ID_HEADER).into_iter();
+    let Some(value) = values.next() else {
+        return Ok(default_scope);
+    };
+    if let Ok(scope_id) = value.to_str() {
+        if valid_id(scope_id) && !scope_id.contains(',') && values.next().is_none() {
+            return Ok(scope_id);
+        }
+    }
+    Err((
+        StatusCode::BAD_REQUEST,
+        Json(serde_json::json!({ "error": "invalid_scope_id" })),
+    ))
+}
+
 /// 请求带给上游的会话标识：请求的 `session-id` 头；没有时取请求体的 `prompt_cache_key`。Codex 给两者填同一个值，
 /// 不发这个头的 agent 往往仍带后者。值的规则与会话头相同，不合规则时按没有处理。
 fn upstream_session(headers: &HeaderMap, body: &[u8]) -> Option<String> {
@@ -1039,7 +1203,9 @@ fn upstream_session(headers: &HeaderMap, body: &[u8]) -> Option<String> {
         .filter(|key| valid_id(key))
 }
 
+const SCOPE_ID_HEADER: &str = "x-powercontext-scope-id";
 const CONVERSATION_ID_HEADER: &str = "x-powercontext-conversation-id";
+const TURN_HEADER: &str = "x-powercontext-turn";
 const CLAUDE_CODE_SESSION_HEADER: &str = "x-claude-code-session-id";
 const CLAUDE_CODE_AGENT_HEADER: &str = "x-claude-code-agent-id";
 const OPENCODE_SESSION_HEADER: &str = "x-opencode-session-id";
@@ -1504,6 +1670,9 @@ pub(crate) mod tests {
     #[derive(Default)]
     pub(crate) struct Receivers {
         pub admissions: std::sync::atomic::AtomicUsize,
+        checks: std::sync::Mutex<Vec<serde_json::Value>>,
+        upstream_requests: std::sync::Mutex<Vec<Bytes>>,
+        refuse_send: std::sync::atomic::AtomicBool,
         pub sends: std::sync::atomic::AtomicUsize,
         pub response_bytes: std::sync::atomic::AtomicUsize,
         pub blocked_phase: std::sync::atomic::AtomicUsize,
@@ -1566,6 +1735,13 @@ pub(crate) mod tests {
     async fn lifecycle_router_with_evidence(
         evidence: Arc<dyn pc_gateway_evidence::EvidenceSink>,
     ) -> (axum::Router, tokio::task::JoinHandle<()>, Arc<Receivers>) {
+        lifecycle_router_with_steering(evidence, None).await
+    }
+
+    async fn lifecycle_router_with_steering(
+        evidence: Arc<dyn pc_gateway_evidence::EvidenceSink>,
+        steering: Option<String>,
+    ) -> (axum::Router, tokio::task::JoinHandle<()>, Arc<Receivers>) {
         use axum::routing::post;
         use pc_gateway_core::{Executor, HttpGateClient};
         use pc_gateway_types::{CheckPhase, ContextCheckRequest};
@@ -1574,6 +1750,7 @@ pub(crate) mod tests {
             .route(
                 "/v1/context/check",
                 post(|State(received): State<Arc<Receivers>>, Json(request): Json<ContextCheckRequest>| async move {
+                    received.checks.lock().unwrap().push(serde_json::to_value(&request).unwrap());
                     let phase = match request {
                         ContextCheckRequest::BeforeSend { .. } => CheckPhase::BeforeSend,
                         ContextCheckRequest::BeforeRelease { .. } => CheckPhase::BeforeRelease,
@@ -1586,21 +1763,28 @@ pub(crate) mod tests {
                         received.entered.notify_one();
                         std::future::pending::<()>().await;
                     }
-                    Json(serde_json::json!({
+                    let refused = phase == CheckPhase::BeforeSend
+                        && received.refuse_send.load(std::sync::atomic::Ordering::SeqCst);
+                    let mut verdict = serde_json::json!({
                         "schema": pc_gateway_types::CONTEXT_CHECK_SCHEMA,
                         "phase": phase,
-                        "decision": "allow",
-                        "reason_codes": [],
+                        "decision": if refused { "block" } else { "allow" },
+                        "reason_codes": if refused { vec!["forbidden_value"] } else { vec![] },
                         "coverage": {"profile": "text-and-tools.v1", "complete": true},
                         "policy_version": "test",
-                        "valid_until": "2999-01-01T00:00:00Z",
-                        "binding": "test-binding"
-                    }))
+                        "valid_until": "2999-01-01T00:00:00Z"
+                    });
+                    if !refused {
+                        verdict["binding"] = serde_json::json!("test-binding");
+                    }
+                    Json(verdict)
                 }),
             )
             .route(
                 "/v1/chat/completions",
-                post(|State(received): State<Arc<Receivers>>, Json(request): Json<serde_json::Value>| async move {
+                post(|State(received): State<Arc<Receivers>>, body: Bytes| async move {
+                    let request: serde_json::Value = serde_json::from_slice(&body).unwrap();
+                    received.upstream_requests.lock().unwrap().push(body);
                     received.sends.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                     if received.blocked_phase.load(std::sync::atomic::Ordering::SeqCst) == 3 {
                         received.entered.notify_one();
@@ -1662,7 +1846,7 @@ pub(crate) mod tests {
             inject_responses: false,
             inject_code: false,
             sediment: false,
-            steering: None,
+            steering,
             prefix_extraction: false,
             default_scope: "test".into(),
             max_body_bytes: 1024 * 1024,
@@ -1676,6 +1860,74 @@ pub(crate) mod tests {
             ],
         );
         (router, server, received)
+    }
+
+    #[tokio::test]
+    async fn chat_http_steering_is_checked_before_send() {
+        use tower::ServiceExt;
+        for (steering, blocked) in [
+            (None, false),
+            (Some("PC2424_HTTP"), false),
+            (Some("PC2424_HTTP"), true),
+        ] {
+            let (router, server, received) = lifecycle_router_with_steering(
+                Arc::new(pc_gateway_evidence::NoopEvidenceSink),
+                steering.map(str::to_owned),
+            )
+            .await;
+            received
+                .refuse_send
+                .store(blocked, std::sync::atomic::Ordering::SeqCst);
+            let response = router
+                .oneshot(
+                    axum::http::Request::builder()
+                        .method("POST")
+                        .uri("/gateway/v1/chat/completions")
+                        .header("authorization", "Bearer gateway-key")
+                        .header("content-type", "application/json")
+                        .body(axum::body::Body::from(
+                            serde_json::json!({
+                                "model": "test", "messages": [
+                                    {"role": "system", "content": "base"},
+                                    {"role": "user", "content": "hello"}
+                                ]
+                            })
+                            .to_string(),
+                        ))
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(
+                response.status(),
+                if blocked {
+                    StatusCode::FORBIDDEN
+                } else {
+                    StatusCode::CREATED
+                }
+            );
+            let checks = received.checks.lock().unwrap();
+            let checked_body = checks[0]["payload"]["body"].as_str().unwrap();
+            let checked: serde_json::Value = serde_json::from_str(checked_body).unwrap();
+            let messages = checked["messages"].as_array().unwrap();
+            assert_eq!(messages.len(), 2);
+            if let Some(text) = steering {
+                assert_eq!(
+                    messages[0],
+                    serde_json::json!({"role": "system", "content": format!("base\n\n{text}")})
+                );
+            }
+            let sent = received.upstream_requests.lock().unwrap();
+            if blocked {
+                assert!(sent.is_empty());
+                assert_eq!(checks.len(), 1);
+            } else {
+                assert_eq!(sent.len(), 1);
+                assert_eq!(sent[0].as_ref(), checked_body.as_bytes());
+                assert_eq!(checks.len(), 2);
+            }
+            server.abort();
+        }
     }
 
     struct PendingBody {
@@ -1963,7 +2215,7 @@ pub(crate) mod tests {
             target_profile: "codex".into(),
             conversation_id: "codex-thread:a".into(),
             request_body: serde_json::to_vec(&sent).unwrap().into(),
-            response_output: output,
+            response_output: PrefixOutput::Responses(output),
             prepared_contexts: Vec::new(),
             session_id: None,
         };
@@ -2026,9 +2278,11 @@ pub(crate) mod tests {
             target_profile: "codex".into(),
             conversation_id: "codex-thread:a".into(),
             request_body: serde_json::to_vec(&sent).unwrap().into(),
-            response_output: vec![serde_json::json!({"id": "msg_1", "type": "message",
+            response_output: PrefixOutput::Responses(vec![
+                serde_json::json!({"id": "msg_1", "type": "message",
                 "role": "assistant", "status": "completed",
-                "content": [{"type": "output_text", "text": "done", "annotations": []}]})],
+                "content": [{"type": "output_text", "text": "done", "annotations": []}]}),
+            ]),
             prepared_contexts: Vec::new(),
             session_id: None,
         };
@@ -2186,7 +2440,7 @@ pub(crate) mod tests {
             target_profile: "codex".into(),
             conversation_id: "codex-thread:a".into(),
             request_body: serde_json::to_vec(&sent).unwrap().into(),
-            response_output: Vec::new(),
+            response_output: PrefixOutput::Responses(Vec::new()),
             prepared_contexts: Vec::new(),
             session_id: None,
         };
@@ -2606,6 +2860,139 @@ pub(crate) mod tests {
         assert!(!injects(&Format::Chat, Injection::Off, true, true));
     }
 
+    fn chat_turn_kind(request: serde_json::Value) -> pc_gateway_types::TurnKind {
+        let parsed: OpenAiChatRequest = serde_json::from_value(request).unwrap();
+        pc_gateway_protocol::turn_kind(&to_canonical_chat(parsed).unwrap(), "messages")
+    }
+
+    fn responses_turn_kind(request: serde_json::Value) -> pc_gateway_types::TurnKind {
+        let parsed: OpenAiResponsesRequest = serde_json::from_value(request).unwrap();
+        pc_gateway_protocol::turn_kind(&to_canonical_responses(parsed).unwrap(), "input")
+    }
+
+    #[test]
+    fn chat_requests_are_classified_by_their_canonical_tail() {
+        use pc_gateway_types::TurnKind;
+        for (messages, expected) in [
+            (serde_json::json!([]), TurnKind::Empty),
+            (
+                serde_json::json!([{"role": "system", "content": "s"}]),
+                TurnKind::Empty,
+            ),
+            (
+                serde_json::json!([{"role": "user", "content": "hi"}]),
+                TurnKind::UserTurn,
+            ),
+            (
+                serde_json::json!([
+                    {"role": "user", "content": "hi"},
+                    {"role": "assistant", "content": "ok"}
+                ]),
+                TurnKind::AssistantOnly,
+            ),
+            (
+                serde_json::json!([{
+                    "role": "assistant",
+                    "content": null,
+                    "tool_calls": [{"id": "c1", "type": "function",
+                        "function": {"name": "run", "arguments": "{}"}}]
+                }]),
+                TurnKind::ToolContinuation,
+            ),
+            (
+                serde_json::json!([{"role": "tool", "tool_call_id": "c1", "content": "ok"}]),
+                TurnKind::ToolContinuation,
+            ),
+        ] {
+            assert_eq!(
+                chat_turn_kind(serde_json::json!({"model": "m", "messages": messages})),
+                expected,
+                "{messages}"
+            );
+        }
+    }
+
+    #[test]
+    fn responses_requests_are_classified_by_items_not_the_passthrough_role() {
+        use pc_gateway_types::TurnKind;
+        for (input, expected) in [
+            (serde_json::json!([]), TurnKind::Empty),
+            (
+                serde_json::json!([{"type": "message", "role": "user",
+                    "content": [{"type": "input_text", "text": "继续"}]}]),
+                TurnKind::UserTurn,
+            ),
+            (
+                serde_json::json!([{"type": "message", "role": "assistant",
+                    "content": [{"type": "output_text", "text": "ok"}]}]),
+                TurnKind::AssistantOnly,
+            ),
+            (
+                serde_json::json!([
+                    {"type": "message", "role": "user",
+                        "content": [{"type": "input_text", "text": "继续"}]},
+                    {"type": "message", "role": "assistant",
+                        "content": [{"type": "output_text", "text": "done"}]}
+                ]),
+                TurnKind::AssistantOnly,
+            ),
+            (
+                serde_json::json!([{"type": "message", "role": "developer",
+                    "content": [{"type": "input_text", "text": "reminder"}]}]),
+                TurnKind::Empty,
+            ),
+            (
+                serde_json::json!([{"type": "message", "role": "system",
+                    "content": [{"type": "input_text", "text": "s"}]}]),
+                TurnKind::Empty,
+            ),
+            // 新用户提问之后跟一条 developer 提示：尾部仍是该用户回合。
+            (
+                serde_json::json!([
+                    {"type": "message", "role": "user",
+                        "content": [{"type": "input_text", "text": "继续"}]},
+                    {"type": "message", "role": "developer",
+                        "content": [{"type": "input_text", "text": "harness reminder"}]}
+                ]),
+                TurnKind::UserTurn,
+            ),
+            (
+                serde_json::json!([{"type": "function_call", "call_id": "c1",
+                    "name": "run", "arguments": "{}"}]),
+                TurnKind::ToolContinuation,
+            ),
+            (
+                serde_json::json!([{"type": "function_call_output", "call_id": "c1",
+                    "output": "ok"}]),
+                TurnKind::ToolContinuation,
+            ),
+            (
+                serde_json::json!([{"type": "computer_call_output", "call_id": "c2",
+                    "output": "ok"}]),
+                TurnKind::ToolContinuation,
+            ),
+            (
+                serde_json::json!([{"type": "mcp_approval_request"}]),
+                TurnKind::ToolContinuation,
+            ),
+            (
+                serde_json::json!([{"type": "mcp_approval_response"}]),
+                TurnKind::ToolContinuation,
+            ),
+            // 类型省略的消息 item 走同一路径。
+            (
+                serde_json::json!([{"role": "developer", "content": "reminder"}]),
+                TurnKind::Empty,
+            ),
+        ] {
+            assert_eq!(
+                responses_turn_kind(serde_json::json!({"model": "m", "input": input})),
+                expected,
+                "{input}"
+            );
+        }
+    }
+
     #[test]
     fn the_default_injects_only_requests_with_a_conversation_id() {
         assert!(injects(
@@ -2632,6 +3019,30 @@ pub(crate) mod tests {
             true,
             false
         ));
+    }
+
+    #[test]
+    fn only_the_internal_turn_value_opts_a_request_out() {
+        let mut headers = HeaderMap::new();
+        assert_eq!(internal_turn(&headers), Ok(false));
+        headers.insert(TURN_HEADER, "internal".parse().unwrap());
+        assert_eq!(internal_turn(&headers), Ok(true));
+        headers.insert(TURN_HEADER, "Internal".parse().unwrap());
+        assert_eq!(internal_turn(&headers), Ok(true));
+        headers.insert(TURN_HEADER, "true".parse().unwrap());
+        assert_eq!(internal_turn(&headers), Err(()));
+        headers.insert(TURN_HEADER, "user".parse().unwrap());
+        assert_eq!(internal_turn(&headers), Err(()));
+        headers.insert(TURN_HEADER, "".parse().unwrap());
+        assert_eq!(internal_turn(&headers), Err(()));
+        headers.insert(TURN_HEADER, "x".repeat(300).parse().unwrap());
+        assert_eq!(internal_turn(&headers), Err(()));
+        headers.insert(TURN_HEADER, "in ternal".parse().unwrap());
+        assert_eq!(internal_turn(&headers), Err(()));
+        headers.remove(TURN_HEADER);
+        headers.append(TURN_HEADER, "internal".parse().unwrap());
+        headers.append(TURN_HEADER, "user".parse().unwrap());
+        assert_eq!(internal_turn(&headers), Err(()));
     }
 
     #[test]

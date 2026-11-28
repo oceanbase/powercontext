@@ -43,6 +43,7 @@ from powercontext.server.dashboard.session import authentication_headers, login_
 
 _BODYLESS_PUBLIC_PATHS = frozenset({"/", "/docs", "/health/live", "/health/ready"})
 _REMOTE_SKILL_TARGET_PATHS = frozenset({
+    ENROLL_REMOTE_SKILL_TARGET.path,
     RECONCILE_REMOTE_SKILLS.path,
     DOWNLOAD_REMOTE_SKILL_PACKAGE.path,
     RECORD_REMOTE_SKILL_RECEIPT.path,
@@ -73,6 +74,12 @@ class AuthenticationMiddleware:
             await self.app(scope, receive, send)
             return
         path = scope["path"]
+        if path == ENROLL_REMOTE_SKILL_TARGET.path and scope["method"] != ENROLL_REMOTE_SKILL_TARGET.method:
+            response = JSONResponse(
+                {"detail": "Method Not Allowed"}, status_code=405, headers={"Allow": ENROLL_REMOTE_SKILL_TARGET.method}
+            )
+            await response(scope, receive, send)
+            return
         if scope["method"] == "POST" and path in _REMOTE_SKILL_TARGET_PATHS:
             if self._authenticate_remote_skill is not None:
                 rejection = await self._authenticate_remote_skill(Request(scope))
@@ -83,7 +90,6 @@ class AuthenticationMiddleware:
             return
         if (
             self._provider is None
-            or path == ENROLL_REMOTE_SKILL_TARGET.path
             or (self._dashboard_enabled and scope["method"] == "POST" and path == "/dashboard/session")
             or is_bodyless_public_request(scope, dashboard_enabled=self._dashboard_enabled)
         ):

@@ -125,7 +125,8 @@ gateway 也会采集这一轮。Core 检查 gateway 转发的每个请求，拒�
 在每种隐私模式下都是如此：Core 返回 HTTP 422，gateway 返回 HTTP 503 `gate_paused`。本适配器有两处会产生这样的块：
 
 - `PowerContext` Capability 在每次运行中添加一个。请改用 `PowerContextToolset`，由 gateway 采集各轮。
-- `powercontext_context` 的工具结果带有一个，Core 会拒绝把它返回给模型的请求。请过滤掉这个工具。
+- `powercontext_context` 的工具结果带有一个，Core 会拒绝把它返回给模型的请求。
+  构造工具集时请设置 `include_context_tool=False`，这样既不提供这个工具，也会从工具集说明中去掉它的那一行。
 
 `openai:` 模型字符串本身就会选择 Responses 模型；要让它指向 gateway 的 `/gateway/v1`，请显式构造：
 
@@ -141,7 +142,7 @@ model = OpenAIResponsesModel(
     "approved-model",
     provider=OpenAIProvider(base_url="http://127.0.0.1:8787/gateway/v1", api_key=os.environ["PC_GATEWAY_KEY"]),
 )
-toolset = PowerContextToolset().filtered(lambda ctx, tool_def: tool_def.name != "powercontext_context")
+toolset = PowerContextToolset(include_context_tool=False)
 agent = Agent(model, toolsets=[toolset])
 
 result = await agent.run(
@@ -153,9 +154,11 @@ result = await agent.run(
 
 `PC_GATEWAY_KEY` 保存 gateway 的 `PC_GATEWAY_API_KEY` 值。这个请求头标识会话：每个会话使用一个稳定的 ID，长度为 1～256
 个可见 ASCII 字符；不要让所有会话共用一个 ID。组合部署（`PC_GATEWAY_CORE_UDS`）
-默认只向带有这个请求头或其他可识别会话头的请求注入上下文，每条用户消息准备一次，并把结果重放给本次运行的工具循环步骤。
-无法发送这个请求头的应用需要设置 `PC_GATEWAY_INJECTION=on`，此时 gateway 为每个请求分别准备；独立运行的
-gateway（`PC_GATEWAY_CORE_BASE`）只有设置了这一项才会注入。
+在一个会话中每条用户消息准备一次，并把结果重放给本次运行的工具循环步骤。没有这个请求头时，它根据请求的历史开头推导会话：
+除非设置 `openai_previous_response_id` 或 `openai_conversation_id`，Pydantic AI 每次请求都发送完整的消息历史；
+以 system 消息和一条用户 prompt 开头的历史即可推导。请求头仍能区分开头相同的会话，
+并为采集和前缀提取提供在 gateway 重启后保持不变的会话标识；推导出的 ID 仅在当前 gateway 进程内用于重放准备结果。
+独立运行的 gateway（`PC_GATEWAY_CORE_BASE`）只有设置 `PC_GATEWAY_INJECTION=on` 才会注入。
 见[网关上下文注入](../operate/deploy-server.md#网关上下文注入)。
 
 开始经过 gateway 时请使用新的消息历史。使用 Capability 的运行会把召回内容作为 system prompt part 保留在历史中；

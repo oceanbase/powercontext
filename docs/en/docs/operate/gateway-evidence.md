@@ -108,10 +108,41 @@ Retries keep one `call_id` and increment attempt numbers only after fresh admiss
 retried. The legacy demo-only `record_not_sent(0, ...)` diagnostics for preparation/capture/degradation are not
 exported and are not model-send facts.
 
+## Turn classification
+
+Each `call` record carries `turn_kind`, the classification of the inbound request's tail: `user_turn` (a user
+message), `tool_continuation` (a tool result or a tool-call item), `assistant_only` (an assistant message or another
+assistant-side item without a tool call), or `empty` (no messages, a system/developer message, or only items of that
+kind). It is `null` when the embedding host did not classify the call.
+
+Chat requests anchor on the last user message and classify from the tail after it. Responses requests keep non-user
+items verbatim in a `tool` carrier, so their kind comes from the item's own `role` and `type`: client tool calls,
+their outputs, and MCP approval round trips are tool continuations; assistant messages, reasoning-like items and
+tools the provider already completed are assistant-only; a request with no user message and only system/developer
+items is empty. Clients and the gateway's own instruction append system/developer items after the user query, and
+such a tail does not hide that user turn. Classification itself reads no message content and adds no provider or Core
+request. Only a user turn queries Core for context; every other kind reuses the turn's prepared block when a replay
+entry exists and otherwise skips preparation and replay.
+
+`turn_kind` describes the shape of the request; `internal` records that the host marked it. A request can be both
+`user_turn` and `internal` when a host sends a user-shaped request that is not a turn.
+
+The executor also emits one debug-level structured event per decision with a `turn_kind` field; raise `RUST_LOG` for
+the core crate to record it. Per-kind totals are process-local cumulative counters (`Executor::turn_counters()`) that
+cover every classified call, including requests that are not eligible for context injection. The skipped-preparation
+count covers calls eligible for injection whose tail is not a user turn and have no replay entry. All counters are
+never metric labels or per-record fields, and they reset on process restart. A call that skips preparation this way
+sets `prepare_skipped` to `true`; a call that prepares or reuses a replay entry keeps it `false`.
+When serving stops, the production host logs one `gateway turn classification totals` event at INFO with the same five
+counts (`user_turn`, `tool_continuation`, `assistant_only`, `empty`, `skipped_prepare`). It carries no request identity,
+and `RUST_LOG` filtering applies.
+
 ## Terminal and send facts
 
 The `call` record contains `terminal`, `sending`, `attempts`, `upstream_status`, normalized `usage`, optional
-`interruption`, and timing fields. Terminal values are `release_authorized`, `blocked`, `withheld`,
+`interruption`, `internal`, and timing fields. `internal` is true when the host marked the request with
+`X-PowerContext-Turn: internal`; the request is still checked and forwarded, but it is never prepared, injected,
+replayed or captured as a turn. Terminal values are `release_authorized`, `blocked`, `withheld`,
 `send_indeterminate`, `not_sent`, `gate_paused`, `degraded`, `admission_expired`, and `abandoned`.
 A known lifecycle stop is encoded as `{"stopped":"deadline_exceeded"}`, `{"stopped":"gateway_shutdown"}`,
 or `{"stopped":"request_cancelled"}`.

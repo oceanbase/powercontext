@@ -37,13 +37,20 @@ pub struct PrefixEntry {
     pub conversation_id: String,
     /// 发给上游的原始请求体（终止响应对应的那次请求）。
     pub request_body: bytes::Bytes,
-    /// 终止响应的 output 条目。
-    pub response_output: Vec<serde_json::Value>,
+    /// 终止响应中可以重放的内容。
+    pub response_output: PrefixOutput,
     /// 原请求里注入块的绑定与位置。抽取请求原样沿用，前缀里的注入块才能凭原绑定通过检查。
     pub prepared_contexts: Vec<pc_gateway_types::PreparedContextLocation>,
     /// 原请求带给上游的会话标识（[`UPSTREAM_SESSION_HEADER`]）。上游按它路由提示缓存，抽取请求带同一个值
     /// 才能命中这段前缀的缓存。
     pub session_id: Option<String>,
+}
+
+/// The terminal output and the wire protocol used to retain it.
+#[derive(Clone, Debug)]
+pub enum PrefixOutput {
+    Chat(String),
+    Responses(Vec<serde_json::Value>),
 }
 
 /// 上游用来把同一会话的请求路由到同一份提示缓存的请求头。
@@ -52,12 +59,11 @@ pub const UPSTREAM_SESSION_HEADER: &str = "session-id";
 impl PrefixEntry {
     /// 请求体与响应输出的字节数。
     fn bytes(&self) -> usize {
-        self.request_body.len()
-            + self
-                .response_output
-                .iter()
-                .map(|item| item.to_string().len())
-                .sum::<usize>()
+        let output_bytes = match &self.response_output {
+            PrefixOutput::Chat(text) => text.len(),
+            PrefixOutput::Responses(items) => items.iter().map(|item| item.to_string().len()).sum(),
+        };
+        self.request_body.len() + output_bytes
     }
 }
 
@@ -127,7 +133,7 @@ mod tests {
             target_profile: "codex".into(),
             conversation_id: "codex-thread:a".into(),
             request_body: bytes::Bytes::from_static(b"{}"),
-            response_output: Vec::new(),
+            response_output: PrefixOutput::Responses(Vec::new()),
             prepared_contexts: Vec::new(),
             session_id: None,
         }

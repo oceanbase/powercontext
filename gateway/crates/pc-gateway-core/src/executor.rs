@@ -30,9 +30,11 @@
 
 use crate::evidence::CallRecorder;
 use crate::lifecycle::Execution;
-use crate::prefix_store::{PrefixEntry, PrefixStore};
+use crate::prefix_store::{PrefixEntry, PrefixOutput, PrefixStore};
 use crate::replay_cache::{message_anchor, PreparedBlock, ReplayCache, MAX_REPLAY_MS};
 use crate::transcript::turn_transcript;
+use crate::turn::{TurnCounterSnapshot, TurnCounters};
+use crate::turn_message::{is_text_part, last_user_index, text_part};
 
 /// Core 的 before_send 在复用证明的依赖已变化或证明已失效时给出的 withhold 原因。
 const CONTEXT_REFRESH_REQUIRED: &str = "context-refresh-required";
@@ -40,14 +42,14 @@ use crate::{GateClient, GateError};
 use crate::{LifecycleStopReason, ModelSendState, RequestControl};
 use pc_gateway_evidence::EvidenceSink;
 use pc_gateway_evidence::UsageMapping;
-use pc_gateway_protocol::{CanonicalRequest, WireRenderer};
+use pc_gateway_protocol::{turn_kind, CanonicalRequest, Role, WireRenderer};
 use pc_gateway_transport::{
     AdmittedSend, RawResponse, SendIndeterminateReason, SendOutcome, Transport,
 };
 use pc_gateway_types::{
     parse_rfc3339_ms, CaptureContentSource, CaptureContentSourcesRequest, CheckDecision,
     CheckPhase, ContextCheckRequest, ContextCheckResult, ModelJsonPayload, ModelJsonTextLocation,
-    PrepareContextRequest, PreparedContextLocation,
+    PrepareContextRequest, PreparedContextLocation, TurnKind,
 };
 use std::collections::BTreeMap;
 use std::num::NonZeroU32;
@@ -81,6 +83,8 @@ pub struct ManagedCall {
     /// 沉淀时保留本回合的上游请求与响应输出，供 Core 复用前缀缓存抽取记忆（#2413，默认关）。
     pub capture_prefix: bool,
     pub sediment: bool,
+    /// The host marked this request as a non-turn (`X-PowerContext-Turn: internal`).
+    pub internal: bool,
     pub prepared_contexts: Vec<PreparedContextLocation>,
 }
 
@@ -150,6 +154,19 @@ impl ManagedOutcome {
     }
 }
 
+/// 召回策略：用户回合总是准备；复用证明失效后的重试额外放行一次非用户回合的准备。
+#[derive(Clone, Copy)]
+struct RecallPolicy {
+    kind: TurnKind,
+    reprepare: bool,
+}
+
+impl RecallPolicy {
+    fn allows_prepare(self) -> bool {
+        self.kind == TurnKind::UserTurn || self.reprepare
+    }
+}
+
 pub struct Executor<G, T> {
     gate: G,
     transport: T,
@@ -163,6 +180,7 @@ pub struct Executor<G, T> {
     capture_batch: Option<usize>,
     require_privacy_coverage: bool,
     prefixes: PrefixStore,
+    turn_counters: TurnCounters,
 }
 
 /// One-way admission closure, also usable by a process signal handler. Closing
@@ -212,6 +230,7 @@ where
             capture_batch: Some(128),
             require_privacy_coverage: true,
             prefixes: PrefixStore::default(),
+            turn_counters: TurnCounters::default(),
         }
     }
 
@@ -302,6 +321,11 @@ where
         self
     }
 
+    /// 进程内累计的回合类型判定与跳过准备次数。
+    pub fn turn_counters(&self) -> TurnCounterSnapshot {
+        self.turn_counters.snapshot()
+    }
+
     pub async fn run<R: WireRenderer>(
         &self,
         control: RequestControl,
@@ -333,6 +357,7 @@ where
                 "messages" => Some(UsageMapping::OpenAiChat),
                 _ => None,
             },
+            call.internal,
         );
         let mut execution = control.start();
         let lifecycle = execution.lifecycle();
@@ -374,6 +399,11 @@ where
         // P1-3：enrich 之前快照原始请求。降级路径必须用这份（不含注入内容）
         // 重新渲染，否则 prepare 召回的私密记忆会在未经任何检查的情况下外发。
         let pristine_request = call.request.clone();
+        // 回合类型只由原始请求尾部决定；在重放与准备之前判定一次，供证据、计数与召回决策共用。
+        let kind = turn_kind(&pristine_request, renderer.message_list_key());
+        recording.turn_kind(kind);
+        self.turn_counters.record(kind);
+        tracing::debug!(turn_kind = kind.as_str(), "gateway request turn classified");
 
         let conversation = call.conversation_id.clone();
         let replay = conversation
@@ -382,6 +412,8 @@ where
             .filter(|_| call.inject_context)
             .and_then(|id| Some((id, message_anchor(&pristine_request)?)));
         let mut refreshed = false;
+        // Core 使已重放的块失效后，本请求需要重新准备一次；`refreshed` 保证每个请求至多刷新一次。
+        let mut reprepare = false;
         let (payload, admission) = loop {
             if let Err(stop) = execution.checkpoint() {
                 return stop;
@@ -389,9 +421,10 @@ where
             if call.inject_context {
                 self.enrich(
                     &mut call,
+                    RecallPolicy { kind, reprepare },
                     replay,
                     renderer.message_list_key(),
-                    evidence,
+                    recording,
                     execution,
                 )
                 .await;
@@ -464,6 +497,7 @@ where
                                 capture_prefix: false,
                                 conversation_id: None,
                                 sediment: false,
+                                internal: call.internal,
                                 prepared_contexts: Vec::new(),
                             };
                             degraded_call.request.stream = call.request.stream;
@@ -507,6 +541,7 @@ where
                                 .any(|reason| reason == CONTEXT_REFRESH_REQUIRED) =>
                     {
                         refreshed = true;
+                        reprepare = true;
                         if let Some((conversation, anchor)) = replay {
                             self.replays.forget(&call.scope_id, conversation, anchor);
                         }
@@ -743,6 +778,7 @@ where
                             // 前缀里、不在 Source 里，Core 的抽取指令说明标记内的内容不是证据。
                             let prefix = self.keep_prefix(
                                 &call,
+                                &pristine_request,
                                 &payload.bytes,
                                 &release_body,
                                 renderer.message_list_key(),
@@ -846,22 +882,60 @@ where
         self.prefixes.get(handle, scope_id, now_ms())
     }
 
-    /// 保留一个 Responses 回合的终止请求与响应输出，返回要写入 Source 元数据的句柄和前缀规模。只用于可信会话。
+    /// 保留一个回合的终止请求与响应输出，返回要写入 Source 元数据的句柄和前缀规模。只用于可信会话。
     /// 规模取自终止响应的用量：输入部分在抽取时命中缓存，输出部分作为新输入计费，Core 据此判断复用前缀是否比
     /// 普通抽取便宜。
     fn keep_prefix(
         &self,
         call: &ManagedCall,
+        pristine: &CanonicalRequest,
         sent: &bytes::Bytes,
         release_body: &str,
         list_key: &str,
     ) -> Option<Vec<(&'static str, serde_json::Value)>> {
-        if !call.capture_prefix || list_key != "input" {
+        if !call.capture_prefix {
+            return None;
+        }
+        // Core's prefix extractors start at the last wire user message. If
+        // that message is a reminder, use ordinary extraction from the
+        // captured Source, whose boundary is the actual prompt.
+        let prompt = last_user_index(pristine)?;
+        let last_user = pristine
+            .messages
+            .iter()
+            .rposition(|message| message.role == Role::User)?;
+        if prompt != last_user {
             return None;
         }
         let conversation_id = call.conversation_id.clone()?;
         let response: serde_json::Value = serde_json::from_str(release_body).ok()?;
-        let response_output = response.get("output")?.as_array()?.clone();
+        let (response_output, input_field, output_field) = match list_key {
+            "input" => (
+                PrefixOutput::Responses(response.get("output")?.as_array()?.clone()),
+                "input_tokens",
+                "output_tokens",
+            ),
+            "messages" => {
+                // Replay only a single completed text choice as a Chat assistant message.
+                let [choice] = response.get("choices")?.as_array()?.as_slice() else {
+                    return None;
+                };
+                let message = choice.get("message")?;
+                let text = message.get("content")?.as_str()?;
+                if choice.get("finish_reason")?.as_str()? != "stop"
+                    || message.get("role")?.as_str()? != "assistant"
+                    || text.trim().is_empty()
+                {
+                    return None;
+                }
+                (
+                    PrefixOutput::Chat(text.to_owned()),
+                    "prompt_tokens",
+                    "completion_tokens",
+                )
+            }
+            _ => return None,
+        };
         let usage = response.get("usage");
         let tokens = |field: &str| usage.and_then(|u| u.get(field)).and_then(|v| v.as_u64());
         let handle = self.prefixes.add(
@@ -883,33 +957,47 @@ where
             now_ms(),
         )?;
         let mut fields = vec![("prefix_handle", handle.into())];
-        if let (Some(input), Some(output)) = (tokens("input_tokens"), tokens("output_tokens")) {
+        if let (Some(input), Some(output)) = (tokens(input_field), tokens(output_field)) {
             fields.push(("prefix_input_tokens", input.into()));
             fields.push(("prefix_output_tokens", output.into()));
         }
         Some(fields)
     }
 
+    /// 用户回合准备并注入；非用户回合只复用本轮已准备的块，不发起新的查询。
     /// 有重放会话 ID 时：同一消息锚点（工具续写、重试）精确重放已准备的内容与绑定，不再检索；
-    /// 新锚点（新的用户消息）准备一次。没有会话 ID 时每个请求各自准备，不继承任何旧注入。
+    /// 新锚点（新的用户消息）准备一次。没有重放身份时每个用户回合各自准备，不继承任何旧注入，
+    /// 因此没有重放身份的工具续写既不准备也不注入。
+    /// 复用证明失效后的重试由 `RecallPolicy::reprepare` 放行一次：非用户回合也重新准备，
+    /// 不把可恢复的失效直接交给客户端；调用方保证每个请求至多放行一次。
     /// 准备失败不写入，下一次请求重试，且不阻塞本次请求；空结果同样重放。
     async fn enrich(
         &self,
         call: &mut ManagedCall,
+        policy: RecallPolicy,
         replay: Option<(&str, u64)>,
         list_key: &str,
-        evidence: &dyn EvidenceSink,
+        recording: &mut CallRecorder<'_>,
         execution: &Execution,
     ) {
         let cached = replay.and_then(|(conversation, anchor)| {
             self.replays
                 .get(&call.scope_id, conversation, anchor, now_ms())
         });
+        if cached.is_none() && !policy.allows_prepare() {
+            self.turn_counters.record_skipped_prepare();
+            recording.prepare_skipped();
+            tracing::debug!(
+                turn_kind = policy.kind.as_str(),
+                "skipping prepare for a non-user turn without a replay entry"
+            );
+            return;
+        }
         let prepared = match cached {
             Some(prepared) => prepared,
             None => {
                 let Some((prepared, expires_at)) =
-                    self.prepare_turn(call, evidence, execution).await
+                    self.prepare_turn(call, recording, execution).await
                 else {
                     return;
                 };
@@ -943,7 +1031,7 @@ where
     async fn prepare_turn(
         &self,
         call: &ManagedCall,
-        evidence: &dyn EvidenceSink,
+        recording: &mut CallRecorder<'_>,
         execution: &Execution,
     ) -> Option<(Option<PreparedBlock>, Option<String>)> {
         let query = last_user_text(&call.request)?;
@@ -969,7 +1057,7 @@ where
         let prepared = match prepared {
             Ok(p) => p,
             Err(_) => {
-                evidence.record_not_sent(0, "prepare_failed");
+                recording.prepare_failed();
                 tracing::warn!("prepare failed; injecting nothing");
                 return None;
             }
@@ -1229,21 +1317,6 @@ fn classify_gate_error(e: GateError) -> String {
     }
 }
 
-/// 文本内容部件：Chat 为 `text`，Responses 的用户输入为 `input_text`。
-fn is_text_part(part: &serde_json::Value) -> bool {
-    matches!(
-        part.get("type").and_then(|t| t.as_str()),
-        Some("text" | "input_text")
-    )
-}
-
-fn last_user_index(request: &CanonicalRequest) -> Option<usize> {
-    request
-        .messages
-        .iter()
-        .rposition(|m| matches!(m.role, pc_gateway_protocol::Role::User))
-}
-
 fn last_user_text(request: &CanonicalRequest) -> Option<String> {
     let i = last_user_index(request)?;
     match request.messages[i].content.as_slice() {
@@ -1251,11 +1324,7 @@ fn last_user_text(request: &CanonicalRequest) -> Option<String> {
         // typed content parts：[{"type":"text"或"input_text","text":"..."},...] → 拼接 text 字段。
         // 这是 Chat 与 Responses 的合法形态；不处理会导致沉淀 user 为空 + 注入被跳过。
         parts if !parts.is_empty() => {
-            let texts: Vec<String> = parts
-                .iter()
-                .filter(|p| is_text_part(p))
-                .filter_map(|p| p.get("text").and_then(|t| t.as_str()).map(String::from))
-                .collect();
+            let texts: Vec<_> = parts.iter().filter_map(text_part).collect();
             if texts.is_empty() {
                 None
             } else {
@@ -1271,10 +1340,7 @@ fn last_user_text(request: &CanonicalRequest) -> Option<String> {
 /// 各自的标识。
 fn turn_digest(call: &ManagedCall, pristine: &CanonicalRequest) -> Option<String> {
     let conversation = call.conversation_id.as_deref()?;
-    let last_user = pristine
-        .messages
-        .iter()
-        .rposition(|m| matches!(m.role, pc_gateway_protocol::Role::User))?;
+    let last_user = last_user_index(pristine)?;
     let messages = serde_json::to_string(&pristine.messages[..=last_user]).ok()?;
     Some(simple_digest(&format!(
         "{}\n{}\n{}\n{messages}",

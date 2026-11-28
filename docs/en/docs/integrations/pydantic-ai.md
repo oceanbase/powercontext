@@ -134,7 +134,8 @@ the gateway returns HTTP 503 `gate_paused`. Two parts of this adapter produce su
 
 - The `PowerContext` capability adds one to each run. Use `PowerContextToolset` instead; the gateway captures the turns.
 - `powercontext_context` returns one as its tool result, which makes Core reject the request that returns it to the
-  model. Filter the tool out.
+  model. Build the toolset with `include_context_tool=False`, which leaves the tool out and drops its line from the
+  toolset instructions.
 
 An `openai:` model string already selects the Responses model; build it explicitly to point it at the gateway's
 `/gateway/v1`:
@@ -151,7 +152,7 @@ model = OpenAIResponsesModel(
     "approved-model",
     provider=OpenAIProvider(base_url="http://127.0.0.1:8787/gateway/v1", api_key=os.environ["PC_GATEWAY_KEY"]),
 )
-toolset = PowerContextToolset().filtered(lambda ctx, tool_def: tool_def.name != "powercontext_context")
+toolset = PowerContextToolset(include_context_tool=False)
 agent = Agent(model, toolsets=[toolset])
 
 result = await agent.run(
@@ -163,10 +164,13 @@ result = await agent.run(
 
 `PC_GATEWAY_KEY` holds the gateway's `PC_GATEWAY_API_KEY` value. The header names the conversation: use one stable ID
 per conversation, of 1 to 256 visible ASCII characters, and never one ID for every conversation. A combined deployment
-(`PC_GATEWAY_CORE_UDS`) injects by default only into requests that carry this header or another recognized session
-header, prepares once per user message, and replays that context to the tool-loop steps of the run. An application that
-cannot send the header needs `PC_GATEWAY_INJECTION=on`, which prepares each request separately; a standalone gateway
-(`PC_GATEWAY_CORE_BASE`) injects only with that setting. See [Gateway context
+(`PC_GATEWAY_CORE_UDS`) prepares once per user message of a conversation and replays that context to the tool-loop steps
+of the run. Without the header, it infers the conversation from the opening of the request: Pydantic AI sends the full
+message history on every request unless `openai_previous_response_id` or `openai_conversation_id` is set, and a history
+that opens with system messages and a user prompt qualifies. The header still keeps apart conversations that open the
+same way, and gives capture and prefix extraction a conversation identity that stays the same across gateway restarts;
+an inferred ID is local to the gateway process and serves only preparation replay. A standalone gateway
+(`PC_GATEWAY_CORE_BASE`) injects only with `PC_GATEWAY_INJECTION=on`. See [Gateway context
 injection](../operate/deploy-server.md#gateway-context-injection).
 
 Start behind the gateway with new message history. History from runs with the capability keeps the recalled context as a

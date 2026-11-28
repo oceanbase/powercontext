@@ -57,7 +57,9 @@ struct Peers {
     replies: Mutex<VecDeque<Reply>>,
     sent: Mutex<Vec<(HeaderMap, Bytes)>>,
     checks: Mutex<Vec<Value>>,
+    queries: Mutex<Vec<Value>>,
     prepares: Mutex<Vec<Value>>,
+    fixed_preparation: Mutex<bool>,
     captures: Mutex<Vec<Value>>,
     deny: Option<(&'static str, &'static str)>,
 }
@@ -121,22 +123,35 @@ async fn check(
     .into_response()
 }
 
-async fn capture(State(peers): State<Arc<Peers>>, Json(request): Json<Value>) -> Json<Value> {
-    peers.captures.lock().unwrap().push(request);
-    Json(json!({}))
-}
+const PREPARED_BLOCK: &str = "Recall: température";
 
 async fn prepare(State(peers): State<Arc<Peers>>, Json(request): Json<Value>) -> Json<Value> {
-    let mut prepares = peers.prepares.lock().unwrap();
-    prepares.push(request);
-    let content = format!("Prepared context {}", prepares.len());
+    peers.queries.lock().unwrap().push(request["query"].clone());
+    let preparation = {
+        let mut prepares = peers.prepares.lock().unwrap();
+        prepares.push(request);
+        prepares.len()
+    };
+    let (content, binding) = if *peers.fixed_preparation.lock().unwrap() {
+        (PREPARED_BLOCK.to_owned(), "test-reuse".to_owned())
+    } else {
+        (
+            format!("Prepared context {preparation}"),
+            format!("reuse-{preparation}"),
+        )
+    };
     Json(json!({
         "schema": "powercontext.prepared-context-with-reuse.v1",
         "context": {"schema": "powercontext.prepared-context.v1", "status": "ready",
             "content": content, "content_bytes": content.len()},
-        "reuse": {"schema": "powercontext.context-reuse.v1", "expires_at": "2999-01-01T00:00:00Z",
-            "binding": format!("reuse-{}", prepares.len())}
+        "reuse": {"schema": "powercontext.context-reuse.v1",
+            "expires_at": "2999-01-01T00:00:00Z", "binding": binding}
     }))
+}
+
+async fn capture(State(peers): State<Arc<Peers>>, Json(request): Json<Value>) -> Json<Value> {
+    peers.captures.lock().unwrap().push(request);
+    Json(json!({}))
 }
 
 struct Gateway {
@@ -171,6 +186,29 @@ impl Gateway {
     async fn start(replies: Vec<Reply>, deny: Option<(&'static str, &'static str)>) -> Self {
         // Golden protocol fixtures exercise requests without operator steering.
         Self::start_with_env(replies, deny, &[("PC_GATEWAY_STEERING", "off")], true).await
+    }
+
+    async fn start_with_memory(
+        replies: Vec<Reply>,
+        deny: Option<(&'static str, &'static str)>,
+        memory: bool,
+    ) -> Self {
+        let setting = if memory { "on" } else { "off" };
+        let gateway = Self::start_with_env(
+            replies,
+            deny,
+            &[
+                ("PC_GATEWAY_STEERING", "off"),
+                // Reminder tests compare captures byte-for-byte without opaque prefix handles.
+                ("PC_GATEWAY_PREFIX_EXTRACTION", "off"),
+                ("PC_GATEWAY_INJECTION", setting),
+                ("PC_GATEWAY_SEDIMENT", setting),
+            ],
+            true,
+        )
+        .await;
+        *gateway.peers.fixed_preparation.lock().unwrap() = true;
+        gateway
     }
 
     async fn start_with_env(
@@ -318,6 +356,17 @@ impl Gateway {
         self.client
             .post(format!("{}/{route}", self.base))
             .bearer_auth("gateway-test-key")
+            .json(request)
+            .send()
+            .await
+            .unwrap()
+    }
+
+    async fn post_turn(&self, request: &Value) -> reqwest::Response {
+        self.client
+            .post(format!("{}/chat/completions", self.base))
+            .bearer_auth("gateway-test-key")
+            .header("X-PowerContext-Conversation-ID", "chat-cost-test")
             .json(request)
             .send()
             .await
@@ -564,7 +613,10 @@ async fn chat_captures_a_streamed_turn_after_tool_continuation() {
     let gateway = Gateway::start_with_env(
         vec![tool, terminal, json_reply],
         None,
-        &[("PC_GATEWAY_SEDIMENT", "on")],
+        &[
+            ("PC_GATEWAY_SEDIMENT", "on"),
+            ("PC_GATEWAY_STEERING", "off"),
+        ],
         false,
     )
     .await;
@@ -618,8 +670,106 @@ async fn chat_captures_a_streamed_turn_after_tool_continuation() {
 }
 
 #[tokio::test]
+async fn an_internal_request_skips_prepare_and_capture_but_still_checks() {
+    let reply = Reply::fixture("fantasy_chat_simple_streaming", 0);
+    let body = request("chat", "simple", true);
+    let settings = [
+        ("PC_GATEWAY_INJECTION", "on"),
+        ("PC_GATEWAY_SEDIMENT", "on"),
+    ];
+    let gateway = Gateway::start_with_env(vec![reply], None, &settings, true).await;
+    let response = gateway
+        .client
+        .post(format!("{}/chat/completions", gateway.base))
+        .bearer_auth("gateway-test-key")
+        .header("x-powercontext-conversation-id", "coding-client-001")
+        .header("x-powercontext-turn", "internal")
+        .json(&body)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200);
+    response.bytes().await.unwrap();
+
+    assert!(gateway.peers.prepares.lock().unwrap().is_empty());
+    assert!(gateway.peers.captures.lock().unwrap().is_empty());
+    assert!(!gateway.peers.checks.lock().unwrap().is_empty());
+    {
+        let sent = gateway.peers.sent.lock().unwrap();
+        assert!(!sent[0].0.contains_key("x-powercontext-turn"));
+        let steering = include_str!("../src/default_steering.txt").trim();
+        assert!(!std::str::from_utf8(&sent[0].1).unwrap().contains(steering));
+    }
+
+    // The motivating case has no conversation header at all: without the turn marker the
+    // gateway would infer an identity from the system+user opening and prepare context.
+    let reply = Reply::fixture("fantasy_chat_simple_streaming", 0);
+    let gateway = Gateway::start_with_env(vec![reply], None, &settings, true).await;
+    let response = gateway
+        .client
+        .post(format!("{}/chat/completions", gateway.base))
+        .bearer_auth("gateway-test-key")
+        .header("x-powercontext-turn", "internal")
+        .json(&body)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200);
+    response.bytes().await.unwrap();
+    assert!(gateway.peers.prepares.lock().unwrap().is_empty());
+    assert!(gateway.peers.captures.lock().unwrap().is_empty());
+    assert!(!gateway.peers.checks.lock().unwrap().is_empty());
+
+    let deadline = std::time::Instant::now() + Duration::from_secs(2);
+    loop {
+        let log = std::fs::read_to_string(&gateway.log).unwrap_or_default();
+        let recorded = log.lines().any(|line| {
+            serde_json::from_str::<Value>(line)
+                .ok()
+                .is_some_and(|value| value["evidence"]["internal"] == true)
+        });
+        if recorded {
+            break;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "internal call evidence was not exported: {log}"
+        );
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+}
+
+#[tokio::test]
+async fn an_unknown_turn_marker_is_rejected_instead_of_silently_captured() {
+    let reply = Reply::fixture("fantasy_chat_simple_streaming", 0);
+    let body = request("chat", "simple", true);
+    let settings = [
+        ("PC_GATEWAY_INJECTION", "on"),
+        ("PC_GATEWAY_SEDIMENT", "on"),
+    ];
+    let gateway = Gateway::start_with_env(vec![reply], None, &settings, true).await;
+    let response = gateway
+        .client
+        .post(format!("{}/chat/completions", gateway.base))
+        .bearer_auth("gateway-test-key")
+        .header("x-powercontext-turn", "true")
+        .json(&body)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 400);
+    let payload: Value = response.json().await.unwrap();
+    assert_eq!(payload["error"], "invalid_turn_header");
+    assert!(gateway.peers.sent.lock().unwrap().is_empty());
+    assert!(gateway.peers.checks.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
 async fn chat_does_not_capture_unfinished_or_withheld_streams() {
-    let settings = [("PC_GATEWAY_SEDIMENT", "on")];
+    let settings = [
+        ("PC_GATEWAY_SEDIMENT", "on"),
+        ("PC_GATEWAY_STEERING", "off"),
+    ];
     let body = request("chat", "simple", true);
     let unfinished = Reply {
         body: b"data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"partial answer\"},\"finish_reason\":null}]}\n\ndata: [DONE]\n\n".to_vec(),
@@ -770,6 +920,191 @@ async fn responses_preserves_tool_continuations_and_stream_arguments() {
             gateway.assert_forwarded(&expected, &bodies);
         }
     }
+}
+
+#[tokio::test]
+async fn responses_reminders_preserve_recall_and_turn_capture() {
+    let case = "fantasy_responses_tool";
+    let replies = vec![
+        Reply::fixture(case, 0),
+        Reply::fixture(case, 1),
+        Reply::fixture(case, 1),
+    ];
+    let bodies: Vec<_> = replies.iter().map(|reply| reply.body.clone()).collect();
+    let gateway = Gateway::start_with_env(
+        replies,
+        None,
+        &[
+            ("PC_GATEWAY_STEERING", "off"),
+            ("PC_GATEWAY_PREFIX_EXTRACTION", "on"),
+            ("PC_GATEWAY_INJECTION", "on"),
+            ("PC_GATEWAY_SEDIMENT", "on"),
+        ],
+        true,
+    )
+    .await;
+    *gateway.peers.fixed_preparation.lock().unwrap() = true;
+    let mut baseline = request("responses", "tool", false);
+    let prompt = baseline["input"][1]["content"][0]["text"].clone();
+    let startup = json!({"role": "user", "content": "<system-reminder>Auto mode is active</system-reminder>"});
+    let reminder = json!({"type": "message", "role": "user", "content": [
+        {"type": "input_text", "text": " <conversation_history_summary>Last turn</conversation_history_summary>\n"},
+        {"type": "input_text", "text": "<cb_summary>Compacted history</cb_summary> "},
+        {"type": "input_text", "text": "<task-notification id=\"test\">Tool finished</task-notification>"}
+    ]});
+    let mut initial = baseline.clone();
+    initial["input"]
+        .as_array_mut()
+        .unwrap()
+        .push(startup.clone());
+    let tool_call: Value =
+        serde_json::from_slice::<Value>(&bodies[0]).unwrap()["output"][0].clone();
+    let arguments = tool_call["arguments"].clone();
+    let tool_output = json!({
+        "type": "function_call_output", "output": "Warm", "call_id": tool_call["call_id"]
+    });
+    baseline["input"]
+        .as_array_mut()
+        .unwrap()
+        .extend([tool_call, tool_output]);
+    let mut continuation = baseline.clone();
+    continuation["input"]
+        .as_array_mut()
+        .unwrap()
+        .insert(2, startup);
+    continuation["input"].as_array_mut().unwrap().push(reminder);
+
+    let mut expected = Vec::new();
+    for (body, reply) in [initial, continuation, baseline].into_iter().zip(&bodies) {
+        let response = gateway
+            .client
+            .post(format!("{}/responses", gateway.base))
+            .bearer_auth("gateway-test-key")
+            .header("x-powercontext-conversation-id", "reminder-turn")
+            .json(&body)
+            .send()
+            .await
+            .unwrap();
+        released_responses(response, reply, false).await;
+        let mut sent = body;
+        // Responses renders canonical user messages without the optional item type.
+        if let Some(item) = sent["input"].get_mut(5) {
+            item.as_object_mut().unwrap().remove("type");
+        }
+        sent["input"][1]["content"][0]["text"] =
+            json!(format!("{PREPARED_BLOCK}\n\n{}", prompt.as_str().unwrap()));
+        expected.push(sent);
+    }
+
+    assert_eq!(
+        gateway.peers.queries.lock().unwrap().as_slice(),
+        std::slice::from_ref(&prompt)
+    );
+    gateway.assert_forwarded(&expected, &bodies);
+    let checks = gateway.peers.checks.lock().unwrap();
+    for send in checks.iter().step_by(2) {
+        let locations = send["prepared_contexts"].as_array().unwrap();
+        assert_eq!(locations.len(), 1);
+        assert_eq!(locations[0]["binding"], "test-reuse");
+        assert_eq!(
+            locations[0]["location"]["pointer"],
+            "/input/1/content/0/text"
+        );
+        assert_eq!(locations[0]["location"]["start_byte"], 0);
+        assert_eq!(locations[0]["location"]["end_byte"], PREPARED_BLOCK.len());
+    }
+
+    let captures = gateway.peers.captures.lock().unwrap();
+    assert_eq!(captures.len(), 2);
+    let reminder_source = &captures[0]["sources"][0];
+    let ordinary_source = &captures[1]["sources"][0];
+    assert!(
+        reminder_source["metadata"].get("prefix_handle").is_none(),
+        "a retained prefix would make the trailing reminder the evidence boundary"
+    );
+    assert!(
+        ordinary_source["metadata"]["prefix_handle"].is_string(),
+        "unaffected turns should still offer prefix extraction"
+    );
+    assert_eq!(reminder_source["source_id"], ordinary_source["source_id"]);
+    assert_eq!(reminder_source["content"], ordinary_source["content"]);
+    let sources = captures[0]["sources"].as_array().unwrap();
+    assert_eq!(sources.len(), 1);
+    let transcript: Value = serde_json::from_str(sources[0]["content"].as_str().unwrap()).unwrap();
+    assert_eq!(transcript["user"], prompt);
+    assert_eq!(
+        transcript["steps"],
+        json!([
+            {"type": "tool_call", "name": "weather", "arguments": arguments},
+            {"type": "tool_output", "output": "Warm"}
+        ])
+    );
+}
+
+#[tokio::test]
+async fn chat_reminders_preserve_mixed_user_content() {
+    let reminder = "<system-reminder>Auto mode is active</system-reminder>";
+    let prompt = "Explain these tags.";
+    let unclosed = "<system-reminder> Explain this unclosed tag";
+    let mixed = json!([
+        {"type": "text", "text": reminder},
+        {"type": "text", "text": prompt}
+    ]);
+    let multimodal = json!([
+        {"type": "text", "text": reminder},
+        {"type": "image_url", "image_url": {"url": "https://example.com/image.png"}}
+    ]);
+    let replies: Vec<_> = (0..4)
+        .map(|_| Reply::fixture("fantasy_chat_simple", 0))
+        .collect();
+    let bodies: Vec<_> = replies.iter().map(|reply| reply.body.clone()).collect();
+    let gateway = Gateway::start_with_memory(replies, None, true).await;
+    let mut expected = Vec::new();
+    for (content, injected) in [
+        (json!(reminder), json!(reminder)),
+        (mixed.clone(), {
+            let mut parts = mixed;
+            parts[0]["text"] = json!(format!("{PREPARED_BLOCK}\n\n{reminder}"));
+            parts
+        }),
+        (multimodal.clone(), {
+            let mut parts = multimodal;
+            parts[0]["text"] = json!(format!("{PREPARED_BLOCK}\n\n{reminder}"));
+            parts
+        }),
+        (
+            json!(unclosed),
+            json!(format!("{PREPARED_BLOCK}\n\n{unclosed}")),
+        ),
+    ] {
+        let mut body = request("chat", "simple", false);
+        body["messages"][1]["content"] = content;
+        body["messages"].as_array_mut().unwrap().push(json!({
+            "role": "user", "content": [{"type": "text", "text": reminder}]
+        }));
+        let response = gateway.post("chat/completions", &body).await;
+        assert_eq!(response.status(), 200);
+        body["messages"][1]["content"] = injected;
+        expected.push(body);
+    }
+    assert_eq!(
+        *gateway.peers.queries.lock().unwrap(),
+        [
+            json!(format!("{reminder}\n{prompt}")),
+            json!(reminder),
+            json!(unclosed)
+        ]
+    );
+    gateway.assert_forwarded(&expected, &bodies);
+    let captures = gateway.peers.captures.lock().unwrap();
+    assert_eq!(captures.len(), 3);
+    let transcript: Value =
+        serde_json::from_str(captures[1]["sources"][0]["content"].as_str().unwrap()).unwrap();
+    assert_eq!(
+        transcript["user"],
+        format!("{reminder}\n[image_url: https://example.com/image.png]")
+    );
+    assert_eq!(transcript["steps"], json!([]));
 }
 
 #[tokio::test]
@@ -1166,7 +1501,144 @@ async fn responses_stream_delivers_reasoning_summaries_and_citations() {
 }
 
 #[tokio::test]
-async fn default_steering_and_overrides_reach_only_responses() {
+async fn chat_cost_steering_preserves_the_client_messages() {
+    let guidance = include_str!("../src/default_steering.txt").trim();
+    let user = json!({"role": "user", "content": "hello"});
+    let developer = json!({"role": "developer", "content": "developer instructions"});
+    let parts = json!([{"type": "text", "text": "Original instructions"}]);
+    let gateway = Gateway::start_with_env(
+        (0..3)
+            .map(|_| Reply::fixture("fantasy_chat_simple", 0))
+            .collect(),
+        None,
+        &[],
+        true,
+    )
+    .await;
+    for (index, (messages, expected)) in [
+        (
+            json!([{"role": "system", "name": "agent", "content": "Original instructions"}, user]),
+            json!([{"role": "system", "name": "agent", "content": format!("Original instructions\n\n{guidance}")}, user]),
+        ),
+        (
+            json!([developer, {"role": "system", "content": parts}, user]),
+            json!([developer, {"role": "system", "content": [
+                parts[0], {"type": "text", "text": guidance}
+            ]}, user]),
+        ),
+        (
+            json!([developer, user]),
+            json!([developer, {"role": "system", "content": guidance}, user]),
+        ),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let mut body = request("chat", "simple", false);
+        body["messages"] = messages;
+        assert!(gateway.post("chat/completions", &body).await.status().is_success());
+        let sent: Value = serde_json::from_slice(&gateway.peers.sent.lock().unwrap()[index].1).unwrap();
+        assert_eq!(sent["messages"], expected, "Chat steering case {index}");
+    }
+}
+
+#[tokio::test]
+async fn chat_cost_extraction_extends_the_admitted_chat_prefix() {
+    let terminal = Reply::fixture("fantasy_chat_simple", 0);
+    let mut output: Value = serde_json::from_slice(&terminal.body).unwrap();
+    output["choices"][0]["message"]["content"] = json!("Extracted memory.");
+    output["usage"]["prompt_tokens_details"]["cached_tokens"] = json!(15);
+    let extracted = serde_json::to_vec(&output).unwrap();
+    let gateway = Gateway::start_with_env(
+        vec![
+            Reply::fixture("fantasy_chat_simple", 0),
+            Reply {
+                body: extracted.clone(),
+                content_type: "application/json",
+                status: 200,
+            },
+        ],
+        None,
+        &[
+            ("PC_GATEWAY_SEDIMENT", "on"),
+            ("PC_GATEWAY_INJECTION", "on"),
+        ],
+        true,
+    )
+    .await;
+    let mut body = request("chat", "tool", false);
+    body["prompt_cache_key"] = json!("agent-cache");
+    body["response_format"] = json!({"type": "json_object"});
+    body["stop"] = json!(["END"]);
+    let response = gateway.post_turn(&body).await;
+    assert_eq!(response.status(), 200);
+    assert_eq!(response.bytes().await.unwrap(), terminal.body);
+
+    let capture = gateway.peers.captures.lock().unwrap()[0].clone();
+    let source = &capture["sources"][0];
+    assert!(!source["content"]
+        .as_str()
+        .unwrap()
+        .contains("Prepared context"));
+    let metadata = &source["metadata"];
+    let handle = metadata["prefix_handle"]
+        .as_str()
+        .expect("captured Chat turn must carry a prefix handle");
+    assert_eq!(metadata["prefix_input_tokens"], 20);
+    assert_eq!(metadata["prefix_output_tokens"], 2);
+    let response = gateway
+        .post(
+            "extract",
+            &json!({
+                "handle": handle,
+                "instruction": "Extract memory.",
+                "continuation": [
+                    {"role": "assistant", "text": "First pass."},
+                    {"role": "user", "text": "Continue."},
+                ],
+                "max_output_tokens": 256,
+            }),
+        )
+        .await;
+    assert_eq!(response.status(), 200);
+    let callback: Value = response.json().await.unwrap();
+    assert_eq!(callback["text"], "Extracted memory.");
+    assert_eq!(callback["model"], output["model"]);
+    assert_eq!(callback["usage"]["input_tokens"], 20);
+    assert_eq!(callback["usage"]["output_tokens"], 2);
+    assert_eq!(
+        callback["usage"]["input_tokens_details"]["cached_tokens"],
+        15
+    );
+
+    let sent: Value = serde_json::from_slice(&gateway.peers.sent.lock().unwrap()[0].1).unwrap();
+    assert_eq!(
+        sent["messages"][1]["content"],
+        "Prepared context 1\n\nWhat's the weather in Florence,Italy?"
+    );
+    assert_eq!(sent["response_format"], body["response_format"]);
+    assert_eq!(sent["stop"], body["stop"]);
+    let mut expected = sent.clone();
+    expected["messages"].as_array_mut().unwrap().extend([
+        json!({"role": "assistant", "content": "Olá!"}),
+        json!({"role": "user", "content": "Extract memory."}),
+        json!({"role": "assistant", "content": "First pass."}),
+        json!({"role": "user", "content": "Continue."}),
+    ]);
+    expected["tool_choice"] = json!("none");
+    expected["max_completion_tokens"] = json!(256);
+    gateway.assert_forwarded(&[sent, expected], &[terminal.body, extracted]);
+    let checks = gateway.peers.checks.lock().unwrap();
+    let prepared = &checks[0]["prepared_contexts"];
+    assert_eq!(prepared[0]["binding"], "reuse-1");
+    assert_eq!(prepared[0]["location"]["pointer"], "/messages/1/content");
+    assert_eq!(prepared[0]["location"]["end_byte"], 18);
+    assert_eq!(checks[2]["prepared_contexts"], *prepared);
+    assert_eq!(gateway.peers.captures.lock().unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn default_steering_and_overrides_reach_both_routes() {
     let custom =
         std::env::temp_dir().join(format!("pc-default-steering-{}.txt", std::process::id()));
     std::fs::write(&custom, "Custom deployment guidance.").unwrap();
@@ -1229,14 +1701,164 @@ async fn default_steering_and_overrides_reach_only_responses() {
             None => assert!(developer.is_empty(), "settings: {settings:?}"),
         }
         let chat: Value = serde_json::from_slice(&sent[1].1).unwrap();
-        assert_eq!(chat["messages"].as_array().unwrap().len(), 2);
-        assert!(chat["messages"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .all(|message| message["role"] != "developer"));
+        let original = request("chat", "simple", false);
+        let mut messages = original["messages"].clone();
+        if expected.is_some() {
+            let base = original["messages"][0]["content"].as_str().unwrap();
+            let guidance = developer[0]["content"][0]["text"].as_str().unwrap();
+            messages[0]["content"] = json!(format!("{base}\n\n{guidance}"));
+        }
+        assert_eq!(chat["messages"], messages, "settings: {settings:?}");
     }
     std::fs::remove_file(custom).unwrap();
+}
+
+#[tokio::test]
+async fn request_scope_binds_recall_checks_and_capture() {
+    let requests = [
+        (
+            "responses",
+            "responses",
+            Some("project:alpha"),
+            "project:alpha",
+        ),
+        (
+            "responses",
+            "responses",
+            Some("project:beta"),
+            "project:beta",
+        ),
+        (
+            "chat/completions",
+            "chat",
+            Some("project:chat"),
+            "project:chat",
+        ),
+        ("responses", "responses", None, "gateway:fallback"),
+    ];
+    let replies = requests
+        .iter()
+        .map(|(_, format, _, _)| Reply::fixture(&format!("fantasy_{format}_simple"), 0))
+        .chain(std::iter::once(Reply::fixture(
+            "fantasy_responses_simple",
+            0,
+        )))
+        .collect();
+    let gateway = Gateway::start_with_env(
+        replies,
+        None,
+        &[
+            ("PC_GATEWAY_DEFAULT_SCOPE", "gateway:fallback"),
+            ("PC_GATEWAY_INJECTION", "on"),
+            ("PC_GATEWAY_SEDIMENT", "on"),
+            ("PC_GATEWAY_STEERING", "off"),
+        ],
+        true,
+    )
+    .await;
+
+    for (route, format, header, _) in requests {
+        let mut call = gateway
+            .client
+            .post(format!("{}/{route}", gateway.base))
+            .bearer_auth("gateway-test-key")
+            .header("X-PowerContext-Conversation-ID", "shared-conversation")
+            .json(&request(format, "simple", false));
+        if let Some(scope) = header {
+            call = call.header("X-PowerContext-Scope-ID", scope);
+        }
+        assert_eq!(call.send().await.unwrap().status(), 200);
+    }
+
+    let expected = requests.map(|(_, _, _, scope)| scope);
+    let handle = {
+        let prepares = gateway.peers.prepares.lock().unwrap();
+        let actual: Vec<_> = prepares
+            .iter()
+            .map(|value| value["scope_id"].as_str().unwrap())
+            .collect();
+        assert_eq!(
+            actual, expected,
+            "Core preparation must use the selected Scope"
+        );
+
+        let checks = gateway.peers.checks.lock().unwrap();
+        let captures = gateway.peers.captures.lock().unwrap();
+        let sent = gateway.peers.sent.lock().unwrap();
+        assert_eq!(checks.len(), expected.len() * 2);
+        assert_eq!(captures.len(), expected.len());
+        assert_eq!(sent.len(), expected.len());
+        for (index, scope) in expected.into_iter().enumerate() {
+            let send = &checks[index * 2];
+            let release = &checks[index * 2 + 1];
+            assert_eq!(send["phase"], "before_send");
+            assert_eq!(send["scope_id"], scope);
+            assert_eq!(release["phase"], "before_release");
+            assert_eq!(release["scope_id"], scope);
+            assert_eq!(release["request_binding"], "test-before_send");
+            assert_eq!(captures[index]["scope_id"], scope);
+            let (headers, body) = &sent[index];
+            assert!(!headers.contains_key("X-PowerContext-Scope-ID"));
+            assert!(std::str::from_utf8(body)
+                .unwrap()
+                .contains(&format!("Prepared context {}", index + 1)));
+            assert!(!captures[index]["sources"][0]["content"]
+                .to_string()
+                .contains("Prepared context "));
+        }
+        captures[0]["sources"][0]["metadata"]["prefix_handle"]
+            .as_str()
+            .unwrap()
+            .to_owned()
+    };
+
+    let model = || {
+        gateway
+            .client
+            .post(format!("{}/responses", gateway.base))
+            .bearer_auth("gateway-test-key")
+            .json(&request("responses", "simple", false))
+    };
+    for invalid in [
+        "",
+        "project alpha",
+        "project:alpha,project:beta",
+        &"a".repeat(257),
+    ] {
+        let rejected = model()
+            .header("X-PowerContext-Scope-ID", invalid)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(rejected.status(), 400);
+    }
+    let duplicate = model()
+        .header("X-PowerContext-Scope-ID", "project:alpha")
+        .header("X-PowerContext-Scope-ID", "project:beta")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(duplicate.status(), 400);
+
+    let extract = json!({"handle": handle, "instruction": "Extract memory."});
+    assert_eq!(gateway.post("extract", &extract).await.status(), 404);
+    for (scope, status) in [("project:beta", 404), ("project:alpha", 200)] {
+        let response = gateway
+            .client
+            .post(format!("{}/extract", gateway.base))
+            .bearer_auth("gateway-test-key")
+            .header("X-PowerContext-Scope-ID", scope)
+            .json(&extract)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), status);
+    }
+    let checks = gateway.peers.checks.lock().unwrap();
+    assert_eq!(checks.len(), expected.len() * 2 + 2);
+    assert_eq!(checks[checks.len() - 2]["scope_id"], "project:alpha");
+    assert_eq!(checks[checks.len() - 1]["scope_id"], "project:alpha");
+    assert_eq!(gateway.peers.sent.lock().unwrap().len(), expected.len() + 1);
 }
 
 #[tokio::test]

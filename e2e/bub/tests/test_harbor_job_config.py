@@ -34,6 +34,7 @@ from typing import NamedTuple
 from urllib.parse import urlsplit
 
 import pytest
+import yaml
 from harbor.agents.installed import acp as harbor_acp
 from harbor.agents.installed.base import NonZeroAgentExitCodeError
 from harbor.agents.installed.claude_code import ClaudeCode
@@ -81,7 +82,15 @@ def step_tests_dir(monkeypatch, tmp_path: Path) -> Path:
 @pytest.fixture(autouse=True)
 def isolated_host_environment(monkeypatch, tmp_path: Path) -> Path:
     for name in tuple(os.environ):
-        if name.startswith(("BUB_", "POWERCONTEXT_")) or name in {"CODEX_HOME", "GITHUB_SHA", "OPENAI_API_KEY"}:
+        if name.startswith(("BUB_", "POWERCONTEXT_")) or name in {
+            "CODEX_HOME",
+            "GITHUB_SHA",
+            "OPENAI_API_KEY",
+            "PC_CI_PACKAGE_CACHE_ENDPOINT",
+            "PIP_DEFAULT_TIMEOUT",
+            "PIP_TIMEOUT",
+            "UV_HTTP_TIMEOUT",
+        }:
             monkeypatch.delenv(name)
     codex_home = tmp_path / "codex-home"
     codex_home.mkdir()
@@ -562,6 +571,7 @@ def test_bub_runtime_install_uses_its_own_index_and_compatible_harbor_sdk(
 
 def test_explicit_python_index_reaches_runtime_bub_and_acp_installs(monkeypatch, tmp_path: Path) -> None:
     index = "https://packages.example.test/simple"
+    monkeypatch.setenv("PC_CI_PACKAGE_CACHE_ENDPOINT", "http://cache.example.test:8080")
     monkeypatch.setenv("POWERCONTEXT_E2E_PYTHON_INDEX_URL", index)
     monkeypatch.setenv("POWERCONTEXT_E2E_PIP_INDEX_URL", "https://old-pip.example.test/simple")
     monkeypatch.setenv("PIP_INDEX_URL", "http://127.0.0.1:3141/simple")
@@ -576,10 +586,17 @@ def test_explicit_python_index_reaches_runtime_bub_and_acp_installs(monkeypatch,
         ]
         assert env["PIP_INDEX_URL"] == index
         assert env["UV_INDEX_URL"] == index
+        assert "PIP_TRUSTED_HOST" not in env
+        assert "UV_INSECURE_HOST" not in env
+        assert "PIP_DEFAULT_TIMEOUT" not in env
+        assert "UV_HTTP_TIMEOUT" not in env
 
 
-def test_bub_mirror_failure_retries_only_each_python_installer(monkeypatch, tmp_path: Path) -> None:
-    index = "https://packages.example.test/simple"
+@pytest.mark.parametrize("shared_cache", [False, True])
+def test_bub_mirror_failure_retries_only_each_python_installer(monkeypatch, tmp_path: Path, shared_cache: bool) -> None:
+    endpoint = "http://cache.example.test:8080"
+    index = f"{endpoint}/pypi/simple/" if shared_cache else "https://packages.example.test/simple"
+    monkeypatch.setenv("PC_CI_PACKAGE_CACHE_ENDPOINT", endpoint)
     monkeypatch.setenv("POWERCONTEXT_E2E_PYTHON_INDEX_URL", index)
     runner = tmp_path / "runner"
     bin_dir = runner / "bin"
@@ -590,7 +607,8 @@ def test_bub_mirror_failure_retries_only_each_python_installer(monkeypatch, tmp_
         "import json, os, sys\n"
         f"with open({str(log)!r}, 'a') as log:\n"
         "    log.write(json.dumps({'args': sys.argv[1:], 'index': os.getenv('PIP_INDEX_URL'), "
-        "'uv_index': os.getenv('UV_INDEX_URL'), 'constraint': os.getenv('PIP_CONSTRAINT')}) + '\\n')\n"
+        "'uv_index': os.getenv('UV_INDEX_URL'), 'constraint': os.getenv('PIP_CONSTRAINT'), "
+        "'pip_trust': os.getenv('PIP_TRUSTED_HOST'), 'uv_trust': os.getenv('UV_INSECURE_HOST')}) + '\\n')\n"
         "sys.exit(7 if os.getenv('PIP_INDEX_URL') != 'https://pypi.org/simple' else 0)\n"
     )
     for name in ("pip", "uv", "bub"):
@@ -614,20 +632,110 @@ def test_bub_mirror_failure_retries_only_each_python_installer(monkeypatch, tmp_
             continue
         completed = subprocess.run(  # noqa: S603 - generated installer setup with local fake executables
             ["/bin/bash", "-c", command],
-            env={"PATH": os.defpath, **env},
+            env={
+                "PATH": os.defpath,
+                "PIP_TRUSTED_HOST": "stale-cache.test:8080",
+                "UV_INSECURE_HOST": "stale-cache.test:8080",
+                **env,
+            },
             capture_output=True,
             text=True,
             check=False,
         )
-        assert completed.returncode == 0, completed.stderr
+        assert completed.returncode == (7 if shared_cache else 0), completed.stderr
 
     calls = [json.loads(line) for line in log.read_text(encoding="utf-8").splitlines()]
-    assert [call["index"] for call in calls] == [index, "https://pypi.org/simple"] * 3
-    assert [call["uv_index"] for call in calls] == [index, "https://pypi.org/simple"] * 3
-    for first, fallback in zip(calls[::2], calls[1::2], strict=True):
-        assert first["args"] == fallback["args"]
-        assert first["constraint"] == fallback["constraint"]
+    expected = [index] * 3 if shared_cache else [index, "https://pypi.org/simple"] * 3
+    assert [call["index"] for call in calls] == expected
+    assert [call["uv_index"] for call in calls] == expected
+    if not shared_cache:
+        for first, fallback in zip(calls[::2], calls[1::2], strict=True):
+            assert first["args"] == fallback["args"]
+            assert first["constraint"] == fallback["constraint"]
+            assert first["pip_trust"] == first["uv_trust"] == "stale-cache.test:8080"
+            assert fallback["pip_trust"] is None
+            assert fallback["uv_trust"] is None
     assert marker.read_text(encoding="utf-8") == "setup\n"
+
+
+@pytest.mark.parametrize(
+    ("overrides", "expected_pip", "expected_uv"),
+    [
+        ({}, "180", "180"),
+        ({"PIP_DEFAULT_TIMEOUT": "75", "UV_HTTP_TIMEOUT": "95"}, "75", "95"),
+        ({"PIP_TIMEOUT": "45", "PIP_DEFAULT_TIMEOUT": "75"}, "45", "180"),
+    ],
+)
+def test_shared_package_cache_reaches_all_bub_installers(
+    monkeypatch, tmp_path: Path, overrides: dict[str, str], expected_pip: str, expected_uv: str
+) -> None:
+    endpoint = "http://cache.example.test:8080"
+    index = f"{endpoint}/pypi/simple/"
+    monkeypatch.setenv("PC_CI_PACKAGE_CACHE_ENDPOINT", endpoint)
+    monkeypatch.setenv("POWERCONTEXT_E2E_PYTHON_INDEX_URL", index)
+    monkeypatch.setenv("POWERCONTEXT_E2E_DEBIAN_MIRROR_URL", endpoint)
+    for name, value in overrides.items():
+        monkeypatch.setenv(name, value)
+    environment = _RecordingEnvironment()
+
+    asyncio.run(PowerContextBubAcpAgent(logs_dir=tmp_path, powercontext=False).install(environment))
+
+    for installer in ("pip install", " tool install ", "/bub install "):
+        (env,) = [
+            env for command, env in zip(environment.commands, environment.envs, strict=True) if installer in command
+        ]
+        assert env["PIP_INDEX_URL"] == index
+        assert env["UV_INDEX_URL"] == index
+        assert env["PIP_TRUSTED_HOST"] == "cache.example.test:8080"
+        assert env["UV_INSECURE_HOST"] == "cache.example.test:8080"
+        assert env["PIP_DEFAULT_TIMEOUT"] == expected_pip
+        assert env["UV_HTTP_TIMEOUT"] == expected_uv
+
+    agent_env = _agent_env(_config(_task("project-database-decision"), tmp_path))
+    for name in ("NO_PROXY", "no_proxy"):
+        assert "cache.example.test" in agent_env[name].split(",")
+        assert "powercontext" in agent_env[name].split(",")
+
+
+@pytest.mark.parametrize("endpoint", ["", "http://cache.example.test:8080/"])
+@pytest.mark.parametrize("explicit", [False, True])
+def test_acceptance_workflow_selects_package_cache_without_replacing_overrides(
+    monkeypatch, tmp_path: Path, endpoint: str, explicit: bool
+) -> None:
+    monkeypatch.setenv("PC_CI_PACKAGE_CACHE_ENDPOINT", endpoint)
+    if explicit:
+        monkeypatch.setenv("POWERCONTEXT_E2E_PYTHON_INDEX_URL", "https://custom.test/simple/")
+        monkeypatch.setenv("POWERCONTEXT_E2E_DEBIAN_MIRROR_URL", "https://debian.test")
+    output = tmp_path / "mirrors.json"
+    make = tmp_path / "make"
+    make.write_text(
+        f"#!{sys.executable}\nimport json, os\n"
+        f"with open({str(output)!r}, 'w') as output:\n"
+        "    json.dump({name: os.environ.get(name) for name in "
+        "('POWERCONTEXT_E2E_PYTHON_INDEX_URL', 'POWERCONTEXT_E2E_DEBIAN_MIRROR_URL')}, output)\n",
+        encoding="utf-8",
+    )
+    make.chmod(0o755)
+    workflow = yaml.safe_load((_REPOSITORY / ".github/workflows/e2e-harness.yml").read_text())
+    step = next(
+        step for step in workflow["jobs"]["acceptance"]["steps"] if step["name"] == "Run deterministic scenarios"
+    )
+    subprocess.run(  # noqa: S603 - workflow exports captured by a local make stand-in; no containers are started
+        ["/bin/bash", "-eu", "-c", step["run"]],
+        env={**os.environ, "PATH": f"{tmp_path}:{os.defpath}"},
+        check=True,
+    )
+    mirrors = json.loads(output.read_text())
+    expected_python = (
+        "https://custom.test/simple/"
+        if explicit
+        else (f"{endpoint.rstrip('/')}/pypi/simple/" if endpoint else "https://mirrors.aliyun.com/pypi/simple/")
+    )
+    expected_debian = "https://debian.test" if explicit else (endpoint.rstrip("/") or "https://mirrors.aliyun.com")
+    assert mirrors == {
+        "POWERCONTEXT_E2E_PYTHON_INDEX_URL": expected_python,
+        "POWERCONTEXT_E2E_DEBIAN_MIRROR_URL": expected_debian,
+    }
 
 
 @pytest.mark.parametrize("mirror", [False, True])

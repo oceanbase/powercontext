@@ -14,6 +14,7 @@
 
 """Full Server bootstrap and read-only admission for versioned storage."""
 
+import json
 from pathlib import Path
 
 from sqlalchemy import inspect
@@ -153,11 +154,77 @@ def prepare_server_storage(settings, *, injected_embedding=False, embedding_prof
         MaintenanceConnections(database).run(verify)
         return
     runner = deployment_runner(settings, embedding_profile=profile)
-    plan = runner.plan()
+    try:
+        plan = runner.plan()
+    except MigrationError as error:
+        raise _processing_configuration_guidance(error, runner, database) from error
     if plan.state == "uninitialized" and database.kind in {"sqlite", "seekdb"}:
         runner.apply(plan_id=plan.plan_id, accepted=True, maintenance_confirmed=True)
     elif plan.state != "ready":
         raise MigrationError(plan.state, "Stop writers and run powercontext server db-migrate apply before startup.")
+
+
+def _processing_configuration_guidance(error, runner, database):
+    """Name the supported offline switch when the refusal is a pure capability widening."""
+    if error.code != "incompatible_processing_configuration":
+        return error
+    configured = runner.configuration.get("processing_manifest")
+    persisted = _persisted_processing_manifest(database)
+    if (
+        configured is None
+        or persisted is None
+        or persisted.get("mode") != configured.get("mode")
+        or persisted.get("bindings") != configured.get("bindings")
+        or not set(persisted.get("capabilities", ())) <= set(configured.get("capabilities", ()))
+    ):
+        return error
+    return MigrationError(
+        error.code,
+        "Processing ownership differs from the migrated declaration: the configured capabilities widen the "
+        "persisted declaration without changing bindings or mode. Adopt them with the offline Processing "
+        "configuration switch, with all writers stopped. Run every step with the new configuration loaded "
+        "(--env-file or a discovered .env) and with one new --migration-id: 'powercontext server "
+        "processing-migrate --action plan --migration-id <new-id> --backup auto' prints a plan_id, then "
+        "'--action apply --migration-id <new-id> --plan-id <plan_id> --backup auto --maintenance-confirmed "
+        "--yes', then '--action verify --migration-id <new-id>'. See "
+        "https://powercontext.oceanbase.io/en/docs/operate/artifact-processing-migration/ for the full "
+        "procedure. Committed work survives.",
+    )
+
+
+def _persisted_processing_manifest(database):
+    """Read the persisted Processing declaration read-only; the guidance stays best effort.
+
+    Vector storage has no registered Processing configuration switch, so it also returns None there: there is no
+    supported operation to name.
+    """
+    if database.kind != "sqlite":
+        return None
+    from urllib.parse import quote
+
+    from sqlalchemy import create_engine
+
+    from .vector_profile import read_embedding_profile
+
+    try:
+        url = make_url(database.url)
+        if url.query or not url.database or not Path(url.database).is_file():
+            return None
+        path = quote(str(Path(url.database).absolute()), safe="/")
+        engine = create_engine(f"sqlite:///file:{path}?mode=ro&uri=true")
+        try:
+            with engine.connect() as connection:
+                if read_embedding_profile(connection) is not None:
+                    return None
+                row = connection.exec_driver_sql(
+                    "SELECT config_manifest FROM pc_artifact_processing_schema WHERE singleton=1"
+                ).first()
+        finally:
+            engine.dispose()
+        return json.loads(row[0]) if row is not None else None
+    except Exception:
+        # Guidance only ever adds text; an unreadable database keeps the original refusal.
+        return None
 
 
 def _check_unmanaged_optional_profile(database):
