@@ -90,21 +90,26 @@ def _run_pi(*arguments: str) -> str:
     return completed.stdout or ""
 
 
+def _pi_agent_dir() -> Path:
+    """Pi's user configuration directory, which its user-scope ``settings.json`` paths are relative to."""
+    return Path(os.environ.get("PI_CODING_AGENT_DIR", Path.home() / ".pi" / "agent")).expanduser()
+
+
 def _user_packages(output: str) -> list[tuple[str, Path]]:
     """Pair each user-scope package source in ``pi list`` output with its resolved path."""
-    packages = []
+    packages: list[tuple[str, Path | None]] = []
     user_packages = False
-    registered_source = None
     for line in output.splitlines():
         if line and not line.startswith(" "):
             user_packages = line == "User packages:"
-            registered_source = None
         elif user_packages and line.startswith("    "):
-            if registered_source is not None:
-                packages.append((registered_source, Path(line.strip())))
+            if packages and packages[-1][1] is None:
+                packages[-1] = (packages[-1][0], Path(line.strip()))
         elif user_packages and line.startswith("  "):
-            registered_source = line.strip()
-    return packages
+            packages.append((line.strip(), None))
+    # Pi prints no resolved line for a local package whose directory is gone; it still resolves the settings entry
+    # against its agent directory, so do the same to recognize the registration.
+    return [(source, resolved or _pi_agent_dir() / source.removesuffix(" (filtered)")) for source, resolved in packages]
 
 
 __all__ = ["PI_PACKAGE_NAME", "pi_executable", "pi_package_installed", "require_pi_package"]
@@ -154,7 +159,7 @@ class PiInstaller:
                 "host_registration": "not_checked",
                 "notes": [
                     "Pi CLI is not on PATH, so the Pi package registration was not checked; if Pi is still installed, "
-                    f"run `pi remove {destination}`."
+                    f'run `pi remove "{destination}"`.'
                 ],
             }
         else:

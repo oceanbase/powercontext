@@ -168,6 +168,58 @@ def test_pi_remove_unregisters_the_owned_package(
     assert _doctor("pi")["checks"]["package"]["status"] == "failed"
 
 
+def test_pi_remove_finds_a_registration_whose_package_directory_is_gone(
+    tmp_path: Path, monkeypatch, client_config: Path, server_checks
+) -> None:
+    import os
+
+    import powercontext.cli.pi as pi_cli
+
+    agent = tmp_path / "pi" / "agent"
+    monkeypatch.setenv("PI_CODING_AGENT_DIR", str(agent))
+    monkeypatch.setenv("POWERCONTEXT_PI_AUTHORIZATION", "test-token")
+    on_path = {"pi": True}
+    monkeypatch.setattr(pi_cli, "which", lambda _name: "/usr/bin/pi" if on_path["pi"] else None)
+    sources: list[str] = []
+
+    def fake_pi(command: str, *values: str) -> str:
+        # Pi stores a local package relative to its agent directory and resolves it only while the directory exists.
+        if command == "list":
+            lines = [
+                f"  {source}\n" + (f"    {(agent / source).resolve()}\n" if (agent / source).is_dir() else "")
+                for source in sources
+            ]
+            return "User packages:\n" + "".join(lines) if sources else "No packages installed.\n"
+        target = Path(values[0]).resolve()
+        if command == "install":
+            sources.append(os.path.relpath(target, agent))
+        elif command == "remove":
+            matches = [source for source in sources if (agent / source).resolve() == target]
+            if not matches:
+                raise SetupError("not_installed")
+            sources.remove(matches[0])
+        return ""
+
+    monkeypatch.setattr(pi_cli, "_run_pi", fake_pi)
+    package = _write_pi_package(tmp_path / "checkout")
+    setup = CliRunner().invoke(create_cli([setup_app]), ["setup", "pi", "--source", str(package)])
+    assert setup.exit_code == 0, setup.output
+    on_path["pi"] = False
+    code, payload = _remove("pi")
+    assert (code, payload["hosts"]["pi"]["host_registration"]) == (0, "not_checked")
+    assert len(sources) == 1  # Pi still lists PowerContext's package, now without a directory.
+    on_path["pi"] = True
+
+    code, payload = _remove("pi")
+
+    assert code == 0
+    row = payload["hosts"]["pi"]
+    assert (row["removal"], row["host_registration"]) == ("removed", "checked")
+    assert sources == []
+    code, payload = _remove("pi")
+    assert (payload["hosts"]["pi"]["removal"], payload["hosts"]["pi"]["host_registration"]) == ("not_set_up", "checked")
+
+
 def test_kimi_remove_keeps_other_registrations(tmp_path: Path, monkeypatch, client_config: Path, server_checks) -> None:
     from powercontext.cli import kimi_code
 
@@ -544,6 +596,65 @@ def test_claude_code_remove_without_its_cli_keeps_plugin_options(
     assert settings["pluginConfigs"] == options
 
 
+def test_dsh_remove_without_its_command_forgets_the_connection(
+    tmp_path: Path, monkeypatch, client_config: Path
+) -> None:
+    from powercontext.cli import dsh
+    from powercontext.cli.authorization import credential_path, write_stored_authorization
+
+    home = tmp_path / "dsh"
+    monkeypatch.setenv("DSH_HOME", str(home))
+    web = home / "profiles" / "web"
+    _register_dsh(web, "powercontext-dsh", "powercontext-dsh-pet")
+    skill = home / "skills" / "powercontext-project-context"
+    skill.mkdir(parents=True)
+    (skill / "SKILL.md").write_text(
+        "<!-- POWERCONTEXT-GUIDANCE:START -->\nguidance\n<!-- POWERCONTEXT-GUIDANCE:END -->\n", encoding="utf-8"
+    )
+    client_config.write_text(json.dumps({"version": 1, "hosts": {"dsh": {"profile": "web"}}}), encoding="utf-8")
+    write_stored_authorization(credential_path("dsh"), server_url="http://127.0.0.1:8000", value="test-token")
+
+    def missing() -> str:
+        raise SetupError("DeepSeek Harness CLI is not installed or is not on PATH.")  # noqa: TRY003
+
+    removed_packages = []
+
+    def fake_dsh(*arguments: str, executable: str | None = None) -> str:
+        match arguments:
+            case ("plugin", "--profile", profile, "remove", name):
+                manifest = json.loads((home / "profiles" / profile / "package.json").read_text(encoding="utf-8"))
+                del manifest["dependencies"][name]
+                (home / "profiles" / profile / "package.json").write_text(json.dumps(manifest), encoding="utf-8")
+                removed_packages.append((profile, name))
+            case _:
+                raise AssertionError(arguments)
+        return ""
+
+    monkeypatch.setattr(dsh, "_run_dsh", fake_dsh)
+    monkeypatch.setattr(dsh, "dsh_executable", missing)
+
+    result = CliRunner().invoke(create_cli([setup_app]), ["setup", "dsh", "--remove"])
+
+    assert result.exit_code == 0, result.output
+    assert "dsh: ok (removed; host registration not checked)" in result.output
+    assert (
+        "`dsh plugin --profile web remove powercontext-dsh-pet` and `dsh plugin --profile web remove powercontext-dsh`"
+        in result.output
+    )
+    assert removed_packages == []
+    assert not skill.exists()
+    assert not credential_path("dsh").exists()
+    assert "dsh" not in _saved_hosts(client_config)
+
+    monkeypatch.setattr(dsh, "dsh_executable", lambda: "/usr/bin/dsh")
+    code, payload = _remove("dsh", "--profile", "web")
+
+    assert code == 0
+    row = payload["hosts"]["dsh"]
+    assert (row["removal"], row["host_registration"]) == ("removed", "checked")
+    assert removed_packages == [("web", "powercontext-dsh-pet"), ("web", "powercontext-dsh")]
+
+
 def test_unsupported_agent_fails_without_blocking_other_removals(
     tmp_path: Path, monkeypatch, client_config: Path
 ) -> None:
@@ -579,5 +690,5 @@ def test_remove_rejects_missing_agents_and_setup_options(arguments: list[str], c
 
     assert result.exit_code == 2
     if "--no-capture-prompts" in arguments:
-        assert "--capture-prompts cannot be combined with --remove" in result.output
+        assert "--no-capture-prompts cannot be combined with --remove" in result.output
     assert not client_config.exists()

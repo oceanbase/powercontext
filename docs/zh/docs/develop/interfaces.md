@@ -167,7 +167,7 @@ Setup 会安装、配置、按宿主能力启用插件并运行 doctor。各 Age
 
 `powercontext setup [agents...] --remove` 撤销所选 Agent 的 setup：移除原生插件注册、PowerContext 拥有的文件和目录、已保存的凭据，以及 Client 设置中该 Agent 的 `hosts.<agent>` 条目。它保留 PowerContext 安装包、Server 及其服务、已存储的记忆、Scope 绑定，以及你自己添加的设置。连接启用认证的 Server 时，重新 setup 需要再次提供 token。
 非交互运行时必须指定 Agent 名称。只有 `--json`、`--profile` 和 `--dsh-command` 可以与 `--remove` 一起使用；`--profile` 和 `--dsh-command` 用于选择 DSH profile，其他 setup 选项都会被拒绝。各 Agent 独立成功或失败。`--json` 输出与 setup、doctor 相同的结构：每个移除的 Agent 报告 `"status": "ok"`，`"removal"` 为 `"removed"`；没有安装任何内容时为 `"not_set_up"`。安装到一半的 Agent 也会清理已写入的部分。`result.removed` 列出已删除的内容，`result.notes` 列出仍需你处理的事项。
-Codex、Claude Code 和 Pi 的注册由它们自己的 CLI 管理。`PATH` 中没有该 CLI 时（例如 Agent 已经卸载），移除仍会删除 PowerContext 自己的文件、凭据和连接，然后报告 `"host_registration": "not_checked"`（而不是 `"checked"`），并在提示中给出 Agent 仍在安装时需要运行的宿主命令。对于 DSH，`result.remaining_profiles` 列出仍注册了插件的其他 profile。
+Codex、Claude Code、Pi 和 DSH 的注册由它们自己的 CLI 管理。`PATH` 中没有该 CLI，或该 profile 的 DSH 命令不可用时（例如 Agent 已经卸载），移除仍会删除 PowerContext 自己的文件、凭据和连接，然后报告 `"host_registration": "not_checked"`（而不是 `"checked"`），并在提示中给出 Agent 仍在安装时需要运行的宿主命令。对于 DSH，`result.remaining_profiles` 列出仍注册了插件的其他 profile。
 Hermes、OpenClaw 和 MiniMax 会报错并说明原因：setup 在宿主状态中启用它们，而这些状态无法判断是否来自 setup。`powercontext service uninstall` 是另一回事，它只移除个人 Server 服务。
 
 `powercontext config agent [agents...]` 更新已安装连接，不会重新安装或启用插件。

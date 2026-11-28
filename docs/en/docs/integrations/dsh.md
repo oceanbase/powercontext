@@ -626,6 +626,11 @@ setup, Desktop needs its Desktop-installed command. Removal then deletes the pac
 profile's `node_modules` and the checkout that setup cloned for a remote source. The profile's `cordis.patch.yml` and
 the pet memory state in `.powercontext-dsh-pet`, including unsent dialogue, stay.
 
+When the profile's DSH command is unavailable, for example because DSH is already uninstalled, removal still deletes
+those files and PowerContext's shared state, reports that the plugin registration was not checked, and names the
+`dsh plugin --profile <profile> remove` commands that unregister it. Rerun removal with `--profile` once DSH is
+available again to unregister it. A `--dsh-command` passed on the command line must work.
+
 While another profile still registers the plugin, the shared Skill at `$DSH_HOME/skills/powercontext-project-context`,
 the credential at `$DSH_HOME/powercontext/credentials.json`, and the saved connection stay. Removing the plugin from the
 last profile deletes them. The saved connection names only the profile of the latest setup, so the result names each

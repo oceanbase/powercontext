@@ -536,6 +536,10 @@ powercontext setup dsh --remove --profile desktop
 随后，它删除 pnpm 留在该 profile `node_modules` 中的 package 链接，以及 setup 为远程源克隆的 checkout。
 该 profile 的 `cordis.patch.yml` 和 `.powercontext-dsh-pet` 中的桌宠记忆状态（包括尚未发送的对话）会保留。
 
+该 profile 的 DSH 命令不可用时（例如 DSH 已经卸载），移除仍会删除这些文件和 PowerContext 的共享状态，
+报告未检查插件注册，并给出注销插件所需的 `dsh plugin --profile <profile> remove` 命令。
+DSH 恢复可用后，用 `--profile` 再次移除即可注销插件。命令行中传入的 `--dsh-command` 必须可用。
+
 只要还有其他 profile 注册了插件，共享的 `$DSH_HOME/skills/powercontext-project-context` Skill、
 `$DSH_HOME/powercontext/credentials.json` 中的凭据和已保存的连接就会保留；从最后一个 profile 移除插件时，
 才会删除它们。已保存的连接只记录最近一次 setup 的 profile，因此结果会列出仍注册了插件的每个 profile，

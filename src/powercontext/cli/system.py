@@ -228,7 +228,10 @@ def _remove_agents(
             continue
         source = context.get_parameter_source(parameter.name)
         if source is not None and source.name != "DEFAULT":  # Typer may carry its own Click enum.
-            option = parameter.opts[0] if parameter.opts else parameter.name
+            # A paired boolean flag stores False when its "--no-" form was typed.
+            secondary = getattr(parameter, "secondary_opts", None)
+            typed = secondary if secondary and context.params.get(parameter.name) is False else parameter.opts
+            option = typed[0] if typed else parameter.name
             raise typer.BadParameter(f"{option} cannot be combined with --remove")  # noqa: TRY003
     selected = select_hosts(agents, json_output=json_output)
     if (profile is not None or dsh_command is not None) and "dsh" not in selected:
