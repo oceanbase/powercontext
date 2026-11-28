@@ -75,6 +75,7 @@ cp "$PLUGIN"/hooks/workbuddy_powercontext_hook.py \
    "$PLUGIN"/hooks/powercontext_client_config.py \
    "$PLUGIN"/hooks/prepared_context.py \
    "$PLUGIN"/hooks/prompt_privacy.py \
+   "$PLUGIN"/hooks/git_worktree.py \
    "$WORKBUDDY_HOOKS_DIR"/
 cp "$PLUGIN/scripts/workspace_scope.py" \
    "$WORKBUDDY_HOOKS_DIR/powercontext_scope_binding.py"
@@ -89,6 +90,7 @@ The resulting layout is:
   powercontext_client_config.py
   prepared_context.py
   prompt_privacy.py
+  git_worktree.py
   powercontext_scope_binding.py
 ```
 

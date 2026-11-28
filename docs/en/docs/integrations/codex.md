@@ -166,7 +166,10 @@ Scope, and it does not derive a `scope_id` from the path, remote, or branch. Run
 
 `POWERCONTEXT_CODEX_SCOPE_ID` still takes precedence. A Session that already started keeps the Session binding written
 at startup. A new Session in that Git root uses the workspace binding when no explicit variable and no earlier Session
-binding apply. The MCP `set_scope_binding` tool changes only the current Session and does not replace this command.
+binding apply. A linked Git worktree that has no workspace binding of its own uses its main checkout's binding, so a
+checkout's binding also covers its linked worktrees. Bind inside the worktree to give it a separate Scope; binding and
+clearing there change only the worktree's own binding. `powercontext session import` follows the same rule while the
+recorded worktree still exists. The MCP `set_scope_binding` tool changes only the current Session and does not replace this command.
 
 The Hook calls `POST /v1/context/prepare` once before Codex analyzes the prompt. It requests an 8000-byte total budget,
 strictly validates `powercontext.prepared-context.v1`, and injects the returned content unchanged. The recall query is

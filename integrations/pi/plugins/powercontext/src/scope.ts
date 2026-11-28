@@ -17,8 +17,11 @@
 import { createHash } from 'node:crypto'
 import { resolve } from 'node:path'
 import type { PowerContextClient } from './client.ts'
+import { workspacePaths } from './git-worktree.ts'
 
 type ScopeBindingKey = { integration: string; kind: string; external_id: string }
+
+const GIT_TIMEOUT_MS = 500
 
 export function workspaceBindingKey(cwd: string): ScopeBindingKey {
   return {
@@ -28,6 +31,11 @@ export function workspaceBindingKey(cwd: string): ScopeBindingKey {
   }
 }
 
+/** Return the workspace keys that resolution tries in order, with a linked worktree's main checkout after its own. */
+export async function workspaceBindingKeys(cwd: string): Promise<ScopeBindingKey[]> {
+  return (await workspacePaths(cwd, false, GIT_TIMEOUT_MS)).map(workspaceBindingKey)
+}
+
 export async function resolveScopeId(
   client: PowerContextClient,
   cwd: string,
@@ -35,7 +43,7 @@ export async function resolveScopeId(
 ): Promise<string> {
   const response = await client.request('resolve_scope_binding', {
     explicit_scope_id: configuredScopeId,
-    binding_keys: [workspaceBindingKey(cwd)],
+    binding_keys: await workspaceBindingKeys(cwd),
   })
   const value = response.value
   const scopeId = value && typeof value === 'object' ? (value as { scope_id?: unknown }).scope_id : undefined

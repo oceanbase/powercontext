@@ -52,7 +52,15 @@ def _checkout(root: Path) -> Path:
     for name in ("session_start.mjs", "stop.mjs"):
         (plugin / "hooks" / name).write_text("// hook", encoding="utf-8")
     for folder, names in {
-        "shared": ("settings.mjs", "transport.mjs", "scope.mjs", "observations.mjs", "context.mjs", "pending.mjs"),
+        "shared": (
+            "settings.mjs",
+            "transport.mjs",
+            "git-worktree.mjs",
+            "scope.mjs",
+            "observations.mjs",
+            "context.mjs",
+            "pending.mjs",
+        ),
         "scripts": ("scope.mjs", "status.mjs", "doctor.mjs", "pending.mjs"),
     }.items():
         (plugin / folder).mkdir()

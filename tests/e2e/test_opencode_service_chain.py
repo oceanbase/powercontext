@@ -34,7 +34,7 @@ import time
 from collections.abc import Iterator
 from concurrent.futures import Future, ThreadPoolExecutor
 from contextlib import ExitStack, contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -48,6 +48,7 @@ from powercontext.server.factory import create_server_app
 from powercontext.server.settings import BearerAuthConfig, ServerSettings
 from tests.e2e.zcode_acceptance.protocol import HostModelFixture, ObserveServer, WireEvidence, strings
 from tests.e2e.zcode_acceptance.runner import serve
+from tests.git_worktree_support import make_git_layout
 
 PLUGIN = Path(__file__).resolve().parents[2] / "integrations" / "opencode" / "plugins" / "powercontext"
 TOKEN = "opencode-service-chain-token"  # noqa: S105 - non-secret test credential.
@@ -394,6 +395,29 @@ def test_opencode_resumed_session_keeps_its_scope(opencode_stack: OpenCodeStack)
 
     opencode_stack.wait_for_sources(["First synthetic orchid prompt.", "Resumed synthetic orchid prompt."], first_scope)
     opencode_stack.wait_for_sources(["Fresh synthetic orchid prompt."], second_scope)
+
+
+def test_opencode_linked_worktree_falls_back_to_its_checkout_binding(
+    opencode_stack: OpenCodeStack, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    layout = make_git_layout(tmp_path / "git", monkeypatch)
+    worktree = replace(opencode_stack, workspace=layout.worktree)
+    replace(opencode_stack, workspace=layout.checkout).bind_workspace(opencode_stack.scope_id)
+    unpinned = {"POWERCONTEXT_OPENCODE_SCOPE_ID": None}
+
+    # Until the worktree has a binding of its own, its sessions resolve its checkout's Scope.
+    with worktree.open(**unpinned) as host:
+        session = host.session("Unbound worktree")
+        assert session["directory"] == str(layout.worktree)
+        host.prompt(session["id"], "Synthetic orchid prompt from the unbound worktree.")
+    opencode_stack.wait_for_sources(["Synthetic orchid prompt from the unbound worktree."])
+
+    # The worktree's own binding wins over its checkout's.
+    worktree_scope = _create_scope(opencode_stack.server, "OpenCode worktree")
+    worktree.bind_workspace(worktree_scope)
+    with worktree.open(**unpinned) as host:
+        host.prompt(host.session("Bound worktree")["id"], "Synthetic orchid prompt from the bound worktree.")
+    opencode_stack.wait_for_sources(["Synthetic orchid prompt from the bound worktree."], worktree_scope)
 
 
 def test_opencode_recall_and_capture_settings_are_independent(opencode_stack: OpenCodeStack) -> None:

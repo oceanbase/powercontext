@@ -54,7 +54,8 @@ Saved consent applies only to its saved Server URL and is not reused when the UR
 
 The plugin never derives a Scope ID from the current directory, Git metadata, or a workspace path. It asks the Server
 to resolve the configured explicit Scope first, then an opaque stable binding key derived from Bub's workspace identity,
-and finally the Server default. Only the real Scope returned by the Server is cached and used for recall, capture, and
+then, in a linked Git worktree, the key of the same directory in the main checkout, and finally the Server default. A
+checkout's binding therefore also covers its linked worktrees until a worktree has a binding of its own. Only the real Scope returned by the Server is cached and used for recall, capture, and
 tools.
 
 The recall query is the user's text, trimmed, with recognized credentials, such as `api_key=…` assignments, Bearer

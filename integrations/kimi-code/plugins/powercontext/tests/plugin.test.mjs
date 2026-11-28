@@ -15,9 +15,9 @@
  */
 
 import assert from 'node:assert/strict'
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { execFile, spawn } from 'node:child_process'
-import { cp, mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from 'node:fs/promises'
+import { cp, mkdir, mkdtemp, readdir, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import http from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -578,6 +578,47 @@ test('workspace bindings route Hooks and doctor while explicit Scope still overr
   assert.equal((await f.scope('unbind')).binding.status, 'absent')
   assert.equal((await f.scope('resolve')).scope_id, 'scope-default')
   assert.equal((await f.scope('resolve', undefined, other)).scope_id, 'scope-second')
+})
+
+// A checkout and a linked worktree of it, each with the same subdirectory.
+async function gitLayout(parent) {
+  await mkdir(parent, { recursive: true })
+  const root = await realpath(parent)
+  const git = (...args) => promisify(execFile)('git', ['-c', 'user.name=test', '-c', 'user.email=test@example.com', ...args])
+  const checkout = join(root, 'checkout'), worktree = join(root, 'worktree')
+  await git('init', '-q', checkout)
+  await git('-C', checkout, 'commit', '-q', '--allow-empty', '-m', 'init')
+  await git('-C', checkout, 'worktree', 'add', '-q', worktree)
+  await mkdir(join(checkout, 'sub'))
+  await mkdir(join(worktree, 'sub'))
+  return { checkout: join(checkout, 'sub'), worktree: join(worktree, 'sub') }
+}
+
+test('a linked Git worktree uses its checkout binding until it binds its own', async t => {
+  const bindings = new Map()
+  function reply(res, value) { res.writeHead(200); res.end(JSON.stringify(value)) }
+  const f = await fixture(t, {
+    '/v1/scope-bindings': (_req, res, body) => { bindings.set(body.key.external_id, body.scope_id); reply(res, body) },
+    '/v1/scope-bindings/clear': (_req, res, body) => reply(res, { cleared: bindings.delete(body.key.external_id) }),
+    '/v1/scope-bindings/resolve': (_req, res, body) => reply(res, { scope_id: body.explicit_scope_id ??
+      body.binding_keys.map(key => bindings.get(key.external_id)).find(Boolean) ?? 'scope-default' }),
+  }, { scope_id: null })
+  const { checkout, worktree } = await gitLayout(join(f.workspace, '..', 'git'))
+  const hash = path => createHash('sha256').update(path).digest('hex')
+  assert.equal((await f.scope('bind', 'scope-checkout', checkout)).binding.status, 'saved')
+  assert.equal((await f.scope('resolve', undefined, worktree)).scope_id, 'scope-checkout')
+  const result = await f.invoke({ cwd: worktree, session_id: 'session-test', hook_event_name: 'UserPromptSubmit', prompt })
+  assert.equal(result.stderr, '')
+  assert.equal(f.captures.at(-1).scope_id, 'scope-checkout')
+  // The first key is still the hash of the real working directory, so bindings made before keep matching.
+  const resolved = f.requests.filter(item => item.path === '/v1/scope-bindings/resolve').at(-1)
+  assert.deepEqual(resolved.body.binding_keys.map(key => key.external_id), [hash(worktree), hash(checkout)])
+  assert.equal((await f.scope('bind', 'scope-worktree', worktree)).binding.status, 'saved')
+  assert.equal((await f.scope('resolve', undefined, worktree)).scope_id, 'scope-worktree')
+  assert.equal((await f.scope('resolve', undefined, checkout)).scope_id, 'scope-checkout')
+  assert.equal((await f.scope('unbind', undefined, worktree)).binding.status, 'cleared')
+  assert.equal((await f.scope('resolve', undefined, worktree)).scope_id, 'scope-checkout')
+  assert.equal((await f.scope('resolve', undefined, checkout)).scope_id, 'scope-checkout')
 })
 
 test('a confirmed binding survives later resolution failure and failed resolution never captures', async t => {

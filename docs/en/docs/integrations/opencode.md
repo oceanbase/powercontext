@@ -64,7 +64,9 @@ opencode
 
 Each OpenCode session resolves an explicit `POWERCONTEXT_OPENCODE_SCOPE_ID`, its durable Session binding, its
 workspace binding, then the Server default. The resolved Scope is fixed to the Session so resume keeps the same
-boundary. Set the explicit variable only to an existing Server-owned Scope.
+boundary. In a linked Git worktree that has no workspace binding of its own, the binding of the same directory in the
+main checkout applies, so a checkout's binding also covers its linked worktrees. That fallback comes from the real path
+that Git reports, so it matches a checkout binding made from a path without symlinks. Set the explicit variable only to an existing Server-owned Scope.
 
 For a Server using optional bearer authentication, set the complete header in
 `POWERCONTEXT_OPENCODE_AUTHORIZATION`. Never put credentials in the URL. Plain HTTP is allowed on loopback by default;

@@ -60,7 +60,9 @@ opencode
 
 每个 OpenCode session 按显式的 `POWERCONTEXT_OPENCODE_SCOPE_ID`、持久 Session binding、workspace binding、
 Server 默认 Scope 的顺序解析。解析结果会固定到 Session，resume 时继续使用同一边界。显式变量只能指向一个
-已存在且由 Server 管理的 Scope。
+已存在且由 Server 管理的 Scope。在没有自己 workspace binding 的 linked Git worktree 中，
+解析会使用主 checkout 中同一目录的绑定，所以 checkout 的绑定也覆盖它的 linked worktree。这个回退来自 Git 报告的真实路径，
+因此只有 checkout 的绑定建立时所用路径不含符号链接，才能匹配。
 
 启用可选 Bearer 鉴权时，将完整请求头写入 `POWERCONTEXT_OPENCODE_AUTHORIZATION`，不要把凭据写入 URL。
 环回地址默认允许明文 HTTP；非环回地址使用 HTTPS，或显式设置 `POWERCONTEXT_OPENCODE_ALLOW_INSECURE_HTTP=true`，

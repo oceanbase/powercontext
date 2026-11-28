@@ -14,10 +14,10 @@
  * limitations under the License.
  */
 
-import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { realpathSync } from 'node:fs'
 import { resolve } from 'node:path'
+import { workspacePathsSync } from './git-worktree.mjs'
 import { nonempty } from './settings.mjs'
 import { request } from './transport.mjs'
 
@@ -38,17 +38,24 @@ export function sessionIdentity(input) {
   return id
 }
 
-export function currentWorkspace(cwd) {
+// The Git top level, and, in a linked worktree, its main checkout's root after it.
+function workspaces(cwd) {
   const directory = resolve(cwd)
-  try {
-    return realpathSync(execFileSync('git', ['-C', directory, 'rev-parse', '--show-toplevel'], {
-      encoding: 'utf8', timeout: 500, windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'],
-    }).trim())
-  } catch {
-    try { return realpathSync(directory) } catch { return directory }
-  }
+  const [root, main] = workspacePathsSync(directory, true, 500)
+  const own = realPath(root) ?? realPath(directory) ?? directory
+  // The helper returns the main checkout's root as a real path.
+  return main === undefined ? [own] : [own, main]
 }
 
+function realPath(path) {
+  try { return realpathSync(path) } catch { return undefined }
+}
+
+export function currentWorkspace(cwd) {
+  return workspaces(cwd)[0]
+}
+
+// Binding and clearing write only this key.
 export function workspaceKey(cwd) {
   return { integration: 'zcode', kind: 'workspace', external_id: sha256(currentWorkspace(cwd)) }
 }
@@ -58,7 +65,11 @@ export function bindingKeys(input, settings) {
   const keys = []
   const sessionId = sessionIdentity(input)
   if (sessionId) keys.push({ integration: 'zcode', kind: 'session', external_id: sessionId })
-  if (nonempty(input.cwd)) keys.push(workspaceKey(input.cwd))
+  if (nonempty(input.cwd)) {
+    for (const workspace of workspaces(input.cwd)) {
+      keys.push({ integration: 'zcode', kind: 'workspace', external_id: sha256(workspace) })
+    }
+  }
   return keys
 }
 

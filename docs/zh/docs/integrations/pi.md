@@ -47,7 +47,9 @@ Pi 开始 agent turn 前，package 会以默认 8000-byte 预算调用一次 `PO
 
 package 按 `POWERCONTEXT_PI_SCOPE_ID`、workspace 持久 binding、Server 默认 Scope 的顺序解析一个由 Server
 管理的 Scope。workspace 路径只会哈希为外部 binding key，不会成为 Scope ID。仅在宿主必须固定到某个已有
-Scope 时设置显式变量。
+Scope 时设置显式变量。在没有自己 workspace binding 的 linked Git worktree 中，
+解析会使用主 checkout 中同一目录的绑定，所以 checkout 的绑定也覆盖它的 linked worktree。这个回退来自 Git 报告的真实路径，
+因此只有 checkout 的绑定建立时所用路径不含符号链接，才能匹配。
 
 启用这些能力后，Pi 已满足仓库定义的 Full 核心接入 profile。
 

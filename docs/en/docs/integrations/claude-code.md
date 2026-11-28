@@ -146,6 +146,11 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/workspace_scope.py" \
 The resolver hashes the workspace path only as an external binding key. It never generates a Scope ID from a Git
 remote or directory. Set an explicit Scope only when that separation or sharing is deliberate.
 
+The workspace is the Git root, so the binding covers the checkout's subdirectories. A linked Git worktree that has no
+workspace binding of its own uses its main checkout's binding, so a session started in such a worktree shares the
+checkout's Scope. Bind inside the worktree to give it a separate Scope. Binding and clearing there change only the
+worktree's own binding.
+
 ## Use explicit Memory and Handoff operations
 
 The bundled MCP Server exposes the existing PowerContext operations. Claude can search and list Memory, and can

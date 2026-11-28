@@ -338,6 +338,9 @@ TLS 握手失败，因此远端端口的直接 HTTPS 接入尚未验收。
 
 Hook 按 `POWERCONTEXT_ZCODE_SCOPE_ID`、当前 session binding、workspace binding、Server 默认 Scope
 解析 Scope。workspace 使用 Git 根目录或工作目录的规范化路径哈希作为 binding key；路径本身不是 Scope ID。
+没有自己 workspace binding 的 linked Git worktree 会使用其主 checkout 的绑定，
+所以 checkout 的绑定也覆盖它的 linked worktree。要让 worktree 使用单独的 Scope，在 worktree 内执行绑定；
+在那里执行 `bind` 和 `unbind`，只会改动该 worktree 自己的绑定。
 远程工作区需要在启动宿主前设置 `POWERCONTEXT_ZCODE_REMOTE_WORKSPACE=true`，并给出已有的
 `POWERCONTEXT_ZCODE_SCOPE_ID`，Hook 才会跳过本地路径推断。MCP 工具执行时仍需选择正确的 Scope。
 

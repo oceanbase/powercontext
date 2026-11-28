@@ -16,9 +16,11 @@
 import { createHash } from "node:crypto";
 import { writeFile } from "node:fs/promises";
 import { tool } from "@opencode-ai/plugin";
-import { readFileSync } from "node:fs";
+import { readFileSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
-import { join, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 
 //#region src/errors.ts
 const REQUEST_ID_HEADER = "X-PowerContext-Request-ID";
@@ -2447,7 +2449,104 @@ function boundedRecallQuery(prompt) {
 }
 
 //#endregion
+//#region src/git-worktree.ts
+const GIT_ARGUMENTS = [
+	"rev-parse",
+	"--show-toplevel",
+	"--path-format=absolute",
+	"--git-dir",
+	"--git-common-dir"
+];
+const UNKNOWN_FORMAT = "\n--path-format=absolute";
+const BARE_ARGUMENTS = ["rev-parse", "--is-bare-repository"];
+const runGit = promisify(execFile);
+/**
+* Return the paths whose workspace bindings apply to `directory`, the worktree's own first.
+*
+* The first path is the one the host has always keyed: with `gitRoot`, the Git top level as Git prints it, or
+* `directory` outside a work tree; otherwise `directory` itself. In a linked worktree of a non-bare repository, a
+* second path follows from the main worktree: its root with `gitRoot`, otherwise the path at `directory`'s position in
+* it. Each host keys both paths the way it keys the first, so the second matches a binding made in the main checkout,
+* and resolves them in this order, so the worktree's own binding wins. Binding and clearing use only the first.
+*
+* A linked worktree's Git directory differs from the common directory, and its main worktree is the parent of the
+* common directory when that directory is named `.git` and Git confirms that the repository is not bare. A main
+* checkout, including one whose Git directory is separate, gets no second path, and neither do bare repositories,
+* including one in a directory named `.git`, and submodules. A linked worktree of a checkout with a separate Git
+* directory falls back to the parent of that directory, since Git records no other main worktree. A second path that
+* is the same directory as `directory` is left out. Both Git calls together stay within `timeout`.
+*/
+async function workspacePaths(directory, gitRoot, timeout) {
+	const deadline = Date.now() + timeout;
+	const [top = "", gitDir = "", common = ""] = gitPaths(await gitOutput([
+		"-C",
+		directory,
+		...GIT_ARGUMENTS
+	], timeout));
+	const first = gitRoot && top ? top : directory;
+	const main = mainPath(directory, top, gitDir, common, gitRoot);
+	if (main === void 0) return [first];
+	return (await gitOutput([
+		"-C",
+		directory,
+		"--git-dir",
+		common,
+		...BARE_ARGUMENTS
+	], deadline - Date.now())).trim() === "false" ? [first, main] : [first];
+}
+async function gitOutput(args, timeout) {
+	if (timeout <= 0) return "";
+	try {
+		return (await runGit("git", args, {
+			encoding: "utf8",
+			timeout,
+			windowsHide: true
+		})).stdout;
+	} catch {
+		return "";
+	}
+}
+function gitPaths(output) {
+	const lines = output.replace(/\r\n/gu, "\n").replace(/\n+$/u, "");
+	const commonSplit = lines.lastIndexOf("\n");
+	const rest = commonSplit < 0 ? "" : lines.slice(0, commonSplit);
+	const gitDirSplit = rest.lastIndexOf("\n");
+	const head = gitDirSplit < 0 ? "" : rest.slice(0, gitDirSplit);
+	if (head.endsWith(UNKNOWN_FORMAT)) return [
+		head.slice(0, -23).trim(),
+		"",
+		""
+	];
+	return [
+		head.trim(),
+		rest.slice(gitDirSplit + 1),
+		lines.slice(commonSplit + 1)
+	];
+}
+function mainPath(directory, top, gitDir, common, gitRoot) {
+	if (!top || !gitDir || !common || !isAbsolute(gitDir) || !isAbsolute(common)) return void 0;
+	const commonDirectory = realPath(common);
+	if (realPath(gitDir) === commonDirectory || basename(commonDirectory) !== ".git") return void 0;
+	const mainRoot = dirname(commonDirectory);
+	const worktreeRoot = realPath(top);
+	if (mainRoot === worktreeRoot) return void 0;
+	if (gitRoot) return mainRoot;
+	const position = relative(worktreeRoot, realPath(directory));
+	if (position === ".." || position.startsWith(".." + sep) || isAbsolute(position)) return void 0;
+	const main = join(mainRoot, position);
+	return realPath(main) === realPath(directory) ? void 0 : main;
+}
+function realPath(path) {
+	try {
+		return realpathSync(path);
+	} catch {
+		return resolve(path);
+	}
+}
+
+//#endregion
 //#region src/scope.ts
+const GIT_TIMEOUT_MS = 500;
 function sessionBindingKey(sessionID) {
 	return {
 		integration: "opencode",
@@ -2462,12 +2561,16 @@ function workspaceBindingKey(cwd) {
 		external_id: createHash("sha256").update(resolve(cwd)).digest("hex")
 	};
 }
+/** Return the workspace keys that resolution tries in order, with a linked worktree's main checkout after its own. */
+async function workspaceBindingKeys(cwd) {
+	return (await workspacePaths(cwd, false, GIT_TIMEOUT_MS)).map(workspaceBindingKey);
+}
 async function resolveScopeId(client, input, signal) {
 	const sessionID = input.sessionID?.trim();
 	const cwd = input.cwd?.trim();
 	const bindingKeys = [];
 	if (sessionID) bindingKeys.push(sessionBindingKey(sessionID));
-	if (cwd) bindingKeys.push(workspaceBindingKey(cwd));
+	if (cwd) bindingKeys.push(...await workspaceBindingKeys(cwd));
 	const value = (await client.request("resolve_scope_binding", {
 		explicit_scope_id: input.configuredScopeId,
 		binding_keys: bindingKeys

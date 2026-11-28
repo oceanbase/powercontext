@@ -54,6 +54,7 @@ REQUIRED_FILES = (
     "shared/mcp.mjs",
     "hooks/user_prompt_submit.mjs",
     "shared/runtime.mjs",
+    "shared/git-worktree.mjs",
     "shared/observations.mjs",
     "scripts/doctor.mjs",
     "scripts/scope.mjs",

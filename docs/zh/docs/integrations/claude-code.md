@@ -134,6 +134,10 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/workspace_scope.py" \
 resolver 只把 workspace 路径哈希用作外部 binding key，不会根据 Git remote 或目录生成 Scope ID。只有确实需要
 主动隔离或共享时，才设置显式 Scope。
 
+workspace 指 Git 根目录，因此这条绑定也覆盖 checkout 的子目录。没有自己 workspace binding 的 linked Git worktree，
+会使用其主 checkout 的绑定，所以在这类 worktree 中启动的会话与 checkout 共用同一个 Scope。
+要让 worktree 使用单独的 Scope，在 worktree 内执行绑定；在那里绑定或清除，只会改动该 worktree 自己的绑定。
+
 ## 使用显式 Memory 和 Handoff 操作
 
 随附的 MCP Server 暴露已有的 PowerContext 操作。Claude 可以搜索和列出 Memory；只有用户明确要求持久化变更时，

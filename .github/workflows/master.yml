@@ -956,6 +956,7 @@ jobs:
           tests/test_service.py
           tests/test_service_bootstrap.py
           tests/test_service_environment.py
+          tests/test_git_worktree.py
           --junitxml="${{ runner.temp }}/pytest-diagnostics/portability.xml"
 
       - name: Collect Windows process diagnostics

@@ -138,7 +138,7 @@ uv run --frozen --quiet --project "$PLUGIN_ROOT" python "$PLUGIN_ROOT/scripts/sc
 
 `$PLUGIN_ROOT` 是已安装 Codex 插件的根目录，与 Hook 使用的变量相同。在普通终端里把它换成实际目录，例如插件缓存中的 `powercontext/powercontext/<version>`，或本仓库的 `integrations/codex/plugins/powercontext`。命令写入 `integration=codex`、`kind=workspace` 的绑定，外部身份是 Git 根路径的 SHA-256。它不创建 Scope，也不从路径、远程地址或分支生成 `scope_id`。去掉 `--bind-scope` 再执行一次，可以打印该目录当前解析到的编号。`--clear-scope` 只删除这条 workspace binding，不删除 Scope 里的内容。
 
-`POWERCONTEXT_CODEX_SCOPE_ID` 仍然优先于这条登记。已经开着的会话保持启动时写下的 Session binding；在该 Git 根新开一场会话后，没有显式变量、也没有更早的 Session binding 时，会使用这条 workspace binding。MCP 的 `set_scope_binding` 只改当前会话，不能代替这条命令。
+`POWERCONTEXT_CODEX_SCOPE_ID` 仍然优先于这条登记。已经开着的会话保持启动时写下的 Session binding；在该 Git 根新开一场会话后，没有显式变量、也没有更早的 Session binding 时，会使用这条 workspace binding。没有自己 workspace binding 的 linked Git worktree 会使用其主 checkout 的绑定，所以 checkout 的绑定也覆盖它的 linked worktree。要让 worktree 使用单独的 Scope，在 worktree 内执行绑定；在那里绑定或清除，只会改动该 worktree 自己的绑定。记录中的 worktree 仍然存在时，`powercontext session import` 也遵循同一规则。MCP 的 `set_scope_binding` 只改当前会话，不能代替这条命令。
 
 Codex 开始分析提示词前，Hook 只调用一次 `POST /v1/context/prepare`，请求 8000-byte 总预算。它严格校验
 `powercontext.prepared-context.v1`，并原样注入返回内容。召回 query 先做凭据脱敏并去掉首尾空白，再定界：不超过 8192 个字符、
