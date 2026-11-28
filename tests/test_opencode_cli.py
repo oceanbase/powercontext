@@ -583,3 +583,85 @@ def test_doctor_opencode_rejects_configured_but_inactive_plugin(tmp_path: Path, 
     payload = json.loads(result.output)["hosts"]["opencode"]
     assert payload["checks"]["plugin"]["status"] == "failed"
     assert "did not activate" in payload["checks"]["plugin"]["detail"]
+
+
+def _record_opencode_serve(monkeypatch, *, activate: bool) -> list[list[str]]:
+    """Stand in for `opencode serve` at the process boundary and record each launch."""
+
+    launches: list[list[str]] = []
+    real_popen = subprocess.Popen
+
+    class FakeServe:
+        def __init__(self, command: list[str], **kwargs) -> None:
+            launches.append(command)
+            if activate:
+                env = kwargs["env"]
+                Path(env["POWERCONTEXT_OPENCODE_ACTIVATION_PROBE_PATH"]).write_text(
+                    env["POWERCONTEXT_OPENCODE_ACTIVATION_PROBE_NONCE"], encoding="utf-8"
+                )
+
+        def poll(self) -> int:
+            return 0
+
+    def popen(command, *args, **kwargs):
+        if list(command[1:2]) == ["serve"]:
+            return FakeServe(command, **kwargs)
+        return real_popen(command, *args, **kwargs)
+
+    monkeypatch.setattr(subprocess, "Popen", popen)
+    return launches
+
+
+def test_doctor_opencode_does_not_start_serve_when_plugin_is_not_configured(
+    tmp_path: Path, monkeypatch, server_checks
+) -> None:
+    import powercontext.cli.opencode as opencode_cli
+
+    config = tmp_path / "config"
+    config.mkdir()
+    configure_opencode(monkeypatch, config)
+
+    def unconfigured(*arguments: str, env: dict[str, str] | None = None) -> str:
+        del env
+        if arguments == ("debug", "config"):
+            return json.dumps({"plugin": ["@other/opencode-plugin"]})
+        raise AssertionError(arguments)
+
+    monkeypatch.setattr(opencode_cli, "_run_opencode", unconfigured)
+    launches = _record_opencode_serve(monkeypatch, activate=True)
+
+    result = CliRunner().invoke(create_cli([doctor_app]), ["doctor", "opencode", "--json"])
+
+    assert result.exit_code == 1
+    checks = json.loads(result.output)["hosts"]["opencode"]["checks"]
+    assert launches == []
+    assert checks["opencode"]["status"] == "ok"
+    assert checks["plugin"] == {
+        "ok": False,
+        "status": "failed",
+        "detail": "PowerContext OpenCode plugin is not configured",
+    }
+    assert checks["plugin_memory_protocol"]["status"] == "degraded"
+    assert checks["skill"]["status"] == "failed"
+    assert checks["skill"]["detail"] == "PowerContext OpenCode Skill is not installed"
+
+
+def test_doctor_opencode_probes_activation_when_plugin_is_configured(
+    tmp_path: Path, monkeypatch, server_checks
+) -> None:
+    import powercontext.cli.opencode as opencode_cli
+
+    plugin = _write_plugin(tmp_path / "checkout")
+    config = tmp_path / "config"
+    configure_opencode(monkeypatch, config)
+    install_plugin("opencode", source=str(plugin))
+    monkeypatch.setattr(opencode_cli, "_run_opencode", _fake_opencode(plugin, config))
+    launches = _record_opencode_serve(monkeypatch, activate=True)
+
+    result = CliRunner().invoke(create_cli([doctor_app]), ["doctor", "opencode", "--json"])
+
+    assert result.exit_code == 0
+    checks = json.loads(result.output)["hosts"]["opencode"]["checks"]
+    assert [command[1] for command in launches] == ["serve"]
+    assert checks["plugin"]["status"] == "ok"
+    assert checks["plugin"]["detail"] == "powercontext-opencode is configured and active"

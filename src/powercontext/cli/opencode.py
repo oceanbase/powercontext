@@ -422,12 +422,11 @@ def _debug_config_payload(output: str) -> dict[str, object] | None:
     return None
 
 
-def _probe_plugin_activation() -> tuple[str, bool]:
+def _probe_plugin_activation() -> bool:
     token = uuid4().hex
     with tempfile.TemporaryDirectory(prefix="powercontext-opencode-probe-") as directory:
         path = Path(directory) / "active"
         port = _available_local_port()
-        output = _run_opencode("debug", "config")
         command = [
             opencode_executable(),
             "serve",
@@ -453,7 +452,7 @@ def _probe_plugin_activation() -> tuple[str, bool]:
             activated = path.read_text(encoding="utf-8") == token
         except OSError:
             activated = False
-    return output, activated
+    return activated
 
 
 def _run_opencode_probe(command: list[str], env: dict[str, str]) -> None:
@@ -599,10 +598,12 @@ class OpenCodeInstaller:
             }
         try:
             config_dir = opencode_config_dir()
-            output, activated = _probe_plugin_activation()
-            configured = _configured_plugin(output) or _owned_plugin(
+            configured = _configured_plugin(_run_opencode("debug", "config")) or _owned_plugin(
                 config_dir / "plugins" / f"{OPENCODE_PLUGIN_NAME}.js"
             )
+            # Without a configured plugin nothing can write the activation file, so the probe
+            # would only wait for its timeout.
+            activated = configured and _probe_plugin_activation()
         except SetupError as error:
             return {
                 "opencode": Diagnostic(status=DiagnosticStatus.OK, detail=f"{executable} ({actual})"),
