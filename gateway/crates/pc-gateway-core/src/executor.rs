@@ -15,17 +15,12 @@
 //! 执行器核心：一次托管调用的状态机。
 //!
 //! ```text
-//! 宿主完整输入 ─► [快照原始请求] ─► enrich ─► 渲染 ─► check(before_send)
-//!                   │                                       │
-//!                   │                    ┌── allow + binding + valid_until
-//!                   │                    ▼
-//!                   │            [验有效期] ─► 发送 ─► ┌─ Delivered ─► check(before_release)
-//!                   │                    │             ├─ NotSent ─► [重准入] ─► 重新发送
-//!                   │                    │             └─ Indeterminate ─► 上抛
-//!                   │                    │
-//!                   │              到期→ AdmissionExpired（零发送）
-//!                   │
-//!                   └── 降级时用此原始请求（不含注入）重新渲染
+//! 宿主输入 ─► enrich ─► 渲染一次 ─► check(before_send)
+//!                                       ├─ allow(目标、binding、期限) ─► 验期限 ─► 发送同一载荷
+//!                                       │                                  ├─ Delivered ─► check(before_release)
+//!                                       │                                  ├─ NotSent ─► 重准入后重试
+//!                                       │                                  └─ Indeterminate ─► 不重试
+//!                                       └─ block/withhold/error ─► 零发送
 //! ```
 
 use crate::evidence::CallRecorder;
@@ -58,22 +53,15 @@ use std::sync::{
 };
 use std::time::{SystemTime, UNIX_EPOCH};
 
-/// Gate 不可用时的策略（PR #2199 故障语义）。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum DegradePolicy {
-    #[default]
-    Pause,
-    PassthroughWithoutMemory,
-}
-
 /// 宿主交给执行器的完整输入。
 pub struct ManagedCall {
     pub scope_id: String,
     pub target_profile: String,
     pub request: CanonicalRequest,
-    pub target_url: String,
+    pub target_protocol: String,
+    /// A subscription credential may only accompany its own approved destination.
+    pub credential_target: Option<String>,
     pub headers: Vec<(String, String)>,
-    pub degrade_policy: DegradePolicy,
     pub inject_context: bool,
     /// 注入时同时请求代码证据（默认关）。
     pub include_code: bool,
@@ -109,11 +97,6 @@ pub enum ManagedOutcome {
         attempts: u32,
     },
     GatePaused(String),
-    Degraded {
-        status: u16,
-        content_type: String,
-        body: bytes::Bytes,
-    },
     /// 准入已过期（valid_until 超窗）：零发送或零释放，可安全重走完整流程。
     AdmissionExpired,
     /// Local work stopped; sending facts do not imply remote rollback or permission to retry.
@@ -146,7 +129,6 @@ impl ManagedOutcome {
             Self::SendIndeterminate => ExecutionTerminal::SendIndeterminate,
             Self::NotSent { .. } => ExecutionTerminal::NotSent,
             Self::GatePaused(_) => ExecutionTerminal::GatePaused,
-            Self::Degraded { .. } => ExecutionTerminal::Degraded,
             Self::AdmissionExpired => ExecutionTerminal::AdmissionExpired,
             Self::Stopped { reason, .. } => ExecutionTerminal::Stopped(*reason),
         }
@@ -206,9 +188,38 @@ impl ModelAdmission {
 /// 单次发送尝试的准入凭证。
 struct Admission {
     binding: String,
+    target_endpoint: String,
     /// 截止时间（Unix 毫秒）。解析失败 = 0 = 立即过期（fail-closed，
     /// 不能因无法解析就当作没有截止时间照常发送）。
     valid_until_ms: u64,
+}
+
+impl Admission {
+    /// 首发和确定未发送后的重试，必须采用同一组完整性与目标检查。
+    fn from_allowed(
+        result: &ContextCheckResult,
+        protocol: &str,
+        credential_target: Option<&str>,
+        require_privacy_coverage: bool,
+    ) -> Result<Self, ManagedOutcome> {
+        let (binding, valid_until_ms) =
+            validate_allow(result, CheckPhase::BeforeSend, require_privacy_coverage)?;
+        let target_endpoint = approved_target(result, protocol)?;
+        if let Some(credential_target) = credential_target {
+            let credential_url = reqwest::Url::parse(credential_target)
+                .map_err(|_| ManagedOutcome::GatePaused("subscription_target_mismatch".into()))?;
+            if credential_url != target_endpoint {
+                return Err(ManagedOutcome::GatePaused(
+                    "subscription_target_mismatch".into(),
+                ));
+            }
+        }
+        Ok(Self {
+            binding,
+            target_endpoint: target_endpoint.to_string(),
+            valid_until_ms,
+        })
+    }
 }
 
 impl<G, T> Executor<G, T>
@@ -233,7 +244,7 @@ where
         }
     }
 
-    /// Permanently prevent new model attempts, including retries and degraded sends.
+    /// Permanently prevent new model attempts, including retries.
     /// Already handed-off work may finish under its original lifecycle. Service draining
     /// can close this boundary without introducing another retry algorithm.
     pub fn close_model_admission(&self) {
@@ -287,6 +298,7 @@ where
                     .cancel_with(LifecycleStopReason::GatewayShutdown);
                 execution.checkpoint()?;
             }
+            recording.set_target(&send.target_url);
             timer = StageTimer::new(evidence, CallStage::Upstream);
             recording.begin_attempt();
             execution.model_send(ModelSendState::PossiblySent);
@@ -355,7 +367,7 @@ where
             evidence,
             control.observation(),
             control.cancellation(),
-            &call.target_url,
+            "no-upstream-send",
             match renderer.message_list_key() {
                 "input" => Some(UsageMapping::OpenAiResponses),
                 "messages" => Some(UsageMapping::OpenAiChat),
@@ -403,8 +415,7 @@ where
             return stop;
         }
         let mut call = call;
-        // P1-3：enrich 之前快照原始请求。降级路径必须用这份（不含注入内容）
-        // 重新渲染，否则 prepare 召回的私密记忆会在未经任何检查的情况下外发。
+        // 注入前的请求仅用于回合标识与沉淀，不能替代渲染后提交 Core 检查的载荷。
         let pristine_request = call.request.clone();
         // 回合类型只由原始请求尾部决定；在重放与准备之前判定一次，供证据、计数与召回决策共用。
         let kind = turn_kind(&pristine_request, renderer.message_list_key());
@@ -421,7 +432,7 @@ where
         let mut refreshed = false;
         // Core 使已重放的块失效后，本请求需要重新准备一次；`refreshed` 保证每个请求至多刷新一次。
         let mut reprepare = false;
-        let (payload, admission) = loop {
+        let (payload, admission, model_payload) = loop {
             if let Err(stop) = execution.checkpoint() {
                 return stop;
             }
@@ -476,7 +487,7 @@ where
             let check = ContextCheckRequest::BeforeSend {
                 scope_id: call.scope_id.clone(),
                 target_profile: call.target_profile.clone(),
-                payload: model_payload,
+                payload: model_payload.clone(),
                 prepared_contexts: call.prepared_contexts.clone(),
             };
 
@@ -491,52 +502,15 @@ where
                 return stop;
             }
             let admission = match checked {
-                Err(e) => {
-                    // 降级仅适用于 Core「不可用」；Malformed（可达但响应异常）一律暂停。
-                    return match (e, call.degrade_policy) {
-                        (
-                            GateError::GateUnavailable(_),
-                            DegradePolicy::PassthroughWithoutMemory,
-                        ) => {
-                            // P1-3：降级时丢弃已注入的载荷，用 pristine 请求重新渲染。
-                            let mut degraded_call = ManagedCall {
-                                scope_id: call.scope_id.clone(),
-                                target_profile: call.target_profile.clone(),
-                                request: pristine_request.clone(),
-                                target_url: call.target_url.clone(),
-                                headers: call.headers.clone(),
-                                degrade_policy: DegradePolicy::Pause,
-                                inject_context: false,
-                                include_code: false,
-                                capture_prefix: false,
-                                conversation_id: None,
-                                sediment: false,
-                                internal: call.internal,
-                                prepared_contexts: Vec::new(),
-                            };
-                            degraded_call.request.stream = call.request.stream;
-                            self.degraded_send(
-                                &degraded_call,
-                                renderer,
-                                evidence,
-                                execution,
-                                recording,
-                            )
-                            .await
-                        }
-                        (e, _) => ManagedOutcome::GatePaused(classify_gate_error(e)),
-                    };
-                }
+                Err(e) => return ManagedOutcome::GatePaused(classify_gate_error(e)),
                 Ok(result) => match result.decision {
-                    CheckDecision::Allow => match validate_allow(
+                    CheckDecision::Allow => match Admission::from_allowed(
                         &result,
-                        CheckPhase::BeforeSend,
+                        &call.target_protocol,
+                        call.credential_target.as_deref(),
                         self.require_privacy_coverage,
                     ) {
-                        Ok((binding, deadline)) => Admission {
-                            binding,
-                            valid_until_ms: deadline,
-                        },
+                        Ok(admission) => admission,
                         Err(outcome) => return outcome,
                     },
                     CheckDecision::Block => {
@@ -582,7 +556,7 @@ where
                     })
                     .fold(0, u64::saturating_add),
             );
-            break (payload, admission);
+            break (payload, admission, model_payload);
         };
 
         // P1-4：发送阶段。每次尝试前验有效期；确定性失败后重新走 check 拿新准入。
@@ -602,7 +576,7 @@ where
                 let send = AdmittedSend {
                     binding: current.binding.clone(),
                     payload: payload.bytes.clone(),
-                    target_url: call.target_url.clone(),
+                    target_url: current.target_endpoint.clone(),
                     headers: call.headers.clone(),
                     stream: call.request.stream,
                 };
@@ -646,10 +620,7 @@ where
                         let recheck = ContextCheckRequest::BeforeSend {
                             scope_id: call.scope_id.clone(),
                             target_profile: call.target_profile.clone(),
-                            payload: ModelJsonPayload::new(
-                                content_headers(&call.headers, payload.content_type),
-                                String::from_utf8(payload.bytes.to_vec()).unwrap_or_default(),
-                            ),
+                            payload: model_payload.clone(),
                             prepared_contexts: call.prepared_contexts.clone(),
                         };
                         let checked = {
@@ -661,19 +632,15 @@ where
                         }
                         match checked {
                             Ok(r) if r.decision == CheckDecision::Allow => {
-                                match validate_allow(
+                                current = match Admission::from_allowed(
                                     &r,
-                                    CheckPhase::BeforeSend,
+                                    &call.target_protocol,
+                                    call.credential_target.as_deref(),
                                     self.require_privacy_coverage,
                                 ) {
-                                    Ok((binding, deadline)) => {
-                                        current = Admission {
-                                            binding,
-                                            valid_until_ms: deadline,
-                                        };
-                                    }
+                                    Ok(admission) => admission,
                                     Err(outcome) => return outcome,
-                                }
+                                };
                             }
                             Ok(r) if r.decision == CheckDecision::Block => {
                                 evidence.record_core_block();
@@ -900,7 +867,7 @@ where
                             .cancel(&AdmittedSend {
                                 binding: String::new(),
                                 payload: bytes::Bytes::new(),
-                                target_url: call.target_url.clone(),
+                                target_url: String::new(),
                                 headers: call.headers.clone(),
                                 stream: call.request.stream,
                             })
@@ -1136,7 +1103,7 @@ where
             return;
         };
         // Core accepts Responses prepared-context locations only in input_text parts.
-        // Normalize only when injecting, preserving uninjected and degraded payloads.
+        // Normalize only when injecting, preserving uninjected payloads.
         if list_key == "input" {
             if let [serde_json::Value::String(text)] = message.content.as_slice() {
                 message.content = vec![serde_json::json!({"type": "input_text", "text": text})];
@@ -1198,81 +1165,6 @@ where
                 end_byte: block.len() as u64,
             },
         });
-    }
-
-    /// P1-3：降级直通用 pristine 请求（不含注入）重新渲染再发送。
-    async fn degraded_send<R: WireRenderer>(
-        &self,
-        call: &ManagedCall,
-        renderer: &R,
-        evidence: &dyn EvidenceSink,
-        execution: &mut Execution,
-        recording: &mut CallRecorder<'_>,
-    ) -> ManagedOutcome {
-        if let Err(stop) = execution.checkpoint() {
-            return stop;
-        }
-        evidence.record_not_sent(0, "degraded_passthrough");
-        let payload = match renderer.render(&call.request, None) {
-            Ok(p) => p,
-            Err(e) => {
-                return ManagedOutcome::Blocked {
-                    reason_codes: vec![format!("render_failed:{e}")],
-                }
-            }
-        };
-        if payload.bytes.len() > self.max_input_bytes {
-            return ManagedOutcome::Blocked {
-                reason_codes: vec!["request_payload_too_large".into()],
-            };
-        }
-        let send = AdmittedSend {
-            binding: "degraded-passthrough".into(),
-            payload: payload.bytes,
-            target_url: call.target_url.clone(),
-            headers: call.headers.clone(),
-            stream: call.request.stream,
-        };
-        let outcome = match self
-            .send_attempt(send, execution, recording, evidence)
-            .await
-        {
-            Ok(outcome) => outcome,
-            Err(stop) => return stop,
-        };
-        match outcome {
-            SendOutcome::Delivered(raw) => {
-                recording.received(&raw);
-                execution.model_send(ModelSendState::ResponseReceived);
-                let raw = match restore_protocol_response(&call.request, renderer, raw) {
-                    Ok(raw) => raw,
-                    Err(outcome) => return outcome,
-                };
-                ManagedOutcome::Degraded {
-                    status: raw.status,
-                    content_type: raw.content_type,
-                    body: raw.body,
-                }
-            }
-            SendOutcome::IncompleteResponse {
-                reason,
-                status,
-                response_first_byte_ms,
-            } => {
-                recording.incomplete_response(&reason, status, response_first_byte_ms);
-                indeterminate_outcome(reason)
-            }
-            SendOutcome::Indeterminate(reason) => {
-                recording.indeterminate(&reason);
-                indeterminate_outcome(reason)
-            }
-            SendOutcome::NotSent(reason) => {
-                recording.not_sent(&reason);
-                execution.model_send(ModelSendState::DefinitelyNotSent);
-                evidence.record_not_sent(1, &reason.to_string());
-                ManagedOutcome::NotSent { attempts: 1 }
-            }
-        }
     }
 }
 
@@ -1366,6 +1258,36 @@ fn validate_allow(
     Ok((binding.to_string(), deadline))
 }
 
+/// An allow without the Core-derived endpoint and matching renderer protocol is not a send plan.
+fn approved_target(
+    result: &ContextCheckResult,
+    protocol: &str,
+) -> Result<reqwest::Url, ManagedOutcome> {
+    if result.target_protocol.as_deref() != Some(protocol) {
+        return Err(ManagedOutcome::GatePaused(
+            "malformed_verdict: target protocol mismatch".into(),
+        ));
+    }
+    let url = result.target_endpoint.as_deref().ok_or_else(|| {
+        ManagedOutcome::GatePaused("malformed_verdict: missing approved target".into())
+    })?;
+    let parsed = reqwest::Url::parse(url).map_err(|_| {
+        ManagedOutcome::GatePaused("malformed_verdict: invalid approved target".into())
+    })?;
+    if !matches!(parsed.scheme(), "http" | "https")
+        || parsed.host_str().is_none()
+        || !parsed.username().is_empty()
+        || parsed.password().is_some()
+        || parsed.query().is_some()
+        || parsed.fragment().is_some()
+    {
+        return Err(ManagedOutcome::GatePaused(
+            "malformed_verdict: unsafe approved target".into(),
+        ));
+    }
+    Ok(parsed)
+}
+
 fn classify_gate_error(e: GateError) -> String {
     match e {
         GateError::GateUnavailable(_) => "gate_unavailable".into(),
@@ -1421,4 +1343,95 @@ fn now_ms() -> u64 {
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_millis() as u64)
         .unwrap_or(0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use pc_gateway_evidence::{fingerprint, BufferedEvidenceSink};
+    use pc_gateway_transport::NotSentReason;
+    use std::future::Future;
+    use std::sync::atomic::AtomicUsize;
+    use std::time::Duration;
+
+    struct RejectingTransport(AtomicUsize);
+
+    impl Transport for RejectingTransport {
+        fn send<'a>(
+            &'a self,
+            _send: AdmittedSend,
+        ) -> impl Future<Output = SendOutcome> + Send + 'a {
+            self.0.fetch_add(1, Ordering::SeqCst);
+            async { SendOutcome::NotSent(NotSentReason::ConnectRefused) }
+        }
+
+        async fn cancel(&self, _send: &AdmittedSend) {}
+    }
+
+    #[tokio::test]
+    async fn shutdown_before_retry_handoff_keeps_the_last_attempt_destination() {
+        let transport = RejectingTransport(AtomicUsize::new(0));
+        let executor = Executor::new(
+            crate::HttpGateClient::with_token("http://127.0.0.1:1", None),
+            transport,
+            NonZeroU32::new(2).unwrap(),
+        );
+        let evidence = BufferedEvidenceSink::new();
+        let control =
+            RequestControl::new(tokio::time::Instant::now() + Duration::from_secs(30), None);
+        let mut recording = CallRecorder::new(
+            &evidence,
+            control.observation(),
+            control.cancellation(),
+            "no-upstream-send",
+            None,
+            false,
+        );
+        let mut execution = control.start();
+        let send = |target: &str| AdmittedSend {
+            binding: "approved-binding".into(),
+            payload: bytes::Bytes::from_static(b"request"),
+            target_url: target.into(),
+            headers: vec![],
+            stream: false,
+        };
+
+        let first = executor
+            .send_attempt(
+                send("https://first.example/model"),
+                &mut execution,
+                &mut recording,
+                &evidence,
+            )
+            .await;
+        assert!(matches!(
+            first,
+            Ok(SendOutcome::NotSent(NotSentReason::ConnectRefused))
+        ));
+        recording.not_sent(&NotSentReason::ConnectRefused);
+        execution.model_send(ModelSendState::DefinitelyNotSent);
+
+        executor.close_model_admission();
+        let stopped = executor
+            .send_attempt(
+                send("https://unattempted.example/model"),
+                &mut execution,
+                &mut recording,
+                &evidence,
+            )
+            .await
+            .unwrap_err();
+        assert!(matches!(stopped, ManagedOutcome::Stopped { .. }));
+        recording.finish(&stopped);
+        execution.finish(&stopped);
+        drop(recording);
+
+        assert_eq!(executor.transport.0.load(Ordering::SeqCst), 1);
+        let calls = evidence.calls();
+        assert_eq!(calls[0].attempts, 1);
+        assert_eq!(
+            calls[0].target_fingerprint,
+            fingerprint("https://first.example/model")
+        );
+    }
 }

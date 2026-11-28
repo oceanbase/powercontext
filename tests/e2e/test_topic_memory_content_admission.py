@@ -161,7 +161,6 @@ def test_http_worker_rejects_placeholder_then_publishes_grounded_revision(tmp_pa
             assert revised.json()["content"] == valid
             assert client.get(f"{base}/{artifact}/revisions/1").json()["content"] == old
             assert len(global_calls) == 2
-            assert any(getattr(record, "error_code", None) == "invalid_topic_placeholder" for record in caplog.records)
         child_output = capfd.readouterr().out
         assert 'error_code="invalid_topic_placeholder"' in child_output
         assert 'error_category="dependency"' in child_output

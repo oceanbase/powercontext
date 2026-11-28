@@ -333,7 +333,7 @@ async fn real_core_capture_commit_loss_recovers_same_record_and_prepare_is_not_r
 #[tokio::test]
 async fn subscription_wire_evidence_blocks_release_through_real_core_and_http() {
     use axum::{http::Uri, routing::post as route_post, Router};
-    use pc_gateway_core::{DegradePolicy, Executor, ManagedCall, ManagedOutcome, RequestControl};
+    use pc_gateway_core::{Executor, ManagedCall, ManagedOutcome, RequestControl};
     use pc_gateway_evidence::NoopEvidenceSink;
     use pc_gateway_protocol::{
         CanonicalRequest, GatewayRenderer, SubscriptionProtocol, SubscriptionRenderer,
@@ -448,7 +448,7 @@ async fn subscription_wire_evidence_blocks_release_through_real_core_and_http() 
     for role in ["scope.viewer", "gateway.user"] {
         post(&admin, "/v1/access/bindings/create", json!({"subject":{"type":"service","id":"server-token"},"resource":{"type":"scope","scope_id":scope},"role":role,"idempotency_key":role})).await;
     }
-    for (provider, path) in [
+    for (provider, _path) in [
         ("copilot", "/copilot/chat/completions"),
         ("gemini", "/gemini/v1internal:generateContent"),
         ("responses", "/responses"),
@@ -482,9 +482,14 @@ async fn subscription_wire_evidence_blocks_release_through_real_core_and_http() 
                 scope_id: scope.clone(),
                 target_profile: provider.into(),
                 request,
-                target_url: format!("{base}{path}"),
+                target_protocol: match provider {
+                    "responses" => "openai-responses",
+                    "gemini" => "google-codeassist-chat",
+                    _ => "openai-chat",
+                }
+                .into(),
+                credential_target: None,
                 headers: vec![],
-                degrade_policy: DegradePolicy::Pause,
                 inject_context: false,
                 include_code: false,
                 capture_prefix: false,

@@ -56,6 +56,9 @@ server 表下）设置 `mcp_optional_startup_grace_ms = 0`，改为最多等待�
 请关闭提示词时召回，由 gateway 准备上下文，见[把提示词时上下文交给 gateway](#把提示词时上下文交给-gateway)。
 插件还使用 `PreToolUse` 绑定 MCP 操作的 Scope。插件已加载或 MCP 工具可发现，都不能证明这些 Hook 已执行。
 
+启用召回或采集且 Scope 已解析时，`UserPromptSubmit` 也会向 Codex 提供每轮指引。任务实际完成或明确中断时，
+Codex 可以调用可用的 MCP 工具 `record_task_outcome`。中间回合、`Stop` 和会话结束本身都不足以触发记录。
+
 如果跳过或拒绝信任，进入 `/hooks` 检查 PowerContext 条目，按当前宿主提供的操作启用或信任它们。
 如宿主要求开启新会话，按提示操作，在重新验收采集前再次检查 Hook。不同 Codex 版本的控件和提示可能不同。
 如果找不到预期 Hook，按下文诊断安装与宿主支持情况；没有出现信任提示，不代表 Hook 已启用。
@@ -138,7 +141,7 @@ uv run --frozen --quiet --project "$PLUGIN_ROOT" python "$PLUGIN_ROOT/scripts/sc
 
 `$PLUGIN_ROOT` 是已安装 Codex 插件的根目录，与 Hook 使用的变量相同。在普通终端里把它换成实际目录，例如插件缓存中的 `powercontext/powercontext/<version>`，或本仓库的 `integrations/codex/plugins/powercontext`。命令写入 `integration=codex`、`kind=workspace` 的绑定，外部身份是 Git 根路径的 SHA-256。它不创建 Scope，也不从路径、远程地址或分支生成 `scope_id`。去掉 `--bind-scope` 再执行一次，可以打印该目录当前解析到的编号。`--clear-scope` 只删除这条 workspace binding，不删除 Scope 里的内容。
 
-`POWERCONTEXT_CODEX_SCOPE_ID` 仍然优先于这条登记。已经开着的会话保持启动时写下的 Session binding；在该 Git 根新开一场会话后，没有显式变量、也没有更早的 Session binding 时，会使用这条 workspace binding。MCP 的 `set_scope_binding` 只改当前会话，不能代替这条命令。
+`POWERCONTEXT_CODEX_SCOPE_ID` 仍然优先于这条登记。已经开着的会话保持启动时写下的 Session binding；在该 Git 根新开一场会话后，没有显式变量、也没有更早的 Session binding 时，会使用这条 workspace binding。没有自己 workspace binding 的 linked Git worktree 会使用其主 checkout 的绑定，所以 checkout 的绑定也覆盖它的 linked worktree。要让 worktree 使用单独的 Scope，在 worktree 内执行绑定；在那里绑定或清除，只会改动该 worktree 自己的绑定。记录中的 worktree 仍然存在时，`powercontext session import` 也遵循同一规则。MCP 的 `set_scope_binding` 只改当前会话，不能代替这条命令。
 
 Codex 开始分析提示词前，Hook 只调用一次 `POST /v1/context/prepare`，请求 8000-byte 总预算。它严格校验
 `powercontext.prepared-context.v1`，并原样注入返回内容。召回 query 先做凭据脱敏并去掉首尾空白，再定界：不超过 8192 个字符、
@@ -282,8 +285,8 @@ Codex 直接调用模型时，gateway 不承载这些流量，请保留插件的
 Codex 不发送输出上限（`max_output_tokens`）。enforcing 模式的 Core 要求目标配置 token 预算，并要求每个生成请求
 带输出上限，因此会暂缓每个 Codex 请求（例如原因为 `output_limit_required`），gateway 返回 HTTP 400，这一轮在
 模型收到请求前失败。请把 Core 的推理保护设为 `disabled`、`shadow` 或 `advisory` 模式，并为
-`PC_GATEWAY_UPSTREAM_PROFILE` 指定的 profile（未设置时为 `default`）配置目标。任何模式下，Core 都会暂缓目标未知
-的检查。例如：
+`PC_GATEWAY_UPSTREAM_PROFILE_RESPONSES` 指定的 profile 配置目标。任何模式下，Core 都会暂缓目标未知的检查。
+例如，以下 `default` 目标需要设置 `PC_GATEWAY_UPSTREAM_PROFILE_RESPONSES=default`：
 
 ```bash
 export POWERCONTEXT_SERVER_INFERENCE_PROTECTION='{
@@ -326,8 +329,8 @@ env_key = "PC_GATEWAY_KEY"
 不接受 `config.toml` 中的 `[profiles.<name>]` 表。
 
 请在启动 Codex 的环境中，把 gateway 的 `PC_GATEWAY_API_KEY` 的值导出为 `PC_GATEWAY_KEY`；Codex 会把它作为 bearer
-token 发送。`PC_GATEWAY_KEY` 未设置时，Codex 会以 `Missing environment variable` 停止，不发送任何请求。监听回环地址
-的 gateway 可以不设置 `PC_GATEWAY_API_KEY`，此时接受任意 token，但 Codex 仍需要这个变量。
+token 发送。`PC_GATEWAY_KEY` 未设置时，Codex 会以 `Missing environment variable` 停止，不发送任何请求。即使监听
+回环地址，gateway 也要求非空的 `PC_GATEWAY_API_KEY`。
 
 在组合部署（`PC_GATEWAY_CORE_UDS`）中，gateway 把 Core API 和 MCP 请求连同客户端自己的凭据转发给 Core，因此插件
 可以把 gateway 的地址用作 Server URL（`powercontext setup codex --server-url`）。
@@ -345,22 +348,29 @@ codex
 修改这些设置后可以继续已有的 thread。gateway 移除重发的上下文时，会记录
 `PowerContext plugin prepared context omitted by the gateway.`。
 
-关闭召回后，`UserPromptSubmit` 不发送准备请求，也不添加上下文。`POWERCONTEXT_CODEX_CAPTURE_PROMPTS` 为 `true`
-时它仍会采集提示词；两项都关闭时，它不发送任何请求。Session binding、启动上下文、MCP 工具和诊断仍由各自的设置控制。
+关闭召回后，`UserPromptSubmit` 不发送准备请求。启用提示词采集且成功解析 Scope 时，仍会注入任务结果记录指引。
+`POWERCONTEXT_CODEX_CAPTURE_PROMPTS` 为 `true` 时它仍会采集提示词；两项都关闭时，它不发送任何请求，
+也不添加提示词 Hook 指引。Gateway 默认固定指令不包含此任务结果记录指引。Session binding、启动上下文、MCP 工具和诊断仍由各自的设置控制。
 
 ### 配置 gateway
 
 以组合部署（`PC_GATEWAY_CORE_UDS`）运行 gateway，它默认注入带有对话 ID 的请求。设置：
 
-- `PC_GATEWAY_UPSTREAM_URL_RESPONSES` 设为目标的 `endpoint`，`PC_GATEWAY_UPSTREAM_API_KEY_RESPONSES` 设为供应商
-  密钥。gateway 自己向这个 URL 发送请求；未设置时，Responses 路由返回 HTTP 501 `responses_route_disabled`。
-- `PC_GATEWAY_API_KEY` 设为 Codex 以 `PC_GATEWAY_KEY` 发送的密钥。监听非回环地址时必须设置。
-- Core 启用鉴权时，设置 `PC_GATEWAY_CORE_TOKEN`。
+- `PC_GATEWAY_UPSTREAM_PROFILE_RESPONSES` 设为 Core `InferenceConfig.protection.targets` 中包含 Responses
+  endpoint、protocol 和 model 的 profile（上例为 `default`）。未设置时，Responses 路由返回 HTTP 501
+  `responses_route_disabled`。不要设置 `PC_GATEWAY_UPSTREAM_URL*`；旧 URL 变量会导致启动失败。
+- `PC_GATEWAY_UPSTREAM_API_KEY_RESPONSES` 设为该获准目标的供应商密钥。
+- `PC_GATEWAY_API_KEY` 设为 Codex 以 `PC_GATEWAY_KEY` 发送的非空密钥。
+- `PC_GATEWAY_CORE_TOKEN` 必须代表经过 Core 认证的服务身份，且与面向客户端的 Key 不同。即使推理隐私保护不是
+  enforcing，Core 访问控制也必须设为 `enforced`。在目标 Scope 上授予 `gateway.user`（`gateway.invoke`），并在
+  `POWERCONTEXT_SERVER_ACCESS_DEPLOYMENT_ID` 对应的 Server resource 上授予 `server.observer`（默认 ID 为
+  `powercontext`）。本指南开启了采集，因此还要授予 `scope.contributor`（包含 `scope.read`）来替代 `scope.viewer`。
+  `/v1/access/me` 与绑定请求见[网关认证与目标要求](../operate/deploy-server.md#网关模型目标)。
 - `PC_GATEWAY_SEDIMENT=on`，让 gateway 把每个完成的轮次采集为 Source。
 - `PC_GATEWAY_DEFAULT_SCOPE` 设为回退 Scope。若要使用插件为该 workspace 解析的 Scope，按
   [一句话交接当前工作](#一句话交接当前工作)中的说明，不带 `--bind-scope` 运行 `scope_binding.py`，即可打印这个 Scope。
 
-gateway 在启动时读取这些设置。gateway 的鉴权和注入设置见[部署 Server](../operate/deploy-server.md#网关认证边界)。
+gateway 在启动时读取这些设置。gateway 的认证与授权要求见[部署 Server](../operate/deploy-server.md#网关模型目标)。
 经过 gateway 的模型请求正文最多 1 MiB，过长的 thread 可能在发送前被拒绝，见
 [Gateway 字节容量](../operate/deploy-server.md#gateway-字节容量)。
 

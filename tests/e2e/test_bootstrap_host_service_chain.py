@@ -107,7 +107,9 @@ def test_packaged_host_hooks_complete_the_live_bootstrap_chain(
             environment,
             _user_prompt_payload(host, session_id),
         )
-        assert first_prompt.stdout == ""
+        guidance = json.loads(first_prompt.stdout)["hookSpecificOutput"]["additionalContext"]
+        assert "record_task_outcome" in guidance
+        assert "\n\n" not in guidance
         assert '"outcome":"empty"' in first_prompt.stderr
 
         ordinary_recall = _run_hook(

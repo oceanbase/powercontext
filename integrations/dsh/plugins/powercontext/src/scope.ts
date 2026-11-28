@@ -17,20 +17,29 @@
 import { createHash } from 'node:crypto'
 import { resolve } from 'node:path'
 import type { PowerContextClient } from './client.ts'
+import { workspacePaths } from './git-worktree.ts'
 
 export const UNSCOPED_MESSAGE = 'PowerContext could not resolve the current Scope.'
+const GIT_TIMEOUT_MS = 500
+
+type ScopeBindingKey = { integration: string; kind: string; external_id: string }
 
 export function sessionCwd(cwd: string | undefined): string | undefined {
   const value = cwd?.trim()
   return value ? value : undefined
 }
 
-export function workspaceBindingKey(cwd: string): { integration: string; kind: string; external_id: string } {
+export function workspaceBindingKey(cwd: string): ScopeBindingKey {
   return {
     integration: 'dsh',
     kind: 'workspace',
     external_id: createHash('sha256').update(resolve(cwd)).digest('hex'),
   }
+}
+
+/** Return the workspace keys that resolution tries in order, with a linked worktree's main checkout after its own. */
+export async function workspaceBindingKeys(cwd: string): Promise<ScopeBindingKey[]> {
+  return (await workspacePaths(cwd, false, GIT_TIMEOUT_MS)).map(workspaceBindingKey)
 }
 
 export function formatScopeRouting(scopeId: string, cwd?: string): string {
@@ -58,7 +67,7 @@ export async function resolveScopeId(
   const response = await client.request('resolve_scope_binding', {
     explicit_scope_id: configuredScopeId,
     ...(allowDefault ? {} : { allow_default: false }),
-    binding_keys: workspace ? [workspaceBindingKey(workspace)] : [],
+    binding_keys: workspace ? await workspaceBindingKeys(workspace) : [],
   }, signal)
   const value = response.value
   const scopeId = value && typeof value === 'object' ? (value as { scope_id?: unknown }).scope_id : undefined

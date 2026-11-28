@@ -62,15 +62,16 @@ def main(settings: CodexPluginSettings | None = None) -> int:
         submitted = run_user_prompt_submit(CODEX, event, settings.prompt_settings(), deadline=http_deadline)
         if submitted is None:
             return 0
-        if submitted.context and submitted.scope_id is not None:
+        agent_context = submitted.agent_context
+        if agent_context and submitted.scope_id is not None:
             with suppress(Exception):
                 _record_evaluation_trace(
                     event,
                     query=submitted.scrubbed_prompt,
-                    injected_text=submitted.context,
+                    injected_text=agent_context,
                     scope_id=submitted.scope_id,
                 )
-        _write_hook_output(context=submitted.context, diagnostic_events=submitted.diagnostics)
+        _write_hook_output(context=agent_context, diagnostic_events=submitted.diagnostics)
     except Exception:
         return 0
     return 0

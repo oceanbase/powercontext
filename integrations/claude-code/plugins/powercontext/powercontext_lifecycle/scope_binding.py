@@ -21,18 +21,17 @@ from __future__ import annotations
 
 import json
 import os
-import subprocess
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from hashlib import sha256
 from http.client import HTTPException
 from pathlib import Path
-from shutil import which
 from time import monotonic
 from typing import Any, Protocol
 from urllib.error import HTTPError
 from urllib.request import Request
 
+from .git_worktree import workspace_paths
 from .host_profile import HostProfile
 from .scope_binding_errors import (
     ScopeBindingError,
@@ -156,10 +155,17 @@ def binding_keys(
     session_id: str | None,
     deadline: float | None = None,
 ) -> list[dict[str, str]]:
+    """Return the keys that resolution tries in order.
+
+    They are the session's, the workspace's, and, in a linked worktree, its main checkout's.
+    """
+
     keys: list[dict[str, str]] = []
     if session_id is not None:
         keys.append(session_binding_key(host, session_id))
-    keys.append(workspace_binding_key(host, cwd, deadline=deadline))
+    keys.extend(
+        _workspace_key(host, path) for path in workspace_paths(cwd, git_root=True, timeout=_git_timeout(deadline))
+    )
     return keys
 
 
@@ -171,9 +177,13 @@ def session_binding_key(host: HostProfile, session_id: str) -> dict[str, str]:
 
 
 def workspace_binding_key(host: HostProfile, cwd: str, *, deadline: float | None = None) -> dict[str, str]:
-    root_value = _git_value(cwd, "rev-parse", "--show-toplevel", timeout=_git_timeout(deadline))
-    root = Path(root_value or cwd).resolve(strict=False)
-    external_id = sha256(os.fsencode(root)).hexdigest()
+    """Return the key of the workspace's own Git top level, the only key that binding and clearing write."""
+
+    return _workspace_key(host, workspace_paths(cwd, git_root=True, timeout=_git_timeout(deadline))[0])
+
+
+def _workspace_key(host: HostProfile, path: str) -> dict[str, str]:
+    external_id = sha256(os.fsencode(Path(path).resolve(strict=False))).hexdigest()
     return {"integration": host.integration, "kind": "workspace", "external_id": external_id}
 
 
@@ -272,21 +282,3 @@ def _read_bounded(response: _Response, *, deadline: float) -> bytes:
 
 def _git_timeout(deadline: float | None) -> float:
     return 2.0 if deadline is None else min(2.0, _remaining_time(deadline))
-
-
-def _git_value(cwd: str, *arguments: str, timeout: float = 2.0) -> str | None:
-    executable = which("git")
-    if executable is None:
-        return None
-    try:
-        completed = subprocess.run(  # noqa: S603 - git executable and arguments are integration-owned.
-            [executable, *arguments],
-            cwd=cwd,
-            check=True,
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-        )
-    except (OSError, subprocess.SubprocessError):
-        return None
-    return completed.stdout.strip() or None

@@ -29,7 +29,7 @@ import subprocess
 import sys
 from collections.abc import Iterator
 from contextlib import ExitStack
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -45,6 +45,7 @@ from tests.e2e.host_models.messages import MessagesModelFixture
 from tests.e2e.host_models.script import FINAL_ANSWER
 from tests.e2e.zcode_acceptance.protocol import HostModelFixture, ObserveServer, WireEvidence
 from tests.e2e.zcode_acceptance.runner import serve
+from tests.git_worktree_support import make_git_layout
 
 REPOSITORY = Path(__file__).resolve().parents[2]
 TOKEN = "claude-code-host-service-chain-token"  # noqa: S105 - non-secret test credential.
@@ -367,6 +368,9 @@ def test_claude_code_prompt_is_recalled_in_a_later_session(claude_stack: ClaudeS
     # The new session's first model request carries the prepared context unchanged, after the user's prompt.
     sent = claude_stack.model.texts(claude_stack.model.requests[start])
     assert 0 <= sent.find(QUESTION) < sent.find(prepared["content"])
+    assert 0 <= sent.find("PowerContext task outcome guidance") < sent.find(prepared["content"])
+    assert "actually complete or explicitly interrupted" in sent
+    assert "intermediate turns" in sent
 
     queries = [record["request"]["query"] for record in claude_stack.records("/v1/context/prepare")]
     assert queries == [FACT, "Deploy the synthetic heron project with [REDACTED] today.", QUESTION]
@@ -443,3 +447,46 @@ def test_claude_code_memory_tools_write_to_the_workspace_scope_after_approval(cl
     assert decision in claude_stack.memories(scope_id)
     found = claude_stack.wire.result("search_memory")
     assert decision in json.dumps(found)
+
+
+def test_claude_code_linked_worktree_falls_back_to_its_checkout_binding(
+    claude_stack: ClaudeStack, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    layout = make_git_layout(tmp_path / "git", monkeypatch)
+    worktree = replace(claude_stack, workspace=layout.worktree)
+    checkout_scope = claude_stack.create_scope("Claude Code checkout")
+    replace(claude_stack, workspace=layout.checkout).bind_workspace(checkout_scope)
+    worktree_scope = claude_stack.create_scope("Claude Code worktree")
+
+    def sources(scope_id: str) -> list[str]:
+        return [item["content"] for item in claude_stack.sources(scope_id)]
+
+    def scope_script(*arguments: str) -> str:
+        """Run the plugin's workspace Scope script in the worktree, as the guide's binding command does."""
+        script = claude_stack.plugin_root / "scripts" / "workspace_scope.py"
+        completed = subprocess.run(
+            ["python3", str(script), "--cwd", str(layout.worktree), *arguments],  # noqa: S607 - the hooks' Python.
+            env=claude_stack.environment,
+            capture_output=True,
+            text=True,
+            timeout=60,
+            check=True,
+        )
+        return completed.stdout.strip()
+
+    # Until the worktree has a binding of its own, its prompts are captured in its checkout's Scope.
+    unbound = "Synthetic heron prompt from the unbound worktree."
+    worktree.run(unbound)
+    assert sources(checkout_scope) == [unbound]
+
+    # Binding in the worktree binds the worktree itself, and its own binding wins over the checkout's.
+    assert scope_script("--bind-scope", worktree_scope) == worktree_scope
+    bound = "Synthetic heron prompt from the bound worktree."
+    worktree.run(bound)
+    assert sources(worktree_scope) == [bound]
+
+    # Clearing the worktree's binding leaves the checkout's in place, so the worktree falls back to it again.
+    assert scope_script("--clear-scope") == checkout_scope
+    cleared = "Synthetic heron prompt from the cleared worktree."
+    worktree.run(cleared)
+    assert sources(checkout_scope) == [unbound, cleared]

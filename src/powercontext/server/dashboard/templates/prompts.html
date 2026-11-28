@@ -15,9 +15,267 @@ limitations under the License.
 -->
 
 {% from 'components/page-heading.html' import page_heading %}
+{% macro prompt_feedback_alerts() %}
+{% if prompt_saved %}<p class="alert alert-success" role="status">{{ t.prompt_saved_success }}</p>{% endif %}
+{% if prompt_conflict %}<p class="alert alert-warning" role="alert">{{ t.prompt_conflict }} <a href="{{ link('prompts',prompt_key='profile.generate',prompt_revision=none,compare=none,rollback_error=none,prompt_saved=none) }}">{{ t.prompt_reload }} &rarr;</a></p>{% endif %}
+{% if prompt_write_error %}<p class="alert alert-danger" role="alert">{{ t.get('prompt_write_error_' ~ prompt_write_error, t.prompt_write_error_invalid_request) }}</p>{% endif %}
+{% endmacro %}
+{% macro prompt_editor_form(draft_etag, draft_mode, draft_instructions, defaults, saved_mode, saved_text, saved_custom, demonstrations_count, can_return_to_auto, is_draft, is_saved=false, saved_revision='') %}
+{% set form_action = '/dashboard/prompts/profile-generate' ~ ('?scope=' ~ (scope|urlencode) ~ ('&lang=' ~ language if 'lang' in request.query_params else '') if scope else ('?lang=' ~ language if 'lang' in request.query_params else '')) %}
+<form method="post" action="{{ form_action }}" hx-swap="outerHTML show:none" data-profile-prompt-editor data-scope="{{ scope }}" data-prompt-saved="{{ '1' if is_saved else '0' }}" data-prompt-saved-revision="{{ saved_revision or '' }}" class="mt-3">
+  <h2 class="section-title">{{ t.prompt_editor_title }}</h2>
+  <input type="hidden" name="scope" value="{{ scope }}">
+  <input type="hidden" name="expected_etag" value="{{ draft_etag or '' }}">
+  <div class="mb-3">
+    <label class="form-label">{{ t.prompt_mode }}</label>
+    <div class="form-selectgroup">
+      <label class="form-selectgroup-item">
+        <input type="radio" name="mode" value="auto" class="form-selectgroup-input" {% if draft_mode != 'custom' %}checked{% endif %}>
+        <span class="form-selectgroup-label">{{ t.prompt_auto }}</span>
+      </label>
+      <label class="form-selectgroup-item">
+        <input type="radio" name="mode" value="custom" class="form-selectgroup-input" {% if draft_mode == 'custom' %}checked{% endif %}>
+        <span class="form-selectgroup-label">{{ t.prompt_custom }}</span>
+      </label>
+    </div>
+  </div>
+  <div class="mb-3" data-prompt-instructions-field>
+    <label class="form-label" for="profile-prompt-instructions">{{ t.prompt_custom_instructions }}</label>
+    <textarea class="form-control" id="profile-prompt-instructions" name="instructions" rows="12" aria-describedby="profile-prompt-hint">
+{{ draft_instructions or '' }}</textarea>
+    <p class="form-hint text-secondary small mt-1 mb-0" id="profile-prompt-hint">{{ t.prompt_custom_hint }}</p>
+    {% if saved_custom and demonstrations_count %}<p class="text-secondary small mt-1 mb-0">{{ t.prompt_demonstrations_preserved|replace('{count}', demonstrations_count|string) }}</p>{% endif %}
+  </div>
+  <div class="d-flex flex-wrap gap-2">
+    <button type="submit" class="btn btn-primary" data-prompt-save>{{ t.prompt_save }}</button>
+    {% if can_return_to_auto %}<button type="submit" name="return_to_auto" value="1" class="btn">{{ t.prompt_return_to_auto }}</button>{% endif %}
+    <a href="{{ link('prompts',prompt_key='profile.generate',prompt_revision=none,compare=none,rollback_error=none,prompt_saved=none) }}" class="btn btn-link" data-prompt-cancel>{{ t.prompt_cancel }}</a>
+  </div>
+  <script>
+    me().run(form => {
+      const scope = form.dataset.scope;
+      const textarea = form.querySelector('textarea[name="instructions"]');
+      const etagInput = form.querySelector('input[name="expected_etag"]');
+      const instructionsField = form.querySelector('[data-prompt-instructions-field]');
+      const saveButton = form.querySelector('[data-prompt-save]');
+      const radios = Array.from(form.querySelectorAll('input[name="mode"]'));
+      const defaults = {{ defaults | tojson }};
+      const savedMode = {{ saved_mode | tojson }};
+      const savedText = {{ saved_text | tojson }};
+      const hasDraft = {{ is_draft | tojson }};
+      const promptSaved = form.dataset.promptSaved === '1';
+      const promptSavedRevision = form.dataset.promptSavedRevision || '';
+      const message = {{ t.prompt_unsaved_changes | tojson }};
+      const storageKey = scope ? `powercontext:profile-prompt-draft:${scope}` : '';
+      const savedAckKey = scope ? `powercontext:profile-prompt-saved:${scope}` : '';
+      const normalize = value => value.replace(/\r\n/g, '\n');
+      const currentMode = () => (radios.find(radio => radio.checked) || {}).value || 'auto';
+      const readSavedAck = () => {
+        if (!savedAckKey) return 0;
+        try {
+          const parsed = Number.parseInt(window.sessionStorage.getItem(savedAckKey) || '', 10);
+          return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+        } catch {
+          return 0;
+        }
+      };
+      const writeSavedAck = revision => {
+        if (!savedAckKey || !Number.isFinite(revision) || revision <= 0) return;
+        try { window.sessionStorage.setItem(savedAckKey, String(revision)); } catch {}
+      };
+      const stripSavedQuery = () => {
+        if (!window.history || typeof window.history.replaceState !== 'function') return;
+        try {
+          const current = new URL(window.location.href);
+          if (!current.searchParams.has('prompt_saved') && !current.searchParams.has('prompt_saved_revision')) return;
+          current.searchParams.delete('prompt_saved');
+          current.searchParams.delete('prompt_saved_revision');
+          window.history.replaceState(window.history.state, '', `${current.pathname}${current.search}${current.hash}`);
+        } catch {}
+      };
+      const readStoredDraft = () => {
+        if (!storageKey) return null;
+        try {
+          const raw = window.sessionStorage.getItem(storageKey);
+          if (!raw) return null;
+          const parsed = JSON.parse(raw);
+          if (!parsed || parsed.scope !== scope || (parsed.mode !== 'auto' && parsed.mode !== 'custom')) return null;
+          return parsed;
+        } catch {
+          return null;
+        }
+      };
+      const clearStoredDraft = () => {
+        if (!storageKey) return;
+        try { window.sessionStorage.removeItem(storageKey); } catch {}
+      };
+      let restoredDraft = false;
+      // The Custom text outlives a switch to Auto, so toggling back never loses typing.
+      let customText = hasDraft ? normalize(textarea.value) : (normalize(textarea.value) || defaults);
+      let consumedSave = false;
+      if (promptSaved) {
+        const savedRev = Number.parseInt(promptSavedRevision, 10);
+        const validSavedRev = Number.isFinite(savedRev) && savedRev > 0 ? savedRev : 0;
+        const ackedRev = readSavedAck();
+        const alreadyConsumed = Boolean(savedAckKey && validSavedRev > 0 && ackedRev >= validSavedRev);
+        if (!alreadyConsumed) {
+          clearStoredDraft();
+          if (validSavedRev > ackedRev) writeSavedAck(validSavedRev);
+          consumedSave = true;
+        }
+        stripSavedQuery();
+      }
+      if (!consumedSave && !hasDraft) {
+        const stored = readStoredDraft();
+        if (stored) {
+          const storedText = typeof stored.instructions === 'string' ? normalize(stored.instructions) : '';
+          const storedDirty = stored.mode !== savedMode
+            || (savedMode === 'custom' ? storedText !== normalize(savedText) : storedText !== normalize(defaults));
+          if (storedDirty) {
+            const targetRadio = radios.find(radio => radio.value === stored.mode);
+            if (targetRadio) targetRadio.checked = true;
+            customText = storedText;
+            textarea.value = storedText;
+            if (etagInput && typeof stored.expectedEtag === 'string') etagInput.value = stored.expectedEtag;
+            const details = form.closest('details.prompt-record');
+            if (details) details.open = true;
+            const group = form.closest('details.prompt-group');
+            if (group) group.open = true;
+            restoredDraft = true;
+          } else {
+            clearStoredDraft();
+          }
+        }
+      }
+      // Dirty checks both mode changes and typed Custom text retained across toggling to Auto.
+      const dirty = () => {
+        if (!form.isConnected || form.dataset.scope !== scope) return false;
+        if (currentMode() !== savedMode) return true;
+        const normalized = normalize(customText);
+        if (savedMode === 'custom') return normalized !== normalize(savedText);
+        return (hasDraft || restoredDraft) ? normalized.trim() !== '' : normalized !== normalize(defaults);
+      };
+      const persistDraft = () => {
+        if (!storageKey || !form.isConnected || form.dataset.scope !== scope) return;
+        if (!dirty()) { clearStoredDraft(); return; }
+        try {
+          window.sessionStorage.setItem(storageKey, JSON.stringify({
+            scope,
+            mode: currentMode(),
+            instructions: normalize(customText),
+            expectedEtag: etagInput ? etagInput.value : '',
+          }));
+        } catch {}
+      };
+      const sync = () => {
+        const custom = currentMode() === 'custom';
+        textarea.readOnly = !custom;
+        if (instructionsField) instructionsField.hidden = !custom;
+        if (saveButton) saveButton.disabled = !custom && savedMode === 'auto' && !hasDraft && !restoredDraft;
+        if (custom && !hasDraft && !restoredDraft && !normalize(textarea.value).trim()) textarea.value = customText || defaults;
+        if (custom && (hasDraft || restoredDraft) && !normalize(textarea.value).trim() && normalize(customText).trim()) textarea.value = customText;
+      };
+      radios.forEach(radio => radio.addEventListener('change', () => {
+        if (currentMode() === 'auto') customText = normalize(textarea.value) || customText;
+        else if (!normalize(textarea.value).trim()) textarea.value = customText || defaults;
+        sync();
+        persistDraft();
+      }));
+      textarea.addEventListener('input', () => {
+        if (currentMode() === 'custom') {
+          customText = normalize(textarea.value);
+          persistDraft();
+        }
+      });
+      const submitButtons = Array.from(form.querySelectorAll('button[type="submit"]'));
+      let submitting = false;
+      const setPendingControls = pending => {
+        if (pending) {
+          textarea.readOnly = true;
+          return;
+        }
+        radios.forEach(radio => { radio.disabled = false; });
+        submitButtons.forEach(button => { button.disabled = false; });
+        sync();
+      };
+      const markSubmitting = () => {
+        submitting = true;
+        setPendingControls(true);
+      };
+      const lockOnSend = () => {
+        if (!submitting) return;
+        radios.forEach(radio => { radio.disabled = true; });
+        submitButtons.forEach(button => { button.disabled = true; });
+      };
+      const resetSubmitting = () => {
+        if (!submitting) return;
+        submitting = false;
+        setPendingControls(false);
+      };
+      form.addEventListener('submit', markSubmitting);
+      form.addEventListener('htmx:beforeSend', lockOnSend);
+      const workspace = form.closest('#workspace');
+      const beforeUnload = event => {
+        if (!form.isConnected) { cleanup(); return; }
+        if (!submitting && dirty()) { event.preventDefault(); event.returnValue = ''; }
+      };
+      const confirmLeave = event => {
+        if (!form.isConnected) { cleanup(); return; }
+        const source = event.detail && event.detail.elt;
+        if (submitting || (source && form.contains(source)) || !dirty()) return;
+        if (window.confirm(message)) { clearStoredDraft(); return; }
+        event.preventDefault();
+        // A blocked Scope switch must not leave the selector showing a Scope the page is not on.
+        const selector = source && source.querySelector ? source.querySelector('select#scope') : null;
+        if (selector) {
+          selector.value = scope;
+          if (selector.tomselect) selector.tomselect.setValue(scope, true);
+        }
+      };
+      function cleanup() {
+        window.removeEventListener('beforeunload', beforeUnload);
+        window.removeEventListener('pageshow', resetSubmitting);
+        if (workspace) {
+          workspace.removeEventListener('htmx:confirm', confirmLeave);
+          workspace.removeEventListener('htmx:afterRequest', resetSubmitting);
+          workspace.removeEventListener('htmx:sendError', resetSubmitting);
+          workspace.removeEventListener('htmx:responseError', resetSubmitting);
+        }
+        form.removeEventListener('htmx:beforeSend', lockOnSend);
+        form.removeEventListener('htmx:beforeCleanupElement', cleanup);
+      }
+      window.addEventListener('beforeunload', beforeUnload);
+      window.addEventListener('pageshow', resetSubmitting);
+      if (workspace) {
+        workspace.addEventListener('htmx:confirm', confirmLeave);
+        workspace.addEventListener('htmx:afterRequest', resetSubmitting);
+        workspace.addEventListener('htmx:sendError', resetSubmitting);
+        workspace.addEventListener('htmx:responseError', resetSubmitting);
+      }
+      form.addEventListener('htmx:beforeCleanupElement', cleanup);
+      // Cancel discards the draft: restore the saved values, then follow the link without prompting.
+      const cancel = form.querySelector('[data-prompt-cancel]');
+      if (cancel) cancel.addEventListener('click', () => {
+        clearStoredDraft();
+        const savedRadio = radios.find(radio => radio.value === savedMode);
+        if (savedRadio) savedRadio.checked = true;
+        textarea.value = savedMode === 'custom' ? savedText : defaults;
+        customText = savedMode === 'custom' ? savedText : defaults;
+        restoredDraft = false;
+        sync();
+      });
+      sync();
+      if (hasDraft) persistDraft();
+    });
+  </script>
+</form>
+{% endmacro %}
 {{ page_heading(t.prompts,t.prompts_subtitle) }}
+{% if scope_descriptor %}<p class="text-secondary small">{{ scope_descriptor.title }} &middot; <code>{{ scope }}</code></p>{% endif %}
 {% if errors.get('prompts') %}{{ read_error(errors.prompts,t.prompts) }}{% endif %}
-{% if not data.prompts and not errors.get('prompts') %}<div class="quiet-empty"><h2>{{ t.prompt_empty }}</h2><p>{{ t.prompt_empty_body }}</p></div>{% endif %}
+{% set has_scope_draft = prompt_draft and prompt_draft.scope == scope %}
+{% if not data.prompts and not errors.get('prompts') and not has_scope_draft %}<div class="quiet-empty"><h2>{{ t.prompt_empty }}</h2><p>{{ t.prompt_empty_body }}</p></div>{% endif %}
+{% set ns = namespace(draft_rendered=false, feedback_rendered=false) %}
 <div class="prompt-browser">
 <style>
   me .prompt-overview { display: inline-grid; grid-template-columns: minmax(10rem, 1fr) minmax(12rem, 2fr) auto; gap: 1rem; width: calc(100% - 1rem); align-items: baseline; }
@@ -38,15 +296,91 @@ limitations under the License.
 <summary><strong>{{ t['prompt_group_' ~ group] }}</strong><span class="badge bg-secondary-lt ms-2" data-prompt-count>{{ prompts|length }}</span></summary>
 {% if group == 'topics' %}<p class="text-secondary mt-3">{{ t.prompt_topic_conditional }}</p>{% endif %}
 <div class="record-list">{% for prompt in prompts %}{% set opened = prompt_opened if prompt_opened and prompt.prompt_key == prompt_key else none %}{% set failed = prompt.prompt_key == prompt_key and errors.get('prompt_selected') %}{% set mode = none if failed else (opened.content.mode if opened else prompt.mode) %}
-<article data-prompt-search="{{ (t.get(prompt.prompt_key,prompt.prompt_key) ~ ' ' ~ prompt.prompt_key)|lower }}" data-prompt-source="{{ mode }}"><details class="supporting-details prompt-record" {% if prompt.prompt_key == prompt_key %}open{% endif %}><summary><span class="prompt-overview"><span class="record-row-title">{{ t.get(prompt.prompt_key,prompt.prompt_key) }}</span><span class="text-secondary small">{{ t[prompt.prompt_key ~ '_purpose'] }}</span><span class="text-secondary small">{{ t.prompt_revision_unavailable if failed else (t.prompt_custom if mode == 'custom' else t.prompt_builtin_default) }}</span></span></summary>
-<p class="text-secondary mt-3">{{ t.prompt_status }}: {{ t.get('prompt_state_' ~ prompt.status,t.get('prompt_' ~ prompt.status,prompt.status)) }}{% if prompt.reason %} — {{ t['prompt_reason_' ~ prompt.reason] }}{% endif %}</p>
+<article id="prompt-record-{{ prompt.prompt_key|replace('.', '-') }}" data-prompt-search="{{ (t.get(prompt.prompt_key,prompt.prompt_key) ~ ' ' ~ prompt.prompt_key)|lower }}" data-prompt-source="{{ mode }}"><details class="supporting-details prompt-record" {% if prompt.prompt_key == prompt_key %}open{% endif %}><summary><span class="prompt-overview"><span class="record-row-title">{{ t.get(prompt.prompt_key,prompt.prompt_key) }}</span><span class="text-secondary small">{{ t[prompt.prompt_key ~ '_purpose'] }}</span><span class="text-secondary small">{{ t.prompt_revision_unavailable if failed else (t.prompt_custom if mode == 'custom' else t.prompt_builtin_default) }}</span></span></summary>
+{% if prompt.prompt_key == 'profile.generate' %}
+{% set unavailable = prompt.reason == 'injected_component' or (not prompt.effective and not prompt.builtin) %}
+{% if not failed %}<p class="small mt-3">{{ t.prompt_mode }}: {{ t.prompt_custom if mode == 'custom' else t.prompt_auto }}</p>{% endif %}
+<div class="document-meta mb-3"><code>{{ prompt.prompt_key }}</code> &middot; {{ t.prompt_revision }} {{ opened.revision if opened else (prompt.artifact.revision if prompt.artifact else t.prompt_auto) }} &middot; {{ t.prompt_demonstrations }} {{ opened.content.demonstrations|length if opened else (prompt.effective.demonstrations|length if prompt.effective else 0) }}</div>
+<dl class="row mb-3">
+  <dt class="col-sm-3">{{ t.prompt_capability }}</dt><dd class="col-sm-9">{{ t.get('prompt_state_' ~ prompt.status,t.get('prompt_' ~ prompt.status,prompt.status)) }}</dd>
+  {% if prompt.reason %}<dt class="col-sm-3">{{ t.prompt_reason }}</dt><dd class="col-sm-9"><code>{{ prompt.reason }}</code> &middot; {{ t.get('prompt_reason_' ~ prompt.reason, prompt.reason) }}</dd>{% endif %}
+  <dt class="col-sm-3">{{ t.prompt_saved_revision }}</dt><dd class="col-sm-9">{{ prompt.artifact.revision if prompt.artifact else t.prompt_not_saved }}</dd>
+</dl>
+{% if failed %}{{ read_error(errors.prompt_selected,t.prompt_revision) }}
+{% elif unavailable %}<p class="text-secondary"><strong>{{ t.prompt_unavailable }}.</strong> {{ t.prompt_unavailable_body }}</p>
+{% else %}
+{% set shown = opened.content.instructions if opened else (prompt.effective.instructions if prompt.effective else (prompt.builtin.instructions if prompt.builtin else '')) %}
+<h2 class="section-title">{{ t.prompt_instructions if opened or prompt.effective else t.prompt_builtin_template }}</h2>
+{% if opened and opened.content.mode == 'auto' and not shown %}
+<p class="text-secondary">{{ t.prompt_opened_auto_summary }}</p>
+{% else %}
+<pre class="page-body-pre text-break">{{ shown }}</pre>
+{% endif %}
+{% if prompt.builtin %}
+{% if shown != prompt.builtin.instructions %}
+<details class="supporting-details mb-3"><summary>{{ t.prompt_builtin_template }} &middot; {{ prompt.builtin.version }}</summary><pre class="page-body-pre text-break mt-2">{{ prompt.builtin.instructions }}</pre></details>
+{% else %}
+{% if opened or prompt.effective %}<p class="text-secondary small mb-1">{{ t.prompt_builtin_matches_effective }}</p>{% endif %}
+<p class="text-secondary small">{{ t.prompt_builtin_version }}: {{ prompt.builtin.version }}</p>
+{% endif %}
+{% endif %}
+{% set demonstrations = opened.content.demonstrations if opened else (prompt.effective.demonstrations if prompt.effective else []) %}
+{% if demonstrations %}<h2 class="section-title">{{ t.prompt_demonstrations }}</h2><pre class="page-body-pre text-break">{{ demonstrations|tojson(indent=2) }}</pre>{% endif %}
+{% endif %}
+<div class="text-secondary small mb-3">
+  <strong>{{ t.prompt_explain_title }}</strong>
+  <ul class="mb-0">
+    <li>{{ t.prompt_explain_auto }}</li>
+    <li>{{ t.prompt_explain_no_effect }}</li>
+    <li>{{ t.prompt_explain_timing }}</li>
+    <li>{{ t.prompt_explain_constraints }}</li>
+  </ul>
+</div>
+{% if opened %}<a hx-swap="outerHTML show:none" href="{{ link('prompts',prompt_key=prompt.prompt_key,prompt_revision=none,compare=none,rollback_error=none,prompt_saved=none) }}">&larr; {{ t.prompt_return_editor }}</a>{% elif prompt.artifact %}<a hx-swap="outerHTML show:#revision-history:top" href="{{ link('prompts',prompt_key=prompt.prompt_key,prompt_revision=prompt.artifact.revision,fragment='revision-history') }}">{{ t.revision_history }} &rarr;</a>{% endif %}
+{% set ns.feedback_rendered = true %}
+{{ prompt_feedback_alerts() }}
+{% set show_editor = not opened and not failed and not unavailable and (
+  (profile_prompt_can_admin and (prompt.status == 'supported' or (prompt.artifact and prompt.mode == 'custom')))
+  or has_scope_draft
+) %}
+{% if show_editor %}
+{% set ns.draft_rendered = true %}
+{% set saved_custom = prompt.artifact and prompt.mode == 'custom' and prompt.effective %}
+{% set draft_etag = prompt_draft.reconcile_etag if has_scope_draft else (prompt.artifact_etag if prompt.artifact else '') %}
+{% set draft_mode = prompt_draft.mode if has_scope_draft else mode %}
+{% set draft_instructions = prompt_draft.instructions if has_scope_draft else (prompt.effective.instructions if saved_custom else (prompt.builtin.instructions if prompt.builtin else '')) %}
+{{ prompt_editor_form(
+  draft_etag,
+  draft_mode,
+  draft_instructions,
+  prompt.builtin.instructions if prompt.builtin else '',
+  'custom' if saved_custom else 'auto',
+  prompt.effective.instructions if saved_custom else '',
+  saved_custom,
+  prompt.effective.demonstrations|length if saved_custom else 0,
+  prompt.artifact and prompt.mode == 'custom',
+  has_scope_draft,
+  prompt_saved,
+  request.query_params.get('prompt_saved_revision', '') if prompt_saved else ''
+) }}
+{% elif unavailable and not opened and not failed and profile_prompt_can_admin and prompt.artifact and prompt.mode == 'custom' %}
+{% set reset_action = '/dashboard/prompts/profile-generate' ~ ('?scope=' ~ (scope|urlencode) ~ ('&lang=' ~ language if 'lang' in request.query_params else '') if scope else ('?lang=' ~ language if 'lang' in request.query_params else '')) %}
+<form method="post" action="{{ reset_action }}" hx-swap="outerHTML show:none" data-profile-prompt-reset data-scope="{{ scope }}" class="mt-3">
+  <input type="hidden" name="scope" value="{{ scope }}">
+  <input type="hidden" name="expected_etag" value="{{ prompt.artifact_etag or '' }}">
+  <button type="submit" name="return_to_auto" value="1" class="btn">{{ t.prompt_return_to_auto }}</button>
+</form>
+{% endif %}
+{% else %}
+<p class="text-secondary mt-3">{{ t.prompt_status }}: {{ t.get('prompt_state_' ~ prompt.status,t.get('prompt_' ~ prompt.status,prompt.status)) }}{% if prompt.reason %} &mdash; {{ t.get('prompt_reason_' ~ prompt.reason, prompt.reason) }}{% endif %}</p>
 {% if not failed %}<p class="small">{{ t.prompt_mode }}: {{ t.prompt_custom if mode == 'custom' else t.prompt_auto }}</p>
-<div class="document-meta mb-3"><code>{{ prompt.prompt_key }}</code> · {{ t.prompt_revision }} {{ opened.revision if opened else (prompt.artifact.revision if prompt.artifact else t.prompt_auto) }} · {{ t.prompt_demonstrations }} {{ opened.content.demonstrations|length if opened else (prompt.effective.demonstrations|length if prompt.effective else 0) }}</div>
+<div class="document-meta mb-3"><code>{{ prompt.prompt_key }}</code> &middot; {{ t.prompt_revision }} {{ opened.revision if opened else (prompt.artifact.revision if prompt.artifact else t.prompt_auto) }} &middot; {{ t.prompt_demonstrations }} {{ opened.content.demonstrations|length if opened else (prompt.effective.demonstrations|length if prompt.effective else 0) }}</div>
 <h2 class="section-title">{{ t.prompt_instructions if opened or prompt.effective else t.prompt_builtin_template }}</h2><pre class="page-body-pre text-break">{{ opened.content.instructions if opened else (prompt.effective.instructions if prompt.effective else (prompt.builtin.instructions if prompt.builtin else '')) }}</pre>
-{% if prompt.artifact %}<a href="{{ link('prompts',prompt_key=prompt.prompt_key,prompt_revision=prompt.artifact.revision) }}">{{ t.revision_history }} →</a>{% endif %}
+{% if opened %}<a hx-swap="outerHTML show:none" href="{{ link('prompts',prompt_key=prompt.prompt_key,prompt_revision=none,compare=none,rollback_error=none,prompt_saved=none) }}">&larr; {{ t.prompt_return_current }}</a>{% elif prompt.artifact %}<a hx-swap="outerHTML show:#revision-history:top" href="{{ link('prompts',prompt_key=prompt.prompt_key,prompt_revision=prompt.artifact.revision,fragment='revision-history') }}">{{ t.revision_history }} &rarr;</a>{% endif %}
 {% set demonstrations = opened.content.demonstrations if opened else (prompt.effective.demonstrations if prompt.effective else []) %}
 {% if demonstrations %}<h2 class="section-title">{{ t.prompt_demonstrations }}</h2><pre class="page-body-pre text-break">{{ demonstrations|tojson(indent=2) }}</pre>{% endif %}
 {% else %}<code>{{ prompt.prompt_key }}</code>{{ read_error(errors.prompt_selected,t.prompt_revision) }}{% endif %}
+{% endif %}
 </details></article>{% endfor %}</div></details>{% endif %}{% endfor %}
 <p class="text-secondary" data-prompt-empty hidden role="status">{{ t.prompt_no_match }}</p>
 <script>
@@ -73,4 +407,20 @@ me().run(browser => {
   source.addEventListener('change', filter);
 });
 </script>
-</div>{% include 'components/revision-history.html' %}
+</div>
+{% if not ns.feedback_rendered %}{{ prompt_feedback_alerts() }}{% endif %}
+{% if has_scope_draft and not ns.draft_rendered %}
+{{ prompt_editor_form(
+  prompt_draft.reconcile_etag or '',
+  prompt_draft.mode,
+  prompt_draft.instructions,
+  '',
+  'auto',
+  '',
+  false,
+  0,
+  false,
+  true
+) }}
+{% endif %}
+{% include 'components/revision-history.html' %}

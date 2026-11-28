@@ -14,6 +14,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -25,6 +26,8 @@ from types import ModuleType
 from typing import Any, cast
 
 import pytest
+
+from tests.git_worktree_support import ScopeBindings, check_worktree_fallback, make_git_layout
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 PLUGIN_ROOT = REPOSITORY_ROOT / "integrations" / "claude-code" / "plugins" / "powercontext"
@@ -190,6 +193,47 @@ def test_scope_resolver_and_workspace_binding_use_the_server(
     assert binding_keys[1]["external_id"] != str(tmp_path)
     assert requests[1][0] == "/v1/scope-bindings"
     assert requests[1][2] == "PUT"
+
+
+def test_a_linked_worktree_resolves_to_its_checkouts_binding_until_it_has_its_own(
+    scope_module: ModuleType,
+    scope_binding_client: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    layout = make_git_layout(tmp_path, monkeypatch)
+    bindings = ScopeBindings()
+
+    def request(path, payload, *, host, settings, deadline, method="POST"):
+        if path == "/v1/scope-bindings/resolve":
+            return {"scope_id": bindings.resolve(payload["binding_keys"])}
+        if path == "/v1/scope-bindings":
+            bindings.set(payload["key"], payload["scope_id"])
+            return {"scope_id": payload["scope_id"]}
+        return {"cleared": bindings.clear(payload["key"])}
+
+    monkeypatch.setattr(scope_binding_client, "_request_json", request)
+    host = scope_module.CLAUDE_CODE
+    options = {"settings": scope_module.ClaudeCodePluginSettings().scope_binding_settings(), "deadline": float("inf")}
+
+    check_worktree_fallback(
+        checkout=layout.checkout,
+        worktree=layout.worktree_sub,
+        bare_worktree=layout.bare_worktree,
+        resolve=lambda cwd: scope_binding_client.resolve_scope_id(host, str(cwd), session_id=None, **options),
+        bind=lambda cwd, scope_id: scope_binding_client.bind_scope(host, str(cwd), scope_id, **options),
+        clear=lambda cwd: scope_binding_client.clear_scope_binding(host, str(cwd), **options),
+    )
+    # The first workspace key is still the hash of the resolved Git top level, so existing bindings keep matching.
+    keys = scope_binding_client.binding_keys(host, str(layout.worktree_sub), session_id="session-a")
+    assert [key["external_id"] for key in keys] == [
+        "session-a",
+        hashlib.sha256(os.fsencode(layout.worktree)).hexdigest(),
+        hashlib.sha256(os.fsencode(layout.checkout)).hexdigest(),
+    ]
+    assert scope_binding_client.binding_keys(host, str(layout.checkout_sub), session_id=None) == [
+        {"integration": host.integration, "kind": "workspace", "external_id": keys[2]["external_id"]}
+    ]
 
 
 @pytest.mark.parametrize(

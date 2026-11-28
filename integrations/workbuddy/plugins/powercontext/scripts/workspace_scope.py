@@ -20,14 +20,12 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import subprocess
 import sys
 import threading
 from collections.abc import Mapping, Sequence
 from hashlib import sha256
 from http.client import HTTPException
 from pathlib import Path
-from shutil import which
 from time import monotonic
 from typing import Any, Protocol
 from urllib.error import HTTPError
@@ -40,6 +38,7 @@ _PLUGIN_ROOT = _SCRIPTS_ROOT.parent
 sys.path.insert(0, str(_PLUGIN_ROOT / "hooks"))
 sys.path.insert(0, str(_PLUGIN_ROOT))
 
+from git_worktree import workspace_paths  # noqa: E402
 from workbuddy_settings import WorkBuddyPluginSettings  # noqa: E402
 
 _MAX_RESPONSE_BYTES = 1_048_576
@@ -203,7 +202,7 @@ def binding_keys(cwd: str, *, session_id: str | None, deadline: float | None = N
     keys: list[dict[str, str]] = []
     if session_id is not None:
         keys.append(session_binding_key(session_id))
-    keys.append(workspace_binding_key(cwd, deadline=deadline))
+    keys.extend(_workspace_key(path) for path in workspace_paths(cwd, git_root=True, timeout=_git_timeout(deadline)))
     return keys
 
 
@@ -215,14 +214,21 @@ def session_binding_key(session_id: str) -> dict[str, str]:
 
 
 def workspace_binding_key(cwd: str, *, deadline: float | None = None) -> dict[str, str]:
-    timeout = 2.0 if deadline is None else min(2.0, _remaining_time(deadline))
-    root_value = _git_value(cwd, "rev-parse", "--show-toplevel", timeout=timeout)
-    root = Path(root_value or cwd).resolve(strict=False)
+    """Return the key of the workspace's own Git top level, the only key that binding and clearing write."""
+
+    return _workspace_key(workspace_paths(cwd, git_root=True, timeout=_git_timeout(deadline))[0])
+
+
+def _workspace_key(path: str) -> dict[str, str]:
     return {
         "integration": "workbuddy",
         "kind": "workspace",
-        "external_id": sha256(os.fsencode(root)).hexdigest(),
+        "external_id": sha256(os.fsencode(Path(path).resolve(strict=False))).hexdigest(),
     }
+
+
+def _git_timeout(deadline: float | None) -> float:
+    return 2.0 if deadline is None else min(2.0, _remaining_time(deadline))
 
 
 def _request_json(
@@ -365,24 +371,6 @@ def _read_bounded(response: _Response, *, deadline: float) -> bytes:
         if size > _MAX_RESPONSE_BYTES:
             raise ScopeBindingError
         chunks.append(chunk)
-
-
-def _git_value(cwd: str, *arguments: str, timeout: float = 2.0) -> str | None:
-    executable = which("git")
-    if executable is None:
-        return None
-    try:
-        completed = subprocess.run(  # noqa: S603 - git executable and arguments are integration-owned.
-            [executable, *arguments],
-            cwd=cwd,
-            check=True,
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-        )
-    except (OSError, subprocess.SubprocessError):
-        return None
-    return completed.stdout.strip() or None
 
 
 def main(argv: Sequence[str] | None = None) -> int:

@@ -27,6 +27,7 @@ REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 WORKBUDDY_ROOT = REPOSITORY_ROOT / "integrations" / "workbuddy"
 PLUGIN_ROOT = WORKBUDDY_ROOT / "plugins" / "powercontext"
 _PLUGIN_MODULE_NAMES = (
+    "git_worktree",
     "powercontext_client_config",
     "powercontext_scope_binding",
     "prepared_context",

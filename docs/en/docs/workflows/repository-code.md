@@ -55,6 +55,9 @@ Other eligible text files retain file navigation and source reads.
 For a source checkout, run `uv sync --extra code`; packaged deployments need `powercontext[server,cli,code]`.
 Create a Scope with the appropriate access controls, then have the Server operator bind it to a local Git root.
 Use separate Scope bindings for separate worktrees. HTTP callers cannot submit arbitrary server directories.
+A host session in a linked Git worktree that has no workspace binding of its own uses its main checkout's Scope, so
+code evidence comes from the repository configured for that Scope, the main checkout's root. To use a separate code
+repository Scope for a worktree, give the worktree its own workspace binding to that Scope.
 
 Set this JSON in the Server environment file, replacing the Scope and absolute paths:
 

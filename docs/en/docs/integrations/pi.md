@@ -48,7 +48,9 @@ response leaves Pi's prompt unchanged and never blocks ordinary work.
 
 The package resolves one Server-owned Scope in this order: `POWERCONTEXT_PI_SCOPE_ID`, a durable binding for the
 workspace, then the Server default. The workspace path is hashed only as an external binding key; it never becomes a
-Scope ID. Keep the explicit variable unset unless the host must force one existing Scope.
+Scope ID. In a linked Git worktree that has no workspace binding of its own, the binding of the same directory in the
+main checkout applies, so a checkout's binding also covers its linked worktrees. That fallback comes from the real path
+that Git reports, so it matches a checkout binding made from a path without symlinks. Keep the explicit variable unset unless the host must force one existing Scope.
 
 With these capabilities enabled, Pi satisfies the repository's Full core integration profile.
 
@@ -108,8 +110,12 @@ Pi through the gateway, configure Core, Pi, the package, and the gateway as foll
 
 ### Choose the Core target
 
-Core needs a target for the profile that `PC_GATEWAY_UPSTREAM_PROFILE` names (`default` unless set). Pi sends an
-output limit (`max_output_tokens`, from the model's `maxTokens`), `store: false`, and, unless
+Core needs a target for the profile that `PC_GATEWAY_UPSTREAM_PROFILE_RESPONSES` names, in every privacy mode,
+including `disabled`. Set that variable to the Responses profile containing Pi's approved endpoint, model and protocol.
+Without that profile, Core withholds each request with `target_unsupported`, and the gateway returns HTTP 400 for every
+turn. See [Configure a supported target](../operate/inference-protection.md#configure-a-supported-target).
+
+Pi sends an output limit (`max_output_tokens`, from the model's `maxTokens`), `store: false`, and, unless
 `PI_CACHE_RETENTION=none`, `prompt_cache_key`, so an enforcing Core admits its requests when the target:
 
 - declares `context_window_tokens`, `max_output_tokens` at least the Pi model's `maxTokens`, and
@@ -218,11 +224,12 @@ the request and the compaction or branch summary fails. Start a new session inst
 Run the gateway in a combined deployment (`PC_GATEWAY_CORE_UDS`), which injects requests that carry a conversation by
 default. Set:
 
-- `PC_GATEWAY_UPSTREAM_URL_RESPONSES` to the target's `endpoint`, and `PC_GATEWAY_UPSTREAM_API_KEY_RESPONSES` to the
-  provider key. Without the URL, the Responses route returns HTTP 501 `responses_route_disabled`.
-- `PC_GATEWAY_API_KEY` to the key that Pi sends as its `apiKey`. A non-loopback listener requires it.
-- `PC_GATEWAY_CORE_TOKEN` when Core enforces authentication.
-- `PC_GATEWAY_SEDIMENT=on`, so that the gateway captures each completed turn as a Source.
+- Set `PC_GATEWAY_UPSTREAM_PROFILE_RESPONSES` to the Core profile for Pi's Responses route. Do not set
+  `PC_GATEWAY_UPSTREAM_URL*`; those legacy variables prevent startup. Set `PC_GATEWAY_UPSTREAM_API_KEY_RESPONSES` to
+  the provider key, `PC_GATEWAY_API_KEY` to the key Pi sends, `PC_GATEWAY_CORE_TOKEN` to the Gateway service
+  credential, and `PC_GATEWAY_SEDIMENT=on`. Core access control must be `enforced`; grant the service identity
+  `gateway.user` and `server.observer`, and grant `scope.contributor` when capture is enabled. See
+  [Gateway model destination](../operate/deploy-server.md#gateway-model-destination) for the binding commands.
 - `PC_GATEWAY_DEFAULT_SCOPE` to the Scope this package resolves for the workspace, which `/pc` prints.
 
 The gateway prepares and captures every conversation in the one Scope set by `PC_GATEWAY_DEFAULT_SCOPE`, not in the

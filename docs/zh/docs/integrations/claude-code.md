@@ -114,6 +114,9 @@ exact Atomic Memory revisions；启动时被截短的 Artifact 和后续修订�
 配置 generation model 后，Source pipeline 可能进一步提取 Memory。提示词采集不会调用 `remember_memory`，
 Hook 也不会把普通 prompt 标记为 `task-outcome`。
 
+启用召回或采集且 Scope 已解析时，`UserPromptSubmit` 也会向 Claude Code 提供每轮指引。任务实际完成或明确中断时，
+Claude Code 可以调用可用的 MCP 工具 `record_task_outcome`。中间回合、`Stop` 和会话结束本身都不足以触发记录。
+
 v1 不安装 `Stop` Hook，不读取 transcript，也不自动采集 Claude 的最终回复。Memory 写入和持久化 Handoff
 里程碑仍然是由随附 Skill 指导的显式 MCP 操作。
 
@@ -133,6 +136,10 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/workspace_scope.py" \
 
 resolver 只把 workspace 路径哈希用作外部 binding key，不会根据 Git remote 或目录生成 Scope ID。只有确实需要
 主动隔离或共享时，才设置显式 Scope。
+
+workspace 指 Git 根目录，因此这条绑定也覆盖 checkout 的子目录。没有自己 workspace binding 的 linked Git worktree，
+会使用其主 checkout 的绑定，所以在这类 worktree 中启动的会话与 checkout 共用同一个 Scope。
+要让 worktree 使用单独的 Scope，在 worktree 内执行绑定；在那里绑定或清除，只会改动该 worktree 自己的绑定。
 
 ## 使用显式 Memory 和 Handoff 操作
 
@@ -214,14 +221,17 @@ setup 会保留已保存的凭据。不要把 token 放入 Server URL、插件�
 两者都依赖当前 Scope：Scope 解析失败时，Hook 既不召回也不采集，并以 `scope_resolve` 事件报告该失败。
 无论哪种情况，Claude Code 都会继续处理当前 prompt。
 
+成功解析 Scope 后，即使准备结果为空或准备失败，Hook 仍会注入任务结果记录指引，但不会注入召回内容。
+Scope 解析失败时，两者均不注入。
+
 | 条件 | Hook 行为 |
 | --- | --- |
-| Prepared Context 为空 | 不注入内容，并记录 `empty` outcome |
-| HTTP 401 | 不注入内容，并记录 `authentication_failed` |
-| 必需路由返回不带错误码的 HTTP 404 | 不注入内容，并记录 `version_mismatch` |
-| HTTP 503 或 Server 不可用 | 不注入内容，并记录 `server_unavailable` |
-| 其他 HTTP 错误，包括 `scope_not_found` 这类带错误码的 404 | 不注入内容，并记录带状态码和错误码（如有）的 `invalid_response` |
-| 未知 schema、错误 JSON 或超大响应 | 不注入内容，并记录 `invalid_response` |
+| Prepared Context 为空 | 不注入召回内容，并记录 `empty` outcome |
+| HTTP 401 | 不注入召回内容，并记录 `authentication_failed` |
+| 必需路由返回不带错误码的 HTTP 404 | 不注入召回内容，并记录 `version_mismatch` |
+| HTTP 503 或 Server 不可用 | 不注入召回内容，并记录 `server_unavailable` |
+| 其他 HTTP 错误，包括 `scope_not_found` 这类带错误码的 404 | 不注入召回内容，并记录带状态码和错误码（如有）的 `invalid_response` |
+| 未知 schema、错误 JSON 或超大响应 | 不注入召回内容，并记录 `invalid_response` |
 
 诊断只包含 outcome、安全的数字 metadata 和 Server 返回的错误码（如有），不包含 prompt、scope、Prepared Context 正文、
 Authorization 值或响应正文。插件会拒绝重定向，并限制响应大小和 wall-clock 时间。

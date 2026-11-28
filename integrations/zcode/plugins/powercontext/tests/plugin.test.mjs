@@ -155,10 +155,13 @@ test('plugin declares a ZCode prompt hook and Server MCP endpoint', async () => 
   assert.equal(mcp.mcpServers.powercontext.url, 'http://127.0.0.1:8000/mcp')
 })
 
-test('hook resolves Scope, injects prepared context and captures one Source', async () => {
+test('hook resolves Scope, injects prepared context and captures one Source', async t => {
+  // Outside any Git repository, so the workspace keys do not depend on where the suite is checked out.
+  const cwd = await mkdtemp(join(tmpdir(), 'pc-zcode-hook-'))
+  t.after(() => rm(cwd, { recursive: true, force: true }))
   const payload = {
     hookEventName: 'UserPromptSubmit', sessionId: 'session-1', turnId: 'turn-2',
-    cwd: pluginRoot, prompt: 'What color is the deployment?',
+    cwd, prompt: 'What color is the deployment?',
   }
   const result = await invoke(payload)
   assert.equal(result.code, 0)

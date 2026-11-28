@@ -64,11 +64,13 @@ managed model execution, not a Core `context_check` application operation or a w
 `unit=call` counts logical executions, `attempt` counts real transport handoffs, and `delivery` describes local
 framework observations. Do not sum the three units or count delivery events as additional calls.
 
+Current Gateway model routes cannot degrade: Core must authorize a target before sending. The `degraded` evidence enum remains for historical/other consumers, but the current executor does not emit it.
+
 | Evidence facts | Top-level operational `outcome` |
 | --- | --- |
-| Call `release_authorized` or `degraded`, observed upstream status < 400 | `success` |
-| Same terminals with observed upstream status >= 400 | `failure` |
-| Same terminals with missing upstream status | null |
+| Call `release_authorized`, observed upstream status < 400 | `success` |
+| `release_authorized` with observed upstream status >= 400 | `failure` |
+| `release_authorized` with missing upstream status | null |
 | Call `blocked`, `withheld`, `admission_expired` | `blocked` |
 | Call `send_indeterminate`, `not_sent`, `gate_paused`, or a confirmed `stopped` cause | `failure` |
 | Call `abandoned`, regardless of observed interruption intent/deadline | null |
@@ -80,7 +82,7 @@ framework observations. Do not sum the three units or count delivery events as a
 Null is unavailable classification, not `success` or `noop`. In particular, destruction-time cancellation intent
 is not a confirmed cancellation cause and is not projected as `cancelled`. Keep the nested terminal, sending,
 interruption and attempt outcome fields: the common outcome does not replace them. `success` here does not prove
-strict release authorization for degraded output, client receipt, task adoption or task success.
+client receipt, task adoption or task success.
 Top-level `duration_ms` copies call/attempt duration; it is null for delivery, whose `elapsed_ms` has a different origin.
 
 The existing managed Collector receives Server OTLP logs and reduces them through the Server field allowlist.
@@ -95,7 +97,7 @@ storage and readback have not been verified for this stream.
 `call_id` identifies one execution and joins its `call`, numbered `attempt`, and `delivery` records.
 It is generated once in request control and reused through completion and response-body lifetime.
 `request_id_fingerprint` is a keyed process-local fingerprint of the **bound** request ID, or null when none exists;
-`target_fingerprint` fingerprints the actual transport URL, never the requested model or client-claimed target.
+`target_fingerprint` fingerprints the Core-approved URL of the final transport attempt, never the requested model or client-claimed target. Calls without an attempt fingerprint the fixed `no-upstream-send` sentinel, not a URL.
 Redirects remain disabled. Fingerprints use a random process-local key and are not portable identities or a
 cryptographic anonymization promise. They never export a raw URL, request ID, cache key, conversation ID,
 Scope, provider error, model, credential, prompt or response body. Records do not establish task identity or
@@ -103,9 +105,9 @@ Source projection coverage. No task association is available unless the embeddin
 
 Coverage starts when `Executor::run` is polled. Authentication, invalid-body, middleware rejection and other ingress
 failures before execution are outside this stream. A complete model response does not imply successful release.
-`attempts` counts actual transport handoffs, including a degraded send; an expired admission has zero attempts.
-Retries keep one `call_id` and increment attempt numbers only after fresh admission. An uncertain attempt is never
-retried. The legacy demo-only `record_not_sent(0, ...)` diagnostics for preparation/capture/degradation are not
+`attempts` counts actual transport handoffs; an expired admission has zero attempts.
+Retries keep one `call_id`, update the target fingerprint to the newly approved endpoint, and increment attempt numbers only after fresh admission. An uncertain attempt is never
+retried. The legacy demo-only `record_not_sent(0, ...)` diagnostics for preparation/capture are not
 exported and are not model-send facts.
 
 ## Turn classification
@@ -168,8 +170,8 @@ both waiting for response headers and timing out while reading the body, includi
 `lost_after_handoff` covers other transport/body failures. Neither permits automatic retry. Once the transport reports delivery,
 usage survives decoding/release failures. A dropped pending transport cannot provide its private partial observations.
 A response-buffer overflow produces a `withheld` call with `possibly_sent`, one `buffer_limit_exceeded` attempt,
-unknown usage/completion, and any observed status/first-byte timing. It releases no response prefix and does not retry,
-including degraded passthrough. This preserves the capacity-limit decision separately from possible billing.
+unknown usage/completion, and any observed status/first-byte timing. It releases no response prefix and does not retry.
+This preserves the capacity-limit decision separately from possible billing.
 
 ## Usage mapping
 
@@ -214,11 +216,11 @@ All durations are monotonic milliseconds, truncated to integers. Null means unav
 The executor handoff and the transport's own send start are separate origins. Their exact offset is not recorded;
 `started_ms + response_first_byte_ms` or `started_ms + response_complete_ms` is not an exact call-relative timestamp.
 
-A `delivery` record reports `framework_handoff` when the released/degraded body is placed in the HTTP response,
+A `delivery` record reports `framework_handoff` when the authorized body is placed in the HTTP response,
 `first_body_frame` when the framework first polls a nonempty data frame, `first_model_content` when it polls
 the frame containing the first encoded byte of recognized model output, `body_completed` when the wrapped body
 reports completion, or `body_dropped` if dropped before observed completion. Strict release authorization precedes
-framework handoff and both first-frame/content observations. A degraded response has no release authorization timestamp.
+framework handoff and both first-frame/content observations.
 
 The content boundary recognizes nonempty assistant text, refusal strings, and function-call names/arguments in
 OpenAI Chat/Responses JSON and their supported SSE output, including Responses replay. It skips role-only, usage,

@@ -60,9 +60,9 @@ application operation，也不是 worker 的 inference generation。
 
 | 证据事实 | 顶层运维 `outcome` |
 | --- | --- |
-| 调用 `release_authorized` 或 `degraded`，已观察上游状态码 < 400 | `success` |
-| 同上，已观察上游状态码 >= 400 | `failure` |
-| 同上，上游状态码缺失 | null |
+| 调用 `release_authorized`，已观察上游状态码 < 400 | `success` |
+| `release_authorized`，已观察上游状态码 >= 400 | `failure` |
+| `release_authorized`，上游状态码缺失 | null |
 | 调用 `blocked`、`withheld`、`admission_expired` | `blocked` |
 | 调用 `send_indeterminate`、`not_sent`、`gate_paused` 或已确认原因的 `stopped` | `failure` |
 | 调用 `abandoned`，不论销毁时的取消意图/期限事实 | null |
@@ -73,7 +73,7 @@ application operation，也不是 worker 的 inference generation。
 
 null 表示分类不可得，不是 `success` 或 `noop`。销毁时存在取消意图不能证明取消原因，因此不投影为
 `cancelled`。保留嵌套的 terminal、sending、interruption 和尝试 outcome；通用 outcome 不能替代这些事实。
-这里的 `success` 不证明降级输出获得 strict 释放批准、客户端收到、任务采用或任务成功。
+这里的 `success` 不证明客户端收到、任务采用或任务成功。
 顶层 `duration_ms` 复制调用/尝试耗时；delivery 为 null，因为其 `elapsed_ms` 使用不同的起点。
 
 现有托管 Collector 接收 Server OTLP 日志，并通过 Server 字段白名单精简；默认**不采集** Gateway stdout，
@@ -81,20 +81,22 @@ null 表示分类不可得，不是 `success` 或 `noop`。销毁时存在取消
 通过 Server formatter 或当前 OTLP pipeline 转发不能保全此证据流。公共字段用于词汇兼容的查询，
 本实现不新增 Prometheus 指标、OTLP exporter 或重复监控栈；未验证该流在外部 Collector/Loki 中的存储与读回。
 
+当前 Gateway 模型入口必须先从 Core 获取获准目标，不能降级直通。证据枚举中的 `degraded` 为历史/其他调用方保留，当前执行器不产生该终态。
+
 ## 关联与覆盖范围
 
 `call_id` 标识一次执行，关联它的 `call`、编号 `attempt` 和 `delivery` 记录。
 它在请求控制中生成一次，贯穿执行完成与响应体生命周期。
 `request_id_fingerprint` 是已绑定请求 ID 的进程内带密钥指纹；没有宿主关联时为 null。
-`target_fingerprint` 是实际传输 URL 的指纹，不是客户端请求的模型或自报目标。重定向仍被禁用。
+`target_fingerprint` 是最后一次传输尝试中由 Core 批准的 URL 的指纹，不是客户端请求的模型或自报目标。零次尝试的调用使用固定 `no-upstream-send` 占位符的指纹，并不代表 URL。重定向仍被禁用。
 指纹密钥在进程内随机生成，不是可跨重启使用的身份，也不承诺密码学匿名化。
 不输出原始 URL、请求 ID、缓存键、会话 ID、Scope、provider 异常、模型名、凭据、prompt 或响应正文。
 记录不证明任务身份或 Source 投影覆盖；除非嵌入宿主另行提供关联，否则没有任务关联能力。
 
 覆盖从 `Executor::run` 被轮询时开始。认证、非法请求体、中间件拒绝以及其他执行前入口错误不在本证据流内。
-完整模型响应不代表释放成功。`attempts` 只统计实际交给 transport 的尝试，包含降级发送；
-准入过期而未发送时为零。重试沿用同一 `call_id`，只有重新准入后真实发送才增加尝试编号。
-不确定尝试不重发。演示接口 `record_not_sent(0, ...)` 的 prepare/capture/降级诊断不导出，
+完整模型响应不代表释放成功。`attempts` 只统计实际交给 transport 的尝试；
+准入过期而未发送时为零。重试沿用同一 `call_id`，目标指纹更新为重新获准的 endpoint；只有重新准入后真实发送才增加尝试编号。
+不确定尝试不重发。演示接口 `record_not_sent(0, ...)` 的 prepare/capture 诊断不导出，
 也不被当作模型未发送事实。
 
 ## 回合类型
@@ -148,8 +150,7 @@ reasoning 一类条目以及服务商已在响应内执行完毕的工具为 ass
 `lost_after_handoff` 表示其他传输/正文读取失败。两者均不允许自动重试。
 transport 交付完整响应后，解码或释放失败不会丢掉 usage。直接丢弃 pending transport 时无法取得其内部的部分观测。
 响应缓冲区超限时，调用记录为 `withheld`、发送事实为 `possibly_sent`，仅有一次 `buffer_limit_exceeded` 尝试；
-usage 与完整响应时间未知，保留已观察到的状态码和首字节时间。不释放响应前缀，也不重试，降级直通同样遵循此行为。
-容量限制的拒绝结论与可能计费事实分别保留。
+usage 与完整响应时间未知，保留已观察到的状态码和首字节时间。不释放响应前缀，也不重试。容量限制的拒绝结论与可能计费事实分别保留。
 
 ## Usage 映射
 
@@ -193,10 +194,10 @@ SSE 媒体类型在分离参数后按大小写不敏感方式比较。usage 与�
 执行器交接与 transport 自身的发送起点不同，两者的精确偏移没有记录。
 `started_ms + response_first_byte_ms` 或 `started_ms + response_complete_ms` 不能得到精确的调用相对时间戳。
 
-`delivery` 在获准/降级响应体放入 HTTP 响应时报告 `framework_handoff`，框架首次轮询取出非空 data frame
+`delivery` 在获准响应体放入 HTTP 响应时报告 `framework_handoff`，框架首次轮询取出非空 data frame
 时报告 `first_body_frame`，取出包含首个可识别模型输出编码字节的 frame 时报告 `first_model_content`，
 包装的 body 报告完成时为 `body_completed`，观察到完成之前被丢弃时为 `body_dropped`。
-strict 模式的释放批准先于框架交接、首个 data frame 与首内容观测。降级响应没有释放批准时间。
+释放批准先于框架交接、首个 data frame 与首内容观测。
 
 首内容边界识别 OpenAI Chat/Responses JSON 与所支持 SSE 输出中的非空 assistant 文本、拒绝字符串、
 函数调用名称及参数，包含 Responses 重放。仅含 role、usage、reasoning、error 及其他控制信息的事件不触发。

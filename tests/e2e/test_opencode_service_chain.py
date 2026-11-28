@@ -34,7 +34,7 @@ import time
 from collections.abc import Iterator
 from concurrent.futures import Future, ThreadPoolExecutor
 from contextlib import ExitStack, contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -48,6 +48,7 @@ from powercontext.server.factory import create_server_app
 from powercontext.server.settings import BearerAuthConfig, ServerSettings
 from tests.e2e.zcode_acceptance.protocol import HostModelFixture, ObserveServer, WireEvidence, strings
 from tests.e2e.zcode_acceptance.runner import serve
+from tests.git_worktree_support import make_git_layout
 
 PLUGIN = Path(__file__).resolve().parents[2] / "integrations" / "opencode" / "plugins" / "powercontext"
 TOKEN = "opencode-service-chain-token"  # noqa: S105 - non-secret test credential.
@@ -396,6 +397,29 @@ def test_opencode_resumed_session_keeps_its_scope(opencode_stack: OpenCodeStack)
     opencode_stack.wait_for_sources(["Fresh synthetic orchid prompt."], second_scope)
 
 
+def test_opencode_linked_worktree_falls_back_to_its_checkout_binding(
+    opencode_stack: OpenCodeStack, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    layout = make_git_layout(tmp_path / "git", monkeypatch)
+    worktree = replace(opencode_stack, workspace=layout.worktree)
+    replace(opencode_stack, workspace=layout.checkout).bind_workspace(opencode_stack.scope_id)
+    unpinned = {"POWERCONTEXT_OPENCODE_SCOPE_ID": None}
+
+    # Until the worktree has a binding of its own, its sessions resolve its checkout's Scope.
+    with worktree.open(**unpinned) as host:
+        session = host.session("Unbound worktree")
+        assert session["directory"] == str(layout.worktree)
+        host.prompt(session["id"], "Synthetic orchid prompt from the unbound worktree.")
+    opencode_stack.wait_for_sources(["Synthetic orchid prompt from the unbound worktree."])
+
+    # The worktree's own binding wins over its checkout's.
+    worktree_scope = _create_scope(opencode_stack.server, "OpenCode worktree")
+    worktree.bind_workspace(worktree_scope)
+    with worktree.open(**unpinned) as host:
+        host.prompt(host.session("Bound worktree")["id"], "Synthetic orchid prompt from the bound worktree.")
+    opencode_stack.wait_for_sources(["Synthetic orchid prompt from the bound worktree."], worktree_scope)
+
+
 def test_opencode_recall_and_capture_settings_are_independent(opencode_stack: OpenCodeStack) -> None:
     with opencode_stack.open(POWERCONTEXT_OPENCODE_PROMPT_RECALL="false") as host:
         host.prompt(host.session("Capture")["id"], FACT)
@@ -512,3 +536,49 @@ def test_opencode_memory_writes_wait_for_permission(opencode_stack: OpenCodeStac
         hits = host.tool_output(session, "pc_search")
         assert hits["ok"] is True
         assert remembered in json.dumps(hits["data"])
+
+
+def test_opencode_task_outcome_uses_agent_tool_and_host_permission(opencode_stack: OpenCodeStack) -> None:
+    path = "/v1/work/outcomes/record"
+    with opencode_stack.open() as host:
+        session = host.session("Task outcome")["id"]
+        start = len(opencode_stack.model.requests)
+        host.prompt(session, "Continue working on the parser.")
+        request = opencode_stack.model.requests[start]
+        system_text = "\n".join(strings([message for message in request["messages"] if message["role"] == "system"]))
+        assert "pc_task_outcome" in system_text
+        assert "actually complete or explicitly interrupted" in system_text
+        assert "intermediate turns" in system_text
+        assert "pc_task_outcome" in _tool_names(request)
+        assert opencode_stack.records(path) == []
+
+        outcome = {
+            "schema": "powercontext.task-outcome.v1",
+            "trust": "untrusted_observation",
+            "objective": "Fix the parser",
+            "status": "succeeded",
+            "summary": "The parser fix passed validation.",
+            "observations": [{"text": "The parser tests passed.", "basis": "declared", "evidence": []}],
+            "checks": [],
+            "produced_artifacts": [],
+            "remaining_work": [],
+        }
+        opencode_stack.model.plan([("pc_task_outcome", {"source_id": "parser-fix-outcome", "outcome": outcome})])
+        turn = host.start(session, "The parser tests passed and the task is complete.")
+        permission = host.permission(turn)
+        assert (permission["permission"], permission["patterns"]) == ("powercontext", ["record_task_outcome"])
+        assert opencode_stack.records(path) == []
+        host.reply(permission, "once")
+        turn.result(timeout=30)
+
+        result = host.tool_output(session, "pc_task_outcome")
+        assert result["ok"] is True
+        assert result["status"] == 202
+        assert result["data"]["source"]["source_id"] == "parser-fix-outcome"
+        (recorded,) = opencode_stack.records(path)
+        assert recorded["request"] == {
+            "scope_id": opencode_stack.scope_id,
+            "source_id": "parser-fix-outcome",
+            "outcome": outcome,
+        }
+        assert any(outcome["summary"] in json.dumps(content) for content in opencode_stack.sources())

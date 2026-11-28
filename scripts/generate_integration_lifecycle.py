@@ -58,6 +58,11 @@ COPIES = {
         f"{_HERMES}/powercontext_client_config.py",
         f"{_WORKBUDDY}/hooks/powercontext_client_config.py",
     ),
+    "git_worktree.py": (
+        f"{_BUB}/_git_worktree.py",
+        f"{_HERMES}/git_worktree.py",
+        f"{_WORKBUDDY}/hooks/git_worktree.py",
+    ),
     "prepared_context.py": (
         f"{_HERMES}/prepared_context.py",
         f"{_WORKBUDDY}/hooks/prepared_context.py",
@@ -80,6 +85,11 @@ TYPESCRIPT_COPIES = {
         f"{_OPENCLAW}/src/flush-progress.ts",
         f"{_PI}/src/flush-progress.ts",
     ),
+    "git-worktree.ts": (
+        f"{_DSH}/src/git-worktree.ts",
+        f"{_OPENCODE}/src/git-worktree.ts",
+        f"{_PI}/src/git-worktree.ts",
+    ),
     "prompt-privacy.ts": (
         f"{_DSH}/src/prompt-privacy.ts",
         f"{_OPENCLAW}/src/prompt-privacy.ts",
@@ -96,6 +106,10 @@ TYPESCRIPT_COPIES = {
 # Kimi Code and ZCode run their hooks with Node.js straight from the installed plugin, with no build step, so they get
 # JavaScript copies.
 JAVASCRIPT_COPIES = {
+    "git-worktree.ts": (
+        f"{_KIMI_CODE}/shared/git-worktree.mjs",
+        f"{_ZCODE}/shared/git-worktree.mjs",
+    ),
     "prompt-privacy.ts": (
         f"{_KIMI_CODE}/shared/prompt-privacy.mjs",
         f"{_ZCODE}/shared/prompt-privacy.mjs",

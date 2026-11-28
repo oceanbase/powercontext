@@ -125,6 +125,10 @@ also clear any stale saved receipt.
 The Source pipeline may later extract Memory when a generation model is configured. Prompt capture does not call
 `remember_memory`, and the Hook never labels an ordinary prompt as `task-outcome`.
 
+With recall or capture enabled and a resolved Scope, `UserPromptSubmit` also gives Claude Code per-turn guidance.
+When a task is actually complete or explicitly interrupted, Claude Code can call the MCP tool `record_task_outcome`
+if available. Intermediate turns, `Stop`, and session end leave the task outcome open on their own.
+
 The plugin does not install a `Stop` Hook in v1. It does not read the transcript or automatically capture Claude's
 final response. Memory writes and durable Handoff milestones remain explicit MCP operations guided by the bundled
 Skill.
@@ -145,6 +149,11 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/workspace_scope.py" \
 
 The resolver hashes the workspace path only as an external binding key. It never generates a Scope ID from a Git
 remote or directory. Set an explicit Scope only when that separation or sharing is deliberate.
+
+The workspace is the Git root, so the binding covers the checkout's subdirectories. A linked Git worktree that has no
+workspace binding of its own uses its main checkout's binding, so a session started in such a worktree shares the
+checkout's Scope. Bind inside the worktree to give it a separate Scope. Binding and clearing there change only the
+worktree's own binding.
 
 ## Use explicit Memory and Handoff operations
 
@@ -235,14 +244,16 @@ capture does not remove valid recalled context. Both need the current Scope: whe
 neither recalls nor captures and reports the failure as a `scope_resolve` event. In every case Claude Code continues
 processing the current prompt.
 
+When Scope resolution succeeds, the hook still emits task-outcome guidance without recalled context, including on empty or failed preparation. If Scope resolution fails, it emits neither.
+
 | Condition | Hook behavior |
 | --- | --- |
-| Empty Prepared Context | Injects nothing and records the `empty` outcome |
-| HTTP 401 | Injects nothing and records `authentication_failed` |
-| HTTP 404 without an error code from a required route | Injects nothing and records `version_mismatch` |
-| HTTP 503 or unavailable Server | Injects nothing and records `server_unavailable` |
-| Another HTTP error, including a coded 404 such as `scope_not_found` | Injects nothing and records `invalid_response` with the status and any error code |
-| Unknown schema, malformed JSON, or oversized response | Injects nothing and records `invalid_response` |
+| Empty Prepared Context | Adds no recalled context and records the `empty` outcome |
+| HTTP 401 | Adds no recalled context and records `authentication_failed` |
+| HTTP 404 without an error code from a required route | Adds no recalled context and records `version_mismatch` |
+| HTTP 503 or unavailable Server | Adds no recalled context and records `server_unavailable` |
+| Another HTTP error, including a coded 404 such as `scope_not_found` | Adds no recalled context and records `invalid_response` with the status and any error code |
+| Unknown schema, malformed JSON, or oversized response | Adds no recalled context and records `invalid_response` |
 
 Diagnostics contain only the outcome, safe numeric metadata, and any error code the Server returned. They omit the
 prompt, scope, prepared content, Authorization value, and response body. The plugin rejects redirects and enforces

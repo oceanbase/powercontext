@@ -63,7 +63,10 @@ companion rejects gateway invocations; use the provider's Hermes tools in gatewa
 
 The provider uses `http://127.0.0.1:8000` by default. The Server resolves an explicit Scope first, then durable session
 and workspace bindings, and finally its default Scope. Hermes hashes the workspace path only as an external binding
-key; it does not generate Scope IDs from profiles, users, repositories, or directories.
+key; it does not generate Scope IDs from profiles, users, repositories, or directories. In a linked Git worktree that
+has no workspace binding of its own, resolution uses the binding of the same directory in the main checkout, so a
+checkout's binding also covers its linked worktrees. A binding made in the worktree takes precedence, and binding or
+clearing there changes only the worktree's own binding.
 
 ## Configure the connection
 
@@ -195,10 +198,10 @@ assembles the assistant's text from a terminal stream and captures the completed
 
 ### Choose the Core target
 
-Core needs a target for the profile that `PC_GATEWAY_UPSTREAM_PROFILE` names (`default` unless set), in every privacy
-mode, including `disabled`. Without one, Core withholds each request with `target_unsupported`, and the gateway returns
-HTTP 400 for every turn. See
-[Configure a supported target](../operate/inference-protection.md#configure-a-supported-target).
+Core needs a target for the profile that `PC_GATEWAY_UPSTREAM_PROFILE_RESPONSES` names, in every privacy mode, including
+`disabled`. Set that variable to the Responses profile containing Hermes' approved endpoint, model and protocol. Without
+that profile, Core withholds each request with `target_unsupported`, and the gateway returns HTTP 400 for every turn.
+See [Configure a supported target](../operate/inference-protection.md#configure-a-supported-target).
 
 Hermes 0.20.4 sends `store: false` and `prompt_cache_key` on every Responses request to a custom endpoint, and
 `max_output_tokens` only when `model.max_tokens` is set. An enforcing Core admits its requests when:
@@ -218,9 +221,12 @@ discovers the mode at startup. See [Context reuse and final admission](../operat
 
 ### Configure the gateway
 
-- Set `PC_GATEWAY_UPSTREAM_URL_RESPONSES` and `PC_GATEWAY_UPSTREAM_API_KEY_RESPONSES` to the provider's Responses
-  endpoint and key, `PC_GATEWAY_API_KEY` to the key Hermes sends, `PC_GATEWAY_SEDIMENT=on`, and
-  `PC_GATEWAY_CORE_TOKEN` when Core enforces authentication.
+- Set `PC_GATEWAY_UPSTREAM_PROFILE_RESPONSES` to the Core profile for Hermes' Responses route. Do not set
+  `PC_GATEWAY_UPSTREAM_URL*`; those legacy variables prevent startup. Set `PC_GATEWAY_UPSTREAM_API_KEY_RESPONSES` to
+  the provider key, `PC_GATEWAY_API_KEY` to the key Hermes sends, `PC_GATEWAY_CORE_TOKEN` to the Gateway service
+  credential, and `PC_GATEWAY_SEDIMENT=on`. Core access control must be `enforced`; grant the service identity
+  `gateway.user` and `server.observer`, and grant `scope.contributor` when capture is enabled. See
+  [Gateway model destination](../operate/deploy-server.md#gateway-model-destination) for the binding commands.
 - The gateway prepares and captures every conversation in the one Scope that `PC_GATEWAY_DEFAULT_SCOPE` names, not in
   the Scope this provider resolves for each workspace. Set `PC_GATEWAY_DEFAULT_SCOPE` to the Scope that
   `hermes powercontext status` prints as `scope_id`, or set the provider's `scope_id` and `PC_GATEWAY_DEFAULT_SCOPE` to

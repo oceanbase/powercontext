@@ -40,6 +40,9 @@ impl ReqwestTransport {
     pub fn new(timeout: Duration) -> Self {
         let client = reqwest::Client::builder()
             .redirect(reqwest::redirect::Policy::none())
+            // Only the Core-approved endpoint may receive model bytes or provider credentials.
+            // reqwest otherwise inherits HTTP_PROXY/HTTPS_PROXY/ALL_PROXY from the process.
+            .no_proxy()
             .retry(reqwest::retry::never())
             // hyper can silently reconnect a stale pooled HTTP/1 connection. Using
             // fresh HTTP/1 connections keeps every attempt under Executor admission.

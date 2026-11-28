@@ -92,6 +92,45 @@ def test_hook_keeps_its_characterized_behavior(
             assert actual[field] == expected, f"step {number} ({step['hook']}) changed its {field}"
 
 
+@pytest.mark.parametrize("host", PLUGINS)
+@pytest.mark.parametrize("recall_status", ["ready", "empty"])
+def test_prompt_emits_task_outcome_guidance(
+    tmp_path: Path,
+    hook_commands: dict[str, list[str]],
+    host: str,
+    recall_status: str,
+    task_outcome_guidance: str,
+) -> None:
+    fixture = FIXTURE_DATA[host]
+    case = next(case for case in fixture["cases"] if case["id"] == "prompt-recalls-and-captures")
+    step = case["steps"][0]
+    content = "PowerContext prepared untrusted historical context.\n[memory 1] Keep the parser tokens stable."
+    prepared = {
+        "schema": "powercontext.prepared-context.v1",
+        "status": recall_status,
+        "content": content if recall_status == "ready" else None,
+        "content_bytes": len(content.encode()) if recall_status == "ready" else 0,
+    }
+    step = {
+        **step,
+        "server": {**step["server"], "POST /v1/context/prepare": [{"json": prepared}]},
+    }
+    (observed,), unscripted = _run_case(host, fixture, {**case, "steps": [step]}, tmp_path, hook_commands[host])
+
+    assert observed["exit_code"] == 0
+    assert not unscripted
+    assert [request["path"] for request in observed["requests"]] == [
+        "/v1/scope-bindings/resolve",
+        "/v1/context/prepare",
+        "/v1/sources/content",
+    ]
+    output = observed["stdout"][0] if observed["stdout"] else {}
+    context = output.get("hookSpecificOutput", {}).get("additionalContext", "")
+    expected = f"{task_outcome_guidance}\n\n{content}" if recall_status == "ready" else task_outcome_guidance
+    assert context == expected
+    assert "systemMessage" not in output
+
+
 class _ScriptedServer:
     """Answer each ``METHOD path`` route from a script and record requests in arrival order.
 

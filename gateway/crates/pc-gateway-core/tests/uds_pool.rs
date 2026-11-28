@@ -15,7 +15,7 @@
 //! UDS 连接池正确性回归：keep-alive 连接上的连续响应必须逐次正确解析。
 //! 覆盖三个场景：content-length 精确、chunked（含 trailer）、content-length 超读截断。
 
-use pc_gateway_core::{GateClient, UdsGateClient};
+use pc_gateway_core::{GateClient, GateError, UdsGateClient};
 use pc_gateway_types::{CheckDecision, CheckPhase, ContextCheckRequest, ModelJsonPayload};
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -42,6 +42,10 @@ fn check_request() -> ContextCheckRequest {
 
 /// 读一行请求头直到空行（忽略 body 细节，够用即可）。
 async fn read_request(conn: &mut UnixStream) {
+    let _ = read_request_headers(conn).await;
+}
+
+async fn read_request_headers(conn: &mut UnixStream) -> String {
     let mut buf = Vec::new();
     let mut byte = [0u8; 1];
     loop {
@@ -62,6 +66,80 @@ async fn read_request(conn: &mut UnixStream) {
             conn.read_exact(&mut body).await.unwrap();
         }
     }
+    head
+}
+
+#[tokio::test]
+async fn resolve_target_header_only_on_before_send() {
+    let dir = std::env::temp_dir().join(format!("pc-uds-target-header-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let socket = dir.join("core.sock");
+    let listener = UnixListener::bind(&socket).unwrap();
+
+    let server = tokio::spawn(async move {
+        for (path, resolve_target, body) in [
+            ("/v1/capabilities", false, "{}".to_string()),
+            ("/v1/context/check", true, result_json("allow")),
+        ] {
+            let (mut conn, _) = listener.accept().await.unwrap();
+            let head = read_request_headers(&mut conn).await;
+            assert!(head.contains(path));
+            assert_eq!(
+                head.lines()
+                    .any(|line| line == "x-powercontext-resolve-target: true"),
+                resolve_target
+            );
+            assert!(!head.contains("x-powercontext-resolve-target: false"));
+            conn.write_all(
+                format!(
+                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                )
+                .as_bytes(),
+            )
+            .await
+            .unwrap();
+        }
+    });
+
+    let client = UdsGateClient::with_token(&socket, None);
+    client.capabilities().await.unwrap();
+    assert_eq!(
+        client.check(check_request()).await.unwrap().decision,
+        CheckDecision::Allow
+    );
+    server.await.unwrap();
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[tokio::test]
+async fn invalid_core_token_never_reaches_uds_peer() {
+    let dir = std::env::temp_dir().join(format!("pc-uds-invalid-token-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let socket = dir.join("core.sock");
+    let listener = UnixListener::bind(&socket).unwrap();
+    let server = tokio::spawn(async move {
+        match tokio::time::timeout(std::time::Duration::from_millis(200), listener.accept()).await {
+            Ok(Ok((mut conn, _))) => {
+                read_request(&mut conn).await;
+                conn.write_all(
+                    b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}",
+                )
+                .await
+                .unwrap();
+                true
+            }
+            _ => false,
+        }
+    });
+
+    let client = UdsGateClient::with_token(&socket, Some("core\r\nx-injected: value".into()));
+    assert!(matches!(
+        client.capabilities().await,
+        Err(GateError::Malformed(_))
+    ));
+    assert!(!server.await.unwrap());
+    std::fs::remove_dir_all(dir).unwrap();
 }
 
 #[tokio::test]

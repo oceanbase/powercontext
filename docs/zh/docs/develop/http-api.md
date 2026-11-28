@@ -114,8 +114,13 @@ Scope 的读取角色继承提示词的读取和使用权限，创建者拥有�
 读取结果不能直接作为 Prompt 内容写回：保存 Auto 时，`powercontext.prompt.v1` 中的 `instructions` 和
 `demonstrations` 仍为空。
 
-`/prompts` 页面以只读方式展示 Auto 指令。首次切换到自定义时以默认指令为起点，切换模式会保留未保存的自定义
-指令和案例，并可展开查看当前部署的内置指令进行对照。
+`/dashboard/prompts` 页面展示所有已配置 Prompt。对于 `profile.generate`，该页面同时提供编辑入口，可从
+**Profile → 画像生成提示词** 进入：选择 Scope，查看 Auto/Custom 模式、当前生效指令、内置默认值、能力状态
+及已保存版本；首次切换到 Custom 以内置默认值为起点；保存新版本不会调用推理、启用生成或重处理历史 Source。
+创建冲突（`409`）和版本冲突（`412`）会保留草稿并把提交目标对准最新 ETag 供协调修改。enforced 模式下写入需要当前
+`scope.admin`；`disabled` 模式无强制检查。只有 `profile.generate` 能力状态为 `supported` 时才允许保存自定义指令；
+能力为 `disabled` 时仍可查看且已有 Custom 配置仍可切回 Auto，但不能保存新的 Custom 指令。没有指令的外部管理 Prompt
+显示为不可用。其他 Prompt key 在 Dashboard 中仍为只读。
 
 通过 `GET /v1/scopes/{scope_id}/artifacts/prompt/{prompt_key}/revisions` 查看不可变的版本历史，通过
 `POST /v1/scopes/{scope_id}/prompts/{prompt_key}/demonstrations` 生成可编辑示例。示例不会自动保存。

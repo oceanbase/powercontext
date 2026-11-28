@@ -40,6 +40,7 @@ _HOOK_MODULES = (
     "powercontext_client_config.py",
     "prepared_context.py",
     "prompt_privacy.py",
+    "git_worktree.py",
 )
 
 
@@ -283,6 +284,30 @@ def test_setup_workbuddy_installs_from_a_local_checkout(tmp_path: Path, monkeypa
 
 
 @pytest.mark.skipif(shutil.which("bash") is None, reason="the manual installation steps are bash commands")
+def test_setup_workbuddy_installs_every_module_the_scope_resolver_imports(
+    tmp_path: Path, monkeypatch, installed_agent_checks
+) -> None:
+    home = tmp_path / "workbuddy"
+    monkeypatch.setenv("WORKBUDDY_HOME", str(home))
+    monkeypatch.setenv("POWERCONTEXT_HOME", str(tmp_path / "data"))
+    env_file = tmp_path / "setup.env"
+    env_file.write_text("", encoding="utf-8")
+    result = CliRunner().invoke(
+        create_cli([setup_app]),
+        ["setup", "--env-file", str(env_file), "workbuddy", "--source", str(Path(__file__).parents[1]), "--json"],
+    )
+    assert result.exit_code == 0, result.output
+
+    completed = subprocess.run(
+        [sys.executable, str(home / "hooks" / "powercontext_scope_binding.py"), "--help"],
+        cwd=tmp_path,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert completed.returncode == 0, completed.stderr
+
+
 @pytest.mark.parametrize(
     "document",
     [

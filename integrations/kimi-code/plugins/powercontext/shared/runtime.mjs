@@ -19,9 +19,11 @@ import { createHash } from 'node:crypto'
 import { isAbsolute, resolve } from 'node:path'
 import { isIP } from 'node:net'
 import { fileURLToPath } from 'node:url'
+import { workspacePathsSync } from './git-worktree.mjs'
 
 export const MAX_CONTEXT_BYTES = 8000
 export const TOKEN_ENV = 'POWERCONTEXT_KIMI_TOKEN'
+const GIT_TIMEOUT_MS = 500
 
 export class Failure extends Error {
   constructor(code, httpStatus, requestSent = false) {
@@ -126,8 +128,14 @@ export function workspaceKey(cwd) {
     external_id: createHash('sha256').update(directory).digest('hex') }
 }
 
+// Resolution tries the workspace's own key, then, in a linked Git worktree, the same directory's in the main checkout.
+// Binding and clearing write only workspaceKey.
+export function workspaceKeys(cwd) {
+  return [workspaceKey(cwd), ...workspacePathsSync(cwd, false, GIT_TIMEOUT_MS).slice(1).map(workspaceKey)]
+}
+
 export async function resolveScope(settings, signal, input = {}) {
-  const keys = settings.scopeId ? [] : [workspaceKey(input.cwd)]
+  const keys = settings.scopeId ? [] : workspaceKeys(input.cwd)
   const { status, value } = await request(settings, 'POST', '/v1/scope-bindings/resolve', {
     explicit_scope_id: settings.scopeId, binding_keys: keys,
   }, signal)

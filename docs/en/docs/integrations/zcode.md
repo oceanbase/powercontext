@@ -390,7 +390,9 @@ The plugin reaches the same PowerContext Server through two paths:
 
 The Hook selects a Scope through `POWERCONTEXT_ZCODE_SCOPE_ID`, then current session binding, workspace binding, and
 finally the Server default. A canonical Git-root or workspace path is hashed into an external binding key; the path
-itself is not a Scope ID. For a remote workspace, set `POWERCONTEXT_ZCODE_REMOTE_WORKSPACE=true` and an existing
+itself is not a Scope ID. A linked Git worktree that has no workspace binding of its own uses its main checkout's
+binding, so a checkout's binding also covers its linked worktrees. Bind inside the worktree to give it a separate
+Scope; `bind` and `unbind` there change only the worktree's own binding. For a remote workspace, set `POWERCONTEXT_ZCODE_REMOTE_WORKSPACE=true` and an existing
 `POWERCONTEXT_ZCODE_SCOPE_ID` before launching ZCode, so the Hook skips local path inference. MCP tools still need
 the correct Scope when called.
 

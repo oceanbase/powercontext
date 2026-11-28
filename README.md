@@ -73,6 +73,7 @@ Rules decide only what to keep and how to organize it. The output schema, tools 
 ### Traceable and governed
 
 - **Evidence behind every memory:** each memory traces back to its source evidence and exact revision, and can point to the precise location in the source.
+- **Task outcomes:** Claude Code, Codex, and OpenCode get per-turn guidance to record evidence at actual task completion or explicit interruption.
 - **Reviewed changes:** generated experiences and skills are recalled only after review; Dream revisions take effect after your approval; outdated memories can be retired while their history is kept.
 - **Clear boundaries:** Scopes isolate data and access; operational telemetry excludes prompts, content, and model responses.
 - **Model Gateway observability** provides model traffic metrics and sampled traces in the reference monitoring stack.

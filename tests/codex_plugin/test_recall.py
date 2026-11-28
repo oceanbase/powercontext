@@ -214,6 +214,7 @@ def test_recall_emits_bounded_untrusted_context(
     recall_module: ModuleType,
     prompt_flow: ModuleType,
     monkeypatch: pytest.MonkeyPatch,
+    task_outcome_guidance: str,
 ) -> None:
     prepared_content = (
         "PowerContext prepared untrusted historical context.\n\n"
@@ -255,7 +256,7 @@ def test_recall_emits_bounded_untrusted_context(
 
     assert recall_module.main() == 0
     context = json.loads(output.getvalue())["hookSpecificOutput"]["additionalContext"]
-    assert context == prepared_content
+    assert context == f"{task_outcome_guidance}\n\n{prepared_content}"
     assert len(context.encode("utf-8")) <= 8_000
     assert captured == [("What decisions apply?", "project:test")]
 
@@ -374,7 +375,10 @@ def test_recall_reads_utf8_stdin_on_windows_encodings(
 
     assert recall_module.main() == 0
     assert captured == ["查看当前记忆"]
-    assert json.loads(output.getvalue())["hookSpecificOutput"]["additionalContext"] == prepared_content
+    assert (
+        json.loads(output.getvalue())["hookSpecificOutput"]["additionalContext"].partition("\n\n")[2]
+        == prepared_content
+    )
 
 
 def test_recall_failure_is_non_blocking(
@@ -455,7 +459,7 @@ def test_unexpected_recall_failure_does_not_prevent_prompt_capture(
     monkeypatch.setattr(sys, "stdout", output)
 
     assert recall_module.main() == 0
-    assert output.getvalue() == ""
+    assert "record_task_outcome" in json.loads(output.getvalue())["hookSpecificOutput"]["additionalContext"]
     assert captured == ["Still capture this"]
 
 
@@ -491,7 +495,7 @@ def test_host_output_keeps_context_when_capture_diagnostic_is_emitted(
     assert recall_module.main() == 0
 
     result = json.loads(output.getvalue())
-    assert result["hookSpecificOutput"]["additionalContext"] == "prepared context"
+    assert result["hookSpecificOutput"]["additionalContext"].partition("\n\n")[2] == "prepared context"
     assert json.loads(result["systemMessage"]) == {
         "component": "powercontext.codex.recall",
         "event": "capture_source",
@@ -530,7 +534,9 @@ def test_host_diagnostic_is_throttled_across_hook_invocations(
         outputs.append(output.getvalue())
 
     assert json.loads(outputs[0])["systemMessage"]
-    assert outputs[1] == ""
+    first, second = map(json.loads, outputs)
+    assert "systemMessage" not in second
+    assert second["hookSpecificOutput"] == first["hookSpecificOutput"]
 
 
 def _run_hook(
@@ -927,7 +933,7 @@ def test_recall_records_exact_injected_context_only_when_eval_trace_is_enabled(
         "session_id": "session-1",
         "turn_id": "turn-2",
     }
-    assert event["injected_text"] == prepared_context
+    assert event["injected_text"].partition("\n\n")[2] == prepared_context
     assert event["observed_at"].endswith("Z")
     if os.name != "nt":
         assert stat.S_IMODE(trace.stat().st_mode) == 0o600
@@ -998,7 +1004,7 @@ def test_recall_uses_the_eval_home_when_codex_filters_the_trace_path(
     event = json.loads(trace.read_text())
     assert event["event_type"] == "powercontext_injection"
     assert event["scope_id"] == "eval:run-1:on"
-    assert event["injected_text"] == "PowerContext recalled context: Use the retained audit."
+    assert event["injected_text"].partition("\n\n")[2] == "PowerContext recalled context: Use the retained audit."
 
 
 @pytest.mark.parametrize("event_name", ["UserPromptSubmit", "user_prompt_submit"])
@@ -1219,7 +1225,7 @@ def test_capture_domain_errors_remain_visible_as_automatic_failures(
 
     assert recall_module.main() == 0
     result = json.loads(output.getvalue())
-    assert result["hookSpecificOutput"]["additionalContext"] == "prepared context"
+    assert result["hookSpecificOutput"]["additionalContext"].partition("\n\n")[2] == "prepared context"
     assert json.loads(result["systemMessage"]) == {
         "component": "powercontext.codex.recall",
         "event": "capture_source",

@@ -67,6 +67,10 @@ traffic goes through the gateway, turn prompt-time recall off so the gateway pre
 [Leave prompt-time context to the gateway](#leave-prompt-time-context-to-the-gateway). The plugin also
 uses `PreToolUse` for MCP Scope binding. Loading the plugin or discovering MCP tools does not prove that these hooks ran.
 
+With recall or capture enabled and a resolved Scope, `UserPromptSubmit` also gives Codex per-turn guidance.
+When a task is actually complete or explicitly interrupted, Codex can call the MCP tool `record_task_outcome` if available.
+Intermediate turns, `Stop`, and session end leave the task outcome open on their own.
+
 If trust was skipped or denied, inspect the PowerContext entries in `/hooks` and follow the host's available controls
 to enable or trust them. Follow any instruction to open a new session; check the hooks again before retrying capture.
 Controls and prompts depend on the Codex build. If the expected hooks are absent, check plugin installation and host
@@ -166,7 +170,10 @@ Scope, and it does not derive a `scope_id` from the path, remote, or branch. Run
 
 `POWERCONTEXT_CODEX_SCOPE_ID` still takes precedence. A Session that already started keeps the Session binding written
 at startup. A new Session in that Git root uses the workspace binding when no explicit variable and no earlier Session
-binding apply. The MCP `set_scope_binding` tool changes only the current Session and does not replace this command.
+binding apply. A linked Git worktree that has no workspace binding of its own uses its main checkout's binding, so a
+checkout's binding also covers its linked worktrees. Bind inside the worktree to give it a separate Scope; binding and
+clearing there change only the worktree's own binding. `powercontext session import` follows the same rule while the
+recorded worktree still exists. The MCP `set_scope_binding` tool changes only the current Session and does not replace this command.
 
 The Hook calls `POST /v1/context/prepare` once before Codex analyzes the prompt. It requests an 8000-byte total budget,
 strictly validates `powercontext.prepared-context.v1`, and injects the returned content unchanged. The recall query is
@@ -329,9 +336,9 @@ follows.
 Codex does not send an output limit (`max_output_tokens`). An enforcing Core requires a token budget on the target and
 an output limit on every generation request, so it withholds each Codex request (for example with
 `output_limit_required`), the gateway returns HTTP 400, and the turn fails before the model receives it. Run Core with
-inference protection in `disabled`, `shadow`, or `advisory` mode, with a target for the profile that
-`PC_GATEWAY_UPSTREAM_PROFILE` names (`default` unless set). Core withholds a check for an unknown target in every
-mode. For example:
+inference protection in `disabled`, `shadow`, or `advisory` mode, with a target for the profile named by
+`PC_GATEWAY_UPSTREAM_PROFILE_RESPONSES`. Core withholds a check for an unknown target in every mode. For example,
+the following `default` target requires `PC_GATEWAY_UPSTREAM_PROFILE_RESPONSES=default`:
 
 ```bash
 export POWERCONTEXT_SERVER_INFERENCE_PROTECTION='{
@@ -377,8 +384,7 @@ put the same keys in `~/.codex/powercontext-gateway.config.toml` and start Codex
 
 Export the gateway's `PC_GATEWAY_API_KEY` value as `PC_GATEWAY_KEY` in the environment that starts Codex; Codex sends
 it as the bearer token. While `PC_GATEWAY_KEY` is unset, Codex stops with `Missing environment variable` before it
-sends a request. A gateway on a loopback listener may run without `PC_GATEWAY_API_KEY` and then accepts any token, but
-Codex still needs the variable.
+sends a request. The gateway requires a nonempty `PC_GATEWAY_API_KEY` even on a loopback listener.
 
 In a combined deployment (`PC_GATEWAY_CORE_UDS`), the gateway forwards Core API and MCP requests to Core with the
 client's own credentials, so the plugin can use the gateway's address as its Server URL
@@ -397,8 +403,8 @@ codex
 You can continue an existing thread after changing these settings. When the gateway omits replayed context, it logs
 `PowerContext plugin prepared context omitted by the gateway.`
 
-With recall off, `UserPromptSubmit` sends no preparation request and adds no context. It still captures prompts while
-`POWERCONTEXT_CODEX_CAPTURE_PROMPTS` is `true`; with both off, it sends no request. The Session binding, bootstrap
+With recall off, `UserPromptSubmit` sends no preparation request. It adds task-outcome guidance when prompt capture is enabled and Scope resolution succeeds. It still captures prompts while
+`POWERCONTEXT_CODEX_CAPTURE_PROMPTS` is `true`; with both off, it sends no request and adds no prompt-hook guidance. The Gateway's default steering does not supply this task-outcome guidance. The Session binding, bootstrap
 context, MCP tools, and diagnostics keep their own settings.
 
 ### Configure the gateway
@@ -406,11 +412,16 @@ context, MCP tools, and diagnostics keep their own settings.
 Run the gateway in a combined deployment (`PC_GATEWAY_CORE_UDS`), which injects requests that carry a conversation by
 default. Set:
 
-- `PC_GATEWAY_UPSTREAM_URL_RESPONSES` to the target's `endpoint`, and `PC_GATEWAY_UPSTREAM_API_KEY_RESPONSES` to the
-  provider key. The gateway sends to this URL itself, and without it the Responses route returns HTTP 501
-  `responses_route_disabled`.
-- `PC_GATEWAY_API_KEY` to the key that Codex sends as `PC_GATEWAY_KEY`. A non-loopback listener requires it.
-- `PC_GATEWAY_CORE_TOKEN` when Core enforces authentication.
+- `PC_GATEWAY_UPSTREAM_PROFILE_RESPONSES` to the Core `InferenceConfig.protection.targets` profile for the Responses
+  endpoint, protocol, and model (for the example above, `default`). Without this setting, the Responses route returns
+  HTTP 501 `responses_route_disabled`. Do not set `PC_GATEWAY_UPSTREAM_URL*`; legacy URL variables prevent startup.
+- `PC_GATEWAY_UPSTREAM_API_KEY_RESPONSES` to the provider key for that approved target.
+- `PC_GATEWAY_API_KEY` to a nonempty key that Codex sends as `PC_GATEWAY_KEY`.
+- `PC_GATEWAY_CORE_TOKEN` to an authenticated Core service identity, distinct from the client-facing key. Core access
+  control must be `enforced` even when inference privacy protection is non-enforcing. Grant the identity `gateway.user`
+  (`gateway.invoke`) on the selected Scope, `server.observer` (`server.observe`) on the Server resource for
+  `POWERCONTEXT_SERVER_ACCESS_DEPLOYMENT_ID` (default `powercontext`), and `scope.contributor` instead of
+  `scope.viewer` because capture is enabled. See [Gateway authentication and target requirements](../operate/deploy-server.md#gateway-model-destination) for the `/v1/access/me` and binding requests.
 - `PC_GATEWAY_SEDIMENT=on`, so that the gateway captures each completed turn as a Source.
 - `PC_GATEWAY_DEFAULT_SCOPE` to the fallback Scope. To use the Scope this plugin resolves for the workspace,
   run `scope_binding.py` without
