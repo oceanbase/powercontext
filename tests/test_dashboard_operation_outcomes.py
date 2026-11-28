@@ -41,6 +41,34 @@ from tests.test_dashboard_review_reading import propose
 from tests.test_dashboard_scope_selection import _grant, _revoke
 
 
+@pytest.fixture
+def expire_inspection(monkeypatch):
+    """Use real timeout cancellation once the requested read boundary is reached."""
+    deadline = None
+    active_reads = 0
+
+    def controlled_timeout(_seconds):
+        nonlocal deadline
+        deadline = asyncio.timeout(None)
+        return deadline
+
+    async def expire(*, after_entries=1):
+        nonlocal active_reads
+        assert deadline is not None
+        active_reads += 1
+        try:
+            if active_reads == after_entries:
+                deadline.reschedule(asyncio.get_running_loop().time())
+            await asyncio.Future()
+        finally:
+            active_reads -= 1
+
+    monkeypatch.setattr("powercontext.server.dashboard.operation_outcomes.timeout", controlled_timeout)
+    yield expire
+    assert deadline is not None and deadline.expired(), "the intended inspection timeout was not exercised"
+    assert active_reads == 0, "a dependent read survived inspection cancellation"
+
+
 def saved_memory(client, scope):
     response = client.post(
         "/v1/memory/remember", json={"scope_id": scope, "kind": "fact", "text": "Saved independent content."}
@@ -907,7 +935,28 @@ def test_candidate_target_change_is_normalized_to_an_invalid_response(dashboard,
     assert CATALOGS["en"]["outcomes_candidate_unavailable"] in item
 
 
-def test_inspection_deadline_retains_base_records(dashboard, monkeypatch):
+def test_inspection_deadline_before_list_result_keeps_saved_content(dashboard, monkeypatch, expire_inspection):
+    scope = create_scope(dashboard, "List read timeout")["scope_id"]
+    source = capture_source(dashboard, scope, "Saved content remains readable during inspection.")
+    create_experience(dashboard, scope, source, "Unavailable history", "Keep the saved lesson readable")
+    retain_run(dashboard, scope, "unread-run", status="succeeded", outcome="no_change")
+    read = DashboardAPI.read
+
+    async def unavailable_list(self, path, payload=None):
+        if path.startswith(f"/v1/scopes/{scope}/dream?"):
+            await expire_inspection()
+        return await read(self, path, payload)
+
+    monkeypatch.setattr(DashboardAPI, "read", unavailable_list)
+    response = dashboard.get("/dashboard/methods", params={"scope": scope, "lang": "en"})
+    section = outcome_section(response)
+    assert "Keep the saved lesson readable" in response.text
+    assert CATALOGS["en"]["outcomes_read_unavailable"] in section
+    assert CATALOGS["en"]["outcomes_no_records"] not in section
+    assert 'data-operation-run="' not in section
+
+
+def test_inspection_deadline_retains_base_records(dashboard, monkeypatch, expire_inspection):
     scope = create_scope(dashboard, "Deadline keeps facts")["scope_id"]
     candidate = propose(dashboard, scope, "Slow decision")
     retain_run(
@@ -922,11 +971,10 @@ def test_inspection_deadline_retains_base_records(dashboard, monkeypatch):
 
     async def slow(self, path, payload=None):
         if path == "/v1/candidates/get":
-            await asyncio.sleep(0.5)
+            await expire_inspection()
         return await read(self, path, payload)
 
     monkeypatch.setattr(DashboardAPI, "read", slow)
-    monkeypatch.setattr("powercontext.server.dashboard.operation_outcomes.INSPECTION_SECONDS", 0.05)
     response = dashboard.get("/dashboard/methods", params={"scope": scope, "lang": "en"})
     section = outcome_section(response)
     assert CATALOGS["en"]["outcomes_read_unavailable"] in section
@@ -934,7 +982,7 @@ def test_inspection_deadline_retains_base_records(dashboard, monkeypatch):
     assert "Succeeded" in item and 'data-association="scope"' in item
 
 
-def test_deadline_keeps_approved_result_reference_when_body_is_unavailable(dashboard, monkeypatch):
+def test_deadline_keeps_approved_result_reference_when_body_is_unavailable(dashboard, monkeypatch, expire_inspection):
     scope = create_scope(dashboard, "Published result timeout")["scope_id"]
     candidate = propose(dashboard, scope, "Retained approval")
     approved = dashboard.post(
@@ -954,11 +1002,10 @@ def test_deadline_keeps_approved_result_reference_when_body_is_unavailable(dashb
     revision = DashboardAPI.artifact_revision
 
     async def slow(self, *args):
-        await asyncio.sleep(1)
+        await expire_inspection()
         return await revision(self, *args)
 
     monkeypatch.setattr(DashboardAPI, "artifact_revision", slow)
-    monkeypatch.setattr("powercontext.server.dashboard.operation_outcomes.INSPECTION_SECONDS", 0.25)
     response = dashboard.get("/dashboard/methods", params={"scope": scope, "lang": "en"})
     item = run_section(response, "slow-published-result")
     assert f"{result['family']}/{result['artifact_id']}@{result['revision']}" in item
@@ -966,7 +1013,7 @@ def test_deadline_keeps_approved_result_reference_when_body_is_unavailable(dashb
     assert CATALOGS["en"]["outcomes_not_published"] not in item
 
 
-def test_deadline_keeps_association_from_the_base_record(dashboard, monkeypatch):
+def test_deadline_keeps_association_from_the_base_record(dashboard, monkeypatch, expire_inspection):
     scope = create_scope(dashboard, "Deadline keeps association")["scope_id"]
     selected = saved_memory(dashboard, scope)
     candidate = propose(dashboard, scope, "Slow associated decision")
@@ -987,11 +1034,10 @@ def test_deadline_keeps_association_from_the_base_record(dashboard, monkeypatch)
 
     async def slow(self, path, payload=None):
         if path == "/v1/candidates/get":
-            await asyncio.sleep(0.5)
+            await expire_inspection(after_entries=DETAIL_CONCURRENCY)
         return await read(self, path, payload)
 
     monkeypatch.setattr(DashboardAPI, "read", slow)
-    monkeypatch.setattr("powercontext.server.dashboard.operation_outcomes.INSPECTION_SECONDS", 0.05)
     response = dashboard.get(
         "/dashboard/notes",
         params={"scope": scope, "artifact": selected["artifact_id"], "revision": selected["revision"], "lang": "en"},

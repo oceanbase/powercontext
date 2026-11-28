@@ -12,6 +12,7 @@
 """Present existing operation evidence without creating execution history on reads."""
 
 import asyncio
+from asyncio import timeout
 from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import urlencode
@@ -294,7 +295,7 @@ async def load_operation_outcomes(api, request, ctx):
     if ctx["record_only"]:
         return
     try:
-        async with asyncio.timeout(INSPECTION_SECONDS):
+        async with timeout(INSPECTION_SECONDS):
             view["selected"] = _selection(ctx, family)
             view["generation"] = _generation(ctx, family)
             view["operation"] = _requested_operation(view, request) or view["operation"]

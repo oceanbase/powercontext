@@ -74,6 +74,7 @@ def test_locators_survive_upgrade_reopen_http_and_mcp(tmp_path):
     retired = json.loads((resources / "sqlite-v1_5_0_001.json").read_text())
     write_plugins = json.loads((resources / "sqlite-v1_4_1_006.json").read_text())
     with sqlite3.connect(database) as connection:
+        connection.execute("DROP INDEX ix_pc_dream_operation_list")
         connection.execute("DROP TABLE pc_atomic_memory_alias")
         connection.execute("DROP TABLE pc_source_collect_targets")
         connection.execute("DROP TABLE pc_source_runners")
@@ -89,6 +90,13 @@ def test_locators_survive_upgrade_reopen_http_and_mcp(tmp_path):
     plan = runner.plan()
     assert plan.revisions == ("v1_5_0_004", "v1_5_0_005", "v1_5_0_006", "v1_6_0", "000")
     runner.apply(plan_id=plan.plan_id, accepted=True, maintenance_confirmed=True)
+    with sqlite3.connect(database) as connection:
+        assert [row[2] for row in connection.execute("PRAGMA index_info(ix_pc_dream_operation_list)")] == [
+            "scope_id",
+            "operation",
+            "accepted_at",
+            "run_id",
+        ]
 
     locators = [
         {"kind": "sequence", "sequence": source["position"]},
