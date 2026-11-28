@@ -2082,6 +2082,28 @@
     "evidence": "desktop/VALIDATION.md#server-c407025-source-metadata-protocol-qualification"
   },
   {
+    "id": "sqlite-dream-operations-389c4408-v1",
+    "serverCommit": "389c44088be086231e92f73f0b2ed5068101be0a",
+    "contractSha256": "91b9762f8d2f9e97e48a15c7155a3b114ec9ec8d707432b2dbb227c4e12f74b2",
+    "artifactSha256": "90fb4882223b5f68ce89388cccb0d0ff460e10c85fee477f8ba70dd052ff7001",
+    "operations": [
+      "get_liveness",
+      "get_readiness",
+      "get_server_info",
+      "get_capabilities",
+      "list_scopes",
+      "get_scope",
+      "get_default_scope",
+      "remember_memory",
+      "search_memory",
+      "get_stats",
+      "get_artifact_revision",
+      "get_connection_identity",
+      "get_access_principal"
+    ],
+    "evidence": "desktop/VALIDATION.md#dream-operation-filter-protocol-qualification"
+  },
+  {
     "id": "sqlite-source-content-limit-7b58ce2-v1",
     "serverCommit": "7b58ce2a601dc099966363667e0d040647fc3dff",
     "contractSha256": "29f33308b74ff51bdd3d9825f85d7dd5a2308c80a476c6b1badf32a850e662f5",
@@ -2102,5 +2124,27 @@
       "search_memory"
     ],
     "evidence": "desktop/VALIDATION.md#server-7b58ce2-source-content-limit-protocol-qualification"
+  },
+  {
+    "id": "sqlite-dream-source-limit-901247c5-v1",
+    "serverCommit": "901247c5ffc5876501f316e9a90fd3890fc53bd6",
+    "contractSha256": "093153a2b3d80d9184fa4e98d2535a9d39e025bb22d7a85bbd27eed97399c292",
+    "artifactSha256": "525587c6a35b6f566e7b0202b393f88c7d8d9afc797328f7b92ba65011e6e3b7",
+    "operations": [
+      "get_liveness",
+      "get_readiness",
+      "get_server_info",
+      "get_capabilities",
+      "list_scopes",
+      "get_scope",
+      "get_default_scope",
+      "remember_memory",
+      "search_memory",
+      "get_stats",
+      "get_artifact_revision",
+      "get_connection_identity",
+      "get_access_principal"
+    ],
+    "evidence": "desktop/VALIDATION.md#combined-dream-and-source-limit-protocol-qualification"
   }
 ]

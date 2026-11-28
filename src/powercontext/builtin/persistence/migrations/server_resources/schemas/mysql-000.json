@@ -3,7 +3,8 @@
   "revisions": {
     "000": {
       "statements": [
-        "CREATE TABLE pc_atomic_memory_alias (\n\tscope_id VARCHAR(256) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, \n\talias_artifact_id VARCHAR(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, \n\ttarget_artifact_id VARCHAR(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, \n\talias_revision BIGINT NOT NULL, \n\tmerged_state_version BIGINT NOT NULL, \n\tprojection_format VARCHAR(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, \n\tkind MEDIUMTEXT NOT NULL, \n\ttext MEDIUMTEXT NOT NULL, \n\tsearchable_text MEDIUMTEXT NOT NULL, \n\tembedding BLOB, \n\tprofile_fingerprint VARCHAR(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin, \n\tembedding_input_hash VARCHAR(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin, \n\tPRIMARY KEY (scope_id, alias_artifact_id), \n\tCONSTRAINT ck_pc_atomic_memory_alias_revision CHECK (alias_revision > 0), \n\tCONSTRAINT ck_pc_atomic_memory_alias_state_version CHECK (merged_state_version >= 0), \n\tCONSTRAINT ck_pc_atomic_memory_alias_embedding_metadata CHECK ((embedding IS NULL AND profile_fingerprint IS NULL AND embedding_input_hash IS NULL) OR (embedding IS NOT NULL AND profile_fingerprint IS NOT NULL AND embedding_input_hash IS NOT NULL))\n)"
+        "CREATE TABLE pc_atomic_memory_alias (\n\tscope_id VARCHAR(256) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, \n\talias_artifact_id VARCHAR(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, \n\ttarget_artifact_id VARCHAR(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, \n\talias_revision BIGINT NOT NULL, \n\tmerged_state_version BIGINT NOT NULL, \n\tprojection_format VARCHAR(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, \n\tkind MEDIUMTEXT NOT NULL, \n\ttext MEDIUMTEXT NOT NULL, \n\tsearchable_text MEDIUMTEXT NOT NULL, \n\tembedding BLOB, \n\tprofile_fingerprint VARCHAR(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin, \n\tembedding_input_hash VARCHAR(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin, \n\tPRIMARY KEY (scope_id, alias_artifact_id), \n\tCONSTRAINT ck_pc_atomic_memory_alias_revision CHECK (alias_revision > 0), \n\tCONSTRAINT ck_pc_atomic_memory_alias_state_version CHECK (merged_state_version >= 0), \n\tCONSTRAINT ck_pc_atomic_memory_alias_embedding_metadata CHECK ((embedding IS NULL AND profile_fingerprint IS NULL AND embedding_input_hash IS NULL) OR (embedding IS NOT NULL AND profile_fingerprint IS NOT NULL AND embedding_input_hash IS NOT NULL))\n)",
+        "CREATE INDEX ix_pc_dream_operation_list ON pc_dream_runs (scope_id, operation, accepted_at, run_id)"
       ],
       "changes": [
         {
@@ -265,6 +266,315 @@
               }
             },
             "indexes": {}
+          }
+        },
+        {
+          "pc_dream_runs": {
+            "columns": {
+              "scope_id": {
+                "type": [
+                  "varchar",
+                  [
+                    "256"
+                  ]
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": "utf8mb4_bin",
+                "extra": []
+              },
+              "run_id": {
+                "type": [
+                  "varchar",
+                  [
+                    "64"
+                  ]
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": "utf8mb4_bin",
+                "extra": []
+              },
+              "principal_key": {
+                "type": [
+                  "varchar",
+                  [
+                    "64"
+                  ]
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": "utf8mb4_bin",
+                "extra": []
+              },
+              "idempotency_key": {
+                "type": [
+                  "varchar",
+                  [
+                    "128"
+                  ]
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": "utf8mb4_bin",
+                "extra": []
+              },
+              "request_digest": {
+                "type": [
+                  "varchar",
+                  [
+                    "71"
+                  ]
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": "utf8mb4_bin",
+                "extra": []
+              },
+              "operation": {
+                "type": [
+                  "varchar",
+                  [
+                    "32"
+                  ]
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": "utf8mb4_bin",
+                "extra": []
+              },
+              "status": {
+                "type": [
+                  "varchar",
+                  [
+                    "16"
+                  ]
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": "utf8mb4_bin",
+                "extra": []
+              },
+              "accepted_at": {
+                "type": [
+                  "bigint",
+                  []
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              },
+              "generation": {
+                "type": [
+                  "int",
+                  []
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              },
+              "request_generation": {
+                "type": [
+                  "bigint",
+                  []
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              },
+              "payload": {
+                "type": [
+                  "mediumblob",
+                  []
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              },
+              "proposal_fingerprint": {
+                "type": [
+                  "varchar",
+                  [
+                    "71"
+                  ]
+                ],
+                "nullable": true,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": null,
+                "extra": []
+              }
+            },
+            "primary_key": [
+              [
+                "scope_id",
+                null,
+                "asc"
+              ],
+              [
+                "run_id",
+                null,
+                "asc"
+              ]
+            ],
+            "foreign_keys": [
+              {
+                "columns": [
+                  "scope_id"
+                ],
+                "referred_schema": null,
+                "referred_table": "pc_scopes",
+                "referred_columns": [
+                  "scope_id"
+                ],
+                "ondelete": "cascade",
+                "onupdate": "restrict"
+              }
+            ],
+            "checks": {
+              "ck_pc_dream_generation": {
+                "expression": [
+                  "binary",
+                  ">=",
+                  [
+                    "column",
+                    "generation"
+                  ],
+                  [
+                    "number",
+                    0
+                  ]
+                ],
+                "enforced": true
+              }
+            },
+            "indexes": {
+              "uq_pc_dream_idempotency": {
+                "columns": [
+                  [
+                    "scope_id",
+                    null,
+                    "asc"
+                  ],
+                  [
+                    "principal_key",
+                    null,
+                    "asc"
+                  ],
+                  [
+                    "idempotency_key",
+                    null,
+                    "asc"
+                  ]
+                ],
+                "unique": true
+              },
+              "ix_pc_dream_dispatch": {
+                "columns": [
+                  [
+                    "scope_id",
+                    null,
+                    "asc"
+                  ],
+                  [
+                    "operation",
+                    null,
+                    "asc"
+                  ],
+                  [
+                    "status",
+                    null,
+                    "asc"
+                  ],
+                  [
+                    "request_generation",
+                    null,
+                    "asc"
+                  ]
+                ],
+                "unique": false
+              },
+              "ix_pc_dream_list": {
+                "columns": [
+                  [
+                    "scope_id",
+                    null,
+                    "asc"
+                  ],
+                  [
+                    "accepted_at",
+                    null,
+                    "asc"
+                  ],
+                  [
+                    "run_id",
+                    null,
+                    "asc"
+                  ]
+                ],
+                "unique": false
+              },
+              "ix_pc_dream_runs_proposal_fingerprint": {
+                "columns": [
+                  [
+                    "scope_id",
+                    null,
+                    "asc"
+                  ],
+                  [
+                    "principal_key",
+                    null,
+                    "asc"
+                  ],
+                  [
+                    "proposal_fingerprint",
+                    null,
+                    "asc"
+                  ]
+                ],
+                "unique": false
+              },
+              "ix_pc_dream_operation_list": {
+                "columns": [
+                  [
+                    "scope_id",
+                    null,
+                    "asc"
+                  ],
+                  [
+                    "operation",
+                    null,
+                    "asc"
+                  ],
+                  [
+                    "accepted_at",
+                    null,
+                    "asc"
+                  ],
+                  [
+                    "run_id",
+                    null,
+                    "asc"
+                  ]
+                ],
+                "unique": false
+              }
+            }
           }
         }
       ]

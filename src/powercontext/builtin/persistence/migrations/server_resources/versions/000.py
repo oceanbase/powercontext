@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Register the disposable historical Atomic Memory alias projection."""
+"""Register the Atomic Memory alias projection and operation-filtered Dream history index."""
 
 import json
 from pathlib import Path

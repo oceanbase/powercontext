@@ -9224,7 +9224,7 @@ export interface operations {
         parameters: {
             query?: {
                 status?: "queued" | "running" | "succeeded" | "failed";
-                operation?: "refine_experience" | "derive_skill";
+                operation?: components["schemas"]["DreamOperation"];
                 cursor?: string;
                 limit?: number;
             };

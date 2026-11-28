@@ -155,6 +155,8 @@ Candidate 统一表示待审核的变更提案。现有候选接口去掉 artifa
 | `POST/GET /v1/scopes/{scope_id}/dream`、`GET /v1/scopes/{scope_id}/dream/{run_id}` | 复用提交、列表和详情入口，返回统一 Candidate 引用 |
 | `GET /v1/capabilities` | 声明 Dream 操作、可用性、输出种类与生效方式 |
 
+`GET /v1/scopes/{scope_id}/dream` 的 `operation` 过滤参数使用 OpenAPI 共享的 `DreamOperation` schema，接受上述矩阵中的全部九种操作。过滤已保留的记录不要求该操作当前已启用。结果保留既有 Scope 授权、受理时间与 Run ID 排序及 cursor 分页；此过滤不能定位精确目标或结果。
+
 所有单候选操作使用 scope_id、candidate_id；服务端从持久化候选读取 candidate_kind，不能信任调用方切换类型。list 未指定 candidate_kind 时返回两类候选，并沿用既有权限过滤；family 是目标所属 Artifact family，不新增 family=tag。Experience、Skill、外部技能导入、Profile 和 Dream 等已有业务入口继续负责创建候选，不新增通用 create 接口。
 
 直接移除 `/v1/artifact-candidates/*`，不保留别名、重定向或兼容过滤。本 PR 的 `/v1/catalog-change-candidates/*` 及 `/v1/catalog-candidates/*` 尚未发布，不提供这些入口或其兼容层。接口替换是显式破坏性变更，调用方必须与 Server 协调升级。相对于 RFC #1771 通常要求的公开接口弃用期，本次直接移除须作为明确的发布例外，登记替代路由、移除版本及配套最低 Client 版本。数据迁移与 API 兼容分开管理，迁移成功不代表旧 Client 仍可使用。

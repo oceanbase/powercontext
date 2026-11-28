@@ -3116,10 +3116,7 @@ paths:
         in: query
         required: false
         schema:
-          type: string
-          enum:
-          - refine_experience
-          - derive_skill
+          $ref: '#/components/schemas/DreamOperation'
       - name: cursor
         in: query
         required: false

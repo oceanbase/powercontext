@@ -209,6 +209,10 @@ def links(request: Request, ctx: dict[str, Any]):
                     "diagnostic_cursor",
                     "diagnostic_since",
                     "diagnostic_until",
+                    "outcome_operation",
+                    "outcome_run",
+                    "operation_runs_cursor",
+                    "operation_runs_history",
                 }
             })
         if destination == "methods" and ctx["page"] in {"experience", "skill"}:
@@ -271,6 +275,9 @@ def _drop_foreign_revision_cursors(query: dict[str, Any], params: dict[str, Any]
 def reading_link_context(
     request: Request, ctx: dict[str, Any], destination: str, params: dict[str, Any], query: dict[str, Any]
 ) -> None:
+    if destination == "methods" and "kind" in params and params["kind"] != ctx["method_kind"]:
+        for key in ("outcome_operation", "outcome_run", "operation_runs_cursor", "operation_runs_history"):
+            query.pop(key, None)
     if destination.startswith("evidence/") and ctx["page"] == "notes":
         query["lang"] = ctx["language"]
     if (
@@ -374,6 +381,7 @@ def initial_context(request: Request, page: str) -> dict[str, Any]:
         "source_artifacts": None,
         "processing_artifacts_pager": None,
         "processing_memory_previews": {},
+        "operation_outcomes": None,
         "topic_memory_pager": None,
         "request_revision": request.query_params.get("revision"),
         "profile_history_view": request.query_params.get("view") == "history",
@@ -868,6 +876,10 @@ async def screen(request: Request, page: str) -> HTMLResponse:  # noqa: C901 -- 
             from powercontext.server.dashboard.generation import load_generation
 
             await load_generation(api, request, ctx)
+        if (ctx["scope_descriptor"] or ctx["record_only"]) and not ctx["page_error"]:
+            from powercontext.server.dashboard.operation_outcomes import load_operation_outcomes
+
+            await load_operation_outcomes(api, request, ctx)
         if page not in {"entry", "runtime", "observability"} and not ctx["scope_descriptor"] and not ctx["record_only"]:
             await load_entry_scopes(api, request, ctx)
     except ReadError as error:

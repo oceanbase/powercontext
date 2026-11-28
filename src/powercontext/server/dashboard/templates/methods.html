@@ -20,7 +20,7 @@ limitations under the License.
 {% set family = method_kind %}{% set collection = collections.get(family,{}) %}
 {% call page_heading(t.methods, t.methods_subtitle) %}{% if not generation_open %}<div class="btn-list justify-content-md-end"><a class="btn btn-primary" href="{{ link(generate='1',generation_mode='direct',evidence_type=none,generation_cursor=none,generation_history=none,generation_result=none) }}" title="{{ t.method_sync_notice }}">{{ t.method_generate_now }}</a><a class="btn btn-primary" href="{{ link(generate='1',generation_mode='dream',evidence_type=none,generation_cursor=none,generation_history=none,generation_result=none) }}">{{ t.method_generate_dream }}</a></div>{% endif %}{% endcall %}
 <nav class="nav nav-tabs mb-4" aria-label="{{ t.method_filter }}">{% for value,label in [('experience','experience'),('skill','skill_reading')] %}<a class="nav-link {{ 'active' if family == value else '' }}" href="{{ link('methods',kind=value,q=none,skill_page=none,experience_page=none,experience_cursor=none,experience_history=none,generate=none,generation_mode=none,evidence_type=none,generation_cursor=none,generation_history=none,generation_result=none) }}" {% if family == value %}aria-current="page"{% endif %}>{{ t[label] }}</a>{% endfor %}</nav>
-{% include 'components/source-consumption.html' %}
+{% include 'components/source-consumption.html' %}{% include 'components/operation-outcomes.html' %}
 {% if generation_open %}{% include 'components/method-generation.html' %}{% else %}
 {% if request.query_params.get('generation_result') == 'no_op' %}<p class="alert alert-info" role="status">{{ t.method_generation_no_op }}</p>{% endif %}
 {{ search_form(t.search_experiences if family == 'experience' else t.search_skills,2000,family) }}

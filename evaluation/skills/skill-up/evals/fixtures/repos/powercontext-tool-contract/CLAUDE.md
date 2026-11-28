@@ -173,7 +173,7 @@ not replace those schemas or enforce their constraints. It contains no scenario 
 ## mcp__powercontext__list_dream_runs
 
 - Required: `scope_id: string`.
-- Optional: `cursor: string`, `limit: integer = 20`, `operation: "refine_experience" | "derive_skill"`, `status: "queued" | "running" | "succeeded" | "failed"`.
+- Optional: `cursor: string`, `limit: integer = 20`, `operation: "refine_experience" | "derive_skill" | "revise_skill" | "revise_profile" | "revise_memory" | "revise_topic_memory" | "refresh_handoff" | "revise_prompt" | "revise_tags"`, `status: "queued" | "running" | "succeeded" | "failed"`.
 
 ## mcp__powercontext__list_external_skills
 

@@ -3790,7 +3790,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                         "name": "operation",
                         "in": "query",
                         "required": False,
-                        "schema": {"type": "string", "enum": ["refine_experience", "derive_skill"]},
+                        "schema": {"$ref": "#/components/schemas/DreamOperation"},
                     },
                     {"name": "cursor", "in": "query", "required": False, "schema": {"type": "string"}},
                     {

@@ -1228,3 +1228,19 @@ def test_gateway_lifecycle_error_keeps_stop_decision_separate_from_sending_facts
         GatewayLifecycleError.model_validate({"decision": "allow", "model_send": "no_send"})
     with pytest.raises(ValidationError):
         GatewayLifecycleError.model_validate({"decision": "deadline_exceeded"})
+
+
+def test_dream_operation_query_accepts_every_dashboard_operation() -> None:
+    from powercontext.server.dashboard.operation_outcomes import FAMILY_OPERATIONS
+
+    contract = yaml.safe_load(CONTRACT_PATH.read_text())
+    parameters = contract["paths"]["/v1/scopes/{scope_id}/dream"]["get"]["parameters"]
+    parameter = next(item for item in parameters if item["name"] == "operation")
+    schema = parameter["schema"]
+    if "$ref" in schema:
+        schema = contract["components"]["schemas"][schema["$ref"].rsplit("/", 1)[1]]
+    dashboard_operations = {operation for operations in FAMILY_OPERATIONS.values() for operation in operations} | {
+        "revise_tags"
+    }
+    assert dashboard_operations <= set(schema["enum"])
+    assert schema["enum"] == contract["components"]["schemas"]["DreamOperation"]["enum"]
