@@ -24,10 +24,12 @@ from typing import Any, Literal
 
 import pytest
 
+from powercontext.builtin.artifacts.atomic_memory import AtomicMemoryContent
 from powercontext.builtin.artifacts.atomic_memory.extraction import AtomicMemoryGenerationPipeline
 from powercontext.builtin.inference import GenerationResult, InvalidInferenceOutputError, character_token_estimator
 from powercontext.builtin.inference.models import ConversationReply, ConversationTurn
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
+from powercontext.builtin.records import ArtifactWrite
 from powercontext.builtin.runtime import BuiltinConfig, RuntimeConfig, open_builtin_contexts
 from tests.e2e.dream_support import _IndependentMemoryReconciler
 from tests.e2e.test_atomic_memory_generation_merge import _RevisionExtractor
@@ -607,3 +609,42 @@ def test_default_mode_never_starts_a_conversation(tmp_path: Path) -> None:
         assert conversation.turns == []
 
     _run(tmp_path, conversation, scenario, mode="per_candidate")
+
+
+ALIAS_OLD = "Deploys go out to five percent of traffic first."
+ALIAS_OTHER = "Pause the deployment if errors rise."
+ALIAS_CURRENT = "Rollout uses staged canary percentages with error monitoring."
+
+
+def test_memory_reachable_only_through_its_historical_wording_is_shown_beside_closer_hits(tmp_path: Path) -> None:
+    # Each partly matches the observation's words, so together they fill the direct hits one query shows.
+    closer = tuple(f"Deploys go out to region {index} after the traffic check." for index in range(5))
+    shown: list[str] = []
+
+    def answer(message: dict[str, Any]) -> dict[str, Any]:
+        memories = message["existing_memories"]
+        shown.extend(item["text"] for item in memories)
+        target = next((item["id"] for item in memories if item["text"] == ALIAS_CURRENT), memories[0]["id"])
+        return {"operations": [{"action": "noop", "target_ids": [target], "reason": "Already stated."}]}
+
+    conversation = _Conversation(_facts(ALIAS_OLD), answer)
+
+    async def scenario(contexts, memory) -> None:
+        merged = []
+        for text in (ALIAS_OLD, ALIAS_OTHER):
+            created = await contexts.records.create_artifact(
+                SCOPE, "atomic-memory", ArtifactWrite(content={"kind": "fact", "text": text})
+            )
+            merged.append((await memory.get(created.artifact_id)).as_read())
+        await memory.merge(tuple(merged), AtomicMemoryContent(kind="fact", text=ALIAS_CURRENT))
+        await contexts.records.create_atomic_memories(SCOPE, tuple({"kind": "fact", "text": text} for text in closer))
+        await (await contexts.get(SCOPE)).triggers.flush(limit=200)
+        before = await _texts(memory)
+        await contexts.records.capture_source(SCOPE, "content", "historical", ALIAS_OLD, {})
+        await contexts.process_memory(SCOPE, 1)
+        # The merged memory is compared with its historical wording, and the closer hits are still shown.
+        assert ALIAS_CURRENT in shown
+        assert set(closer) <= set(shown)
+        assert await _texts(memory) == before
+
+    _run(tmp_path, conversation, scenario)

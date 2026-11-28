@@ -935,14 +935,15 @@ class AtomicMemorySourceWindowProcessor:
     ):
         """Page through the related memories in rank order.
 
-        Compared pages are released from the workset. With ``limit``, only the closest memories are read and they
-        stay in the workset for the caller.
+        Compared pages are released from the workset. With ``limit``, at most ``limit`` direct hits in rank order are
+        read, followed by at most ``limit`` further memories matched through a historical alias, and they stay in the
+        workset for the caller.
         """
         if self.config.alias_recall:
-            request, ranks = await self._aliased_rank_snapshot(scope_id, request)
+            request, ranks = await self._aliased_rank_snapshot(scope_id, request, limit)
         else:
             request, ranks = await self._related_rank_snapshot(scope_id, request)
-        ranks = ranks[:limit]
+            ranks = ranks[:limit]
         if not ranks:
             return
         cursor = AtomicMemoryRelatedCursor(ranks)
@@ -960,7 +961,7 @@ class AtomicMemorySourceWindowProcessor:
                 break
             del page, loaded
 
-    async def _aliased_rank_snapshot(self, scope_id, request):
+    async def _aliased_rank_snapshot(self, scope_id, request, limit=None):
         application = self.application
         while True:
             async with application.database.transaction(consistent_snapshot=True) as connection:
@@ -984,7 +985,7 @@ class AtomicMemorySourceWindowProcessor:
                 except (AtomicMemoryIndexError, OperationalError) as error:
                     _require_alias_snapshot(connection, error)
                     aliases = ()
-                ranks = _combine_related_ranks(direct, aliases)
+                ranks = _combine_related_ranks(direct, aliases, limit)
             return request, ranks
 
     async def _read_related_page(self, scope_id, context, workset, request, cursor, *, local_policy):
@@ -1505,8 +1506,13 @@ def _input_item_count(value: object) -> int | None:
     return None
 
 
-def _combine_related_ranks(direct, aliases):
-    """Preserve direct order, then append alias-only successors with their observed versions."""
+def _combine_related_ranks(direct, aliases, limit=None):
+    """Preserve direct order, then append alias-only successors with their observed versions.
+
+    Alias ranks carry no score to order them against direct hits. With ``limit``, the first ``limit`` direct hits are
+    kept, then up to ``limit`` alias-matched successors outside them in alias order, so direct hits cannot crowd out a
+    memory reachable only through its historical wording.
+    """
     ranks = {rank.artifact_ref.artifact_id: rank for rank in direct}
     for rank in aliases:
         identity = rank.artifact_ref.artifact_id
@@ -1515,7 +1521,15 @@ def _combine_related_ranks(direct, aliases):
             ranks[identity] = rank
         elif previous.artifact_ref != rank.artifact_ref or previous.state_version != rank.state_version:
             _conflict("Related channels returned different memory versions")
-    return tuple(ranks.values())
+    combined = tuple(ranks.values())
+    if limit is None:
+        return combined
+    kept = combined[: min(limit, len({rank.artifact_ref.artifact_id for rank in direct}))]
+    shown = {rank.artifact_ref.artifact_id for rank in kept}
+    successors = {
+        identity: ranks[identity] for rank in aliases if (identity := rank.artifact_ref.artifact_id) not in shown
+    }
+    return (*kept, *tuple(successors.values())[:limit])
 
 
 def _require_alias_snapshot(connection, error: AtomicMemoryIndexError | OperationalError):
