@@ -1,0 +1,94 @@
+{
+  "contract": "PC-RUST-2740/2026-11-22.1",
+  "scope": "Disposable-copy official tool compatibility probe; no production/backend/code change",
+  "tool": {
+    "version": "3.1.0",
+    "release": "https://github.com/erkamyaman/rust-anything/releases/tag/v3.1.0",
+    "source_commit": "8ac2c1c8ab77bd1a20588f0c03f0a72ab99a046e",
+    "archive_sha256": "80d8d8bf926851ae6fd9d66b5a34393bc81bc2d10b7499aaef46a6f4c06bc48f",
+    "binary_sha256": "a369ae1aca27155a30cccfebdeb5e8029c03fa1af1ef56dbb2c7d7a7649586b5",
+    "verification": "Release asset digest and SHA256SUMS both matched",
+    "version_exit": 0,
+    "global_setup": false,
+    "toolchain_upgraded": false
+  },
+  "original_copy_gate": {
+    "exit": 2,
+    "status": "BLOCKED",
+    "reason": "Missing rust-anything.json"
+  },
+  "configured_copy": {
+    "recorded": 7,
+    "diff_exit": 1,
+    "missing_export": "chunk_topic_memory_detail",
+    "build_exit": 2,
+    "gate_exit": 1,
+    "reason": "Original library name _native differs from tool expected powercontext_topic_chunk_rs"
+  },
+  "adapted_copy": {
+    "changes": [
+      "Tool manifest and tool-format recording",
+      "Cargo [lib].name",
+      "Python package public re-export"
+    ],
+    "algorithm_adapter_and_models_unchanged": true,
+    "cargo_lock_unchanged": true,
+    "record_exit": 0,
+    "build_exit": 0,
+    "diff_exit": 0,
+    "bench_exit": 0,
+    "gate_exit": 0,
+    "tool_cases": 64,
+    "string_calls": 60,
+    "invalid_or_missing_calls": 4,
+    "excluded_from_tool_subset": [
+      "lone-high",
+      "lone-low",
+      "explicit-pair"
+    ],
+    "subset_not_full_contract": true,
+    "binary_distinct_from_delivery": true,
+    "binary_sha256": "16d56db9fc5e945eeeb08a398942d22014163332bf70934b7924dc1914acfded",
+    "filename_abi3_is_not_abi3_support": true,
+    "internal_build_commands_not_all_locked": true
+  },
+  "limitations": {
+    "raw_lone_surrogates": "Both record commands exit2: invalid surrogate JSON escapes",
+    "explicit_pair": {
+      "original_codepoints": [
+        55357,
+        56898
+      ],
+      "recorded_codepoints": [
+        128578
+      ]
+    },
+    "utf16_marker": "Python driver passes the marker as dict; reference records dict TypeError",
+    "wrong_exception_negative": {
+      "reference": "ValidationError",
+      "mutated_candidate": "TypeError",
+      "changed_message": true,
+      "actual_native_completions": 1,
+      "strict_equal": false,
+      "official_diff_exit": 0,
+      "official_passed": 64,
+      "official_failed": 0
+    },
+    "static_error_paths": "No explicit raise in the export does not establish implicit/model error coverage"
+  },
+  "unchanged_delivery": {
+    "strict_diff_exit": 0,
+    "cases": 67,
+    "matched": 67,
+    "N": 63,
+    "R": 63,
+    "F": 0,
+    "E": 0,
+    "binary_sha256": "682e0924bcb0d7fdcc528ed63d2c96392574554ad2a14180d7159983b4922388",
+    "before_and_after_probe_checkout_snapshot": "70edd419543ed8e69aaeb24b6cee3f2588546dab8af4caf9dca8be044e295539"
+  },
+  "overall_issue_acceptance": "BLOCKED / HOLD for delivery integration and complete surrogate/error tool coverage",
+  "next_step": "Compatible full-contract tool integration, or explicit maintainer approval of split official and strict task-owned gates",
+  "commit": false,
+  "push": false
+}

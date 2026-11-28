@@ -1,0 +1,25 @@
+{
+  "schema": "rust-anything/bridge@1",
+  "root": "../..",
+  "unit": "src/powercontext/builtin/artifacts/topic_memory/chunking.py",
+  "language": "python",
+  "kind": "pyo3",
+  "crate_name": "powercontext-topic-chunk-rs",
+  "exports": [
+    {
+      "name": "tool_outcome",
+      "file": "rust/topic-chunk-rs/tools/tool_reference.py",
+      "line": 34,
+      "params": [
+        {
+          "name": "request",
+          "ts_type": "string",
+          "optional": false,
+          "rest": false
+        }
+      ],
+      "returns": "string",
+      "is_async": false
+    }
+  ]
+}

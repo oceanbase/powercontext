@@ -1,0 +1,151 @@
+# Copyright (c) 2026 OceanBase.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""P1a: same scans; P1b: skip the block scan when no LF exists. Diagnostic only."""
+
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass
+from itertools import pairwise
+
+from powercontext.builtin.artifacts.topic_memory.models import TopicMemoryChunk
+
+TOPIC_MEMORY_CHUNK_POLICY_VERSION = "markdown-v1"
+TOPIC_MEMORY_CHUNK_TARGET_CHARACTERS = 1_200
+TOPIC_MEMORY_CHUNK_MAX_CHARACTERS = 1_800
+TOPIC_MEMORY_CHUNK_MIN_TAIL_CHARACTERS = 300
+TOPIC_MEMORY_CHUNK_OVERLAP_CHARACTERS = 160
+# Bound per-Topic projection and inference work. Retrieval must independently
+# handle distinct Topics and native neighbor limits; many close sibling chunks
+# can exhaust a raw neighbor pool. Oversized Markdown uses fixed windows below.
+TOPIC_MEMORY_CHUNK_MAX_COUNT = 200
+
+_BLOCK_BOUNDARY = re.compile(r"(?:\n[ \t]*\n+)|(?=^#{1,6}[ \t]+)|(?=^[ \t]*(?:[-*+] |\d+[.)] ))", re.MULTILINE)
+_SENTENCE_BOUNDARY = re.compile(r"(?<=[.!?。！？])(?:[ \t]+|(?=\n))")  # noqa: RUF001
+
+
+@dataclass(frozen=True, slots=True)
+class _Span:
+    start: int
+    end: int
+    forced: bool = False
+
+
+def chunk_topic_memory_detail(detail: str, /, *, skip_block_scan: bool = False) -> tuple[TopicMemoryChunk, ...]:
+    """Split Markdown on semantic boundaries, using overlap only for oversized atoms."""
+    spans = _semantic_spans(detail, skip_block_scan=skip_block_scan)
+    assembled: list[_Span] = []
+    current: _Span | None = None
+    for span in spans:
+        if span.forced:
+            if current is not None:
+                assembled.append(current)
+                current = None
+            assembled.append(span)
+            continue
+        if current is None:
+            current = span
+            continue
+        if span.end - current.start <= TOPIC_MEMORY_CHUNK_MAX_CHARACTERS:
+            current = _Span(current.start, span.end)
+            if current.end - current.start >= TOPIC_MEMORY_CHUNK_TARGET_CHARACTERS:
+                assembled.append(current)
+                current = None
+            continue
+        assembled.append(current)
+        current = span
+    if current is not None:
+        assembled.append(current)
+    if (
+        len(assembled) >= 2
+        and not assembled[-1].forced
+        and assembled[-1].end - assembled[-1].start < TOPIC_MEMORY_CHUNK_MIN_TAIL_CHARACTERS
+        and assembled[-1].end - assembled[-2].start <= TOPIC_MEMORY_CHUNK_MAX_CHARACTERS
+    ):
+        tail = assembled.pop()
+        previous = assembled.pop()
+        assembled.append(_Span(previous.start, tail.end))
+    if len(assembled) > TOPIC_MEMORY_CHUNK_MAX_COUNT:
+        assembled = list(_bounded_window_spans(detail))
+    return tuple(
+        TopicMemoryChunk(
+            ordinal=ordinal,
+            start_offset=span.start,
+            end_offset=span.end,
+            text=detail[span.start : span.end],
+        )
+        for ordinal, span in enumerate(assembled)
+    )
+
+
+def _semantic_spans(detail: str, *, skip_block_scan: bool) -> tuple[_Span, ...]:
+    boundaries = {0, len(detail)}
+    if not skip_block_scan or "\n" in detail:
+        boundaries.update(match.start() for match in _BLOCK_BOUNDARY.finditer(detail))
+    blocks = tuple(_trimmed_span(detail, start, end) for start, end in pairwise(sorted(boundaries)))
+    spans: list[_Span] = []
+    for block in blocks:
+        if block is None:
+            continue
+        if block.end - block.start <= TOPIC_MEMORY_CHUNK_MAX_CHARACTERS:
+            spans.append(block)
+            continue
+        spans.extend(_split_oversized_block(detail, block.start, block.end))
+    return tuple(spans)
+
+
+def _split_oversized_block(detail: str, start: int, end: int) -> tuple[_Span, ...]:
+    sentence_boundaries = {start, end}
+    sentence_boundaries.update(start + match.end() for match in _SENTENCE_BOUNDARY.finditer(detail[start:end]))
+    points = sorted(sentence_boundaries)
+    sentences = tuple(_trimmed_span(detail, left, right) for left, right in pairwise(points))
+    spans: list[_Span] = []
+    for sentence in sentences:
+        if sentence is None:
+            continue
+        if sentence.end - sentence.start <= TOPIC_MEMORY_CHUNK_MAX_CHARACTERS:
+            spans.append(sentence)
+            continue
+        position = sentence.start
+        while position < sentence.end:
+            window_end = min(position + TOPIC_MEMORY_CHUNK_MAX_CHARACTERS, sentence.end)
+            spans.append(_Span(position, window_end, forced=True))
+            if window_end == sentence.end:
+                break
+            position = window_end - TOPIC_MEMORY_CHUNK_OVERLAP_CHARACTERS
+    return tuple(spans)
+
+
+def _trimmed_span(detail: str, start: int, end: int) -> _Span | None:
+    while start < end and detail[start].isspace():
+        start += 1
+    while end > start and detail[end - 1].isspace():
+        end -= 1
+    return None if start == end else _Span(start, end)
+
+
+def _bounded_window_spans(detail: str) -> tuple[_Span, ...]:
+    """Keep adversarial Markdown within the vector retrieval work contract."""
+    spans: list[_Span] = []
+    position = 0
+    while position < len(detail):
+        window_end = min(position + TOPIC_MEMORY_CHUNK_MAX_CHARACTERS, len(detail))
+        span = _trimmed_span(detail, position, window_end)
+        if span is not None:
+            spans.append(_Span(span.start, span.end, forced=True))
+        if window_end == len(detail):
+            break
+        position = window_end - TOPIC_MEMORY_CHUNK_OVERLAP_CHARACTERS
+    return tuple(spans)

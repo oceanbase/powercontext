@@ -1,0 +1,86 @@
+{
+  "contract": "PC-RUST-2740/2026-11-22.1",
+  "head": "1840db817ac6e3f39ce7645c89733648e8892419",
+  "corpus": {
+    "E": 0,
+    "F": 0,
+    "N": 63,
+    "R": 63,
+    "binary_sha256": "943bd56d65712766ca3eaee835588d8c35d2a3acfb54b22f23291cf3b38d986b",
+    "cases": 67,
+    "duplicate_inputs": [],
+    "golden_sha256": "67437e3b37a41c3e713111c3119f6ec34027fbe794b338d63888a1bb5329938a",
+    "invalid_input_cases": 4,
+    "matched": 67,
+    "mismatch": [],
+    "native_completions": 63,
+    "unique_input_values": 67,
+    "violations": []
+  },
+  "native_focused": {
+    "tests": 12,
+    "R": 6,
+    "F": 0,
+    "E": 0,
+    "skip": 0,
+    "binary_sha256": "943bd56d65712766ca3eaee835588d8c35d2a3acfb54b22f23291cf3b38d986b"
+  },
+  "sqlite_api": {
+    "tests": 92,
+    "R": 1196,
+    "F": 0,
+    "E": 0,
+    "skip": 0,
+    "boundary": "Real temporary SQLite and in-process FastAPI TestClient; synthetic embedding models; no real provider/remote-host acceptance.",
+    "binary_sha256": "943bd56d65712766ca3eaee835588d8c35d2a3acfb54b22f23291cf3b38d986b"
+  },
+  "adapter_tests": {
+    "passed": 25,
+    "skip": 0,
+    "scope": "12 adapter and13 protocol regression cases"
+  },
+  "rust_unit_tests": 2,
+  "cargo_fmt": "PASS",
+  "cargo_clippy": "PASS",
+  "make_check": "PASS (normal-host permissions required)",
+  "explicit_new_file_hooks": "PASS",
+  "manual_license_headers": {
+    "checked": 26,
+    "missing": 0,
+    "license_eye_CI": "NOT_RUN"
+  },
+  "task_gate": {
+    "status": "PASS",
+    "negative_controls": 6,
+    "positive_replays": 2
+  },
+  "rust_anything_gate": {
+    "status": "PASS on Linux cp314 through explicit lossless test wrapper",
+    "version": "3.1.0",
+    "tool_available": true,
+    "business_calls": 67,
+    "protocol_rejections": 1,
+    "recorded": 68,
+    "matched": 68,
+    "N": 63,
+    "R": 63,
+    "F": 0,
+    "E": 0,
+    "strict_protocol_error": "builtins.ValueError: Invalid tool request; native_delta0",
+    "summary": "tool-acceptance.json",
+    "native_receipt_required": true,
+    "wheel_official_diff_matched": 68
+  },
+  "clean_install": {
+    "status": "PASS",
+    "packages": 187,
+    "editable_distributions": []
+  },
+  "CI": "NOT_RUN",
+  "production_default": "Python",
+  "published": false,
+  "independent_final_review": {
+    "report": "External snapshot-bound report under /tmp/pc-topic-2740/tool-adapter/verifier.md",
+    "scope": "Current source, actual tool/wheel identities, raw logs and negative controls; no default integration or CI claim"
+  }
+}

@@ -1,0 +1,90 @@
+{
+  "contract": "PC-RUST-2740/2026-11-22.1",
+  "scope": "Official tool acceptance through explicit lossless test-only wrapper; production default Python",
+  "tool_version": "3.1.0",
+  "tool_executable_sha256": "a369ae1aca27155a30cccfebdeb5e8029c03fa1af1ef56dbb2c7d7a7649586b5",
+  "source_commit": "8ac2c1c8ab77bd1a20588f0c03f0a72ab99a046e",
+  "official_commands": {
+    "build": 0,
+    "record": 0,
+    "diff": 0,
+    "gate": 0,
+    "bench": 0
+  },
+  "business_calls": 67,
+  "protocol_rejections": 1,
+  "tool_cases": 68,
+  "matches": 68,
+  "business_path": {
+    "N": 63,
+    "R": 63,
+    "F": 0,
+    "E": 0
+  },
+  "protocol_error": {
+    "class": "builtins.ValueError",
+    "text": "Invalid tool request",
+    "native_delta": 0
+  },
+  "reference_anchor": "Each reference outcome equals the existing frozen golden before official recording; no golden rerecord",
+  "native_receipts": "Unique run/process/context/source/golden/binary/request identities, full request order, terminal protocol rejection; partial and stale receipts rejected",
+  "official_negative_controls": [
+    {
+      "kind": "exception-type",
+      "exit": 1,
+      "failed": 1,
+      "target_checked": true
+    },
+    {
+      "kind": "exception-text",
+      "exit": 1,
+      "failed": 1,
+      "target_checked": true
+    },
+    {
+      "kind": "exception-details",
+      "exit": 1,
+      "failed": 1,
+      "target_checked": true
+    },
+    {
+      "kind": "ordinal",
+      "exit": 1,
+      "failed": 56,
+      "target_checked": true
+    },
+    {
+      "kind": "swallowed-reference",
+      "exit": 1,
+      "failed": 68,
+      "target_checked": true
+    },
+    {
+      "kind": "missing-native",
+      "exit": 1,
+      "failed": 68,
+      "target_checked": true
+    }
+  ],
+  "native_binary_restored": true,
+  "direct_tool_binary_sha256": "16d56db9fc5e945eeeb08a398942d22014163332bf70934b7924dc1914acfded",
+  "wheel_installed_binary_sha256": "943bd56d65712766ca3eaee835588d8c35d2a3acfb54b22f23291cf3b38d986b",
+  "binaries_identical": false,
+  "wheel_extensions": 1,
+  "wheel_official_diff": 68,
+  "installed_wrapper_matches": 68,
+  "strict_business_matches": 67,
+  "installed_tests": 25,
+  "original_tests": 104,
+  "sqlite_api_native_calls": 1196,
+  "cargo_locked_checks": "PASS",
+  "make_check": "PASS",
+  "bench_boundary": "Wrapper serialization, golden checks and receipt I/O; not D1 product performance",
+  "D1_warm_budget": "PASS: all12 rows",
+  "resource_budget": "PASS on Linux target",
+  "CI": "NOT_RUN",
+  "other_platforms": "NOT_RUN",
+  "default_backend": "Python",
+  "commit": false,
+  "push": false
+}

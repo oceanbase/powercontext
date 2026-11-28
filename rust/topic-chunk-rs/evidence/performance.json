@@ -1,0 +1,685 @@
+{
+  "contract": "PC-RUST-2740/2026-11-22.1",
+  "head": "1840db817ac6e3f39ce7645c89733648e8892419",
+  "binary_sha256": "943bd56d65712766ca3eaee835588d8c35d2a3acfb54b22f23291cf3b38d986b",
+  "warm": {
+    "binary_sha256": "943bd56d65712766ca3eaee835588d8c35d2a3acfb54b22f23291cf3b38d986b",
+    "parallel": "NOT_RUN: no concurrent chunking consumer; GIL retained",
+    "rows": [
+      {
+        "P0": {
+          "cpu_median_ns": 23312.466666666667,
+          "max_ns": 25444.766666666666,
+          "median_ns": 23333.366666666665,
+          "min_ns": 23015.3
+        },
+        "P1a": {
+          "cpu_median_ns": 23417.3,
+          "max_ns": 24514.166666666668,
+          "median_ns": 23429.9,
+          "min_ns": 23111.6
+        },
+        "P1b": {
+          "cpu_median_ns": 2755.7,
+          "max_ns": 2996.0666666666666,
+          "median_ns": 2768.5333333333333,
+          "min_ns": 2755.5333333333333
+        },
+        "R": {
+          "cpu_median_ns": 5060.433333333333,
+          "max_ns": 5506.133333333333,
+          "median_ns": 5071.966666666666,
+          "min_ns": 5024.666666666667
+        },
+        "encode": {
+          "cpu_median_ns": 374.7,
+          "max_ns": 439.2,
+          "median_ns": 385.23333333333335,
+          "min_ns": 375.26666666666665
+        },
+        "kind": "plain",
+        "n": 1000,
+        "native_core_and_return": {
+          "cpu_median_ns": 2857.766666666667,
+          "max_ns": 2973.6,
+          "median_ns": 2867.233333333333,
+          "min_ns": 2856.2
+        },
+        "slice_models": {
+          "cpu_median_ns": 1405.3,
+          "max_ns": 1580.2666666666667,
+          "median_ns": 1415.5666666666666,
+          "min_ns": 1382.9333333333334
+        },
+        "utf32_bytes": 4000
+      },
+      {
+        "P0": {
+          "cpu_median_ns": 88616.16666666667,
+          "max_ns": 90072.1,
+          "median_ns": 88631.53333333334,
+          "min_ns": 88158.0
+        },
+        "P1a": {
+          "cpu_median_ns": 90081.13333333333,
+          "max_ns": 93721.1,
+          "median_ns": 90117.4,
+          "min_ns": 88233.26666666666
+        },
+        "P1b": {
+          "cpu_median_ns": 89291.0,
+          "max_ns": 93548.73333333334,
+          "median_ns": 89305.1,
+          "min_ns": 88441.7
+        },
+        "R": {
+          "cpu_median_ns": 7373.633333333333,
+          "max_ns": 7786.066666666667,
+          "median_ns": 7386.0,
+          "min_ns": 7232.566666666667
+        },
+        "encode": {
+          "cpu_median_ns": 468.8666666666667,
+          "max_ns": 504.0,
+          "median_ns": 479.4,
+          "min_ns": 475.5
+        },
+        "kind": "markdown",
+        "n": 1000,
+        "native_core_and_return": {
+          "cpu_median_ns": 4096.566666666667,
+          "max_ns": 4215.733333333334,
+          "median_ns": 4107.733333333334,
+          "min_ns": 4050.733333333333
+        },
+        "slice_models": {
+          "cpu_median_ns": 2210.6,
+          "max_ns": 2338.733333333333,
+          "median_ns": 2222.233333333333,
+          "min_ns": 2193.8333333333335
+        },
+        "utf32_bytes": 4000
+      },
+      {
+        "P0": {
+          "cpu_median_ns": 27423.033333333333,
+          "max_ns": 27802.933333333334,
+          "median_ns": 27443.6,
+          "min_ns": 26888.766666666666
+        },
+        "P1a": {
+          "cpu_median_ns": 27537.3,
+          "max_ns": 29108.9,
+          "median_ns": 27549.166666666668,
+          "min_ns": 27335.233333333334
+        },
+        "P1b": {
+          "cpu_median_ns": 2888.233333333333,
+          "max_ns": 2954.2,
+          "median_ns": 2898.6666666666665,
+          "min_ns": 2824.7
+        },
+        "R": {
+          "cpu_median_ns": 5246.4,
+          "max_ns": 5389.6,
+          "median_ns": 5259.0,
+          "min_ns": 5180.066666666667
+        },
+        "encode": {
+          "cpu_median_ns": 520.4666666666667,
+          "max_ns": 621.4333333333333,
+          "median_ns": 531.3,
+          "min_ns": 515.0333333333333
+        },
+        "kind": "unicode",
+        "n": 1000,
+        "native_core_and_return": {
+          "cpu_median_ns": 2848.9333333333334,
+          "max_ns": 2894.133333333333,
+          "median_ns": 2858.1666666666665,
+          "min_ns": 2845.3333333333335
+        },
+        "slice_models": {
+          "cpu_median_ns": 1448.7666666666667,
+          "max_ns": 1478.6,
+          "median_ns": 1460.2666666666667,
+          "min_ns": 1422.6
+        },
+        "utf32_bytes": 4000
+      },
+      {
+        "P0": {
+          "cpu_median_ns": 24388.966666666667,
+          "max_ns": 24762.833333333332,
+          "median_ns": 24403.366666666665,
+          "min_ns": 24009.166666666668
+        },
+        "P1a": {
+          "cpu_median_ns": 24508.366666666665,
+          "max_ns": 25144.433333333334,
+          "median_ns": 24527.766666666666,
+          "min_ns": 24284.833333333332
+        },
+        "P1b": {
+          "cpu_median_ns": 24490.9,
+          "max_ns": 24709.966666666667,
+          "median_ns": 24504.833333333332,
+          "min_ns": 24361.466666666667
+        },
+        "R": {
+          "cpu_median_ns": 5374.966666666666,
+          "max_ns": 5553.366666666667,
+          "median_ns": 5388.133333333333,
+          "min_ns": 5330.4
+        },
+        "encode": {
+          "cpu_median_ns": 375.23333333333335,
+          "max_ns": 409.8333333333333,
+          "median_ns": 385.1333333333333,
+          "min_ns": 373.46666666666664
+        },
+        "kind": "inert_lf",
+        "n": 1000,
+        "native_core_and_return": {
+          "cpu_median_ns": 3103.1,
+          "max_ns": 3173.633333333333,
+          "median_ns": 3112.766666666667,
+          "min_ns": 3070.4
+        },
+        "slice_models": {
+          "cpu_median_ns": 1421.8666666666666,
+          "max_ns": 1537.1333333333334,
+          "median_ns": 1432.0333333333333,
+          "min_ns": 1402.0666666666666
+        },
+        "utf32_bytes": 4000
+      },
+      {
+        "P0": {
+          "cpu_median_ns": 236973.83333333334,
+          "max_ns": 237909.76666666666,
+          "median_ns": 236992.46666666667,
+          "min_ns": 235007.56666666668
+        },
+        "P1a": {
+          "cpu_median_ns": 236579.73333333334,
+          "max_ns": 239724.96666666667,
+          "median_ns": 236604.13333333333,
+          "min_ns": 235883.96666666667
+        },
+        "P1b": {
+          "cpu_median_ns": 78679.7,
+          "max_ns": 80102.33333333333,
+          "median_ns": 78696.2,
+          "min_ns": 77933.83333333333
+        },
+        "R": {
+          "cpu_median_ns": 33031.7,
+          "max_ns": 35959.03333333333,
+          "median_ns": 33054.166666666664,
+          "min_ns": 32909.7
+        },
+        "encode": {
+          "cpu_median_ns": 1310.9333333333334,
+          "max_ns": 1365.4,
+          "median_ns": 1322.0,
+          "min_ns": 1306.8
+        },
+        "kind": "plain",
+        "n": 8000,
+        "native_core_and_return": {
+          "cpu_median_ns": 24804.533333333333,
+          "max_ns": 27290.933333333334,
+          "median_ns": 24816.633333333335,
+          "min_ns": 24380.566666666666
+        },
+        "slice_models": {
+          "cpu_median_ns": 6322.866666666667,
+          "max_ns": 6852.433333333333,
+          "median_ns": 6340.866666666667,
+          "min_ns": 6212.3
+        },
+        "utf32_bytes": 32000
+      },
+      {
+        "P0": {
+          "cpu_median_ns": 693780.0666666667,
+          "max_ns": 704338.3666666667,
+          "median_ns": 693818.5666666667,
+          "min_ns": 690166.0
+        },
+        "P1a": {
+          "cpu_median_ns": 698814.6333333333,
+          "max_ns": 703951.1666666666,
+          "median_ns": 698859.1333333333,
+          "min_ns": 694404.0666666667
+        },
+        "P1b": {
+          "cpu_median_ns": 698302.9666666667,
+          "max_ns": 705210.7333333333,
+          "median_ns": 698753.3,
+          "min_ns": 695679.5
+        },
+        "R": {
+          "cpu_median_ns": 46420.433333333334,
+          "max_ns": 48303.36666666667,
+          "median_ns": 46433.433333333334,
+          "min_ns": 46292.933333333334
+        },
+        "encode": {
+          "cpu_median_ns": 2040.3,
+          "max_ns": 2116.766666666667,
+          "median_ns": 2052.3,
+          "min_ns": 2047.6333333333334
+        },
+        "kind": "markdown",
+        "n": 8000,
+        "native_core_and_return": {
+          "cpu_median_ns": 28856.7,
+          "max_ns": 28968.333333333332,
+          "median_ns": 28873.433333333334,
+          "min_ns": 28816.3
+        },
+        "slice_models": {
+          "cpu_median_ns": 14410.666666666666,
+          "max_ns": 14470.666666666666,
+          "median_ns": 14423.233333333334,
+          "min_ns": 14304.2
+        },
+        "utf32_bytes": 32000
+      },
+      {
+        "P0": {
+          "cpu_median_ns": 284269.63333333336,
+          "max_ns": 286717.1,
+          "median_ns": 284311.1,
+          "min_ns": 282590.1
+        },
+        "P1a": {
+          "cpu_median_ns": 285807.0,
+          "max_ns": 286436.36666666664,
+          "median_ns": 285858.6,
+          "min_ns": 285083.0
+        },
+        "P1b": {
+          "cpu_median_ns": 98149.26666666666,
+          "max_ns": 99507.3,
+          "median_ns": 98178.8,
+          "min_ns": 97438.33333333333
+        },
+        "R": {
+          "cpu_median_ns": 46643.566666666666,
+          "max_ns": 47711.433333333334,
+          "median_ns": 46675.26666666667,
+          "min_ns": 46326.63333333333
+        },
+        "encode": {
+          "cpu_median_ns": 2534.8333333333335,
+          "max_ns": 2714.633333333333,
+          "median_ns": 2551.233333333333,
+          "min_ns": 2522.733333333333
+        },
+        "kind": "unicode",
+        "n": 8000,
+        "native_core_and_return": {
+          "cpu_median_ns": 25869.733333333334,
+          "max_ns": 34143.26666666667,
+          "median_ns": 25887.3,
+          "min_ns": 25576.1
+        },
+        "slice_models": {
+          "cpu_median_ns": 17314.166666666668,
+          "max_ns": 17865.766666666666,
+          "median_ns": 17328.1,
+          "min_ns": 17100.733333333334
+        },
+        "utf32_bytes": 32000
+      },
+      {
+        "P0": {
+          "cpu_median_ns": 247043.43333333332,
+          "max_ns": 259846.76666666666,
+          "median_ns": 247102.26666666666,
+          "min_ns": 245091.7
+        },
+        "P1a": {
+          "cpu_median_ns": 247537.63333333333,
+          "max_ns": 249687.1,
+          "median_ns": 247579.56666666668,
+          "min_ns": 246237.93333333332
+        },
+        "P1b": {
+          "cpu_median_ns": 255519.93333333332,
+          "max_ns": 258009.03333333333,
+          "median_ns": 255777.03333333333,
+          "min_ns": 245600.8
+        },
+        "R": {
+          "cpu_median_ns": 36332.86666666667,
+          "max_ns": 37461.9,
+          "median_ns": 36684.03333333333,
+          "min_ns": 36096.13333333333
+        },
+        "encode": {
+          "cpu_median_ns": 1292.0333333333333,
+          "max_ns": 1807.3,
+          "median_ns": 1303.9333333333334,
+          "min_ns": 1293.5
+        },
+        "kind": "inert_lf",
+        "n": 8000,
+        "native_core_and_return": {
+          "cpu_median_ns": 27136.433333333334,
+          "max_ns": 28233.8,
+          "median_ns": 27151.8,
+          "min_ns": 27068.166666666668
+        },
+        "slice_models": {
+          "cpu_median_ns": 6687.9,
+          "max_ns": 7334.033333333334,
+          "median_ns": 6700.1,
+          "min_ns": 6538.833333333333
+        },
+        "utf32_bytes": 32000
+      },
+      {
+        "P0": {
+          "cpu_median_ns": 3590925.3666666667,
+          "max_ns": 3601172.4,
+          "median_ns": 3591611.933333333,
+          "min_ns": 3571898.6
+        },
+        "P1a": {
+          "cpu_median_ns": 3577711.7333333334,
+          "max_ns": 3598913.566666667,
+          "median_ns": 3577808.9,
+          "min_ns": 3561254.7
+        },
+        "P1b": {
+          "cpu_median_ns": 1122012.0333333334,
+          "max_ns": 1129937.5666666667,
+          "median_ns": 1122665.0,
+          "min_ns": 1111957.0333333334
+        },
+        "R": {
+          "cpu_median_ns": 473007.73333333334,
+          "max_ns": 495852.8333333333,
+          "median_ns": 473035.9,
+          "min_ns": 466518.13333333336
+        },
+        "encode": {
+          "cpu_median_ns": 17340.966666666667,
+          "max_ns": 17439.7,
+          "median_ns": 17352.6,
+          "min_ns": 17287.733333333334
+        },
+        "kind": "plain",
+        "n": 125000,
+        "native_core_and_return": {
+          "cpu_median_ns": 359398.76666666666,
+          "max_ns": 363777.73333333334,
+          "median_ns": 359867.3333333333,
+          "min_ns": 348150.06666666665
+        },
+        "slice_models": {
+          "cpu_median_ns": 85591.73333333334,
+          "max_ns": 86845.56666666667,
+          "median_ns": 85605.5,
+          "min_ns": 84339.06666666667
+        },
+        "utf32_bytes": 500000
+      },
+      {
+        "P0": {
+          "cpu_median_ns": 11630046.4,
+          "max_ns": 12211377.2,
+          "median_ns": 11646766.233333332,
+          "min_ns": 11268067.433333334
+        },
+        "P1a": {
+          "cpu_median_ns": 11659223.8,
+          "max_ns": 11774228.333333334,
+          "median_ns": 11659540.766666668,
+          "min_ns": 11446341.866666667
+        },
+        "P1b": {
+          "cpu_median_ns": 11513635.566666666,
+          "max_ns": 11940882.066666666,
+          "median_ns": 11517152.166666666,
+          "min_ns": 11058558.966666667
+        },
+        "R": {
+          "cpu_median_ns": 670231.4333333333,
+          "max_ns": 692307.8333333334,
+          "median_ns": 670335.3,
+          "min_ns": 652672.0666666667
+        },
+        "encode": {
+          "cpu_median_ns": 28225.466666666667,
+          "max_ns": 32434.633333333335,
+          "median_ns": 28238.266666666666,
+          "min_ns": 27398.1
+        },
+        "kind": "markdown",
+        "n": 125000,
+        "native_core_and_return": {
+          "cpu_median_ns": 432092.63333333336,
+          "max_ns": 438538.4666666667,
+          "median_ns": 432228.86666666664,
+          "min_ns": 431372.8
+        },
+        "slice_models": {
+          "cpu_median_ns": 206845.13333333333,
+          "max_ns": 210300.46666666667,
+          "median_ns": 206870.26666666666,
+          "min_ns": 205372.7
+        },
+        "utf32_bytes": 500000
+      },
+      {
+        "P0": {
+          "cpu_median_ns": 4296616.066666666,
+          "max_ns": 4382719.966666667,
+          "median_ns": 4297691.633333334,
+          "min_ns": 4191751.033333333
+        },
+        "P1a": {
+          "cpu_median_ns": 4307119.433333334,
+          "max_ns": 4317930.5,
+          "median_ns": 4307352.4,
+          "min_ns": 4280922.766666667
+        },
+        "P1b": {
+          "cpu_median_ns": 1432829.7666666666,
+          "max_ns": 1441085.3333333333,
+          "median_ns": 1432891.9,
+          "min_ns": 1421653.1333333333
+        },
+        "R": {
+          "cpu_median_ns": 698369.9333333333,
+          "max_ns": 714163.6666666666,
+          "median_ns": 698425.1,
+          "min_ns": 696957.0333333333
+        },
+        "encode": {
+          "cpu_median_ns": 34915.36666666667,
+          "max_ns": 36046.8,
+          "median_ns": 34937.933333333334,
+          "min_ns": 34767.0
+        },
+        "kind": "unicode",
+        "n": 125000,
+        "native_core_and_return": {
+          "cpu_median_ns": 383189.4,
+          "max_ns": 385025.1,
+          "median_ns": 383213.2,
+          "min_ns": 381979.9
+        },
+        "slice_models": {
+          "cpu_median_ns": 262480.9666666667,
+          "max_ns": 273773.86666666664,
+          "median_ns": 262511.3,
+          "min_ns": 261063.76666666666
+        },
+        "utf32_bytes": 500000
+      },
+      {
+        "P0": {
+          "cpu_median_ns": 3646276.8333333335,
+          "max_ns": 3729209.533333333,
+          "median_ns": 3646705.6333333333,
+          "min_ns": 3590408.6333333333
+        },
+        "P1a": {
+          "cpu_median_ns": 3593604.1333333333,
+          "max_ns": 3705716.033333333,
+          "median_ns": 3593686.966666667,
+          "min_ns": 3518925.8
+        },
+        "P1b": {
+          "cpu_median_ns": 3658920.966666667,
+          "max_ns": 3712828.1333333333,
+          "median_ns": 3659011.466666667,
+          "min_ns": 3549804.466666667
+        },
+        "R": {
+          "cpu_median_ns": 528598.5,
+          "max_ns": 541529.3333333334,
+          "median_ns": 528631.8333333334,
+          "min_ns": 505385.4666666667
+        },
+        "encode": {
+          "cpu_median_ns": 16787.466666666667,
+          "max_ns": 17577.733333333334,
+          "median_ns": 16799.2,
+          "min_ns": 16507.633333333335
+        },
+        "kind": "inert_lf",
+        "n": 125000,
+        "native_core_and_return": {
+          "cpu_median_ns": 416329.8333333333,
+          "max_ns": 426676.56666666665,
+          "median_ns": 416359.7,
+          "min_ns": 410074.43333333335
+        },
+        "slice_models": {
+          "cpu_median_ns": 91534.5,
+          "max_ns": 102412.23333333334,
+          "median_ns": 91547.1,
+          "min_ns": 90452.8
+        },
+        "utf32_bytes": 500000
+      }
+    ],
+    "runtime": {
+      "executable_sha256": "a1512f9a07029c4a9b02a1bb63bbd156d36b0dcb26f49cb7f5ee175f19b222da",
+      "installed_core_sources": {
+        "src/powercontext/builtin/artifacts/topic_memory/chunking.py": "dfcdf19312512c1a87f1c93e9d30a6b247ee73dc2061f10f85555f63e7b593ac",
+        "src/powercontext/builtin/artifacts/topic_memory/models.py": "73661ef64afb846d015a9908a8f81ecf2ddda0517000b0c13f6ca7282ed4f0f5"
+      },
+      "powercontext": "1.5.3.dev249+g1840db817",
+      "pydantic": "2.13.4",
+      "pydantic_core": "2.46.4",
+      "python": "3.14.5 (main, May 10 2026, 19:28:16) [Clang 22.1.3 ]",
+      "soabi": "cpython-314-x86_64-linux-gnu",
+      "unicode": "16.0.0"
+    },
+    "samples": "7 batches x30; warm, single thread; unprofiled same wheel"
+  },
+  "resources": {
+    "rows": [
+      {
+        "baseline_hwm_bytes": 92549120,
+        "first_entry_ns": 128860,
+        "hwm_increase_bytes": 0,
+        "kind": "python",
+        "limit_rss_increment_bytes": 67108864,
+        "n": 1000,
+        "peak_hwm_bytes": 92549120,
+        "python_live_after_batches": [
+          940,
+          1427
+        ],
+        "python_peak_bytes": 20947,
+        "within_budget": true
+      },
+      {
+        "baseline_hwm_bytes": 92549120,
+        "first_entry_ns": 172358,
+        "hwm_increase_bytes": 0,
+        "kind": "native",
+        "limit_rss_increment_bytes": 67108864,
+        "n": 1000,
+        "peak_hwm_bytes": 92549120,
+        "python_live_after_batches": [
+          0,
+          32
+        ],
+        "python_peak_bytes": 8182,
+        "within_budget": true
+      },
+      {
+        "baseline_hwm_bytes": 92549120,
+        "first_entry_ns": 895552,
+        "hwm_increase_bytes": 0,
+        "kind": "python",
+        "limit_rss_increment_bytes": 67108864,
+        "n": 8000,
+        "peak_hwm_bytes": 92549120,
+        "python_live_after_batches": [
+          940,
+          1944
+        ],
+        "python_peak_bytes": 122784,
+        "within_budget": true
+      },
+      {
+        "baseline_hwm_bytes": 92549120,
+        "first_entry_ns": 222083,
+        "hwm_increase_bytes": 0,
+        "kind": "native",
+        "limit_rss_increment_bytes": 67108864,
+        "n": 8000,
+        "peak_hwm_bytes": 92549120,
+        "python_live_after_batches": [
+          0,
+          32
+        ],
+        "python_peak_bytes": 35393,
+        "within_budget": true
+      },
+      {
+        "baseline_hwm_bytes": 92549120,
+        "first_entry_ns": 13853470,
+        "hwm_increase_bytes": 0,
+        "kind": "python",
+        "limit_rss_increment_bytes": 67108864,
+        "n": 125000,
+        "peak_hwm_bytes": 92549120,
+        "python_live_after_batches": [
+          940,
+          1944
+        ],
+        "python_peak_bytes": 1889376,
+        "within_budget": true
+      },
+      {
+        "baseline_hwm_bytes": 92549120,
+        "first_entry_ns": 1271600,
+        "hwm_increase_bytes": 0,
+        "kind": "native",
+        "limit_rss_increment_bytes": 67108864,
+        "n": 125000,
+        "peak_hwm_bytes": 92549120,
+        "python_live_after_batches": [
+          0,
+          32
+        ],
+        "python_peak_bytes": 529545,
+        "within_budget": true
+      }
+    ],
+    "limitations": "Linux ru_maxrss is KiB and a high-water mark, not retained memory or a leak test. tracemalloc covers Python only. Cold entry excludes imports; subprocess wall includes startup. No production concurrency claim."
+  },
+  "notes": "Manual Linux x86_64 cp314 measurements on a shared host. Native core-and-return includes decoding, allocation and bridge return; components are not an additive causal language decomposition."
+}
