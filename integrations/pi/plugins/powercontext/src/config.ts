@@ -27,6 +27,8 @@ export interface ResolvedConfig {
   capturePrompts: boolean
   /** Prepare context for each prompt and add it to the system prompt; off when the gateway injects context. */
   promptRecall: boolean
+  /** The Pi provider that routes model requests through the gateway; only it receives the workspace Scope header. */
+  gatewayProvider?: string
   requestTimeoutMs: number
   generationTimeoutMs?: number
   httpBudgetMs: number
@@ -44,6 +46,7 @@ const DEFAULTS: ResolvedConfig = {
   authorization: undefined,
   capturePrompts: true,
   promptRecall: true,
+  gatewayProvider: undefined,
   requestTimeoutMs: 3000,
   generationTimeoutMs: 30_000,
   httpBudgetMs: 6000,
@@ -114,6 +117,7 @@ export function resolveConfig(env: NodeJS.ProcessEnv = process.env): ResolvedCon
     authorization: envString(env, 'POWERCONTEXT_PI_AUTHORIZATION'),
     capturePrompts: envBoolean(env, 'POWERCONTEXT_PI_CAPTURE_PROMPTS') ?? DEFAULTS.capturePrompts,
     promptRecall: envBoolean(env, 'POWERCONTEXT_PI_PROMPT_RECALL') ?? DEFAULTS.promptRecall,
+    gatewayProvider: envString(env, 'POWERCONTEXT_PI_GATEWAY_PROVIDER'),
     requestTimeoutMs,
     generationTimeoutMs,
     httpBudgetMs,

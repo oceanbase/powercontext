@@ -21,6 +21,7 @@ No live model is called. The cases establish the documented Pi gateway setup; th
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import shutil
@@ -56,6 +57,8 @@ GATEWAY_KEY = "synthetic-pi-gateway-key"
 PROFILE = "pi-gateway"
 MODEL = "fixture"
 FACT = "In the synthetic plover project, the verification color is cobalt-417."
+# Remembered only in the gateway's default Scope, which the package's workspace Scope replaces.
+DEFAULT_FACT = "In the synthetic plover project, the verification color is amber-902."
 PLUGIN_LABEL = "PowerContext host-supplied context."
 PREPARED_MARKERS = ("BEGIN_POWERCONTEXT_PREPARED_CONTEXT_V1", "BEGIN_POWERCONTEXT_PREPARED_TEXT_V1")
 STEERING = PROJECT_ROOT / "gateway/crates/pc-gateway-app/src/default_steering.txt"
@@ -102,14 +105,15 @@ class PiGatewayStack:
     recorder: GatewayRecorder
     core: httpx.Client
     scope_id: str
+    default_scope_id: str
     gateway_log: Path
 
     def open(self) -> PiHost:
         """Start a Pi process, which is also a new Pi session."""
         return PiHost(self.node, PI_CLI, PI_PLUGIN, self.workspace, self.environment)
 
-    def sources(self) -> list[dict[str, Any]]:
-        response = self.core.get(f"/v1/scopes/{self.scope_id}/sources")
+    def sources(self, scope_id: str | None = None) -> list[dict[str, Any]]:
+        response = self.core.get(f"/v1/scopes/{scope_id or self.scope_id}/sources")
         response.raise_for_status()
         return response.json()["items"]
 
@@ -191,14 +195,36 @@ def pi_gateway(tmp_path: Path, short_tmp_path: Path) -> Iterator[PiGatewayStack]
             }
         })
         _, core = stack.enter_context(_running_server(tmp_path, short_tmp_path / "core.sock", server_environment))
-        created = core.post(
-            "/v1/scopes",
-            json={"title": "Pi gateway", "summary": "Disposable Pi gateway acceptance.", "idempotency_key": "pi-gw"},
+        scopes = {}
+        for key, fact in (("workspace", FACT), ("default", DEFAULT_FACT)):
+            created = core.post(
+                "/v1/scopes",
+                json={
+                    "title": f"Pi gateway {key}",
+                    "summary": "Disposable Pi gateway acceptance.",
+                    "idempotency_key": f"pi-gw-{key}",
+                },
+            )
+            assert created.status_code == 201, created.text
+            scopes[key] = created.json()["scope_id"]
+            remembered = core.post(
+                "/v1/memory/remember", json={"scope_id": scopes[key], "kind": "decision", "text": fact}
+            )
+            assert remembered.status_code in {200, 201}, remembered.text
+        scope_id, default_scope_id = scopes["workspace"], scopes["default"]
+        # The package resolves the workspace's Scope from this binding; Pi runs with the workspace as its cwd.
+        bound = core.put(
+            "/v1/scope-bindings",
+            json={
+                "key": {
+                    "integration": "pi",
+                    "kind": "workspace",
+                    "external_id": hashlib.sha256(str(workspace.resolve()).encode()).hexdigest(),
+                },
+                "scope_id": scope_id,
+            },
         )
-        assert created.status_code == 201, created.text
-        scope_id = created.json()["scope_id"]
-        remembered = core.post("/v1/memory/remember", json={"scope_id": scope_id, "kind": "decision", "text": FACT})
-        assert remembered.status_code in {200, 201}, remembered.text
+        assert bound.status_code == 200, bound.text
         gateway = stack.enter_context(
             running_gateway(
                 gateway_binary,
@@ -210,7 +236,7 @@ def pi_gateway(tmp_path: Path, short_tmp_path: Path) -> Iterator[PiGatewayStack]
                     "PC_GATEWAY_UPSTREAM_API_KEY": "synthetic-provider-key",
                     "PC_GATEWAY_UPSTREAM_PROFILE": PROFILE,
                     "PC_GATEWAY_UPSTREAM_URL_RESPONSES": upstream,
-                    "PC_GATEWAY_DEFAULT_SCOPE": scope_id,
+                    "PC_GATEWAY_DEFAULT_SCOPE": default_scope_id,
                     "PC_GATEWAY_SEDIMENT": "on",
                 },
                 tmp_path,
@@ -249,11 +275,13 @@ def pi_gateway(tmp_path: Path, short_tmp_path: Path) -> Iterator[PiGatewayStack]
             # A combined gateway also serves the Core API, so the package keeps one address.
             POWERCONTEXT_PI_BASE_URL=gateway_url,
             POWERCONTEXT_PI_AUTHORIZATION=f"Bearer {_TOKEN}",
-            POWERCONTEXT_PI_SCOPE_ID=scope_id,
             POWERCONTEXT_PI_PROMPT_RECALL="false",
+            POWERCONTEXT_PI_GATEWAY_PROVIDER=PI_PROVIDER,
             POWERCONTEXT_PI_CAPTURE_PROMPTS="false",
         )
-        yield PiGatewayStack(node, workspace, environment, model, recorder, core, scope_id, tmp_path / "gateway.log")
+        yield PiGatewayStack(
+            node, workspace, environment, model, recorder, core, scope_id, default_scope_id, tmp_path / "gateway.log"
+        )
 
 
 def test_pi_turns_take_context_and_capture_only_from_the_gateway(pi_gateway: PiGatewayStack) -> None:
@@ -281,6 +309,8 @@ def test_pi_turns_take_context_and_capture_only_from_the_gateway(pi_gateway: PiG
     assert len(sent) == len(pi_gateway.model.requests) == 5
     assert {headers.get("x-powercontext-conversation-id") for headers in sent[:3]} == {session}
     assert all("x-powercontext-turn" not in headers for headers in sent[:3])
+    # Every request, summaries included, selects the workspace Scope instead of the gateway's default Scope.
+    assert [headers.get("x-powercontext-scope-id") for headers in sent] == [pi_gateway.scope_id] * 5
     # The summary requests name no conversation and are marked internal, so the gateway does not prepare, inject,
     # steer, or capture them.
     assert all("x-powercontext-conversation-id" not in headers for headers in sent[3:])
@@ -297,6 +327,7 @@ def test_pi_turns_take_context_and_capture_only_from_the_gateway(pi_gateway: PiG
     for request in turn_requests:
         text = pi_gateway.model.texts(request)
         assert PLUGIN_LABEL not in text
+        assert DEFAULT_FACT not in text
         assert sum(text.count(marker) for marker in PREPARED_MARKERS) == 1, "gateway_block_count"
         assert FACT in text
         assert steering in text
@@ -313,8 +344,9 @@ def test_pi_turns_take_context_and_capture_only_from_the_gateway(pi_gateway: PiG
     # The next turn's Memory comes from the gateway's block, not only from the earlier pc_search output.
     assert FACT in json.dumps(next_turn[-1], ensure_ascii=False)
 
-    # The gateway, not the package, captured both turns in its configured Scope, and no summary as a turn.
+    # The gateway, not the package, captured both turns in the workspace Scope, and no summary as a turn.
     turns = [json.loads(item["content"]) for item in pi_gateway.sources() if item["source_id"].startswith("gw-turn-")]
     assert [turn["user"] for turn in turns] == [first, second]
     assert all(turn["kind"] == "gateway_turn" for turn in turns)
     assert not [item for item in pi_gateway.sources() if item["source_id"].startswith("pi-user-prompt:")]
+    assert not [item for item in pi_gateway.sources(pi_gateway.default_scope_id) if item["source_id"].startswith("gw-")]

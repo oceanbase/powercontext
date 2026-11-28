@@ -40,6 +40,7 @@ const AUTOMATIC_OPERATION_PATHS = new Map([
   ['capture_source', '/v1/sources/content'],
   ['flush_memory', '/v1/memory/flush'],
   ['pre_compaction_checkpoint', '/v1/memory/flush'],
+  ['gateway_scope', '/v1/scope-bindings/resolve'],
 ])
 
 function responseDiagnostic(event: string, outcome: string, error: ServerResponseError): DiagnosticEvent {

@@ -791,6 +791,80 @@ describe('PowerContext Pi extension', () => {
     expect(await sent()).toEqual(turn)
   })
 
+  it('sends the workspace Scope only to the gateway provider while prompt recall is off', async () => {
+    const fetch = scopeAwareFetch(async (url: string) => {
+      throw new Error(`unexpected request: ${url}`)
+    }, 'scp_workspace')
+    vi.stubGlobal('fetch', fetch)
+    const context = (provider: string) => ({
+      cwd: '/workspace/repo',
+      model: { provider, id: 'approved-model' },
+      sessionManager: { getSessionId: () => 'session-42', getBranch: () => [] },
+    })
+    const sent = async (handlers: Map<string, Handler>, provider: string) => {
+      const headers: Record<string, string | null> = {}
+      await handlers.get('before_provider_headers')?.({ headers }, context(provider))
+      return headers
+    }
+    const resolutions = () => fetch.mock.calls.filter(([url]) => String(url).endsWith('/v1/scope-bindings/resolve'))
+
+    vi.stubEnv('POWERCONTEXT_PI_GATEWAY_PROVIDER', 'powercontext-gateway')
+    expect(installExtension().has('before_provider_headers')).toBe(false)
+
+    vi.stubEnv('POWERCONTEXT_PI_PROMPT_RECALL', 'false')
+    vi.stubEnv('POWERCONTEXT_PI_CAPTURE_PROMPTS', 'false')
+    const handlers = installExtension()
+    expect(await sent(handlers, 'powercontext-gateway')).toEqual({
+      'X-PowerContext-Scope-ID': 'scp_workspace',
+      'X-PowerContext-Conversation-ID': 'session-42',
+    })
+    // A provider that Pi calls directly gets no Scope.
+    expect(await sent(handlers, 'openai')).toEqual({ 'X-PowerContext-Conversation-ID': 'session-42' })
+    // A summary is checked in the same Scope, but is not a turn.
+    await handlers.get('session_before_compact')?.({ signal: new AbortController().signal }, context('powercontext-gateway'))
+    expect(await sent(handlers, 'powercontext-gateway')).toEqual({
+      'X-PowerContext-Scope-ID': 'scp_workspace',
+      'X-PowerContext-Turn': 'internal',
+    })
+    expect(resolutions()).toHaveLength(1)
+
+    // The next prompt resolves the Scope again, so a changed binding applies to it.
+    await handlers.get('before_agent_start')?.({ prompt: 'next', systemPrompt: 'Base' }, context('powercontext-gateway'))
+    await sent(handlers, 'powercontext-gateway')
+    await sent(handlers, 'powercontext-gateway')
+    expect(resolutions()).toHaveLength(2)
+
+    // Without the setting, no request carries a Scope and none is resolved.
+    vi.stubEnv('POWERCONTEXT_PI_GATEWAY_PROVIDER', '')
+    expect(await sent(installExtension(), 'powercontext-gateway')).toEqual({
+      'X-PowerContext-Conversation-ID': 'session-42',
+    })
+    expect(resolutions()).toHaveLength(2)
+  })
+
+  it('leaves the gateway default Scope in place when the workspace Scope cannot be resolved', async () => {
+    vi.stubEnv('POWERCONTEXT_PI_PROMPT_RECALL', 'false')
+    vi.stubEnv('POWERCONTEXT_PI_GATEWAY_PROVIDER', 'powercontext-gateway')
+    vi.stubEnv('POWERCONTEXT_PI_DIAGNOSTICS', 'stderr')
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(
+      JSON.stringify({ error: { code: 'scope_not_found' } }),
+      { status: 404 },
+    )))
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const headers: Record<string, string | null> = {}
+
+    await installExtension().get('before_provider_headers')?.({ headers }, {
+      cwd: '/workspace/repo',
+      model: { provider: 'powercontext-gateway', id: 'approved-model' },
+      sessionManager: { getSessionId: () => 'session-42' },
+    })
+
+    expect(headers).toEqual({ 'X-PowerContext-Conversation-ID': 'session-42' })
+    expect(warning).toHaveBeenCalledWith(
+      '{"component":"powercontext.pi","event":"gateway_scope","outcome":"invalid_response","http_status":404,"error_code":"scope_not_found"}',
+    )
+  })
+
   it('does not persist a secret-looking prompt', async () => {
     const fetch = scopeAwareFetch(async () => new Response(JSON.stringify({
       schema: 'powercontext.prepared-context.v1',

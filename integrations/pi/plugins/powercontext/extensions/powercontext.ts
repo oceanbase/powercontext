@@ -31,6 +31,8 @@ const CONVERSATION_HEADER = 'X-PowerContext-Conversation-ID'
 const CONVERSATION_ID = /^[\x21-\x7e]{1,256}$/
 /** Marks a model request that is not a conversation turn, so the gateway neither prepares, injects nor captures it. */
 const TURN_HEADER = 'X-PowerContext-Turn'
+/** Selects the Scope in which the gateway prepares, checks and captures a request, instead of its default Scope. */
+const SCOPE_HEADER = 'X-PowerContext-Scope-ID'
 
 function createRuntime(): PluginRuntime {
   const config = resolveConfig()
@@ -83,9 +85,13 @@ export default function powercontextPi(pi: ExtensionAPI): void {
   // gateway conversation, so they carry no conversation header and are marked internal. Pi emits no end event for a
   // cancelled or failed summary, so the next agent turn also ends the summary window.
   let summarizing = false
+  // The workspace Scope sent to the gateway provider, resolved once per prompt so a changed binding applies to the
+  // next prompt and every request of one turn uses the same Scope.
+  let gatewayScope: { cwd: string; scopeId: Promise<string | undefined> } | undefined
 
   pi.on('before_agent_start', async (event, ctx) => {
     summarizing = false
+    gatewayScope = undefined
     if (!runtime) return undefined
     const systemPrompt = `${event.systemPrompt}\n\n${GUIDANCE}`
     const recalled = await recallBeforeAgentStart({
@@ -103,7 +109,30 @@ export default function powercontextPi(pi: ExtensionAPI): void {
   // Prompt recall is off when the gateway injects context. Only then does the Pi session id name the gateway
   // conversation, so a provider that Pi calls directly does not receive it as a header.
   if (runtime && !runtime.config.promptRecall) {
-    pi.on('before_provider_headers', (event, ctx) => {
+    const active = runtime
+    const workspaceScope = (cwd: string): Promise<string | undefined> => {
+      if (gatewayScope?.cwd !== cwd) {
+        const scopeId = active.resolveScope(cwd).catch((error: unknown) => {
+          // Without the header the gateway uses its default Scope; the request itself still proceeds.
+          try {
+            active.diagnostic?.('gateway_scope', error)
+          } catch {
+            // Diagnostics are best effort and must not affect the request.
+          }
+          return undefined
+        })
+        gatewayScope = { cwd, scopeId }
+      }
+      return gatewayScope.scopeId
+    }
+    pi.on('before_provider_headers', async (event, ctx) => {
+      // Only the gateway reads the Scope, so a provider that Pi calls directly does not receive it. Pi 0.82 sends
+      // turns and summaries with the session's current model, which is the model in this context.
+      const provider = active.config.gatewayProvider
+      if (provider !== undefined && ctx.model?.provider === provider) {
+        const scopeId = await workspaceScope(ctx.cwd)
+        if (scopeId !== undefined) event.headers[SCOPE_HEADER] = scopeId
+      }
       if (summarizing) {
         event.headers[TURN_HEADER] = 'internal'
         return
