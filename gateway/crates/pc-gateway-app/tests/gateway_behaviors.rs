@@ -702,6 +702,90 @@ async fn an_internal_request_skips_prepare_and_capture_but_still_checks() {
 }
 
 #[tokio::test]
+async fn an_internal_request_does_not_read_or_alter_existing_replay() {
+    for (format, route, list) in [
+        ("chat", "chat/completions", "messages"),
+        ("responses", "responses", "input"),
+    ] {
+        let case = format!("fantasy_{format}_simple");
+        let gateway = Gateway::start_with_env(
+            (0..3).map(|_| Reply::fixture(&case, 0)).collect(),
+            None,
+            &[
+                ("PC_GATEWAY_INJECTION", "on"),
+                ("PC_GATEWAY_SEDIMENT", "on"),
+                ("PC_GATEWAY_STEERING", "off"),
+            ],
+            true,
+        )
+        .await;
+        let body = request(format, "simple", false);
+        let mut next = body.clone();
+        next[list]
+            .as_array_mut()
+            .unwrap()
+            .push(json!({"role": "user", "content": "What about tomorrow?"}));
+        for (index, (internal, incoming)) in [(false, &body), (true, &body), (false, &next)]
+            .into_iter()
+            .enumerate()
+        {
+            let mut request = gateway
+                .client
+                .post(format!("{}/{route}", gateway.base))
+                .bearer_auth("gateway-test-key")
+                .header("x-powercontext-conversation-id", "shared-test-conversation")
+                .json(incoming);
+            if internal {
+                request = request.header("x-powercontext-turn", "internal");
+            }
+            let response = request.send().await.unwrap();
+            assert_eq!(response.status(), 200, "{format}: request {index}");
+            response.bytes().await.unwrap();
+
+            let sent = gateway.peers.sent.lock().unwrap();
+            let payload = sent[index].1.as_ref();
+            let checks = gateway.peers.checks.lock().unwrap();
+            assert_eq!(checks.len(), 2 * (index + 1));
+            let send = &checks[2 * index];
+            let release = &checks[2 * index + 1];
+            assert_eq!(send["phase"], "before_send");
+            assert_eq!(
+                send["payload"]["body"].as_str().unwrap().as_bytes(),
+                payload
+            );
+            assert_eq!(release["phase"], "before_release");
+            assert_eq!(release["request_binding"], "test-before_send");
+
+            let captures = gateway.peers.captures.lock().unwrap();
+            let locations = send["prepared_contexts"].as_array().unwrap();
+            if internal {
+                assert!(locations.is_empty());
+                assert_eq!(serde_json::from_slice::<Value>(payload).unwrap(), body);
+                assert!(!sent[index].0.contains_key("x-powercontext-turn"));
+                assert_eq!(captures.len(), 1);
+            } else {
+                let outgoing: Value = serde_json::from_slice(payload).unwrap();
+                let initial: Value = serde_json::from_slice(&sent[0].1).unwrap();
+                assert_eq!(outgoing[list][1], initial[list][1]);
+                assert_eq!(locations[0]["binding"], "reuse-1");
+                if index == 0 {
+                    assert_eq!(locations.len(), 1);
+                    assert_eq!(captures.len(), 1);
+                } else {
+                    assert_eq!(locations.len(), 2);
+                    assert_eq!(locations[1]["binding"], "reuse-2");
+                    assert_eq!(captures.len(), 2);
+                }
+            }
+            assert_eq!(
+                gateway.peers.prepares.lock().unwrap().len(),
+                if index == 2 { 2 } else { 1 }
+            );
+        }
+    }
+}
+
+#[tokio::test]
 async fn an_unknown_turn_marker_is_rejected_instead_of_silently_captured() {
     let reply = Reply::fixture("fantasy_chat_simple_streaming", 0);
     let body = request("chat", "simple", true);
@@ -1149,10 +1233,9 @@ async fn headerless_requests_replay_preparation_within_each_turn() {
             history.push(json!({"type": "function_call_output", "call_id": call["call_id"], "output": "Sunny"}));
         }
         assert_eq!(gateway.post(route, &body).await.status(), 200);
-        body[list]
-            .as_array_mut()
-            .unwrap()
-            .push(json!({"role": "user", "content": "What about tomorrow?"}));
+        let history = body[list].as_array_mut().unwrap();
+        history.push(json!({"role": "user", "content": "What about tomorrow?"}));
+        history.push(json!({"role": "developer", "content": "Be concise."}));
         assert_eq!(gateway.post(route, &body).await.status(), 200);
 
         let prepares = gateway.peers.prepares.lock().unwrap();
@@ -1177,24 +1260,41 @@ async fn headerless_requests_replay_preparation_within_each_turn() {
             assert_eq!(send["phase"], "before_send");
             assert_eq!(release["phase"], "before_release");
             assert_eq!(release["request_binding"], "test-before_send");
-            let location = &send["prepared_contexts"][0];
-            let preparation = if index == 2 { 2 } else { 1 };
-            assert_eq!(location["binding"], format!("reuse-{preparation}"));
             assert_eq!(
                 send["payload"]["body"].as_str().unwrap().as_bytes(),
                 sent[index].1.as_ref()
             );
             let outgoing: Value = serde_json::from_slice(&sent[index].1).unwrap();
-            let text = outgoing
-                .pointer(location["location"]["pointer"].as_str().unwrap())
-                .unwrap()
-                .as_str()
-                .unwrap();
-            let end = location["location"]["end_byte"].as_u64().unwrap() as usize;
-            assert_eq!(location["location"]["start_byte"], 0);
-            assert_eq!(&text[..end], format!("Prepared context {preparation}"));
+            let locations = send["prepared_contexts"].as_array().unwrap();
+            let preparations: &[u64] = if index == 2 { &[1, 2] } else { &[1] };
+            assert_eq!(
+                locations.len(),
+                preparations.len(),
+                "{format}: request {index} must restore recall for every retained user turn"
+            );
+            for (location, preparation) in locations.iter().zip(preparations) {
+                assert_eq!(location["binding"], format!("reuse-{preparation}"));
+                let text = outgoing
+                    .pointer(location["location"]["pointer"].as_str().unwrap())
+                    .unwrap()
+                    .as_str()
+                    .unwrap();
+                let end = location["location"]["end_byte"].as_u64().unwrap() as usize;
+                assert_eq!(location["location"]["start_byte"], 0);
+                assert_eq!(&text[..end], format!("Prepared context {preparation}"));
+            }
+            if index > 0 {
+                let initial: Value = serde_json::from_slice(&sent[0].1).unwrap();
+                assert_eq!(
+                    outgoing[list][1], initial[list][1],
+                    "{format}: the first user message is replayed verbatim"
+                );
+            }
             if index == 2 {
-                assert_eq!(outgoing[list][1], body[list][1]);
+                assert_eq!(
+                    outgoing[list].as_array().unwrap().last(),
+                    body[list].as_array().unwrap().last()
+                );
             }
         }
     }
