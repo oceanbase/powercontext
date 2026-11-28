@@ -144,7 +144,7 @@ class KimiGatewayStack:
 
 
 class AcpSession:
-    """One Kimi session over the Agent Client Protocol, which runs without `-p`'s permission-mode reminder."""
+    """One live Kimi session over the Agent Client Protocol, which takes several prompts in turn."""
 
     def __init__(self, stack: KimiGatewayStack) -> None:
         self._log_path = stack.workspace.with_name("kimi-acp.log")
@@ -226,6 +226,18 @@ def _session_id(output: str) -> str:
     )
 
 
+def _prompt_index(request: dict[str, Any], prompt: str) -> int:
+    """Index of the latest user input item that carries the prompt."""
+    items = request["input"]
+    return max(index for index, item in enumerate(items) if item.get("role") == "user" and prompt in json.dumps(item))
+
+
+def _reminders_after(request: dict[str, Any], prompt: str) -> list[str]:
+    """Kimi's reminder items that follow the prompt."""
+    items = request["input"][_prompt_index(request, prompt) + 1 :]
+    return [text for item in items if item.get("role") == "user" and "<system-reminder>" in (text := json.dumps(item))]
+
+
 def _gateway_binary() -> Path:
     cargo = shutil.which("cargo")
     assert cargo, "Kimi gateway acceptance needs the Rust toolchain to build the gateway"
@@ -296,10 +308,9 @@ def kimi_gateway(tmp_path: Path, short_tmp_path: Path, monkeypatch: pytest.Monke
                     "PC_GATEWAY_UPSTREAM_API_KEY": "synthetic-provider-key",
                     "PC_GATEWAY_UPSTREAM_PROFILE": PROFILE,
                     "PC_GATEWAY_UPSTREAM_URL_RESPONSES": upstream,
-                    "PC_GATEWAY_DEFAULT_SCOPE": scope_id,
                     "PC_GATEWAY_SEDIMENT": "on",
-                    # Kimi sends no conversation header, so the gateway injects only when told to inject every request.
-                    "PC_GATEWAY_INJECTION": "on",
+                    # No PC_GATEWAY_INJECTION and no default Scope: the combined deployment infers Kimi's conversation,
+                    # and Kimi's provider selects the Scope with a static header.
                 },
                 tmp_path,
             )
@@ -314,6 +325,7 @@ def kimi_gateway(tmp_path: Path, short_tmp_path: Path, monkeypatch: pytest.Monke
             "[loop_control]\nmax_attempts_per_step = 1\n"
             '[providers.gateway]\ntype = "openai_responses"\n'
             f'api_key = "{GATEWAY_KEY}"\nbase_url = "{model_url}/gateway/v1"\n'
+            f'[providers.gateway.custom_headers]\n"X-PowerContext-Scope-ID" = "{scope_id}"\n'
             f'[models.fixture]\nprovider = "gateway"\nmodel = "{MODEL}"\nmax_context_size = 131072\n'
             f'max_output_size = {MAX_OUTPUT}\ncapabilities = ["tool_use"]\n'
             # The same model without the gateway, for a session that starts before Kimi is moved behind it.
@@ -377,30 +389,35 @@ def test_kimi_turns_take_context_and_capture_only_from_the_gateway(kimi_gateway:
 
     requests = kimi_gateway.model.requests
     assert len(requests) == len(kimi_gateway.recorder.headers) == 4
-    # Kimi names no conversation the gateway recognizes, which is why the gateway runs with injection on.
+    # Kimi names no conversation in a header, so the gateway infers it from the opening of the full history. The
+    # provider's static header selects the Scope.
     assert not any(name in headers for headers in kimi_gateway.recorder.headers for name in CONVERSATION_HEADERS)
-    for request in requests:
+    assert all(
+        headers.get("x-powercontext-scope-id") == kimi_gateway.scope_id for headers in kimi_gateway.recorder.headers
+    )
+    for request, prompt in zip(requests, [prompts[0], prompts[1], prompts[1], prompts[2]], strict=True):
         # The gateway always calls its upstream without streaming and keeps Kimi's output bound.
         assert request["stream"] is False
         assert request["max_output_tokens"] == MAX_OUTPUT
         assert PLUGIN_BINDING not in json.dumps(request)
-    # Kimi ends a session's first turn with its session-start reminders, which the gateway takes as the turn's user
-    # message (the guide states this), so the turn checks start with the second turn.
-    for request in requests[1:]:
-        text = kimi_gateway.model.texts(request)
-        assert sum(text.count(marker) for marker in PREPARED_MARKERS) == 1, "gateway_block_count"
-        assert FACT in text
+        assert sum(kimi_gateway.model.texts(request).count(marker) for marker in PREPARED_MARKERS) == 1
+        # The block lands in the turn's prompt, which the gateway found behind any of Kimi's reminders.
+        prompt_item = json.dumps(request["input"][_prompt_index(request, prompt)])
+        assert any(marker in prompt_item for marker in PREPARED_MARKERS)
+        assert FACT in prompt_item
+    # A session's first turn ends with Kimi's date and session-start reminders, which the gateway forwards unchanged.
+    reminders = _reminders_after(requests[0], prompts[0])
+    assert any("plugin_session_start" in reminder for reminder in reminders), reminders
     assert kimi_gateway.model.function_outputs(requests[2])
-    # Kimi's own history never holds a gateway block: the next turn's block is only in its last user message.
+    # Kimi's own history never holds a gateway block: the next turn's block is only in its prompt.
     next_turn = requests[3]["input"]
-    assert not any(marker in json.dumps(next_turn[:-1]) for marker in PREPARED_MARKERS)
-    assert any(marker in json.dumps(next_turn[-1]) for marker in PREPARED_MARKERS)
-    assert prompts[2] in json.dumps(next_turn[-1])
+    assert not any(
+        marker in json.dumps(next_turn[: _prompt_index(requests[3], prompts[2])]) for marker in PREPARED_MARKERS
+    )
 
-    # The gateway, not the plugin, captured each turn in its configured Scope.
+    # The gateway, not the plugin, captured each turn in the Scope the header selected, with the prompt as its text.
     turns = [json.loads(item["content"]) for item in kimi_gateway.sources() if item["source_id"].startswith("gw-turn-")]
-    assert len(turns) == 3
-    assert [item["user"] for item in turns[1:]] == prompts[1:]
+    assert [item["user"] for item in turns] == prompts
     assert all(item["kind"] == "gateway_turn" for item in turns)
     assert not [item for item in kimi_gateway.sources() if item["source_id"].startswith("kimi-user-prompt:")]
     # The plugin's hook did run on these turns; with recall and capture off it skipped every stage.
@@ -427,5 +444,12 @@ def test_a_session_that_ran_with_prompt_recall_cannot_move_behind_the_gateway(ki
     assert [status for status, _ in kimi_gateway.recorder.statuses] == [503]
     assert b"gate_paused" in kimi_gateway.recorder.statuses[0][1]
     # A new session behind the gateway works.
-    kimi_gateway.run("Repeat the heron release color.")
+    prompt = "Repeat the heron release color."
+    kimi_gateway.run(prompt)
     assert len(kimi_gateway.model.requests) == sent + 1
+    fresh = kimi_gateway.model.requests[-1]
+    assert FACT in json.dumps(fresh["input"][_prompt_index(fresh, prompt)])
+    # A print-mode turn also ends with Kimi's permission-mode reminder; the gateway forwards it and captures the prompt.
+    assert any("Auto permission mode" in reminder for reminder in _reminders_after(fresh, prompt))
+    turns = [json.loads(item["content"]) for item in kimi_gateway.sources() if item["source_id"].startswith("gw-turn-")]
+    assert [item["user"] for item in turns] == [prompt]
