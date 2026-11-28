@@ -472,7 +472,7 @@ export interface paths {
         put?: never;
         /**
          * Capture durable ContentSource evidence
-         * @description Accept raw content as an idempotent Source without synchronously deriving Artifacts. Record a deliberate evidence Source, such as the inspected boundary of a requested handoff. Use a stable unique source_id and concise content without secrets. Do not duplicate automatic prompt capture. Accepted Source evidence does not mean Memory was extracted and does not satisfy an explicit remember request.
+         * @description Accept raw content as an idempotent Source without synchronously deriving Artifacts. Record a deliberate evidence Source, such as the inspected boundary of a requested handoff. Use a stable unique source_id and concise content without secrets. Do not duplicate automatic prompt capture. Accepted Source evidence does not mean Memory was extracted and does not satisfy an explicit remember request. For a Session Source, serialize the conversation object into the existing content string. See the content field for Session Source validation.
          */
         post: operations["capture_content_source"];
         delete?: never;
@@ -492,7 +492,7 @@ export interface paths {
         put?: never;
         /**
          * Capture several ContentSources in one transaction
-         * @description Accept an ordered group of raw content Sources that belong together, such as the parts of one conversation turn. Each item follows the rules of the single ContentSource capture operation. All items are stored in one transaction, or none is stored. Newly stored items receive consecutive journal positions in request order. An exact replay is idempotent, and an item whose identity already exists with the same content and metadata counts as stored and keeps its existing position. An item whose identity exists with different content or different metadata rejects the whole request. Accepted Source evidence does not mean Memory was extracted.
+         * @description Accept an ordered group of raw content Sources that belong together, such as the parts of one conversation turn. Each item accepts plain text or one serialized Session Source under the single capture operation's rules. An invalid new item returns 422. All items are stored in one transaction, or none is stored. Newly stored items receive consecutive journal positions in request order. An exact replay is idempotent, and an item whose identity already exists with the same content and metadata counts as stored and keeps its existing position. An item whose identity exists with different content or different metadata rejects the whole request. Accepted Source evidence does not mean Memory was extracted.
          */
         post: operations["capture_content_sources"];
         delete?: never;
@@ -4169,7 +4169,7 @@ export interface components {
         CaptureContentSourceRequest: {
             scope_id: string;
             source_id: string;
-            /** @description Raw integration content. Server-reserved payload schemas, including handoff receipts, are rejected on this generic capture operation and must be created through their dedicated workflow. The deployment's effective limit is reported by `GET /v1/source-limits` as `source_content_max_chars`. */
+            /** @description Raw integration content. Server-reserved payload schemas, including handoff receipts, are rejected on this generic capture operation and must be created through their dedicated workflow. The deployment's effective limit is reported by `GET /v1/source-limits` as `source_content_max_chars`. For a Session Source, serialize a JSON object with type powercontext.session.v1, a nonblank session_id of at most 256 characters, and 1 to 512 ordered messages with role user or assistant and nonblank content. Write type first so malformed JSON can be identified as a session. The serialized content is limited to 48,000 characters, and content plus compact JSON metadata to 56,000 characters. Invalid new sessions, including unsupported types in the powercontext.session. namespace, return 422. Other text and JSON are stored as opaque content. */
             content: string;
             /** @description Caller metadata. The reserved kind value `working_note` is rejected; use the dedicated Working Note capture operation instead. */
             metadata?: {

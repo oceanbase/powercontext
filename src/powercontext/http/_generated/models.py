@@ -1539,7 +1539,7 @@ class CaptureContentSourceRequest(BaseModel):
     content: Annotated[
         StrictStr,
         Field(
-            description="Raw integration content. Server-reserved payload schemas, including handoff receipts, are rejected on this generic capture operation and must be created through their dedicated workflow. The deployment's effective limit is reported by `GET /v1/source-limits` as `source_content_max_chars`.",
+            description="Raw integration content. Server-reserved payload schemas, including handoff receipts, are rejected on this generic capture operation and must be created through their dedicated workflow. The deployment's effective limit is reported by `GET /v1/source-limits` as `source_content_max_chars`. For a Session Source, serialize a JSON object with type powercontext.session.v1, a nonblank session_id of at most 256 characters, and 1 to 512 ordered messages with role user or assistant and nonblank content. Write type first so malformed JSON can be identified as a session. The serialized content is limited to 48,000 characters, and content plus compact JSON metadata to 56,000 characters. Invalid new sessions, including unsupported types in the powercontext.session. namespace, return 422. Other text and JSON are stored as opaque content.",
             max_length=1000000,
             min_length=1,
         ),

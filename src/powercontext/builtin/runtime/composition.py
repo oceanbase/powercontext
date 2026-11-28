@@ -1736,17 +1736,13 @@ async def _generation_pipelines(
         memory_modes = {
             stage: settings.input_encoding_mode(stage) for stage in ("atomic_memory.extract", "atomic_memory.reconcile")
         }
-        memory_input_renderer = (
-            None
-            if all(mode == "off" for mode in memory_modes.values())
-            else partial(
-                render_atomic_memory_input,
-                modes=memory_modes,
-                estimator=memory_estimator,
-                policy=input_policy,
-            )
+        memory_input_renderer = partial(
+            render_atomic_memory_input,
+            modes=memory_modes,
+            estimator=memory_estimator,
+            policy=input_policy,
         )
-        memory_send_renderer = None if memory_input_renderer is None else partial(memory_input_renderer, observe=True)
+        memory_send_renderer = partial(memory_input_renderer, observe=True)
         memory_generator = PydanticAIStructuredGenerator(
             model=generation_model,
             instructions=atomic_memory_extraction_instructions(runtime.memory_extraction_profile),

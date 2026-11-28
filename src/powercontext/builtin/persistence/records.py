@@ -97,6 +97,7 @@ from powercontext.builtin.sources import (
     ContentSourceInternal,
     ContentSourceTarget,
 )
+from powercontext.builtin.sources.session import InvalidSessionInputError
 from powercontext.builtin.tags import ArtifactTagSet, TagFilter, TagQuery, TagQueryPage, TagTarget
 from powercontext.errors import RevisionConflictError
 from powercontext.sources import SourceMaterialization, SourceObservation, SourceRef
@@ -253,20 +254,26 @@ class RelationalRecordService:
         """Capture one ordered integration batch with a shared journal and pending transition."""
 
         sources = tuple([await CONTENT_SOURCE_ADAPTER.resolve(capture) for capture in captures])
-        return await self._store_sources(scope_id, sources)
+        return await self._store_sources(scope_id, sources, classify_captures=True)
 
-    async def _store_sources(self, scope_id: str, sources: Sequence[ContentSource]) -> tuple[SourceRecord, ...]:
+    async def _store_sources(
+        self, scope_id: str, sources: Sequence[ContentSource], *, classify_captures: bool = False
+    ) -> tuple[SourceRecord, ...]:
         if not sources:
             return ()
         try:
             async with self._database.transaction() as connection:
-                stored = await self._sources.add_many_with_status(connection, scope_id, sources)
+                stored = await self._sources.add_many_with_status(
+                    connection, scope_id, sources, classify_captures=classify_captures
+                )
                 new_positions = [item.journal_position for item, created in stored if created]
                 if new_positions and self._processing_pending is not None:
                     for binding_name in self._source_processing_bindings:
                         await self._processing_pending.note_source(
                             connection, scope_id, binding_name, max(new_positions)
                         )
+        except InvalidSessionInputError as error:
+            raise InvalidBaseAccessRequestError("content", str(error)) from None
         except StoredPayloadConflictError as error:
             scope, ref = cast(tuple[str, SourceRef], error.identity)
             raise BaseValueConflictError("source", (scope, ref.source_type, ref.source_id)) from error

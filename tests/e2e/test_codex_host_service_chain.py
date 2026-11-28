@@ -23,6 +23,7 @@ live-model behavior, the TUI, or Codex Desktop.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import os
@@ -50,7 +51,7 @@ from powercontext.builtin.runtime import InferenceConfig, RuntimeConfig
 from powercontext.server.factory import create_server_app
 from powercontext.server.settings import BearerAuthConfig, ServerSettings
 from tests.e2e.host_models.responses import ResponsesModelFixture
-from tests.e2e.zcode_acceptance.protocol import HostModelFixture, ObserveServer, WireEvidence
+from tests.e2e.zcode_acceptance.protocol import HostModelFixture, ObserveServer, ToolAction, WireEvidence
 from tests.e2e.zcode_acceptance.runner import serve
 
 REPOSITORY = Path(__file__).resolve().parents[2]
@@ -641,3 +642,150 @@ def test_codex_recall_and_capture_settings_are_independent(codex_stack: CodexSta
     codex_stack.run(unsent, POWERCONTEXT_CODEX_PROMPT_RECALL="false", POWERCONTEXT_CODEX_CAPTURE_PROMPTS="false")
     assert unsent in codex_stack.model.texts(codex_stack.model.requests[-1])
     assert unsent not in json.dumps([codex_stack.wire.arrivals, codex_stack.wire.records])
+
+
+@pytest.mark.skipif(os.name != "posix", reason="Interrupt the native CLI with SIGINT.")
+def test_codex_stop_supplies_final_text_for_session_capture(tmp_path):
+    executable = os.environ.get("CODEX_CLI_BIN")
+    if not executable:
+        pytest.skip("Set CODEX_CLI_BIN to exercise the real Codex CLI.")
+    codex_home = tmp_path / "codex"
+    codex_home.mkdir()
+    environment = _isolated_environment(tmp_path / "home", codex_home, tmp_path)
+    environment["CODEX_FIXTURE_MODEL_KEY"] = "local-fixture"
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    hook_result = tmp_path / "hook-result.json"
+    hook = tmp_path / "capture.py"
+    hook.write_text(
+        """import json, os, pathlib, sys, urllib.error, urllib.request
+event = json.load(sys.stdin)
+final = event.get("last_assistant_message")
+if isinstance(final, str) and final.strip():
+    raw = json.dumps({
+        "type": "powercontext.session.v1",
+        "session_id": event["session_id"],
+        "messages": [
+            {"role": "user", "content": os.environ["SESSION_PROBE_PROMPT"]},
+            {"role": "assistant", "content": final},
+        ],
+    })
+    request = urllib.request.Request(
+        os.environ["SESSION_PROBE_URL"] + "/v1/sources/content",
+        data=json.dumps({
+            "scope_id": os.environ["SESSION_PROBE_SCOPE"],
+            "source_id": os.environ["SESSION_PROBE_SOURCE"],
+            "content": raw,
+        }).encode(),
+        headers={"Content-Type": "application/json"},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=5) as response:
+            status = response.status
+    except urllib.error.HTTPError as error:
+        status = error.code
+    pathlib.Path(os.environ["SESSION_PROBE_RESULT"]).write_text(json.dumps({"status": status, "final": final}))
+""",
+        encoding="utf-8",
+    )
+    hooks = {"hooks": {"Stop": [{"hooks": [{"type": "command", "command": shlex.join((sys.executable, str(hook)))}]}]}}
+    (codex_home / "hooks.json").write_text(json.dumps(hooks), encoding="utf-8")
+    server = create_server_app(
+        settings=ServerSettings(
+            database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'capture.db'}"),
+            runtime=RuntimeConfig(artifact_processing_families=()),
+        )
+    )
+    model = ResponsesModelFixture()
+    waiting, blocked, release = threading.Event(), threading.Event(), threading.Event()
+
+    @model.app.middleware("http")
+    async def stall_model(request, call_next):
+        if waiting.is_set():
+            blocked.set()
+            await asyncio.to_thread(release.wait, 20)
+        return await call_next(request)
+
+    command = [
+        executable,
+        "exec",
+        "--json",
+        "--ephemeral",
+        "--skip-git-repo-check",
+        "--dangerously-bypass-hook-trust",
+    ]
+    with serve(model.app) as model_url, serve(server) as server_url, httpx.Client(base_url=server_url) as client:
+        (codex_home / "config.toml").write_text(_codex_config(model_url), encoding="utf-8")
+        scope = client.post("/v1/scopes", json={"title": "Capture", "summary": "Probe", "idempotency_key": "probe"})
+        scope.raise_for_status()
+        scope_id = scope.json()["scope_id"]
+        environment.update(
+            SESSION_PROBE_URL=server_url,
+            SESSION_PROBE_SCOPE=scope_id,
+            SESSION_PROBE_RESULT=str(hook_result),
+        )
+        turns: tuple[tuple[str, list[ToolAction], int], ...] = (
+            ("direct", [], 202),
+            ("tool", [("exec_command", {"cmd": "printf session-probe"})], 202),
+            ("", [], 422),
+        )
+        for source_id, actions, expected_status in turns:
+            prompt = f"Synthetic turn {expected_status} {source_id}."
+            model.plan(actions)
+            prior_requests = len(model.requests)
+            hook_result.unlink(missing_ok=True)
+            environment.update(SESSION_PROBE_PROMPT=prompt, SESSION_PROBE_SOURCE=source_id)
+            run = subprocess.run(
+                [*command, prompt],
+                cwd=workspace,
+                env=environment,
+                capture_output=True,
+                text=True,
+                timeout=35,
+                check=False,
+            )
+            assert run.returncode == 0, run.stderr
+            events = [json.loads(line) for line in run.stdout.splitlines() if line.startswith("{")]
+            finished = [
+                event["item"]["text"]
+                for event in events
+                if event["type"] == "item.completed" and event["item"]["type"] == "agent_message"
+            ]
+            assert len(model.requests) == prior_requests + len(actions) + 1
+            assert hook_result.exists(), run.stderr
+            observed = json.loads(hook_result.read_text(encoding="utf-8"))
+            assert observed["status"] == expected_status
+            assert finished == [observed["final"]]
+            if source_id:
+                result = client.get(f"/v1/scopes/{scope_id}/sources/content/{source_id}")
+                result.raise_for_status()
+                assert json.loads(result.json()["content"])["messages"] == [
+                    {"role": "user", "content": prompt},
+                    {"role": "assistant", "content": observed["final"]},
+                ]
+
+        model.plan()
+        hook_result.unlink(missing_ok=True)
+        environment.update(SESSION_PROBE_PROMPT="Interrupted turn.", SESSION_PROBE_SOURCE="interrupted")
+        waiting.set()
+        with subprocess.Popen(
+            [*command, "Interrupted turn."],
+            cwd=workspace,
+            env=environment,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        ) as run:
+            try:
+                assert blocked.wait(15), "Codex did not reach the model before interruption."
+                run.send_signal(signal.SIGINT)
+                stdout, _ = run.communicate(timeout=10)
+            finally:
+                release.set()
+                if run.poll() is None:
+                    run.kill()
+                    run.communicate(timeout=5)
+        events = [json.loads(line) for line in stdout.splitlines() if line.startswith("{")]
+        assert all(event["type"] != "turn.completed" for event in events)
+        assert not hook_result.exists()
+        assert client.get(f"/v1/scopes/{scope_id}/sources/content/interrupted").status_code == 404

@@ -41,6 +41,47 @@ Work Contract 和 Task Outcome 也会保留 Source 证据。
 
 调低上限不会重写或隐藏已有证据：此前写入的 Source 仍可通过详情与列表接口读取，也仍可参与处理；只有新的写入会被校验。
 
+## 采集一段对话
+
+将下面的 JSON 对象序列化为字符串，通过 `POST /v1/sources/content` 的现有 `content` 字段提交。
+批量接口 `POST /v1/sources/content/batch` 的每一项也可使用同样的字符串。
+
+```json
+{
+  "type": "powercontext.session.v1",
+  "session_id": "session-123",
+  "messages": [
+    {"role": "user", "content": "把示例保留在指南里。"},
+    {"role": "assistant", "content": "我移动了示例。"}
+  ]
+}
+```
+
+为每段提交使用一个稳定的 `source_id`。实时采集应在收到 Assistant 最终文本后提交。
+导入历史对话时，把一轮或多轮对话按时间顺序放在同一个 `messages` 数组中。两种角色均可连续出现，
+也均可出现在首位。调用方在提交前应对两种角色的文本应用隐私过滤。
+
+顶层 `type` 值属于 `powercontext.session.` 命名空间时声明会话 Source。将 `type` 放在首位，
+服务端即可在后续 JSON 格式有误时识别会话声明。普通文本、使用其他类型值的 JSON，以及没有顶层会话标记的
+JSON 均按原始文本采集。
+
+会话序列化后的总长最多 48,000 字符，包含 JSON 转义和空白。加上紧凑 UTF-8 JSON 序列化的元数据，合计最多
+56,000 字符。原子记忆默认输入预算为 64,000 估算 tokens。较低的配置预算或较长的自定义提示词可能使已接收的
+单条 Source 超出处理预算，导致 journal cursor 停在原位，直至修正配置。
+
+`session_id` 须为不超过 256 字符的非空白文本；
+消息数量为 1–512 条，每条消息包含 `user` 或 `assistant` 角色和非空白的 UTF-8 文本。未知字段、重复的
+JSON 对象键、不支持的会话版本及超限返回 HTTP 422。批量请求被拒绝时，本次提交的 Source 均不写入。
+较长的历史对话可分段，每段使用不同的 Source ID。单条消息必须能装入一个会话文档。
+
+两个读取接口均返回原始字符串。完全相同的重试沿用原 Source 引用和 journal position。原先按原始文本采集的
+Source 在重试时继续沿用原有解释，即使其正文形似无效会话。便携包恢复在写入前校验已标记会话。
+同一身份下内容或元数据不同则返回 HTTP 409。不同身份的片段即使内容重叠，也会分别存储。
+原子记忆、主题记忆和 Profile 均使用结构化角色。Assistant 的观察提供上下文，工作完成声明须有佐证。
+Profile 更新须有用户证据。
+
+部署生效的 Content Source 上限也适用于序列化后的会话。
+
 ## 选择采集入口
 
 - Agent Prompt Hook：在[接入指南](../integrations/index.md)中选择宿主对应的采集开关。

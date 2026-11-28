@@ -54,6 +54,12 @@ from powercontext.builtin.persistence.tables import (
     SOURCE_JOURNAL_HEADS_TABLE,
     SOURCES_TABLE,
 )
+from powercontext.builtin.processing_diagnostics import (
+    ProcessingDiagnostics,
+    ProcessingFailureReason,
+    ProcessingStage,
+    attach_diagnostics,
+)
 from powercontext.builtin.sources.content import CONTENT_SOURCE_NAME, ContentSource
 from powercontext.builtin.triggers import SOURCE_WINDOW_TRIGGER_NAME
 from powercontext.errors import InvalidSourceReferenceError, SourceDefinitionNotFoundError
@@ -198,12 +204,14 @@ class SourceRepository:
 
         return (await self.add_many_with_status(connection, scope_id, (source,)))[0]
 
-    async def add_many_with_status(
+    async def add_many_with_status(  # noqa: C901 - One locked decision for replay, conflict, and new writes.
         self,
         connection: AsyncConnection,
         scope_id: str,
         sources: Sequence[Source],
         /,
+        *,
+        classify_captures: bool = False,
     ) -> tuple[tuple[StoredSource, bool], ...]:
         """Classify one ordered Source batch and reserve positions for new identities together."""
 
@@ -235,12 +243,24 @@ class SourceRepository:
                     )
                     existing[key] = stored
                     upgrades[key] = self._encode(source, saved_at=stored.saved_at)[1]
+                elif (
+                    classify_captures
+                    and isinstance(source, ContentSource)
+                    and isinstance(stored.value, ContentSource)
+                    and stored.value.matches_capture(source)
+                ):
+                    await self._retain_native_header(connection, scope_id, ref, stored.value)
                 elif stored.value != source:
                     raise StoredPayloadConflictError("source", (scope_id, ref))
                 else:
                     await self._retain_native_header(connection, scope_id, ref, source)
                 results.append((stored, False))
                 continue
+            if classify_captures and isinstance(source, ContentSource):
+                capture = source.classify_capture()
+                if capture is not source:
+                    source = capture
+                    _, payload = self._encode(source, saved_at=saved_at)
             position += 1
             stored = StoredSource(ref=ref, value=source, journal_position=position, saved_at=saved_at)
             existing[key] = stored
@@ -949,17 +969,22 @@ class SourceRepository:
         payload = stored_bytes(row["payload"], column="payload")
         saved_at = None
         try:
-            envelope = load_model(
-                _StoredSourcePayload,
-                payload,
-                kind="source-envelope",
-                name=source_type,
-            )
-        except InvalidStoredPayloadError:
-            source, decoded = self._decode_legacy_payload(source_type, payload)
-        else:
-            source, decoded = self._decode_envelope(source_type, envelope)
-            saved_at = envelope.saved_at
+            try:
+                envelope = load_model(_StoredSourcePayload, payload, kind="source-envelope", name=source_type)
+            except InvalidStoredPayloadError:
+                source, decoded = self._decode_legacy_payload(source_type, payload)
+            else:
+                source, decoded = self._decode_envelope(source_type, envelope)
+                saved_at = envelope.saved_at
+        except InvalidStoredPayloadError as error:
+            raise attach_diagnostics(
+                error,
+                ProcessingDiagnostics(
+                    stage=ProcessingStage.PERSISTENCE,
+                    reason=ProcessingFailureReason.STORAGE_FAILURE,
+                    failure_location="source-decode",
+                ),
+            ) from None
         indexed = SourceRef(source_type=source_type, source_id=source_id)
         if indexed != decoded:
             raise IdentityMismatchError("source", indexed, decoded)

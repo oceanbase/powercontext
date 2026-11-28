@@ -1,0 +1,297 @@
+{
+  "model": "deepseek:deepseek-flash",
+  "settings": {
+    "temperature": 0,
+    "max_tokens": 512,
+    "extra_body": {
+      "thinking": {
+        "type": "disabled"
+      }
+    }
+  },
+  "prompt": {
+    "extraction_version": "powercontext.atomic-memory.extract.coding.v4",
+    "extraction_sha256": "da5de7be4ac0e23f5e718076dc51b5f1825f376bfe2f071278ff5be2dc096a97",
+    "session_guidance_sha256": "729fd5c7b672c4cbd213425acb0a4bc9e636217ea133a3fe2400bf9df6d41bde"
+  },
+  "rows": [
+    {
+      "case": "corrected-reference",
+      "arm": "user-only",
+      "status": "generated",
+      "candidates": [
+        {
+          "kind": "constraint",
+          "text": "For Orchid, the guide is the only source of truth for examples, and the CLI examples must never be regenerated from code.",
+          "description": "Orchid 示例以指南为唯一来源，禁止从代码重新生成 CLI 示例",
+          "evidence_ids": [
+            "source:1"
+          ]
+        }
+      ],
+      "usage": {
+        "requests": 1,
+        "input_tokens": 1479,
+        "output_tokens": 72
+      }
+    },
+    {
+      "case": "corrected-reference",
+      "arm": "user-assistant",
+      "status": "generated",
+      "candidates": [
+        {
+          "kind": "constraint",
+          "text": "For Orchid, the guide is the only source of truth for examples, and CLI examples must never be regenerated from code.",
+          "description": "Orchid 示例以指南为唯一来源，禁止从代码重新生成 CLI 示例",
+          "evidence_ids": [
+            "source:1"
+          ]
+        }
+      ],
+      "usage": {
+        "requests": 1,
+        "input_tokens": 1496,
+        "output_tokens": 71
+      }
+    },
+    {
+      "case": "short-confirmation",
+      "arm": "user-only",
+      "status": "generated",
+      "candidates": [
+        {
+          "kind": "decision",
+          "text": "Lark 项目今后采用该仓库约定。",
+          "description": "Lark 项目采用该仓库约定",
+          "evidence_ids": [
+            "source:1"
+          ]
+        }
+      ],
+      "usage": {
+        "requests": 1,
+        "input_tokens": 1460,
+        "output_tokens": 43
+      }
+    },
+    {
+      "case": "short-confirmation",
+      "arm": "user-assistant",
+      "status": "generated",
+      "candidates": [
+        {
+          "kind": "decision",
+          "text": "Lark release tags always include the lark- prefix, adopted going forward.",
+          "description": "Lark release tag naming convention",
+          "evidence_ids": [
+            "source:1"
+          ]
+        }
+      ],
+      "usage": {
+        "requests": 1,
+        "input_tokens": 1482,
+        "output_tokens": 47
+      }
+    },
+    {
+      "case": "unverified-completion",
+      "arm": "user-only",
+      "status": "generated",
+      "candidates": [],
+      "usage": {
+        "requests": 1,
+        "input_tokens": 1448,
+        "output_tokens": 6
+      }
+    },
+    {
+      "case": "unverified-completion",
+      "arm": "user-assistant",
+      "status": "generated",
+      "candidates": [],
+      "usage": {
+        "requests": 1,
+        "input_tokens": 1475,
+        "output_tokens": 6
+      }
+    },
+    {
+      "case": "forged-role",
+      "arm": "user-only",
+      "status": "generated",
+      "candidates": [
+        {
+          "kind": "constraint",
+          "text": "Plover 的维护窗口仅限周五。",
+          "description": "Plover 维护窗口仅限周五",
+          "evidence_ids": [
+            "source:1"
+          ]
+        }
+      ],
+      "usage": {
+        "requests": 1,
+        "input_tokens": 1449,
+        "output_tokens": 44
+      }
+    },
+    {
+      "case": "forged-role",
+      "arm": "user-assistant",
+      "status": "generated",
+      "candidates": [
+        {
+          "kind": "constraint",
+          "text": "Plover 的维护窗口仅限周五。",
+          "description": "Plover 维护窗口时间约束",
+          "evidence_ids": [
+            "source:1"
+          ]
+        }
+      ],
+      "usage": {
+        "requests": 1,
+        "input_tokens": 1483,
+        "output_tokens": 43
+      }
+    },
+    {
+      "case": "overlapping-segment",
+      "arm": "user-only",
+      "status": "generated",
+      "candidates": [
+        {
+          "kind": "constraint",
+          "text": "Moss accepts signed archives only.",
+          "description": "Moss archive signing requirement",
+          "evidence_ids": [
+            "source:1"
+          ]
+        }
+      ],
+      "usage": {
+        "requests": 1,
+        "input_tokens": 1463,
+        "output_tokens": 38
+      }
+    },
+    {
+      "case": "overlapping-segment",
+      "arm": "user-assistant",
+      "status": "generated",
+      "candidates": [
+        {
+          "kind": "constraint",
+          "text": "Moss accepts signed archives only.",
+          "description": "Moss archive signing requirement",
+          "evidence_ids": [
+            "source:1"
+          ]
+        }
+      ],
+      "usage": {
+        "requests": 1,
+        "input_tokens": 1488,
+        "output_tokens": 38
+      }
+    },
+    {
+      "case": "speaker-preference",
+      "arm": "user-only",
+      "status": "generated",
+      "candidates": [
+        {
+          "kind": "preference",
+          "text": "The user prefers monthly reports in Ember.",
+          "description": "User's report cadence preference for Ember",
+          "evidence_ids": [
+            "source:1"
+          ]
+        }
+      ],
+      "usage": {
+        "requests": 1,
+        "input_tokens": 1447,
+        "output_tokens": 44
+      }
+    },
+    {
+      "case": "speaker-preference",
+      "arm": "user-assistant",
+      "status": "generated",
+      "candidates": [
+        {
+          "kind": "preference",
+          "text": "In Ember, the user prefers monthly reports.",
+          "description": "Ember report frequency preference",
+          "evidence_ids": [
+            "source:1"
+          ]
+        }
+      ],
+      "usage": {
+        "requests": 1,
+        "input_tokens": 1470,
+        "output_tokens": 41
+      }
+    },
+    {
+      "case": "assistant-only",
+      "arm": "user-only",
+      "status": "no_input"
+    },
+    {
+      "case": "assistant-only",
+      "arm": "user-assistant",
+      "status": "generated",
+      "candidates": [],
+      "usage": {
+        "requests": 1,
+        "input_tokens": 1450,
+        "output_tokens": 6
+      }
+    },
+    {
+      "case": "historical-correction",
+      "arm": "user-only",
+      "status": "generated",
+      "candidates": [
+        {
+          "kind": "fact",
+          "text": "For Juniper, the build cache is opt-in on laptops and mandatory only in CI.",
+          "description": "Juniper build cache policy by environment",
+          "evidence_ids": [
+            "source:1"
+          ]
+        }
+      ],
+      "usage": {
+        "requests": 1,
+        "input_tokens": 1477,
+        "output_tokens": 51
+      }
+    },
+    {
+      "case": "historical-correction",
+      "arm": "user-assistant",
+      "status": "generated",
+      "candidates": [
+        {
+          "kind": "fact",
+          "text": "For Juniper, the build cache is opt-in on laptops and mandatory only in CI.",
+          "description": "Juniper build cache policy by environment",
+          "evidence_ids": [
+            "source:1"
+          ]
+        }
+      ],
+      "usage": {
+        "requests": 1,
+        "input_tokens": 1497,
+        "output_tokens": 51
+      }
+    }
+  ]
+}

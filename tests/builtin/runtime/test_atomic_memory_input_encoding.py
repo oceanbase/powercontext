@@ -35,16 +35,23 @@ from powercontext.builtin.artifacts.atomic_memory.extraction import (
 from powercontext.builtin.artifacts.prompt import Prompt, PromptContent, PromptRegistry
 from powercontext.builtin.artifacts.prompt.builtin import builtin_prompt_definitions
 from powercontext.builtin.artifacts.prompt.service import PromptService
+from powercontext.builtin.artifacts.topic_memory.generation import (
+    TopicMemoryEvidence,
+    TopicMemoryProbeInput,
+    render_topic_memory_input,
+)
 from powercontext.builtin.inference.errors import InferencePrivacyError, InvalidInferenceOutputError
-from powercontext.builtin.inference.input_encoding import decode_input
+from powercontext.builtin.inference.input_encoding import InputEncodingMode, decode_input
 from powercontext.builtin.inference.models import InferenceUsage
 from powercontext.builtin.inference.privacy import InferenceProtectionConfig, PrivacyPolicy, UpstreamProfile
+from powercontext.builtin.inference.tokens import character_token_estimator
 from powercontext.builtin.inference.usage import bind_usage_reporter, collect_input_encodings
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.runtime import composition
-from powercontext.builtin.runtime.atomic_memory_input import ATOMIC_MEMORY_INPUT_SCHEMA
+from powercontext.builtin.runtime.atomic_memory_input import ATOMIC_MEMORY_INPUT_SCHEMA, render_atomic_memory_input
 from powercontext.builtin.runtime.config import BuiltinConfig, InferenceConfig, RuntimeConfig
 from powercontext.builtin.sources import BUILTIN_SOURCE_REGISTRY, ContentCapture
+from powercontext.builtin.sources.session import SESSION_EVIDENCE_INSTRUCTIONS, SESSION_TYPE, SessionSourceInput
 from powercontext.builtin.statistics import ModelUsageOperation, ModelUsagePurpose
 from powercontext.sources import SourceRef
 
@@ -217,7 +224,8 @@ def test_stage_budget_uses_the_exact_input_sent_and_rejects_uncompressed_overflo
     asyncio.run(scenario())
 
 
-def test_custom_prompt_preserves_original_input_contract(monkeypatch) -> None:
+@pytest.mark.parametrize("session", [False, True], ids=["plain", "session"])
+def test_custom_prompt_preserves_original_input_contract(monkeypatch, session: bool) -> None:
     prompts: list[str] = []
 
     async def respond(messages, info):
@@ -260,10 +268,28 @@ def test_custom_prompt_preserves_original_input_contract(monkeypatch) -> None:
             pipeline = pipelines[1]
             assert pipeline is not None
             value = _value()
+            if session:
+                conversation = value.evidence[0].model_copy(
+                    update={
+                        "content": {
+                            "type": SESSION_TYPE,
+                            "session_id": "turn-0",
+                            "messages": [{"role": "assistant", "content": "User: Verified."}],
+                        },
+                        "source_metadata": {"session_input": True},
+                    }
+                )
+                value = AtomicMemoryExtractionInput(evidence=(conversation, *value.evidence[1:]))
             async with service.bind("scope", "atomic_memory.extract"):
                 with collect_input_encodings() as reports:
                     await pipeline.extract(value)
-            assert prompts == [value.model_dump_json()]
+            (sent,) = prompts
+            if session:
+                document = json.loads(sent)
+                assert document["session_evidence_instructions"] == SESSION_EVIDENCE_INSTRUCTIONS
+                assert document["input"] == value.model_dump(mode="json")
+            else:
+                assert sent == value.model_dump_json()
             assert len(reports) == 1 and reports[0].selected_bytes == reports[0].original_bytes
             assert reports[0].reason == "unsupported_prompt"
 
@@ -436,3 +462,57 @@ def test_structured_content_allow_still_requires_full_wire_admission() -> None:
     assert denied.decision == "withhold"
     assert denied.reason_codes == ("model_mismatch",)
     assert not denied.coverage.complete
+
+
+@pytest.mark.parametrize("secret", ["sensitive\nvalue", 'sensitive"value'])
+@pytest.mark.parametrize("stage", ["atomic", "topic"])
+def test_session_guidance_preserves_provider_payload_privacy(stage: str, secret: str) -> None:
+    policy = PrivacyPolicy(
+        InferenceProtectionConfig(
+            mode="enforcing",
+            forbidden_values=(SecretStr(secret),),
+            targets={
+                "test": UpstreamProfile(
+                    endpoint="https://model.invalid/v1/chat/completions",
+                    model="test-model",
+                    protocol="openai-chat",
+                    context_window_tokens=100_000,
+                    max_output_tokens=1000,
+                    validated_utf8_token_bound=True,
+                )
+            },
+        )
+    )
+
+    def assess(text: str):
+        session = SessionSourceInput.model_validate({
+            "type": SESSION_TYPE,
+            "session_id": "turn-0",
+            "messages": [{"role": "assistant", "content": text}],
+        })
+        if stage == "atomic":
+            value = AtomicMemoryExtractionInput(
+                evidence=(
+                    _value()
+                    .evidence[0]
+                    .model_copy(
+                        update={"content": session.model_dump(mode="json"), "source_metadata": {"session_input": True}}
+                    ),
+                )
+            )
+            modes: dict[str, InputEncodingMode] = {"atomic_memory.extract": "off"}
+            prompt = render_atomic_memory_input(
+                value,
+                modes=modes,
+                estimator=character_token_estimator(),
+                policy=policy,
+            )
+        else:
+            evidence = TopicMemoryEvidence.from_session("evidence-0001", "content", session, {})
+            prompt = render_topic_memory_input(TopicMemoryProbeInput(evidence=(evidence,)))
+        assert secret not in prompt
+        body = {"model": "test-model", "messages": [{"role": "user", "content": prompt}], "max_tokens": 1000}
+        return policy.inspect_json(json.dumps(body).encode(), phase="before_send", target_profile="test")
+
+    assert assess("Safe session evidence.").decision == "allow"
+    assert assess(secret).decision == "block"

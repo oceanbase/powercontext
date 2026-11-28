@@ -46,6 +46,48 @@ Server-side bound.
 Lowering the limit never rewrites or hides existing evidence: Sources written earlier stay readable through the detail
 and list endpoints and remain eligible for processing, while only new writes are validated.
 
+## Capture a conversation segment
+
+Send the JSON object below serialized as the existing `content` string to `POST /v1/sources/content`.
+The batch route `POST /v1/sources/content/batch` accepts the same string in each item.
+
+```json
+{
+  "type": "powercontext.session.v1",
+  "session_id": "session-123",
+  "messages": [
+    {"role": "user", "content": "Keep the example in the guide."},
+    {"role": "assistant", "content": "I moved the example."}
+  ]
+}
+```
+
+Use one stable `source_id` for each submitted segment. For live capture, submit after receiving the final Assistant
+text. For an import, place one or more turns in a single chronologically ordered `messages` array. Both roles may
+repeat or appear first. Apply the caller's privacy filters to both roles before submission.
+
+The top-level `type` values in the `powercontext.session.` namespace declare a Session Source. Put `type` first
+so the server can recognize a declared session even if the remaining JSON is malformed. Ordinary text, unrelated
+JSON type values and JSON without a top-level session marker are captured as opaque text.
+
+The session envelope is limited to 48,000 serialized characters, including JSON escaping and whitespace.
+The envelope plus compact, UTF-8 JSON metadata is limited to 56,000 characters. The default Atomic Memory input
+budget is 64,000 estimated tokens. A smaller configured budget or a longer custom prompt can cause an accepted
+single Source to exceed the processing budget and hold the journal cursor until the configuration is corrected.
+Use a nonblank `session_id` of at most 256 characters and 1–512 messages, each with a `user` or `assistant` role
+and nonblank UTF-8 text. Extra fields, duplicate JSON object keys, unsupported session versions, and limit violations
+return HTTP 422. A rejected batch leaves no Sources from that request. Split larger histories into multiple
+segments with distinct Source IDs. An individual message must fit inside its own envelope.
+
+Both reads return the original string. Exact retries retain the original Source reference and journal position.
+A Source originally captured as opaque text retains that interpretation on retry, even if its text resembles an
+invalid Session Source. Portable restore validates marked sessions before writing records.
+Using the same identity with different content or metadata returns HTTP 409. Overlapping segments with distinct
+identities are stored independently. Atomic Memory, Topic Memory and Profile use structured roles. Assistant
+observations provide context. Claims about completed work require corroboration. Profile updates require user evidence.
+
+The deployment's effective Content Source limit also applies to the serialized session.
+
 ## Choose a capture path
 
 - Agent prompt hooks: use the host-specific capture switch in [Connect Agents](../integrations/index.md).
