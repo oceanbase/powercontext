@@ -142,6 +142,19 @@ _HOST_METADATA = {
         "SCOPE_ID",
         "CONTEXT_ASSEMBLY",
     ),
+    "antigravity": AgentSpec(
+        "antigravity",
+        "Antigravity",
+        "Antigravity",
+        "POWERCONTEXT_ANTIGRAVITY",
+        "SERVER_URL",
+        "AUTHORIZATION",
+        "CAPTURE_PROMPTS",
+        "SCOPE_ID",
+        "CONTEXT_ASSEMBLY",
+        setup_server_url=True,
+        executables=("agy",),
+    ),
 }
 
 AGENT_SPECS: tuple[AgentSpec, ...] = tuple(_HOST_METADATA.values())

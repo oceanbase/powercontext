@@ -168,6 +168,11 @@ AGENTS: dict[str, tuple[str, str, str]] = {
         "powercontext setup workbuddy --source oceanbase/powercontext --ref master",
         "重启 WorkBuddy",
     ),
+    "antigravity": (
+        "Antigravity",
+        "powercontext setup antigravity --source oceanbase/powercontext --ref master",
+        "agy",
+    ),
 }
 
 # Input hints only, not a provider allowlist. Unknown prefixes can attach arbitrary variables.
@@ -286,7 +291,14 @@ def configure_agents(
         bool | None,
         typer.Option(
             "--capture-prompts/--no-capture-prompts",
-            help="Claude Code, Kimi Code and ZCode only; omission preserves the capture preference.",
+            help="Antigravity, Claude Code, Kimi Code and ZCode only; omission preserves the capture preference.",
+        ),
+    ] = None,
+    prompt_recall: Annotated[
+        bool | None,
+        typer.Option(
+            "--prompt-recall/--no-prompt-recall",
+            help="Antigravity only; omission preserves the prompt recall preference.",
         ),
     ] = None,
     scope_id: Annotated[str | None, typer.Option(help="Existing Scope ID for Kimi Code.")] = None,
@@ -316,6 +328,7 @@ def configure_agents(
     validate_native_options(
         selected,
         capture_prompts=capture_prompts,
+        prompt_recall=prompt_recall,
         scope_id=scope_id,
         workspace_scope=workspace_scope or None,
         boundary_flush=boundary_flush,
@@ -328,6 +341,7 @@ def configure_agents(
         options = native_options(
             host,
             capture_prompts=capture_prompts,
+            prompt_recall=prompt_recall,
             scope_id=scope_id,
             workspace_scope=workspace_scope or None,
             boundary_flush=boundary_flush,

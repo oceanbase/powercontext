@@ -1,0 +1,47 @@
+{
+  "description": "Sanitized Antigravity host payloads observed during live session-start, pre-invocation, tool-loop re-invocation, and pre-tool-use hooks.",
+  "SessionStart": {
+    "conversationId": "11111111-2222-3333-4444-555555555555",
+    "workspacePaths": [
+      "$WORKSPACE_URI"
+    ]
+  },
+  "PreInvocationInitial": {
+    "conversationId": "11111111-2222-3333-4444-555555555555",
+    "invocationNum": 0,
+    "initialNumSteps": 1,
+    "lastUserInput": "<USER_REQUEST>\nWhich service owns the retry budget?\n</USER_REQUEST>",
+    "workspacePaths": [
+      "$WORKSPACE_URI"
+    ],
+    "transcriptPath": "$TRANSCRIPT_PATH"
+  },
+  "PreInvocationToolLoop": {
+    "conversationId": "11111111-2222-3333-4444-555555555555",
+    "invocationNum": 1,
+    "initialNumSteps": 4,
+    "lastUserInput": "<USER_REQUEST>\nWhich service owns the retry budget?\n</USER_REQUEST>",
+    "workspacePaths": [
+      "$WORKSPACE_URI"
+    ],
+    "transcriptPath": "$TRANSCRIPT_PATH"
+  },
+  "PreToolUseLazySearch": {
+    "conversationId": "11111111-2222-3333-4444-555555555555",
+    "workspacePaths": [
+      "$WORKSPACE_URI"
+    ],
+    "toolCall": {
+      "name": "call_mcp_tool",
+      "args": {
+        "ServerName": "powercontext_powercontext",
+        "ToolName": "search_memory",
+        "Arguments": {
+          "mode": "hybrid",
+          "query": "retry budget owner",
+          "scope_id": "placeholder"
+        }
+      }
+    }
+  }
+}

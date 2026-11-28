@@ -92,6 +92,10 @@ def _codex_url() -> str | None:
 
 
 def _native_settings(host: str, dsh_target: DshTarget | None = None) -> tuple[dict[str, Any], str, str]:
+    if host == "antigravity":
+        from powercontext.cli.antigravity import antigravity_plugin_dir
+
+        return _read(antigravity_plugin_dir() / "powercontext.json"), "server_url", "allow_insecure_http"
     if host == "dsh":
         from powercontext.cli.dsh_transport import read_dsh_settings
 
@@ -150,6 +154,15 @@ def _workbuddy_mcp_url() -> str | None:
         if match:
             raw = os.environ.get("POWERCONTEXT_WORKBUDDY_SERVER_URL") or match.group(1)
     return _url(raw)
+
+
+def _antigravity_mcp_url() -> str | None:
+    from powercontext.cli.antigravity import antigravity_plugin_dir
+
+    entry = _object_at(_read(antigravity_plugin_dir() / "mcp_config.json"), "mcpServers", "powercontext")
+    if not entry:
+        return None
+    return _url(entry.get("url"))
 
 
 def _selected_url(host: str, prefix: str, native_url: str | None) -> str:
@@ -226,6 +239,10 @@ def resolve_host_transport(host: str, *, dsh_target: DshTarget | None = None) ->
         mcp_url = _workbuddy_mcp_url()
         if mcp_url is not None and mcp_url != endpoint:
             raise ValueError("Cannot determine a single PowerContext transport: WorkBuddy Hook and MCP URLs differ")  # noqa: TRY003
+    if host == "antigravity":
+        mcp_url = _antigravity_mcp_url()
+        if mcp_url is not None and mcp_url != endpoint:
+            raise ValueError("Cannot determine a single PowerContext transport: Antigravity Hook and MCP URLs differ")  # noqa: TRY003
     _, allowed = resolve_client_transport(host, server_url=endpoint)
     native_consent = native.get(consent_key, _MISSING)
     if native_consent is not _MISSING:

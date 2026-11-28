@@ -44,4 +44,5 @@ def test_agent_executables_match_real_launch_commands() -> None:
         "pi": ("pi",),
         "hermes": ("hermes",),
         "workbuddy": (),
+        "antigravity": ("agy",),
     }

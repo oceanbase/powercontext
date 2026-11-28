@@ -35,11 +35,72 @@ CASES = json.loads((ROOT / "tests/fixtures/automatic_prompt_privacy.json").read_
 # Every synthetic credential value in the fixture contains one of these markers.
 VALUE_MARKERS = ("synthetic-value-2084", "synthetic_value_2084", "SyntheticValue2084")
 HOOKS = {
+    "antigravity": "antigravity/plugins/powercontext/hooks/hook.py",
     "claude": "claude-code/plugins/powercontext/hooks/user_prompt_submit.py",
     "codex": "codex/plugins/powercontext/hooks/recall.py",
     "workbuddy": "workbuddy/plugins/powercontext/hooks/workbuddy_powercontext_hook.py",
 }
 DISABLED_CASES = [case for case in CASES if case["id"].endswith("-header") or "private-key" in case["id"]]
+
+
+def _prepare_privacy_hook_invocation(
+    host: str, hook: Path, tmp_path: Path, server_port: int, prompt: object
+) -> tuple[list[str], str]:
+    if host == "codex":
+        # Codex's installed MCP configuration intentionally outranks environment URLs.
+        plugin = tmp_path / "plugin"
+        shutil.copytree(hook.parents[1], plugin, ignore=shutil.ignore_patterns("__pycache__", ".venv"))
+        configuration = plugin / ".mcp.json"
+        value = json.loads(configuration.read_text(encoding="utf-8"))
+        value["mcpServers"]["powercontext"]["url"] = f"http://127.0.0.1:{server_port}/mcp/"
+        configuration.write_text(json.dumps(value), encoding="utf-8")
+        hook = plugin / "hooks/recall.py"
+    if host == "antigravity":
+        return (
+            [sys.executable, str(hook), "pre-invocation"],
+            json.dumps({
+                "conversationId": "conv-privacy",
+                "invocationNum": 0,
+                "workspacePaths": [str(tmp_path)],
+                "lastUserInput": f"<USER_REQUEST>\n{prompt}\n</USER_REQUEST>\n<ADDITIONAL_METADATA>\nmeta\n</ADDITIONAL_METADATA>",
+            }),
+        )
+    return (
+        [sys.executable, str(hook)],
+        json.dumps({
+            "hook_event_name": "UserPromptSubmit",
+            "prompt": prompt,
+            "cwd": str(tmp_path),
+        }),
+    )
+
+
+def _assert_privacy_outcome(
+    host: str,
+    case: dict[str, object],
+    requests: list[tuple[str, dict[str, object]]],
+    completed: subprocess.CompletedProcess[str],
+) -> None:
+    prepares = [value for path, value in requests if path == "/v1/context/prepare"]
+    captures = [value for path, value in requests if path == "/v1/sources/content"]
+    assert prepares, completed.stderr
+    output = json.loads(completed.stdout)
+    context_blob = (
+        json.dumps(output["injectSteps"])
+        if host == "antigravity"
+        else output["hookSpecificOutput"]["additionalContext"]
+    )
+    assert "safe historical context" in context_blob
+    if case["sensitive"]:
+        assert captures == []
+        for marker in VALUE_MARKERS:
+            assert marker not in json.dumps(requests)
+            assert marker not in completed.stdout + completed.stderr
+        assert "sensitive_content" in completed.stdout + completed.stderr
+    else:
+        assert len(captures) == 1
+        assert captures[0]["content"] == case["prompt"]
+        assert prepares[0]["query"] == case["prompt"]
 
 
 @pytest.mark.parametrize("host", HOOKS)
@@ -82,6 +143,19 @@ def test_automatic_hook_skips_credentials_without_disabling_preparation(tmp_path
             self.end_headers()
             self.wfile.write(body)
 
+        def do_PUT(self):
+            value = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+            requests.append((self.path, value))
+            if self.path != "/v1/scope-bindings":
+                self.send_error(404)
+                return
+            body = json.dumps({"key": value.get("key"), "scope_id": "scope-privacy"}).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
         def log_message(self, format, *_args):  # noqa: A002 - BaseHTTPRequestHandler override.
             pass
 
@@ -98,6 +172,7 @@ def test_automatic_hook_skips_credentials_without_disabling_preparation(tmp_path
         f"{prefix}SERVER_URL": f"http://127.0.0.1:{server.server_port}",
         f"{prefix}CAPTURE_PROMPTS": str(capture_enabled).lower(),
         f"{prefix}FLUSH_ON_CAPTURE": "false",
+        "PLUGIN_DATA": str(tmp_path / "plugin-data"),
         "POWERCONTEXT_DIAGNOSTIC_STATE_FILE": str(tmp_path / "diagnostics.json"),
         "POWERCONTEXT_BOOTSTRAP_STATE_DIR": str(tmp_path / "bootstrap"),
         "POWERCONTEXT_CLAUDE_BOOTSTRAP_STATE_DIR": str(tmp_path / "bootstrap"),
@@ -105,24 +180,13 @@ def test_automatic_hook_skips_credentials_without_disabling_preparation(tmp_path
     })
     if "authorization" in case:
         environment[f"{prefix}AUTHORIZATION"] = case["authorization"]
-    hook = ROOT / "integrations" / HOOKS[host]
-    if host == "codex":
-        # Codex's installed MCP configuration intentionally outranks environment URLs.
-        plugin = tmp_path / "plugin"
-        shutil.copytree(hook.parents[1], plugin, ignore=shutil.ignore_patterns("__pycache__", ".venv"))
-        configuration = plugin / ".mcp.json"
-        value = json.loads(configuration.read_text(encoding="utf-8"))
-        value["mcpServers"]["powercontext"]["url"] = f"http://127.0.0.1:{server.server_port}/mcp/"
-        configuration.write_text(json.dumps(value), encoding="utf-8")
-        hook = plugin / "hooks/recall.py"
+    command, stdin_payload = _prepare_privacy_hook_invocation(
+        host, ROOT / "integrations" / HOOKS[host], tmp_path, server.server_port, case["prompt"]
+    )
     try:
         completed = subprocess.run(
-            [sys.executable, str(hook)],
-            input=json.dumps({
-                "hook_event_name": "UserPromptSubmit",
-                "prompt": case["prompt"],
-                "cwd": str(tmp_path),
-            }),
+            command,
+            input=stdin_payload,
             capture_output=True,
             text=True,
             env=environment,
@@ -134,21 +198,7 @@ def test_automatic_hook_skips_credentials_without_disabling_preparation(tmp_path
         thread.join()
         server.server_close()
 
-    prepares = [value for path, value in requests if path == "/v1/context/prepare"]
-    captures = [value for path, value in requests if path == "/v1/sources/content"]
-    assert prepares, completed.stderr
-    output = json.loads(completed.stdout)
-    assert "safe historical context" in output["hookSpecificOutput"]["additionalContext"]
-    if case["sensitive"]:
-        assert captures == []
-        for marker in ("synthetic-value-2084", "synthetic_value_2084", "SyntheticValue2084"):
-            assert marker not in json.dumps(requests)
-            assert marker not in completed.stdout + completed.stderr
-        assert "sensitive_content" in completed.stderr
-    else:
-        assert len(captures) == 1
-        assert captures[0]["content"] == case["prompt"]
-        assert prepares[0]["query"] == case["prompt"]
+    _assert_privacy_outcome(host, case, requests, completed)
 
 
 @pytest.mark.parametrize("case", CASES, ids=[case["id"] for case in CASES])

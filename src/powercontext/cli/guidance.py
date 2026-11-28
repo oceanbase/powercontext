@@ -104,6 +104,11 @@ HOST_GUIDANCE = {
         source_files=(".minimax-plugin/plugin.json",),
         package_name="powercontext",
     ),
+    "antigravity": HostGuidance(
+        "integrations/antigravity/plugins/powercontext",
+        source_files=("plugin.json", "hooks.json"),
+        package_name="powercontext",
+    ),
 }
 
 

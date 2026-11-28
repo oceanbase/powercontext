@@ -181,7 +181,14 @@ CaptureOption = Annotated[
     bool | None,
     typer.Option(
         "--capture-prompts/--no-capture-prompts",
-        help="Claude Code, Kimi Code and ZCode only; omission preserves the capture preference.",
+        help="Antigravity, Claude Code, Kimi Code and ZCode only; omission preserves the capture preference.",
+    ),
+]
+PromptRecallOption = Annotated[
+    bool | None,
+    typer.Option(
+        "--prompt-recall/--no-prompt-recall",
+        help="Antigravity only; omission preserves the prompt recall preference.",
     ),
 ]
 AgentsArgument = Annotated[list[str] | None, typer.Argument(help="Agent names; select interactively when omitted.")]
@@ -216,6 +223,7 @@ def setup_agents(
     allow_insecure_http: HttpOption = None,
     json_output: JsonOption = False,
     capture_prompts: CaptureOption = None,
+    prompt_recall: PromptRecallOption = None,
     scope_id: Annotated[str | None, typer.Option(help="Existing Scope ID for Kimi Code.")] = None,
     workspace_scope: Annotated[
         bool,
@@ -260,6 +268,7 @@ def setup_agents(
     selected = select_hosts(agents, json_output=json_output)
     options = {
         "capture_prompts": capture_prompts,
+        "prompt_recall": prompt_recall,
         "scope_id": scope_id,
         "boundary_flush": boundary_flush,
         "workspace_scope": workspace_scope or None,

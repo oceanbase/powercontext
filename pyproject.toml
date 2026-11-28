@@ -247,6 +247,8 @@ extra-paths = [
     "./deploy/observability",
     "./desktop/tests",
     "./deploy/observability",
+    "./integrations/antigravity/plugins/powercontext",
+    "./integrations/antigravity/plugins/powercontext/hooks",
     "./integrations/claude-code/plugins/powercontext",
     "./integrations/codex/plugins/powercontext",
     "./integrations/workbuddy/plugins/powercontext",
@@ -280,6 +282,7 @@ exclude = [
     "evaluation/zcode_guidance",
     # Both plugin directories are search paths, and ty resolves powercontext_lifecycle to the Claude Code copy, so it
     # cannot resolve the relative imports of this identical generated copy.
+    "integrations/antigravity/plugins/powercontext/powercontext_lifecycle",
     "integrations/codex/plugins/powercontext/powercontext_lifecycle",
 ]
 
@@ -315,7 +318,8 @@ line-length = 120
 fix = true
 
 [tool.ruff.per-file-target-version]
-# Claude Code runs these hooks with the host's python3, often the macOS system Python 3.9.
+# Claude Code and Antigravity run these hooks with the host's python3, often the macOS system Python 3.9.
+"integrations/antigravity/plugins/powercontext/**/*.py" = "py39"
 "integrations/claude-code/plugins/powercontext/**/*.py" = "py39"
 # The plugins and SDK adapters ship generated copies of these modules. Ruff must check each copy like its source, or a
 # fix that it applies to a copy makes the copy drift.

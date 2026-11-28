@@ -88,6 +88,7 @@ class PreCompactionMode(StrEnum):
 class ToolSurfaceProbe(StrEnum):
     SERVER_MCP = "server_mcp"
     JSON_PROMPT_HOOK = "json_prompt_hook"
+    ANTIGRAVITY_PROMPT_HOOK = "antigravity_prompt_hook"
     ZCODE_PROMPT_HOOK = "zcode_prompt_hook"
     KIMI_CODE_MCP = "kimi_code_mcp"
     KIMI_CODE_PROMPT_HOOK = "kimi_code_prompt_hook"
@@ -600,6 +601,8 @@ def _probe_toolset(probe: ToolSurfaceProbe, root: Path) -> set[str]:
         ):
             raise ValueError("missing Kimi prompt capture or context output")
         return {"kimi-code:UserPromptSubmit"}
+    if probe is ToolSurfaceProbe.ANTIGRAVITY_PROMPT_HOOK:
+        return _antigravity_prompt_hook_ids(root)
     if probe is ToolSurfaceProbe.ZCODE_PROMPT_HOOK:
         return _zcode_prompt_hook_ids(root)
     if probe is ToolSurfaceProbe.DIFY_TOOLS:
@@ -851,6 +854,64 @@ def _zcode_prompt_hook_ids(root: Path) -> set[str]:
     return result
 
 
+def _antigravity_prompt_hook_ids(root: Path) -> set[str]:
+    plugin = root / "integrations/antigravity/plugins/powercontext"
+    hook_script = plugin / "hooks/hook.py"
+    bind_script = plugin / "hooks/bind_tools.py"
+    try:
+        hooks = json.loads((plugin / "hooks.json").read_text(encoding="utf-8")).get("powercontext", {})
+        hook_source = hook_script.read_text(encoding="utf-8")
+        lifecycle_submit = (plugin / "powercontext_lifecycle/user_prompt_submit.py").read_text(encoding="utf-8")
+        combined_hook_source = hook_source + "\n" + lifecycle_submit
+        bind_source = bind_script.read_text(encoding="utf-8")
+    except (OSError, ValueError, TypeError, AttributeError):
+        return {
+            "antigravity:SessionStart:incomplete",
+            "antigravity:PreInvocation:incomplete",
+            "antigravity:PreToolUse:incomplete",
+        }
+
+    definitions = {
+        "SessionStart": (
+            "./hooks/hook.py session-start",
+            hook_source,
+            ("run_session_start", "injectSteps", "resolve_scope_id"),
+        ),
+        "PreInvocation": (
+            "./hooks/hook.py pre-invocation",
+            combined_hook_source,
+            ("run_user_prompt_submit", "injectSteps", "/v1/sources/content", "/v1/context/prepare"),
+        ),
+        "PreToolUse": (
+            "./hooks/bind_tools.py",
+            bind_source,
+            ("resolve_scope_id", "overwrite", "call_mcp_tool"),
+        ),
+    }
+    result: set[str] = set()
+    for event, (cmd_marker, source, markers) in definitions.items():
+        entries = hooks.get(event) if isinstance(hooks, dict) else None
+        registered = False
+        if isinstance(entries, list) and entries:
+            if event == "PreToolUse":
+                registered = any(
+                    isinstance(group, dict)
+                    and any(
+                        isinstance(item, dict) and cmd_marker in str(item.get("command", ""))
+                        for item in group.get("hooks", [])
+                    )
+                    for group in entries
+                )
+            else:
+                registered = any(
+                    isinstance(item, dict) and cmd_marker in str(item.get("command", ""))
+                    for item in entries
+                )
+        complete = registered and all(marker in source for marker in markers)
+        result.add(f"antigravity:{event}" if complete else f"antigravity:{event}:incomplete")
+    return result
+
+
 def _is_complete_hook(integration_id: str, event: str, scripts: set[Path]) -> bool:
     if event == "UserPromptSubmit":
         return any(_is_complete_prompt_hook(script) for script in scripts)
@@ -1032,6 +1093,7 @@ def _python_decorator_tool_ids(path: Path) -> set[str]:
 
 def _mcp_configuration_errors(integration_id: str, root: Path) -> list[str]:
     paths = {
+        "antigravity": "integrations/antigravity/plugins/powercontext/mcp_config.json",
         "codex": "integrations/codex/plugins/powercontext/.mcp.json",
         "claude-code": "integrations/claude-code/plugins/powercontext/.mcp.json",
         "workbuddy": "integrations/workbuddy/plugins/powercontext/.mcp.json",

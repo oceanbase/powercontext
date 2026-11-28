@@ -57,7 +57,8 @@ def select_hosts(requested: Sequence[str] | None, *, json_output: bool = False) 
 def validate_native_options(selected: Sequence[str], **options: Any) -> None:
     """Reject explicit flags that none of the selected agents can use."""
     owners = {
-        "capture_prompts": ("claude-code", "kimi-code", "zcode"),
+        "capture_prompts": ("antigravity", "claude-code", "kimi-code", "zcode"),
+        "prompt_recall": ("antigravity",),
         "scope_id": ("kimi-code",),
         "workspace_scope": ("kimi-code",),
         "boundary_flush": ("zcode",),
@@ -96,6 +97,7 @@ def validate_native_options(selected: Sequence[str], **options: Any) -> None:
 def native_options(host: str, **options: Any) -> dict[str, Any]:
     """Pass only options owned by the selected native adapter."""
     fields = {
+        "antigravity": ("capture_prompts", "prompt_recall"),
         "claude-code": ("capture_prompts",),
         "dsh": ("dsh_target",),
         "kimi-code": ("scope_id", "capture_prompts", "workspace_scope", "profile"),
@@ -136,7 +138,7 @@ def doctor_checks(host: str, **options) -> dict[str, Any]:
         target = {"dsh_target": installer.dsh_target} if host == "dsh" else {}
         endpoint, allowed = resolve_host_transport(host, **target)
         authorization = None
-        if host in {"codex", "claude-code", "workbuddy", "dsh", "pi", "opencode"}:
+        if host in {"antigravity", "codex", "claude-code", "workbuddy", "dsh", "pi", "opencode"}:
             authorization = read_stored_authorization(credential_path(host), server_url=endpoint).authorization
         checks.update(
             server_diagnostics(
@@ -146,6 +148,10 @@ def doctor_checks(host: str, **options) -> dict[str, Any]:
                 authorization=authorization,
             )
         )
+        if host == "antigravity" and checks.get("server_readiness") is not None and checks["server_readiness"].ok:
+            from powercontext.cli.antigravity import extraction_schedule_diagnostic
+
+            checks["extraction_schedule"] = extraction_schedule_diagnostic(endpoint, authorization=authorization)
     except Exception as error:  # A failed Server probe must not hide completed installation.
         checks["transport"] = Diagnostic(DiagnosticStatus.FAILED, str(error))
     return checks

@@ -1,0 +1,8 @@
+{
+  "name": "powercontext",
+  "version": "0.1.0",
+  "displayName": "PowerContext",
+  "description": "Long-term memory, scoped context recall, and prompt capture for Antigravity, powered by PowerContext.",
+  "author": { "name": "PowerContext", "url": "https://github.com/oceanbase/powercontext" },
+  "license": "Apache-2.0"
+}

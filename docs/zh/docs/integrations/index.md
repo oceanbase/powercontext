@@ -14,12 +14,13 @@ description: 选择插件、MCP、Skills、Agent Host 或 Python 框架接入。
 
 ## Agent Hosts
 
-9 个 Agent Host 按 `official`（PowerContext 项目维护）和 `community`（社区贡献）标注。
+10 个 Agent Host 按 `official`（PowerContext 项目维护）和 `community`（社区贡献）标注。
 `official` 不代表宿主厂商背书。
 
 | Agent Host | 维护归属 | 接入方式 |
 | --- | --- | --- |
 | [Codex](codex.md) | `official` | Prompt Hook + MCP + Skill |
+| [Antigravity](antigravity.md) | `community` | Lifecycle Hooks + MCP + Skill |
 | [Claude Code](claude-code.md) | `community` | Prompt Hook + MCP + Skill |
 | [DeepSeek Harness](dsh.md) | `community` | HTTP plugin + pc_* + /pc |
 | [Hermes](hermes.md) | `community` | MemoryProvider + /pc |
@@ -53,6 +54,7 @@ powercontext setup
 
 | 宿主 | 自动输入边界 | 关闭捕获 |
 | --- | --- | --- |
+| Antigravity | `PreInvocation` 解包后的 `<USER_REQUEST>` 文本 | `POWERCONTEXT_ANTIGRAVITY_CAPTURE_PROMPTS=false` 或 setup `--no-capture-prompts` |
 | Claude Code | `UserPromptSubmit` 文本 | `POWERCONTEXT_CLAUDE_CAPTURE_PROMPTS=false` 或 setup `--no-capture-prompts` |
 | Codex | `UserPromptSubmit` 文本 | `POWERCONTEXT_CODEX_CAPTURE_PROMPTS=false` |
 | DSH | 每轮模型调用前消息中的用户文本 | `POWERCONTEXT_DSH_CAPTURE_PROMPTS=false` |
@@ -140,7 +142,7 @@ Authorization 和 Cookie 请求头，包括 Proxy-Authorization、Set-Cookie、X
 ## 能力与发布状态
 
 [能力矩阵](capabilities.md)由 `integrations/capabilities.toml` 生成。
-9 个 Agent Host 和 Bub 标为 `master_only`；Pydantic AI 标为 `experimental`。
+10 个 Agent Host 和 Bub 标为 `master_only`；Pydantic AI 标为 `experimental`。
 `released` 表示可从指定发布 tag 获取，`master_only` 表示当前实现尚未发布，`experimental` 不承诺稳定性。
 这些标签与维护归属、Minimal / Recommended / Full 能力等级分别表达不同信息。
 

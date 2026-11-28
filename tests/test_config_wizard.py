@@ -194,6 +194,7 @@ def test_agent_menu_repeats_with_configured_agents_removed(monkeypatch) -> None:
         "pi",
         "hermes",
         "workbuddy",
+        "antigravity",
         "none",
     )
     assert "Capture user prompts as Sources?" not in ui.prompts
