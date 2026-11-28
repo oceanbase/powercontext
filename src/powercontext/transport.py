@@ -38,7 +38,9 @@ def is_loopback_host(host: str | None) -> bool:
 
     Accepts bare hostnames (``localhost``), IPv4 literals anywhere in the
     ``127.0.0.0/8`` block (``127.0.0.1``, ``127.0.0.2``, ...), and IPv6 loopback
-    literals with or without brackets (``::1`` / ``[::1]``).
+    literals with or without brackets (``::1`` / ``[::1]``). IPv4-mapped IPv6
+    literals such as ``::ffff:127.0.0.1`` are not loopback, as in the JavaScript
+    and Desktop transports, whatever the Python version's ``is_loopback`` says.
     """
 
     if not host:
@@ -49,9 +51,10 @@ def is_loopback_host(host: str | None) -> bool:
     if normalized in LOOPBACK_HOSTS:
         return True
     try:
-        return ipaddress.ip_address(normalized).is_loopback
+        address = ipaddress.ip_address(normalized)
     except ValueError:
         return False
+    return address.is_loopback and getattr(address, "ipv4_mapped", None) is None
 
 
 def is_plaintext_non_loopback(url: str) -> bool:

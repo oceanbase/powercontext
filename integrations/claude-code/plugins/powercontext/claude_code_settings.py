@@ -42,9 +42,10 @@ def _is_loopback_host(host: str) -> bool:
     if normalized in _LOOPBACK_HOSTS:
         return True
     try:
-        return ipaddress.ip_address(normalized).is_loopback
+        address = ipaddress.ip_address(normalized)
     except ValueError:
         return False
+    return address.is_loopback and getattr(address, "ipv4_mapped", None) is None
 
 
 @dataclass(frozen=True)
