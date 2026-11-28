@@ -1,0 +1,496 @@
+/*
+ * Copyright (c) 2026 OceanBase.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+/*
+ * The figure kit: diagrams written as static HTML in blog Markdown.
+ *
+ * A figure is a canvas with fixed proportions (`--fw` × `--fh` units). Boxes,
+ * panels, rows and labels are real HTML text placed on it in those units;
+ * an inline SVG with the same viewBox draws the wires between them. One unit
+ * is the canvas width divided by `--fw`, so the whole figure scales like an
+ * image while its words stay text: selectable, searchable, translated per
+ * language and recoloured by the theme.
+ *
+ * The look follows long-form technical articles: ink outlines for the actors,
+ * one accent for the path the text is about, warm grey panels for stores,
+ * dashed lines for what is optional or dropped. Every color is a token from
+ * src/app/sunbeam.css. The authoring guide is the blog-figures skill.
+ */
+
+.scope {
+  --fig-ink: var(--ink-900);
+  --fig-line: var(--ink-800);
+  --fig-muted: var(--ink-500);
+  --fig-faint: var(--ink-400);
+  --fig-hair: var(--ink-200);
+  --fig-card: hsl(0 0% 100%);
+  --fig-panel: var(--ink-100);
+  --fig-panel-strong: var(--ink-200);
+  --fig-accent: var(--primary);
+  --fig-accent-text: var(--primary-text);
+  --fig-accent-wash: color-mix(in oklab, var(--primary) 8%, var(--fig-card));
+  --fig-tint-1: hsl(4 46% 89%);
+  --fig-tint-2: hsl(22 62% 87%);
+  --fig-tint-3: hsl(38 20% 86%);
+  --fig-tint-4: hsl(212 38% 87%);
+  --fig-tint-5: hsl(152 24% 85%);
+}
+
+:global(.dark) .scope {
+  --fig-ink: var(--ink-50);
+  --fig-line: var(--ink-300);
+  --fig-muted: var(--ink-300);
+  --fig-faint: var(--ink-400);
+  --fig-hair: hsl(26 10% 22%);
+  --fig-card: hsl(24 10% 10%);
+  --fig-panel: hsl(24 10% 13.5%);
+  --fig-panel-strong: hsl(24 10% 18%);
+  --fig-accent: hsl(213 100% 66%);
+  --fig-accent-text: var(--blue-300);
+  --fig-accent-wash: hsl(214 45% 14%);
+  --fig-tint-1: hsl(4 22% 22%);
+  --fig-tint-2: hsl(22 28% 21%);
+  --fig-tint-3: hsl(38 10% 20%);
+  --fig-tint-4: hsl(212 24% 21%);
+  --fig-tint-5: hsl(152 16% 19%);
+}
+
+/* Figure and canvas ---------------------------------------------------------- */
+
+.scope :global(figure.fig) {
+  grid-column: wide;
+  margin-top: 2.75em;
+  margin-bottom: 0.5em;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+}
+
+.scope :global(figure.fig) + * {
+  margin-top: 2.25em;
+}
+
+.scope :global(.fig-canvas) {
+  position: relative;
+  width: 100%;
+  min-width: 38rem;
+  aspect-ratio: var(--fw) / var(--fh);
+  container-type: inline-size;
+  color: var(--fig-ink);
+  font-family: var(--font-sans);
+  line-height: 1.3;
+  text-wrap: balance;
+}
+
+/* Everything on the canvas is placed in canvas units. */
+.scope :global(.fig-canvas) > * {
+  --u: calc(100cqi / var(--fw));
+  position: absolute;
+  left: calc(var(--x, 0) * var(--u));
+  top: calc(var(--y, 0) * var(--u));
+  width: calc(var(--w) * var(--u));
+  height: calc(var(--h) * var(--u));
+  box-sizing: border-box;
+  font-size: calc(15 * var(--u));
+}
+
+.scope :global(.fig-canvas) > svg {
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.scope :global(figure.fig) > figcaption {
+  margin-top: 1rem;
+  color: var(--muted-foreground);
+  font-family: var(--font-sans);
+  font-size: 0.875rem;
+  line-height: 1.5;
+  text-align: center;
+  text-wrap: pretty;
+}
+
+/* Wires ------------------------------------------------------------------- */
+
+.scope :global(.fig-wire) {
+  fill: none;
+  stroke: var(--fig-line);
+  stroke-width: 2.25;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.scope :global(.fig-wire.accent) {
+  stroke: var(--fig-accent);
+}
+
+.scope :global(.fig-wire.muted) {
+  stroke: var(--fig-faint);
+}
+
+.scope :global(.fig-wire.dashed) {
+  stroke-dasharray: 7 6;
+  stroke-linecap: butt;
+}
+
+.scope :global(.fig-wire.thin) {
+  stroke-width: 1.5;
+}
+
+/* Boxes --------------------------------------------------------------------- */
+
+/* An actor or step: an ink outline, a bold name, a quiet second line. */
+.scope :global(.fig-box) {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: calc(3 * var(--u));
+  padding: calc(8 * var(--u)) calc(14 * var(--u));
+  border: calc(2 * var(--u)) solid var(--fig-line);
+  border-radius: calc(12 * var(--u));
+  background-color: var(--fig-card);
+  text-align: center;
+}
+
+.scope :global(.fig-box) > b,
+.scope :global(.fig-panel) > header > b,
+.scope :global(.fig-card) > b {
+  font-size: calc(17 * var(--u));
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.scope :global(.fig-box) > span,
+.scope :global(.fig-panel) > header > span,
+.scope :global(.fig-card) > span {
+  color: var(--fig-muted);
+  font-size: calc(14 * var(--u));
+}
+
+.scope :global(.fig-box) > code,
+.scope :global(.fig-card) > code,
+.scope :global(.fig-label) > code {
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+}
+
+.scope :global(.fig-box.start) {
+  align-items: flex-start;
+  text-align: start;
+}
+
+.scope :global(.fig-box.accent) {
+  border-color: var(--fig-accent);
+}
+
+.scope :global(.fig-box.accent) > b {
+  color: var(--fig-accent-text);
+}
+
+/* Something that does not happen, or is set aside. */
+.scope :global(.fig-box.quiet) {
+  border-color: var(--fig-hair);
+}
+
+.scope :global(.fig-box.quiet) > b {
+  color: var(--fig-muted);
+}
+
+.scope :global(.fig-box.dashed) {
+  border-style: dashed;
+}
+
+/* A store or a passive part: a warm grey face and no outline. */
+.scope :global(.fig-box.fill) {
+  border-color: transparent;
+  background-color: var(--fig-panel);
+}
+
+/* The one result of a figure: a solid ink face. */
+.scope :global(.fig-box.solid) {
+  border-color: var(--fig-ink);
+  background-color: var(--fig-ink);
+  color: var(--fig-card);
+}
+
+.scope :global(.fig-box.solid) > span {
+  color: color-mix(in oklab, var(--fig-card) 72%, transparent);
+}
+
+/* Categories that need telling apart, such as the stages of a loop. */
+.scope :global(.fig-box:is(.tint-1, .tint-2, .tint-3, .tint-4, .tint-5)) {
+  border-color: transparent;
+}
+
+.scope :global(.fig-box.tint-1) { background-color: var(--fig-tint-1); }
+.scope :global(.fig-box.tint-2) { background-color: var(--fig-tint-2); }
+.scope :global(.fig-box.tint-3) { background-color: var(--fig-tint-3); }
+.scope :global(.fig-box.tint-4) { background-color: var(--fig-tint-4); }
+.scope :global(.fig-box.tint-5) { background-color: var(--fig-tint-5); }
+
+.scope :global(.fig-box.round) {
+  border-radius: 999px;
+}
+
+/* Panels ------------------------------------------------------------------ */
+
+/* A region that holds other parts: a store, a service, a boundary. */
+.scope :global(.fig-panel) {
+  border-radius: calc(16 * var(--u));
+  background-color: var(--fig-panel);
+}
+
+.scope :global(.fig-panel) > header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: calc(4 * var(--u)) calc(10 * var(--u));
+  padding: calc(14 * var(--u)) calc(18 * var(--u));
+}
+
+.scope :global(.fig-panel.center) > header {
+  justify-content: center;
+}
+
+.scope :global(.fig-panel.accent) > header > b {
+  color: var(--fig-accent-text);
+}
+
+.scope :global(.fig-panel.outline) {
+  border: calc(2 * var(--u)) solid var(--fig-line);
+  background-color: transparent;
+}
+
+.scope :global(.fig-panel.outline.accent) {
+  border-color: var(--fig-accent);
+}
+
+.scope :global(.fig-panel.dashed) {
+  border: calc(2 * var(--u)) dashed var(--fig-faint);
+  background-color: transparent;
+}
+
+.scope :global(.fig-panel.dashed.accent) {
+  border-color: var(--fig-accent);
+}
+
+.scope :global(.fig-panel.frame) {
+  border: calc(1.5 * var(--u)) solid var(--fig-hair);
+  background-color: transparent;
+}
+
+/* Cards and rows ------------------------------------------------------------- */
+
+/* A record inside a panel: a card face with a hairline. */
+.scope :global(.fig-card) {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: calc(3 * var(--u));
+  padding: calc(8 * var(--u)) calc(14 * var(--u));
+  border: calc(1.5 * var(--u)) solid var(--fig-hair);
+  border-radius: calc(10 * var(--u));
+  background-color: var(--fig-card);
+}
+
+.scope :global(.fig-card.center) {
+  align-items: center;
+  text-align: center;
+}
+
+.scope :global(.fig-card.accent) {
+  border: calc(2 * var(--u)) solid var(--fig-accent);
+}
+
+.scope :global(.fig-card.accent) > b {
+  color: var(--fig-accent-text);
+}
+
+.scope :global(.fig-card.quiet) {
+  border-style: dashed;
+  background-color: transparent;
+  color: var(--fig-muted);
+}
+
+.scope :global(.fig-card.quiet) > span {
+  color: var(--fig-faint);
+}
+
+/*
+ * Rows of a table-like store. Each row is a grid of columns sized by
+ * `--cols`; `.accent` outlines a group of rows, `.quiet` marks one as
+ * dropped. A cell in <em> is a status, in accent when the group is.
+ */
+.scope :global(.fig-rows) {
+  display: flex;
+  flex-direction: column;
+  border: calc(1.5 * var(--u)) solid var(--fig-hair);
+  border-radius: calc(10 * var(--u));
+  background-color: var(--fig-card);
+  overflow: hidden;
+}
+
+.scope :global(.fig-rows.accent) {
+  border: calc(2 * var(--u)) solid var(--fig-accent);
+}
+
+.scope :global(.fig-rows.quiet) {
+  border-style: dashed;
+  border-color: var(--fig-faint);
+  background-color: transparent;
+  color: var(--fig-muted);
+}
+
+.scope :global(.fig-rows.head) {
+  border-color: transparent;
+  background-color: transparent;
+  color: var(--fig-muted);
+  font-weight: 600;
+}
+
+.scope :global(.fig-rows) > div {
+  display: grid;
+  flex: 1;
+  grid-template-columns: var(--cols, 1fr);
+  align-items: center;
+  gap: calc(12 * var(--u));
+  padding: 0 calc(14 * var(--u));
+}
+
+.scope :global(.fig-rows) > div + div {
+  border-top: calc(1.25 * var(--u)) solid var(--fig-hair);
+}
+
+.scope :global(.fig-rows) > div > :first-child {
+  color: var(--fig-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.scope :global(.fig-rows) em {
+  justify-self: end;
+  color: var(--fig-muted);
+  font-style: normal;
+}
+
+.scope :global(.fig-rows.accent) em {
+  color: var(--fig-accent-text);
+  font-weight: 600;
+}
+
+/* Labels -------------------------------------------------------------------- */
+
+/* Words on a wire or beside a part. Place by the top-left corner. */
+.scope :global(.fig-label) {
+  font-size: calc(14 * var(--u));
+  line-height: 1.25;
+  white-space: nowrap;
+}
+
+.scope :global(.fig-label.wrap) {
+  white-space: normal;
+}
+
+.scope :global(.fig-label.center) {
+  translate: -50% 0;
+  text-align: center;
+}
+
+.scope :global(.fig-label.end) {
+  translate: -100% 0;
+  text-align: end;
+}
+
+.scope :global(.fig-label.accent) {
+  color: var(--fig-accent-text);
+  font-weight: 600;
+}
+
+.scope :global(.fig-label.strong) {
+  font-weight: 600;
+}
+
+.scope :global(.fig-label.muted) {
+  color: var(--fig-muted);
+}
+
+.scope :global(.fig-label.small) {
+  font-size: calc(12.5 * var(--u));
+}
+
+/* A short tag, such as the name of a loop or a state. */
+.scope :global(.fig-chip) {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: calc(4 * var(--u)) calc(12 * var(--u));
+  border-radius: 999px;
+  background-color: var(--fig-panel);
+  font-size: calc(13.5 * var(--u));
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.scope :global(.fig-chip.accent) {
+  background-color: var(--fig-accent-wash);
+  color: var(--fig-accent-text);
+}
+
+/* A start or end point of a state machine. */
+.scope :global(.fig-dot) {
+  border-radius: 999px;
+  background-color: var(--fig-ink);
+}
+
+.scope :global(.fig-dot.end) {
+  border: calc(2 * var(--u)) solid var(--fig-ink);
+  background-color: transparent;
+  box-shadow: inset 0 0 0 calc(4 * var(--u)) var(--fig-card), inset 0 0 0 calc(12 * var(--u)) var(--fig-ink);
+}
+
+.scope :global(:is(.fig-box, .fig-card)) > span:global(.accent) {
+  color: var(--fig-accent-text);
+  font-size: calc(17 * var(--u));
+  font-weight: 600;
+}
+
+.scope :global(.fig-rows) > div > strong {
+  color: var(--fig-accent-text);
+  font-weight: 600;
+}
+
+/* Panels lie under the wires; boxes, cards and words lie over them. */
+.scope :global(.fig-canvas) > :global(.fig-panel) {
+  z-index: 0;
+}
+
+.scope :global(.fig-canvas) > svg {
+  z-index: 1;
+}
+
+.scope :global(.fig-canvas) > :not(svg, :global(.fig-panel)) {
+  z-index: 2;
+}
+
+/* Code in a figure is set in the mono face without the prose chip. */
+.scope :global(.fig-canvas) code {
+  padding: 0;
+  border-radius: 0;
+  background: none;
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+}

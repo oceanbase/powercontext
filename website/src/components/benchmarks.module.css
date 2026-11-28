@@ -1,0 +1,221 @@
+/*
+ * Copyright (c) 2026 OceanBase.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+/* A section's mark: a small square in the result colour. */
+.mark {
+  display: inline-block;
+  flex-shrink: 0;
+  width: 0.6em;
+  height: 0.6em;
+  border-radius: 2px;
+  background: var(--primary);
+}
+
+/*
+ * Column chart. Every column has the same plot height, so baselines line up
+ * whatever its label wraps to; gridlines sit at quarters behind the bars.
+ */
+.chart {
+  display: flex;
+  min-width: 0;
+}
+
+.group {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.group + .group {
+  border-left: 1px dashed var(--border);
+}
+
+.columns {
+  display: flex;
+  flex: 1;
+}
+
+.column {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.track {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  height: 11rem;
+  padding-top: 1.75rem;
+  border-bottom: 1px solid var(--border);
+  background-image: linear-gradient(to top, var(--border) 1px, transparent 1px);
+  background-origin: content-box;
+  background-clip: content-box;
+  background-position: bottom;
+  background-size: 100% 25%;
+}
+
+.bar {
+  position: relative;
+  width: calc(100% - 0.75rem);
+  max-width: 3.25rem;
+  height: var(--h);
+  min-height: 2px;
+  border-radius: 6px 6px 0 0;
+  background: color-mix(in oklab, var(--foreground) 22%, var(--card));
+}
+
+.bar[data-highlight] {
+  background: var(--primary);
+}
+
+
+.value {
+  position: absolute;
+  bottom: calc(100% + 0.375rem);
+  left: 50%;
+  translate: -50% 0;
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.bar[data-highlight] .value {
+  color: var(--primary-text);
+  font-weight: 600;
+}
+
+.label {
+  padding: 0.5rem 0.125rem 0;
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+  line-height: 1.3;
+  text-align: center;
+  text-wrap: balance;
+}
+
+.label[data-highlight] {
+  color: var(--foreground);
+  font-weight: 500;
+}
+
+.groupLabel {
+  padding-top: 0.5rem;
+  color: var(--foreground);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  text-align: center;
+}
+
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 1rem;
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+}
+
+.legend > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+}
+
+.legend > span::before {
+  content: '';
+  width: 0.625rem;
+  height: 0.625rem;
+  border-radius: 2px;
+  background: color-mix(in oklab, var(--foreground) 22%, var(--card));
+}
+
+.legend > span[data-highlight]::before {
+  background: var(--primary);
+}
+
+/* Section navigation: squares, the current one filled. */
+.sectionNav {
+  position: sticky;
+  top: 6rem;
+}
+
+.sectionNav ul {
+  display: grid;
+  gap: 0.125rem;
+}
+
+.sectionNav a {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  padding-block: 0.375rem;
+  color: var(--muted-foreground);
+  font-size: 0.875rem;
+  transition: color var(--duration-press, 150ms) ease-out;
+}
+
+.sectionNav a::before {
+  content: '';
+  flex-shrink: 0;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 1px;
+  background: var(--border);
+  transition: background-color var(--duration-press, 150ms) ease-out;
+}
+
+.sectionNav a:hover {
+  color: var(--foreground);
+}
+
+.sectionNav a[aria-current] {
+  color: var(--foreground);
+  font-weight: 500;
+}
+
+.sectionNav a[aria-current]::before {
+  background: var(--foreground);
+}
+
+
+/* Bars grow from the baseline the first time their chart is in view, one after another. */
+@media (prefers-reduced-motion: no-preference) {
+  :global([data-reveal]:not([data-inview])) .bar {
+    height: 0;
+    min-height: 0;
+  }
+
+  :global([data-inview]) .bar {
+    animation: grow 900ms var(--ease-out, cubic-bezier(0.16, 1, 0.3, 1)) calc(var(--i, 0) * 80ms) both;
+  }
+}
+
+@keyframes grow {
+  from {
+    height: 0;
+    min-height: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sectionNav a,
+  .sectionNav a::before {
+    transition: none;
+  }
+}

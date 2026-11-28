@@ -1,0 +1,87 @@
+/*
+ * Copyright (c) 2026 OceanBase.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+/*
+ * The site's design system is Sunbeam, from @astrafoundry/design: its tokens,
+ * Tailwind theme, flat and raised materials, base styles and type stacks all
+ * come from the package. This file holds only what PowerContext changes.
+ *
+ * PowerContext blue takes Sunbeam's single-accent slot, so it marks the one
+ * primary action on a page and the result of a scene, nothing else; chosen
+ * and current states stay ink. Light and dark differ only here, in tokens.
+ */
+
+@import '@astrafoundry/design/styles.css';
+
+:root,
+.light {
+  --blue-100: hsl(214 100% 94%);
+  --blue-300: hsl(213 100% 72%);
+  --blue-500: hsl(215 92% 50%);
+  --blue-700: hsl(217 88% 36%);
+
+  --primary: var(--blue-500);
+  --primary-foreground: hsl(0 0% 100%);
+  /* The accent as text on the page ground, at AA contrast. */
+  --primary-text: var(--blue-700);
+  --accent: var(--blue-100);
+  --accent-foreground: var(--blue-700);
+  --ring: var(--blue-500);
+  --warning: hsl(36 92% 44%);
+  --art-accent: var(--primary);
+  --art-accent-ink: var(--blue-700);
+  --raised-primary-from: hsl(214 96% 58%);
+  --raised-primary-to: hsl(215 92% 48%);
+  --raised-primary-edge: rgb(0 40 120 / 0.24);
+  --raised-primary-highlight: rgb(255 255 255 / 0.32);
+
+  /* Fumadocs' sidebar is flat chrome on the page ground. */
+  --sidebar: var(--background);
+  --sidebar-foreground: var(--foreground);
+  --sidebar-border: var(--border);
+  --sidebar-accent: var(--flat-face);
+  --sidebar-accent-foreground: var(--foreground);
+  --sidebar-ring: var(--ring);
+  --sidebar-primary-foreground: var(--background);
+
+  /* Short names for the type stacks, used by the site's own stylesheets. */
+  --font-display: var(--font-stack-display);
+  --font-sans: var(--font-stack-sans);
+  --font-mono: var(--font-stack-mono);
+}
+
+.dark {
+  --primary: hsl(213 100% 66%);
+  --primary-foreground: var(--ink-900);
+  --primary-text: var(--blue-300);
+  --accent: hsl(214 60% 15%);
+  --accent-foreground: var(--blue-300);
+  --ring: hsl(213 100% 66%);
+  --art-accent-ink: var(--blue-300);
+  --raised-primary-from: hsl(213 100% 70%);
+  --raised-primary-to: hsl(214 96% 62%);
+}
+
+@theme inline {
+  --color-primary-text: var(--primary-text);
+}
+
+@layer base {
+  ::selection {
+    background-color: color-mix(in oklab, var(--primary) 26%, transparent);
+    color: inherit;
+  }
+}

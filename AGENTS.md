@@ -160,6 +160,9 @@ commands, links, and technical meaning. The user need not supply a translation o
 front matter. Derive the summary and stable slug from the article, reuse known author profiles,
 and ask only for missing facts such as a new author's identity or photo; never invent them.
 
+Diagrams in posts are static HTML figures, not image files; follow
+[`.claude/skills/blog-figures/SKILL.md`](.claude/skills/blog-figures/SKILL.md) to add or change one.
+
 Keep counterpart posts at matching relative paths with identical slugs, publication/update
 dates, author IDs, draft status, and pin status. Localize titles, summaries, body text,
 category names, and author biographies; share author photos and article assets. Apply edits

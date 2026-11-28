@@ -20,6 +20,7 @@ import { Provider } from '@/components/provider';
 import { defaultLanguage, languagePreferenceKey } from '@/lib/i18n';
 import { siteMetadata } from '@/lib/metadata';
 import { withBasePath } from '@/lib/urls';
+import { fontVariables } from '../fonts';
 import '../global.css';
 
 export const metadata = siteMetadata;
@@ -50,7 +51,7 @@ const languageRedirectScript = `
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html lang="en" className={fontVariables} suppressHydrationWarning>
       <body>
         <Script
           dangerouslySetInnerHTML={{ __html: languageRedirectScript }}

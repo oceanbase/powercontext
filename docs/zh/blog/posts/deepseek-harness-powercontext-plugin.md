@@ -50,7 +50,19 @@ pnpm dsh web
 Cordis 把 Harness 反过来组织：能力不是固化在主程序里的模块，而是配置树上的可组合插件。插件注册的工具、命令、
 事件和服务都是可回收的 effect；移除插件时，对应能力也会从运行时消失。
 
-[![能力通过插件组合](../../../assets/blog/deepseek-harness-powercontext/cordis-plugin-tree.zh.svg)](../../../assets/blog/deepseek-harness-powercontext/cordis-plugin-tree.zh.svg "查看大图")
+<figure class="fig" id="fig-cordis-plugin-tree">
+<div class="fig-canvas" style="--fw:960;--fh:300" role="img" aria-label="能力通过插件组合">
+<svg viewBox="0 0 960 300">
+<path class="fig-wire" d="M480 76 L480 106 Q480 116 470 116 L160 116 Q150 116 150 126 L150 154" marker-end="url(#fig-arrow)"/>
+<path class="fig-wire" d="M480 76 L480 154" marker-end="url(#fig-arrow)"/>
+<path class="fig-wire accent" d="M480 76 L480 106 Q480 116 490 116 L800 116 Q810 116 810 126 L810 154" marker-end="url(#fig-arrow-accent)"/>
+</svg>
+<div class="fig-box" style="--x:180;--y:0;--w:600;--h:76"><b>Harness · Cordis 内核</b><span>组合各插件提供的能力</span></div>
+<div class="fig-card" style="--x:0;--y:160;--w:300;--h:112"><b>模型与工具</b><span>模型适配器负责路由</span><span>工具通过 <code>defineTool</code> 注册</span></div>
+<div class="fig-card" style="--x:330;--y:160;--w:300;--h:112"><b>会话与界面</b><span>工作区、会话与 Web 界面</span><span>各自作为插件</span></div>
+<div class="fig-card accent" style="--x:660;--y:160;--w:300;--h:112"><b>powercontext-dsh</b><span>项目记忆召回</span><span>与工作交接</span></div>
+</div>
+</figure>
 
 DeepSeek Harness 中有两个容易混淆的概念：
 
@@ -67,7 +79,21 @@ DeepSeek Harness 中有两个容易混淆的概念：
 1. **DeepSeek Harness** 管理会话和 Agent 循环。PowerContext DSH 插件运行在这个进程内，注册钩子、`pc_*` 工具、`/pc` 命令和使用说明。
 2. **PowerContext Server** 是独立 Python 进程，默认监听 `http://127.0.0.1:8000`，负责持久化、检索、审核和 Handoff。
 
-[![两个进程，通过 HTTP 连接](../../../assets/blog/deepseek-harness-powercontext/two-process-architecture.zh.svg)](../../../assets/blog/deepseek-harness-powercontext/two-process-architecture.zh.svg "查看大图")
+<figure class="fig" id="fig-two-process-architecture">
+<div class="fig-canvas" style="--fw:960;--fh:270" role="img" aria-label="两个进程，通过 HTTP 连接">
+<svg viewBox="0 0 960 270">
+<path class="fig-wire" d="M180 138 L258 138" marker-end="url(#fig-arrow)"/>
+<path class="fig-wire accent" d="M536 138 L658 138" marker-end="url(#fig-arrow-accent)"/>
+</svg>
+<div class="fig-box" style="--x:0;--y:92;--w:180;--h:92"><b>浏览器</b><span>本地 Harness 界面</span></div>
+<div class="fig-panel" style="--x:240;--y:0;--w:320;--h:270"><header><b>DeepSeek Harness</b><span>Node 进程</span></header></div>
+<div class="fig-box accent" style="--x:264;--y:72;--w:272;--h:132"><b>powercontext-dsh</b><span><code>prepare_context</code></span><span><code>capture_source</code></span><span><code>pc_*</code> 工具</span></div>
+<div class="fig-panel" style="--x:640;--y:0;--w:320;--h:270"><header><b>PowerContext Server</b><span>Python 进程</span></header></div>
+<div class="fig-box" style="--x:664;--y:72;--w:272;--h:132"><b>HTTP /v1</b><span>记忆与检索</span></div>
+<span class="fig-label accent center small" style="--x:600;--y:112">HTTP</span>
+<span class="fig-label muted small wrap" style="--x:0;--y:200;--w:180">浏览器不直接调用 Server</span>
+</div>
+</figure>
 
 浏览器不会直接访问 PowerContext Server。Harness 插件负责 HTTP 调用，因此本地 Web UI 不需要处理额外的 CORS；
 需要连通的是运行 `dsh web` 的机器与 PowerContext Server。
@@ -152,7 +178,30 @@ PowerContext 的公开 API 不应该全部变成模型工具，否则工具表�
 Source 采集不等于 Memory 提取。显式写入 Memory 不需要 generation model；若希望 Server 从 Source 自动提取 Memory，
 仍需配置 generation model。
 
-[![每轮模型调用前的召回与采集](../../../assets/blog/deepseek-harness-powercontext/recall-timeline.zh.svg)](../../../assets/blog/deepseek-harness-powercontext/recall-timeline.zh.svg "查看大图")
+<figure class="fig" id="fig-recall-timeline">
+<div class="fig-canvas" style="--fw:960;--fh:236" role="img" aria-label="每轮模型调用前的召回与采集">
+<svg viewBox="0 0 960 236">
+<path class="fig-wire" d="M172 156 L191 156" marker-end="url(#fig-arrow)"/>
+<path class="fig-wire" d="M369 156 L388 156" marker-end="url(#fig-arrow)"/>
+<path class="fig-wire" d="M566 156 L585 156" marker-end="url(#fig-arrow)"/>
+<path class="fig-wire" d="M763 156 L782 156" marker-end="url(#fig-arrow)"/>
+<path class="fig-wire muted thin" d="M197 48 L197 40 Q197 36 201 36 L759 36 Q763 36 763 40 L763 48"/>
+<path class="fig-wire muted thin" d="M788 48 L788 40 Q788 36 792 36 L956 36 Q960 36 960 40 L960 48"/>
+</svg>
+<span class="fig-label muted small" style="--x:0;--y:74">01</span>
+<div class="fig-box start" style="--x:0;--y:96;--w:172;--h:120"><b>用户输入</b><span>用户消息进入 Harness</span></div>
+<span class="fig-label muted small" style="--x:197;--y:74">02</span>
+<div class="fig-box start accent" style="--x:197;--y:96;--w:172;--h:120"><b><code>prepare_context</code></b><span>从 Server 获取有预算边界的上下文</span></div>
+<span class="fig-label muted small" style="--x:394;--y:74">03</span>
+<div class="fig-box start" style="--x:394;--y:96;--w:172;--h:120"><b>注入证据</b><span>作为不可信历史，不作为指令</span></div>
+<span class="fig-label muted small" style="--x:591;--y:74">04</span>
+<div class="fig-box start accent" style="--x:591;--y:96;--w:172;--h:120"><b><code>capture_source</code></b><span>将用户输入保存为 Source</span></div>
+<span class="fig-label muted small" style="--x:788;--y:74">05</span>
+<div class="fig-box start" style="--x:788;--y:96;--w:172;--h:120"><b>按需使用记忆</b><span>模型通过 <code>pc_remember</code> / <code>pc_search</code> 显式读写</span></div>
+<span class="fig-label muted small center" style="--x:480;--y:10">每次模型调用之前</span>
+<span class="fig-label muted small center" style="--x:874;--y:10">模型执行期间</span>
+</div>
+</figure>
 
 召回和采集采用 fail-open：Server 停止或请求超时不会中断正常对话。项目隔离则优先使用工作区规范化后的 Git remote，
 没有 remote 时使用工作区路径；也可以通过 `POWERCONTEXT_DSH_SCOPE_ID` 设置稳定 scope。

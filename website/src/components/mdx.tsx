@@ -52,11 +52,16 @@ export function createPageLink(page: SourcePage): FC<ComponentProps<'a'>> {
 export function getMDXComponents(components?: MDXComponents) {
   return {
     ...defaultMdxComponents,
-    img: ({ src, ...props }: ComponentProps<'img'>) => {
+    img: ({ src, width, height, ...props }: ComponentProps<'img'>) => {
       const Image = defaultMdxComponents.img;
       const localSource = typeof src === 'string' && src.startsWith('/') && !src.startsWith('//');
       const imageSource = localSource && basePath && !src.startsWith(`${basePath}/`) ? withBasePath(src) : src;
-      return <Image {...props} src={imageSource} />;
+      // SVG sizes can be fractional; next/image accepts whole pixels only.
+      const pixels = (value: typeof width) => {
+        const number = Number(value);
+        return value === undefined || Number.isNaN(number) ? value : Math.round(number);
+      };
+      return <Image {...props} height={pixels(height)} src={imageSource} width={pixels(width)} />;
     },
     ...components,
   } satisfies MDXComponents;

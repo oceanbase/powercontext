@@ -16,89 +16,134 @@
 
 import Link from 'next/link';
 import { AuthorSocialLinks } from './blog-author-socials';
+import { Dateline, EntryRow, editorial as styles } from './editorial';
 import { blog } from '@/lib/blog';
 import type { BlogAuthor, BlogLanguage, BlogPost } from '@/lib/blog-content';
 import { withBasePath } from '@/lib/urls';
-import styles from './blog.module.css';
 
-export function AuthorPhoto({ author, large = false }: { author: BlogAuthor; large?: boolean }) {
-  const src = author.avatar.startsWith('assets/') ? withBasePath(`/docs-assets/${author.avatar.slice(7)}`) : author.avatar;
-  return <img className={large ? styles.authorPhoto : styles.avatar} src={src} width={large ? 64 : 32} height={large ? 64 : 32} alt={author.name} loading="lazy" />;
+const copy = {
+  en: { pinned: 'Pinned', page: (n: number) => `Page ${n}`, pagination: 'Blog pagination', previous: 'Previous', next: 'Next' },
+  zh: { pinned: '置顶', page: (n: number) => `第 ${n} 页`, pagination: '博客分页', previous: '上一页', next: '下一页' },
+} as const;
+
+function authorPath(lang: BlogLanguage, id: string) {
+  return `/${lang}/blog/authors/${id}`;
 }
 
-export function CoverImage({ post, priority = false }: { post: BlogPost; priority?: boolean }) {
+function avatarSource(author: BlogAuthor) {
+  return author.avatar.startsWith('assets/') ? withBasePath(`/docs-assets/${author.avatar.slice(7)}`) : author.avatar;
+}
+
+/** An avatar beside a visible name, so it stays out of the accessibility tree. */
+export function AuthorPhoto({ author, large = false }: { author: BlogAuthor; large?: boolean }) {
+  const size = large ? 64 : 24;
+  return <img alt="" className={large ? styles.avatarLarge : styles.avatar} decoding="async"
+    height={size} loading="lazy" src={avatarSource(author)} width={size} />;
+}
+
+export function CoverImage({ post, priority = false, small = false }: {
+  post: BlogPost;
+  priority?: boolean;
+  small?: boolean;
+}) {
   if (!post.cover) return null;
-  return <span className={styles.coverFrame}>
+  return <span className={styles.cover} data-size={small ? 'small' : undefined}>
     <span className={styles.coverBrand}>
-      <img src={withBasePath('/powercontext-color.png')} alt="PowerContext" width={1696} height={240} decoding="async" />
+      <img alt="PowerContext" decoding="async" height={240} src={withBasePath('/powercontext-color.png')} width={1696} />
     </span>
-    <img className={styles.coverImage} src={withBasePath(`/docs-assets/${post.cover.slice(7)}`)}
-      alt={post.coverAlt} width={1600} height={900} loading={priority ? 'eager' : 'lazy'} decoding="async" />
+    <img alt={small ? '' : post.coverAlt} className={styles.coverImage} decoding="async" height={900}
+      loading={priority ? 'eager' : 'lazy'} src={withBasePath(`/docs-assets/${post.cover.slice(7)}`)} width={1600} />
   </span>;
 }
 
-export function Byline({ post, lang }: { post: BlogPost; lang: BlogLanguage }) {
-  return <>{post.authors.map((id) => {
-    const author = blog[lang].authors[id];
-    return <Link key={id} href={`/${lang}/blog/authors/${id}`}><AuthorPhoto author={author} /><span>{author.name}</span></Link>;
-  })}</>;
+function labelsFor(post: BlogPost, lang: BlogLanguage) {
+  return [post.categories.join(' · ') || null, post.pin ? copy[lang].pinned : null];
 }
 
-export function AuthorCard({ author, lang }: { author: BlogAuthor; lang: BlogLanguage }) {
-  return <div className={styles.authorCard}>
-    <AuthorPhoto author={author} />
-    <div className={styles.authorIdentity}>
-      <Link href={`/${lang}/blog/authors/${author.id}`}>{author.name}</Link>
-      {author.description && <p>{author.description}</p>}
-      <AuthorSocialLinks author={author} className={styles.authorSocials} />
+/** Authors in a list: overlapping avatars, then the names in one quiet line. */
+export function AuthorSummary({ post, lang }: { post: BlogPost; lang: BlogLanguage }) {
+  const authors = post.authors.map((id) => blog[lang].authors[id]);
+  if (!authors.length) return null;
+  return <span className={styles.authors}>
+    <span className={styles.avatarGroup}>{authors.map((author) => <AuthorPhoto author={author} key={author.id} />)}</span>
+    <span>{new Intl.ListFormat(lang === 'zh' ? 'zh-CN' : 'en', { type: 'conjunction' }).format(authors.map((author) => author.name))}</span>
+  </span>;
+}
+
+/** A post byline: each author's avatar and name, linked to their page. */
+export function Byline({ post, lang }: { post: BlogPost; lang: BlogLanguage }) {
+  return <address className={`${styles.byline} not-italic`}>
+    {post.authors.map((id) => {
+      const author = blog[lang].authors[id];
+      return <Link href={authorPath(lang, id)} key={id}><AuthorPhoto author={author} />{author.name}</Link>;
+    })}
+  </address>;
+}
+
+/** The authors after an article: who they are and where to find them. */
+export function AuthorCards({ post, lang }: { post: BlogPost; lang: BlogLanguage }) {
+  if (!post.authors.length) return null;
+  return <section aria-labelledby="post-authors" className={styles.authorsFooter} data-count={post.authors.length}>
+    <h2 id="post-authors">{lang === 'zh' ? '关于作者' : post.authors.length > 1 ? 'About the authors' : 'About the author'}</h2>
+    {post.authors.map((id) => {
+      const author = blog[lang].authors[id];
+      return <div className={styles.authorCard} key={id}>
+        <AuthorPhoto author={author} />
+        <div>
+          <Link className={styles.authorName} href={authorPath(lang, id)}>{author.name}</Link>
+          {author.description ? <p className={styles.authorRole}>{author.description}</p> : null}
+          <AuthorSocialLinks author={author} className={styles.socials} />
+        </div>
+      </div>;
+    })}
+  </section>;
+}
+
+/**
+ * The newest post, given the room of a magazine lead: its cover beside the
+ * title, description and authors.
+ */
+export function FeaturedPost({ post, lang }: { post: BlogPost; lang: BlogLanguage }) {
+  const href = `/${lang}/blog/${post.slug}`;
+  return <article className={`${styles.featured} ${styles.entry}`}>
+    <Link aria-hidden="true" href={href} tabIndex={-1}><CoverImage post={post} priority /></Link>
+    <div className={styles.featuredBody}>
+      <div className={styles.metaRow}>
+        <AuthorSummary lang={lang} post={post} />
+        <Dateline date={post.date} labels={labelsFor(post, lang)} lang={lang} />
+      </div>
+      <h2 className={styles.featuredTitle}><Link className={styles.linkTitle} href={href}>{post.title}</Link></h2>
+      <p className={styles.featuredLead}>{post.description}</p>
     </div>
-  </div>;
+  </article>;
+}
+
+/** Posts as rows, newest first: authors, date and category on one line, the post, then its cover. */
+export function PostList({ posts, lang }: { posts: BlogPost[]; lang: BlogLanguage }) {
+  return <ul className={styles.list}>
+    {posts.map((post) => <li key={post.slug}>
+      <EntryRow byline={<AuthorSummary lang={lang} post={post} />} date={post.date} href={`/${lang}/blog/${post.slug}`}
+        labels={labelsFor(post, lang)} lang={lang} thumb={<CoverImage post={post} small />} title={post.title}>
+        <p className={styles.rowText}>{post.description}</p>
+      </EntryRow>
+    </li>)}
+  </ul>;
 }
 
 export function BlogPagination({ base, page, pages, lang }: { base: string; page: number; pages: number; lang: BlogLanguage }) {
   if (pages <= 1) return null;
+  const text = copy[lang];
   const href = (number: number) => number === 1 ? base : `${base}/page/${number}`;
-  const numbers = Array.from({ length: pages }, (_, i) => i + 1).filter((number) => number === 1 || number === pages || Math.abs(number - page) <= 2);
-  return <nav className={styles.pagination} aria-label={lang === 'zh' ? '博客分页' : 'Blog pagination'}>
-    {page > 1 && <Link href={href(page - 1)} rel="prev">{lang === 'zh' ? '上一页' : 'Previous'}</Link>}
-    {numbers.map((number, index) => <span key={number} style={{ padding: 0, gap: 8 }}>
-      {index > 0 && number - numbers[index - 1] > 1 && <span aria-hidden="true">…</span>}
-      {number === page ? <span aria-current="page">{number}</span> : <Link href={href(number)} aria-label={lang === 'zh' ? `第 ${number} 页` : `Page ${number}`}>{number}</Link>}
+  const numbers = Array.from({ length: pages }, (_, i) => i + 1)
+    .filter((number) => number === 1 || number === pages || Math.abs(number - page) <= 2);
+  return <nav aria-label={text.pagination} className={styles.pagination}>
+    {page > 1 && <Link href={href(page - 1)} rel="prev">{text.previous}</Link>}
+    {numbers.map((number, index) => <span className="contents" key={number}>
+      {index > 0 && number - numbers[index - 1] > 1 && <span aria-hidden="true" className={styles.ellipsis}>…</span>}
+      {number === page
+        ? <span aria-current="page">{number}</span>
+        : <Link aria-label={text.page(number)} href={href(number)}>{number}</Link>}
     </span>)}
-    {page < pages && <Link href={href(page + 1)} rel="next">{lang === 'zh' ? '下一页' : 'Next'}</Link>}
+    {page < pages && <Link href={href(page + 1)} rel="next">{text.next}</Link>}
   </nav>;
-}
-
-export function PostDate({ date, lang }: { date: string; lang: BlogLanguage }) {
-  return <time className={styles.date} dateTime={date}>{new Intl.DateTimeFormat(lang === 'zh' ? 'zh-CN' : 'en-US', {
-    year: 'numeric', month: 'short', day: 'numeric', timeZone: 'UTC',
-  }).format(new Date(`${date}T00:00:00Z`))}</time>;
-}
-
-export function BlogHighlights({ posts, lang }: { posts: BlogPost[]; lang: BlogLanguage }) {
-  const [lead, ...others] = posts.slice(0, 3);
-  if (!lead) return null;
-  const root = `/${lang}/blog`;
-  return <section className={styles.highlights} aria-labelledby="latest-heading">
-    <div className={styles.sectionBar}>
-      <h2 id="latest-heading">{lang === 'zh' ? '最新文章' : 'Latest stories'}</h2>
-      <Link href="#all-posts">{lang === 'zh' ? '浏览全部文章' : 'Browse all articles'} <span aria-hidden="true">↘</span></Link>
-    </div>
-    <div className={styles.featureGrid}>
-      <article className={styles.lead}>
-        <Link className={styles.coverLink} href={`${root}/${lead.slug}`} aria-label={lead.title}><CoverImage post={lead} priority /></Link>
-        <div className={styles.featureMeta}><span>{lead.categories.join(' · ')}</span><PostDate date={lead.date} lang={lang} />{lead.pin && <span>{lang === 'zh' ? '置顶' : 'Pinned'}</span>}</div>
-        <h3><Link href={`${root}/${lead.slug}`}>{lead.title}</Link></h3>
-        <p>{lead.description}</p>
-        <div className={styles.featureBottom}><div className={styles.byline}><Byline post={lead} lang={lang} /></div><Link className={styles.read} href={`${root}/${lead.slug}`}>{lang === 'zh' ? '阅读全文' : 'Read story'} <span aria-hidden="true">↗</span></Link></div>
-      </article>
-      {others.length > 0 && <div className={styles.secondaryStories}>{others.map((post) => <article key={post.slug} className={styles.secondaryStory}>
-        <Link className={styles.coverLink} href={`${root}/${post.slug}`} aria-label={post.title}><CoverImage post={post} /></Link>
-        <div className={styles.featureMeta}><span>{post.categories.join(' · ')}</span><PostDate date={post.date} lang={lang} /></div>
-        <h3><Link href={`${root}/${post.slug}`}>{post.title}</Link></h3>
-        <p>{post.description}</p>
-        <div className={styles.byline}><Byline post={post} lang={lang} /></div>
-      </article>)}</div>}
-    </div>
-  </section>;
 }

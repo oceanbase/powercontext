@@ -28,13 +28,11 @@ const labels = {
     docs: 'Docs',
     blog: 'Blog',
     benchmarks: 'Benchmarks',
-    changelog: 'Changelog',
   },
   zh: {
     docs: '文档',
     blog: '博客',
     benchmarks: '基准测试',
-    changelog: '更新日志',
   },
 } as const;
 
@@ -50,10 +48,9 @@ export function baseOptions(lang: Language): BaseLayoutProps {
       url: lang === defaultLanguage ? '/' : `/${lang}`,
     },
     links: [
-      { text: label.docs, url: `/${lang}/docs` },
-      { text: label.benchmarks, url: `/${lang}/benchmarks` },
-      { text: label.changelog, url: `/${lang}/changelog` },
-      { text: label.blog, url: `/${lang}/blog` },
+      { text: label.docs, url: `/${lang}/docs`, active: 'nested-url' },
+      { text: label.benchmarks, url: `/${lang}/benchmarks`, active: 'nested-url' },
+      { text: label.blog, url: `/${lang}/blog`, active: 'nested-url' },
       {
         type: 'custom',
         secondary: true,

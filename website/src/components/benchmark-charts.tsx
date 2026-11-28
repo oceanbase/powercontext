@@ -14,7 +14,10 @@
  * limitations under the License.
  */
 
+import type { CSSProperties } from 'react';
 import type { BenchmarkContent, BenchmarkMetricRow } from '@/lib/benchmark-content';
+import { CountUp, RevealOnView } from './benchmark-motion';
+import styles from './benchmarks.module.css';
 
 const chartCopy = {
   en: {
@@ -93,9 +96,9 @@ export function LocomoTradeoffChart({
 
             return (
               <g key={point.name}>
-                <circle className={isPrimary ? 'fill-fd-primary' : 'fill-fd-muted-foreground'} cx={x(point.latency)} cy={y(point.accuracy)} r={isPrimary ? 7 : 6} />
+                <circle className={isPrimary ? 'fill-primary' : 'fill-fd-muted-foreground'} cx={x(point.latency)} cy={y(point.accuracy)} r={isPrimary ? 7 : 6} />
                 <text
-                  className={isPrimary ? 'fill-fd-primary text-sm font-semibold' : 'fill-fd-foreground text-sm'}
+                  className={isPrimary ? 'fill-primary text-sm font-semibold' : 'fill-fd-foreground text-sm'}
                   textAnchor={isFullContext ? 'end' : 'start'}
                   x={x(point.latency) + (isFullContext ? -14 : 14)}
                   y={y(point.accuracy) + (index === 1 ? 17 : -7)}
@@ -118,7 +121,7 @@ export function LocomoTradeoffChart({
           </thead>
           <tbody>
             {points.map((point, index) => (
-              <tr className={index === 0 ? 'text-fd-primary' : ''} key={point.name}>
+              <tr className={index === 0 ? 'text-primary-text' : ''} key={point.name}>
                 <th className="border-b border-fd-border px-3 py-2 text-left font-medium">{point.name}</th>
                 <td className="border-b border-fd-border px-3 py-2 tabular-nums">{point.accuracy}%</td>
                 <td className="border-b border-fd-border px-3 py-2 tabular-nums">{point.latency} {copy.second}</td>
@@ -142,16 +145,16 @@ export function LocomoComposition({ categories }: { categories: BenchmarkContent
 
   return (
     <figure aria-label={categories.map((category) => `${category.name} ${category.count}`).join(', ')}>
-      <div className="flex h-3 overflow-hidden bg-fd-muted">
+      <RevealOnView className="flex h-3 overflow-hidden rounded-full bg-fd-muted">
         {categories.map((category, index) => (
           <span
             aria-hidden="true"
-            className={`bg-fd-primary ${opacity[index] ?? 'opacity-30'}`}
+            className={`pc-meter-fill bg-fd-foreground ${opacity[index] ?? 'opacity-30'}`}
             key={category.name}
-            style={{ width: `${(counts[index] / total) * 100}%` }}
+            style={{ '--w': `${(counts[index] / total) * 100}%`, '--i': index } as CSSProperties}
           />
         ))}
-      </div>
+      </RevealOnView>
       <figcaption className="mt-6 grid sm:grid-cols-2">
         {categories.map((category, index) => (
           <div
@@ -167,47 +170,64 @@ export function LocomoComposition({ categories }: { categories: BenchmarkContent
   );
 }
 
-export function SwePairedChart({
-  label,
-  lang,
-  scores,
-  taskCount,
-}: {
+export type ChartColumn = {
+  display: string;
+  /** The result being reported, drawn in the accent; comparisons stay neutral. */
+  highlight?: boolean;
   label: string;
-  lang: 'en' | 'zh';
-  scores: BenchmarkContent['swe']['scores'];
-  taskCount: number;
-}) {
-  const results = scores.map((score) => ({ ...score, percentage: (score.count / taskCount) * 100 }));
-  const off = results.find((score) => score.kind === 'off') ?? results[0];
-  const on = results.find((score) => score.kind === 'on') ?? results.at(-1);
-  const delta = on && off ? on.count - off.count : 0;
-  const percentagePointDelta = on && off ? on.percentage - off.percentage : 0;
-  const deltaLabel = lang === 'zh'
-    ? `+${percentagePointDelta.toFixed(2)} 个百分点 · 多解决 ${delta} 个任务`
-    : `+${percentagePointDelta.toFixed(2)} pp · ${delta} more tasks`;
+  value: number;
+};
 
+/**
+ * Columns on a shared scale, each with its value above and its name below.
+ * Groups sit side by side under their own label, so paired runs read as
+ * pairs. The figure carries the whole reading for assistive technology.
+ */
+export function ColumnChart({ groups, label, max }: {
+  groups: Array<{ columns: ChartColumn[]; label?: string }>;
+  label: string;
+  /** The top of the scale; defaults to the largest value. */
+  max?: number;
+}) {
+  const top = max ?? Math.max(...groups.flatMap((group) => group.columns.map((column) => column.value)));
+  // The drawing is hidden from assistive technology, so the name carries every reading.
+  const readings = groups.map((group) => {
+    const values = group.columns.map((column) => `${column.label} ${column.display}`).join(', ');
+    return group.label ? `${group.label}: ${values}` : values;
+  }).join('; ');
   return (
-    <figure aria-label={label}>
-      <div className="grid gap-6">
-        {results.map((score) => (
-          <div aria-label={score.accessible} key={score.kind}>
-            <div className="mb-2 flex flex-wrap items-baseline justify-between gap-x-5 gap-y-1 text-sm">
-              <span className="font-medium">{score.label}</span>
-              <span className="tabular-nums text-fd-muted-foreground">
-                {score.count} / {taskCount} · {score.percentage.toFixed(2)}%
-              </span>
-            </div>
-            <div aria-hidden="true" className="h-3 bg-fd-muted">
-              <div
-                className={`h-full ${score.kind === 'on' ? 'bg-fd-primary' : 'bg-fd-muted-foreground/50'}`}
-                style={{ width: `${score.percentage}%` }}
-              />
-            </div>
+    <figure aria-label={`${label} ${readings}.`} role="img">
+      <RevealOnView className={styles.chart}>
+      {groups.map((group, index) => (
+        <div aria-hidden="true" className={styles.group} key={group.label ?? index}>
+          <div className={styles.columns}>
+            {group.columns.map((column, place) => (
+              <div className={styles.column} key={column.label}>
+                <div className={styles.track}>
+                  <span className={styles.bar} data-highlight={column.highlight ? '' : undefined}
+                    style={{ '--h': `${(column.value / top) * 100}%`, '--i': index * group.columns.length + place } as CSSProperties}>
+                    <span className={styles.value}><CountUp delay={(index * group.columns.length + place) * 0.08} value={column.display} /></span>
+                  </span>
+                </div>
+                {/* In a group the legend names each column; the group label names the pair. */}
+                {group.label ? null : <span className={styles.label} data-highlight={column.highlight ? '' : undefined}>{column.label}</span>}
+              </div>
+            ))}
           </div>
-        ))}
-      </div>
-      <figcaption className="mt-4 text-sm font-medium text-fd-primary">{deltaLabel}</figcaption>
+          {group.label ? <span className={styles.groupLabel}>{group.label}</span> : null}
+        </div>
+      ))}
+      </RevealOnView>
     </figure>
+  );
+}
+
+/** Names the two tones of a paired chart. */
+export function ChartLegend({ base, result }: { base: string; result: string }) {
+  return (
+    <p className={styles.legend}>
+      <span>{base}</span>
+      <span data-highlight="">{result}</span>
+    </p>
   );
 }

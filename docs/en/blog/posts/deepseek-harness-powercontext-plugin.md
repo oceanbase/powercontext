@@ -52,7 +52,19 @@ Cordis organizes the Harness around a composable configuration tree rather than 
 the main program. Tools, commands, events, and services registered by a plugin are reversible effects; removing the
 plugin removes those capabilities from the runtime as well.
 
-[![Capabilities compose through plugins](../../../assets/blog/deepseek-harness-powercontext/cordis-plugin-tree.en.svg)](../../../assets/blog/deepseek-harness-powercontext/cordis-plugin-tree.en.svg "View full-size diagram")
+<figure class="fig" id="fig-cordis-plugin-tree">
+<div class="fig-canvas" style="--fw:960;--fh:300" role="img" aria-label="Capabilities compose through plugins">
+<svg viewBox="0 0 960 300">
+<path class="fig-wire" d="M480 76 L480 106 Q480 116 470 116 L160 116 Q150 116 150 126 L150 154" marker-end="url(#fig-arrow)"/>
+<path class="fig-wire" d="M480 76 L480 154" marker-end="url(#fig-arrow)"/>
+<path class="fig-wire accent" d="M480 76 L480 106 Q480 116 490 116 L800 116 Q810 116 810 126 L810 154" marker-end="url(#fig-arrow-accent)"/>
+</svg>
+<div class="fig-box" style="--x:180;--y:0;--w:600;--h:76"><b>Harness · Cordis kernel</b><span>Composes the capabilities its plugins provide</span></div>
+<div class="fig-card" style="--x:0;--y:160;--w:300;--h:112"><b>Models and tools</b><span>Model adapters route requests</span><span>Tools register through <code>defineTool</code></span></div>
+<div class="fig-card" style="--x:330;--y:160;--w:300;--h:112"><b>Sessions and UI</b><span>Workspace, sessions and the</span><span>web interface are plugins</span></div>
+<div class="fig-card accent" style="--x:660;--y:160;--w:300;--h:112"><b>powercontext-dsh</b><span>Project-memory recall</span><span>and work handoff</span></div>
+</div>
+</figure>
 
 Two DeepSeek Harness concepts are important here:
 
@@ -73,7 +85,21 @@ There are two backend processes; the browser is a client of the Harness UI:
 2. **PowerContext Server** is an independent Python process. It listens on `http://127.0.0.1:8000` by default and owns
    persistence, retrieval, review, and Handoff.
 
-[![Two processes connected over HTTP](../../../assets/blog/deepseek-harness-powercontext/two-process-architecture.en.svg)](../../../assets/blog/deepseek-harness-powercontext/two-process-architecture.en.svg "View full-size diagram")
+<figure class="fig" id="fig-two-process-architecture">
+<div class="fig-canvas" style="--fw:960;--fh:270" role="img" aria-label="Two processes connected over HTTP">
+<svg viewBox="0 0 960 270">
+<path class="fig-wire" d="M180 138 L258 138" marker-end="url(#fig-arrow)"/>
+<path class="fig-wire accent" d="M536 138 L658 138" marker-end="url(#fig-arrow-accent)"/>
+</svg>
+<div class="fig-box" style="--x:0;--y:92;--w:180;--h:92"><b>Browser</b><span>Local Harness UI</span></div>
+<div class="fig-panel" style="--x:240;--y:0;--w:320;--h:270"><header><b>DeepSeek Harness</b><span>Node process</span></header></div>
+<div class="fig-box accent" style="--x:264;--y:72;--w:272;--h:132"><b>powercontext-dsh</b><span><code>prepare_context</code></span><span><code>capture_source</code></span><span><code>pc_*</code> tools</span></div>
+<div class="fig-panel" style="--x:640;--y:0;--w:320;--h:270"><header><b>PowerContext Server</b><span>Python process</span></header></div>
+<div class="fig-box" style="--x:664;--y:72;--w:272;--h:132"><b>HTTP /v1</b><span>Memory and retrieval</span></div>
+<span class="fig-label accent center small" style="--x:600;--y:112">HTTP</span>
+<span class="fig-label muted small wrap" style="--x:0;--y:200;--w:180">The browser never calls the Server</span>
+</div>
+</figure>
 
 The browser never connects directly to PowerContext Server. The Harness plugin makes the HTTP calls, so the local Web
 UI does not need an additional CORS path. The required network path is from the machine running `dsh web` to the Server.
@@ -164,7 +190,30 @@ Before each model step, the plugin performs two operations through the `agent/pr
 Capturing Source is not the same as extracting Memory. Explicit Memory writes do not require a generation model. A
 generation model is still required when the Server should extract Memory automatically from captured Sources.
 
-[![Recall and capture before a model step](../../../assets/blog/deepseek-harness-powercontext/recall-timeline.en.svg)](../../../assets/blog/deepseek-harness-powercontext/recall-timeline.en.svg "View full-size diagram")
+<figure class="fig" id="fig-recall-timeline">
+<div class="fig-canvas" style="--fw:960;--fh:236" role="img" aria-label="Recall and capture before a model step">
+<svg viewBox="0 0 960 236">
+<path class="fig-wire" d="M172 156 L191 156" marker-end="url(#fig-arrow)"/>
+<path class="fig-wire" d="M369 156 L388 156" marker-end="url(#fig-arrow)"/>
+<path class="fig-wire" d="M566 156 L585 156" marker-end="url(#fig-arrow)"/>
+<path class="fig-wire" d="M763 156 L782 156" marker-end="url(#fig-arrow)"/>
+<path class="fig-wire muted thin" d="M197 48 L197 40 Q197 36 201 36 L759 36 Q763 36 763 40 L763 48"/>
+<path class="fig-wire muted thin" d="M788 48 L788 40 Q788 36 792 36 L956 36 Q960 36 960 40 L960 48"/>
+</svg>
+<span class="fig-label muted small" style="--x:0;--y:74">01</span>
+<div class="fig-box start" style="--x:0;--y:96;--w:172;--h:120"><b>User message</b><span>Enters Harness</span></div>
+<span class="fig-label muted small" style="--x:197;--y:74">02</span>
+<div class="fig-box start accent" style="--x:197;--y:96;--w:172;--h:120"><b><code>prepare_context</code></b><span>Bounded context from the Server</span></div>
+<span class="fig-label muted small" style="--x:394;--y:74">03</span>
+<div class="fig-box start" style="--x:394;--y:96;--w:172;--h:120"><b>Inject evidence</b><span>As untrusted history, never as instructions</span></div>
+<span class="fig-label muted small" style="--x:591;--y:74">04</span>
+<div class="fig-box start accent" style="--x:591;--y:96;--w:172;--h:120"><b><code>capture_source</code></b><span>Store the user input as a Source</span></div>
+<span class="fig-label muted small" style="--x:788;--y:74">05</span>
+<div class="fig-box start" style="--x:788;--y:96;--w:172;--h:120"><b>Use memory</b><span>The model calls <code>pc_remember</code> or <code>pc_search</code></span></div>
+<span class="fig-label muted small center" style="--x:480;--y:10">Before each model call</span>
+<span class="fig-label muted small center" style="--x:874;--y:10">During the model step</span>
+</div>
+</figure>
 
 Recall and capture fail open: a stopped Server or timeout does not interrupt the conversation. Project isolation uses
 the normalized workspace Git remote when available and the workspace path otherwise. Set a stable override with

@@ -15,14 +15,13 @@
  */
 
 import type { ReactNode } from 'react';
-import { DocsLayout } from 'fumadocs-ui/layouts/docs';
+import { DocsShell } from '@/components/docs-shell';
 import { apiSource } from '@/lib/openapi-source';
-import { baseOptions } from '@/lib/site';
 
 export default function ApiLayout({ children }: { children: ReactNode }) {
   return (
-    <DocsLayout tree={apiSource.getPageTree()} {...baseOptions('en')} i18n={false}>
+    <DocsShell lang="en" languages={false} title="HTTP API" tree={apiSource.getPageTree()} url="/api">
       {children}
-    </DocsLayout>
+    </DocsShell>
   );
 }

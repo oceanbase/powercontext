@@ -1,0 +1,546 @@
+/*
+ * Copyright (c) 2026 OceanBase.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+/*
+ * Fumadocs chrome in Sunbeam. The navigation, sidebar, page and table of
+ * contents are flat: they sit on the page ground, separated by hairlines, and
+ * their controls take the flat face. Popovers, menus and the search dialog
+ * float above them, so they are raised panels. A chosen item is ink, never
+ * the brand blue; blue stays for a page's one primary action.
+ */
+
+:root,
+.dark {
+  --color-fd-primary: var(--foreground);
+  --color-fd-primary-foreground: var(--background);
+  --color-fd-card: var(--card);
+  --color-fd-secondary: var(--card);
+  --color-fd-secondary-foreground: var(--foreground);
+  --color-fd-accent: var(--flat-face-hover);
+  --color-fd-accent-foreground: var(--foreground);
+  --color-fd-popover: var(--panel-face-to);
+  --color-fd-overlay: color-mix(in oklab, var(--scrim) 28%, transparent);
+  --color-fd-info: var(--info);
+  --color-fd-warning: var(--warning);
+  --color-fd-error: var(--danger);
+  --color-fd-success: var(--success);
+  --color-fd-idea: var(--warning);
+}
+
+/* Navigation ------------------------------------------------------------- */
+
+/*
+ * One top bar for every page: the landing page, blog, changelog,
+ * benchmarks and the documentation sections all render the same header.
+ * Solid ground under it, because Sunbeam has no frosted glass.
+ */
+#nd-nav,
+#nd-nav > *,
+#nd-subnav {
+  border-color: var(--border);
+  background-color: var(--background);
+  backdrop-filter: none;
+}
+
+#nd-nav a[data-active='true'] {
+  color: var(--foreground);
+  font-weight: 500;
+}
+
+/*
+ * A documentation section's name in the phone bar. On wide screens the top
+ * bar already marks the section, so the sidebar does not repeat it.
+ */
+#nd-sidebar .pc-docs-section {
+  display: none;
+}
+
+.pc-docs-section {
+  font-family: var(--font-display);
+  font-size: 1.125rem;
+  font-weight: 400;
+  letter-spacing: -0.01em;
+}
+
+/*
+ * The documentation sits under the shared top bar, so its sidebar, table of
+ * contents and phone bar stick beneath it (Fumadocs offsets them by
+ * --fd-banner-height, set on the container).
+ */
+.pc-docs #nd-sidebar {
+  border-top: 0;
+}
+
+/* Footer ------------------------------------------------------------------ */
+
+.pc-site-footer {
+  --footer-surface: var(--muted);
+
+  border-top: 1px solid var(--border);
+  background-color: var(--footer-surface);
+}
+
+.dark .pc-site-footer {
+  --footer-surface: hsl(24 12% 7%);
+}
+
+/* The helix from the brand mark, desaturated into the footer's ink. */
+.pc-footer-helix {
+  --helix-surface: var(--footer-surface);
+  --helix-muted: color-mix(in srgb, var(--faint) 70%, var(--helix-surface));
+  --helix-accent: color-mix(in srgb, var(--primary) 30%, var(--faint));
+  --helix-accent-deep: color-mix(in srgb, var(--helix-accent) 78%, var(--foreground));
+  --helix-fill: color-mix(in srgb, var(--helix-accent) 45%, var(--helix-surface));
+  --helix-fill-muted: color-mix(in srgb, var(--faint) 22%, var(--helix-surface));
+
+  height: 160px;
+  overflow: hidden;
+}
+
+.pc-footer-helix canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+@media (max-width: 639px) {
+  .pc-footer-helix {
+    height: 112px;
+  }
+}
+
+#nd-nav [data-active='true'],
+#nd-nav a[aria-current='page'] {
+  color: var(--foreground);
+}
+
+/* The search trigger is a flat pill on the page and in the sidebar. */
+button[data-search],
+button[data-search-full] {
+  border-color: transparent;
+  border-radius: 999px;
+  background-color: var(--flat-face);
+  color: var(--muted-foreground);
+  box-shadow: none;
+  transition: background-color 150ms var(--ease-out), color 150ms var(--ease-out);
+}
+
+button[data-search]:hover,
+button[data-search-full]:hover {
+  background-color: var(--flat-face-hover);
+  color: var(--foreground);
+}
+
+button[data-search] kbd,
+button[data-search-full] kbd {
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: var(--flat-face);
+  font-family: var(--font-sans);
+}
+
+/* Sidebar ---------------------------------------------------------------- */
+
+#nd-sidebar,
+#nd-sidebar-mobile {
+  background-color: var(--background);
+  border-color: var(--border);
+}
+
+:is(#nd-sidebar, #nd-sidebar-mobile) a[data-active] {
+  border-radius: var(--radius-lg);
+  transition: background-color 150ms var(--ease-out), color 150ms var(--ease-out);
+}
+
+:is(#nd-sidebar, #nd-sidebar-mobile) a[data-active='true'] {
+  background-color: var(--flat-face);
+  color: var(--foreground);
+  font-weight: 500;
+}
+
+:is(#nd-sidebar, #nd-sidebar-mobile) a[data-active='true']::before {
+  display: none;
+}
+
+:is(#nd-sidebar, #nd-sidebar-mobile) a[data-active='false']:hover {
+  background-color: var(--flat-face);
+  color: var(--foreground);
+}
+
+#nd-sidebar p,
+#nd-sidebar [data-separator] {
+  color: var(--faint);
+}
+
+/* Page ------------------------------------------------------------------- */
+
+#nd-page > h1,
+#nd-page h1.text-3xl,
+#nd-page h1:first-of-type {
+  font-family: var(--font-display);
+  font-size: clamp(2rem, 1.6rem + 1.2vw, 2.75rem);
+  font-weight: 400;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+  text-wrap: balance;
+}
+
+html:lang(zh) #nd-page h1 {
+  letter-spacing: 0;
+}
+
+#nd-page > p.text-lg,
+#nd-page > p.text-fd-muted-foreground {
+  color: var(--muted-foreground);
+  text-wrap: pretty;
+}
+
+/* The section label above the title is a quiet dateline, not a link color. */
+#nd-page > div:first-child span.text-fd-primary {
+  color: var(--muted-foreground);
+  font-weight: 400;
+}
+
+#nd-page .prose {
+  --tw-prose-body: var(--foreground);
+  --tw-prose-headings: var(--foreground);
+  --tw-prose-links: var(--foreground);
+  --tw-prose-bold: var(--foreground);
+  --tw-prose-counters: var(--muted-foreground);
+  --tw-prose-bullets: var(--faint);
+  --tw-prose-quotes: var(--muted-foreground);
+  --tw-prose-code: var(--foreground);
+  --tw-prose-hr: var(--border);
+  --tw-prose-th-borders: var(--border);
+  --tw-prose-td-borders: var(--border);
+}
+
+.prose :where(h2, h3, h4):not(:where(.not-prose, .not-prose *)) {
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  text-wrap: balance;
+}
+
+html:lang(zh) .prose :where(h2, h3, h4):not(:where(.not-prose, .not-prose *)) {
+  letter-spacing: 0;
+}
+
+.prose :where(a):not(:where(.not-prose, .not-prose *, [data-card])) {
+  font-weight: 500;
+  text-decoration-line: underline;
+  text-decoration-color: color-mix(in oklab, var(--foreground) 30%, transparent);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.2em;
+  transition: text-decoration-color 150ms var(--ease-out);
+}
+
+.prose :where(a):not(:where(.not-prose, .not-prose *, [data-card])):hover {
+  text-decoration-color: var(--foreground);
+}
+
+.prose :where(:not(pre) > code):not(:where(.not-prose, .not-prose *)) {
+  padding: 0.12em 0.36em;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background-color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 0.86em;
+  font-weight: 400;
+}
+
+.prose :where(img):not(:where(.not-prose, .not-prose *)) {
+  border-radius: var(--radius-xl);
+  outline: 1px solid var(--image-outline);
+  outline-offset: -1px;
+}
+
+/* Code blocks are solid content: a card with a hairline, no shadow. */
+figure.shiki {
+  border-color: var(--border);
+  border-radius: var(--radius-xl);
+  background-color: var(--card);
+  box-shadow: none;
+}
+
+figure.shiki pre,
+figure.shiki code {
+  font-family: var(--font-mono);
+}
+
+figure.shiki > div:first-child:has(> button) {
+  backdrop-filter: none;
+}
+
+figure.shiki button,
+#nd-page button[class*='bg-fd-secondary'] {
+  border-color: transparent;
+  background-color: var(--flat-face);
+  color: var(--muted-foreground);
+  transition-property: background-color, color, scale;
+  transition-duration: 150ms;
+  transition-timing-function: var(--ease-out);
+}
+
+figure.shiki button:hover,
+#nd-page button[class*='bg-fd-secondary']:hover {
+  background-color: var(--flat-face-hover);
+  color: var(--foreground);
+}
+
+figure.shiki button:active,
+#nd-page button[class*='bg-fd-secondary']:active {
+  scale: 0.97;
+}
+
+/* Tabs above a code block: a flat track whose chosen tab is ink. */
+[role='tablist'] [role='tab'][data-active] {
+  color: var(--foreground);
+}
+
+/* Cards and callouts sit in the flow: card fill, hairline, quiet hover. */
+#nd-page :not(:is(h1, h2, h3, h4, h5, h6)) > a[data-card],
+#nd-page div[data-card] {
+  border-color: var(--border);
+  border-radius: var(--radius-xl);
+  background-color: var(--card);
+  box-shadow: none;
+  transition: background-color 150ms var(--ease-out), border-color 150ms var(--ease-out);
+}
+
+#nd-page :not(:is(h1, h2, h3, h4, h5, h6)) > a[data-card]:hover {
+  background-color: color-mix(in oklab, var(--card) 90%, var(--foreground) 3%);
+  border-color: color-mix(in oklab, var(--border) 70%, var(--foreground));
+}
+
+#nd-page [data-card] h3 {
+  font-weight: 500;
+}
+
+/* Table of contents ---------------------------------------------------------- */
+
+#nd-toc a[data-active='true'] {
+  color: var(--foreground);
+  font-weight: 500;
+}
+
+#nd-toc h3 {
+  color: var(--faint);
+}
+
+/* Floating layers --------------------------------------------------------- */
+
+/*
+ * Popovers and menus are raised: a faint top-to-bottom face, a translucent
+ * edge, a 1px highlight inside the top and three warm shadows.
+ */
+[data-side][class*='bg-fd-popover'],
+.pc-search-dialog {
+  border: 1px solid var(--panel-edge);
+  background-clip: padding-box;
+  background-color: var(--panel-face-to);
+  background-image: linear-gradient(var(--panel-face-from), var(--panel-face-to));
+  box-shadow:
+    inset 0 1px 0 var(--panel-highlight),
+    var(--panel-shadow);
+  color: var(--foreground);
+}
+
+.pc-search-dialog {
+  border-radius: var(--radius-tile);
+}
+
+.pc-search-dialog input {
+  font-size: 1rem;
+}
+
+/* Scrollbars float over content instead of taking a gutter. */
+.fd-scroll-container,
+#nd-sidebar [data-radix-scroll-area-viewport] {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in oklab, var(--foreground) 18%, transparent) transparent;
+}
+
+
+/* Page action ------------------------------------------------------------- */
+
+/* Copy page: its copy icon gives way to a check once the page is copied. */
+.pc-copy-page-icon {
+  display: grid;
+  width: 0.875rem;
+  height: 0.875rem;
+  color: var(--muted-foreground);
+}
+
+.pc-copy-page-icon > svg {
+  grid-area: 1 / 1;
+  width: 100%;
+  height: 100%;
+  transition-property: opacity, scale, filter;
+  transition-duration: var(--duration-toggle);
+  transition-timing-function: var(--ease-spring);
+}
+
+.pc-copy-page-icon > svg:last-child,
+.pc-copy-page-icon[data-copied] > svg:first-child {
+  opacity: 0;
+  scale: 0.5;
+  filter: blur(2px);
+}
+
+.pc-copy-page-icon[data-copied] > svg:last-child {
+  opacity: 1;
+  scale: 1;
+  filter: none;
+  color: var(--foreground);
+}
+
+.pc-toc-actions {
+  padding-bottom: 1rem;
+}
+
+#nd-toc .pc-toc-actions {
+  margin-bottom: 1rem;
+  border-bottom: 1px solid var(--border);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pc-copy-page-icon > svg {
+    transition: none;
+  }
+}
+
+/* Changelog ---------------------------------------------------------------- */
+
+/*
+ * Releases grouped under month headings, each opening with its date and a
+ * name whose version is set quieter than the product, like a release tag.
+ */
+.pc-changelog > section + section {
+  margin-top: 3.5rem;
+}
+
+.pc-changelog .pc-release {
+  margin-top: 2.5rem;
+  scroll-margin-top: 6rem;
+}
+
+.pc-changelog .pc-release + .pc-release {
+  padding-top: 2.5rem;
+  border-top: 1px solid var(--border);
+}
+
+.pc-changelog .pc-release-date {
+  display: block;
+  color: var(--muted-foreground);
+  font-size: 0.875rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.pc-changelog .pc-release > h3 {
+  margin-top: 0.25rem;
+  font-family: var(--font-display);
+  font-size: clamp(1.5rem, 1.3rem + 0.6vw, 1.875rem);
+  font-weight: 400;
+  letter-spacing: -0.015em;
+}
+
+.pc-changelog .pc-release-version {
+  color: var(--faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.pc-changelog .pc-release figure {
+  margin-block: 1.25rem 0;
+}
+
+/* Details read as a quiet text disclosure in the article flow, not a card. */
+.pc-changelog .pc-release-details {
+  margin-top: 1.25rem;
+}
+
+.pc-changelog .pc-release-details > summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  color: var(--muted-foreground);
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  list-style: none;
+  border-radius: var(--radius-sm, 0.25rem);
+  transition: color 150ms ease;
+}
+
+.pc-changelog .pc-release-details > summary::-webkit-details-marker {
+  display: none;
+}
+
+.pc-changelog .pc-release-details > summary:hover {
+  color: var(--foreground);
+}
+
+.pc-changelog .pc-release-details > summary:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+.pc-changelog .pc-release-chevron {
+  width: 1rem;
+  height: 1rem;
+  transition: transform 150ms ease;
+}
+
+.pc-changelog .pc-release-details[open] .pc-release-chevron {
+  transform: rotate(90deg);
+}
+
+.pc-changelog .pc-release-details > ul {
+  margin-top: 0.75rem;
+}
+
+.pc-changelog .pc-release-title {
+  margin-top: 0.5rem;
+  font-weight: 500;
+}
+
+/*
+ * Benchmark figures. A meter fills from the left the first time its group is
+ * in view, and again each time a hidden tab panel holding it is shown; a
+ * counting figure stays hidden until its script has set it to zero.
+ */
+.pc-meter-fill {
+  width: var(--w);
+}
+
+[data-count='pending'] {
+  opacity: 0;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  [data-reveal]:not([data-inview]) .pc-meter-fill {
+    width: 0;
+  }
+
+  [data-inview] .pc-meter-fill {
+    animation: pc-meter-fill 900ms var(--ease-out, cubic-bezier(0.16, 1, 0.3, 1)) calc(var(--i, 0) * 40ms) both;
+  }
+}
+
+@keyframes pc-meter-fill {
+  from {
+    width: 0;
+  }
+}

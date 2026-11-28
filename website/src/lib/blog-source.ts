@@ -14,9 +14,18 @@
  * limitations under the License.
  */
 
+import { applyMdxPreset } from 'fumadocs-mdx/config';
 import { defineDocs } from 'fumadocs-mdx/macro';
+import { blogHtmlPlugins } from './blog-html';
 import { loader } from 'fumadocs-core/source';
 import { i18n } from './i18n';
 
-export const posts = defineDocs({ dir: 'content/blog', docs: { postprocess: { includeProcessedMarkdown: true } } });
+export const posts = defineDocs({
+  dir: 'content/blog',
+  docs: {
+    postprocess: { includeProcessedMarkdown: true },
+    // Posts may hold static raw HTML, such as figures built with the figure kit.
+    mdxOptions: applyMdxPreset({ remarkImageOptions: { useImport: false }, rehypePlugins: blogHtmlPlugins }),
+  },
+});
 export const blogSource = loader({ baseUrl: '/blog', i18n, source: posts.toFumadocsSource() });
