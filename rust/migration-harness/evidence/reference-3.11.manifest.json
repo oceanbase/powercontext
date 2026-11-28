@@ -1,0 +1,65 @@
+{
+  "corpus": {
+    "bytes": 3875,
+    "cases": 20,
+    "path": "rust/migration-harness/fixtures/corpus.json",
+    "sha256": "23ff7be9ee6d326adfd27621a95616d07d63eeb73126c834d6fb7945b0dfd12a"
+  },
+  "dependencies": {
+    "jieba": {
+      "dictionary": {
+        "bytes": 5071852,
+        "path": "dict.txt",
+        "sha256": "7197c3211ddd98962b036cdf40324d1ea2bfaa12bd028e68faa70111a88e12a8"
+      },
+      "name": "__init__.py",
+      "present": true,
+      "sha256": "b47cefcfd0bf683b0c708c1de0328df83be2c35264637c442106e79d739fb7f3",
+      "version": "0.42.1"
+    },
+    "jsonschema": {
+      "name": "__init__.py",
+      "present": true,
+      "sha256": "a7e470e134bfd0e3c76482722260d6b1d5a099de823d61cc5cbabb06e4314c67",
+      "version": "4.26.0"
+    },
+    "pydantic": {
+      "name": "__init__.py",
+      "present": true,
+      "sha256": "e5248cb9bbe293b3536dbed7fea54326dcdf3c03370ae5f03d794c58496ec01b",
+      "version": "2.14.4"
+    },
+    "rfc8785": {
+      "name": "__init__.py",
+      "present": true,
+      "sha256": "fa44927afd547caf7547247078bcf28863d1e69caf116d258c532b3f20ffd154",
+      "version": "0.1.4"
+    }
+  },
+  "native_loaded": false,
+  "python": {
+    "implementation": "CPython",
+    "platform": "win32",
+    "unicode": "14.0.0",
+    "version": "3.11.14"
+  },
+  "record": "manifest",
+  "records": 20,
+  "reference_module": {
+    "file": "search.py",
+    "module": "powercontext.builtin.artifacts.search",
+    "relative_path": "builtin/artifacts/search.py"
+  },
+  "schema": "powercontext.migration-harness.v1",
+  "selectors": [
+    "analyze_text",
+    "analyze_text_with_spans",
+    "lexical_terms_with_spans"
+  ],
+  "source": {
+    "checkout": "src/powercontext",
+    "package": "powercontext",
+    "python_files": 615,
+    "source_sha256": "a1fa4f30adeafe7403c3df5d60ba81086cee9bd3346168a6cf6d1bac4a023f4b"
+  }
+}

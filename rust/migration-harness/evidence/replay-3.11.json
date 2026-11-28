@@ -1,0 +1,34 @@
+{
+  "candidate": {
+    "loader": "SourceFileLoader",
+    "location": "src/powercontext/builtin/artifacts/search.py",
+    "module": "powercontext.builtin.artifacts.search",
+    "native": false,
+    "suffix": ".py"
+  },
+  "cases": 20,
+  "executed_calls": 60,
+  "mismatches": [],
+  "record": "replay",
+  "reference": {
+    "corpus_sha256": "23ff7be9ee6d326adfd27621a95616d07d63eeb73126c834d6fb7945b0dfd12a",
+    "python": "3.11.14",
+    "source_sha256": "a1fa4f30adeafe7403c3df5d60ba81086cee9bd3346168a6cf6d1bac4a023f4b",
+    "unicode": "14.0.0"
+  },
+  "schema": "powercontext.migration-harness.v1",
+  "selectors": [
+    "analyze_text",
+    "analyze_text_with_spans",
+    "lexical_terms_with_spans"
+  ],
+  "status": "PASS",
+  "summary": {
+    "compared": 60,
+    "matched": 60,
+    "mismatch_paths": [],
+    "mismatched": 0,
+    "uncompared": 0
+  },
+  "uncompared": []
+}

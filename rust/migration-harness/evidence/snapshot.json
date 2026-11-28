@@ -1,0 +1,26 @@
+{
+  "contract_version": "2026-11-22.1",
+  "excluded_paths": [
+    ":(exclude)rust/migration-harness/evidence/snapshot.json"
+  ],
+  "record": "snapshot",
+  "repository": {
+    "branch": "issue-2737-harness",
+    "head": "6df6adde4babda945ff2bf55b4454b1179e993e8",
+    "root_name": "wt-pc2737"
+  },
+  "schema": "powercontext.migration-harness.v1",
+  "snapshot_id": "30cb1c1c1db11f166341abaecd789da7be5128b6d28f6074d796c1094d323ee9",
+  "staged_diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "status_porcelain_v2": "1 .M N... 100644 100644 100644 8d11fa363d82ea89ce9347f4ebeca81008d1ea3f 8d11fa363d82ea89ce9347f4ebeca81008d1ea3f rust/migration-harness/README.md\n1 .M N... 100644 100644 100644 edb229d312f08ef1e60d687f973c86f720852409 edb229d312f08ef1e60d687f973c86f720852409 rust/migration-harness/evidence/negative-3.11.json\n1 .M N... 100644 100644 100644 e12e1d5cfa699e4c6781bd72af1109dd955e370f e12e1d5cfa699e4c6781bd72af1109dd955e370f rust/migration-harness/evidence/reference-3.11.manifest.json\n1 .M N... 100644 100644 100644 89940e8655ee2373b3c93a42385723bfaf0074cf 89940e8655ee2373b3c93a42385723bfaf0074cf rust/migration-harness/evidence/reference-3.11.ndjson\n1 .M N... 100644 100644 100644 d02a1024e4aa8bbee3050c7d4c90aed6e301e947 d02a1024e4aa8bbee3050c7d4c90aed6e301e947 rust/migration-harness/evidence/replay-3.11.json\n1 .M N... 100644 100644 100644 54b84bc69f772a66f875ff18bee54deab31a4803 54b84bc69f772a66f875ff18bee54deab31a4803 rust/migration-harness/fixtures/corpus.json\n1 .M N... 100644 100644 100644 2c7d3bc5c7e3cbdb2b22b54caabaaa1f7984fc8f 2c7d3bc5c7e3cbdb2b22b54caabaaa1f7984fc8f rust/migration-harness/recorder.py\n1 .M N... 100644 100644 100644 46d84c39d1185dda3343921eeb1852a9a23ffba7 46d84c39d1185dda3343921eeb1852a9a23ffba7 rust/migration-harness/replay.py\n1 .M N... 100644 100644 100644 2ff1badd4cfdd42252f11602e2f90196e6dca8b8 2ff1badd4cfdd42252f11602e2f90196e6dca8b8 rust/migration-harness/snapshot.py\n1 .M N... 100644 100644 100644 d994add9f9a6ba26d3d277f8d6423beefd08d68b d994add9f9a6ba26d3d277f8d6423beefd08d68b rust/migration-harness/tests/test_harness.py\n1 .M N... 100644 100644 100644 4b50bb553bfcb72449758b0aa3f85a1bb88119c3 4b50bb553bfcb72449758b0aa3f85a1bb88119c3 rust/migration-harness/tests/test_snapshot.py\n1 .M N... 100644 100644 100644 5074edbab6ce3c261b4d27f4daf0d7dc48459eb8 5074edbab6ce3c261b4d27f4daf0d7dc48459eb8 rust/tasks/harness/DECISIONS.md\n1 .M N... 100644 100644 100644 7be067fe041b3488506c614a4844ae3e4680d9e7 7be067fe041b3488506c614a4844ae3e4680d9e7 rust/tasks/harness/PORT-STATUS.md\n",
+  "status_sha256": "25a4a6dbba1ce71eefe427c28fee34a7f6970ea6958e757ce174e315be5b039b",
+  "toolchain": {
+    "implementation": "CPython",
+    "machine": "AMD64",
+    "platform": "win32",
+    "python": "3.11.14",
+    "unicode": "14.0.0"
+  },
+  "unstaged_diff_sha256": "7c0a79912f14c64395a5382936821a542e7fa57a666e33713540b58a91d33805",
+  "untracked": []
+}
