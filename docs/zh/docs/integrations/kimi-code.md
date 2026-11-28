@@ -113,9 +113,9 @@ Kimi 的模型请求经过 PowerContext gateway 时，gateway 为每一轮准备
 prepared-context 块。插件的 Hook 结果带有这样的块，因此 Core 以 HTTP 422 拒绝请求，gateway 返回 HTTP 503
 `gate_paused`，模型收不到这一轮。Kimi 直接调用模型时，请保留插件的默认设置。
 
-Kimi 把自己的提醒作为单独的用户消息放在提示词之后：会话的第一轮（日期和本插件的会话开始 Skill），以及每一轮
-`kimi -p`（权限模式提醒）。gateway 把最后一条用户消息当作这一轮的消息，因此在这些轮次中，它用提醒的文本准备上下文，
-采集的也是提醒而不是提示词。之后的交互轮次按提示词准备和采集。
+Kimi 会把一些提醒作为单独的用户消息放在提示词之后：会话第一轮的日期和本插件的会话开始 Skill，
+以及每一轮 `kimi -p` 的权限模式提醒。gateway 选择这一轮的提示词时会跳过这些提醒：
+它为提示词准备上下文并注入到提示词中，把提示词采集为这一轮的文本，并把提醒原样转发给模型。
 
 ### 选择 Core target
 
@@ -129,8 +129,8 @@ Core 需要为 `PC_GATEWAY_UPSTREAM_PROFILE` 指定的 profile（未设置时为
 
 ### 让 Kimi 指向 gateway
 
-在 Kimi 的 `config.toml` 中为 gateway 的 `/gateway/v1` 添加一个 `openai_responses` provider，并把 gateway key 用作
-它的 API key：
+在 Kimi 的 `config.toml` 中为 gateway 的 `/gateway/v1` 添加一个 `openai_responses` provider，
+并把 gateway key 用作它的 API key：
 
 ```toml
 default_model = "gateway"
@@ -140,6 +140,9 @@ type = "openai_responses"
 base_url = "http://127.0.0.1:8787/gateway/v1"
 api_key = "<PC_GATEWAY_API_KEY 的值>"
 
+[providers.powercontext-gateway.custom_headers]
+X-PowerContext-Scope-ID = "<插件的 Scope ID>"
+
 [models.gateway]
 provider = "powercontext-gateway"
 model = "approved-model"
@@ -148,9 +151,16 @@ max_output_size = 32000
 capabilities = ["tool_use"]
 ```
 
-请使用 Responses API。Kimi 总是发送流式请求。在 Responses 路由上，gateway 以非流式方式调用模型，再把检查过的响应
-以流的形式回放给 Kimi，因此这一轮能完成并被采集。在 Chat Completions 路由（`type = "openai"`）上，enforcing 模式的 Core
-会扣留流式响应，这一轮会失败。
+请使用 Responses API。Kimi 总是发送流式请求。在 Responses 路由上，gateway 以非流式方式调用模型，
+再把检查过的响应以流的形式回放给 Kimi，因此这一轮能完成并被采集。
+在 Chat Completions 路由（`type = "openai"`）上，enforcing 模式的 Core 会扣留流式响应，这一轮会失败。
+
+`X-PowerContext-Scope-ID` 选择 gateway 准备、检查和采集所用的 Scope。
+请把它设为 `node "<Kimi home>/plugins/managed/powercontext/scripts/scope.mjs" resolve --cwd /absolute/project`
+输出的 `scope_id`。Kimi 在每个会话的每个请求中都发送 provider 的 `custom_headers`，
+因此一个 provider 只选择一个 Scope。环境变量 `KIMI_CODE_CUSTOM_HEADERS` 为单个 Kimi 进程设置请求头，
+每行一个 `Name: value`；provider 的 `custom_headers` 优先于它。未发送该请求头时，
+gateway 使用 `PC_GATEWAY_DEFAULT_SCOPE`。
 
 在组合部署（`PC_GATEWAY_CORE_UDS`）中，gateway 用客户端自己的凭据把 Core API 请求转发给 Core，因此插件的 Server
 URL（Hook 和 MCP 工具共用）可以是 gateway 的地址。
@@ -163,25 +173,34 @@ powercontext setup kimi-code --source /path/to/powercontext --no-capture-prompts
 kimi
 ```
 
-关闭召回后，Hook 不发送准备请求，也不注入任何内容。除非 setup 关闭了采集，它仍会采集提示词；两项都关闭时，它不再为
-提示词发送任何请求。MCP 工具和 Skill 照常工作，它们不返回 prepared-context 块。
+关闭召回后，Hook 不发送准备请求，也不注入任何内容。除非 setup 关闭了采集，它仍会采集提示词；
+两项都关闭时，它不再为提示词发送任何请求。MCP 工具和 Skill 照常工作，它们不返回 prepared-context 块。
 
-修改后请开启新会话。Kimi 把每个 Hook 结果保存在会话中，并在之后的每一轮再次发送，因此在召回开启时运行过的会话会保留
-插件的块，Core 会拒绝该会话之后的每个请求。
+修改后请开启新会话。Kimi 把每个 Hook 结果保存在会话中，并在之后的每一轮再次发送，
+因此在召回开启时运行过的会话会保留插件的块，Core 会拒绝该会话之后的每个请求。
 
 ### 配置 gateway
 
-以组合部署运行 gateway，并设置：
-
-- `PC_GATEWAY_INJECTION=on`。默认情况下，gateway 只注入在它识别的请求头中指明会话的请求，而 Kimi 不发送这样的请求头。
-  Kimi 的 `custom_headers` 对每个会话都相同，因此不要在其中设置固定的 `X-PowerContext-Conversation-ID`，否则所有会话
-  会变成同一个会话。设为 `on` 后，gateway 分别准备每个请求，包括工具循环的每一步。
-- `PC_GATEWAY_UPSTREAM_URL_RESPONSES` 设为 target 的 `endpoint`，`PC_GATEWAY_UPSTREAM_API_KEY_RESPONSES` 设为 provider
-  key。
-- `PC_GATEWAY_API_KEY` 设为 Kimi provider 中的 key；Core 启用鉴权时设置 `PC_GATEWAY_CORE_TOKEN`。
-- `PC_GATEWAY_SEDIMENT=on`，让 gateway 把每个完成的轮次采集为 Source。
-- `PC_GATEWAY_DEFAULT_SCOPE` 设为插件的 Scope。gateway 在这一个 Scope 中准备和采集所有会话，而 MCP 工具使用插件的
-  Scope。
+- 把 `PC_GATEWAY_UPSTREAM_URL_RESPONSES` 和 `PC_GATEWAY_UPSTREAM_API_KEY_RESPONSES` 设为 target 的 `endpoint` 和
+  provider key，把 `PC_GATEWAY_API_KEY` 设为 Kimi provider 中的 key，设置 `PC_GATEWAY_SEDIMENT=on`；
+  Core 启用鉴权时还要设置 `PC_GATEWAY_CORE_TOKEN`。
+- 未发送 `X-PowerContext-Scope-ID` 时，gateway 在 `PC_GATEWAY_DEFAULT_SCOPE` 指定的同一个 Scope 中准备和采集所有会话。
+  这种情况下，请把它设为插件的 Scope。
+- 请以组合部署（`PC_GATEWAY_CORE_UDS`）运行 gateway，它默认会向 Kimi 的请求注入上下文。
+  Kimi 2.1.1 不发送按会话区分的请求头，而 provider 的 `custom_headers` 对每个会话都相同，
+  因此 gateway 改为从请求本身推导会话。
+  Kimi 在每个请求中发送完整历史，不使用 `previous_response_id` 或 `conversation`。
+  它在一个会话的每个请求中发送相同的 `instructions`，历史从第一条用户消息开始。
+  因此，gateway 每条用户消息只准备一次，并把该上下文重放给工具循环步骤。
+- 推导出的 ID 仅在当前 gateway 进程内用于重放准备结果。
+  `instructions` 和第一条用户消息相同的会话共用同一个 ID。
+  gateway 仍会采集每个完成的回合。没有会话头时，采集没有在 gateway 重启后保持不变的会话标识，也无法使用前缀提取。
+- Kimi 把压缩请求发往同一个 provider。该请求带有会话历史，并把 Kimi 的摘要指令作为最后一条用户消息，
+  而 Kimi 无法把它标记为内部请求。因此，gateway 把它当作一轮：为该指令准备上下文；
+  设置 `PC_GATEWAY_SEDIMENT=on` 后，还会把摘要作为一轮采集。Kimi 向自己的 Kimi Code 服务请求会话标题，
+  不经过这个 provider。
+- 独立部署的 gateway（`PC_GATEWAY_CORE_BASE`）只有在 `PC_GATEWAY_INJECTION=on` 时才注入。
+  不要在 `custom_headers` 中放固定的 `X-PowerContext-Conversation-ID`，否则 gateway 会把所有会话当作同一个会话。
 
 参见[网关上下文注入](../operate/deploy-server.md#网关上下文注入)和[网关认证边界](../operate/deploy-server.md#网关认证边界)。
 

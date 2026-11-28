@@ -114,10 +114,10 @@ a prepared-context block that the gateway did not inject, in every mode. The plu
 block, so Core rejects the request with HTTP 422, the gateway returns HTTP 503 `gate_paused`, and the model never
 receives the turn. Keep the plugin defaults where Kimi calls its model directly.
 
-Kimi sends its own reminders as separate user messages after the prompt: on the first turn of a session (the date and
-this plugin's session-start Skill) and on every `kimi -p` turn (the permission-mode reminder). The gateway takes the
-last user message as the turn's message, so on those turns it prepares with the reminder's text and captures the
-reminder instead of the prompt. Later interactive turns are prepared and captured from the prompt.
+Kimi sends some reminders as separate user messages after the prompt: the date and this plugin's session-start Skill
+on the first turn of a session, and the permission-mode reminder on every `kimi -p` turn. The gateway skips these
+reminders when it selects the turn's prompt. It prepares context for the prompt, injects it there, and captures the
+prompt as the turn's text. It forwards the reminders to the model unchanged.
 
 ### Choose the Core target
 
@@ -142,6 +142,9 @@ type = "openai_responses"
 base_url = "http://127.0.0.1:8787/gateway/v1"
 api_key = "<PC_GATEWAY_API_KEY value>"
 
+[providers.powercontext-gateway.custom_headers]
+X-PowerContext-Scope-ID = "<the plugin's Scope ID>"
+
 [models.gateway]
 provider = "powercontext-gateway"
 model = "approved-model"
@@ -153,6 +156,13 @@ capabilities = ["tool_use"]
 Use the Responses API. Kimi always streams. On the Responses route, the gateway calls the model without streaming and
 replays the checked response to Kimi as a stream, so the turn completes and is captured. On the Chat Completions route
 (`type = "openai"`), an enforcing Core withholds the streamed response and the turn fails.
+
+`X-PowerContext-Scope-ID` selects the Scope in which the gateway prepares, checks, and captures. Set it to the
+`scope_id` that `node "<Kimi home>/plugins/managed/powercontext/scripts/scope.mjs" resolve --cwd /absolute/project`
+prints. Kimi sends a provider's `custom_headers` with every request of every session, so one provider selects one
+Scope. The `KIMI_CODE_CUSTOM_HEADERS` environment variable sets headers, one `Name: value` per line, for a single Kimi
+process; a provider's `custom_headers` take precedence over it. Without the header, the gateway uses
+`PC_GATEWAY_DEFAULT_SCOPE`.
 
 In a combined deployment (`PC_GATEWAY_CORE_UDS`), the gateway forwards Core API requests to Core with the client's own
 credentials, so the plugin's Server URL, which its hook and MCP tools share, can be the gateway's address.
@@ -175,18 +185,28 @@ session.
 
 ### Configure the gateway
 
-Run the gateway in a combined deployment and set:
-
-- `PC_GATEWAY_INJECTION=on`. The gateway injects by default only requests that name a conversation in a header it
-  recognizes, and Kimi sends none. Its `custom_headers` are the same for every session, so do not set a fixed
-  `X-PowerContext-Conversation-ID` there: every session would become one conversation. With `on`, the gateway prepares
-  each request separately, including each tool-loop step.
-- `PC_GATEWAY_UPSTREAM_URL_RESPONSES` to the target's `endpoint`, and `PC_GATEWAY_UPSTREAM_API_KEY_RESPONSES` to the
-  provider key.
-- `PC_GATEWAY_API_KEY` to the key in Kimi's provider, and `PC_GATEWAY_CORE_TOKEN` when Core enforces authentication.
-- `PC_GATEWAY_SEDIMENT=on`, so that the gateway captures each completed turn as a Source.
-- `PC_GATEWAY_DEFAULT_SCOPE` to the plugin's Scope. The gateway prepares and captures every conversation in that one
-  Scope, while the MCP tools use the plugin's Scope.
+- Set `PC_GATEWAY_UPSTREAM_URL_RESPONSES` and `PC_GATEWAY_UPSTREAM_API_KEY_RESPONSES` to the target's `endpoint` and
+  the provider key, `PC_GATEWAY_API_KEY` to the key in Kimi's provider, `PC_GATEWAY_SEDIMENT=on`, and
+  `PC_GATEWAY_CORE_TOKEN` when Core enforces authentication.
+- Without `X-PowerContext-Scope-ID`, the gateway prepares and captures every conversation in the one Scope that
+  `PC_GATEWAY_DEFAULT_SCOPE` names. Set it to the plugin's Scope in that case.
+- Run the gateway in a combined deployment (`PC_GATEWAY_CORE_UDS`), which injects Kimi's requests by default. Kimi
+  2.1.1 sends no per-session header, and a provider's `custom_headers` are the same for every session, so the gateway
+  infers the conversation from the request instead. Kimi sends the whole history on every request, without
+  `previous_response_id` or `conversation`. It sends the same `instructions` on every request of a session, and the
+  history starts with the first user message. The gateway therefore prepares once per user message and replays that
+  context to the tool-loop steps.
+- The inferred ID is local to the gateway process and serves only this replay. Sessions that open with the same
+  instructions and first user message share one. The gateway still captures each completed turn. Without a
+  conversation header, capture has no conversation identity that survives a gateway restart, and prefix extraction is
+  not available.
+- Kimi sends its compaction request to the same provider. The request carries the session's history and Kimi's
+  summary instruction as the last user message, and Kimi cannot mark it as internal. The gateway therefore treats it
+  as a turn: it prepares context for the instruction and, with `PC_GATEWAY_SEDIMENT=on`, captures the summary as a
+  turn. Kimi requests session titles from its own Kimi Code service, not from this provider.
+- A standalone gateway (`PC_GATEWAY_CORE_BASE`) injects only with `PC_GATEWAY_INJECTION=on`. Do not put a fixed
+  `X-PowerContext-Conversation-ID` in `custom_headers`, because the gateway would then treat every session as one
+  conversation.
 
 See [Gateway context injection](../operate/deploy-server.md#gateway-context-injection) and
 [Gateway authentication boundaries](../operate/deploy-server.md#gateway-authentication-boundaries).
