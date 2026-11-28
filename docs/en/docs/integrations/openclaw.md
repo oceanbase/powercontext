@@ -219,7 +219,7 @@ gateway's `PC_GATEWAY_API_KEY` value as its `apiKey`, and select its model, for 
         apiKey: "${PC_GATEWAY_KEY}",
         api: "openai-responses",
         models: [
-          { id: "approved-model", name: "Approved model", contextWindow: 400000, maxTokens: 32000 },
+          { id: "approved-model", name: "Approved model", contextWindow: 128000, maxTokens: 32000 },
         ],
       },
     },
@@ -231,6 +231,21 @@ gateway's `PC_GATEWAY_API_KEY` value as its `apiKey`, and select its model, for 
 the gateway calls the model without streaming and replays the checked response as a stream, so a streamed turn completes
 and is captured. With `api: "openai-completions"`, the gateway forwards a streamed request on the Chat Completions route
 and releases the stream unchanged; with `PC_GATEWAY_SEDIMENT=on`, it captures the completed turn from it.
+
+The PowerContext gateway accepts a model request of at most 1 MiB, measured after it injects context and adds its cost
+guidance, and configuration cannot raise this ceiling; see
+[Gateway byte capacity](../operate/deploy-server.md#gateway-byte-capacity). A request that arrives larger fails with
+HTTP 413, and one that grows past it through injection or cost guidance fails with HTTP 403
+`request_payload_too_large`, before the model is called. OpenClaw sends the session's full history on every request, so
+a long session reaches the ceiling unless OpenClaw compacts it first. Set `contextWindow` low enough that OpenClaw
+compacts well before a request reaches 1 MiB.
+
+According to the source of OpenClaw 2026.8.1-beta.2, its embedded agent compacts when the context that the model last
+reported, which includes the tool definitions and system prompt, exceeds `contextWindow` minus a reserve of at least
+20000 tokens. By default it checks after each run ends and before the next prompt, not between the model requests of
+a tool loop. The example's `128000` therefore compacts by 108,000 tokens at the latest, about 432 KB at four UTF-8
+bytes per token, and leaves the rest of the ceiling for injected context, cost guidance, JSON overhead, and the tool
+results of one run. This value is derived from OpenClaw's source and the ceiling; it was not measured.
 
 Configure Core and the gateway as well:
 
