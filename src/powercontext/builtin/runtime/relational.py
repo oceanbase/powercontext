@@ -254,6 +254,7 @@ from powercontext.errors import (
     SourceDefinitionNotFoundError,
     SourceNotFoundError,
 )
+from powercontext.limits import MAX_QUERY_TAG_LABELS, MAX_TARGET_TAGS
 from powercontext.sources import (
     TEXT_EVIDENCE_PROJECTION_KEY,
     ConnectorBinding,
@@ -517,6 +518,8 @@ class RelationalContexts:
         memory_write_gate: MemoryWriteGate | None = None,
         decision_observation_retention_days: int | None = None,
         memory_rerank_candidate_limit: int = 30,
+        tag_max_per_artifact: int = MAX_TARGET_TAGS,
+        tag_max_query_labels: int = MAX_QUERY_TAG_LABELS,
         recall_channel_weights: RecallChannelWeights = DEFAULT_RECALL_CHANNEL_WEIGHTS,
         id_factory: IdFactory | None = None,
         handoff_artifact_id: str = "handoff",
@@ -534,6 +537,8 @@ class RelationalContexts:
         model_usage_flush_timeout_seconds: float = 0.5,
     ) -> None:
         self.database = database
+        self._tag_max_per_artifact = tag_max_per_artifact
+        self._tag_max_query_labels = tag_max_query_labels
         self.scopes = ScopeApplication(database, cursor_secret=cursor_secret)
         self.source_registry = source_registry or BUILTIN_SOURCE_REGISTRY
         self.topic_memory_index = NoTopicMemoryIndex() if topic_memory_index is None else topic_memory_index
@@ -581,6 +586,8 @@ class RelationalContexts:
             id_factory=id_factory,
             preview_signer=preview_signer,
             restore_retry_budget=atomic_memory_restore_retry_budget,
+            tag_limit=tag_max_per_artifact,
+            tag_query_limit=tag_max_query_labels,
         )
         topic_memory_repository = TopicMemoryRepository(
             artifacts=artifact_repository,
@@ -615,6 +622,7 @@ class RelationalContexts:
             artifact_content_decoder=artifact_repository.decode_content,
             candidate_decoder=self.repositories.candidates.decode_candidate,
             source_decoder=source_repository.decode_source,
+            tag_limit=self._tag_max_per_artifact,
         )
         self.list_skills = SkillArtifactSearcher(database, self.repositories.artifacts, self.experience_index)
         self._model_usage = _ModelUsageRecorder(
@@ -703,6 +711,8 @@ class RelationalContexts:
             cursor_secret=cursor_secret,
             projection_hook=atomic_memory_index.refresh_tags,
             atomic_write_authorizer=self._authorize_atomic_tag_write,
+            tag_limit=self._tag_max_per_artifact,
+            tag_query_limit=self._tag_max_query_labels,
         )
         self.records = RelationalRecordService(
             database,
@@ -714,6 +724,7 @@ class RelationalContexts:
             processing_pending=self.repositories.processing_pending,
             source_processing_bindings=(TOPIC_MEMORY_SOURCE_WINDOW_BINDING,),
             tags=self.tags,
+            tag_query_limit=self._tag_max_query_labels,
             topic_memory_list_reader=TopicMemoryArtifactListReader(
                 database=database,
                 artifacts=artifact_repository,
@@ -744,6 +755,7 @@ class RelationalContexts:
         self._memory_reranker = memory_reranker
         self._decision_model = decision_model
         self._memory_rerank_candidate_limit = memory_rerank_candidate_limit
+        self._tag_max_per_artifact = tag_max_per_artifact
         self._handoff_artifact_id = handoff_artifact_id
         self._tracing = tracing
         self._scope_states: dict[str, _ScopeState] = {}
@@ -797,6 +809,7 @@ class RelationalContexts:
             id_factory=services.id_factory,
             tags=self.tags,
             connection=connection,
+            tag_limit=self._tag_max_per_artifact,
         )
 
     def dream(

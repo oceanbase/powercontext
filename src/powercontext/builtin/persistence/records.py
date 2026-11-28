@@ -97,8 +97,16 @@ from powercontext.builtin.sources import (
     ContentSourceInternal,
     ContentSourceTarget,
 )
-from powercontext.builtin.tags import ArtifactTagSet, TagFilter, TagQuery, TagQueryPage, TagTarget
+from powercontext.builtin.tags import (
+    ArtifactTagSet,
+    TagFilter,
+    TagQuery,
+    TagQueryPage,
+    TagTarget,
+    require_tag_query_limit,
+)
 from powercontext.errors import RevisionConflictError
+from powercontext.limits import MAX_QUERY_TAG_LABELS
 from powercontext.sources import SourceMaterialization, SourceObservation, SourceRef
 
 Clock = Callable[[], datetime]
@@ -137,6 +145,7 @@ class RelationalRecordService:
         processing_pending: ArtifactProcessingPendingRepository | None = None,
         source_processing_bindings: tuple[str, ...] = (),
         tags: RelationalTagService | None = None,
+        tag_query_limit: int = MAX_QUERY_TAG_LABELS,
         atomic_memory_tag_hook=None,
         atomic_memory_tag_authorizer=None,
         topic_memory_list_reader: ArtifactListReader | None = None,
@@ -156,6 +165,7 @@ class RelationalRecordService:
         self._processing_pending = processing_pending
         self._source_processing_bindings = source_processing_bindings
         self._topic_memory_list_reader = topic_memory_list_reader
+        self._tag_query_limit = tag_query_limit
         self._artifact_handles = ArtifactHandleRepository(database)
         self._tags = tags or RelationalTagService(
             database,
@@ -636,6 +646,8 @@ class RelationalRecordService:
     ) -> ArtifactRecordPage:
         repository = self._read_repository(family)
         _require_limit(limit)
+        if tag_filter is not None:
+            require_tag_query_limit(tag_filter.tags, self._tag_query_limit)
         reader = self._topic_memory_list_reader
         if reader is not None and family == reader.family:
             return await reader.query(

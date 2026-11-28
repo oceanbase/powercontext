@@ -52,6 +52,13 @@ from powercontext.builtin.persistence.seekdb import SeekDBConfig
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.runtime._scope_cache import DEFAULT_SCOPE_CACHE_SIZE
 from powercontext.builtin.runtime.decision_policy import DecisionPolicyMode, DecisionPrivacyBoundary
+from powercontext.limits import (
+    MAX_QUERY_TAG_LABELS,
+    MAX_QUERY_TAG_LABELS_CEILING,
+    MAX_TARGET_TAGS,
+    MAX_TARGET_TAGS_CEILING,
+    TagLimits,
+)
 
 _HTTP_FIELD_NAME_PATTERN = re.compile(r"[!#$%&'*+\-.^_`|~0-9A-Za-z]+")
 InputEncodingOperation = Literal[
@@ -168,6 +175,14 @@ class RuntimeConfig(BaseModel):
     memory_compaction_enabled: bool = False
     memory_compaction_min_tombstone_revisions: int = Field(default=10, ge=0)
     memory_max_history_revisions: int = Field(default=100, ge=1)
+    tag_max_per_artifact: int = Field(default=MAX_TARGET_TAGS, ge=1, le=MAX_TARGET_TAGS_CEILING)
+    tag_max_query_labels: int = Field(default=MAX_QUERY_TAG_LABELS, ge=1, le=MAX_QUERY_TAG_LABELS_CEILING)
+
+    @property
+    def tag_limits(self) -> TagLimits:
+        """Return the deployment's effective tag admission policy."""
+
+        return TagLimits(max_per_artifact=self.tag_max_per_artifact, max_query_labels=self.tag_max_query_labels)
 
     @model_validator(mode="after")
     def validate_memory_capacity_order(self) -> RuntimeConfig:

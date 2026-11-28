@@ -239,7 +239,7 @@ A submitted tag must satisfy all of the following:
 - it has no leading or trailing whitespace;
 - it contains no Unicode control, surrogate, or unassigned code point;
 - its normalized key is at most 128 Unicode code points; and
-- the complete submitted set contains at most 32 tags.
+- the complete submitted set contains at most the deployment's effective Artifact tag limit (32 by default, ceiling 256).
 
 PowerContext preserves the submitted value as `tag` for display. It computes `tag_key` by applying Unicode NFC and
 then Unicode default case folding. It does not collapse internal whitespace, split punctuation, parse `/`, translate,

@@ -59,10 +59,11 @@ from powercontext.builtin.plugins.families import (
     plugin_artifact_repository,
     record_revision_metadata,
 )
-from powercontext.builtin.records import ArtifactRevisionPreconditionError
+from powercontext.builtin.records import ArtifactRevisionPreconditionError, InvalidBaseAccessRequestError
 from powercontext.builtin.runtime.artifact_merge import ArtifactMergeAccess, merge_artifact_tags
 from powercontext.builtin.sources.content import ContentSource, ContentSourceInternal, ContentSourceTarget
 from powercontext.builtin.tags import normalize_tags
+from powercontext.limits import MAX_QUERY_TAG_LABELS, MAX_TARGET_TAGS
 from powercontext.plugins import ArtifactChange, ArtifactPage, ArtifactSnapshot, LifecycleState, UndoMergePreview
 from powercontext.sources import SourceMaterialization, SourceRef
 
@@ -232,7 +233,12 @@ class _Reads:
         if cursor is not None:
             statement = statement.where(heads.c.artifact_id > cursor)
         if tags:
-            keys = tuple(normalize_tags(tuple(tags), allow_empty=False))
+            limit = owner.tag_query_limit
+            if len(tuple(tags)) > limit:
+                raise InvalidBaseAccessRequestError(
+                    "tags", f"must contain at most the deployment's {limit}-label query limit"
+                )
+            keys = tuple(normalize_tags(tuple(tags), allow_empty=False, maximum=limit))
             tagged = (
                 select(ARTIFACT_TAGS_TABLE.c.artifact_id)
                 .where(
@@ -664,7 +670,7 @@ class PluginArtifactTransaction(_Reads):
         ref = (await self._require(artifact_id)).artifact.as_ref()
         await self._authorize_write(ref)
         await owner.artifacts.lock_heads(self._connection, owner.scope_id, (ref,))
-        desired = normalize_tags(tuple(tags))
+        desired = normalize_tags(tuple(tags), maximum=owner.tag_limit)
         await self._connection.execute(
             delete(ARTIFACT_TAGS_TABLE).where(*_tag_identity(owner.scope_id, owner.family, artifact_id))
         )
@@ -712,6 +718,8 @@ class PluginArtifactWriter(_Reads):
         context: Any = None,
         change: UserChange | None = None,
         caller_scoped: bool = False,
+        tag_limit: int = MAX_TARGET_TAGS,
+        tag_query_limit: int = MAX_QUERY_TAG_LABELS,
     ) -> None:
         """``caller_scoped`` writers act as ``context``'s caller under the shared Artifact access policy."""
 
@@ -724,11 +732,14 @@ class PluginArtifactWriter(_Reads):
         self._timeout = transaction_timeout_seconds
         self.context = context
         self.change = change
+        self.tag_limit = tag_limit
+        self.tag_query_limit = tag_query_limit
         self.service = plugin_merge_service(
             family,
             ArtifactMergeAccess(family) if caller_scoped or change is not None else _Security(family, security),
             sources,
             metadata=metadata,
+            tag_limit=tag_limit,
         )
         self.artifacts = self.service.artifacts
         self.states = ArtifactGovernanceRepository()
@@ -791,7 +802,12 @@ class PluginArtifactWriter(_Reads):
 
 
 def plugin_merge_service(
-    family: str, security: Any, sources: SourceRepository, *, metadata: bytes | None = None
+    family: str,
+    security: Any,
+    sources: SourceRepository,
+    *,
+    metadata: bytes | None = None,
+    tag_limit: int = MAX_TARGET_TAGS,
 ) -> ArtifactMergeService:
     """The shared governance engine for one plugin family; ``security`` decides who may change it.
 
@@ -804,7 +820,7 @@ def plugin_merge_service(
         artifacts=plugin_artifact_repository(family, sources),
         adapter=_Adapter(family, metadata),
         security=security,
-        merge_tags=partial(merge_artifact_tags, family=family),
+        merge_tags=partial(merge_artifact_tags, family=family, maximum=tag_limit),
         sources=sources,
     )
 

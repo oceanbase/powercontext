@@ -75,6 +75,7 @@ from powercontext.builtin.runtime.config import DatabaseConfig
 from powercontext.builtin.runtime.processing_discovery import SourceProcessingPendingProvider
 from powercontext.builtin.sources import BUILTIN_SOURCE_REGISTRY
 from powercontext.http._generated.models import PluginPage, PluginScopePage, PluginScopeState, PluginState
+from powercontext.limits import MAX_QUERY_TAG_LABELS, MAX_TARGET_TAGS
 from powercontext.plugins import Cron, Interval
 from powercontext.server.plugin_hosts import READY_TIMEOUT_SECONDS, HostProcessBudget, PluginHost
 from powercontext.server.plugin_versions import (
@@ -241,6 +242,8 @@ class _VersionLauncher:
             inference=self._manager.inference_config,
             storage_root=self._manager.storage_root,
             source_bindings=() if manifest.artifact is not None else self._manager.source_bindings(),
+            tag_max_per_artifact=self._manager.tag_max_per_artifact,
+            tag_max_query_labels=self._manager.tag_max_query_labels,
         )
         entrypoint = run_plugin_worker if manifest.artifact is not None else run_source_collect_worker
         return await SpawnArtifactProcessingWorkerLauncher(partial(entrypoint, spec)).start(assignment)
@@ -269,6 +272,8 @@ class PluginManager:
         serve_requests: bool = True,
         host_processes: Mapping[str, int] | None = None,
         host_processes_total: int | None = None,
+        tag_max_per_artifact: int = MAX_TARGET_TAGS,
+        tag_max_query_labels: int = MAX_QUERY_TAG_LABELS,
     ) -> None:
         self.database = database
         self.register_merge = register_merge
@@ -295,6 +300,8 @@ class PluginManager:
         self.serve_requests = serve_requests
         self.host_processes = dict(host_processes or {})
         self.host_budget = HostProcessBudget(host_processes_total)
+        self.tag_max_per_artifact = tag_max_per_artifact
+        self.tag_max_query_labels = tag_max_query_labels
         # Snapshots this process made; it deletes only these, once nothing here uses them.
         self._created: set[Path] = set()
         # Snapshots kept after they stopped being current: Workers or retiring host processes may still use them.
@@ -715,6 +722,8 @@ class PluginManager:
             plugin_families=families,
             source_bindings=bindings,
             storage_root=self.storage_root,
+            tag_max_per_artifact=self.tag_max_per_artifact,
+            tag_max_query_labels=self.tag_max_query_labels,
         )
 
     async def _ensure_supervisor(self) -> ArtifactProcessingSupervisors:
@@ -755,6 +764,7 @@ class PluginManager:
                     ArtifactMergeAccess(generate.family),
                     SourceRepository(BUILTIN_SOURCE_REGISTRY),
                     metadata=revision_metadata(manifest.name, manifest.fingerprint),
+                    tag_limit=self.tag_max_per_artifact,
                 )
             )
         unregister_source_binding(manifest.binding_name)

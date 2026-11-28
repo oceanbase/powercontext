@@ -27,8 +27,9 @@ from typer.testing import CliRunner
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.persistence.tables import SCOPES_TABLE
 from powercontext.builtin.records import ArtifactWrite
-from powercontext.builtin.runtime import BuiltinConfig, open_builtin_contexts, open_builtin_runtime
+from powercontext.builtin.runtime import BuiltinConfig, RuntimeConfig, open_builtin_contexts, open_builtin_runtime
 from powercontext.builtin.scope import ScopeDraft
+from powercontext.builtin.tags import ArtifactTagTarget
 from powercontext.cli import archive as archive_module
 from powercontext.cli.app import create_cli
 from powercontext.cli.archive import archive_app
@@ -416,3 +417,52 @@ def test_archive_cli_dry_run_does_not_create_missing_sqlite_uri_target(tmp_path,
     assert result.exit_code == 0, result.output
     assert json.loads(result.stdout)["compatible"]
     assert not target_path.parent.exists()
+
+
+def test_archive_cli_dry_run_uses_the_configured_tag_write_limit(tmp_path, monkeypatch) -> None:
+    archive = tmp_path / "tags.pcb"
+    source_url = sqlite_url(tmp_path / "tags-source.db")
+    target_url = sqlite_url(tmp_path / "tags-target.db")
+    source_config = BuiltinConfig(
+        database=SQLiteConfig(url=source_url),
+        runtime=RuntimeConfig(artifact_processing_families=(), tag_max_per_artifact=64),
+    )
+
+    async def seed() -> None:
+        async def authorize(_scopes: tuple[str, ...]) -> None:
+            pass
+
+        async with open_builtin_contexts(source_config) as source:
+            scope = await source.scopes.create(
+                ScopeDraft(title="Tagged archive", summary="Dry-run limit", idempotency_key="tagged-archive")
+            )
+            created = await source.records.create_artifact(
+                scope.scope_id, "profile", ArtifactWrite(content={"content": "# Profile\n\nThirty-three labels."})
+            )
+            target = ArtifactTagTarget(family="profile", artifact_id=created.artifact_id)
+            current = await source.records.get_tags(scope.scope_id, target)
+            await source.records.replace_tags(
+                scope.scope_id,
+                target,
+                tuple(f"label-{index}" for index in range(33)),
+                expected_etag=current.etag,
+            )
+            await source.portability.export([scope.scope_id], archive, authorize=authorize)
+        async with open_builtin_contexts(BuiltinConfig(database=SQLiteConfig(url=target_url))):
+            pass
+
+    asyncio.run(seed())
+    monkeypatch.setenv("POWERCONTEXT_HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("POWERCONTEXT_SERVER_DATABASE_KIND", "sqlite")
+    monkeypatch.setenv("POWERCONTEXT_SERVER_DATABASE_URL", target_url)
+    monkeypatch.setenv("POWERCONTEXT_SERVER_RUNTIME_TAG_MAX_PER_ARTIFACT", "64")
+    runner = CliRunner()
+    cli = create_cli([archive_app])
+
+    compatible = runner.invoke(cli, ["archive", "restore", str(archive), "--dry-run"])
+    assert compatible.exit_code == 0, compatible.output
+
+    monkeypatch.setenv("POWERCONTEXT_SERVER_RUNTIME_TAG_MAX_PER_ARTIFACT", "32")
+    rejected = runner.invoke(cli, ["archive", "restore", str(archive), "--dry-run"])
+    assert rejected.exit_code == 2, rejected.output
+    assert "tag set has invalid labels" in rejected.output

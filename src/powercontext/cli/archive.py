@@ -53,6 +53,7 @@ from powercontext.builtin.portability import (
 from powercontext.builtin.runtime import BuiltinConfig, open_builtin_runtime
 from powercontext.builtin.runtime.relational import BUILTIN_ARTIFACT_TYPES, BUILTIN_CANDIDATE_PROPOSAL_TYPES
 from powercontext.builtin.sources import BUILTIN_SOURCE_REGISTRY
+from powercontext.limits import MAX_TARGET_TAGS
 from powercontext.server.configuration import server_settings_context
 
 HELP_OPTION_NAMES = ("-h", "--help")
@@ -162,24 +163,36 @@ async def _validate_only(source: Path, /, *, env_file: Path | None) -> BundleVal
             existing = database.is_persistent and await asyncio.to_thread(_database_file_exists, database.url)
             if existing:
                 async with SQLiteProfile.open_readonly(database) as profile:
-                    return await _validate_with_database(profile.database, source, settings.plugins_dir)
+                    return await _validate_with_database(
+                        profile.database, source, settings.plugins_dir, settings.runtime.tag_max_per_artifact
+                    )
             engine = create_async_engine("sqlite+aiosqlite:///:memory:", echo=database.echo, hide_parameters=True)
             validation_database = AsyncDatabase.own(engine, shared_connection=True)
             try:
-                return await _validate_with_database(validation_database, source, settings.plugins_dir)
+                return await _validate_with_database(
+                    validation_database, source, settings.plugins_dir, settings.runtime.tag_max_per_artifact
+                )
             finally:
                 await validation_database.close()
         if isinstance(database, OceanBaseConfig):
             async with OceanBaseProfile.open(database, tables=()) as profile:
-                return await _validate_with_database(profile.database, source, settings.plugins_dir)
+                return await _validate_with_database(
+                    profile.database, source, settings.plugins_dir, settings.runtime.tag_max_per_artifact
+                )
         if isinstance(database, SeekDBConfig):
             async with SeekDBProfile.open(database, tables=()) as profile:
-                return await _validate_with_database(profile.database, source, settings.plugins_dir)
+                return await _validate_with_database(
+                    profile.database, source, settings.plugins_dir, settings.runtime.tag_max_per_artifact
+                )
         assert_never(database)
 
 
 async def _validate_with_database(
-    database: AsyncDatabase, source: Path, plugins_dir: Path | None = None, /
+    database: AsyncDatabase,
+    source: Path,
+    plugins_dir: Path | None = None,
+    tag_limit: int = MAX_TARGET_TAGS,
+    /,
 ) -> BundleValidation:
     async def projection_capability(_scopes: tuple[str, ...], /) -> None:
         return None
@@ -193,6 +206,7 @@ async def _validate_with_database(
         artifact_content_decoder=artifacts.decode_content,
         candidate_decoder=CandidateRepository(BUILTIN_CANDIDATE_PROPOSAL_TYPES).decode_candidate,
         source_decoder=SourceRepository(BUILTIN_SOURCE_REGISTRY).decode_source,
+        tag_limit=tag_limit,
     )
     await _register_plugins(archive, plugins_dir)
     return await archive.validate(source, progress=_emit_progress)

@@ -28,6 +28,11 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validat
 
 from powercontext.artifacts import ArtifactRef
 from powercontext.builtin.records import BaseAccessError, BaseArtifactFamily, InvalidBaseAccessRequestError
+from powercontext.limits import (
+    MAX_QUERY_TAG_LABELS_CEILING,
+    MAX_TARGET_TAGS,
+    MAX_TARGET_TAGS_CEILING,
+)
 
 TaggableArtifactFamily = str
 
@@ -48,7 +53,6 @@ def _require_taggable(family: str) -> str:
 
 TagMatch = Literal["all", "any"]
 TagTargetType = Literal["artifact"]
-MAX_TARGET_TAGS = 32
 
 
 class _TagModel(BaseModel):
@@ -69,6 +73,13 @@ class ArtifactTagTarget(_TagModel):
 
 
 TagTarget = ArtifactTagTarget
+
+
+def require_tag_query_limit(tags: tuple[str, ...], limit: int) -> None:
+    """Reject an embedded query whose label count exceeds the deployment limit."""
+
+    if len(tags) > limit:
+        raise InvalidBaseAccessRequestError("tags", f"must contain at most the deployment's {limit}-label query limit")
 
 
 def normalize_tags(
@@ -106,12 +117,12 @@ class TagFilter(_TagModel):
     @field_validator("tags")
     @classmethod
     def validate_tags(cls, value: tuple[str, ...]) -> tuple[str, ...]:
-        normalize_tags(value, maximum=16, allow_empty=False)
+        normalize_tags(value, maximum=MAX_QUERY_TAG_LABELS_CEILING, allow_empty=False)
         return value
 
     @property
     def keys(self) -> tuple[str, ...]:
-        return tuple(normalize_tags(self.tags, maximum=16, allow_empty=False))
+        return tuple(normalize_tags(self.tags, maximum=MAX_QUERY_TAG_LABELS_CEILING, allow_empty=False))
 
 
 class ArtifactTagSet(_TagModel):
@@ -129,7 +140,7 @@ class ArtifactTagSet(_TagModel):
 
 
 def tag_set(scope_id: str, target: TagTarget, tags: tuple[str, ...]) -> ArtifactTagSet:
-    ordered = tuple(normalize_tags(tags).values())
+    ordered = tuple(normalize_tags(tags, maximum=MAX_TARGET_TAGS_CEILING).values())
     digest = "sha256:" + sha256(rfc8785.dumps({"tags": list(ordered)})).hexdigest()
     return ArtifactTagSet(scope_id=scope_id, target=target, tags=ordered, tag_digest=digest)
 

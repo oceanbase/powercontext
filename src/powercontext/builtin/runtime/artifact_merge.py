@@ -342,6 +342,7 @@ async def merge_artifact_tags(
     input_ids: tuple[str, ...],
     *,
     family: str,
+    maximum: int = MAX_TARGET_TAGS,
 ) -> None:
     """Assign the result a bounded, deterministic selection from its inputs' tags.
 
@@ -369,8 +370,8 @@ async def merge_artifact_tags(
         labels.setdefault(key, str(row.tag))
         carriers[key] += 1
     # Independent of input order, so retries and replays of the same merge assign the same tags.
-    retained = sorted(labels, key=lambda key: (-carriers[key], key.encode("utf-8")))[:MAX_TARGET_TAGS]
-    for key, label in normalize_tags(tuple(labels[key] for key in retained)).items():
+    retained = sorted(labels, key=lambda key: (-carriers[key], key.encode("utf-8")))[:maximum]
+    for key, label in normalize_tags(tuple(labels[key] for key in retained), maximum=maximum).items():
         await connection.execute(
             insert(ARTIFACT_TAGS_TABLE).values(
                 scope_id=scope_id,

@@ -24,6 +24,7 @@ from powercontext.artifacts import ArtifactRef
 from powercontext.builtin.evidence.models import ResolvedEvidence
 from powercontext.builtin.review.models import CandidateAudit, CandidateStatus
 from powercontext.builtin.tags import ArtifactTagSet, TagTarget, normalize_tags
+from powercontext.limits import MAX_TARGET_TAGS_CEILING
 from powercontext.sources import SourceRef
 
 
@@ -45,21 +46,21 @@ class TagDreamTarget(CatalogValue):
 
 
 class TagChangeProposal(CatalogValue):
-    after_tags: tuple[str, ...] = Field(max_length=32)
+    after_tags: tuple[str, ...] = Field(max_length=MAX_TARGET_TAGS_CEILING)
 
     @field_validator("after_tags")
     @classmethod
     def valid_tags(cls, value: tuple[str, ...]) -> tuple[str, ...]:
-        return tuple(normalize_tags(value).values())
+        return tuple(normalize_tags(value, maximum=MAX_TARGET_TAGS_CEILING).values())
 
 
 class CatalogChangeProposal(TagDreamTarget, TagChangeProposal):
-    before_tags: tuple[str, ...] = Field(max_length=32)
+    before_tags: tuple[str, ...] = Field(max_length=MAX_TARGET_TAGS_CEILING)
 
     @field_validator("before_tags")
     @classmethod
     def valid_before_tags(cls, value: tuple[str, ...]) -> tuple[str, ...]:
-        return tuple(normalize_tags(value).values())
+        return tuple(normalize_tags(value, maximum=MAX_TARGET_TAGS_CEILING).values())
 
 
 class CatalogChangeCandidate(CatalogValue):

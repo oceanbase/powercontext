@@ -373,6 +373,8 @@ def create_server_app(  # noqa: C901
                     storage_root=powercontext_data_dir() / "plugins",
                     snapshot_root=powercontext_data_dir() / "plugin-versions",
                     rescan_seconds=resolved.plugins_rescan_seconds,
+                    tag_max_per_artifact=resolved.runtime.tag_max_per_artifact,
+                    tag_max_query_labels=resolved.runtime.tag_max_query_labels,
                     # Host processes authorize callers in every role that serves requests.
                     host_security_builder=lambda: build_host_security(
                         resolved,
@@ -482,6 +484,7 @@ def create_server_app(  # noqa: C901
         access_mode=resolved.access.mode,
         authentication_provider=configured_authentication,
         allow_insecure_remote_http=resolved.allow_insecure_http,
+        tag_limits=resolved.runtime.tag_limits,
     )
     app.state.source_content_max_chars = resolved.source_content_max_chars
     # Admission must see the outward send; only non-buffering instrumentation

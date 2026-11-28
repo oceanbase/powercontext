@@ -124,7 +124,7 @@ For a Memory entry, use a target with type=memory_entry, family=memory, artifact
 | `/v1/candidates/approve` | scope_id, candidate_id, expected_version | Conditional Tag replacement and stored result |
 | `/v1/candidates/reject` | scope_id, candidate_id, expected_version, reason | Terminal rejection without changing tags |
 
-Reads require scope.read; review mutations require scope.review and applicable target permissions. The complete proposal retains the original target, expected_etag, basis, and before_tags. Revision must not change those fields to bypass a conflict. after_tags contains the entire replacement set: 0–32 labels, each 1–64 characters. An empty set clears the tags. Apply NFC/casefold normalization and reject duplicates after normalization.
+Reads require scope.read; review mutations require scope.review and applicable target permissions. The complete proposal retains the original target, expected_etag, basis, and before_tags. Revision must not change those fields to bypass a conflict. after_tags contains the entire replacement set: 0 to the deployment's effective Artifact tag limit (32 by default, ceiling 256) labels, each 1–64 characters. An empty set clears the tags. Apply NFC/casefold normalization and reject duplicates after normalization.
 
 Example request to `/v1/candidates/revise`:
 

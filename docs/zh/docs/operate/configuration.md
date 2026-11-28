@@ -54,8 +54,12 @@ MemoryWriteGate 采用 fail-open 策略，只裁决写入，不修改权威历�
 `MEMORY_WRITE_GATE_PRIVACY_BOUNDARY=hosted_redacted` 和显式的 `MEMORY_WRITE_GATE_SANITIZER=known_secrets`。
 内置 sanitizer 覆盖已知的敏感环境变量/Codex 值及有限的 provider 前缀，不是通用的 PII 或口令检测器。sanitizer
 默认是 `none`；hosted-redacted 组合在未选择 sanitizer 时会以命名配置错误失败。
-合并结果仍遵守每个 Artifact 最多 32 个标签的限制。输入标签按规范化键去重后超过 32 个时，结果保留确定性选出的 32 个，
-合并及其 Source 窗口照常提交。选择顺序见[使用标签整理内容](../workflows/manage-artifact-tags.md#标签规则与存储)。
+合并结果遵守部署的 Artifact 标签上限：默认 32 个，可通过
+`POWERCONTEXT_SERVER_RUNTIME_TAG_MAX_PER_ARTIFACT` 提高到 256；查询标签上限默认 16，可通过
+`POWERCONTEXT_SERVER_RUNTIME_TAG_MAX_QUERY_LABELS` 提高到 64。两个设置都在重启后生效。
+要读写超过 32 个标签，客户端必须使用当前契约构建；旧契约构建的客户端会拒绝这些数据。
+输入标签按规范化键去重后超过生效上限时，结果保留确定性选出的该上限数量，合并及其 Source 窗口照常提交。
+选择顺序见[使用标签整理内容](../workflows/manage-artifact-tags.md#标签规则与存储)。
 
 ## 用户数据
 
@@ -156,6 +160,8 @@ MCP 使用 stateless Streamable HTTP，每次工具执行都采用当前请求�
 | `POWERCONTEXT_SERVER_DATABASE_BUSY_TIMEOUT_MS` | `5000` | 业务连接等待 SQLite 单一写锁的毫秒数；它不约束用量记账，后者有自己的有界预算 |
 | `POWERCONTEXT_SERVER_RUNTIME_SCOPE_CACHE_SIZE` | `128` | Runtime 保留的非活动 scope composition 数量；进行中的 scope 不会被驱逐 |
 | `POWERCONTEXT_SERVER_RUNTIME_SOURCE_WINDOW_LIMIT` | `100` | 每次处理的 Source 日志位置上限；Memory 在生成超时后会缩小窗口 |
+| `POWERCONTEXT_SERVER_RUNTIME_TAG_MAX_PER_ARTIFACT` | `32` | 单个 Artifact 标签集的生效上限，取值 `1` 到 `256`；适用于标签替换、Dream/Catalog 审批和合并选标签 |
+| `POWERCONTEXT_SERVER_RUNTIME_TAG_MAX_QUERY_LABELS` | `16` | 单次标签查询或过滤的生效上限，取值 `1` 到 `64`；适用于标签查询以及 Artifact、Memory 标签过滤 |
 | `POWERCONTEXT_SERVER_RUNTIME_CONTEXT_ASSEMBLY_MAX_ENTRIES` | `8` | 显式 `assembly.sections[].limit` 之和的上限；正整数，各类别单独上限仍适用 |
 | `POWERCONTEXT_SERVER_RUNTIME_MEMORY_EXTRACTION_PROFILE` | `coding` | Memory 选择策略：`coding` 或 `conversation` |
 | `POWERCONTEXT_SERVER_RUNTIME_MEMORY_RERANK_ENABLED` | `false` | 在 Memory 粗召回后应用 listwise rerank |

@@ -33,6 +33,7 @@ from powercontext.builtin.artifacts.search import (
 )
 from powercontext.builtin.records import InvalidBaseAccessRequestError
 from powercontext.builtin.tags import TagFilter, normalize_tags
+from powercontext.limits import MAX_QUERY_TAG_LABELS_CEILING
 
 if TYPE_CHECKING:
     from powercontext.builtin.artifacts.memory import EmbeddingProfile
@@ -71,7 +72,7 @@ class AtomicSearchFilters(BaseModel):
     @classmethod
     def validate_tags(cls, value: tuple[str, ...]) -> tuple[str, ...]:
         try:
-            normalize_tags(value, maximum=16, allow_empty=False)
+            normalize_tags(value, maximum=MAX_QUERY_TAG_LABELS_CEILING, allow_empty=False)
         except InvalidBaseAccessRequestError:
             raise ValueError("tags must contain distinct valid labels") from None  # noqa: TRY003
         return value

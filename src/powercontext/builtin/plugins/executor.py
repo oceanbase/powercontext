@@ -42,6 +42,7 @@ from powercontext.builtin.runtime.processing_contracts import (
 )
 from powercontext.builtin.runtime.processing_execution import InvocationAlreadyHandled, ScopeInvocation
 from powercontext.builtin.sources import BUILTIN_SOURCE_REGISTRY, SourceCursor
+from powercontext.limits import MAX_QUERY_TAG_LABELS, MAX_TARGET_TAGS
 from powercontext.plugins import ArtifactPlugin, GenerateRequest, GenerationSource, PluginContext
 
 logger = logging.getLogger(__name__)
@@ -59,6 +60,8 @@ class PluginWorkerSpec:
     storage_root: str | None = None
     # The loaded plugins' Source inputs, for Workers that write Sources: (binding, Scopes, Source types).
     source_bindings: tuple[tuple[str, tuple[str, ...] | None, tuple[str, ...]], ...] = ()
+    tag_max_per_artifact: int = MAX_TARGET_TAGS
+    tag_max_query_labels: int = MAX_QUERY_TAG_LABELS
 
 
 def run_plugin_worker(
@@ -180,6 +183,8 @@ async def execute_plugin(  # noqa: C901 - one window from selection through ackn
                 complete=complete,
                 transaction_timeout_seconds=generate.transaction_timeout_seconds,
                 security=security,
+                tag_limit=spec.tag_max_per_artifact,
+                tag_query_limit=spec.tag_max_query_labels,
             )
             call = bool(window) or inputs is None
             if call:

@@ -5377,7 +5377,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                         "schema": {
                             "type": "array",
                             "minItems": 1,
-                            "maxItems": 16,
+                            "maxItems": 64,
                             "items": {"type": "string", "minLength": 1, "maxLength": 64},
                         },
                     },
@@ -7065,7 +7065,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "properties": {
                     "scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
                     "kind": {"type": "string", "minLength": 1, "nullable": True},
-                    "tags": {"items": {"type": "string", "minLength": 1}, "type": "array", "maxItems": 16},
+                    "tags": {"items": {"type": "string", "minLength": 1}, "type": "array", "maxItems": 64},
                     "tag_match": {"$ref": "#/components/schemas/TagMatch"},
                     "limit": {"type": "integer", "maximum": 100.0, "minimum": 1.0, "default": 50},
                     "cursor": {"type": "string", "maxLength": 4096, "nullable": True},
@@ -7306,7 +7306,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
                     "states": {"items": {"$ref": "#/components/schemas/AtomicMemoryState"}, "type": "array"},
                     "kind": {"type": "string", "minLength": 1, "nullable": True},
-                    "tags": {"items": {"type": "string", "minLength": 1}, "type": "array", "maxItems": 16},
+                    "tags": {"items": {"type": "string", "minLength": 1}, "type": "array", "maxItems": 64},
                     "tag_match": {"$ref": "#/components/schemas/TagMatch"},
                     "limit": {"type": "integer", "maximum": 100.0, "minimum": 1.0, "default": 50},
                     "cursor": {"type": "string", "maxLength": 4096, "nullable": True},
@@ -7330,7 +7330,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "query": {"type": "string", "maxLength": 8192, "minLength": 1},
                     "mode": {"$ref": "#/components/schemas/AtomicMemorySearchMode", "default": "text"},
                     "kind": {"type": "string", "minLength": 1, "nullable": True},
-                    "tags": {"items": {"type": "string", "minLength": 1}, "type": "array", "maxItems": 16},
+                    "tags": {"items": {"type": "string", "minLength": 1}, "type": "array", "maxItems": 64},
                     "tag_match": {"$ref": "#/components/schemas/TagMatch"},
                     "limit": {"type": "integer", "maximum": 100.0, "minimum": 1.0, "default": 20},
                 },
@@ -15028,7 +15028,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "tags": {
                         "items": {"type": "string", "maxLength": 64, "minLength": 1},
                         "type": "array",
-                        "maxItems": 16,
+                        "maxItems": 64,
                         "minItems": 1,
                     },
                     "match": {"$ref": "#/components/schemas/TagMatch", "default": "all"},
@@ -15036,13 +15036,16 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "additionalProperties": False,
                 "type": "object",
                 "required": ["tags"],
+                "description": "Exact label filter. The deployment's "
+                "configured query-label limit, 16 by "
+                "default, applies.",
             },
             "ReplaceArtifactTagsRequest": {
                 "properties": {
                     "tags": {
                         "items": {"type": "string", "maxLength": 64, "minLength": 1},
                         "type": "array",
-                        "maxItems": 32,
+                        "maxItems": 256,
                         "minItems": 0,
                     }
                 },
@@ -15051,22 +15054,26 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "required": ["tags"],
                 "description": "Replace all labels "
                 "atomically. Empty "
-                "clears the set. Labels "
-                "preserve display text, "
-                "use NFC then casefold "
-                "for exact matching, and "
-                "reject normalized "
-                "duplicates, outer "
-                "whitespace, and Unicode "
-                "control, surrogate or "
-                "unassigned characters.",
+                "clears the set. The "
+                "deployment's configured "
+                "Artifact tag limit, 32 "
+                "by default, applies. "
+                "Labels preserve display "
+                "text, use NFC then "
+                "casefold for exact "
+                "matching, and reject "
+                "normalized duplicates, "
+                "outer whitespace, and "
+                "Unicode control, "
+                "surrogate or unassigned "
+                "characters.",
             },
             "QueryArtifactTagsRequest": {
                 "properties": {
                     "tags": {
                         "items": {"type": "string", "maxLength": 64, "minLength": 1},
                         "type": "array",
-                        "maxItems": 16,
+                        "maxItems": 64,
                         "minItems": 1,
                     },
                     "match": {"$ref": "#/components/schemas/TagMatch", "default": "all"},
@@ -15100,7 +15107,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "tags": {
                         "items": {"type": "string", "maxLength": 64, "minLength": 1},
                         "type": "array",
-                        "maxItems": 32,
+                        "maxItems": 256,
                         "minItems": 0,
                     },
                     "tag_digest": {
@@ -15128,7 +15135,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "tags": {
                         "items": {"type": "string", "maxLength": 64, "minLength": 1},
                         "type": "array",
-                        "maxItems": 32,
+                        "maxItems": 256,
                         "minItems": 0,
                     },
                     "tag_digest": {
@@ -15164,7 +15171,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "tag": {
                         "items": {"type": "string", "maxLength": 64, "minLength": 1},
                         "type": "array",
-                        "maxItems": 16,
+                        "maxItems": 64,
                         "minItems": 1,
                     },
                     "tag_match": {"$ref": "#/components/schemas/TagMatch"},
@@ -16413,12 +16420,12 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "before_tags": {
                         "items": {"type": "string", "maxLength": 64, "minLength": 1},
                         "type": "array",
-                        "maxItems": 32,
+                        "maxItems": 256,
                     },
                     "after_tags": {
                         "items": {"type": "string", "maxLength": 64, "minLength": 1},
                         "type": "array",
-                        "maxItems": 32,
+                        "maxItems": 256,
                     },
                 },
                 "additionalProperties": False,
@@ -16432,7 +16439,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "tags": {
                         "items": {"type": "string", "maxLength": 64, "minLength": 1},
                         "type": "array",
-                        "maxItems": 32,
+                        "maxItems": 256,
                     },
                     "tag_digest": {"type": "string", "minLength": 1},
                     "etag": {"type": "string", "minLength": 1},

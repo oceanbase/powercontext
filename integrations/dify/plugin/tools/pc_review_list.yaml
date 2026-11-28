@@ -1345,14 +1345,14 @@ output_schema:
                         type: string
                         minLength: 1
                         maxLength: 64
-                      maxItems: 32
+                      maxItems: 256
                     after_tags:
                       type: array
                       items:
                         type: string
                         minLength: 1
                         maxLength: 64
-                      maxItems: 32
+                      maxItems: 256
               source_refs:
                 type: array
                 maxItems: 32
@@ -1584,7 +1584,7 @@ output_schema:
                         type: string
                         minLength: 1
                         maxLength: 64
-                      maxItems: 32
+                      maxItems: 256
                     tag_digest:
                       type: string
                       minLength: 1

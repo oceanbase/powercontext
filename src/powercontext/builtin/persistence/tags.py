@@ -38,6 +38,7 @@ from powercontext.builtin.persistence.tables import ARTIFACT_HEADS_TABLE, ARTIFA
 from powercontext.builtin.records import (
     BaseValueNotFoundError,
     CursorExpiredError,
+    InvalidBaseAccessRequestError,
     InvalidCursorError,
 )
 from powercontext.builtin.tags import (
@@ -50,8 +51,10 @@ from powercontext.builtin.tags import (
     TagQueryPage,
     TagTarget,
     normalize_tags,
+    require_tag_query_limit,
     tag_set,
 )
+from powercontext.limits import MAX_QUERY_TAG_LABELS, MAX_TARGET_TAGS, MAX_TARGET_TAGS_CEILING
 
 
 def tag_predicate(
@@ -120,6 +123,8 @@ class RelationalTagService:
         cursor_ttl_seconds: int = 3600,
         projection_hook=None,
         atomic_write_authorizer=None,
+        tag_limit: int = MAX_TARGET_TAGS,
+        tag_query_limit: int = MAX_QUERY_TAG_LABELS,
     ) -> None:
         self._database = database
         self._artifacts = artifacts
@@ -128,6 +133,8 @@ class RelationalTagService:
         self._cursor_ttl = cursor_ttl_seconds
         self._projection_hook = projection_hook
         self._atomic_write_authorizer = atomic_write_authorizer
+        self._tag_limit = tag_limit
+        self._tag_query_limit = tag_query_limit
 
     async def get(self, scope_id: str, target: TagTarget) -> ArtifactTagSet:
         async with self._database.transaction() as connection:
@@ -172,7 +179,11 @@ class RelationalTagService:
         expected_etag: str,
         execution_context=None,
     ) -> ArtifactTagSet:
-        desired = normalize_tags(tags)
+        desired = normalize_tags(tags, maximum=MAX_TARGET_TAGS_CEILING)
+        if len(desired) > self._tag_limit:
+            raise InvalidBaseAccessRequestError(
+                "tags", f"must contain at most the deployment's {self._tag_limit}-label Artifact limit"
+            )
         await self.lock_target(connection, scope_id, target)
         await self._target_reference(connection, scope_id, target)
         if target.family == "atomic-memory" and self._atomic_write_authorizer is not None:
@@ -181,7 +192,7 @@ class RelationalTagService:
         current = tag_set(scope_id, target, latest.tags)
         if not hmac.compare_digest(expected_etag.encode("utf-8"), current.etag.encode("utf-8")):
             raise TagPreconditionError
-        previous = normalize_tags(current.tags)
+        previous = normalize_tags(current.tags, maximum=MAX_TARGET_TAGS_CEILING)
         identity = _identity(scope_id, target)
         removed = previous.keys() - desired.keys()
         if removed:
@@ -211,6 +222,7 @@ class RelationalTagService:
         return tag_set(scope_id, target, tags)
 
     async def query(self, scope_id: str, query: TagQuery, *, caller: str = "runtime") -> TagQueryPage:
+        require_tag_query_limit(query.tags, self._tag_query_limit)
         binding = sha256(
             rfc8785.dumps({
                 "scope_id": scope_id,

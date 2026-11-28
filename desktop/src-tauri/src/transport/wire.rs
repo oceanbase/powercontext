@@ -2880,6 +2880,7 @@ pub enum SubtreeScopeSelectionMode {
     Subtree,
 }
 
+/// TagFilter : Exact label filter. The deployment's configured query-label limit, 16 by default, applies.
 #[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize, TS)]
 #[serde(deny_unknown_fields)]
 pub struct TagFilter {
@@ -2891,6 +2892,7 @@ pub struct TagFilter {
 }
 
 impl TagFilter {
+    /// Exact label filter. The deployment's configured query-label limit, 16 by default, applies.
     #[allow(clippy::too_many_arguments)]
     pub fn new(tags: Vec<String>) -> TagFilter {
         TagFilter {

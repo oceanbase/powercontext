@@ -229,7 +229,7 @@ canonical persistence form 使用 `target_id`：
 - 没有前导或尾随空白；
 - 不包含 Unicode control、surrogate 或 unassigned code point；
 - normalized key 不超过 128 个 Unicode code point；
-- 完整提交集合最多包含 32 个标签。
+- 完整提交集合最多包含部署生效的 Artifact 标签上限（默认 32，上限 256）。
 
 PowerContext 将提交值保留为用于展示的 `tag`，先应用 Unicode NFC，再应用 Unicode default case folding，生成
 `tag_key`。它不会折叠内部空白、拆分标点、解析 `/`、翻译、词干化或推断层级。`tag` 与 `tag_key` 都在规范化后校验。
