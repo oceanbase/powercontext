@@ -17,7 +17,8 @@ diagnostics. Candidate inspection is read-only; candidate approve, reject, and r
 
 The package resolves an explicit Scope, a durable workspace binding, or the Server default. Use
 `POWERCONTEXT_PI_BASE_URL`, `POWERCONTEXT_PI_SCOPE_ID`, and `POWERCONTEXT_PI_CAPTURE_PROMPTS` to adjust the connection,
-explicit override, and automatic prompt capture.
+explicit override, and automatic prompt capture. Set `POWERCONTEXT_PI_PROMPT_RECALL=false` when Pi's model requests go
+through the PowerContext gateway, which then injects context itself.
 
 Pi's public `session_before_compact` event performs a best-effort checkpoint for accepted prompt Sources. A Source
 position remains pending until a complete flush response reports `current_cursor` at or beyond it. The package

@@ -692,6 +692,105 @@ describe('PowerContext Pi extension', () => {
     expect(fetch.mock.calls.some(([url]) => url === 'http://127.0.0.1:8000/v1/sources/content')).toBe(false)
   })
 
+  it('leaves prompt-time context to the gateway when prompt recall is off', async () => {
+    vi.stubEnv('POWERCONTEXT_PI_SCOPE_ID', 'project:demo')
+    vi.stubEnv('POWERCONTEXT_PI_PROMPT_RECALL', 'false')
+    const fetch = scopeAwareFetch(async (url: string) => {
+      if (url.endsWith('/v1/sources/content')) return new Response(JSON.stringify({ position: 7 }))
+      throw new Error(`unexpected request: ${url}`)
+    })
+    vi.stubGlobal('fetch', fetch)
+    const beforeAgentStart = installExtension().get('before_agent_start')
+
+    await expect(beforeAgentStart?.({
+      prompt: 'continue implementation',
+      systemPrompt: 'Base instructions',
+    }, {
+      cwd: '/workspace/repo',
+      sessionManager: {
+        getSessionId: () => 'session-42',
+        getBranch: () => [],
+      },
+    })).resolves.toEqual({ systemPrompt: `Base instructions\n\n${GUIDANCE}` })
+
+    const urls = fetch.mock.calls.map(([url]) => url)
+    expect(urls).not.toContain('http://127.0.0.1:8000/v1/context/prepare')
+    // Capture still follows its own setting.
+    expect(urls).toContain('http://127.0.0.1:8000/v1/sources/content')
+  })
+
+  it('sends no request for a prompt when prompt recall and capture are both off', async () => {
+    vi.stubEnv('POWERCONTEXT_PI_PROMPT_RECALL', 'false')
+    vi.stubEnv('POWERCONTEXT_PI_CAPTURE_PROMPTS', 'false')
+    const fetch = vi.fn()
+    vi.stubGlobal('fetch', fetch)
+    const beforeAgentStart = installExtension().get('before_agent_start')
+
+    await expect(beforeAgentStart?.({
+      prompt: 'continue implementation',
+      systemPrompt: 'Base instructions',
+    }, {
+      cwd: '/workspace/repo',
+      sessionManager: {
+        getSessionId: () => 'session-42',
+        getBranch: () => [],
+      },
+    })).resolves.toEqual({ systemPrompt: `Base instructions\n\n${GUIDANCE}` })
+
+    // Not even Scope resolution.
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it('names the gateway conversation with the Pi session only while prompt recall is off', async () => {
+    const context = (sessionId: string) => ({ sessionManager: { getSessionId: () => sessionId } })
+    expect(installExtension().has('before_provider_headers')).toBe(false)
+
+    vi.stubEnv('POWERCONTEXT_PI_PROMPT_RECALL', 'false')
+    const beforeProviderHeaders = installExtension().get('before_provider_headers')
+    const headers: Record<string, string | null> = { Authorization: 'Bearer gateway-key' }
+    await beforeProviderHeaders?.({ headers }, context('019a2b3c-session'))
+    expect(headers).toEqual({
+      Authorization: 'Bearer gateway-key',
+      'X-PowerContext-Conversation-ID': '019a2b3c-session',
+    })
+
+    // The gateway would ignore an id it cannot accept, so none is sent.
+    for (const invalid of ['', 'has space', 'x'.repeat(257), 'sessão']) {
+      const untouched: Record<string, string | null> = {}
+      await beforeProviderHeaders?.({ headers: untouched }, context(invalid))
+      expect(untouched).toEqual({})
+    }
+  })
+
+  it('marks a compaction or branch summary internal instead of naming the conversation', async () => {
+    vi.stubEnv('POWERCONTEXT_PI_PROMPT_RECALL', 'false')
+    vi.stubGlobal('fetch', vi.fn())
+    const handlers = installExtension()
+    const context = { sessionManager: { getSessionId: () => 'session-42' } }
+    const sent = async () => {
+      const headers: Record<string, string | null> = {}
+      await handlers.get('before_provider_headers')?.({ headers }, context)
+      return headers
+    }
+    const turn = { 'X-PowerContext-Conversation-ID': 'session-42' }
+    const summary = { 'X-PowerContext-Turn': 'internal' }
+
+    await handlers.get('session_before_compact')?.({ signal: new AbortController().signal }, context)
+    expect(await sent()).toEqual(summary)
+    await handlers.get('session_compact')?.({}, context)
+    expect(await sent()).toEqual(turn)
+
+    await handlers.get('session_before_tree')?.({}, context)
+    expect(await sent()).toEqual(summary)
+    await handlers.get('session_tree')?.({}, context)
+    expect(await sent()).toEqual(turn)
+
+    // A cancelled or failed compaction emits no end event; the next turn is a conversation turn again.
+    await handlers.get('session_before_compact')?.({ signal: new AbortController().signal }, context)
+    await handlers.get('turn_start')?.({}, context)
+    expect(await sent()).toEqual(turn)
+  })
+
   it('does not persist a secret-looking prompt', async () => {
     const fetch = scopeAwareFetch(async () => new Response(JSON.stringify({
       schema: 'powercontext.prepared-context.v1',

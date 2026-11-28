@@ -32,6 +32,7 @@ function runtime(fetch: typeof globalThis.fetch, resolveScope = async () => 'sco
       scopeId: undefined,
       authorization: undefined,
       capturePrompts: true,
+      promptRecall: true,
       requestTimeoutMs: 1000,
       httpBudgetMs: 4000,
       maxBytes: 8000,
