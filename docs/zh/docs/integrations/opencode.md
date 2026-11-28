@@ -90,8 +90,9 @@ opencode
 gateway 会将该结果的文本替换为 `PowerContext plugin prepared context omitted by the gateway.`，并保留工具调用 ID。
 请求和响应仍会经过 Core 的常规检查。
 
-关闭召回后，提示词时上下文只来自 gateway。gateway 在 `PC_GATEWAY_DEFAULT_SCOPE` 指定的 Scope 中准备和采集，
-而不是插件为 Session 或 workspace 解析的 Scope。请把它设为同一个 Scope。
+关闭召回后，提示词时上下文只来自 gateway。gateway 在 `X-PowerContext-Scope-ID` 选择的 Scope 中准备和采集，
+未发送该请求头时使用 `PC_GATEWAY_DEFAULT_SCOPE`。若要使用插件为 Session 或 workspace 解析的 Scope，请在请求头
+中指定该 Scope，或将其设为默认值。见 [Gateway 请求 Scope](../operate/deploy-server.md#gateway-请求-scope)。
 
 OpenCode 在每个模型请求的 `x-opencode-session-id` 头中发送会话 ID。因此，通过 UDS 连接 Core 的 gateway 默认为
 OpenCode 的每一轮准备并注入上下文；独立运行的 gateway 需要设置 `PC_GATEWAY_INJECTION=on`。见

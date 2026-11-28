@@ -224,6 +224,10 @@ pub async fn extract(
     if let Some(rejected) = unauthorized(&state, &headers) {
         return rejected;
     }
+    let scope_id = match request_scope(&headers, &state.default_scope) {
+        Ok(scope_id) => scope_id,
+        Err(error) => return error.into_response(),
+    };
     if request.instruction.trim().is_empty()
         || request.instruction.len() > MAX_EXTRACT_INSTRUCTION_BYTES
     {
@@ -239,7 +243,7 @@ pub async fn extract(
     if !valid_continuation(&request.continuation) {
         return error(StatusCode::BAD_REQUEST, "invalid_continuation");
     }
-    let Some(prefix) = state.executor.prefix(&request.handle, &state.default_scope) else {
+    let Some(prefix) = state.executor.prefix(&request.handle, scope_id) else {
         return error(StatusCode::NOT_FOUND, "prefix_unavailable");
     };
     let (format, profile, target_protocol) = match &prefix.response_output {
@@ -267,7 +271,7 @@ pub async fn extract(
         return subscription_auth_failed();
     };
     let call = ManagedCall {
-        scope_id: state.default_scope.clone(),
+        scope_id: scope_id.to_owned(),
         target_profile: profile.clone(),
         request: canonical,
         target_protocol: target_protocol.into(),
@@ -278,6 +282,7 @@ pub async fn extract(
         capture_prefix: false,
         conversation_id: Some(prefix.conversation_id.clone()),
         sediment: false,
+        internal: false,
         prepared_contexts: prefix.prepared_contexts.clone(),
     };
     // 期限从连接开始接收请求时起算，读取请求体的时间也在其中。
@@ -516,6 +521,24 @@ async fn ingress_model(
     if let Some(rejected) = unauthorized(&state, &headers) {
         return rejected;
     }
+    let scope_id = match request_scope(&headers, &state.default_scope) {
+        Ok(scope_id) => scope_id,
+        Err(error) => return error.into_response(),
+    };
+
+    let internal = match internal_turn(&headers) {
+        Ok(value) => value,
+        Err(()) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({
+                    "error": "invalid_turn_header",
+                    "detail": "X-PowerContext-Turn only accepts internal"
+                })),
+            )
+                .into_response();
+        }
+    };
 
     if state.max_body_bytes == 0 {
         return respond(
@@ -585,8 +608,10 @@ async fn ingress_model(
             }
             match to_canonical_chat(chat) {
                 Ok(mut canonical) => {
-                    if let Some(text) = &state.steering {
-                        crate::steering::insert_chat(&mut canonical.messages, text);
+                    if !internal {
+                        if let Some(text) = &state.steering {
+                            crate::steering::insert_chat(&mut canonical.messages, text);
+                        }
                     }
                     canonical
                 }
@@ -616,8 +641,10 @@ async fn ingress_model(
             if omit_responses_plugin_context(&mut r.input) {
                 tracing::warn!("{OMITTED_PLUGIN_CONTEXT}");
             }
-            if let Some(text) = &state.steering {
-                crate::steering::insert(&mut r.input, text);
+            if !internal {
+                if let Some(text) = &state.steering {
+                    crate::steering::insert(&mut r.input, text);
+                }
             }
             match to_canonical_responses(r) {
                 Ok(c) => c,
@@ -700,29 +727,35 @@ async fn ingress_model(
         return subscription_auth_failed();
     };
 
-    let conversation = header_conversation_id(&headers, &format);
-    let injection = if subscription_kind == Some(pc_gateway_auth::Subscription::Gemini) {
+    let conversation = if internal {
+        None
+    } else {
+        header_conversation_id(&headers, &format)
+    };
+    let injection = if internal || subscription_kind == Some(pc_gateway_auth::Subscription::Gemini)
+    {
         Injection::Off
     } else {
         state.injection
     };
-    let injection_enabled = injects(&format, injection, state.inject_responses, true);
+    let injection_enabled = !internal && injects(&format, injection, state.inject_responses, true);
     let history_id = if injection_enabled && conversation.is_none() {
         history_conversation_id(&canonical, &format)
     } else {
         None
     };
-    let inject_context = injects(
-        &format,
-        injection,
-        state.inject_responses,
-        conversation.is_some() || history_id.is_some(),
-    );
+    let inject_context = !internal
+        && injects(
+            &format,
+            injection,
+            state.inject_responses,
+            conversation.is_some() || history_id.is_some(),
+        );
     if injection_enabled && !inject_context {
         tracing::warn!("context injection skipped: no conversation identity");
     }
     let call = ManagedCall {
-        scope_id: state.default_scope.clone(),
+        scope_id: scope_id.to_owned(),
         target_profile,
         request: canonical,
         target_protocol: match format {
@@ -736,9 +769,11 @@ async fn ingress_model(
         headers: channel.headers,
         inject_context,
         include_code: state.inject_code,
-        capture_prefix: state.prefix_extraction,
+        capture_prefix: state.prefix_extraction && !internal,
         conversation_id: conversation,
-        sediment: state.sediment,
+        // An internal request is not a turn: it never prepares, replays or captures context.
+        sediment: state.sediment && !internal,
+        internal,
         prepared_contexts: Vec::new(),
     };
 
@@ -1023,6 +1058,28 @@ fn injects(format: &Format, injection: Injection, responses: bool, has_conversat
     enabled && (matches!(format, Format::Chat) || responses)
 }
 
+/// Returns `Ok(true)` for the internal marker, `Ok(false)` when absent, and `Err(())` for any
+/// other present value so an empty, garbled, repeated or misspelled marker cannot silently turn a
+/// non-turn request back into one.
+fn internal_turn(headers: &HeaderMap) -> Result<bool, ()> {
+    let mut values = headers.get_all(TURN_HEADER).iter();
+    let Some(value) = values.next() else {
+        return Ok(false);
+    };
+    if values.next().is_some() {
+        return Err(());
+    }
+    let value = value.to_str().map_err(|_| ())?;
+    if !valid_id(value) {
+        return Err(());
+    }
+    if value.eq_ignore_ascii_case("internal") {
+        Ok(true)
+    } else {
+        Err(())
+    }
+}
+
 /// 请求所属的会话，决定准备结果在哪些请求之间重放。依次取：
 /// - 宿主提供的 `X-PowerContext-Conversation-ID`（RFC 2199），优先于各客户端的原生头；
 /// - Claude Code 的 `x-claude-code-session-id`：主代理与子代理共享它，子代理的请求另带
@@ -1117,6 +1174,26 @@ fn valid_id(value: &str) -> bool {
     !value.is_empty() && value.len() <= 256 && value.bytes().all(|b| b.is_ascii_graphic())
 }
 
+/// Select the Scope once for the request. Reject ambiguous or invalid explicit selections.
+fn request_scope<'a>(
+    headers: &'a HeaderMap,
+    default_scope: &'a str,
+) -> Result<&'a str, (StatusCode, Json<serde_json::Value>)> {
+    let mut values = headers.get_all(SCOPE_ID_HEADER).into_iter();
+    let Some(value) = values.next() else {
+        return Ok(default_scope);
+    };
+    if let Ok(scope_id) = value.to_str() {
+        if valid_id(scope_id) && !scope_id.contains(',') && values.next().is_none() {
+            return Ok(scope_id);
+        }
+    }
+    Err((
+        StatusCode::BAD_REQUEST,
+        Json(serde_json::json!({ "error": "invalid_scope_id" })),
+    ))
+}
+
 /// 请求带给上游的会话标识：请求的 `session-id` 头；没有时取请求体的 `prompt_cache_key`。Codex 给两者填同一个值，
 /// 不发这个头的 agent 往往仍带后者。值的规则与会话头相同，不合规则时按没有处理。
 fn upstream_session(headers: &HeaderMap, body: &[u8]) -> Option<String> {
@@ -1133,7 +1210,9 @@ fn upstream_session(headers: &HeaderMap, body: &[u8]) -> Option<String> {
         .filter(|key| valid_id(key))
 }
 
+const SCOPE_ID_HEADER: &str = "x-powercontext-scope-id";
 const CONVERSATION_ID_HEADER: &str = "x-powercontext-conversation-id";
+const TURN_HEADER: &str = "x-powercontext-turn";
 const CLAUDE_CODE_SESSION_HEADER: &str = "x-claude-code-session-id";
 const CLAUDE_CODE_AGENT_HEADER: &str = "x-claude-code-agent-id";
 const OPENCODE_SESSION_HEADER: &str = "x-opencode-session-id";
@@ -1573,6 +1652,9 @@ pub(crate) mod tests {
     #[derive(Default)]
     pub(crate) struct Receivers {
         pub admissions: std::sync::atomic::AtomicUsize,
+        checks: std::sync::Mutex<Vec<serde_json::Value>>,
+        upstream_requests: std::sync::Mutex<Vec<Bytes>>,
+        refuse_send: std::sync::atomic::AtomicBool,
         pub sends: std::sync::atomic::AtomicUsize,
         pub response_bytes: std::sync::atomic::AtomicUsize,
         pub blocked_phase: std::sync::atomic::AtomicUsize,
@@ -1635,6 +1717,13 @@ pub(crate) mod tests {
     async fn lifecycle_router_with_evidence(
         evidence: Arc<dyn pc_gateway_evidence::EvidenceSink>,
     ) -> (axum::Router, tokio::task::JoinHandle<()>, Arc<Receivers>) {
+        lifecycle_router_with_steering(evidence, None).await
+    }
+
+    async fn lifecycle_router_with_steering(
+        evidence: Arc<dyn pc_gateway_evidence::EvidenceSink>,
+        steering: Option<String>,
+    ) -> (axum::Router, tokio::task::JoinHandle<()>, Arc<Receivers>) {
         use axum::routing::post;
         use pc_gateway_core::{Executor, HttpGateClient};
         use pc_gateway_types::{CheckPhase, ContextCheckRequest};
@@ -1648,6 +1737,7 @@ pub(crate) mod tests {
                 post(move |State(received): State<Arc<Receivers>>, Json(request): Json<ContextCheckRequest>| {
                     let target_base = target_base.clone();
                     async move {
+                    received.checks.lock().unwrap().push(serde_json::to_value(&request).unwrap());
                     let responses = matches!(&request, ContextCheckRequest::BeforeSend { target_profile, .. } if target_profile == "test-responses");
                     let phase = match request {
                         ContextCheckRequest::BeforeSend { .. } => CheckPhase::BeforeSend,
@@ -1661,27 +1751,43 @@ pub(crate) mod tests {
                         received.entered.notify_one();
                         std::future::pending::<()>().await;
                     }
-                    Json(serde_json::json!({
+                    let refused = phase == CheckPhase::BeforeSend
+                        && received.refuse_send.load(std::sync::atomic::Ordering::SeqCst);
+                    let mut verdict = serde_json::json!({
                         "schema": pc_gateway_types::CONTEXT_CHECK_SCHEMA,
                         "phase": phase,
-                        "decision": "allow",
-                        "reason_codes": [],
+                        "decision": if refused { "block" } else { "allow" },
+                        "reason_codes": if refused { vec!["forbidden_value"] } else { vec![] },
                         "coverage": {"profile": "text-and-tools.v1", "complete": true},
                         "policy_version": "test",
-                        "valid_until": "2999-01-01T00:00:00Z",
-                        "binding": "test-binding",
-                        "target_endpoint": match phase {
-                            CheckPhase::BeforeSend => Some(format!("{target_base}{}", if responses { "/v1/responses" } else { "/v1/chat/completions" })),
-                            CheckPhase::BeforeRelease => None,
-                        },
-                        "target_protocol": if responses { "openai-responses" } else { "openai-chat" }
-                    }))
+                        "valid_until": "2999-01-01T00:00:00Z"
+                    });
+                    if !refused {
+                        verdict["binding"] = serde_json::json!("test-binding");
+                        verdict["target_endpoint"] = serde_json::json!(
+                            if phase == CheckPhase::BeforeSend {
+                                Some(format!(
+                                    "{target_base}{}",
+                                    if responses { "/v1/responses" } else { "/v1/chat/completions" }
+                                ))
+                            } else {
+                                None::<String>
+                            }
+                        );
+                        verdict["target_protocol"] = serde_json::json!(
+                            if responses { "openai-responses" } else { "openai-chat" }
+                        );
                     }
+                    Json(verdict)
+                    }
+
                 }),
             )
             .route(
                 "/v1/chat/completions",
-                post(|State(received): State<Arc<Receivers>>, Json(request): Json<serde_json::Value>| async move {
+                post(|State(received): State<Arc<Receivers>>, body: Bytes| async move {
+                    let request: serde_json::Value = serde_json::from_slice(&body).unwrap();
+                    received.upstream_requests.lock().unwrap().push(body);
                     received.sends.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                     if received.blocked_phase.load(std::sync::atomic::Ordering::SeqCst) == 3 {
                         received.entered.notify_one();
@@ -1741,7 +1847,7 @@ pub(crate) mod tests {
             inject_responses: false,
             inject_code: false,
             sediment: false,
-            steering: None,
+            steering,
             prefix_extraction: false,
             default_scope: "test".into(),
             max_body_bytes: 1024 * 1024,
@@ -1814,6 +1920,73 @@ pub(crate) mod tests {
         core_server.abort();
     }
 
+    #[tokio::test]
+    async fn chat_http_steering_is_checked_before_send() {
+        use tower::ServiceExt;
+        for (steering, blocked) in [
+            (None, false),
+            (Some("PC2424_HTTP"), false),
+            (Some("PC2424_HTTP"), true),
+        ] {
+            let (router, server, received) = lifecycle_router_with_steering(
+                Arc::new(pc_gateway_evidence::NoopEvidenceSink),
+                steering.map(str::to_owned),
+            )
+            .await;
+            received
+                .refuse_send
+                .store(blocked, std::sync::atomic::Ordering::SeqCst);
+            let response = router
+                .oneshot(
+                    axum::http::Request::builder()
+                        .method("POST")
+                        .uri("/gateway/v1/chat/completions")
+                        .header("authorization", "Bearer gateway-key")
+                        .header("content-type", "application/json")
+                        .body(axum::body::Body::from(
+                            serde_json::json!({
+                                "model": "test", "messages": [
+                                    {"role": "system", "content": "base"},
+                                    {"role": "user", "content": "hello"}
+                                ]
+                            })
+                            .to_string(),
+                        ))
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(
+                response.status(),
+                if blocked {
+                    StatusCode::FORBIDDEN
+                } else {
+                    StatusCode::CREATED
+                }
+            );
+            let checks = received.checks.lock().unwrap();
+            let checked_body = checks[0]["payload"]["body"].as_str().unwrap();
+            let checked: serde_json::Value = serde_json::from_str(checked_body).unwrap();
+            let messages = checked["messages"].as_array().unwrap();
+            assert_eq!(messages.len(), 2);
+            if let Some(text) = steering {
+                assert_eq!(
+                    messages[0],
+                    serde_json::json!({"role": "system", "content": format!("base\n\n{text}")})
+                );
+            }
+            let sent = received.upstream_requests.lock().unwrap();
+            if blocked {
+                assert!(sent.is_empty());
+                assert_eq!(checks.len(), 1);
+            } else {
+                assert_eq!(sent.len(), 1);
+                assert_eq!(sent[0].as_ref(), checked_body.as_bytes());
+                assert_eq!(checks.len(), 2);
+            }
+            server.abort();
+        }
+    }
     struct PendingBody {
         receiver: tokio::sync::oneshot::Receiver<Bytes>,
         done: bool,
@@ -2873,6 +3046,30 @@ pub(crate) mod tests {
             true,
             false
         ));
+    }
+
+    #[test]
+    fn only_the_internal_turn_value_opts_a_request_out() {
+        let mut headers = HeaderMap::new();
+        assert_eq!(internal_turn(&headers), Ok(false));
+        headers.insert(TURN_HEADER, "internal".parse().unwrap());
+        assert_eq!(internal_turn(&headers), Ok(true));
+        headers.insert(TURN_HEADER, "Internal".parse().unwrap());
+        assert_eq!(internal_turn(&headers), Ok(true));
+        headers.insert(TURN_HEADER, "true".parse().unwrap());
+        assert_eq!(internal_turn(&headers), Err(()));
+        headers.insert(TURN_HEADER, "user".parse().unwrap());
+        assert_eq!(internal_turn(&headers), Err(()));
+        headers.insert(TURN_HEADER, "".parse().unwrap());
+        assert_eq!(internal_turn(&headers), Err(()));
+        headers.insert(TURN_HEADER, "x".repeat(300).parse().unwrap());
+        assert_eq!(internal_turn(&headers), Err(()));
+        headers.insert(TURN_HEADER, "in ternal".parse().unwrap());
+        assert_eq!(internal_turn(&headers), Err(()));
+        headers.remove(TURN_HEADER);
+        headers.append(TURN_HEADER, "internal".parse().unwrap());
+        headers.append(TURN_HEADER, "user".parse().unwrap());
+        assert_eq!(internal_turn(&headers), Err(()));
     }
 
     #[test]

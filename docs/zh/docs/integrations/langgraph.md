@@ -179,9 +179,11 @@ hook 从不把召回内容写入 checkpoint 历史，因此已有的 thread 可�
 
 `PC_GATEWAY_KEY` 保存 gateway 的 `PC_GATEWAY_API_KEY` 值。这个请求头标识会话：每个会话使用一个稳定的 ID，例如 thread
 ID，长度为 1～256 个可见 ASCII 字符；不要让所有会话共用一个 ID。组合部署（`PC_GATEWAY_CORE_UDS`）
-默认只向带有这个请求头或其他可识别会话头的请求注入上下文，每条用户消息准备一次，并把结果重放给这条消息的工具循环步骤。
-无法发送这个请求头的应用需要设置 `PC_GATEWAY_INJECTION=on`，此时 gateway 为每个请求分别准备；独立运行的
-gateway（`PC_GATEWAY_CORE_BASE`）只有设置了这一项才会注入。
+在一个会话中每条用户消息准备一次，并把结果重放给这条消息的工具循环步骤。没有这个请求头时，它根据请求的历史开头推导会话：
+除非设置 `use_previous_response_id=True`，`ChatOpenAI` 每次调用都发送 thread 的完整历史；
+以 system 消息和一条用户消息开头的历史即可推导。请求头仍能区分开头相同的会话，
+并为采集和前缀提取提供在 gateway 重启后保持不变的会话标识；推导出的 ID 仅在当前 gateway 进程内用于重放准备结果。
+独立运行的 gateway（`PC_GATEWAY_CORE_BASE`）只有设置 `PC_GATEWAY_INJECTION=on` 才会注入。
 见[网关上下文注入](../operate/deploy-server.md#网关上下文注入)。
 
 请使用 Responses 路由（`use_responses_api=True`）。在这个路由上，gateway 以非流式方式调用模型，采集通过检查的响应，

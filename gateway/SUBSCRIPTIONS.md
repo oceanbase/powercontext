@@ -52,7 +52,7 @@ HTTP subscription credentials are acquired for the provider's default endpoint, 
 
 ## Configure Core protection
 
-Core must approve the final target, model and protocol through `PC_GATEWAY_UPSTREAM_PROFILE`. See [inference protection](../docs/en/docs/operate/inference-protection.md) for profile configuration.
+Core must approve the final target, model and protocol through the profile selected for the route: `PC_GATEWAY_UPSTREAM_PROFILE` for Chat Completions and `PC_GATEWAY_UPSTREAM_PROFILE_RESPONSES` for Responses. See [inference protection](../docs/en/docs/operate/inference-protection.md) for profile configuration.
 
 | Channel | Profile requirement |
 | --- | --- |

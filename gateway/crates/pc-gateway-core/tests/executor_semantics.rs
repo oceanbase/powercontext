@@ -302,6 +302,7 @@ fn call() -> ManagedCall {
         capture_prefix: false,
         conversation_id: None,
         sediment: false,
+        internal: false,
         prepared_contexts: Vec::new(),
     }
 }

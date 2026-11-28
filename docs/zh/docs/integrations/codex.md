@@ -363,8 +363,8 @@ codex
   `powercontext`）。本指南开启了采集，因此还要授予 `scope.contributor`（包含 `scope.read`）来替代 `scope.viewer`。
   `/v1/access/me` 与绑定请求见[网关认证与目标要求](../operate/deploy-server.md#网关模型目标)。
 - `PC_GATEWAY_SEDIMENT=on`，让 gateway 把每个完成的轮次采集为 Source。
-- `PC_GATEWAY_DEFAULT_SCOPE` 设为插件为该 workspace 解析的 Scope。按[一句话交接当前工作](#一句话交接当前工作)中的
-  说明，不带 `--bind-scope` 运行 `scope_binding.py`，即可打印这个 Scope。
+- `PC_GATEWAY_DEFAULT_SCOPE` 设为回退 Scope。若要使用插件为该 workspace 解析的 Scope，按
+  [一句话交接当前工作](#一句话交接当前工作)中的说明，不带 `--bind-scope` 运行 `scope_binding.py`，即可打印这个 Scope。
 
 gateway 在启动时读取这些设置。gateway 的认证与授权要求见[部署 Server](../operate/deploy-server.md#网关模型目标)。
 经过 gateway 的模型请求正文最多 1 MiB，过长的 thread 可能在发送前被拒绝，见
@@ -372,8 +372,8 @@ gateway 在启动时读取这些设置。gateway 的认证与授权要求见[部
 
 关闭召回后，提示词时上下文只来自 gateway，有两点不同：
 
-- gateway 把所有对话都放在 `PC_GATEWAY_DEFAULT_SCOPE` 指定的同一个 Scope 中准备和采集，而不是插件为每个 Session
-  或 workspace 解析的 Scope。
+- gateway 在 `X-PowerContext-Scope-ID` 选择的 Scope 中准备和采集，未发送该请求头时使用回退 Scope。插件的
+  Session 和 workspace binding 独立生效。见 [Gateway 请求 Scope](../operate/deploy-server.md#gateway-请求-scope)。
 - gateway 不发送启动上下文的 receipt，因此[启动上下文](#选择启用-session-启动上下文)已经注入的 Memory
   可能再次出现在 gateway 的上下文中。
 

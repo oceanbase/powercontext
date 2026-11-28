@@ -95,6 +95,7 @@ fn call() -> ManagedCall {
         capture_prefix: false,
         conversation_id: None,
         sediment: true,
+        internal: false,
         prepared_contexts: vec![],
     }
 }

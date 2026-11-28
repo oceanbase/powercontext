@@ -90,6 +90,16 @@ CONFIG_SCHEMA = ProviderConfigSchema(
             description="Filter and persist new user/assistant turns before Hermes compresses context.",
         ),
         ProviderField(
+            key="prompt_recall",
+            label="Prompt-time recall",
+            kind=KIND_BOOL,
+            default="true",
+            description=(
+                "Prepare and inject context for each prompt and offer powercontext_prepare_context; "
+                "turn off when the PowerContext gateway injects context."
+            ),
+        ),
+        ProviderField(
             key="capture_turns",
             label="Capture completed turns",
             kind=KIND_BOOL,

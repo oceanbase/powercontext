@@ -246,6 +246,12 @@ Core 无法批准目标时，Gateway 不会发送模型请求。
 特权发送请求中的模型在所有隐私模式下都必须匹配 Core profile，包括 `disabled`、`shadow` 和 `advisory`。
 关闭隐私强制检查不会授予调用其他模型的权限。
 
+### Gateway 请求 Scope
+
+向 `/gateway/v1/chat/completions` 或 `/gateway/v1/responses` 发送 `X-PowerContext-Scope-ID` 请求头，可选择召回、Core 两阶段检查和轮次采集使用的 Scope。请发送一个 Scope ID，由 1–256 个可见 ASCII 字符组成，不含逗号。请求头无效或重复时，返回 HTTP 400 和 `invalid_scope_id`。未发送该请求头时，Gateway 使用 `PC_GATEWAY_DEFAULT_SCOPE`（默认值为 `gateway:default`）。同一对话的每个请求应使用相同的 Scope。Gateway 按 Scope 和对话 ID 隔离已准备上下文的重放。
+
+请只让受信任的客户端使用 Gateway，这些客户端可以选择其 Core 凭据可访问的 Scope。Core 按配置的访问模式检查该凭据的权限。客户端或受信任的代理可以在每个请求中设置此请求头。
+
 ### 网关上下文注入
 
 网关通过 UDS 连接 Core（`PC_GATEWAY_CORE_UDS`，即同机组合部署）时，默认向属于某个会话的 Chat 和 Responses 请求注入准备好的上下文。在同一会话内，每条新的用户消息只准备一次，该回合的后续请求（例如 Agent 的工具循环）精确重放同一结果。

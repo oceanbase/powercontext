@@ -154,10 +154,13 @@ def gateway_agent(thread_id: str):
 
 `PC_GATEWAY_KEY` holds the gateway's `PC_GATEWAY_API_KEY` value. Use one stable ID per conversation, such as the
 checkpointer's thread ID, of 1 to 256 visible ASCII characters; never one ID for every conversation. A combined
-deployment (`PC_GATEWAY_CORE_UDS`) injects by default only into requests that carry this header or another recognized
-session header. It then prepares once per user message and replays that context to the tool-loop steps of the message.
-An application that cannot send the header needs `PC_GATEWAY_INJECTION=on`, which prepares each request separately; a
-standalone gateway (`PC_GATEWAY_CORE_BASE`) injects only with that setting. See [Gateway context
+deployment (`PC_GATEWAY_CORE_UDS`) prepares once per user message of a conversation and replays that context to the
+tool-loop steps of the message. Without the header, it infers the conversation from the opening of the request:
+`ChatOpenAI` sends the thread's full history on every call unless `use_previous_response_id=True`, and a history that
+opens with system messages and a user message qualifies. The header still keeps apart conversations that open the same
+way, and gives capture and prefix extraction a conversation identity that stays the same across gateway restarts; an
+inferred ID is local to the gateway process and serves only preparation replay. A standalone gateway
+(`PC_GATEWAY_CORE_BASE`) injects only with `PC_GATEWAY_INJECTION=on`. See [Gateway context
 injection](../operate/deploy-server.md#gateway-context-injection).
 
 Use the Responses route (`use_responses_api=True`). There the gateway calls the model without streaming, captures the

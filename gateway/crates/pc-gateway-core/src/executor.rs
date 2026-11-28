@@ -70,6 +70,8 @@ pub struct ManagedCall {
     /// 沉淀时保留本回合的上游请求与响应输出，供 Core 复用前缀缓存抽取记忆（#2413，默认关）。
     pub capture_prefix: bool,
     pub sediment: bool,
+    /// The host marked this request as a non-turn (`X-PowerContext-Turn: internal`).
+    pub internal: bool,
     pub prepared_contexts: Vec<PreparedContextLocation>,
 }
 
@@ -362,6 +364,7 @@ where
                 "messages" => Some(UsageMapping::OpenAiChat),
                 _ => None,
             },
+            call.internal,
         );
         let mut execution = control.start();
         let lifecycle = execution.lifecycle();
@@ -1329,6 +1332,7 @@ mod tests {
             control.cancellation(),
             "no-upstream-send",
             None,
+            false,
         );
         let mut execution = control.start();
         let send = |target: &str| AdmittedSend {

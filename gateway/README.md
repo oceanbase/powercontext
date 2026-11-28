@@ -18,9 +18,11 @@ Blocked calls return HTTP 403. Withheld calls return HTTP 400 unless the executo
 
 In a combined UDS deployment, recall injection is enabled by default. The Gateway prepares context on a user turn and reuses that turn's prepared block for the requests that follow, without querying again. A tool continuation without a conversation ID has nothing to reuse and is sent without recall. Core verifies the injected text and its binding. Empty or failed preparation leaves the request uninjected.
 
-Use `X-PowerContext-Conversation-ID` to identify a conversation. The Gateway also recognizes client session headers from OpenCode, Codex and translated Claude Code traffic. Without a valid header, eligible full-history requests get a process-local identity for preparation replay from their opening messages. See [context injection settings](../docs/en/docs/operate/deploy-server.md#gateway-context-injection) for header precedence and fallback behavior. Standalone deployments require `PC_GATEWAY_INJECTION=on` to enable injection.
+Use `X-PowerContext-Conversation-ID` to identify a conversation. The Gateway also recognizes client session headers from OpenCode, Codex and translated Claude Code traffic. A host that sends non-conversation model requests, such as a compaction or branch summary, can mark one with `X-PowerContext-Turn: internal`; the gateway then skips preparation, injection, replay, steering and capture for that request while still running the before-send check, and does not forward the header upstream. Only a single, case-insensitive `internal` is accepted; an empty, repeated or other value is rejected with `400 invalid_turn_header`. Without a valid header, eligible full-history requests get a process-local identity for preparation replay from their opening messages. See [context injection settings](../docs/en/docs/operate/deploy-server.md#gateway-context-injection) for header precedence and fallback behavior. Standalone deployments require `PC_GATEWAY_INJECTION=on` to enable injection.
 
 The Gateway classifies each request tail as `user_turn`, `tool_continuation`, `assistant_only` or `empty`, and records it in call evidence and debug logs. Responses items are classified by their own role and type rather than the verbatim carrier. Every kind other than `user_turn` reuses the turn's prepared block when a replay entry exists and otherwise skips preparation and replay.
+
+Send `X-PowerContext-Scope-ID` on Chat or Responses requests to select the Scope for recall, both Core checks, and capture. Requests without the header use `PC_GATEWAY_DEFAULT_SCOPE`. Core applies its access rules using the Gateway's Core credentials. See [request Scope settings](../docs/en/docs/operate/deploy-server.md#gateway-request-scope).
 
 Set `PC_GATEWAY_SEDIMENT=on` to capture completed user turns as Sources for later extraction. Capture excludes injected context and provider reasoning ciphertext. Tool continuations remain open until the final response. Long turns are split into Sources, and Core stores all parts in one batch. With a trusted conversation ID, captures share a turn digest and include a digest of the ordered normalized Source parts in their Source IDs. Distinct terminal records are stored independently; identical normalized parts are idempotent even when provider response IDs or usage change. Existing Sources remain unchanged, and a repeated capture under the former turn-only ID creates a new Source. Capture requires a Core that supports batch capture. Capture failure does not prevent response delivery. Blocked turns are not captured.
 
@@ -31,7 +33,7 @@ For a supported Responses upstream, prefix extraction is enabled by default; `PC
 
 ## Steering
 
-Chat and Responses requests include the [built-in cost guidance](crates/pc-gateway-app/src/default_steering.txt) by default. Set `PC_GATEWAY_STEERING_FILE` to replace it, or `PC_GATEWAY_STEERING=off` to disable steering even when a file is configured. On Chat, the gateway appends guidance to the first system message or inserts a system message before the first user message. Both `PC_GATEWAY_STEERING` and `PC_GATEWAY_PREFIX_EXTRACTION` accept only `on` or `off` when set. See [instruction settings](../docs/en/docs/operate/deploy-server.md#gateway-instruction).
+Chat and Responses requests include the [built-in cost guidance](crates/pc-gateway-app/src/default_steering.txt) by default, except requests marked `X-PowerContext-Turn: internal`. Set `PC_GATEWAY_STEERING_FILE` to replace it, or `PC_GATEWAY_STEERING=off` to disable steering even when a file is configured. On Chat, the gateway appends guidance to the first system message or inserts a system message before the first user message. Both `PC_GATEWAY_STEERING` and `PC_GATEWAY_PREFIX_EXTRACTION` accept only `on` or `off` when set. See [instruction settings](../docs/en/docs/operate/deploy-server.md#gateway-instruction).
 
 ### Replay epoch correlation module
 
@@ -58,6 +60,8 @@ cargo build --locked --manifest-path gateway/Cargo.toml --release
 ```
 
 For every deployment, Core must use `POWERCONTEXT_SERVER_ACCESS_MODE=enforced` and authenticate the service principal represented by `PC_GATEWAY_CORE_TOKEN`. A dedicated Gateway identity needs `gateway.invoke` (`gateway.user`) on the selected Scope and `server.observe` (`server.observer`) on the Server resource for the configured deployment ID. When `PC_GATEWAY_SEDIMENT=on`, grant `scope.contributor` instead of `scope.viewer`; it provides `scope.read` and `scope.contribute`. For the bootstrap Server token and complete role-binding commands, see [Gateway deployment](../docs/en/docs/operate/deploy-server.md#gateway-model-destination).
+
+For a combined deployment, start Core on a private Unix socket and configure Core-owned targets and credentials:
 
 ```bash
 PC_GATEWAY_CORE_UDS=/path/to/core.sock \

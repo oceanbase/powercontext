@@ -40,6 +40,31 @@ Embedding 连接可以与 Generation 共用地址和凭据，但通常使用不�
 向量维度必须是所选 Embedding 模型实际支持的输出维度。Embedding Profile ID 是标识这套模型、维度和向量约定的名称，
 不是额外 API key。首次使用可接受向导建议；复用已有向量数据时，必须保持其对应关系，不能随意改 ID 或维度来消除报错。
 
+## 向已初始化的部署添加生成模型
+
+首次启动时未配置模型的部署，在后续添加 Generation 时会保留其 Scope、Source 和 Memory。Server 通过一次离线的
+Processing 配置切换来采纳新能力。在切换完成之前，启动会以 `incompatible_processing_configuration` 拒绝启动，
+而不是自行修改已记录的声明。保持无模型配置的部署不受影响，其已记录的声明不会改变。
+
+备份数据库并停止旧 Server、Worker 和写入，然后依次执行 `plan`、`apply` 和 `verify`。每一步都必须加载新配置，
+来源可以是 `--env-file` 或当前目录下发现的 `.env`；三步必须使用同一个新的 migration ID，因为计划与两者绑定。
+
+```shell
+powercontext server processing-migrate --action plan --env-file powercontext.env \
+  --migration-id add-generation-1 --backup auto
+powercontext server processing-migrate --action apply --env-file powercontext.env \
+  --migration-id add-generation-1 --plan-id <plan_id> --backup auto --maintenance-confirmed --yes
+powercontext server processing-migrate --action verify --env-file powercontext.env \
+  --migration-id add-generation-1
+```
+
+`plan` 的输出里有 `apply` 接受的 `plan_id`。非交互执行时，缺少 `--plan-id`、`--backup` 和 `--yes` 的 `apply`
+会以 `confirmation_required` 停止；使用的 migration ID 与 `plan` 不同时，会以 `plan_changed` 停止。仅在 `verify`
+报告 `"state": "ready"` 后再启动新配置。交互式确认、其他备份选项以及中断后恢复 `apply` 的做法，
+见 [后台处理状态迁移](../operate/artifact-processing-migration.md)。
+
+存储向量的数据库没有已注册的 Processing 配置切换：`processing-migrate` 会拒绝它，启动时保持原有报错。
+
 ## 使用已有订阅
 
 Server 可以用你已有的订阅代替 Generation API key，生成 Memory、Experience 和 Profile。支持 Codex CLI、Claude Code、
