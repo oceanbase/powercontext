@@ -26,12 +26,13 @@ def gated_parser(hold):
     return f"""
 from pathlib import Path
 import time
-_original_parse = _service.parse
-def _gated_parse(*args, **kwargs):
+import pc_knowledge_base.content as _content
+_original_parse_document = _content.ParserAdapter.parse_document
+def _gated_parse_document(self, *args, **kwargs):
     while Path({str(hold)!r}).exists():
         time.sleep(0.05)
-    return _original_parse(*args, **kwargs)
-_service.parse = _gated_parse
+    return _original_parse_document(self, *args, **kwargs)
+_content.ParserAdapter.parse_document = _gated_parse_document
 """
 
 
