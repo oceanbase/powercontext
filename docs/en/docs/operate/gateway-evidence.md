@@ -124,14 +124,15 @@ such a tail does not hide that user turn. Classification itself reads no message
 request. Only a user turn queries Core for context; every other kind reuses the turn's prepared block when a replay
 entry exists and otherwise skips preparation and replay.
 
-`turn_kind` describes the shape of the request; `internal` records that the host marked it. A request can be both
+`turn_kind` describes the shape of the request. A request can be both
 `user_turn` and `internal` when a host sends a user-shaped request that is not a turn.
 
 The executor also emits one debug-level structured event per decision with a `turn_kind` field; raise `RUST_LOG` for
 the core crate to record it. Per-kind totals are process-local cumulative counters (`Executor::turn_counters()`) that
 cover every classified call, including requests that are not eligible for context injection. The skipped-preparation
-count covers calls eligible for injection whose tail is not a user turn and have no replay entry. All counters are
-never metric labels or per-record fields, and they reset on process restart. A call that skips preparation this way
+count covers calls eligible for injection whose tail is not a user turn and have no replay entry, and user
+turns where follow-up disambiguation selected no recall. Counters reset on process restart and stay out of metric
+labels and per-record fields. A call that skips preparation this way
 sets `prepare_skipped` to `true`; a call that prepares or reuses a replay entry keeps it `false`.
 When serving stops, the production host logs one `gateway turn classification totals` event at INFO with the same five
 counts (`user_turn`, `tool_continuation`, `assistant_only`, `empty`, `skipped_prepare`). It carries no request identity,
@@ -140,10 +141,11 @@ and `RUST_LOG` filtering applies.
 ## Terminal and send facts
 
 The `call` record contains `terminal`, `sending`, `attempts`, `upstream_status`, normalized `usage`, optional
-`interruption`, `internal`, and timing fields. `internal` is true when the host marked the request with
-`X-PowerContext-Turn: internal`; the request is still checked and forwarded, but it is never prepared, injected,
-replayed or captured as a turn. Terminal values are `release_authorized`, `blocked`, `withheld`,
-`send_indeterminate`, `not_sent`, `gate_paused`, `degraded`, `admission_expired`, and `abandoned`.
+`interruption`, `internal`, and timing fields. `internal` is true when the host marks the request with
+`X-PowerContext-Turn: internal` or the Gateway creates a follow-up disambiguation call. Both kinds go through
+the model checks and bypass preparation, injection, replay and capture. The auxiliary call has its own
+`call_id`, shares the parent request fingerprint when present, and has a null `turn_kind`. Terminal values are `release_authorized`, `blocked`, `withheld`, `send_indeterminate`,
+`not_sent`, `gate_paused`, `degraded`, `admission_expired`, and `abandoned`.
 A known lifecycle stop is encoded as `{"stopped":"deadline_exceeded"}`, `{"stopped":"gateway_shutdown"}`,
 or `{"stopped":"request_cancelled"}`.
 Lifecycle snapshots and evidence share `ExecutionTerminal` and `ModelSendState` from `pc-gateway-types`;

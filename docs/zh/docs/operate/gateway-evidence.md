@@ -110,13 +110,13 @@ reasoning 一类条目以及服务商已在响应内执行完毕的工具为 ass
 判定本身不读取消息正文，不新增 provider 或 Core 请求；只有用户回合会向 Core 查询上下文，其他类型在存在重放
 结果时复用本回合已准备的块，否则跳过准备与重放。
 
-`turn_kind` 描述请求本身的形状，`internal` 记录宿主对该请求的标记；当宿主发送的是用户形状但并非回合的请求时，
+`turn_kind` 描述请求本身的形状。当宿主发送的是用户形状但并非回合的请求时，
 两者可以同时出现（例如 `user_turn` 且 `internal`）。
 
 执行器还为每次判定输出一条 debug 级结构化事件，字段为 `turn_kind`；需要记录时提高 core crate 的 `RUST_LOG`。
 各类型累计次数与跳过准备次数是进程内累计计数器（`Executor::turn_counters()`），不是指标标签或逐记录字段；它们
 在进程重启后归零。四类分项计数覆盖每次判定，包括不具备上下文注入资格的请求；跳过准备次数只统计具备注入资格、
-尾部不是用户回合且没有可复用结果的请求。这样的调用把 `call` 记录的 `prepare_skipped` 设为 `true`；发起准备或
+尾部不是用户回合且没有可复用结果的请求，也包含追问消歧选择跳过召回的用户回合。这样的调用把 `call` 记录的 `prepare_skipped` 设为 `true`；发起准备或
 复用重放结果的调用保持 `false`。服务停止时，生产宿主以 INFO 级输出一条
 `gateway turn classification totals` 事件，携带同样的五个计数（`user_turn`、`tool_continuation`、`assistant_only`、
 `empty`、`skipped_prepare`）；该事件不含请求身份，`RUST_LOG` 过滤仍然生效。
@@ -124,7 +124,7 @@ reasoning 一类条目以及服务商已在响应内执行完毕的工具为 ass
 ## 终态与发送事实
 
 `call` 记录包含 `terminal`、`sending`、`attempts`、`upstream_status`、归一化 `usage`、`internal`、
-可选 `interruption` 和计时字段。`internal` 为 true 表示宿主用 `X-PowerContext-Turn: internal` 标记了该请求；网关仍会执行检查并转发，但不准备、不注入、不重放，也不把它捕获为回合。终态取值为 `release_authorized`、`blocked`、`withheld`、
+可选 `interruption` 和计时字段。`internal` 为 true 表示宿主用 `X-PowerContext-Turn: internal` 标记了请求，或网关发起了追问消歧调用。两类调用都经过模型检查，并跳过准备、注入、重放和捕获。消歧调用有独立的 `call_id`。如父请求有请求 ID，消歧调用共享相同请求指纹，其 `turn_kind` 为 null。终态取值为 `release_authorized`、`blocked`、`withheld`、
 `send_indeterminate`、`not_sent`、`gate_paused`、`degraded`、`admission_expired`、`abandoned`。
 已知生命周期停止编码为 `{"stopped":"deadline_exceeded"}`、`{"stopped":"gateway_shutdown"}`
 或 `{"stopped":"request_cancelled"}`。

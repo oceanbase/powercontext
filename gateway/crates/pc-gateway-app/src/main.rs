@@ -189,6 +189,11 @@ async fn main() {
             eprintln!("{reason}");
             std::process::exit(2);
         });
+    let context_disambiguation = feature_switch("PC_GATEWAY_CONTEXT_DISAMBIGUATION", false)
+        .unwrap_or_else(|reason| {
+            eprintln!("{reason}");
+            std::process::exit(2);
+        });
     // 显式关闭时不读取指令文件；开启时文件优先于内置文本，配置无效则拒绝启动。
     let steering = match if steering_enabled {
         steering::load(std::env::var("PC_GATEWAY_STEERING_FILE").ok().as_deref())
@@ -305,6 +310,7 @@ async fn main() {
                     .and_then(|caps| caps.limits.atomic_memory_input_tokens),
             ))
             .with_capture_batch_limit(capture_batch)
+            .with_context_disambiguation(context_disambiguation && subscription_kind.is_none())
             .with_core_enforcement(capabilities.as_ref().is_none_or(|caps| caps.enforcing)),
         ),
         evidence,
@@ -379,10 +385,14 @@ async fn main() {
 
 /// Default-on feature switches reject misspellings instead of silently enabling a feature.
 fn default_on(name: &str) -> Result<bool, String> {
+    feature_switch(name, true)
+}
+
+fn feature_switch(name: &str, default: bool) -> Result<bool, String> {
     match std::env::var(name) {
         Ok(value) if value == "on" => Ok(true),
         Ok(value) if value == "off" => Ok(false),
-        Err(std::env::VarError::NotPresent) => Ok(true),
+        Err(std::env::VarError::NotPresent) => Ok(default),
         _ => Err(format!("{name} must be on or off")),
     }
 }

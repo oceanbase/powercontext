@@ -117,6 +117,17 @@ pub struct RequestLifecycle {
 }
 
 impl RequestLifecycle {
+    /// A separate model call shares cancellation and the parent deadline while
+    /// retaining its own sending facts, call ID and evidence.
+    pub(crate) fn auxiliary_control(&self, budget: std::time::Duration) -> RequestControl {
+        let mut control = RequestControl::new(
+            self.shared.deadline.min(Instant::now() + budget),
+            self.shared.request_id.clone(),
+        );
+        control.lifecycle.cancellation = self.cancellation();
+        control
+    }
+
     /// The response is handed to its actual delivery owner. Body EOF is not completion.
     pub fn begin_local_delivery(&self) {
         let mut snapshot = self.shared.snapshot();

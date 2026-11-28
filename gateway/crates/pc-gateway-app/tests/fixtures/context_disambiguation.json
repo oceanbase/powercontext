@@ -1,0 +1,504 @@
+{
+  "memories": [
+    {
+      "id": "login-timeout",
+      "topic": "login timeout",
+      "text": "For login timeout, preserve the original exception type."
+    },
+    {
+      "id": "backup-restore",
+      "topic": "backup restore",
+      "text": "For backup restore, restore into a fresh namespace."
+    },
+    {
+      "id": "schema-rollout",
+      "topic": "schema rollout",
+      "text": "For schema rollout, deploy readers before writers."
+    },
+    {
+      "id": "worker-retry",
+      "topic": "worker retry",
+      "text": "For worker retry, use the existing retry budget."
+    },
+    {
+      "id": "scope-routing",
+      "topic": "scope routing",
+      "text": "For scope routing, keep the caller's original scope."
+    },
+    {
+      "id": "release-build",
+      "topic": "release build",
+      "text": "For release build, use the pinned release toolchain."
+    }
+  ],
+  "cases": [
+    {
+      "id": "ambiguous-login-timeout",
+      "category": "ambiguous",
+      "history": [
+        [
+          "user",
+          "Use our previously agreed compatibility rule for login timeout."
+        ],
+        [
+          "assistant",
+          "I have located the code that needs the change."
+        ]
+      ],
+      "current": "Continue.",
+      "recall": true,
+      "expected_memory_ids": [
+        "login-timeout"
+      ],
+      "baseline_memory_ids": [],
+      "attribution": "The user refers to a prior rule. Its contents are absent from the conversation."
+    },
+    {
+      "id": "specified-login-timeout",
+      "category": "specified",
+      "history": [
+        [
+          "user",
+          "The login timeout patch and tests are done. Only run git diff --check."
+        ],
+        [
+          "assistant",
+          "Next I will run git diff --check."
+        ]
+      ],
+      "current": "Continue.",
+      "recall": false,
+      "expected_memory_ids": [],
+      "baseline_memory_ids": [],
+      "attribution": "The assistant states the next step. It can be performed using the present conversation."
+    },
+    {
+      "id": "task-switch-login-timeout",
+      "category": "task-switch",
+      "history": [
+        [
+          "user",
+          "Work on HTTP client settings."
+        ],
+        [
+          "assistant",
+          "I was investigating HTTP client settings."
+        ]
+      ],
+      "current": "Switch to login timeout. Which compatibility rule did we agree to follow?",
+      "recall": true,
+      "expected_memory_ids": [
+        "login-timeout"
+      ],
+      "baseline_memory_ids": [
+        "login-timeout"
+      ],
+      "attribution": "The user switches to a new topic. The assistant's previous task is unrelated."
+    },
+    {
+      "id": "tool-continuation-login-timeout",
+      "category": "tool-continuation",
+      "history": [
+        [
+          "user",
+          "Inspect login timeout."
+        ]
+      ],
+      "current": "The command returned successfully.",
+      "recall": false,
+      "expected_memory_ids": [],
+      "baseline_memory_ids": [],
+      "attribution": "The final item is a tool result. No new user request was made."
+    },
+    {
+      "id": "ambiguous-backup-restore",
+      "category": "ambiguous",
+      "history": [
+        [
+          "user",
+          "Use our previously agreed compatibility rule for backup restore."
+        ],
+        [
+          "assistant",
+          "I have located the code that needs the change."
+        ]
+      ],
+      "current": "Use the earlier one.",
+      "recall": true,
+      "expected_memory_ids": [
+        "backup-restore"
+      ],
+      "baseline_memory_ids": [],
+      "attribution": "The user refers to a prior rule. Its contents are absent from the conversation."
+    },
+    {
+      "id": "specified-backup-restore",
+      "category": "specified",
+      "history": [
+        [
+          "user",
+          "We are working on backup restore."
+        ],
+        [
+          "assistant",
+          "The work is complete. The only open step is to read the restore command in the runbook."
+        ]
+      ],
+      "current": "Only read the restore command in the runbook. Everything else is done.",
+      "recall": false,
+      "expected_memory_ids": [],
+      "baseline_memory_ids": [],
+      "attribution": "The assistant states the next step. It can be performed using the present conversation."
+    },
+    {
+      "id": "task-switch-backup-restore",
+      "category": "task-switch",
+      "history": [
+        [
+          "user",
+          "Work on backup compression."
+        ],
+        [
+          "assistant",
+          "I was investigating backup compression."
+        ]
+      ],
+      "current": "Switch to backup restore. Which compatibility rule did we agree to follow?",
+      "recall": true,
+      "expected_memory_ids": [
+        "backup-restore"
+      ],
+      "baseline_memory_ids": [
+        "backup-restore"
+      ],
+      "attribution": "The user switches to a new topic. The assistant's previous task is unrelated."
+    },
+    {
+      "id": "tool-continuation-backup-restore",
+      "category": "tool-continuation",
+      "history": [
+        [
+          "user",
+          "Inspect backup restore."
+        ]
+      ],
+      "current": "The command returned successfully.",
+      "recall": false,
+      "expected_memory_ids": [],
+      "baseline_memory_ids": [],
+      "attribution": "The final item is a tool result. No new user request was made."
+    },
+    {
+      "id": "ambiguous-schema-rollout",
+      "category": "ambiguous",
+      "history": [
+        [
+          "user",
+          "Use our previously agreed compatibility rule for schema rollout."
+        ],
+        [
+          "assistant",
+          "I have located the code that needs the change."
+        ]
+      ],
+      "current": "What was the agreed order?",
+      "recall": true,
+      "expected_memory_ids": [
+        "schema-rollout"
+      ],
+      "baseline_memory_ids": [],
+      "attribution": "The user refers to a prior rule. Its contents are absent from the conversation."
+    },
+    {
+      "id": "specified-schema-rollout",
+      "category": "specified",
+      "history": [
+        [
+          "user",
+          "We are working on schema rollout."
+        ],
+        [
+          "assistant",
+          "The work is complete. The only open step is to check the generated migration diff."
+        ]
+      ],
+      "current": "Only check the generated migration diff. Everything else is done.",
+      "recall": false,
+      "expected_memory_ids": [],
+      "baseline_memory_ids": [],
+      "attribution": "The assistant states the next step. It can be performed using the present conversation."
+    },
+    {
+      "id": "task-switch-schema-rollout",
+      "category": "task-switch",
+      "history": [
+        [
+          "user",
+          "Work on schema linting."
+        ],
+        [
+          "assistant",
+          "I was investigating schema linting."
+        ]
+      ],
+      "current": "Switch to schema rollout. Which compatibility rule did we agree to follow?",
+      "recall": true,
+      "expected_memory_ids": [
+        "schema-rollout"
+      ],
+      "baseline_memory_ids": [
+        "schema-rollout"
+      ],
+      "attribution": "The user switches to a new topic. The assistant's previous task is unrelated."
+    },
+    {
+      "id": "tool-continuation-schema-rollout",
+      "category": "tool-continuation",
+      "history": [
+        [
+          "user",
+          "Inspect schema rollout."
+        ]
+      ],
+      "current": "The command returned successfully.",
+      "recall": false,
+      "expected_memory_ids": [],
+      "baseline_memory_ids": [],
+      "attribution": "The final item is a tool result. No new user request was made."
+    },
+    {
+      "id": "ambiguous-worker-retry",
+      "category": "ambiguous",
+      "history": [
+        [
+          "user",
+          "Use our previously agreed compatibility rule for worker retry."
+        ],
+        [
+          "assistant",
+          "I have located the code that needs the change."
+        ]
+      ],
+      "current": "You changed the wrong thing. Please follow that rule.",
+      "recall": true,
+      "expected_memory_ids": [
+        "worker-retry"
+      ],
+      "baseline_memory_ids": [],
+      "attribution": "The user refers to a prior rule. Its contents are absent from the conversation."
+    },
+    {
+      "id": "specified-worker-retry",
+      "category": "specified",
+      "history": [
+        [
+          "user",
+          "We are working on worker retry."
+        ],
+        [
+          "assistant",
+          "The work is complete. The only open step is to check the retry test output."
+        ]
+      ],
+      "current": "Only check the retry test output. Everything else is done.",
+      "recall": false,
+      "expected_memory_ids": [],
+      "baseline_memory_ids": [],
+      "attribution": "The assistant states the next step. It can be performed using the present conversation."
+    },
+    {
+      "id": "task-switch-worker-retry",
+      "category": "task-switch",
+      "history": [
+        [
+          "user",
+          "Work on worker pool sizing."
+        ],
+        [
+          "assistant",
+          "I was investigating worker pool sizing."
+        ]
+      ],
+      "current": "Switch to worker retry. Which compatibility rule did we agree to follow?",
+      "recall": true,
+      "expected_memory_ids": [
+        "worker-retry"
+      ],
+      "baseline_memory_ids": [
+        "worker-retry"
+      ],
+      "attribution": "The user switches to a new topic. The assistant's previous task is unrelated."
+    },
+    {
+      "id": "tool-continuation-worker-retry",
+      "category": "tool-continuation",
+      "history": [
+        [
+          "user",
+          "Inspect worker retry."
+        ]
+      ],
+      "current": "The command returned successfully.",
+      "recall": false,
+      "expected_memory_ids": [],
+      "baseline_memory_ids": [],
+      "attribution": "The final item is a tool result. No new user request was made."
+    },
+    {
+      "id": "ambiguous-scope-routing",
+      "category": "ambiguous",
+      "history": [
+        [
+          "user",
+          "Use our previously agreed compatibility rule for scope routing."
+        ],
+        [
+          "assistant",
+          "I have located the code that needs the change."
+        ]
+      ],
+      "current": "Keep the same restriction.",
+      "recall": true,
+      "expected_memory_ids": [
+        "scope-routing"
+      ],
+      "baseline_memory_ids": [],
+      "attribution": "The user refers to a prior rule. Its contents are absent from the conversation."
+    },
+    {
+      "id": "specified-scope-routing",
+      "category": "specified",
+      "history": [
+        [
+          "user",
+          "We are working on scope routing."
+        ],
+        [
+          "assistant",
+          "The work is complete. The only open step is to open the routing test file."
+        ]
+      ],
+      "current": "Only open the routing test file. Everything else is done.",
+      "recall": false,
+      "expected_memory_ids": [],
+      "baseline_memory_ids": [],
+      "attribution": "The assistant states the next step. It can be performed using the present conversation."
+    },
+    {
+      "id": "task-switch-scope-routing",
+      "category": "task-switch",
+      "history": [
+        [
+          "user",
+          "Work on scope naming."
+        ],
+        [
+          "assistant",
+          "I was investigating scope naming."
+        ]
+      ],
+      "current": "Switch to scope routing. Which compatibility rule did we agree to follow?",
+      "recall": true,
+      "expected_memory_ids": [
+        "scope-routing"
+      ],
+      "baseline_memory_ids": [
+        "scope-routing"
+      ],
+      "attribution": "The user switches to a new topic. The assistant's previous task is unrelated."
+    },
+    {
+      "id": "tool-continuation-scope-routing",
+      "category": "tool-continuation",
+      "history": [
+        [
+          "user",
+          "Inspect scope routing."
+        ]
+      ],
+      "current": "The command returned successfully.",
+      "recall": false,
+      "expected_memory_ids": [],
+      "baseline_memory_ids": [],
+      "attribution": "The final item is a tool result. No new user request was made."
+    },
+    {
+      "id": "ambiguous-release-build",
+      "category": "ambiguous",
+      "history": [
+        [
+          "user",
+          "Use our previously agreed compatibility rule for release build."
+        ],
+        [
+          "assistant",
+          "I have located the code that needs the change."
+        ]
+      ],
+      "current": "Proceed with the agreed version.",
+      "recall": true,
+      "expected_memory_ids": [
+        "release-build"
+      ],
+      "baseline_memory_ids": [],
+      "attribution": "The user refers to a prior rule. Its contents are absent from the conversation."
+    },
+    {
+      "id": "specified-release-build",
+      "category": "specified",
+      "history": [
+        [
+          "user",
+          "We are working on release build."
+        ],
+        [
+          "assistant",
+          "The work is complete. The only open step is to inspect the local build log."
+        ]
+      ],
+      "current": "Only inspect the local build log. Everything else is done.",
+      "recall": false,
+      "expected_memory_ids": [],
+      "baseline_memory_ids": [],
+      "attribution": "The assistant states the next step. It can be performed using the present conversation."
+    },
+    {
+      "id": "task-switch-release-build",
+      "category": "task-switch",
+      "history": [
+        [
+          "user",
+          "Work on release packaging."
+        ],
+        [
+          "assistant",
+          "I was investigating release packaging."
+        ]
+      ],
+      "current": "Switch to release build. Which compatibility rule did we agree to follow?",
+      "recall": true,
+      "expected_memory_ids": [
+        "release-build"
+      ],
+      "baseline_memory_ids": [
+        "release-build"
+      ],
+      "attribution": "The user switches to a new topic. The assistant's previous task is unrelated."
+    },
+    {
+      "id": "tool-continuation-release-build",
+      "category": "tool-continuation",
+      "history": [
+        [
+          "user",
+          "Inspect release build."
+        ]
+      ],
+      "current": "The command returned successfully.",
+      "recall": false,
+      "expected_memory_ids": [],
+      "baseline_memory_ids": [],
+      "attribution": "The final item is a tool result. No new user request was made."
+    }
+  ]
+}

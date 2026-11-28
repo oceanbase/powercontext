@@ -28,6 +28,7 @@
 //!                   └── 降级时用此原始请求（不含注入）重新渲染
 //! ```
 
+use crate::disambiguation::{auxiliary_request, parse_decision, RecallDecision};
 use crate::evidence::CallRecorder;
 use crate::lifecycle::Execution;
 use crate::prefix_store::{PrefixEntry, PrefixOutput, PrefixStore};
@@ -56,7 +57,7 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc, Mutex,
 };
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 /// Gate 不可用时的策略（PR #2199 故障语义）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -154,14 +155,19 @@ impl ManagedOutcome {
 }
 
 /// 召回策略：用户回合总是准备；复用证明失效后的重试额外放行一次非用户回合的准备。
-#[derive(Clone, Copy)]
 struct RecallPolicy {
     kind: TurnKind,
     reprepare: bool,
+    rewritten_query: Option<String>,
+}
+
+enum CallPurpose<'a> {
+    Turn { replay_identity: Option<&'a str> },
+    Disambiguation,
 }
 
 impl RecallPolicy {
-    fn allows_prepare(self) -> bool {
+    fn allows_prepare(&self) -> bool {
         self.kind == TurnKind::UserTurn || self.reprepare
     }
 }
@@ -180,6 +186,7 @@ pub struct Executor<G, T> {
     require_privacy_coverage: bool,
     prefixes: PrefixStore,
     turn_counters: TurnCounters,
+    context_disambiguation: bool,
 }
 
 /// One-way admission closure, also usable by a process signal handler. Closing
@@ -230,6 +237,7 @@ where
             require_privacy_coverage: true,
             prefixes: PrefixStore::default(),
             turn_counters: TurnCounters::default(),
+            context_disambiguation: false,
         }
     }
 
@@ -325,6 +333,11 @@ where
         self.turn_counters.snapshot()
     }
 
+    pub fn with_context_disambiguation(mut self, enabled: bool) -> Self {
+        self.context_disambiguation = enabled;
+        self
+    }
+
     pub async fn run<R: WireRenderer>(
         &self,
         control: RequestControl,
@@ -345,6 +358,24 @@ where
         renderer: &R,
         evidence: &dyn EvidenceSink,
         replay_identity: Option<&str>,
+    ) -> ManagedOutcome {
+        self.run_call(
+            control,
+            call,
+            renderer,
+            evidence,
+            CallPurpose::Turn { replay_identity },
+        )
+        .await
+    }
+
+    async fn run_call<R: WireRenderer>(
+        &self,
+        control: RequestControl,
+        call: ManagedCall,
+        renderer: &R,
+        evidence: &dyn EvidenceSink,
+        purpose: CallPurpose<'_>,
     ) -> ManagedOutcome {
         let mut recording = CallRecorder::new(
             evidence,
@@ -367,7 +398,7 @@ where
                 evidence,
                 &mut execution,
                 &mut recording,
-                replay_identity,
+                purpose,
             ))
             .await
         {
@@ -389,7 +420,7 @@ where
         evidence: &dyn EvidenceSink,
         execution: &mut Execution,
         recording: &mut CallRecorder<'_>,
-        replay_identity: Option<&str>,
+        purpose: CallPurpose<'_>,
     ) -> ManagedOutcome {
         if let Err(stop) = self.attempt_checkpoint(execution) {
             return stop;
@@ -400,9 +431,15 @@ where
         let pristine_request = call.request.clone();
         // 回合类型只由原始请求尾部决定；在重放与准备之前判定一次，供证据、计数与召回决策共用。
         let kind = turn_kind(&pristine_request, renderer.message_list_key());
-        recording.turn_kind(kind);
-        self.turn_counters.record(kind);
-        tracing::debug!(turn_kind = kind.as_str(), "gateway request turn classified");
+        let (replay_identity, max_attempts) = match purpose {
+            CallPurpose::Turn { replay_identity } => {
+                recording.turn_kind(kind);
+                self.turn_counters.record(kind);
+                tracing::debug!(turn_kind = kind.as_str(), "gateway request turn classified");
+                (replay_identity, self.max_attempts.get())
+            }
+            CallPurpose::Disambiguation => (None, 1),
+        };
 
         let conversation = call.conversation_id.clone();
         let replay = conversation
@@ -412,7 +449,11 @@ where
             .and_then(|id| Some((id, message_anchor(&pristine_request)?)));
         let mut refreshed = false;
         // Core 使已重放的块失效后，本请求需要重新准备一次；`refreshed` 保证每个请求至多刷新一次。
-        let mut reprepare = false;
+        let mut recall = RecallPolicy {
+            kind,
+            reprepare: false,
+            rewritten_query: None,
+        };
         let (payload, admission) = loop {
             if let Err(stop) = execution.checkpoint() {
                 return stop;
@@ -420,9 +461,9 @@ where
             if call.inject_context {
                 self.enrich(
                     &mut call,
-                    RecallPolicy { kind, reprepare },
+                    &mut recall,
                     replay,
-                    renderer.message_list_key(),
+                    renderer,
                     recording,
                     execution,
                 )
@@ -540,7 +581,7 @@ where
                                 .any(|reason| reason == CONTEXT_REFRESH_REQUIRED) =>
                     {
                         refreshed = true;
-                        reprepare = true;
+                        recall.reprepare = true;
                         if let Some((conversation, anchor)) = replay {
                             self.replays.forget(&call.scope_id, conversation, anchor);
                         }
@@ -604,7 +645,7 @@ where
                         recording.not_sent(&reason);
                         execution.model_send(ModelSendState::DefinitelyNotSent);
                         evidence.record_not_sent(attempt, &reason.to_string());
-                        if attempt >= self.max_attempts.get() {
+                        if attempt >= max_attempts {
                             return ManagedOutcome::NotSent { attempts: attempt };
                         }
                         if let Err(stop) = self.attempt_checkpoint(execution) {
@@ -957,12 +998,12 @@ where
     /// 复用证明失效后的重试由 `RecallPolicy::reprepare` 放行一次：非用户回合也重新准备，
     /// 不把可恢复的失效直接交给客户端；调用方保证每个请求至多放行一次。
     /// 准备失败不写入，下一次请求重试，且不阻塞本次请求；空结果同样重放。
-    async fn enrich(
+    async fn enrich<R: WireRenderer>(
         &self,
         call: &mut ManagedCall,
-        policy: RecallPolicy,
+        policy: &mut RecallPolicy,
         replay: Option<(&str, u64)>,
-        list_key: &str,
+        renderer: &R,
         recording: &mut CallRecorder<'_>,
         execution: &Execution,
     ) {
@@ -982,10 +1023,43 @@ where
         let prepared = match cached {
             Some(prepared) => prepared,
             None => {
-                let Some((prepared, expires_at)) =
-                    self.prepare_turn(call, recording, execution).await
-                else {
+                let Some(original) = last_user_text(&call.request) else {
                     return;
+                };
+                let decision = if self.context_disambiguation
+                    && !policy.reprepare
+                    && policy.kind == TurnKind::UserTurn
+                    && !call.internal
+                    && !original.trim().is_empty()
+                    && call.request.previous_response_id.is_none()
+                    && call.request.conversation.is_none()
+                {
+                    self.disambiguate(call, renderer, recording.sink(), execution)
+                        .await
+                } else {
+                    None
+                };
+                if execution.checkpoint().is_err() {
+                    return;
+                }
+                let (prepared, expires_at) = match decision {
+                    Some(RecallDecision::Skip) => {
+                        self.turn_counters.record_skipped_prepare();
+                        recording.prepare_skipped();
+                        (None, None)
+                    }
+                    decision => {
+                        if let Some(RecallDecision::Search(query)) = decision {
+                            policy.rewritten_query = Some(query);
+                        }
+                        let query = policy.rewritten_query.clone().unwrap_or(original);
+                        let Some(prepared) =
+                            self.prepare_turn(call, query, recording, execution).await
+                        else {
+                            return;
+                        };
+                        prepared
+                    }
                 };
                 match replay {
                     Some((conversation, anchor)) => {
@@ -1009,7 +1083,51 @@ where
         let Some(PreparedBlock { block, binding }) = prepared else {
             return;
         };
-        self.inject(call, &block, &binding, list_key);
+        self.inject(call, &block, &binding, renderer.message_list_key());
+    }
+
+    async fn disambiguate<R: WireRenderer>(
+        &self,
+        call: &ManagedCall,
+        renderer: &R,
+        evidence: &dyn EvidenceSink,
+        execution: &Execution,
+    ) -> Option<RecallDecision> {
+        let list_key = renderer.message_list_key();
+        let auxiliary = ManagedCall {
+            scope_id: call.scope_id.clone(),
+            target_profile: call.target_profile.clone(),
+            request: auxiliary_request(&call.request, list_key),
+            target_url: call.target_url.clone(),
+            headers: call.headers.clone(),
+            degrade_policy: DegradePolicy::Pause,
+            inject_context: false,
+            include_code: false,
+            conversation_id: None,
+            capture_prefix: false,
+            sediment: false,
+            internal: true,
+            prepared_contexts: Vec::new(),
+        };
+        let control = execution
+            .lifecycle()
+            .auxiliary_control(Duration::from_secs(8));
+        // Both calls use the same gate and transport. Box the nested execution
+        // so that an internal call can reuse the pipeline without a recursive future.
+        match Box::pin(self.run_call(
+            control,
+            auxiliary,
+            renderer,
+            evidence,
+            CallPurpose::Disambiguation,
+        ))
+        .await
+        {
+            ManagedOutcome::Released { status, body, .. } if (200..300).contains(&status) => {
+                parse_decision(&body, list_key)
+            }
+            _ => None,
+        }
     }
 
     /// 调用 prepare：失败返回 None（不缓存、不阻塞主请求）；
@@ -1017,10 +1135,10 @@ where
     async fn prepare_turn(
         &self,
         call: &ManagedCall,
+        query: String,
         recording: &mut CallRecorder<'_>,
         execution: &Execution,
     ) -> Option<(Option<PreparedBlock>, Option<String>)> {
-        let query = last_user_text(&call.request)?;
         if execution.checkpoint().is_err() {
             return None;
         }

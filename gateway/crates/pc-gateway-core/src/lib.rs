@@ -26,6 +26,7 @@
 //! 本 crate 只负责把裁决串成正确的控制流，并守住失败语义。
 
 mod capture_coverage;
+mod disambiguation;
 mod executor;
 mod gate_client;
 mod http_gate_client;
