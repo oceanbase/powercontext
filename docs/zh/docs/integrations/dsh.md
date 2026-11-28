@@ -622,11 +622,6 @@ gateway 仍会让 Core 检查这类请求，但不为它准备或注入上下文
 DSH 会把这些请求头发给处理该请求的任何 provider，包括它直接调用的 provider；gateway 不会把它们转发给上游。
 除非 provider 设置了 `cacheRetention: "none"`，DSH 的 Responses 请求本来就以 `prompt_cache_key` 携带会话 ID。
 
-DSH 会在会话的第一轮，以及运行时上下文变化时（包括工具循环之中），在提示词之后加入自己的运行时上下文提醒。
-这是一条只含 `<system-reminder>` 块的用户消息。在这些请求上，gateway 把这条提醒当作这一轮的消息：
-它以提醒为查询准备上下文，并把提醒采集为这一轮的用户文本。因此在 gateway 跳过这类提醒之前，
-这些轮次的召回和采集并不完整。
-
 修改这些设置后请重启 DSH，然后新建会话。插件召回过上下文的会话会在历史中保留这些上下文，
 DSH 之后的请求会再次发送它们，因此 Core 会拒绝这些请求。gateway 只从工具结果中移除插件块，
 在 Responses 路由上还会从 developer 消息中移除；插件的快照是用户消息。

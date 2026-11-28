@@ -724,12 +724,6 @@ DSH sends these headers to whichever provider serves the request, including one 
 not forward them upstream. DSH's Responses requests already carry the session ID as `prompt_cache_key` unless the
 provider sets `cacheRetention: "none"`.
 
-DSH adds its own runtime-context reminder, a user message that holds only a `<system-reminder>` block, after the
-prompt on the first turn of a session and whenever that context changes, including inside a tool loop. On those
-requests the gateway takes the reminder as the turn's message: it prepares context with the reminder as the query and
-captures the reminder as the turn's user text. Recall and capture for those turns are therefore incomplete until the
-gateway skips such reminders.
-
 Restart DSH after changing these settings, then start a new session. A session in which the plugin recalled context
 keeps that context in its history, and DSH resends it with later requests, so Core rejects them. The gateway removes
 a plugin block only from a tool result, and on the Responses route also from a developer message; the plugin's
