@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Mapping, Sequence
+from dataclasses import replace
 from typing import Literal, NoReturn, TypeVar
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
@@ -43,6 +44,7 @@ from powercontext.builtin.artifacts.atomic_memory.reconciliation import (
     AtomicMemoryWindowWorkset,
     AtomicMemoryWorkingItem,
     RedundantAtomicMemoryRevisionError,
+    unique_evidence,
 )
 from powercontext.builtin.inference import InvalidInferenceOutputError
 from powercontext.builtin.processing_diagnostics import (
@@ -302,10 +304,15 @@ def apply_one_pass_recheck(
     reply: str,
     created: Mapping[str, str],
     unseen: Mapping[str, Mapping[str, str]],
+    extraction_input: AtomicMemoryExtractionInput,
 ) -> AtomicMemoryWindowWorkset:
-    """Apply step 3 to a copy of the workset: each created item against the memories recalled for it."""
+    """Apply step 3 to a copy of the workset: each created item against the memories recalled for it.
+
+    A write may cite any evidence of the window, as in step 2.
+    """
 
     result = workset.copy()
+    evidence = {item.evidence_id: item for item in extraction_input.evidence}
     operations = {operation.id: operation for operation in _parse(reply, OnePassOperations).operations}
     if operations.keys() != created.keys():
         _invalid("return exactly one operation for every listed memory id")
@@ -316,27 +323,44 @@ def apply_one_pass_recheck(
         if result.resolve(key) != key:
             # An earlier operation of this reply already combined this item into another memory.
             continue
-        proposal = result.items[key]
+        created_item = proposal = result.items[key]
         related = result.related(key, unseen[label].values())
         writes = operation.action != "noop"
         resolved = tuple(dict.fromkeys(result.resolve(target) for target in targets))
         if writes and written.intersection(resolved):
             _invalid(_SHARED_TARGET)
-        _apply(
-            result,
-            key,
-            related,
-            AtomicMemoryReconciliationOutput(
-                action=operation.action,
-                compared_ids=tuple(item.key for item in related),
-                target_ids=resolved,
-                content=_content(operation, default=proposal.content) if writes else None,
-                evidence_ids=(
-                    (operation.evidence_ids or tuple(item.evidence_id for item in proposal.evidence)) if writes else ()
+        cited = tuple(dict.fromkeys(operation.evidence_ids)) if writes else ()
+        if not set(cited) <= evidence.keys():
+            _invalid("evidence_ids may contain only the evidence_id values supplied in the first message")
+        if cited:
+            # The decision checks evidence against the proposal's own, so the cited window evidence joins it first.
+            supporting = unique_evidence((*proposal.evidence, *(evidence[identifier] for identifier in cited)))
+            proposal = replace(
+                proposal,
+                evidence=supporting,
+                sources=tuple(
+                    {
+                        item.source_ref.model_dump_json(): item.source_ref
+                        for item in supporting
+                        if isinstance(item, AtomicMemoryEvidence)
+                    }.values()
                 ),
-                reason=operation.reason,
-            ),
+            )
+            result.items[key] = proposal
+        output = AtomicMemoryReconciliationOutput(
+            action=operation.action,
+            compared_ids=tuple(item.key for item in related),
+            target_ids=resolved,
+            content=_content(operation, default=proposal.content) if writes else None,
+            evidence_ids=(cited or tuple(item.evidence_id for item in proposal.evidence)) if writes else (),
+            reason=operation.reason,
         )
+        try:
+            result.apply(key, related, output)
+        except RedundantAtomicMemoryRevisionError as error:
+            # The revision was not written, so the memory keeps only the evidence it was created from.
+            result.items[key] = created_item
+            result.recover_redundant_revision(key, related, error)
         if writes and resolved:
             written.add(result.resolve(key))
     return result

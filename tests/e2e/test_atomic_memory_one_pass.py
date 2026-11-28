@@ -212,6 +212,67 @@ def test_created_memory_is_rechecked_against_a_memory_its_query_missed(tmp_path:
     _run(tmp_path, conversation, scenario)
 
 
+def test_recheck_accepts_every_evidence_id_of_the_window(tmp_path: Path) -> None:
+    evidence: dict[str, str] = {}
+
+    def entries(window: dict[str, Any]) -> dict[str, Any]:
+        evidence.update({item["source_ref"]["source_id"]: item["evidence_id"] for item in window["evidence"]})
+        return _facts("unrelated words")
+
+    def create(_: dict[str, Any]) -> dict[str, Any]:
+        return {"operations": [_write("create", BUDGET_200, evidence_ids=[evidence["budget"]])]}
+
+    def run(
+        path: Path, *cited: str, text: str = f"{BUDGET_200} {OWNER}"
+    ) -> tuple[Any, tuple[Any, ...], InvalidInferenceOutputError | None]:
+        """Revise the recalled budget in step 3 to ``text``, citing ``cited`` or every Source of the window."""
+
+        def recheck(listed: dict[str, Any]) -> dict[str, Any]:
+            (entry,) = listed["recheck"]
+            label = entry["existing_memories"][0]["id"]
+            evidence_ids = list(cited or evidence.values())
+            operation = _write("revise", text, label, evidence_ids=evidence_ids)
+            return {"operations": [{**operation, "id": entry["id"]}]}
+
+        outcome: list[Any] = []
+
+        async def scenario(contexts, memory) -> None:
+            await contexts.records.create_atomic_memories(SCOPE, ({"kind": "fact", "text": BUDGET_100},))
+            outcome.extend((await memory.list()).items)
+            await contexts.process_memory(SCOPE, 1)
+            await contexts.records.capture_source(SCOPE, "content", "budget", BUDGET_200, {})
+            await contexts.records.capture_source(SCOPE, "content", "owner", OWNER, {})
+            try:
+                await contexts.process_memory(SCOPE, 2)
+            except InvalidInferenceOutputError as error:
+                outcome.append(error)
+            outcome.append((await memory.list()).items)
+
+        path.mkdir()
+        _run(path, _Conversation(entries, create, recheck), scenario)
+        return outcome[0], outcome[-1], outcome[1] if len(outcome) == 3 else None
+
+    # Step 3 may cite every Source of the window, as step 2 may: the revision states the owner from the other one.
+    original, (revised,), rejected = run(tmp_path / "window")
+    assert rejected is None
+    assert revised.artifact.content.text == f"{BUDGET_200} {OWNER}"
+    assert revised.ref.artifact_id == original.ref.artifact_id
+    assert {ref.source_id for ref in revised.artifact.lineage.sources} == {"budget", "owner"}
+
+    # An evidence id that is not in the window is still rejected.
+    original, items, rejected = run(tmp_path / "unknown", "unknown")
+    assert rejected is not None and rejected.operation == "atomic-memory-one-pass"
+    assert [(item.ref, item.artifact.content.text) for item in items] == [(original.ref, BUDGET_100)]
+
+    # A revision that only repeats the recalled memory is not written: the created memory is kept as step 2 made
+    # it, with the Source it was created from and not the other one the unwritten revision cited.
+    original, items, rejected = run(tmp_path / "redundant", text=BUDGET_100)
+    assert rejected is None
+    assert {item.artifact.content.text for item in items} == {BUDGET_100, BUDGET_200}
+    (kept,) = (item for item in items if item.artifact.content.text == BUDGET_200)
+    assert {ref.source_id for ref in kept.artifact.lineage.sources} == {"budget"}
+
+
 NOTES = "Rollout notes for the payments service: owner and budget are tracked here."
 
 
