@@ -78,12 +78,14 @@ def _run(
     *,
     mode: Literal["per_candidate", "one_pass"] = "one_pass",
     input_tokens_limit: int = 24_000,
+    reconciliation_conversation: _Conversation | None = None,
 ) -> None:
     pipeline = AtomicMemoryGenerationPipeline(
         extractor=_RevisionExtractor(),
         reconciler=_IndependentMemoryReconciler(),
         estimator=character_token_estimator(),
         conversation=conversation,
+        reconciliation_conversation=reconciliation_conversation,
     )
     config = BuiltinConfig(
         database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'one-pass.db'}"),
@@ -607,3 +609,20 @@ def test_default_mode_never_starts_a_conversation(tmp_path: Path) -> None:
         assert conversation.turns == []
 
     _run(tmp_path, conversation, scenario, mode="per_candidate")
+
+
+def test_reconciliation_can_use_its_own_generator_without_resetting_history(tmp_path: Path) -> None:
+    extraction = _Conversation(_facts("rollout budget"))
+    reconciliation = _Conversation({"operations": [_write("create", BUDGET_100)]})
+
+    async def scenario(contexts, memory):
+        await contexts.records.capture_source(SCOPE, "content", "first", BUDGET_100, {})
+        assert (await contexts.process_memory(SCOPE, 1)).current_cursor == 1
+        assert await _texts(memory) == {BUDGET_100}
+
+    _run(tmp_path, extraction, scenario, reconciliation_conversation=reconciliation)
+    assert len(extraction.turns) == len(reconciliation.turns) == 1
+    first, second = extraction.turns[0], reconciliation.turns[0]
+    assert second.instructions == first.instructions
+    assert second.history[0] == first.message
+    assert isinstance(second.history[1], str) and "rollout budget" in second.history[1]

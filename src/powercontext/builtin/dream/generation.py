@@ -22,6 +22,7 @@ from powercontext.builtin.artifacts.profile.models import ProfileDreamPolicy
 from powercontext.builtin.catalog_changes.models import TagDreamTarget
 from powercontext.builtin.dream.models import DreamOperation, DreamPlan
 from powercontext.builtin.evidence.models import EvidenceProjection
+from powercontext.builtin.inference.budget import EffectiveRequestBudget
 from powercontext.builtin.inference.models import GenerationResult
 from powercontext.builtin.inference.protocols import StructuredGenerator
 
@@ -101,9 +102,25 @@ class DreamGenerator(Protocol):
 
 
 class LLMDreamGenerator:
-    def __init__(self, generator: StructuredGenerator[DreamGenerationInput, DreamPlan], *, config_id: str) -> None:
+    def __init__(
+        self,
+        generator: StructuredGenerator[DreamGenerationInput, DreamPlan],
+        *,
+        config_id: str,
+        budget: EffectiveRequestBudget | None = None,
+    ) -> None:
         self._generator = generator
         self.config_id = config_id
+        self._budget = budget
 
     async def generate(self, value: DreamGenerationInput, /) -> GenerationResult[DreamPlan]:
-        return await self._generator.generate(value)
+        if self._budget is None:
+            return await self._generator.generate(value)
+
+        # Configuration and resource builders can load Dream without model SDKs.
+        from powercontext.builtin.inference.request_accounting import budgeted_exchange
+
+        # A Dream run is metered per run, so the request is admitted against deployment
+        # capacity before any provider call, with the operation named by the request.
+        with budgeted_exchange(self._budget, operation=value.operation):
+            return await self._generator.generate(value)

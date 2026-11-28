@@ -102,6 +102,9 @@ class ClaudeCliModel(Model):
             message = "Claude CLI subscription requires its existing login without API or cloud credential overrides"
             raise UserError(message)
         prompt = self._prompt(self.prepare_messages(messages, parameters))
+        from powercontext.builtin.inference.request_accounting import admit_claude_cli_request
+
+        admit_claude_cli_request(prompt, max_tokens)
         with tempfile.TemporaryDirectory(prefix="powercontext-claude-") as directory:
             status = await self._run(["auth", "status"], directory=directory)
             if status.get("authMethod") != "claude.ai":

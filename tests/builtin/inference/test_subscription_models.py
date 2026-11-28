@@ -29,8 +29,9 @@ from pydantic_ai.exceptions import UserError
 
 from powercontext.builtin.artifacts.memory.reranking import MemoryRerankCandidate
 from powercontext.builtin.inference import gemini_cli
+from powercontext.builtin.inference.budget import EffectiveRequestBudget
 from powercontext.builtin.inference.claude_cli import ClaudeCliModel
-from powercontext.builtin.inference.errors import InvalidInferenceOutputError
+from powercontext.builtin.inference.errors import InferenceBudgetExceededError, InvalidInferenceOutputError
 from powercontext.builtin.inference.pydantic_ai import (
     InferenceLimits,
     PydanticAIStructuredGenerator,
@@ -43,7 +44,7 @@ from powercontext.builtin.runtime.composition import (
     _generation_pipelines,
     _open_pydantic_ai_model,
 )
-from powercontext.builtin.runtime.config import InferenceConfig
+from powercontext.builtin.runtime.config import GenerationRequestBudgetConfig, InferenceConfig
 from powercontext.builtin.runtime.decision_model import DecisionOutcome, DecisionRequest
 from powercontext.builtin.sources import BUILTIN_SOURCE_REGISTRY
 
@@ -56,19 +57,22 @@ class _Output(BaseModel):
     value: str
 
 
-async def _generate(model) -> _Output:
+async def _generate(model, *, budget: EffectiveRequestBudget | None = None) -> _Output:
     generator = PydanticAIStructuredGenerator(
         model=model,
         instructions="Extract the value as JSON",
         input_type=_Input,
         output_type=_Output,
         limits=InferenceLimits(timeout_seconds=10, max_requests=1, allow_continuations=False),
+        budget=budget,
+        operation="skill.generate" if budget is not None else None,
     )
     result = await generator.generate(_Input(text="synthetic-input"))
     return result.output
 
 
-def test_gemini_cli_code_assist_is_consumed_by_structured_generator(tmp_path: Path, monkeypatch) -> None:
+@pytest.mark.parametrize("input_limit", [None, 1, 10_000])
+def test_gemini_cli_code_assist_is_consumed_by_structured_generator(tmp_path: Path, monkeypatch, input_limit) -> None:
     path = tmp_path / "oauth_creds.json"
     original = json.dumps({"access_token": "synthetic-google", "refresh_token": "cli-owned", "expiry_date": 9e12})
     path.write_text(original)
@@ -91,6 +95,8 @@ def test_gemini_cli_code_assist_is_consumed_by_structured_generator(tmp_path: Pa
         assert body["project"] == "synthetic-project"
         assert body["model"] == "gemini-test"
         assert "synthetic-input" in json.dumps(body["request"]["contents"])
+        if input_limit is not None:
+            assert body["request"]["generationConfig"]["maxOutputTokens"] == 4096
         return httpx2.Response(
             200,
             json={
@@ -122,10 +128,22 @@ def test_gemini_cli_code_assist_is_consumed_by_structured_generator(tmp_path: Pa
                 resources=resources,
                 instrumentation=None,
             )
-            assert await _generate(model) == _Output(value="synthetic-output")
+            budget = (
+                None
+                if input_limit is None
+                else InferenceConfig(
+                    generation_request_budget=GenerationRequestBudgetConfig(input_tokens_limit=input_limit)
+                ).generation_budget("skill.generate")
+            )
+            if input_limit == 1:
+                with pytest.raises(InferenceBudgetExceededError) as rejected:
+                    await _generate(model, budget=budget)
+                assert rejected.value.requests_sent == 0
+            else:
+                assert await _generate(model, budget=budget) == _Output(value="synthetic-output")
 
     asyncio.run(run())
-    assert len(seen) == 2
+    assert len(seen) == (0 if input_limit == 1 else 2)
     assert path.read_text() == original
 
 
@@ -137,7 +155,8 @@ def claude_executable(tmp_path: Path, monkeypatch):
 import json, os, sys
 from pathlib import Path
 with Path({str(record)!r}).open("a") as handle:
-    handle.write(json.dumps({{"argv":sys.argv[1:], "cwd":os.getcwd(), "stdin":sys.stdin.read()}})+"\\n")
+    handle.write(json.dumps({{"argv":sys.argv[1:], "cwd":os.getcwd(), "stdin":sys.stdin.read(),
+        "max_tokens":os.getenv("CLAUDE_CODE_MAX_OUTPUT_TOKENS")}})+"\\n")
 if sys.argv[1:] == ["auth", "status"]:
     print(json.dumps({{"authMethod":os.getenv("SYNTHETIC_CLAUDE_AUTH", "claude.ai")}}))
 else:
@@ -345,3 +364,32 @@ else:
                 await asyncio.gather(task, return_exceptions=True)
 
     asyncio.run(run())
+
+
+@pytest.mark.parametrize("fits", [False, True])
+def test_claude_cli_admits_the_rendered_prompt_and_output_cap(claude_executable, fits) -> None:
+    _, record = claude_executable
+    budget = InferenceConfig(
+        generation_request_budget=GenerationRequestBudgetConfig(
+            input_tokens_limit=10_000 if fits else 10, output_tokens_limit=128
+        )
+    ).generation_budget("skill.generate")
+
+    async def run():
+        if fits:
+            assert await _generate(ClaudeCliModel("sonnet"), budget=budget) == _Output(value="synthetic-output")
+        else:
+            with pytest.raises(InferenceBudgetExceededError) as rejected:
+                await _generate(ClaudeCliModel("sonnet"), budget=budget)
+            assert rejected.value.requests_sent == 0
+            assert rejected.value.decision.operation == "skill.generate"
+
+    asyncio.run(run())
+    if fits:
+        calls = [json.loads(line) for line in record.read_text().splitlines()]
+        assert calls[-1]["max_tokens"] == "128"
+        assert "synthetic-input" in calls[-1]["stdin"]
+        assert "Extract the value as JSON" in calls[-1]["stdin"]
+        assert "value" in calls[-1]["stdin"]
+    else:
+        assert not record.exists()

@@ -26,7 +26,7 @@ from powercontext.builtin.artifacts.experience import (
     ExperienceIncubationOutput,
     LLMExperienceCandidatePipeline,
 )
-from powercontext.builtin.inference import GenerationResult, InvalidInferenceOutputError
+from powercontext.builtin.inference import GenerationResult, InferenceBudgetExceededError, InvalidInferenceOutputError
 from powercontext.builtin.sources import ContentSource
 from powercontext.sources import SourceMaterialization, SourceRef
 
@@ -83,14 +83,30 @@ def test_pipeline_maps_only_bounded_task_outcomes_to_exact_source_refs() -> None
 
         candidates = await pipeline.incubate((
             _source("ordinary", kind="prompt"),
-            _source("task-1", content="x" * (MAX_EXPERIENCE_INCUBATION_SOURCE_CHARS + 10)),
+            _source("task-1", content="x" * (MAX_EXPERIENCE_INCUBATION_SOURCE_CHARS - 1)),
         ))
 
         assert len(generator.inputs) == 1
         assert generator.inputs[0].evidence[0].evidence_id == "source:content/task-1"
-        assert len(generator.inputs[0].evidence[0].content) == MAX_EXPERIENCE_INCUBATION_SOURCE_CHARS
+        assert len(generator.inputs[0].evidence[0].content) == MAX_EXPERIENCE_INCUBATION_SOURCE_CHARS - 1
         assert candidates[0].proposal == _proposal()
         assert candidates[0].sources == (SourceRef(source_type="content", source_id="task-1"),)
+
+    asyncio.run(scenario())
+
+
+def test_pipeline_rejects_a_task_outcome_that_exceeds_the_case_bound() -> None:
+    async def scenario() -> None:
+        generator = _Generator(ExperienceIncubationOutput(candidates=()))
+        pipeline = LLMExperienceCandidatePipeline(generator)
+
+        with pytest.raises(InferenceBudgetExceededError) as rejected:
+            await pipeline.incubate((_source("task-1", content="x" * (MAX_EXPERIENCE_INCUBATION_SOURCE_CHARS + 1)),))
+
+        assert rejected.value.decision.operation == "experience.incubate"
+        assert rejected.value.decision.dimension == "input_bytes"
+        assert rejected.value.decision.estimated_value == MAX_EXPERIENCE_INCUBATION_SOURCE_CHARS + 1
+        assert generator.inputs == []
 
     asyncio.run(scenario())
 

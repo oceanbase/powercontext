@@ -17,8 +17,8 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable
-from dataclasses import dataclass
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, TypeAdapter, ValidationError
@@ -35,6 +35,7 @@ from powercontext.builtin.artifacts.atomic_memory.summary import DESCRIPTION_RUL
 from powercontext.builtin.artifacts.atomic_memory.temporal import preserves_time_literals, source_time_literals
 from powercontext.builtin.artifacts.memory.prompts import MemoryExtractionProfile
 from powercontext.builtin.inference import InvalidInferenceOutputError, StructuredGenerator, TokenEstimator
+from powercontext.builtin.inference.budget import EffectiveRequestBudget
 from powercontext.builtin.inference.models import ConversationReply, ConversationTurn
 from powercontext.builtin.persistence.records import _canonical_source_text
 from powercontext.builtin.persistence.sources import SourceRepository, StoredSource
@@ -176,6 +177,10 @@ class AtomicMemoryGenerationPipeline:
     conversation: StructuredGenerator[ConversationTurn[Any], ConversationReply[Any]] | None = None
     # Opt-in one-pass conversation after the agent's cached prefix; any failure falls back to ``conversation``.
     prefixed_conversation: StructuredGenerator[ConversationTurn[Any], ConversationReply[Any]] | None = None
+
+    request_budgets: Mapping[str, EffectiveRequestBudget] = field(default_factory=dict)
+    # Later turns may bind a narrower allowance while continuing the same history.
+    reconciliation_conversation: StructuredGenerator[ConversationTurn[Any], ConversationReply[Any]] | None = None
 
     async def extract(self, value: AtomicMemoryExtractionInput) -> tuple[AtomicMemoryCandidate, ...]:
         if self.prefixed is not None and prefix_handle(value) is not None:

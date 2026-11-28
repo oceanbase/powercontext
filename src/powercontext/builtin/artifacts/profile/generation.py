@@ -77,8 +77,14 @@ Do not return an empty string or add changed, provenance, or other fields. The s
 
 
 class LLMProfileGenerator:
-    def __init__(self, generator: StructuredGenerator[ProfileGenerationInput, ProfileGenerationOutput]):
+    def __init__(
+        self,
+        generator: StructuredGenerator[ProfileGenerationInput, ProfileGenerationOutput],
+        *,
+        timeout_seconds: float | None = None,
+    ):
         self._generator = generator
+        self.timeout_seconds = timeout_seconds
 
     async def generate(self, value: ProfileGenerationInput, /) -> str | None:
         return ProfileGenerationOutput.model_validate((await self._generator.generate(value)).output).content

@@ -19,7 +19,10 @@ import asyncio
 import pytest
 
 from powercontext.builtin.artifacts.experience import ExperienceCandidateInput, ExperienceContent
+from powercontext.builtin.artifacts.experience.incubation import MAX_EXPERIENCE_INCUBATION_SOURCE_CHARS
 from powercontext.builtin.inference import InferenceUnavailableError
+from powercontext.builtin.inference.budget import hard_limit_decision
+from powercontext.builtin.inference.errors import InferenceBudgetExceededError
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.records import ArtifactWrite
 from powercontext.builtin.runtime import (
@@ -271,5 +274,61 @@ def test_scheduled_incubation_requires_a_configured_pipeline(tmp_path) -> None:
                 ),
             ):
                 pass
+
+    asyncio.run(scenario())
+
+
+class _BudgetRejectingPipeline(_TaskOutcomePipeline):
+    """Rejects the window once with a budget decision, then behaves normally."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._rejected = False
+
+    async def incubate(self, sources, /):
+        if not self._rejected:
+            self._rejected = True
+            self.calls.append(sources)
+            raise InferenceBudgetExceededError(
+                hard_limit_decision(
+                    operation="experience.incubate",
+                    dimension="input_bytes",
+                    estimated_value=MAX_EXPERIENCE_INCUBATION_SOURCE_CHARS + 1,
+                    limit_value=MAX_EXPERIENCE_INCUBATION_SOURCE_CHARS,
+                    unit="characters",
+                )
+            )
+        return await super().incubate(sources)
+
+
+def test_incubation_budget_rejection_does_not_advance_the_cursor() -> None:
+    async def scenario() -> None:
+        pipeline = _BudgetRejectingPipeline()
+        async with open_builtin_runtime(
+            BuiltinConfig(database=SQLiteConfig()),
+            experience_pipeline=pipeline,
+        ) as runtime:
+            scope = await _create_scope(runtime, "budget-experience")
+            await runtime.sources.for_scope(scope).capture(
+                CaptureSource(
+                    source_id="task-1",
+                    content="python test_config.py passed",
+                    metadata={"kind": "task-outcome"},
+                )
+            )
+
+            with pytest.raises(InferenceBudgetExceededError):
+                await runtime.experience.for_scope(scope).incubate()
+            empty = await runtime.review.for_scope(scope).list(ListCandidatesRequest(family="experience"))
+            assert not empty.candidates
+
+            retried = await runtime.experience.for_scope(scope).incubate()
+            inbox = await runtime.review.for_scope(scope).list(ListCandidatesRequest(family="experience"))
+
+            assert retried.previous_cursor == 0
+            assert retried.current_cursor == 1
+            assert retried.candidate_count == 1
+            assert len(inbox.candidates) == 1
+            assert [tuple(s.name for s in call) for call in pipeline.calls] == [("task-1",), ("task-1",)]
 
     asyncio.run(scenario())

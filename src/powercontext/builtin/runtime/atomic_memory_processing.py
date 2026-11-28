@@ -83,6 +83,8 @@ from powercontext.builtin.inference import (
     InvalidInferenceOutputError,
     embed_query,
 )
+from powercontext.builtin.inference.budget import AdmissionDecision
+from powercontext.builtin.inference.errors import InferenceBudgetExceededError
 from powercontext.builtin.inference.models import ConversationReply, ConversationTurn
 from powercontext.builtin.inference.protocols import StructuredGenerator
 from powercontext.builtin.persistence.atomic_memory_index import (
@@ -240,7 +242,7 @@ class AtomicMemorySourceWindowProcessor:
                 return result
         raise AssertionError("unreachable")
 
-    async def _flush_once(self, scope_id, limit, processing, context, span) -> MemoryFlushResult:
+    async def _flush_once(self, scope_id, limit, processing, context, span) -> MemoryFlushResult:  # noqa: C901
         application = self.application
         trigger = SourceWindowTrigger()
         async with application.database.transaction() as connection:
@@ -280,10 +282,16 @@ class AtomicMemorySourceWindowProcessor:
             async with policy_batch:
                 workset, consulted_artifacts = await self._prepare(scope_id, eligible, pipeline, context)
             prepared, decision, observation = await self._inspect_decisions(scope_id, workset, context)
-        except (InferenceTimeoutError, InvalidInferenceOutputError) as error:
+        except (InferenceTimeoutError, InvalidInferenceOutputError, InferenceBudgetExceededError) as error:
             reducible = (isinstance(error, InferenceTimeoutError) and error.operation == "generate") or (
                 isinstance(error, InvalidInferenceOutputError) and error.operation == "atomic-memory-input-budget"
             )
+            if isinstance(error, InferenceBudgetExceededError):
+                reducible = (
+                    error.requests_sent == 0
+                    and error.decision.phase in {"selection", "initial_dispatch"}
+                    and error.decision.dimension in {"input_tokens", "context_tokens"}
+                )
             if reducible and action.through - action.after > 1:
                 await self._reduce_window(scope_id, context, processing, cursor, state, action, high_watermark)
             raise
@@ -603,7 +611,11 @@ class AtomicMemorySourceWindowProcessor:
                     selected_count = len(batch)
                     value = workset.request(key, related)
                     estimated = self._estimate(pipeline, value, "atomic_memory.reconcile")
-                    while related and estimated > self.config.input_tokens_limit and selected_count > 1:
+                    while (
+                        related
+                        and estimated > self._input_limit(pipeline, "atomic_memory.reconcile")
+                        and selected_count > 1
+                    ):
                         selected_count = max(1, selected_count // 2)
                         related = workset.related(key, pending[:selected_count])
                         value = workset.request(key, related)
@@ -696,6 +708,7 @@ class AtomicMemorySourceWindowProcessor:
             one_pass_instructions(extraction_rules, guidance),
             metadata,
             self.config.input_tokens_limit,
+            reconciler=pipeline.reconciliation_conversation,
         )
         evidence = (
             extraction_input.model_dump_json()
@@ -1284,11 +1297,36 @@ class AtomicMemorySourceWindowProcessor:
         payload = value.model_dump_json() if pipeline.input_renderer is None else pipeline.input_renderer(value)
         return pipeline.estimator.estimate(f"{instructions}\n{payload}")
 
+    def _input_limit(self, pipeline, key):
+        budget = pipeline.request_budgets.get(key)
+        return (
+            min(self.config.input_tokens_limit, budget.allowed_input_tokens)
+            if budget
+            else self.config.input_tokens_limit
+        )
+
     def _require_budget(self, pipeline, value, key, *, estimated=None):
         if estimated is None:
             estimated = self._estimate(pipeline, value, key)
-        if estimated <= self.config.input_tokens_limit:
+        limit = self._input_limit(pipeline, key)
+        if estimated <= limit:
             return
+        if key in pipeline.request_budgets:
+            budget = pipeline.request_budgets[key]
+            raise InferenceBudgetExceededError(
+                AdmissionDecision(
+                    allowed=False,
+                    operation=key,
+                    dimension="input_tokens",
+                    estimated_value=estimated,
+                    limit_value=limit,
+                    phase="selection",
+                    estimator_id=pipeline.estimator.profile.estimator_id,
+                    estimator_version=pipeline.estimator.profile.version,
+                    output_reserve_tokens=budget.output_reserve_tokens,
+                    safety_margin_tokens=budget.safety_margin_tokens,
+                )
+            )
         error = InvalidInferenceOutputError(
             "atomic-memory-input-budget", "A complete comparison input exceeds its token budget"
         )
@@ -1409,16 +1447,21 @@ class _OnePassConversation:
     input_tokens_limit: int
     # The history the first turn continues; a prefixed conversation starts from the agent's prefix.
     start: tuple[object, ...] = ()
+    reconciler: StructuredGenerator[ConversationTurn[Any], ConversationReply[Any]] | None = None
 
     def estimate(self, message: str, previous: ConversationReply[Any] | None = None) -> int:
         transcript = () if previous is None else previous.transcript
         return self.pipeline.estimator.estimate("\n".join((self.instructions, *transcript, message)))
 
     def fits(self, message: str, previous: ConversationReply[Any] | None = None) -> bool:
-        return self.estimate(message, previous) <= self.input_tokens_limit
+        operation = "atomic_memory.extract" if previous is None else "atomic_memory.reconcile"
+        budget = None if self.start else self.pipeline.request_budgets.get(operation)
+        limit = self.input_tokens_limit if budget is None else min(self.input_tokens_limit, budget.allowed_input_tokens)
+        return self.estimate(message, previous) <= limit
 
     async def turn(self, message, check, previous: ConversationReply[Any] | None = None):
-        result = await self.generator.generate(
+        generator = self.generator if previous is None or self.reconciler is None else self.reconciler
+        result = await generator.generate(
             ConversationTurn(
                 instructions=self.instructions,
                 message=message,

@@ -53,7 +53,7 @@ from powercontext.service.environment import protect_directory, write_protected_
 _ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_preparation_cli_runs_without_server_native_dependencies() -> None:
+def test_preparation_cli_runs_without_optional_server_dependencies() -> None:
     # The build host must acquire these packages as pinned inputs, not install
     # them to invoke the producer. Exercise its command in a fresh interpreter.
     result = subprocess.run(
@@ -67,12 +67,12 @@ import runpy
 import sys
 from pathlib import Path
 
-class MissingNativeBuilders(importlib.abc.MetaPathFinder):
+class MissingServerDependencies(importlib.abc.MetaPathFinder):
     def find_spec(self, fullname, path=None, target=None):
-        if fullname.split('.')[0] in {'cryptography', 'jieba', 'maturin'}:
+        if fullname.split('.')[0] in {'cryptography', 'jieba', 'maturin', 'anthropic', 'openai', 'pydantic_ai'}:
             raise ModuleNotFoundError(f'No module named {fullname!r}', name=fullname)
 
-sys.meta_path.insert(0, MissingNativeBuilders())
+sys.meta_path.insert(0, MissingServerDependencies())
 root = Path(sys.argv[1])
 sys.path[:0] = [str(root / 'src'), str(root / 'scripts')]
 script = root / 'scripts' / 'prepare_managed_resources.py'

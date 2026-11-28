@@ -38,6 +38,7 @@ from powercontext.builtin.artifacts.atomic_memory.reconciliation import (
 )
 from powercontext.builtin.inference import (
     GenerationResult,
+    InferenceBudgetExceededError,
     InvalidInferenceOutputError,
     TokenEstimator,
     TokenEstimatorProfile,
@@ -47,6 +48,7 @@ from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.processing_diagnostics import diagnostics_of
 from powercontext.builtin.runtime import BuiltinConfig, CaptureSource, RuntimeConfig, open_builtin_contexts
 from powercontext.builtin.runtime.composition import open_builtin_runtime
+from powercontext.builtin.runtime.config import GenerationRequestBudgetConfig, InferenceConfig
 from powercontext.builtin.scope import ScopeDraft
 from powercontext.builtin.tags import ArtifactTagTarget, TagFilter
 from powercontext.sources import SourceRef, SourceSequenceLocator
@@ -167,8 +169,9 @@ class _SupportedCreateReconciler(_RevisionReconciler):
 
 
 @pytest.mark.parametrize(("related_count", "budget", "accepted"), [(8, 24, True), (8, 23, False), (0, 7, False)])
+@pytest.mark.parametrize("operation_limit", [False, True])
 def test_custom_rendered_budget_keeps_all_comparisons_or_rejects_without_publication(
-    tmp_path, related_count: int, budget: int, accepted: bool
+    tmp_path, related_count: int, budget: int, accepted: bool, operation_limit: bool
 ) -> None:
     text = "Rollout strategy requires an independent approval."
 
@@ -185,10 +188,21 @@ def test_custom_rendered_budget_keeps_all_comparisons_or_rejects_without_publica
                 lambda value: int(value.rsplit("\n", 1)[-1]),
             ),
             input_renderer=render_input,
+            request_budgets=(
+                {
+                    "atomic_memory.reconcile": InferenceConfig(
+                        generation_request_budget=GenerationRequestBudgetConfig(input_tokens_limit=budget)
+                    ).generation_budget("atomic_memory.reconcile")
+                }
+                if operation_limit
+                else {}
+            ),
         )
         config = BuiltinConfig(
             database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'budget.db'}"),
-            runtime=RuntimeConfig(atomic_memory_related_mode="fts", atomic_memory_input_tokens_limit=budget),
+            runtime=RuntimeConfig(
+                atomic_memory_related_mode="fts", atomic_memory_input_tokens_limit=1_000 if operation_limit else budget
+            ),
         )
         async with open_builtin_contexts(config, candidate_pipeline=pipeline) as contexts:
             context = await contexts.get("budget")
@@ -219,13 +233,20 @@ def test_custom_rendered_budget_keeps_all_comparisons_or_rejects_without_publica
                 assert compared == {(item.ref.artifact_id, item.ref.revision) for item in before}
                 assert all(int(render_input(value)) <= budget for value in reconciler.requests)
             else:
-                with pytest.raises(InvalidInferenceOutputError) as captured:
+                with pytest.raises(
+                    InferenceBudgetExceededError if operation_limit else InvalidInferenceOutputError
+                ) as captured:
                     await contexts.process_memory("budget", 1)
-                assert captured.value.operation == "atomic-memory-input-budget"
-                diagnostic = diagnostics_of(captured.value)
-                assert diagnostic is not None
-                assert diagnostic.effective_budget == budget
-                assert diagnostic.estimated_input_tokens == (24 if related_count else 8)
+                if isinstance(captured.value, InferenceBudgetExceededError):
+                    assert captured.value.decision.operation == "atomic_memory.reconcile"
+                    assert captured.value.decision.limit_value == budget
+                    assert captured.value.decision.estimated_value == (24 if related_count else 8)
+                else:
+                    assert captured.value.operation == "atomic-memory-input-budget"
+                    diagnostic = diagnostics_of(captured.value)
+                    assert diagnostic is not None
+                    assert diagnostic.effective_budget == budget
+                    assert diagnostic.estimated_input_tokens == (24 if related_count else 8)
                 assert (await context.triggers.cursor()).sequence == related_count
                 assert (await memory.list(limit=100)).items == before
 
