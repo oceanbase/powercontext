@@ -379,6 +379,175 @@ $env:POWERCONTEXT_ZCODE_CAPTURE_PROMPTS = 'false'
 环境变量会覆盖插件安装时保存的采集设置。改变已运行进程之外的环境变量不会影响当前会话；
 重启 ZCode 后才会生效。采集关闭不影响 PreparedContext 召回或显式 MCP 工具。
 
+## 把提示词时上下文交给 gateway
+
+ZCode 的模型请求经过 PowerContext gateway 时，gateway 为每一轮准备并注入上下文；设置 `PC_GATEWAY_SEDIMENT=on`
+后，gateway 也会采集这一轮。Core 检查 gateway 转发的每个请求，在任何模式下都拒绝不是 gateway 注入的
+prepared-context 块。插件的提示词 Hook 会在提示词之前加入这样的块，因此 Core 以 HTTP 422 拒绝请求，
+gateway 返回 HTTP 503 `gate_paused`，ZCode 重试同一请求（默认在几分钟内重试十次），模型收不到这一轮。
+ZCode 直接调用模型时，请保留插件的默认设置。
+
+在较长的工具循环中，ZCode 会把自己的提醒作为用户消息放在工具结果之后，
+例如模型连续三次发起相同调用，或连续十条 assistant 消息未使用 TodoWrite 时。
+gateway 选择这一轮的提示词时会跳过这些提醒：它为提示词准备上下文并注入到提示词中，
+在工具循环的每一步重放，并把提示词采集为这一轮的文本。它把提醒原样转发给模型。
+
+以下步骤已用开源 ZCode CLI 0.16.9、真实的 Server 和 gateway，以及 fixture 模型实际运行过。
+
+### 让 Core 运行在非 enforcing 模式
+
+ZCode 在 Responses 路由上不发送 `store: false`，它的 provider 配置也无法加上这个字段。
+enforcing 模式的 Core 要求 Responses 请求带 `store: false`，因此会以 `provider_state_unsupported` 暂缓每个
+ZCode 请求，gateway 返回 HTTP 400，这一轮在模型收到请求前失败。请把 Core 的推理保护设为 `disabled`、
+`shadow` 或 `advisory` 模式，并为 `PC_GATEWAY_UPSTREAM_PROFILE` 指定的 profile（未设置时为 `default`）
+配置目标。任何模式下，Core 都会暂缓目标未知的检查。例如：
+
+```bash
+export POWERCONTEXT_SERVER_INFERENCE_PROTECTION='{
+  "mode": "advisory",
+  "targets": {
+    "default": {
+      "endpoint": "https://models.example/v1/responses",
+      "model": "approved-model",
+      "protocol": "openai-responses"
+    }
+  }
+}'
+```
+
+这几种模式都不会因隐私规则阻止交付。Core 报告不完整的隐私覆盖；只有 gateway 启动时发现 Core 不是 enforcing，
+它才接受这种覆盖，因此修改模式后请重启 gateway。选择模式前请阅读
+[上下文复用与最终准入](../operate/context-protection.md)和[推理隐私保护](../operate/inference-protection.md)。
+
+### 让 ZCode 指向 gateway
+
+ZCode 0.16.9 把 provider 保存在 `~/.zcode/v2/provider_config.json` 中。它只会把
+`~/.zcode/cli/config.json` 中的 provider 和默认模型复制到该文件一次，所以请在该文件中添加 gateway。
+添加一条 provider 规则，使用 `openai-responses` API 指向 gateway 的 `/gateway/v1`，
+把 gateway key 用作它的 API key，并把插件的 Scope 作为静态请求头；同时添加一条模型规则，并选择该模型：
+
+```json
+{
+  "schemaVersion": 1,
+  "config": {
+    "providerConfigRules": {
+      "providerRules": [
+        {
+          "providerId": "powercontext-gateway",
+          "config": {
+            "group": "standard-personal",
+            "access": { "type": "api-key", "apiKey": "<PC_GATEWAY_API_KEY 的值>" },
+            "api": {
+              "type": "openai-responses",
+              "baseUrl": "http://127.0.0.1:8787/gateway/v1",
+              "headers": { "X-PowerContext-Scope-ID": "<插件的 Scope ID>" }
+            },
+            "personalModelIds": ["approved-model"],
+            "modelOrder": ["approved-model"]
+          }
+        }
+      ]
+    },
+    "modelConfigRules": {
+      "providerModelRules": [
+        {
+          "providerId": "powercontext-gateway",
+          "modelId": "approved-model",
+          "config": { "properties": { "contextWindow": 128000 } }
+        }
+      ],
+      "manualProviderModelRules": []
+    },
+    "defaultModelSelection": {
+      "providerId": "powercontext-gateway",
+      "modelId": "approved-model",
+      "options": { "reasoningLevel": "high" }
+    }
+  }
+}
+```
+
+请保留该文件中已有的其他规则。ZCode 把 API key 保存在这个文件中，请妥善保管。
+请使用 Responses API。ZCode 总是发送流式请求。在 Responses 路由上，gateway 以非流式方式调用模型，
+再把检查过的响应以流的形式回放给 ZCode，因此这一轮能完成并被采集。
+
+gateway 接受的模型请求最多为 1 MiB，按注入上下文并加入成本指引之后的大小计算，配置无法提高这个上限；
+见 [Gateway 字节容量](../operate/deploy-server.md#gateway-字节容量)。到达时就超过上限的请求以 HTTP 413 失败，
+因注入或成本指引而超过上限的请求在调用模型之前以 HTTP 403 `request_payload_too_large` 失败。
+ZCode 对这两种失败的反应没有观察过。
+ZCode 在每个请求中发送完整历史，因此长会话会达到这个上限，除非 ZCode 先压缩会话。
+ZCode 0.16.9 在会话的 token 数达到 `contextWindow` 减 34000（21000 的输出预留和 13000 的缓冲）时压缩，
+token 数按模型报告的输入 token 加上对较新消息的估算计算。
+示例中的 `128000` 让 ZCode 在约 94000 个 token 时压缩；按每个 token 约四个 UTF-8 字节、另加 JSON 开销计算，
+远低于 1 MiB。在录制的运行中，带有 ZCode 79 个工具的第一个请求约 195 KB，每个工具步骤增加约 1.3 KB，
+gateway 增加约 1.2 KB。这个值是根据 ZCode 的源码和这些大小推算的；没有实际运行接近上限的会话。
+
+`X-PowerContext-Scope-ID` 选择 gateway 准备、检查和采集所用的 Scope。
+ZCode 在每个会话的每个请求中都发送 provider 的 `headers`，
+因此该请求头的 Scope 在每个 workspace 中都生效，而不是插件为每个 workspace 解析的 Scope。
+请把它设为 `node ~/.zcode/cli/plugins/powercontext/scripts/scope.mjs resolve --cwd /absolute/project`
+输出的 `scope_id`，并在启动 ZCode 的环境中把 `POWERCONTEXT_ZCODE_SCOPE_ID` 设为同一个 Scope，
+让 Hook 和 Scope 脚本也选择它。setup 不保存这个变量。也可以为每个项目添加一个 provider。
+未发送该请求头时，gateway 使用 `PC_GATEWAY_DEFAULT_SCOPE`（未设置时为 `gateway:default`）。
+
+在组合部署（`PC_GATEWAY_CORE_UDS`）中，gateway 用客户端自己的凭据把 Core API 和 MCP 请求转发给 Core，
+因此插件的 Server URL（Hook 和 MCP 工具共用）可以是 gateway 的地址。
+
+### 关闭插件的提示词时召回和采集
+
+在启动 ZCode 的环境中关闭插件的提示词时召回和提示词采集：
+
+```bash
+export POWERCONTEXT_ZCODE_PROMPT_RECALL=false
+export POWERCONTEXT_ZCODE_CAPTURE_PROMPTS=false
+```
+
+```powershell
+$env:POWERCONTEXT_ZCODE_PROMPT_RECALL = 'false'
+$env:POWERCONTEXT_ZCODE_CAPTURE_PROMPTS = 'false'
+```
+
+这些变量已在 CLI 上验证；ZCode 桌面应用是否把它们传给 Hook 没有验证。
+
+关闭召回后，提示词 Hook 不发送准备请求，也不加入任何上下文，包括当前请求的绑定元数据；
+`SessionStart` 不发送任何请求：它不解析 Scope，恢复和压缩时也不恢复上下文。
+没有绑定元数据时，Skill 在执行主动操作前按[主动操作的 Scope 与工作流](#主动操作的-scope-与工作流)
+用 Scope 脚本解析 Scope。采集开启时，Hook 仍会采集提示词；两项都关闭时，它不再为提示词发送任何请求。
+MCP 工具、Scope 绑定、诊断和可选的 Stop 处理沿用各自的设置。setup 不保存
+`POWERCONTEXT_ZCODE_PROMPT_RECALL`；它接受与采集开关相同的 false 取值。
+
+修改后请重启 ZCode。已有会话可以在 gateway 后继续：ZCode 不会在之后的轮次中再次发送某一轮的 Hook 上下文，
+因此恢复的会话不带有不是 gateway 准备的块。
+
+### 配置 gateway
+
+- 把 `PC_GATEWAY_UPSTREAM_URL_RESPONSES` 和 `PC_GATEWAY_UPSTREAM_API_KEY_RESPONSES` 设为 target 的 `endpoint` 和
+  provider key。未设置 URL 时，Responses 路由返回 HTTP 501 `responses_route_disabled`。
+- 把 `PC_GATEWAY_API_KEY` 设为 ZCode provider 中的 key。监听非回环地址时必须设置。
+- 设置 `PC_GATEWAY_SEDIMENT=on`；Core 启用鉴权时还要设置 `PC_GATEWAY_CORE_TOKEN`。
+- 未发送 `X-PowerContext-Scope-ID` 时，gateway 在 `PC_GATEWAY_DEFAULT_SCOPE` 指定的同一个 Scope 中准备和采集所有会话。
+  这种情况下，请把它设为插件的 Scope。
+- 请以组合部署（`PC_GATEWAY_CORE_UDS`）运行 gateway，它默认会向 ZCode 的请求注入上下文。
+  ZCode 把会话 ID 作为 `x-session-id` 发送，gateway 不读取这个请求头；而 provider 的 `headers` 对每个会话都相同，
+  因此 gateway 改为从请求本身推导会话。ZCode 在每个请求中发送完整历史，不使用 `previous_response_id` 或
+  `conversation`，开头是它的 system 消息，第一条用户消息是它的 Skill 列表。
+  因此，gateway 每条用户消息只准备一次，并把该上下文重放给工具循环步骤。
+- 推导出的 ID 仅在当前 gateway 进程内用于重放准备结果。
+  system 消息和 Skill 列表相同的会话共用同一个 ID。
+  gateway 仍会采集每个完成的回合。没有会话头时，采集没有在 gateway 重启后保持不变的会话标识，也无法使用前缀提取。
+- ZCode 把压缩请求发往同一个 provider。该请求带有会话历史，并把 ZCode 的摘要指令作为最后一条用户消息，
+  而插件的 Hook 无法把它标记为内部请求。因此，gateway 把它当作一轮：为该指令准备上下文；
+  设置 `PC_GATEWAY_SEDIMENT=on` 后，还会把该指令和摘要作为一轮采集。压缩之后，
+  ZCode 在下一条提示词之前以用户消息发送摘要，gateway 照常为该提示词准备上下文。
+- ZCode 在 `x-zcode-session-type` 中把每个模型请求标记为 `main`、`subagent` 或 `other`；
+  启用标题生成的客户端还会向会话的模型发送单独的标题请求。gateway 不读取这个请求头。
+  subagent 请求或标题请求的开头与主会话不同，因此 gateway 为它推导出单独的会话，并把它当作一轮准备和采集。
+  这一点来自阅读 ZCode 和 gateway 的源码，没有测试；上面的无头 CLI 运行没有发送这两种请求。
+- 独立部署的 gateway（`PC_GATEWAY_CORE_BASE`）只有在 `PC_GATEWAY_INJECTION=on` 时才注入。
+  不要在 provider 的 `headers` 中放固定的 `X-PowerContext-Conversation-ID`，否则 gateway 会把所有会话当作同一个会话。
+
+参见[网关上下文注入](../operate/deploy-server.md#网关上下文注入)和[网关认证边界](../operate/deploy-server.md#网关认证边界)。
+
 ## 连接启用鉴权的本地 Server
 
 Server 启用访问控制后，安装插件时提供完整 Authorization header，让 MCP 配置引用运行时变量：
@@ -401,6 +570,7 @@ Server 的鉴权与访问控制设置见[部署认证](../operate/deploy-server.
 | `POWERCONTEXT_ZCODE_SCOPE_ID` | 未设置 | 在 session/workspace binding 与默认 Scope 前显式选择已有 Scope。 |
 | `POWERCONTEXT_ZCODE_REMOTE_WORKSPACE` | `false` | 远程工作区禁用本地路径 binding；需同时设置 Scope ID。 |
 | `POWERCONTEXT_ZCODE_CAPTURE_PROMPTS` | 安装时设置，默认 `true` | 在运行时覆盖提示词采集开关。 |
+| `POWERCONTEXT_ZCODE_PROMPT_RECALL` | `true` | gateway 注入上下文时设为 `false`，停止提示词时召回；参见[把提示词时上下文交给 gateway](#把提示词时上下文交给-gateway)。 |
 | `POWERCONTEXT_ZCODE_BOUNDARY_FLUSH` | 保存值，默认 `false` | 开启有预算的 Stop Memory 处理；setup 保存显式环境值。 |
 | `POWERCONTEXT_ZCODE_AUTHORIZATION` | 未设置 | Hook 与 MCP 使用的完整 `Bearer <token>` header。 |
 

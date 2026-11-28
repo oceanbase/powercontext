@@ -22,6 +22,7 @@ import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { after, before, beforeEach, test } from 'node:test'
+import { queryObservations } from '../shared/observations.mjs'
 
 const pluginRoot = dirname(dirname(fileURLToPath(import.meta.url)))
 const hookPath = join(pluginRoot, 'hooks', 'user_prompt_submit.mjs')
@@ -195,6 +196,48 @@ test('capture can be disabled without skipping recall', async () => {
   assert.deepEqual(requests.map(request => request.path), [
     '/v1/scope-bindings/resolve', '/v1/context/prepare',
   ])
+})
+
+test('prompt recall can be turned off while capture continues', async () => {
+  const payload = { hookEventName: 'UserPromptSubmit', sessionId: 'session-recall-off', turnId: 'turn-1',
+    cwd: pluginRoot, prompt: 'Recall the deployment.' }
+  for (const value of ['false', 'OFF', '0', 'no']) {
+    requests.length = 0
+    const result = await invoke(payload, { POWERCONTEXT_ZCODE_PROMPT_RECALL: value })
+    assert.equal(result.code, 0)
+    assert.equal(result.stderr, '')
+    // No prepared context and no binding note: the PowerContext gateway owns prompt-time context.
+    assert.equal(JSON.parse(result.stdout).hookSpecificOutput.additionalContext, '')
+    assert.deepEqual(requests.map(request => request.path), ['/v1/scope-bindings/resolve', '/v1/sources/content'])
+    assert.equal(requests[1].body.content, payload.prompt)
+  }
+  const { observation } = await queryObservations(payload, { serverUrl }, dataDir)
+  assert.equal(observation.stages.prepare.reason, 'prompt_recall_disabled')
+  assert.equal(observation.stages.capture.state, 'accepted')
+  assert.equal(observation.stages.context_output.reason, 'prompt_recall_disabled')
+  for (const value of ['true', 'on', 'unexpected']) {
+    requests.length = 0
+    const result = await invoke({ ...payload, sessionId: 'session-recall-on' }, { POWERCONTEXT_ZCODE_PROMPT_RECALL: value })
+    assert.match(JSON.parse(result.stdout).hookSpecificOutput.additionalContext, /current-request binding[\s\S]*blue deployment/)
+    assert.ok(requests.some(request => request.path === '/v1/context/prepare'))
+  }
+})
+
+test('with prompt recall and capture off the hook sends no request', async () => {
+  const payload = { hookEventName: 'UserPromptSubmit', sessionId: 'session-both-off', turnId: 'turn-1',
+    cwd: pluginRoot, prompt: 'Recall the deployment.' }
+  const result = await invoke(payload, {
+    POWERCONTEXT_ZCODE_PROMPT_RECALL: 'false', POWERCONTEXT_ZCODE_CAPTURE_PROMPTS: 'false',
+  })
+  assert.equal(result.code, 0)
+  assert.equal(result.stderr, '')
+  assert.equal(JSON.parse(result.stdout).hookSpecificOutput.additionalContext, '')
+  assert.deepEqual(requests, [])
+  const { observation } = await queryObservations(payload, { serverUrl }, dataDir)
+  assert.deepEqual(Object.fromEntries(Object.entries(observation.stages).map(([name, stage]) => [name, stage.reason])), {
+    scope: 'not_requested', prepare: 'prompt_recall_disabled', capture: 'capture_disabled',
+    flush: 'awaiting_stop', context_output: 'prompt_recall_disabled',
+  })
 })
 
 test('unavailable Server yields a valid empty result and does not block the turn', async () => {

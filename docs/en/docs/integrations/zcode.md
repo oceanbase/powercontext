@@ -434,6 +434,186 @@ The environment variable overrides the value saved by setup. Changing an environ
 process does not change the current session; restart ZCode. Disabling capture does not disable PreparedContext recall
 or explicit MCP tools.
 
+## Leave prompt-time context to the gateway
+
+When ZCode sends its model requests through the PowerContext gateway, the gateway prepares and injects context for each
+turn and, with `PC_GATEWAY_SEDIMENT=on`, captures the turn. Core checks every request the gateway forwards and rejects
+a prepared-context block that the gateway did not inject, in every mode. The plugin's prompt Hook adds such a block
+before the prompt, so Core rejects the request with HTTP 422, the gateway returns HTTP 503 `gate_paused`, ZCode retries
+the same request (ten times over several minutes by default), and the model never receives the turn. Keep the plugin
+defaults where ZCode calls its model directly.
+
+In a long tool loop, ZCode adds its own reminders as user messages after the tool results, for example when the model
+repeats the same call three times or has gone ten assistant messages without TodoWrite. The gateway skips these
+reminders when it selects the turn's prompt. It prepares context for the prompt, injects it there and replays it in
+every step of the loop, and captures the prompt as the turn's text. It forwards the reminders to the model unchanged.
+
+These steps were exercised with the open-source ZCode CLI 0.16.9, a real Server and gateway, and a fixture model.
+
+### Run Core in a non-enforcing mode
+
+ZCode does not send `store: false` on the Responses route, and its provider configuration cannot add it. An enforcing
+Core requires `store: false` on a Responses request, so it withholds each ZCode request with
+`provider_state_unsupported`, the gateway returns HTTP 400, and the turn fails before the model receives it. Run Core
+with inference protection in `disabled`, `shadow`, or `advisory` mode, with a target for the profile that
+`PC_GATEWAY_UPSTREAM_PROFILE` names (`default` unless set). Core withholds a check for an unknown target in every mode.
+For example:
+
+```bash
+export POWERCONTEXT_SERVER_INFERENCE_PROTECTION='{
+  "mode": "advisory",
+  "targets": {
+    "default": {
+      "endpoint": "https://models.example/v1/responses",
+      "model": "approved-model",
+      "protocol": "openai-responses"
+    }
+  }
+}'
+```
+
+None of these modes stops delivery for a privacy rule. Core reports incomplete privacy coverage, which the gateway
+accepts only when it discovered a non-enforcing Core at startup, so restart the gateway after changing the mode. See
+[Context reuse and final admission](../operate/context-protection.md) and
+[Inference privacy protection](../operate/inference-protection.md) before choosing a mode.
+
+### Point ZCode at the gateway
+
+ZCode 0.16.9 keeps its providers in `~/.zcode/v2/provider_config.json`. It copies the providers and default model of
+`~/.zcode/cli/config.json` into that file only once, so add the gateway there. Add a provider rule with the
+`openai-responses` API for the gateway's `/gateway/v1`, the gateway key as its API key, and the plugin's Scope as a
+static header, together with a model rule, and select the model:
+
+```json
+{
+  "schemaVersion": 1,
+  "config": {
+    "providerConfigRules": {
+      "providerRules": [
+        {
+          "providerId": "powercontext-gateway",
+          "config": {
+            "group": "standard-personal",
+            "access": { "type": "api-key", "apiKey": "<PC_GATEWAY_API_KEY value>" },
+            "api": {
+              "type": "openai-responses",
+              "baseUrl": "http://127.0.0.1:8787/gateway/v1",
+              "headers": { "X-PowerContext-Scope-ID": "<the plugin's Scope ID>" }
+            },
+            "personalModelIds": ["approved-model"],
+            "modelOrder": ["approved-model"]
+          }
+        }
+      ]
+    },
+    "modelConfigRules": {
+      "providerModelRules": [
+        {
+          "providerId": "powercontext-gateway",
+          "modelId": "approved-model",
+          "config": { "properties": { "contextWindow": 128000 } }
+        }
+      ],
+      "manualProviderModelRules": []
+    },
+    "defaultModelSelection": {
+      "providerId": "powercontext-gateway",
+      "modelId": "approved-model",
+      "options": { "reasoningLevel": "high" }
+    }
+  }
+}
+```
+
+Keep other rules already in the file. ZCode stores the API key in this file, so keep it private. Use the Responses
+API. ZCode always streams. On the Responses route, the gateway calls the model without streaming and replays the
+checked response to ZCode as a stream, so the turn completes and is captured.
+
+The gateway accepts a model request of at most 1 MiB, measured after it injects context and adds its cost guidance,
+and configuration cannot raise this ceiling; see
+[Gateway byte capacity](../operate/deploy-server.md#gateway-byte-capacity). A request that arrives larger fails
+with HTTP 413, and one that grows past it through injection or cost guidance fails with HTTP 403
+`request_payload_too_large`, before the model is called. How ZCode reacts to either was not observed. ZCode sends the
+whole history on every request, so a long session reaches the ceiling unless ZCode compacts it first.
+ZCode 0.16.9 compacts when a session's tokens reach `contextWindow` minus 34000 (an output reserve of 21000 and a
+buffer of 13000), counted from the model's reported input tokens plus an estimate for newer messages. With the
+example's `128000`, ZCode compacts at about 94000 tokens, which stays well below 1 MiB at about four UTF-8 bytes per
+token plus JSON overhead. In the recorded runs, the first request with ZCode's 79 tools was about 195 KB, each tool
+step added about 1.3 KB, and the gateway added about 1.2 KB. The value is derived from ZCode's source and these
+sizes; a session near the ceiling was not run.
+
+`X-PowerContext-Scope-ID` selects the Scope in which the gateway prepares, checks, and captures. ZCode sends a
+provider's `headers` with every request of every session, so the header's Scope applies in every workspace, not the
+Scope the plugin resolves for each workspace. Set it to the `scope_id` that
+`node ~/.zcode/cli/plugins/powercontext/scripts/scope.mjs resolve --cwd /absolute/project` prints, and set
+`POWERCONTEXT_ZCODE_SCOPE_ID` to the same Scope in the environment that starts ZCode, so the Hook and the Scope script
+select it too. Setup does not save this variable. Alternatively, add one provider per project. Without the header, the
+gateway uses `PC_GATEWAY_DEFAULT_SCOPE` (`gateway:default` when that is unset).
+
+In a combined deployment (`PC_GATEWAY_CORE_UDS`), the gateway forwards Core API and MCP requests to Core with the
+client's own credentials, so the plugin's Server URL, which its Hook and MCP tools share, can be the gateway's address.
+
+### Turn the plugin's prompt recall and capture off
+
+Turn the plugin's prompt-time recall and prompt capture off in the environment that starts ZCode:
+
+```bash
+export POWERCONTEXT_ZCODE_PROMPT_RECALL=false
+export POWERCONTEXT_ZCODE_CAPTURE_PROMPTS=false
+```
+
+```powershell
+$env:POWERCONTEXT_ZCODE_PROMPT_RECALL = 'false'
+$env:POWERCONTEXT_ZCODE_CAPTURE_PROMPTS = 'false'
+```
+
+These variables were verified with the CLI; whether the ZCode desktop app passes them to its Hooks was not verified.
+
+With recall off, the prompt Hook sends no preparation request and adds no context, including the current-request
+binding metadata, and `SessionStart` sends no request: it resolves no Scope and restores no context on resume or
+compaction. Without the binding metadata, the Skill resolves the Scope with the Scope script before explicit
+operations as described in [Scope for explicit operations and workflows](#scope-for-explicit-operations-and-workflows).
+The Hook still captures prompts while capture is on; with both off, it sends no request for a prompt. MCP tools, Scope
+bindings, diagnostics, and the optional Stop processing keep their own settings. Setup does not save
+`POWERCONTEXT_ZCODE_PROMPT_RECALL`; it accepts the same false values as capture.
+
+Restart ZCode after the change. An existing session can continue behind the gateway: ZCode does not send a turn's Hook
+context again with later turns, so a resumed session carries no block that the gateway did not prepare.
+
+### Configure the gateway
+
+- Set `PC_GATEWAY_UPSTREAM_URL_RESPONSES` and `PC_GATEWAY_UPSTREAM_API_KEY_RESPONSES` to the target's `endpoint` and
+  the provider key. Without the URL, the Responses route returns HTTP 501 `responses_route_disabled`.
+- Set `PC_GATEWAY_API_KEY` to the key in ZCode's provider. A non-loopback listener requires it.
+- Set `PC_GATEWAY_SEDIMENT=on`, and `PC_GATEWAY_CORE_TOKEN` when Core enforces authentication.
+- Without `X-PowerContext-Scope-ID`, the gateway prepares and captures every conversation in the one Scope that
+  `PC_GATEWAY_DEFAULT_SCOPE` names. Set it to the plugin's Scope in that case.
+- Run the gateway in a combined deployment (`PC_GATEWAY_CORE_UDS`), which injects ZCode's requests by default. ZCode
+  sends its session ID as `x-session-id`, which the gateway does not read, and a provider's `headers` are the same for
+  every session, so the gateway infers the conversation from the request instead. ZCode sends the whole history on
+  every request, without `previous_response_id` or `conversation`, opening with its system messages and its Skill
+  listing as the first user message. The gateway therefore prepares once per user message and replays that context to
+  the tool-loop steps.
+- The inferred ID is local to the gateway process and serves only this replay. Sessions that open with the same system
+  messages and Skill listing share one. The gateway still captures each completed turn. Without a conversation header,
+  capture has no conversation identity that survives a gateway restart, and prefix extraction is not available.
+- ZCode sends its compaction request to the same provider. The request carries the session's history and ZCode's
+  summary instruction as the last user message, and the plugin's Hooks cannot mark it as internal. The gateway
+  therefore treats it as a turn: it prepares context for the instruction and, with `PC_GATEWAY_SEDIMENT=on`, captures
+  the instruction and the summary as a turn. After compaction, ZCode sends the summary as a user message before the
+  next prompt, and the gateway prepares for that prompt as usual.
+- ZCode labels each model request `main`, `subagent`, or `other` in `x-zcode-session-type`, and a client that enables
+  title generation sends a separate title request to the session's model. The gateway does not read that header. A
+  subagent or title request opens differently from the main session, so the gateway infers a separate conversation for
+  it and prepares and captures it as a turn. This follows from reading ZCode's and the gateway's source and was not
+  tested; the headless CLI runs above sent neither request.
+- A standalone gateway (`PC_GATEWAY_CORE_BASE`) injects only with `PC_GATEWAY_INJECTION=on`. Do not put a fixed
+  `X-PowerContext-Conversation-ID` in the provider's `headers`, because the gateway would then treat every session as
+  one conversation.
+
+See [Gateway context injection](../operate/deploy-server.md#gateway-context-injection) and
+[Gateway authentication boundaries](../operate/deploy-server.md#gateway-authentication-boundaries).
+
 ## Connect to an authenticated local Server
 
 When the Server enforces access control, provide the full Authorization header during plugin setup so MCP references
@@ -457,6 +637,7 @@ the Server URL. Rerun setup after enabling authentication to keep the Hook and M
 | `POWERCONTEXT_ZCODE_SCOPE_ID` | unset | Select an existing Scope before session/workspace binding and Server default. |
 | `POWERCONTEXT_ZCODE_REMOTE_WORKSPACE` | `false` | Disable local path binding for remote workspaces; requires a Scope ID. |
 | `POWERCONTEXT_ZCODE_CAPTURE_PROMPTS` | setup value, `true` by default | Override prompt capture at runtime. |
+| `POWERCONTEXT_ZCODE_PROMPT_RECALL` | `true` | Set `false` to stop prompt-time recall when the gateway injects context; see [Leave prompt-time context to the gateway](#leave-prompt-time-context-to-the-gateway). |
 | `POWERCONTEXT_ZCODE_BOUNDARY_FLUSH` | saved value, `false` by default | Opt into bounded Stop Memory processing; setup saves an explicit environment value. |
 | `POWERCONTEXT_ZCODE_AUTHORIZATION` | unset | Complete `Bearer <token>` header for Hook and MCP. |
 

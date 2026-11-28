@@ -174,3 +174,110 @@ jobs:
           path: ${{ runner.temp }}/zcode-ci-evidence/
           if-no-files-found: warn
           retention-days: 14
+
+  gateway-chain:
+    needs: changes
+    if: ${{ !cancelled() && ((inputs.suites == '' && needs.changes.result != 'success') || fromJSON(inputs.suites || needs.changes.outputs.suites || '{}').zcode) }}
+    # The gateway reaches Core over a Unix socket, so the ZCode gateway chain runs on Linux.
+    runs-on: powercontext-ci-light
+    # A cold cache rebuilds the gateway.
+    timeout-minutes: 30
+    steps:
+      - name: Check out PowerContext
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: ./.github/actions/setup-python-env
+        with:
+          python-version: '3.12'
+
+      - name: Check out the supported ZCode host
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: zai-org/ZCode
+          ref: ${{ env.ZCODE_REF }}
+          path: .powercontext/zcode-ci-source
+          persist-credentials: false
+
+      - name: Set up Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24.21.0'
+          package-manager-cache: ${{ !(runner.os == 'Linux' && runner.environment == 'self-hosted') }}
+
+      - name: Configure dependency downloads
+        run: node scripts/ci_node_mirror.mjs configure
+
+      - name: Install the host package manager
+        run: |
+          installer=(npm)
+          if [ -n "${PC_CI_NODE_INSTALLER:-}" ]; then
+            installer=(node "$PC_CI_NODE_INSTALLER" npm)
+          fi
+          "${installer[@]}" install --global pnpm@10.33.2
+
+      - name: Cache frozen host dependencies
+        uses: ./.github/actions/cache-pnpm
+        with:
+          working-directory: .powercontext/zcode-ci-source
+          cache-dependency-glob: .powercontext/zcode-ci-source/pnpm-lock.yaml
+
+      - name: Install frozen host build dependencies
+        run: |
+          installer=()
+          if [ -n "${PC_CI_NODE_INSTALLER:-}" ]; then
+            installer=(node "$PC_CI_NODE_INSTALLER")
+          fi
+          "${installer[@]}" pnpm --dir .powercontext/zcode-ci-source \
+            --filter zcode --filter zcode-cli --filter '@zcode/cli...' \
+            install --frozen-lockfile --ignore-scripts
+
+      - name: Build the actual CLI
+        run: |
+          test "$(git -C .powercontext/zcode-ci-source rev-parse HEAD)" = "$ZCODE_REF"
+          pnpm --dir .powercontext/zcode-ci-source exec turbo --skip-infer --cwd apps/zcode-cli run build --filter=@zcode/cli
+          node "$ZCODE_CLI_BIN" --version
+
+      # The gateway e2e builds with the `cargo` on PATH. Select the pinned toolchain as rustup's default
+      # rather than through RUSTUP_TOOLCHAIN, which the cargo cache identity hashes.
+      - name: Install pinned Rust toolchain
+        run: |
+          rustup toolchain install 1.95.0 --profile minimal
+          rustup default 1.95.0
+
+      - name: Cache Gateway dependencies and compilation
+        id: cargo-cache
+        uses: ./.github/actions/setup-rust-cache
+        with:
+          workspaces: gateway -> target
+          shared-key: gateway
+          cache-bin: false
+          cache-on-failure: true
+
+      - name: Run ZCode against a real Server behind the gateway
+        env:
+          POWERCONTEXT_TEST_ZCODE_GATEWAY: "1"
+        run: >-
+          uv run --locked --no-sync pytest tests/e2e/test_zcode_gateway_chain.py -q -p no:cacheprovider
+          --basetemp "$RUNNER_TEMP/zcode-gateway"
+
+      - name: Upload gateway chain evidence
+        if: failure()
+        uses: ./.github/actions/upload-ci-diagnostics
+        with:
+          name: zcode-gateway-chain-${{ github.run_id }}-${{ github.run_attempt }}
+          # Each case's ZCode, Core and model recordings and its gateway log; credentials are redacted.
+          path: |
+            ${{ runner.temp }}/zcode-gateway/**/recordings.json
+            ${{ runner.temp }}/zcode-gateway/**/gateway.log
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Save Gateway dependencies and compilation
+        if: (success() || failure()) && steps.cargo-cache.outputs.cache-backend == 's3' && steps.cargo-cache.outputs.cache-hit != 'true'
+        uses: ./.github/actions/cache-save
+        with:
+          path: ${{ steps.cargo-cache.outputs.cache-path }}
+          key: ${{ steps.cargo-cache.outputs.cache-key }}
