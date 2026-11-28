@@ -4,7 +4,7 @@ This plugin connects the [open-source ZCode CLI](https://github.com/zai-org/ZCod
 
 Install and diagnose it with `powercontext setup zcode --source /path/to/powercontext` and `powercontext doctor zcode`. The installer keeps the Hook and MCP on one Server URL, preserves other ZCode configuration, and supports local checkouts or a GitHub source with `--ref`. Start the Server before setup and restart ZCode afterwards.
 
-See the [English guide](../../docs/en/docs/integrations/zcode.md) or [中文指南](../../docs/zh/docs/integrations/zcode.md) for Scope setup, `.env`, authentication, capture controls, remote transport, validation, and uninstall instructions.
+See the [English guide](../../docs/en/docs/integrations/zcode.md) or [中文指南](../../docs/zh/docs/integrations/zcode.md) for Scope setup, `.env`, authentication, capture controls, remote transport, running behind the PowerContext gateway, validation, and uninstall instructions.
 
 The official Windows desktop version 3.14.3 has been verified with live prompt capture, scheduled Memory generation, context injection and fresh-session recall, MCP Memory citation conflicts, nullable Handoff carriers, exact-revision Receipt/Outcome association, candidate version authorization, accurate Scope binding, readonly runtime diagnostics, and a fresh user-owned directory installation. Desktop checks used local Servers. The open-source CLI also passed real-model MCP and prompt capture against a remote HTTPS Server through SSH forwarding. CLI 0.16.9 has separately passed two independent controlled-model and two independent live-model core acceptance runs. Direct HTTPS ingress and other official versions remain unverified.
 
@@ -13,6 +13,7 @@ The CLI suite distinguishes controlled inference from live models and records in
 partial runs do not establish complete acceptance.
 The [ZCode acceptance workflow](../../.github/workflows/zcode-acceptance.yml) builds a pinned open-source CLI on Windows,
 runs all plugin Node tests and two controlled-model core acceptances for PRs, master updates and weekly checks.
+A Linux job builds the same CLI and runs it behind a real gateway and Server with a fixture model.
 The [Skill behavior evaluation](../../evaluation/zcode_guidance/README.md) separately runs live ZCode models with
 controlled MCP replies and a no-Skill baseline, covering ordinary coding, empty searches, denied saves and stale
 candidate approval. CI verifies its pin and grader offline; live qualification requires a retained model run.
