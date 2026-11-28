@@ -4492,3 +4492,31 @@ cargo test --locked --manifest-path desktop/src-tauri/Cargo.toml --test session
 
 The qualification covers the Desktop protocol with a packaged SQLite Server. Installed WebView, platform
 keyring and native database upgrades require separate validation.
+
+## Server 84e35eb7 1.6 and keyed Memory protocol qualification
+
+`sqlite-memory-1-6-84e35eb7-v1` covers all thirteen bundled Desktop operations against Server source
+`84e35eb73ca77564d1b03abf63c824a9986919b3`. The OpenAPI 1.6.0 contract includes Content Source limit discovery and keyed
+`remember_memory` creation.
+
+- Normalized OpenAPI SHA-256: `676885fe400bc546197bee980223891bd639dba5485374c742b381148ada8dfa`.
+- Server wheel: `powercontext-1.5.3.dev532+g84e35eb73-py3-none-any.whl`.
+- Server wheel SHA-256: `f613e9c0a1bfee68c70ed06ffa17686291d83ee6069d238002bf83c47e3c6135`.
+- Native debug probe SHA-256: `3b65bb5a5ba37a8e211d65266a9d858c81b936c8eafd25f02dbe22dd0cd9eee5`.
+- All 842 packaged runtime files match the Git source byte for byte.
+
+On 2026-11-28, a Linux x86_64 container with Python 3.12.3, SQLite 3.45.1 and Rust 1.95.0 ran the native probe
+against the packaged Server. The probe selected the bundled product record and matched the contract digest
+in all four modes: anonymous loopback, static Bearer, HTTPS with a custom CA and base path, and enforced
+fixture Provider authentication. All nine native session tests passed.
+
+```sh
+cargo build --locked --manifest-path desktop/src-tauri/Cargo.toml --example server_probe
+python desktop/tests/real_server.py \
+  --product-qualification sqlite-memory-1-6-84e35eb7-v1 \
+  --wheel /path/to/powercontext-1.5.3.dev532+g84e35eb73-py3-none-any.whl
+cargo test --locked --manifest-path desktop/src-tauri/Cargo.toml --test session
+```
+
+The qualification covers the Desktop protocol with a packaged SQLite Server. Installed WebView, platform
+keyring and native database upgrades require separate validation.
