@@ -169,11 +169,12 @@ Core（包括默认的 `disabled` 模式）下，gateway 会原样放行流式�
 
 ### 关闭 package 的提示词召回和采集
 
-启动 Pi 前，关闭 package 的提示词时召回和提示词采集：
+启动 Pi 前，关闭 package 的提示词时召回和提示词采集，并指定 gateway provider：
 
 ```bash
 export POWERCONTEXT_PI_PROMPT_RECALL=false
 export POWERCONTEXT_PI_CAPTURE_PROMPTS=false
+export POWERCONTEXT_PI_GATEWAY_PROVIDER=powercontext-gateway
 pi
 ```
 
@@ -193,6 +194,14 @@ pi
 因此 gateway 不会把摘要算作一轮：不为它准备或注入上下文，不添加成本指导，也不采集它。Core 仍会检查这个请求。
 和会话请求头一样，Pi 会把这个请求头发给处理该请求的任何 provider。
 
+`POWERCONTEXT_PI_GATEWAY_PROVIDER` 指定 `models.json` 中指向 gateway 的 provider。关闭召回后，package 会把它为该
+workspace 解析的 Scope（即 `/pc` 打印的 Scope）作为 `X-PowerContext-Scope-ID`，发送到这个 provider 的每个请求上，
+摘要请求也包括在内。gateway 随后在这个 Scope 而不是 `PC_GATEWAY_DEFAULT_SCOPE` 中准备和采集各轮，
+Core 也在这个 Scope 中检查每个请求。
+发给其他 provider 的请求不带 Scope 请求头。package 每条提示词解析一次 Scope，因此 binding 改变后，从下一条提示词起生效。
+未设置这个变量，或 package 无法解析 Scope 时，请求不带 Scope 请求头，gateway 使用 `PC_GATEWAY_DEFAULT_SCOPE`。
+见[Gateway 请求 Scope](../operate/deploy-server.md#gateway-请求-scope)。
+
 修改这些设置后请重启 Pi。已有会话可以继续：Pi 每一轮都重新构建 system prompt，不把 package 召回的上下文存进会话。
 `pc_prepare_context` 返回过上下文的会话还能继续对话，因为 gateway 会在每一轮的请求中把这个结果替换为占位文本。
 但这只持续到 Pi 压缩包含该结果的那部分会话，或为包含该结果的分支生成摘要为止。此时 Pi 会把结果复制进摘要请求的文本，
@@ -207,10 +216,11 @@ gateway 不会替换这段文本，因此 Core 拒绝该请求，压缩或分支
 - `PC_GATEWAY_API_KEY` 设为 Pi 作为 `apiKey` 发送的密钥。监听非回环地址时必须设置。
 - Core 启用鉴权时，设置 `PC_GATEWAY_CORE_TOKEN`。
 - `PC_GATEWAY_SEDIMENT=on`，让 gateway 把每个完成的轮次采集为 Source。
-- `PC_GATEWAY_DEFAULT_SCOPE` 设为 package 为该 workspace 解析的 Scope，`/pc` 会打印这个 Scope。
+- `PC_GATEWAY_DEFAULT_SCOPE` 设为不带 Scope 请求头的请求所用的 Scope。未设置 `POWERCONTEXT_PI_GATEWAY_PROVIDER` 时，
+  把它设为 package 为该 workspace 解析的 Scope，`/pc` 会打印这个 Scope。
 
-gateway 把所有会话都放在 `PC_GATEWAY_DEFAULT_SCOPE` 指定的同一个 Scope 中准备和采集，而不是 package 为每个 workspace
-解析的 Scope。gateway 的鉴权设置和请求大小上限见[部署 Server](../operate/deploy-server.md#网关认证边界)。
+gateway 不限制持有其密钥的客户端选择哪个 Scope：任何能调用 gateway 的客户端，都能选择 gateway 的 Core 凭据可访问的任何
+Scope。Core 以这个凭据检查每个请求。gateway 的鉴权设置和请求大小上限见[部署 Server](../operate/deploy-server.md#网关认证边界)。
 
 ## 使用显式工具和命令
 
@@ -275,6 +285,7 @@ powercontext doctor pi
 | `POWERCONTEXT_PI_AUTHORIZATION` | 未设置 | package HTTP 请求使用的完整 `Bearer <token>` header |
 | `POWERCONTEXT_PI_CAPTURE_PROMPTS` | `true` | 把符合条件的用户提示词采集为 Source 证据 |
 | `POWERCONTEXT_PI_PROMPT_RECALL` | `true` | 为每条提示词准备并添加上下文，并提供 `pc_prepare_context`；`false` 时把提示词时上下文交给 gateway，并发送 gateway 会话请求头和轮次请求头 |
+| `POWERCONTEXT_PI_GATEWAY_PROVIDER` | 未设置 | 经由 gateway 的 Pi provider；关闭提示词召回时，只有它的请求以 `X-PowerContext-Scope-ID` 携带 workspace Scope |
 | `POWERCONTEXT_PI_REQUEST_TIMEOUT_MS` | `3000` | 单请求超时，单位毫秒 |
 | `POWERCONTEXT_PI_HTTP_BUDGET_MS` | `6000` | 召回/采集共享 HTTP 时间预算，单位毫秒 |
 | `POWERCONTEXT_PI_MAX_BYTES` | `8000` | 请求并校验的 PreparedContext byte 上限（`512`–`32768`） |

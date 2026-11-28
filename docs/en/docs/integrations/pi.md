@@ -178,11 +178,12 @@ credentials, so `POWERCONTEXT_PI_BASE_URL` can be the gateway's address.
 
 ### Turn the package's prompt recall and capture off
 
-Turn the package's prompt-time recall and prompt capture off before starting Pi:
+Turn the package's prompt-time recall and prompt capture off, and name the gateway provider, before starting Pi:
 
 ```bash
 export POWERCONTEXT_PI_PROMPT_RECALL=false
 export POWERCONTEXT_PI_CAPTURE_PROMPTS=false
+export POWERCONTEXT_PI_GATEWAY_PROVIDER=powercontext-gateway
 pi
 ```
 
@@ -206,6 +207,14 @@ instead, so the gateway does not count a summary as a turn: it does not prepare 
 guidance, or capture it. Core still checks the request. Like the conversation header, Pi sends this header to whichever
 provider serves the request.
 
+`POWERCONTEXT_PI_GATEWAY_PROVIDER` names the `models.json` provider that points at the gateway. While recall is off,
+the package sends the Scope it resolves for the workspace, the one `/pc` prints, as `X-PowerContext-Scope-ID` on every
+request to that provider, summaries included. The gateway then prepares and captures turns in that Scope instead of
+`PC_GATEWAY_DEFAULT_SCOPE`, and Core checks each request in it. Requests to any other provider carry no Scope header.
+The package resolves the Scope once per prompt, so a changed binding applies from the next prompt. When the variable
+is unset or the package cannot resolve the Scope, the request carries no Scope header and the gateway uses
+`PC_GATEWAY_DEFAULT_SCOPE`. See [Gateway request Scope](../operate/deploy-server.md#gateway-request-scope).
+
 Restart Pi after changing these settings. An existing session can continue: Pi rebuilds the system prompt for every turn
 and does not store the package's recalled context in the session. A session in which `pc_prepare_context` returned
 context can take further turns, because the gateway replaces that result with a placeholder in each turn's requests.
@@ -223,10 +232,13 @@ default. Set:
 - `PC_GATEWAY_API_KEY` to the key that Pi sends as its `apiKey`. A non-loopback listener requires it.
 - `PC_GATEWAY_CORE_TOKEN` when Core enforces authentication.
 - `PC_GATEWAY_SEDIMENT=on`, so that the gateway captures each completed turn as a Source.
-- `PC_GATEWAY_DEFAULT_SCOPE` to the Scope this package resolves for the workspace, which `/pc` prints.
+- `PC_GATEWAY_DEFAULT_SCOPE` to the Scope for requests that carry no Scope header. With
+  `POWERCONTEXT_PI_GATEWAY_PROVIDER` unset, set it to the Scope this package resolves for the workspace, which `/pc`
+  prints.
 
-The gateway prepares and captures every conversation in the one Scope set by `PC_GATEWAY_DEFAULT_SCOPE`, not in the
-Scope this package resolves for each workspace. For the gateway's authentication settings and request size limit, see
+The gateway does not limit which Scope a client with its key selects: any client that can call the gateway can select
+any Scope that the gateway's Core credential can access. Core checks each request under that credential. For the
+gateway's authentication settings and request size limit, see
 [Deploy the Server](../operate/deploy-server.md#gateway-authentication-boundaries).
 
 ## Use explicit tools and commands
@@ -294,6 +306,7 @@ changing PowerContext environment variables.
 | `POWERCONTEXT_PI_AUTHORIZATION` | unset | Complete `Bearer <token>` header for package HTTP requests |
 | `POWERCONTEXT_PI_CAPTURE_PROMPTS` | `true` | Capture eligible user prompts as Source evidence |
 | `POWERCONTEXT_PI_PROMPT_RECALL` | `true` | Prepare and add context for each prompt and offer `pc_prepare_context`; `false` leaves prompt-time context to the gateway and sends the gateway conversation and turn headers |
+| `POWERCONTEXT_PI_GATEWAY_PROVIDER` | unset | Pi provider that routes through the gateway; while prompt recall is off, only its requests carry the workspace Scope as `X-PowerContext-Scope-ID` |
 | `POWERCONTEXT_PI_REQUEST_TIMEOUT_MS` | `3000` | Per-request timeout in milliseconds |
 | `POWERCONTEXT_PI_HTTP_BUDGET_MS` | `6000` | Shared recall/capture HTTP budget in milliseconds |
 | `POWERCONTEXT_PI_MAX_BYTES` | `8000` | Requested and validated PreparedContext byte limit (`512`–`32768`) |
