@@ -131,9 +131,18 @@ jobs:
       - name: Check generated MCP profiles
         run: uv run --locked --no-sync python scripts/generate_kimi_profiles.py --check
 
+      # The gateway e2e builds with the `cargo` on PATH. Select the pinned toolchain as rustup's default
+      # rather than through RUSTUP_TOOLCHAIN, which the cargo cache identity hashes.
+      - name: Install pinned Rust toolchain
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          rustup toolchain install 1.95.0 --profile minimal
+          rustup default 1.95.0
+
       - name: Cache Gateway dependencies and compilation
         if: matrix.os == 'ubuntu-latest'
-        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        id: cargo-cache
+        uses: ./.github/actions/setup-rust-cache
         with:
           workspaces: gateway -> target
           shared-key: gateway
@@ -142,7 +151,8 @@ jobs:
 
       - name: Run real-host acceptance without skips
         env:
-          # The gateway reaches Core over a Unix socket, so the gateway chain runs on Linux only.
+          # The gateway and the Server's Unix-socket link don't run on Windows, so only the Linux leg runs the
+          # gateway chain.
           GATEWAY_CHAIN: ${{ matrix.os == 'ubuntu-latest' && 'tests/e2e/test_kimi_code_gateway_chain.py' || '' }}
         run: |
           uv run --locked --no-sync pytest tests/e2e/test_kimi_code_host.py tests/e2e/test_kimi_code_workflows.py $GATEWAY_CHAIN \
@@ -159,6 +169,13 @@ jobs:
           if not cases or any(case.find(tag) is not None for case in cases for tag in ("skipped", "failure", "error")):
               raise SystemExit("Kimi host acceptance must execute and pass without skips")
           PY
+
+      - name: Save Gateway dependencies and compilation
+        if: matrix.os == 'ubuntu-latest' && (success() || failure()) && steps.cargo-cache.outputs.cache-backend == 's3' && steps.cargo-cache.outputs.cache-hit != 'true'
+        uses: ./.github/actions/cache-save
+        with:
+          path: ${{ steps.cargo-cache.outputs.cache-path }}
+          key: ${{ steps.cargo-cache.outputs.cache-key }}
 
       - name: Collect acceptance summaries
         if: always()
