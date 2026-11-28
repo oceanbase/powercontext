@@ -34,12 +34,14 @@ from powercontext.builtin.artifacts.skill import (
     SkillPackageError,
     build_instruction_skill_package,
 )
+from powercontext.builtin.artifacts.skill.package import validate_allowed_tools
 from powercontext.builtin.persistence.artifacts import ArtifactRepository, RepositoryArtifactDraft
 from powercontext.builtin.persistence.database import AsyncDatabase
 from powercontext.builtin.persistence.errors import RepositoryNotFoundError
 from powercontext.builtin.persistence.experience_index import ExperienceIndex
 from powercontext.builtin.persistence.generation_sources import GenerationSourceAccess
 from powercontext.builtin.persistence.handoff import RelationalHandoffBackend, RelationalHandoffEvidenceResolver
+from powercontext.builtin.persistence.revision_meta import rollback_columns
 from powercontext.builtin.persistence.skill_packages import SkillPackageRepository
 from powercontext.builtin.persistence.sources import SourceRepository, _SourceReadSet
 from powercontext.builtin.records import (
@@ -336,6 +338,7 @@ class SkillManagementWriter(_RepositoryFamilyWriter):
         direct_source: SourceRef,
         /,
     ) -> Skill:
+        validate_allowed_tools(cast(SkillContent, content).allowed_tools)
         canonical, package = await self._canonical_content(connection, scope_id, content)
         artifact = cast(
             Skill,
@@ -353,6 +356,11 @@ class SkillManagementWriter(_RepositoryFamilyWriter):
         direct_source: SourceRef,
         /,
     ) -> Skill:
+        proposal = cast(SkillContent, content)
+        if proposal.allowed_tools != current.content.allowed_tools and not rollback_columns(
+            self.family, current.artifact_id, current.revision + 1
+        ):
+            validate_allowed_tools(proposal.allowed_tools)
         canonical, package = await self._canonical_content(connection, scope_id, content)
         artifact = cast(
             Skill,

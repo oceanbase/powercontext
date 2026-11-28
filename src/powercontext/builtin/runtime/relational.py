@@ -96,6 +96,7 @@ from powercontext.builtin.artifacts.skill import (
     capture_skill_archive,
 )
 from powercontext.builtin.artifacts.skill.distribution import RemoteSkillDistributionService
+from powercontext.builtin.artifacts.skill.package import validate_allowed_tools
 from powercontext.builtin.artifacts.skill.publication import ManagedSkillPublicationService
 from powercontext.builtin.artifacts.skill.registry import ExternalSkillRegistryService
 from powercontext.builtin.artifacts.topic_memory import (
@@ -1390,6 +1391,8 @@ class RelationalContexts:
             raise GenerationCapabilityUnavailableError(Skill.family)
         scope = validate_scope_id(scope_id)
         capture = await self.external_skills(scope).snapshot(external_skill_id, fingerprint)
+        if mode is ExternalSkillImportMode.FORK:
+            validate_allowed_tools(capture.package.metadata.allowed_tools)
         source = await EXTERNAL_SKILL_SNAPSHOT_SOURCE_ADAPTER.resolve(
             ExternalSkillSnapshotCapture(snapshot=capture.as_source_snapshot(), mode=mode)
         )

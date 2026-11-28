@@ -29,6 +29,22 @@ def test_skill_content_requires_complete_portable_instructions() -> None:
     assert content.validation == ("make api-generate-check passes", "make contract-test passes")
 
 
+def test_allowed_tool_rules_are_derived_without_changing_stored_content() -> None:
+    content = SkillContent(
+        name="historical-skill",
+        description="Inspect a historical declaration.",
+        instructions="Read the source.",
+        validation=("The source was read.",),
+        allowed_tools="Bash(git:*",
+    )
+    stored = content.model_dump()
+
+    assert content.allowed_tool_rules.rules == ()
+    assert content.allowed_tool_rules.unparsed == ("Bash(git:*",)
+    assert content.model_dump() == stored
+    assert "allowed_tool_rules" not in stored
+
+
 @pytest.mark.parametrize(
     ("field", "value"),
     [

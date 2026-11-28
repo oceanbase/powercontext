@@ -52,6 +52,7 @@ from powercontext.builtin.artifacts.profile.review import decide_profile, revise
 from powercontext.builtin.artifacts.prompt import Prompt, PromptContent, PromptRegistry
 from powercontext.builtin.artifacts.prompt.models import PROMPT_KEYS
 from powercontext.builtin.artifacts.skill import Skill, SkillContent, SkillDraft, build_instruction_skill_package
+from powercontext.builtin.artifacts.skill.package import InvalidAllowedToolsError, validate_allowed_tools
 from powercontext.builtin.artifacts.topic_memory.models import TopicMemory, TopicMemoryContent, TopicMemoryDraft
 from powercontext.builtin.evidence.models import EvidenceResolutionError
 from powercontext.builtin.evidence.resolver import AuthorizationContext, EvidenceAuthorizer, EvidenceResolver
@@ -226,6 +227,7 @@ class ReviewService:
         """Persist a human or integration supplied managed Skill proposal."""
 
         async with self._connection() as connection:
+            await self._validate_skill_declaration(connection, proposal.allowed_tools, target)
             proposal = await self._canonical_skill_proposal(connection, proposal)
             if target is not None and candidate_id is not None and candidate_id.startswith("cand_dream_"):
                 await self._validate_skill_revision(connection, target, proposal)
@@ -589,6 +591,7 @@ class ReviewService:
                 proposal = revise_profile(current, proposal, canonical_sources, canonical_artifacts, target)
             _validate_proposal_family(reviewed.family, proposal)
             if isinstance(proposal, SkillContent):
+                await self._validate_skill_declaration(connection, proposal.allowed_tools, current.target)
                 proposal = await self._canonical_skill_proposal(connection, proposal)
                 if current.target is not None and current.candidate_id.startswith("cand_dream_"):
                     await self._validate_skill_revision(connection, current.target, proposal)
@@ -757,8 +760,11 @@ class ReviewService:
                 target=candidate.target,
                 dream_skill_target=candidate.candidate_id.startswith("cand_dream_"),
             )
-            if isinstance(candidate.proposal, SkillContent) and candidate.proposal.package is not None:
-                await self._canonical_skill_proposal(connection, candidate.proposal)
+            proposal = candidate.proposal
+            if isinstance(proposal, SkillContent):
+                await self._validate_skill_declaration(connection, proposal.allowed_tools, candidate.target)
+                if proposal.package is not None:
+                    await self._canonical_skill_proposal(connection, proposal)
             draft = _candidate_draft(candidate)
             if candidate.target is None:
                 artifact = await self._artifacts.create(
@@ -1189,6 +1195,7 @@ class ReviewService:
     async def prepare_skill(self, proposal: SkillContent, /) -> SkillContent:
         """Build an instruction package before entering a Candidate commit transaction."""
 
+        validate_allowed_tools(proposal.allowed_tools)
         if proposal.package is not None:
             async with self._connection() as connection:
                 return await self._canonical_skill_proposal(connection, proposal)
@@ -1242,6 +1249,16 @@ class ReviewService:
             if len(snapshot.entries) != 1 or snapshot.entries[0].path != "SKILL.md":
                 raise InvalidCandidateError("target", "unsupported_target")
         return current
+
+    async def _validate_skill_declaration(
+        self, connection: AsyncConnection, declaration: str | None, target: ArtifactRef | None, /
+    ) -> None:
+        try:
+            validate_allowed_tools(declaration)
+        except InvalidAllowedToolsError:
+            previous = None if target is None else await self._artifacts.get(connection, self._scope_id, target)
+            if not isinstance(previous, Skill) or declaration != previous.content.allowed_tools:
+                raise
 
     async def _canonical_skill_proposal(
         self,

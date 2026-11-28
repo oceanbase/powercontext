@@ -14,6 +14,11 @@
 
 """Built-in managed Skill Artifact Family."""
 
+from powercontext.builtin.artifacts.skill.allowed_tools import (
+    AllowedToolRule,
+    AllowedToolsDeclaration,
+    parse_allowed_tools,
+)
 from powercontext.builtin.artifacts.skill.compatibility import (
     SkillCompatibilityAssessment,
     SkillCompatibilityState,
@@ -124,6 +129,8 @@ __all__ = [
     "AgentKind",
     "AgentSkillProvider",
     "AgentSkillTarget",
+    "AllowedToolRule",
+    "AllowedToolsDeclaration",
     "CapturedExternalSkillPackage",
     "CodexSkillProvider",
     "CodexSkillRoot",
@@ -164,6 +171,7 @@ __all__ = [
     "capture_skill_directory",
     "materialize_skill_package",
     "package_file",
+    "parse_allowed_tools",
     "skill_search_text",
     "skill_searchable_text",
     "target_environment_fingerprint",

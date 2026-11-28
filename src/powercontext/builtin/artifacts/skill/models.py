@@ -21,6 +21,7 @@ from typing import Annotated, ClassVar
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from powercontext.artifacts import Artifact, ArtifactDraft
+from powercontext.builtin.artifacts.skill.allowed_tools import AllowedToolsDeclaration, parse_allowed_tools
 
 MAX_SKILL_NAME_LENGTH = 128
 MAX_SKILL_DESCRIPTION_LENGTH = 2_000
@@ -107,6 +108,12 @@ class SkillContent(BaseModel):
             if not self.validation:
                 raise ValueError("legacy Skill validation must not be empty")  # noqa: TRY003
         return self
+
+    @property
+    def allowed_tool_rules(self) -> AllowedToolsDeclaration:
+        """Return the declared tool rules and any malformed fragments for inspection."""
+
+        return parse_allowed_tools(self.allowed_tools)
 
     @property
     def package_backed(self) -> bool:
