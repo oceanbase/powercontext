@@ -58,8 +58,11 @@ def test_status_preserves_publication_when_two_revisions_commit_between_reads():
 @pytest.mark.parametrize(
     ("recorded", "processing", "expected"),
     [
-        ("legacy", "ordinary", "publish"),
+        ("legacy", "ordinary", "unchanged"),
+        ("legacy", "rechunk", "publish"),
+        ("legacy", "reprocess", "publish"),
         ("missing_key", "ordinary", "publish"),
+        ("key_only", "ordinary", "publish"),
         ("different_key", "ordinary", "publish"),
         ("current", "ordinary", "unchanged"),
         ("old_profile", "ordinary", "explicitly reprocess"),
@@ -89,6 +92,7 @@ def test_generation_with_existing_revision(recorded, processing, expected):  # n
     revision_metadata = {
         "legacy": {},
         "missing_key": {"parser_profile": profile},
+        "key_only": {"parsed_result_id": "0" * 64},
         "different_key": {"parser_profile": profile, "parsed_result_id": "0" * 64},
         "current": {"parser_profile": profile, "parsed_result_id": parsed.result_id},
         "old_profile": {"parser_profile": old_profile},
@@ -104,11 +108,11 @@ def test_generation_with_existing_revision(recorded, processing, expected):  # n
         "snapshot": "source",
         "content_digest": digest,
         "relative_path": "service.md",
-        "chunking": chunking,
+        "chunking": {**chunking, "max_chars": 120} if processing == "rechunk" else chunking,
         "embedding_profile": "embedding",
         "parser_profile": old_profile if processing == "stale_request" else profile,
         "manual_edits_policy": "reject",
-        "force_reprocess": processing != "ordinary",
+        "force_reprocess": processing in {"reprocess", "stale_request"},
     }
 
     class Store:
@@ -146,8 +150,12 @@ def test_generation_with_existing_revision(recorded, processing, expected):  # n
         async def embed(self, texts):
             return [[1.0] for _ in texts]
 
+    def read_snapshot(_key, _digest):
+        assert expected == "publish", "Unchanged and rejected imports must not read the original for parsing"
+        return data
+
     writer, store = Writer(), Store()
-    kb = KnowledgeBase(None, store, SimpleNamespace(read=lambda _key, _digest: data), Embedding())
+    kb = KnowledgeBase(None, store, SimpleNamespace(read=read_snapshot), Embedding())
     asyncio.run(kb.generate(request, writer))
     if expected == "publish":
         (published,) = writer.publications

@@ -44,17 +44,23 @@ def test_prepared_context_projects_legacy_chunk_locators(tmp_path):
     }
     invalid = {**image, "polygon": [[0, 0], [101, 0], [0, 20]], "block_char_end": -1}
     oversized = {**image, "polygon": [[0, 0]] * 17}
-    old = {"notes": lines, "image": image, "invalid": invalid, "oversized": oversized}
+    invalid_confidence = {**image, "confidence": 1.1}
+    old = {
+        "notes": lines,
+        "image": image,
+        "invalid": invalid,
+        "oversized": oversized,
+        "invalid_score": invalid_confidence,
+    }
+    image_locator = {
+        "kind": "image",
+        "index": 3,
+        "polygon": [[0.1, 0.1], [0.9, 0.1], [0.9, 0.5], [0.1, 0.5]],
+    }
     expected = {
         "notes": {"source_locator": {"kind": "lines", "lines": {"start": 1, "end": 4}}, **offsets},
-        "image": {
-            "source_locator": {
-                "kind": "image",
-                "index": 3,
-                "polygon": [[0.1, 0.1], [0.9, 0.1], [0.9, 0.5], [0.1, 0.5]],
-            },
-            **offsets,
-        },
+        "image": {"source_locator": {**image_locator, "confidence": 0.99}, **offsets},
+        "invalid_score": {"source_locator": image_locator, **offsets},
         "invalid": {},
         "oversized": offsets,
     }

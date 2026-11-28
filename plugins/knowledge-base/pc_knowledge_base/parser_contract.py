@@ -231,7 +231,7 @@ def context_locator(locator: Locator) -> dict[str, object]:
         "slide": {"slide", "shape_path", "rows", "columns"},
         "sheet": {"sheet", "rows", "columns"},
         "records": {"rows", "columns"},
-        "image": {"index"},
+        "image": {"index", "confidence"},
     }
     result = locator.model_dump(mode="json", include={"kind", *fields[locator.kind]}, exclude_none=True)
     if isinstance(locator, (PageLocator, SlideLocator, ImageLocator)) and locator.region is not None:

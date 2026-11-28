@@ -16,9 +16,9 @@ output code and relevant dependency versions. A locator interpretation change
 requires a new locator version. Chunk size and overlap are independent of the parse identity.
 
 The parse key includes the parser and model identity, locator mapping version, configuration,
-format and immutable source digest. Equal keys are eligible for reuse. Different or missing keys
-require parsing. Chunking and embedding settings are downstream inputs. The Worker integration in
-#2850 owns persistent cache read, write and recovery.
+format and immutable source digest. Equal keys are eligible for cache reuse. Different or
+missing keys require parsing when producing a parsed revision. Chunking and embedding settings
+are downstream inputs. The Worker integration in #2850 owns persistent cache read, write and recovery.
 
 New processing requests pin the parser profile. A Worker rejects a pending request when its pinned
 profile differs from the installed one. Requests already accepted without a profile use the
@@ -26,9 +26,13 @@ installed profile. Each new parsed revision records `parser_profile`, `parsed_re
 `parse_coverage`. Existing revisions keep their original chunk positions and identities.
 An ordinary import of identical bytes under a different recorded profile requires explicit
 reprocessing. A new explicit reprocess request uses the current profile and preserves the
-existing revision precondition and protections for manual edits. An ordinary repeat import can
-keep the existing revision only when its recorded parse key and chunking settings match.
-A missing or different parse key requires parsing, subject to the same manual-edit protection.
+existing revision precondition and protections for manual edits. For revisions with parser
+metadata, an ordinary repeat import can keep the existing revision when its recorded parse key
+and chunking settings match.
+For historical revisions that predate both parser metadata fields, an ordinary repeat import
+with identical bytes and chunking keeps the existing revision without assigning it a parse key
+or profile. Other missing or different parse keys require parsing, subject to the same
+manual-edit protection.
 
 Markdown chunk output retains its one-based inclusive line fields. The legacy
 `block_char_start` and `block_char_end` address the packed block before appended references.
@@ -64,9 +68,10 @@ with existing clients, with the coverage report available on the published revis
   `serialize_context_locator` limits each typed locator to 1,024 UTF-8 bytes and each polygon to
   16 points rounded to eight decimals. The projection retains valid `block_char_start` and
   `block_char_end` as half-open offsets locating the chunk's slice in the parsed or packed block
-  text. An incomplete or invalid historical locator leaves
-  the text and chunk reference available. Raw geometry and OCR confidence remain available
-  through existing chunk reads. The structured hit and the passage carry the same projection.
+  text. A valid stored OCR confidence is included as a number in `[0, 1]` in the typed image
+  locator. Missing or invalid confidence is omitted independently of the coordinates. An
+  incomplete or invalid historical locator leaves the text and chunk reference available.
+  Existing chunk reads retain raw geometry. The structured hit and passage carry the same projection.
 
 ## Adapter entry point
 

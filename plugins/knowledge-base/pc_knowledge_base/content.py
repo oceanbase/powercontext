@@ -374,7 +374,10 @@ def project_legacy_chunk_locator(location: dict[str, object]) -> dict[str, objec
                 return projection
             polygon = _LEGACY_POLYGON.validate_python(location.get("polygon"), strict=True)
             points: tuple[Point, ...] = tuple((x, y) for x, y in polygon)
-            locator = ImageLocator.from_pixels(index, width, height, points)
+            confidence = location.get("confidence")
+            if not isinstance(confidence, (int, float)) or isinstance(confidence, bool) or not 0 <= confidence <= 1:
+                confidence = None
+            locator = ImageLocator.from_pixels(index, width, height, points, confidence=confidence)
         projection["source_locator"] = json.loads(serialize_context_locator(locator))
     except (ValueError, OverflowError):
         # An incomplete historical locator must not hide the cited chunk.

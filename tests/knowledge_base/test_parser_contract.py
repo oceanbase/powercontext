@@ -186,7 +186,7 @@ def test_preflight_consumes_actual_counts_and_requires_docx_renderer():
 def test_context_locator_uses_whitelist_and_byte_budget():
     pixel = ImageLocator.from_pixels(2, 100, 200, ((0, 0), (100, 0), (100, 50), (0, 50)), 0.95)
     assert serialize_context_locator(pixel) == (
-        b'{"index":2,"kind":"image","polygon":[[0.0,0.0],[1.0,0.0],[1.0,0.25],[0.0,0.25]]}'
+        b'{"confidence":0.95,"index":2,"kind":"image","polygon":[[0.0,0.0],[1.0,0.0],[1.0,0.25],[0.0,0.25]]}'
     )
     maximum = 2**31 - 1
     slide = SlideLocator(

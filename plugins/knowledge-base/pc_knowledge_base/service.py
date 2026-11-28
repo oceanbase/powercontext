@@ -516,11 +516,18 @@ class KnowledgeBase:
                     recorded_profile = current.content.get("parser_profile")
                     if recorded_profile is not None and recorded_profile != profile_json:
                         raise ContentError("Parser profile changed; explicitly reprocess the document")  # noqa: TRY003, TRY301
-                    if current.content["chunking"] == pinned["chunking"] and can_reuse_parse(
-                        current.content.get("parsed_result_id"),
-                        pinned["content_digest"],
-                        adapter.capability.format,
-                        profile,
+                    # Keep exact repeats of pre-profile revisions without assigning them today's parser identity.
+                    legacy_revision = (
+                        "parser_profile" not in current.content and "parsed_result_id" not in current.content
+                    )
+                    if current.content["chunking"] == pinned["chunking"] and (
+                        legacy_revision
+                        or can_reuse_parse(
+                            current.content.get("parsed_result_id"),
+                            pinned["content_digest"],
+                            adapter.capability.format,
+                            profile,
+                        )
                     ):
                         await self.store.observation(
                             request.scope_id,
