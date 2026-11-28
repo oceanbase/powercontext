@@ -162,6 +162,12 @@ reports context overhead instead of hiding it.
 
 Recall estimation and recording are best-effort and must not change the prepared context result.
 
+When returning prepared context, the built-in Runtime submits its final text, exact evidence references, and UTC
+date to a bounded in-process queue. A background consumer resolves lineage, estimates tokens, and writes the daily
+aggregate for each job. Statistics queries wait within a budget for accepted jobs before opening the read
+transaction, and graceful shutdown drains the queue within a budget. Queue saturation, job failure, and process
+exit can lead to undercounting. A statistics read can only wait for jobs accepted by its own process.
+
 ## Persistence
 
 ```text

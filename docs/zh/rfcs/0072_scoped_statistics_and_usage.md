@@ -155,6 +155,10 @@ token，每段完整 text 向上取整。Aggregate 按 `estimator_id` 和 `versi
 
 Recall estimation 和 recording 是 best-effort，失败不能改变 prepared context result。
 
+内置 Runtime 在返回准备好的上下文时，将最终正文、精确证据引用和 UTC 日期提交给进程内有界队列。后台逐条解析
+lineage、估算并写入日统计。统计查询在打开读事务前限时等待已接收的任务，服务正常关闭时也限时排空队列。
+队列饱和、任务失败或进程退出时，统计可能少计。一个进程的统计读取只能等待该进程接收的任务。
+
 ## Persistence
 
 ```text

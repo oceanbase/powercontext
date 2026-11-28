@@ -211,7 +211,7 @@ from powercontext.builtin.runtime.protocols import (
     RuntimeTracing,
     TraceAttribute,
 )
-from powercontext.builtin.runtime.recall import RelationalRecallTokenEstimator
+from powercontext.builtin.runtime.recall import RecallTokenRecorder, RelationalRecallTokenEstimator
 from powercontext.builtin.runtime.recurrence import RelationalRecurrenceLedger
 from powercontext.builtin.runtime.skill_search import SkillArtifactSearcher
 from powercontext.builtin.runtime.statistics import RelationalScopedStatistics
@@ -343,9 +343,11 @@ class _ScopedServices:
     topic_writer: TopicMemoryManagementWriter
     handoff_writer: HandoffManagementWriter
     model_usage: _ModelUsageRecorder
+    recall_accounting: RecallTokenRecorder
     atomic_memory_processor: AtomicMemorySourceWindowProcessor
     atomic_memory_service: AtomicMemoryService
     statistics_write_timeout_seconds: float
+    recall_token_read_timeout_seconds: float
 
     def generation_sources(self) -> GenerationSourceAccess:
         return GenerationSourceAccess(self.repositories.sources)
@@ -464,6 +466,7 @@ class _ScopedServices:
             artifacts=self.repositories.artifacts,
             token_estimator=None if self.token_estimator is None else self.token_estimator.profile,
             model_usage=self.model_usage,
+            recall_accounting=self.recall_accounting,
             write_timeout_seconds=self.statistics_write_timeout_seconds,
         )
 
@@ -477,6 +480,7 @@ class _ScopedServices:
             sources=self.repositories.sources,
             artifacts=self.repositories.artifacts,
             estimator=self.token_estimator,
+            read_timeout_seconds=self.recall_token_read_timeout_seconds,
         )
 
 
@@ -532,6 +536,9 @@ class RelationalContexts:
         model_usage_queue_capacity: int = 256,
         model_usage_write_timeout_seconds: float = 1.0,
         model_usage_flush_timeout_seconds: float = 0.5,
+        recall_token_queue_capacity: int = 256,
+        recall_token_write_timeout_seconds: float = 1.0,
+        recall_token_flush_timeout_seconds: float = 0.5,
     ) -> None:
         self.database = database
         self.scopes = ScopeApplication(database, cursor_secret=cursor_secret)
@@ -625,7 +632,16 @@ class RelationalContexts:
             write_timeout_seconds=model_usage_write_timeout_seconds,
             flush_timeout_seconds=model_usage_flush_timeout_seconds,
         )
+        self.recall_accounting = RecallTokenRecorder(
+            database,
+            self.repositories.statistics,
+            self.estimate_recall_tokens,
+            queue_capacity=recall_token_queue_capacity,
+            write_timeout_seconds=recall_token_write_timeout_seconds,
+            flush_timeout_seconds=recall_token_flush_timeout_seconds,
+        )
         self._statistics_write_timeout_seconds = model_usage_write_timeout_seconds
+        self._recall_token_read_timeout_seconds = recall_token_write_timeout_seconds
         self._id_factory = _scoped_id_factory(id_factory)
         self.prompt_registry = prompt_registry or PromptRegistry(
             builtin_prompt_definitions(),
@@ -859,14 +875,14 @@ class RelationalContexts:
         return report
 
     async def aclose_usage_recorder(self) -> None:
-        """Drain the usage recorder after its producers and before the database.
+        """Drain the statistics recorders after their producers and before the database.
 
         Ordering is load-bearing: closing the database first would reject the
         recorder's own write, and closing this before producers stop would drop
         records that were already accepted.
         """
 
-        await self._model_usage.close()
+        await asyncio.gather(self._model_usage.close(), self.recall_accounting.close())
 
     async def flush_model_usage(self) -> None:
         """Make usage accepted so far visible at an operation's completion boundary.
@@ -1679,9 +1695,11 @@ class RelationalContexts:
             topic_writer=self._topic_memory_writer,
             handoff_writer=self._handoff_writer,
             model_usage=self._model_usage,
+            recall_accounting=self.recall_accounting,
             atomic_memory_processor=self.atomic_memory_processor,
             atomic_memory_service=self.atomic_memory.service,
             statistics_write_timeout_seconds=self._statistics_write_timeout_seconds,
+            recall_token_read_timeout_seconds=self._recall_token_read_timeout_seconds,
         )
 
 

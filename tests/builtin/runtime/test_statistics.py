@@ -15,8 +15,14 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import tempfile
+from datetime import UTC, datetime
 from pathlib import Path
+from typing import Literal
+
+import pytest
+from sqlalchemy import delete, insert, select
 
 from powercontext.artifacts import ArtifactRef
 from powercontext.builtin.artifacts.atomic_memory import AtomicMemoryContent
@@ -50,6 +56,8 @@ from powercontext.builtin.inference import GenerationResult, character_token_est
 from powercontext.builtin.persistence import RecurrenceRepository
 from powercontext.builtin.persistence.artifacts import ArtifactRepository, RepositoryArtifactDraft
 from powercontext.builtin.persistence.sqlite import SQLiteConfig, SQLiteProfile
+from powercontext.builtin.persistence.statistics import StatisticsRepository
+from powercontext.builtin.persistence.tables import RECALL_TOKEN_DAILY_TABLE, SCOPES_TABLE
 from powercontext.builtin.runtime import (
     ApproveCandidateRequest,
     BuiltinConfig,
@@ -58,11 +66,14 @@ from powercontext.builtin.runtime import (
     PrepareContextRequest,
     PreparedContext,
     ProposeExperienceRequest,
+    RuntimeConfig,
     StatisticsPeriod,
     open_builtin_runtime,
 )
+from powercontext.builtin.runtime.prepared_context import PreparedContextBuild, PreparedContextBuilder
+from powercontext.builtin.runtime.recall import RecallTokenRecorder, RelationalRecallTokenEstimator
 from powercontext.builtin.scope import ScopeDraft, ScopeSelection
-from powercontext.builtin.statistics import MAX_RECURRENCE_TOP_REVISIONS
+from powercontext.builtin.statistics import MAX_RECURRENCE_TOP_REVISIONS, RecallTokenMeasurement
 from powercontext.sources import SourceRef
 
 RECURRENCE_CUE = "openapi contract changed without regenerating the client"
@@ -194,6 +205,329 @@ def test_scoped_statistics_reports_current_inventory_and_recall_reduction() -> N
             result.recall.totals.baseline_tokens - result.recall.totals.recalled_tokens
         )
         assert result.recall.totals.token_reduction < 0
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("boundary", ["overview", "shutdown"])
+def test_prepare_returns_before_recall_accounting_and_drains_at_boundary(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, boundary: Literal["overview", "shutdown"]
+) -> None:
+    original = RelationalRecallTokenEstimator.estimate
+
+    async def scenario() -> None:
+        started = asyncio.Event()
+        release = asyncio.Event()
+        database = tmp_path / "recall-accounting.db"
+        config = BuiltinConfig(database=SQLiteConfig(url=f"sqlite+aiosqlite:///{database}"))
+        result = None
+
+        async def paused_estimate(self, build):
+            started.set()
+            await release.wait()
+            return await original(self, build)
+
+        monkeypatch.setattr(RelationalRecallTokenEstimator, "estimate", paused_estimate)
+        async with open_builtin_runtime(config, dispatch_processing=False) as runtime:
+            scope_id = await _create_scope(runtime, "recall-accounting")
+            captured = await runtime.sources.for_scope(scope_id).capture(
+                CaptureSource(source_id="proof", content="Contract check passed.", metadata={})
+            )
+            candidate = await runtime.experience.for_scope(scope_id).propose(
+                ProposeExperienceRequest(
+                    proposal=ExperienceContent(
+                        situation="A contract changed.",
+                        action="Run the fixtures.",
+                        outcome="All tests passed.",
+                        lesson="Run the fixtures after contract changes.",
+                    ),
+                    sources=(captured.source_ref,),
+                )
+            )
+            await runtime.review.for_scope(scope_id).approve(
+                ApproveCandidateRequest(candidate_id=candidate.candidate_id, expected_version=candidate.version)
+            )
+            try:
+                prepared = await asyncio.wait_for(
+                    runtime.context.for_scope(scope_id).prepare(PrepareContextRequest(query="contract")),
+                    timeout=5,
+                )
+                await asyncio.wait_for(started.wait(), timeout=5)
+                assert isinstance(prepared, PreparedContext) and prepared.content is not None
+            finally:
+                release.set()
+            if boundary == "overview":
+                result = await runtime.statistics.for_scope(scope_id).overview(period=StatisticsPeriod.TODAY)
+
+        if boundary == "shutdown":
+            async with open_builtin_runtime(config, dispatch_processing=False) as restored:
+                result = await restored.statistics.for_scope(scope_id).overview(period=StatisticsPeriod.TODAY)
+        assert result is not None
+        estimator = character_token_estimator()
+        assert result.recall.totals.preparations == result.recall.totals.comparable_preparations == 1
+        assert result.recall.totals.baseline_tokens == estimator.estimate("Contract check passed.")
+        assert result.recall.totals.recalled_tokens == estimator.estimate(prepared.content)
+
+    asyncio.run(scenario())
+
+
+def test_recall_accounting_shutdown_returns_within_bounded_budget_when_consumer_stalls(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def scenario() -> None:
+        started = asyncio.Event()
+        release = asyncio.Event()
+
+        async def stalled_estimate(self, build):
+            started.set()
+            await release.wait()
+            return None
+
+        monkeypatch.setattr(RelationalRecallTokenEstimator, "estimate", stalled_estimate)
+        runtime_cm = open_builtin_runtime(
+            BuiltinConfig(
+                database=SQLiteConfig(),
+                runtime=RuntimeConfig(
+                    recall_token_write_timeout_seconds=0.1,
+                    recall_token_flush_timeout_seconds=0.05,
+                ),
+            ),
+            dispatch_processing=False,
+        )
+        runtime = await runtime_cm.__aenter__()
+        try:
+            scope_id = await _create_scope(runtime, "recall-stalled-shutdown")
+            await runtime.context.for_scope(scope_id).prepare(PrepareContextRequest(query="anything"))
+            await asyncio.wait_for(started.wait(), timeout=2)
+            await asyncio.wait_for(runtime_cm.__aexit__(None, None, None), timeout=1)
+        finally:
+            release.set()
+            await asyncio.sleep(0)
+
+    asyncio.run(scenario())
+
+
+def test_recall_accounting_shutdown_skips_write_after_drain_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def scenario() -> None:
+        started = asyncio.Event()
+        release = asyncio.Event()
+        writes = 0
+        original_record_recall = StatisticsRepository.record_recall
+
+        async def paused_estimate(self, build):
+            started.set()
+            await release.wait()
+            return RecallTokenMeasurement(
+                estimator=character_token_estimator().profile,
+                ready=False,
+                comparable=False,
+                baseline_tokens=0,
+                recalled_tokens=0,
+            )
+
+        async def counting_record_recall(self, *args, **kwargs):
+            nonlocal writes
+            writes += 1
+            return await original_record_recall(self, *args, **kwargs)
+
+        class _ReleaseOnDrainTimeout(logging.Handler):
+            def emit(self, record: logging.LogRecord) -> None:
+                if "timed out while draining" in record.getMessage():
+                    release.set()
+
+        recall_logger = logging.getLogger("powercontext.builtin.runtime.recall")
+        handler = _ReleaseOnDrainTimeout()
+        recall_logger.addHandler(handler)
+        monkeypatch.setattr(RelationalRecallTokenEstimator, "estimate", paused_estimate)
+        monkeypatch.setattr(StatisticsRepository, "record_recall", counting_record_recall)
+        runtime_cm = open_builtin_runtime(
+            BuiltinConfig(
+                database=SQLiteConfig(),
+                runtime=RuntimeConfig(
+                    recall_token_write_timeout_seconds=0.05,
+                    recall_token_flush_timeout_seconds=0.02,
+                ),
+            ),
+            dispatch_processing=False,
+        )
+        runtime = await runtime_cm.__aenter__()
+        try:
+            scope_id = await _create_scope(runtime, "recall-skip-write-on-shutdown")
+            await runtime.context.for_scope(scope_id).prepare(PrepareContextRequest(query="anything"))
+            await asyncio.wait_for(started.wait(), timeout=2)
+            await asyncio.wait_for(runtime_cm.__aexit__(None, None, None), timeout=1)
+        finally:
+            release.set()
+            recall_logger.removeHandler(handler)
+        assert writes == 0
+
+    asyncio.run(scenario())
+
+
+def test_recall_accounting_consumer_cancellation_settles_pending_reads(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def scenario() -> None:
+        started = asyncio.Event()
+        release = asyncio.Event()
+
+        async def paused_estimate(self, build):
+            started.set()
+            await release.wait()
+            return None
+
+        monkeypatch.setattr(RelationalRecallTokenEstimator, "estimate", paused_estimate)
+        async with open_builtin_runtime(
+            BuiltinConfig(
+                database=SQLiteConfig(),
+                runtime=RuntimeConfig(recall_token_flush_timeout_seconds=10.0),
+            ),
+            dispatch_processing=False,
+        ) as runtime:
+            try:
+                scope_id = await _create_scope(runtime, "recall-consumer-cancel")
+                await runtime.context.for_scope(scope_id).prepare(PrepareContextRequest(query="first"))
+                await asyncio.wait_for(started.wait(), timeout=2)
+                await runtime.context.for_scope(scope_id).prepare(PrepareContextRequest(query="second"))
+                consumer = next(task for task in asyncio.all_tasks() if task.get_name() == "powercontext-recall-tokens")
+                consumer.cancel()
+                await asyncio.wait((consumer,), timeout=2)
+                result = await asyncio.wait_for(
+                    runtime.statistics.for_scope(scope_id).overview(period=StatisticsPeriod.TODAY),
+                    timeout=1,
+                )
+                assert result.recall.totals.preparations == 0
+            finally:
+                release.set()
+
+    asyncio.run(scenario())
+
+
+def test_recall_token_recorder_rejects_nonpositive_bounds() -> None:
+    async def noop_estimate(_scope_id: str, _build) -> RecallTokenMeasurement | None:
+        return None
+
+    async def scenario() -> None:
+        async with SQLiteProfile.open(SQLiteConfig(), tables=()) as profile:
+            for capacity, write_timeout, flush_timeout in (
+                (0, 1.0, 0.5),
+                (1, 0.0, 0.5),
+                (1, 1.0, 0.0),
+            ):
+                with pytest.raises(ValueError, match="positive"):
+                    RecallTokenRecorder(
+                        profile.database,
+                        StatisticsRepository(),
+                        noop_estimate,
+                        queue_capacity=capacity,
+                        write_timeout_seconds=write_timeout,
+                        flush_timeout_seconds=flush_timeout,
+                    )
+
+    asyncio.run(scenario())
+
+
+def test_recall_accounting_drops_overflow_without_failing_prepare(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    original = RelationalRecallTokenEstimator.estimate
+
+    async def scenario() -> None:
+        started = asyncio.Event()
+        release = asyncio.Event()
+
+        async def paused_estimate(self, build):
+            started.set()
+            await release.wait()
+            return await original(self, build)
+
+        monkeypatch.setattr(RelationalRecallTokenEstimator, "estimate", paused_estimate)
+        with caplog.at_level(logging.WARNING, logger="powercontext.builtin.runtime.recall"):
+            async with open_builtin_runtime(
+                BuiltinConfig(
+                    database=SQLiteConfig(),
+                    runtime=RuntimeConfig(recall_token_queue_capacity=1),
+                ),
+                dispatch_processing=False,
+            ) as runtime:
+                try:
+                    scope_id = await _create_scope(runtime, "recall-overflow")
+                    await runtime.context.for_scope(scope_id).prepare(PrepareContextRequest(query="first"))
+                    await asyncio.wait_for(started.wait(), timeout=2)
+                    # Capacity is 1: the second job fills the queue and the third overflows cleanly.
+                    await runtime.context.for_scope(scope_id).prepare(PrepareContextRequest(query="second"))
+                    third = await runtime.context.for_scope(scope_id).prepare(PrepareContextRequest(query="third"))
+                    assert isinstance(third, PreparedContext)
+                finally:
+                    release.set()
+                result = await runtime.statistics.for_scope(scope_id).overview(period=StatisticsPeriod.TODAY)
+
+        assert result.recall.totals.preparations == 2
+        assert any("Recall token queue full; record dropped" in record.getMessage() for record in caplog.records)
+
+    asyncio.run(scenario())
+
+
+def test_recall_accounting_does_not_resurrect_deleted_scope() -> None:
+    async def scenario() -> None:
+        started = asyncio.Event()
+        release = asyncio.Event()
+        scope_id = "scp_deleted_recall"
+        now = datetime.now(UTC)
+
+        async def paused_estimate(_scope_id: str, _build: PreparedContextBuild) -> RecallTokenMeasurement:
+            started.set()
+            await release.wait()
+            return RecallTokenMeasurement(
+                estimator=character_token_estimator().profile,
+                ready=False,
+                comparable=False,
+                baseline_tokens=0,
+                recalled_tokens=0,
+            )
+
+        async with SQLiteProfile.open(SQLiteConfig(), tables=(SCOPES_TABLE, RECALL_TOKEN_DAILY_TABLE)) as profile:
+            async with profile.database.transaction() as connection:
+                await connection.execute(
+                    insert(SCOPES_TABLE).values(
+                        scope_id=scope_id,
+                        title="Deleted Scope",
+                        summary="Deleted before recall write.",
+                        scope_id_search=scope_id,
+                        title_search="deleted scope",
+                        summary_search="deleted before recall write.",
+                        version=1,
+                    )
+                )
+            recorder = RecallTokenRecorder(
+                profile.database,
+                StatisticsRepository(),
+                paused_estimate,
+                queue_capacity=4,
+                write_timeout_seconds=1.0,
+                flush_timeout_seconds=1.0,
+            )
+            try:
+                build = PreparedContextBuild(context=PreparedContextBuilder().empty(), origins=())
+                recorder.offer(scope_id, build, now.date())
+                await asyncio.wait_for(started.wait(), timeout=2)
+                async with profile.database.transaction() as connection:
+                    await connection.execute(delete(SCOPES_TABLE).where(SCOPES_TABLE.c.scope_id == scope_id))
+                release.set()
+                await recorder.flush()
+            finally:
+                release.set()
+                await recorder.close()
+
+            async with profile.database.transaction() as connection:
+                rows = (
+                    await connection.execute(
+                        select(RECALL_TOKEN_DAILY_TABLE).where(RECALL_TOKEN_DAILY_TABLE.c.scope_id == scope_id)
+                    )
+                ).all()
+            assert rows == []
 
     asyncio.run(scenario())
 
