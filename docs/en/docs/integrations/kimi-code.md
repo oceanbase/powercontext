@@ -106,6 +106,140 @@ In full mode, propose or generate an Experience/Skill only on request, inspect i
 
 Use the current Scope for all operations and the actual native tool names in Kimi's catalog; Kimi may shorten long qualified names. Missing, denied or failed MCP operations remain incomplete. Guidance never authorizes HTTP/shell domain writes as a substitute. Setup and profile selection do not bypass host approvals.
 
+## Leave prompt-time context to the gateway
+
+When Kimi sends its model requests through the PowerContext gateway, the gateway prepares and injects context for each
+turn and, with `PC_GATEWAY_SEDIMENT=on`, captures the turn. Core checks every request the gateway forwards and rejects
+a prepared-context block that the gateway did not inject, in every mode. The plugin's hook result carries such a
+block, so Core rejects the request with HTTP 422, the gateway returns HTTP 503 `gate_paused`, and the model never
+receives the turn. Keep the plugin defaults where Kimi calls its model directly.
+
+Kimi sends some reminders as separate user messages after the prompt: the date and this plugin's session-start Skill
+on the first turn of a session, and the permission-mode reminder on every `kimi -p` turn. The gateway skips these
+reminders when it selects the turn's prompt. It prepares context for the prompt, injects it there, and captures the
+prompt as the turn's text. It forwards the reminders to the model unchanged.
+
+### Choose the Core target
+
+Core needs a target for the profile that `PC_GATEWAY_UPSTREAM_PROFILE` names (`default` unless set). Kimi sends
+`max_output_tokens`, `store: false`, and its session ID as `prompt_cache_key`, so an enforcing Core admits its requests
+when the target declares `context_window_tokens`, `max_output_tokens`, and `validated_utf8_token_bound`, and lists
+`provider-default` in `allowed_cache_retention`. Kimi sends the model's `max_output_size` as `max_output_tokens`, so
+set it no higher than the target's `max_output_tokens`. When `max_output_size` is not set, Kimi 2.1.1's source falls
+back to the model's `max_context_size`. The window check counts each UTF-8 byte of the request as a token, so leave
+room in `context_window_tokens` for Kimi's tool definitions, system prompt and conversation. Restart the gateway after
+changing Core's mode, because it discovers the mode at startup. See
+[Context reuse and final admission](../operate/context-protection.md) and
+[Inference privacy protection](../operate/inference-protection.md) before choosing a mode.
+
+### Point Kimi at the gateway
+
+Add an `openai_responses` provider for the gateway's `/gateway/v1` to Kimi's `config.toml`, with the gateway key as its
+API key:
+
+```toml
+default_model = "gateway"
+
+[providers.powercontext-gateway]
+type = "openai_responses"
+base_url = "http://127.0.0.1:8787/gateway/v1"
+api_key = "<PC_GATEWAY_API_KEY value>"
+
+[providers.powercontext-gateway.custom_headers]
+X-PowerContext-Scope-ID = "<the plugin's Scope ID>"
+
+[models.gateway]
+provider = "powercontext-gateway"
+model = "approved-model"
+max_context_size = 64000
+max_output_size = 32000
+capabilities = ["tool_use"]
+```
+
+Use the Responses API. Kimi always streams. On the Responses route, the gateway calls the model without streaming and
+replays the checked response to Kimi as a stream, so the turn completes and is captured. On the Chat Completions route
+(`type = "openai"`), an enforcing Core withholds the streamed response and the turn fails.
+
+The gateway accepts a model request of at most 1 MiB, measured after it injects context and adds its cost guidance,
+and configuration cannot raise this ceiling; see [Gateway byte capacity](../operate/deploy-server.md#gateway-byte-capacity).
+A request that arrives larger fails with HTTP 413, and one that grows past it through injection or cost guidance fails with
+HTTP 403 `request_payload_too_large`, before the model is called. The window check of an enforcing Core, which counts
+each byte as a token (see [Choose the Core target](#choose-the-core-target)), is tighter: with the example's
+`max_output_size` of 32000, a target with `context_window_tokens = 400000` withholds a request of more than about
+368,000 bytes with `context_window_exceeded`. Kimi sends the whole history on every request, so a long session reaches
+these limits unless Kimi compacts it first. Set `max_context_size` low enough that Kimi compacts well before a request
+reaches them.
+
+Kimi 2.1.1's compaction trigger was not recorded, so the example assumes that Kimi compacts only when the context
+reaches `max_context_size`. The example's `64000` then compacts at about 256 KB at four UTF-8 bytes per token, and
+leaves the rest of that target's limit for injected context, cost guidance, JSON overhead, and the tool results of one
+prompt. With a non-enforcing Core, only the 1 MiB ceiling applies, and `128000`, about 512 KB, fits. These values are
+derived from the limits; they were not measured against Kimi's compaction.
+
+`X-PowerContext-Scope-ID` selects the Scope in which the gateway prepares, checks, and captures. The gateway uses the
+Scope that this header names, or `PC_GATEWAY_DEFAULT_SCOPE` without it (`gateway:default` when that is unset), not the
+Scope the plugin resolves for each workspace. Kimi sends a provider's `custom_headers` with every request of every
+session, so one provider entry selects one Scope. Keep the two Scopes the same: run setup with `--scope-id` set to the
+header's Scope, or add one provider entry per project. `node "<Kimi home>/plugins/managed/powercontext/scripts/scope.mjs"
+resolve --cwd /absolute/project` prints the plugin's current `scope_id`.
+
+In a combined deployment (`PC_GATEWAY_CORE_UDS`), the gateway forwards Core API requests to Core with the client's own
+credentials, so the plugin's Server URL, which its hook and MCP tools share, can be the gateway's address.
+
+### Turn the plugin's prompt recall and capture off
+
+```bash
+export POWERCONTEXT_KIMI_PROMPT_RECALL=false
+powercontext setup kimi-code --source /path/to/powercontext --no-capture-prompts
+kimi
+```
+
+The hook reads `POWERCONTEXT_KIMI_PROMPT_RECALL` from the environment Kimi starts with, so set it in the shell or in
+the IDE or ACP launcher that starts Kimi; setup does not store it. It defaults to `true`. `false`, `0`, `no` and `off`
+turn recall off, `true`, `1`, `yes` and `on` keep it on, and any other value makes the hook skip the prompt with
+`invalid_settings`.
+
+With recall off, the hook sends no preparation request and injects nothing, so its message no longer carries this
+request's binding metadata. The Skill then resolves the Scope with its `scope.mjs resolve` script, a shell command that
+Kimi may ask you to approve. The hook still captures prompts unless setup turned capture off; with both off, it sends no
+request for a prompt. The MCP tools and the Skill keep working; they return no prepared-context block. After a prompt,
+`powercontext doctor kimi-code --runtime --json` in the workspace reports the runtime check's `prepare` as
+`skipped: disabled`.
+
+Start a new session after the change. Kimi stores each hook result in the session and sends it again with every later
+turn, so a session that ran with recall on keeps the plugin's block, and Core rejects every later request of that
+session.
+
+### Configure the gateway
+
+- Set `PC_GATEWAY_UPSTREAM_URL_RESPONSES` and `PC_GATEWAY_UPSTREAM_API_KEY_RESPONSES` to the target's `endpoint` and
+  the provider key, `PC_GATEWAY_API_KEY` to the key in Kimi's provider, `PC_GATEWAY_SEDIMENT=on`, and
+  `PC_GATEWAY_CORE_TOKEN` when Core enforces authentication.
+- Without `X-PowerContext-Scope-ID`, the gateway prepares and captures every conversation in the one Scope that
+  `PC_GATEWAY_DEFAULT_SCOPE` names. Set it to the plugin's Scope in that case.
+- Run the gateway in a combined deployment (`PC_GATEWAY_CORE_UDS`), which injects Kimi's requests by default. Kimi
+  2.1.1 sends no per-session header, and a provider's `custom_headers` are the same for every session, so the gateway
+  infers the conversation from the request instead. Kimi sends the whole history on every request, without
+  `previous_response_id` or `conversation`. It sends the same `instructions` on every request of a session, and the
+  history starts with the first user message. The gateway therefore prepares once per user message and replays that
+  context to the tool-loop steps.
+- The inferred ID is local to the gateway process and serves only this replay. Sessions that open with the same
+  instructions and first user message share one. The gateway still captures each completed turn. Without a
+  conversation header, capture has no conversation identity that survives a gateway restart, and prefix extraction is
+  not available.
+- According to its source, Kimi 2.1.1 sends its compaction request to the same provider. The request carries the
+  session's history and Kimi's summary instruction as the last user message, and Kimi cannot mark it as internal. The
+  gateway therefore treats it as a turn: it prepares context for the instruction and, with `PC_GATEWAY_SEDIMENT=on`,
+  captures the summary as a turn. Compaction replaces the earlier conversation with the summary, so afterwards the
+  gateway can infer a new conversation and prepare again. Kimi 2.1.1 requests session titles only from its own Kimi
+  Code service, not from this provider.
+- A standalone gateway (`PC_GATEWAY_CORE_BASE`) injects only with `PC_GATEWAY_INJECTION=on`. Do not put a fixed
+  `X-PowerContext-Conversation-ID` in `custom_headers`, because the gateway would then treat every session as one
+  conversation.
+
+See [Gateway context injection](../operate/deploy-server.md#gateway-context-injection) and
+[Gateway authentication boundaries](../operate/deploy-server.md#gateway-authentication-boundaries).
+
 ## Diagnose and remove
 
 doctor is readonly: it checks registration/enablement, Node, MCP/Hook declarations, Server readiness and Scope access. It does not prove that a real MCP call or model injection succeeded. Missing/wrong tokens surface as authentication_failed; a disabled plugin/MCP stays disabled after setup. Incorrect endpoints or inaccessible Scopes require explicit correction and a new session.

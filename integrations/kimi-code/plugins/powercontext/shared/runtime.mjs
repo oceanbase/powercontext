@@ -22,6 +22,7 @@ import { fileURLToPath } from 'node:url'
 
 export const MAX_CONTEXT_BYTES = 8000
 export const TOKEN_ENV = 'POWERCONTEXT_KIMI_TOKEN'
+export const PROMPT_RECALL_ENV = 'POWERCONTEXT_KIMI_PROMPT_RECALL'
 
 export class Failure extends Error {
   constructor(code, httpStatus, requestSent = false) {
@@ -51,6 +52,15 @@ export function loadSettings({ credentials = true } = {}) {
   return { serverUrl: url.origin, scopeId: value.scope_id, capturePrompts: value.capture_prompts,
     profile: value.profile ?? 'minimal', useToken: value.use_token,
     authorization: credentials ? authorization(value.use_token) : undefined }
+}
+
+// Off when the PowerContext gateway carries Kimi's model traffic and injects context itself.
+export function promptRecall(env = process.env) {
+  const value = env[PROMPT_RECALL_ENV]?.trim().toLowerCase()
+  if (!value) return true
+  if (['1', 'true', 'yes', 'on'].includes(value)) return true
+  if (['0', 'false', 'no', 'off'].includes(value)) return false
+  throw new Failure('invalid_settings')
 }
 
 export function profileTools(profile) {

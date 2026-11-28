@@ -137,7 +137,14 @@ zcode = [
   "integrations/zcode/**", "evaluation/zcode_guidance/**", "tests/*zcode*", "integrations/pi/**",
   "tests/e2e/test_cross_host_work_continuity.py", "tests/e2e/cross_host_work_continuity/**",
 ]
-kimi = ["integrations/kimi-code/**", "tests/*kimi*", ".github/workflows/kimi-code-acceptance.yml"]
+# The Kimi gateway chain reuses the Responses host model, the gateway and UDS Server fixtures, and the ZCode acceptance
+# wire fixtures.
+kimi = [
+  "integrations/kimi-code/**", "tests/*kimi*", ".github/workflows/kimi-code-acceptance.yml",
+  "tests/e2e/zcode_acceptance/protocol.py", "tests/e2e/zcode_acceptance/runner.py",
+  "tests/e2e/host_models/responses.py", "tests/e2e/host_models/script.py",
+  "tests/e2e/test_gateway_authentication.py", "tests/e2e/test_server_uds.py",
+]
 upgrade = [
   "scripts/oceanbase_ci.py",
   "scripts/run_atomic_memory_clean_migration.py", "scripts/build_ops_bundle.py",
