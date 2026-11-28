@@ -16,7 +16,7 @@
 
 from __future__ import annotations
 
-from sqlalchemy import or_, select, text, update
+from sqlalchemy import func, or_, select, text, update
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from powercontext.builtin.persistence.tables import (
@@ -82,6 +82,32 @@ async def _column_nullability(connection: AsyncConnection, table_name: str) -> d
 
 
 async def _backfill_scopes(connection: AsyncConnection) -> None:
+    await connection.execute(
+        update(SCOPES_TABLE)
+        .where(
+            or_(
+                SCOPES_TABLE.c.title.is_(None),
+                func.trim(SCOPES_TABLE.c.title) == "",
+            )
+        )
+        .values(
+            title=SCOPES_TABLE.c.scope_id,
+            title_search=SCOPES_TABLE.c.scope_id,
+        )
+    )
+    await connection.execute(
+        update(SCOPES_TABLE)
+        .where(
+            or_(
+                SCOPES_TABLE.c.summary.is_(None),
+                func.trim(SCOPES_TABLE.c.summary) == "",
+            )
+        )
+        .values(
+            summary=SCOPES_TABLE.c.scope_id,
+            summary_search=SCOPES_TABLE.c.scope_id,
+        )
+    )
     rows = (
         await connection.execute(
             select(
