@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Install the alias projection through the registered MySQL DDL executor."""
+"""Install Atomic Memory aliases and input-budget recovery with registered DDL."""
 
 from alembic import context
 

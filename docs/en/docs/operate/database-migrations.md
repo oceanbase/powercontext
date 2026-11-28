@@ -175,7 +175,7 @@ literal mutable draft ID `000`. The registered revisions are:
 | `v1_5_0_005` | 1.5.0 | 5 | `v1_5_0_005` | Remove previous plugin-framework storage and add nullable Artifact metadata |
 | `v1_5_0_006` | 1.5.0 | 6 | `v1_5_0_006` | Source collection runner and target tables; remove the write plugin registry |
 | `v1_6_0` | 1.6.0 | — | `v1_6_0` | Independent prepare diagnostics |
-| `000` | — | — | `000` | Disposable historical Atomic Memory alias projection |
+| `000` | — | — | `000` | Disposable historical Atomic Memory alias projection and durable input-budget recovery |
 
 Both registered source paths reach `000` after `v1_6_0`; only 1.3.0 is selected for CI upgrade acceptance:
 

@@ -175,6 +175,10 @@ from powercontext.builtin.runtime.artifact_processing import (
 from powercontext.builtin.runtime.artifact_search import ArtifactSearchService
 from powercontext.builtin.runtime.atomic_memory_input import render_atomic_memory_input
 from powercontext.builtin.runtime.atomic_memory_processing import AtomicMemoryProcessingConfig
+from powercontext.builtin.runtime.atomic_memory_recovery import (
+    AtomicMemoryRecoveryService,
+    atomic_memory_processing_block,
+)
 from powercontext.builtin.runtime.atomic_memory_search import AtomicArtifactSearcher
 from powercontext.builtin.runtime.config import BuiltinConfig, ExternalSkillsConfig, InferenceConfig, RuntimeConfig
 from powercontext.builtin.runtime.decision_model import (
@@ -921,6 +925,7 @@ async def open_builtin_runtime(  # noqa: C901
                 topic_memory_browse=contexts.browse_topic_memories,
                 topic_memory_flush=contexts.request_topic_memory_flush,
                 topic_memory_recovery=TopicMemoryRecoveryService(contexts.database),
+                atomic_memory_recovery=AtomicMemoryRecoveryService(contexts.atomic_memory_processor),
                 topic_memory_embedding_model=configured_embedding,
                 topic_memory_processing_available=topic_memory_processing_available,
                 topic_memory_search_observer=topic_memory_search_observer,
@@ -1121,6 +1126,8 @@ def _artifact_processing_bindings(  # noqa: C901 - validate and assemble one reg
                 automatic_scope_filter=enabled_profile_scopes if family == "profile" else None,
                 work_block=partial(topic_memory_processing_block, dream_enabled=config.runtime.dream_enabled)
                 if family == "topic-memory"
+                else partial(atomic_memory_processing_block, dream_enabled=config.runtime.dream_enabled)
+                if family == "memory"
                 else None,
                 worker_model_usage_observer=worker_model_usage_observer,
                 work_failure=record_topic_memory_work_failure if family == "topic-memory" else None,

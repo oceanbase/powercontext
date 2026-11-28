@@ -77,6 +77,7 @@ class ArtifactProcessingBlock:
     stage: str
     error_code: str
     details: tuple[tuple[str, int], ...] = ()
+    diagnostics: ProcessingDiagnostics | None = None
 
 
 class ArtifactProcessingBlockedError(RuntimeError):

@@ -44,6 +44,7 @@ from powercontext.builtin.artifacts.atomic_memory.models import (
     AtomicMemoryContent,
     AtomicMemoryMutationResult,
 )
+from powercontext.builtin.artifacts.atomic_memory.processing import AtomicMemoryRecoveryUnavailableError
 from powercontext.builtin.artifacts.experience import (
     EXPERIENCE_INCUBATION_WINDOW_LIMIT,
     Experience,
@@ -201,6 +202,7 @@ from powercontext.builtin.runtime.atomic_memory import (
     AtomicMemoryDependencySnapshot,
     AtomicMemorySearchHit,
 )
+from powercontext.builtin.runtime.atomic_memory_recovery import AtomicMemoryRecoveryService
 from powercontext.builtin.runtime.bootstrap_context import (
     BootstrapBuild,
     BootstrapCandidate,
@@ -348,6 +350,7 @@ from powercontext.builtin.tags import (
     TagQueryPage,
     TagTarget,
 )
+from powercontext.builtin.triggers import SOURCE_WINDOW_TRIGGER_NAME
 from powercontext.builtin.work import (
     HANDOFF_BOUNDARY_SOURCE_KIND,
     HANDOFF_RECEIPT_SOURCE_KIND,
@@ -4057,6 +4060,39 @@ class ScopedAtomicMemoryApplication:
         self._scoped = application.for_scope(validate_scope_id(scope_id))
         self.scope_id = validate_scope_id(scope_id)
 
+    def _recovery(self):
+        if self._runtime._atomic_memory_recovery is None:
+            raise AtomicMemoryRecoveryUnavailableError
+        return self._runtime._atomic_memory_recovery
+
+    async def processing_status(self):
+        async with self._runtime._scope_operation(self.scope_id):
+            return await self._recovery().status(self.scope_id)
+
+    async def get_block(self, block_id: str):
+        async with self._runtime._scope_operation(self.scope_id):
+            return await self._recovery().get_block(self.scope_id, block_id)
+
+    async def retry(self, block_id: str, *, context=None):
+        async with self._runtime._scope_operation(self.scope_id):
+            result = await self._recovery().retry(self.scope_id, block_id, context=context)
+        supervisor = self._runtime.artifact_processing_supervisor
+        if supervisor is not None:
+            try:
+                supervisor.wake(SOURCE_WINDOW_TRIGGER_NAME)
+            except Exception:
+                log_safely(
+                    logger,
+                    logging.WARNING,
+                    "Memory supervisor wake failed after recovery acceptance",
+                    extra={
+                        "event": "atomic_memory.retry.wake_failed",
+                        "outcome": "accepted",
+                        "unit": "memory",
+                    },
+                )
+        return result
+
     async def get(self, artifact_id: str, *, revision: int | None = None, context=None):
         async with self._runtime._scope_operation(self.scope_id):
             return await self._scoped.get(artifact_id, revision=revision, context=context)
@@ -4470,6 +4506,7 @@ class BuiltinRuntime:
         topic_memory_browse: TopicMemoryBrowse | None = None,
         topic_memory_flush: TopicMemoryFlush | None = None,
         topic_memory_recovery: TopicMemoryRecoveryService | None = None,
+        atomic_memory_recovery: AtomicMemoryRecoveryService | None = None,
         topic_memory_embedding_model: EmbeddingModel | None = None,
         topic_memory_processing_available: bool = False,
         topic_memory_search_observer: TopicMemorySearchObserver | None = None,
@@ -4548,6 +4585,7 @@ class BuiltinRuntime:
         self._topic_memory_browse = topic_memory_browse
         self._topic_memory_flush = topic_memory_flush
         self._topic_memory_recovery = topic_memory_recovery
+        self._atomic_memory_recovery = atomic_memory_recovery
         self._topic_memory_embedding_model = topic_memory_embedding_model
         self._topic_memory_processing_available = topic_memory_processing_available
         self._topic_memory_search_observer = topic_memory_search_observer

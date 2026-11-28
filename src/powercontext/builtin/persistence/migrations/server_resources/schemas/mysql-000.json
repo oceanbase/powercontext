@@ -3,7 +3,8 @@
   "revisions": {
     "000": {
       "statements": [
-        "CREATE TABLE pc_atomic_memory_alias (\n\tscope_id VARCHAR(256) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, \n\talias_artifact_id VARCHAR(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, \n\ttarget_artifact_id VARCHAR(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, \n\talias_revision BIGINT NOT NULL, \n\tmerged_state_version BIGINT NOT NULL, \n\tprojection_format VARCHAR(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, \n\tkind MEDIUMTEXT NOT NULL, \n\ttext MEDIUMTEXT NOT NULL, \n\tsearchable_text MEDIUMTEXT NOT NULL, \n\tembedding BLOB, \n\tprofile_fingerprint VARCHAR(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin, \n\tembedding_input_hash VARCHAR(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin, \n\tPRIMARY KEY (scope_id, alias_artifact_id), \n\tCONSTRAINT ck_pc_atomic_memory_alias_revision CHECK (alias_revision > 0), \n\tCONSTRAINT ck_pc_atomic_memory_alias_state_version CHECK (merged_state_version >= 0), \n\tCONSTRAINT ck_pc_atomic_memory_alias_embedding_metadata CHECK ((embedding IS NULL AND profile_fingerprint IS NULL AND embedding_input_hash IS NULL) OR (embedding IS NOT NULL AND profile_fingerprint IS NOT NULL AND embedding_input_hash IS NOT NULL))\n)"
+        "CREATE TABLE pc_atomic_memory_alias (\n\tscope_id VARCHAR(256) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, \n\talias_artifact_id VARCHAR(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, \n\ttarget_artifact_id VARCHAR(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, \n\talias_revision BIGINT NOT NULL, \n\tmerged_state_version BIGINT NOT NULL, \n\tprojection_format VARCHAR(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, \n\tkind MEDIUMTEXT NOT NULL, \n\ttext MEDIUMTEXT NOT NULL, \n\tsearchable_text MEDIUMTEXT NOT NULL, \n\tembedding BLOB, \n\tprofile_fingerprint VARCHAR(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin, \n\tembedding_input_hash VARCHAR(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin, \n\tPRIMARY KEY (scope_id, alias_artifact_id), \n\tCONSTRAINT ck_pc_atomic_memory_alias_revision CHECK (alias_revision > 0), \n\tCONSTRAINT ck_pc_atomic_memory_alias_state_version CHECK (merged_state_version >= 0), \n\tCONSTRAINT ck_pc_atomic_memory_alias_embedding_metadata CHECK ((embedding IS NULL AND profile_fingerprint IS NULL AND embedding_input_hash IS NULL) OR (embedding IS NOT NULL AND profile_fingerprint IS NOT NULL AND embedding_input_hash IS NOT NULL))\n)",
+        "CREATE TABLE pc_memory_work_blocks (\n\tblock_id VARCHAR(36) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, \n\tscope_id VARCHAR(256) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, \n\tbinding_name VARCHAR(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, \n\tsource_after BIGINT NOT NULL, \n\tsource_through BIGINT NOT NULL, \n\tactive INTEGER, \n\tinput_fingerprint VARCHAR(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, \n\testimated_input_tokens BIGINT NOT NULL, \n\teffective_budget BIGINT NOT NULL, \n\ttoken_estimator_id VARCHAR(128) NOT NULL, \n\tfailure_location VARCHAR(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, \n\tblocked_at DATETIME(6) NOT NULL, \n\tretried_at DATETIME(6), \n\tretry_request_generation BIGINT, \n\tPRIMARY KEY (block_id), \n\tCONSTRAINT ck_pc_memory_block_window CHECK (source_after >= 0 AND source_through = source_after + 1), \n\tCONSTRAINT ck_pc_memory_block_budget CHECK (effective_budget > 0 AND estimated_input_tokens > effective_budget), \n\tCONSTRAINT ck_pc_memory_block_acceptance CHECK ((active IS NOT NULL AND active = 1 AND retried_at IS NULL AND retry_request_generation IS NULL) OR (active IS NULL AND retried_at IS NOT NULL AND retry_request_generation IS NOT NULL AND retry_request_generation > 0)), \n\tCONSTRAINT uq_pc_memory_block_frontier UNIQUE (scope_id, binding_name, source_after, active)\n)"
       ],
       "changes": [
         {
@@ -265,6 +266,386 @@
               }
             },
             "indexes": {}
+          }
+        },
+        {
+          "pc_memory_work_blocks": {
+            "columns": {
+              "active": {
+                "type": [
+                  "int",
+                  []
+                ],
+                "nullable": true,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              },
+              "binding_name": {
+                "type": [
+                  "varchar",
+                  [
+                    "128"
+                  ]
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": "utf8mb4_bin",
+                "extra": []
+              },
+              "block_id": {
+                "type": [
+                  "varchar",
+                  [
+                    "36"
+                  ]
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": "utf8mb4_bin",
+                "extra": []
+              },
+              "blocked_at": {
+                "type": [
+                  "datetime",
+                  [
+                    "6"
+                  ]
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              },
+              "effective_budget": {
+                "type": [
+                  "bigint",
+                  []
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              },
+              "estimated_input_tokens": {
+                "type": [
+                  "bigint",
+                  []
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              },
+              "failure_location": {
+                "charset": "utf8mb4",
+                "collation": "utf8mb4_bin",
+                "default": null,
+                "extra": [],
+                "nullable": false,
+                "type": [
+                  "varchar",
+                  [
+                    "32"
+                  ]
+                ]
+              },
+              "input_fingerprint": {
+                "type": [
+                  "varchar",
+                  [
+                    "64"
+                  ]
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": "utf8mb4_bin",
+                "extra": []
+              },
+              "retried_at": {
+                "type": [
+                  "datetime",
+                  [
+                    "6"
+                  ]
+                ],
+                "nullable": true,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              },
+              "retry_request_generation": {
+                "type": [
+                  "bigint",
+                  []
+                ],
+                "nullable": true,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              },
+              "scope_id": {
+                "type": [
+                  "varchar",
+                  [
+                    "256"
+                  ]
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": "utf8mb4_bin",
+                "extra": []
+              },
+              "source_after": {
+                "type": [
+                  "bigint",
+                  []
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              },
+              "source_through": {
+                "type": [
+                  "bigint",
+                  []
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              },
+              "token_estimator_id": {
+                "type": [
+                  "varchar",
+                  [
+                    "128"
+                  ]
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              }
+            },
+            "primary_key": [
+              [
+                "block_id",
+                null,
+                "asc"
+              ]
+            ],
+            "foreign_keys": [],
+            "checks": {
+              "ck_pc_memory_block_window": {
+                "expression": [
+                  "binary",
+                  "and",
+                  [
+                    "binary",
+                    ">=",
+                    [
+                      "column",
+                      "source_after"
+                    ],
+                    [
+                      "number",
+                      0
+                    ]
+                  ],
+                  [
+                    "binary",
+                    "=",
+                    [
+                      "column",
+                      "source_through"
+                    ],
+                    [
+                      "binary",
+                      "+",
+                      [
+                        "column",
+                        "source_after"
+                      ],
+                      [
+                        "number",
+                        1
+                      ]
+                    ]
+                  ]
+                ],
+                "enforced": true
+              },
+              "ck_pc_memory_block_budget": {
+                "expression": [
+                  "binary",
+                  "and",
+                  [
+                    "binary",
+                    ">",
+                    [
+                      "column",
+                      "effective_budget"
+                    ],
+                    [
+                      "number",
+                      0
+                    ]
+                  ],
+                  [
+                    "binary",
+                    ">",
+                    [
+                      "column",
+                      "estimated_input_tokens"
+                    ],
+                    [
+                      "column",
+                      "effective_budget"
+                    ]
+                  ]
+                ],
+                "enforced": true
+              },
+              "ck_pc_memory_block_acceptance": {
+                "expression": [
+                  "binary",
+                  "or",
+                  [
+                    "binary",
+                    "and",
+                    [
+                      "binary",
+                      "and",
+                      [
+                        "binary",
+                        "and",
+                        [
+                          "is_not_null",
+                          [
+                            "column",
+                            "active"
+                          ]
+                        ],
+                        [
+                          "binary",
+                          "=",
+                          [
+                            "column",
+                            "active"
+                          ],
+                          [
+                            "number",
+                            1
+                          ]
+                        ]
+                      ],
+                      [
+                        "is_null",
+                        [
+                          "column",
+                          "retried_at"
+                        ]
+                      ]
+                    ],
+                    [
+                      "is_null",
+                      [
+                        "column",
+                        "retry_request_generation"
+                      ]
+                    ]
+                  ],
+                  [
+                    "binary",
+                    "and",
+                    [
+                      "binary",
+                      "and",
+                      [
+                        "binary",
+                        "and",
+                        [
+                          "is_null",
+                          [
+                            "column",
+                            "active"
+                          ]
+                        ],
+                        [
+                          "is_not_null",
+                          [
+                            "column",
+                            "retried_at"
+                          ]
+                        ]
+                      ],
+                      [
+                        "is_not_null",
+                        [
+                          "column",
+                          "retry_request_generation"
+                        ]
+                      ]
+                    ],
+                    [
+                      "binary",
+                      ">",
+                      [
+                        "column",
+                        "retry_request_generation"
+                      ],
+                      [
+                        "number",
+                        0
+                      ]
+                    ]
+                  ]
+                ],
+                "enforced": true
+              }
+            },
+            "indexes": {
+              "uq_pc_memory_block_frontier": {
+                "columns": [
+                  [
+                    "scope_id",
+                    null,
+                    "asc"
+                  ],
+                  [
+                    "binding_name",
+                    null,
+                    "asc"
+                  ],
+                  [
+                    "source_after",
+                    null,
+                    "asc"
+                  ],
+                  [
+                    "active",
+                    null,
+                    "asc"
+                  ]
+                ],
+                "unique": true
+              }
+            }
           }
         }
       ]

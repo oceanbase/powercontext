@@ -2662,6 +2662,91 @@ class FlushMemoryRequest(BaseModel):
     scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
 
 
+class AtomicMemoryProcessingStatusRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
+
+
+class GetAtomicMemoryProcessingBlockRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
+    block_id: Annotated[StrictStr, Field(max_length=36, min_length=1)]
+
+
+class RetryAtomicMemoryProcessingRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
+    block_id: Annotated[StrictStr, Field(max_length=36, min_length=1)]
+
+
+class FailureLocation(StrEnum):
+    ATOMIC_MEMORY_EXTRACT = "atomic_memory.extract"
+
+
+class ErrorCode(StrEnum):
+    INPUT_BUDGET_EXCEEDED = "input_budget_exceeded"
+
+
+class AtomicMemoryProcessingBlock(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    block_id: UUID
+    scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1)]
+    binding_name: Annotated[StrictStr, Field(max_length=128)]
+    source_after: Annotated[StrictInt, Field(ge=0)]
+    source_through: Annotated[StrictInt, Field(ge=1)]
+    input_fingerprint: Annotated[
+        StrictStr,
+        Field(
+            description="SHA-256 of the complete rendered extraction input and effective instructions at rejection; no input content is returned.",
+            pattern="^[a-f0-9]{64}$",
+        ),
+    ]
+    estimated_input_tokens: Annotated[StrictInt, Field(ge=1)]
+    effective_budget: Annotated[StrictInt, Field(ge=1)]
+    token_estimator_id: Annotated[StrictStr, Field(max_length=128)]
+    failure_location: FailureLocation
+    error_code: ErrorCode
+    blocked_at: AwareDatetime
+    retried_at: Annotated[AwareDatetime | None, Field(...)]
+    retry_request_generation: Annotated[StrictInt | None, Field(ge=1)]
+
+
+class State1(StrEnum):
+    IDLE = "idle"
+    PENDING = "pending"
+    BLOCKED = "blocked"
+
+
+class AtomicMemoryProcessingStatus(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    state: State1
+    source_cursor: Annotated[StrictInt, Field(ge=0)]
+    source_head: Annotated[StrictInt, Field(ge=0)]
+    block: Annotated[AtomicMemoryProcessingBlock | None, Field(...)]
+
+
+class Status2(StrEnum):
+    ACCEPTED = "accepted"
+
+
+class RetryAtomicMemoryProcessingResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    status: Status2
+    block: AtomicMemoryProcessingBlock
+
+
 class TopicMemoryProcessingStatusRequest(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -3036,7 +3121,7 @@ class GitObjectFormat(StrEnum):
     SHA256 = "sha256"
 
 
-class Status2(StrEnum):
+class Status3(StrEnum):
     OK = "ok"
     PARTIAL = "partial"
 
@@ -3054,7 +3139,7 @@ class CodeQueryResult(BaseModel):
     dirty: StrictBool
     checked_at: StrictStr
     operation: StrictStr
-    status: Status2 = Status2.OK
+    status: Status3 = Status3.OK
     items: list[dict[str, Any]] | None = None
     coverage: dict[str, Any] | None = None
     limitations: list[StrictStr] | None = None
@@ -3064,7 +3149,7 @@ class Schema11(StrEnum):
     POWERCONTEXT_CODE_STATUS_V1 = "powercontext.code-status.v1"
 
 
-class Status3(StrEnum):
+class Status4(StrEnum):
     DISABLED = "disabled"
     MISSING = "missing"
     BUILDING = "building"
@@ -3085,7 +3170,7 @@ class CodeStatus(BaseModel):
     )
     schema_: Annotated[Schema11, Field(alias="schema")] = Schema11.POWERCONTEXT_CODE_STATUS_V1
     scope_id: StrictStr
-    status: Status3
+    status: Status4
     freshness: Freshness = Freshness.UNKNOWN
     fingerprint: Annotated[StrictStr | None, Field(pattern="^[0-9a-f]{64}$")] = None
     engine: StrictStr = "powercontext-native-v1"
@@ -3825,7 +3910,7 @@ class PromptDemonstration(BaseModel):
     expected_output: Annotated[Any, Field(description="Desired JSON output matching the registered Prompt Definition.")]
 
 
-class Status4(StrEnum):
+class Status5(StrEnum):
     SUPPORTED = "supported"
     DISABLED = "disabled"
     UNSUPPORTED = "unsupported"
@@ -3854,7 +3939,7 @@ class PromptCapability(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    status: Status4
+    status: Status5
     reason: Annotated[Reason1 | None, Field(...)]
     definition_version: StrictStr
     builtin_version: StrictStr
@@ -3907,7 +3992,7 @@ class PromptConfiguration(BaseModel):
     )
     scope_id: StrictStr
     prompt_key: PromptKey
-    status: Status4
+    status: Status5
     reason: Annotated[Reason2 | None, Field(...)]
     mode: Mode4
     artifact: Annotated[ArtifactReference | None, Field(...)]

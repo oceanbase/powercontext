@@ -32,6 +32,8 @@ Desktop 宿主的进程内测量与原生安全导出遵循独立的 [Desktop �
 独立查询 pending 工作，避免新成功记录掩盖旧 queued run。显式操作 Family 的 Source 消费不适用；缺失观测不变成零
 或 healthy。不计算产物完成百分比。HTTP 契约以及 Dashboard 状态分节/详情展示是独立交付，不由此检查层提供。
 
+Memory 输入预算阻塞从 `pc_memory_work_blocks` 读取，并与当前 cursor 匹配。拒绝时的估算、生效预算和估算器 ID 在重启后仍可读取，不据此推断提供方用量计数。
+
 ## 新增 operational event
 
 使用 module logger 和 `powercontext._logging.log_safely`。Message 使用固定文本，批准的诊断值放入 structured fields。

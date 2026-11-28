@@ -153,7 +153,13 @@ from powercontext.http import (
     UpdateScopeRequest,
 )
 from powercontext.http._generated.models import (
+    AtomicMemoryProcessingBlock,
+    AtomicMemoryProcessingStatus,
+    AtomicMemoryProcessingStatusRequest,
+    GetAtomicMemoryProcessingBlockRequest,
     GetTopicMemoryProcessingBlockRequest,
+    RetryAtomicMemoryProcessingRequest,
+    RetryAtomicMemoryProcessingResponse,
     RetryTopicMemoryProcessingRequest,
     RetryTopicMemoryProcessingResponse,
     TopicMemoryProcessingBlock,
@@ -187,6 +193,9 @@ _ClientResponse: TypeAlias = (
     | ScopedStats
     | TopicMemoryProcessingBlock
     | TopicMemoryProcessingStatus
+    | AtomicMemoryProcessingStatus
+    | AtomicMemoryProcessingBlock
+    | RetryAtomicMemoryProcessingResponse
     | RetryTopicMemoryProcessingResponse
     | ClearScopeBindingResponse
 )
@@ -248,6 +257,60 @@ def topic_memory_retry(
             context,
             lambda client: client.retry_topic_memory_processing(
                 RetryTopicMemoryProcessingRequest(scope_id=scope_id, block_id=block_id)
+            ),
+        )
+    )
+
+
+atomic_memory_app = typer.Typer(
+    name="atomic-memory",
+    context_settings={"help_option_names": HELP_OPTION_NAMES},
+    help="Inspect and explicitly retry blocked Atomic Memory processing.",
+    no_args_is_help=True,
+)
+
+
+@atomic_memory_app.command("status")
+def atomic_memory_status(
+    context: typer.Context, scope_id: Annotated[str, typer.Option(help="Scope to inspect.")]
+) -> None:
+    asyncio.run(
+        _execute(
+            context,
+            lambda client: client.get_atomic_memory_processing_status(
+                AtomicMemoryProcessingStatusRequest(scope_id=scope_id)
+            ),
+        )
+    )
+
+
+@atomic_memory_app.command("block")
+def atomic_memory_block(
+    context: typer.Context,
+    scope_id: Annotated[str, typer.Option(help="Scope containing the block.")],
+    block_id: Annotated[str, typer.Option(help="Exact block ID returned by status.")],
+) -> None:
+    asyncio.run(
+        _execute(
+            context,
+            lambda client: client.get_atomic_memory_processing_block(
+                GetAtomicMemoryProcessingBlockRequest(scope_id=scope_id, block_id=block_id)
+            ),
+        )
+    )
+
+
+@atomic_memory_app.command("retry")
+def atomic_memory_retry(
+    context: typer.Context,
+    scope_id: Annotated[str, typer.Option(help="Scope to retry; requires scope.admin.")],
+    block_id: Annotated[str, typer.Option(help="Exact observed block ID; duplicates reuse its acceptance.")],
+) -> None:
+    asyncio.run(
+        _execute(
+            context,
+            lambda client: client.retry_atomic_memory_processing(
+                RetryAtomicMemoryProcessingRequest(scope_id=scope_id, block_id=block_id)
             ),
         )
     )
@@ -2073,6 +2136,9 @@ def _dump_json_response(response: _ClientResponse) -> bool:
             SkillArtifact,
             TopicMemoryProcessingBlock,
             TopicMemoryProcessingStatus,
+            AtomicMemoryProcessingStatus,
+            AtomicMemoryProcessingBlock,
+            RetryAtomicMemoryProcessingResponse,
             RetryTopicMemoryProcessingResponse,
         ),
     ):
@@ -2330,6 +2396,7 @@ def register_commands(cli: typer.Typer) -> set[str]:
     cli.command("import-sessions")(import_sessions)
     cli.add_typer(dream_app, name="dream")
     cli.add_typer(topic_memory_app, name="topic-memory")
+    cli.add_typer(atomic_memory_app, name="atomic-memory")
     cli.add_typer(candidate_app, name="candidate")
     cli.add_typer(experience_app, name="experience")
     cli.add_typer(skill_app, name="skill")

@@ -62,6 +62,34 @@ def add_atomic_memory_routes(  # noqa: C901
     add_route,
     execution_context,
 ):
+    async def get_atomic_memory_processing_status(
+        request: models.AtomicMemoryProcessingStatusRequest,
+        application: Annotated[Any, Depends(application_dependency)],
+    ) -> models.AtomicMemoryProcessingStatus:
+        result = await _scoped(application, request.scope_id).processing_status()
+        return models.AtomicMemoryProcessingStatus.model_validate(result.model_dump())
+
+    async def get_atomic_memory_processing_block(
+        request: models.GetAtomicMemoryProcessingBlockRequest,
+        application: Annotated[Any, Depends(application_dependency)],
+    ) -> models.AtomicMemoryProcessingBlock:
+        result = await _scoped(application, request.scope_id).get_block(str(request.block_id))
+        return models.AtomicMemoryProcessingBlock.model_validate(result.model_dump())
+
+    async def retry_atomic_memory_processing(
+        request: models.RetryAtomicMemoryProcessingRequest,
+        http_request: Request,
+        application: Annotated[Any, Depends(application_dependency)],
+    ) -> models.RetryAtomicMemoryProcessingResponse:
+        result = await _scoped(application, request.scope_id).retry(
+            str(request.block_id), context=execution_context(http_request, "retry_atomic_memory_processing")
+        )
+        return models.RetryAtomicMemoryProcessingResponse.model_validate(result.model_dump())
+
+    add_route(app, operations.GET_ATOMIC_MEMORY_PROCESSING_STATUS, get_atomic_memory_processing_status)
+    add_route(app, operations.GET_ATOMIC_MEMORY_PROCESSING_BLOCK, get_atomic_memory_processing_block)
+    add_route(app, operations.RETRY_ATOMIC_MEMORY_PROCESSING, retry_atomic_memory_processing)
+
     async def get_atomic_memory_state(
         scope_id: Annotated[str, Path(min_length=1, max_length=256, pattern=r".*\S.*")],
         artifact_id: Annotated[str, Path(min_length=1, max_length=128)],

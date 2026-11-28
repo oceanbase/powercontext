@@ -101,7 +101,7 @@ limitations under the License.
           {% if blocked or pending or row.error %}
           <dt>{{ t.auto_clue }}</dt><dd>{% if row.error %}{{ t.error_403 if row.error.status == 403 else t.auto_clue_read_error }}{% elif blocked %}{% if status.block.last_error_code %}{{ t.auto_clue_last_failure }} <strong>{{ t.get('auto_cause_' ~ status.block.last_error_code, t.auto_error_unknown) }}</strong>{% else %}{{ t.auto_clue_block_limit if status.block.error_code in ['window_attempt_limit','window_provider_budget_exceeded'] else t.auto_clue_block_known }}{% endif %}{% elif execution and execution.last_error_code %}{{ t.auto_clue_historical }} {{ t.get('auto_cause_' ~ execution.last_error_code,t.auto_error_unknown) }}{% elif execution %}{{ t.get('auto_clue_' ~ execution.reason, t.auto_clue_local) }}{% else %}{{ t.auto_clue_execution_unknown }}{% endif %}</dd>
           {% endif %}
-          <dt>{{ t.auto_next_action }}</dt><dd>{% if row.error %}{{ t.auto_next_read_error }}{% elif blocked %}{{ t.auto_next_timeout if status.block.last_error_code in ['model_timeout','inference_timeout'] else t.auto_next_blocked }}{% elif execution and execution.state == 'retry_wait' %}{{ t.auto_next_retry }}{% elif execution and execution.state == 'running' %}{{ t.auto_next_running }}{% elif pending %}{{ t.auto_next_pending }}{% else %}{{ t.auto_next_outputs }}{% endif %}</dd>
+          <dt>{{ t.auto_next_action }}</dt><dd>{% if row.error %}{{ t.auto_next_read_error }}{% elif blocked %}{{ t.auto_next_input_budget if row.family == 'memory' and status.block.error_code == 'input_budget_exceeded' else t.auto_next_timeout if status.block.last_error_code in ['model_timeout','inference_timeout'] else t.auto_next_blocked }}{% elif execution and execution.state == 'retry_wait' %}{{ t.auto_next_retry }}{% elif execution and execution.state == 'running' %}{{ t.auto_next_running }}{% elif pending %}{{ t.auto_next_pending }}{% else %}{{ t.auto_next_outputs }}{% endif %}</dd>
         </dl>
         <div class="automatic-actions">
           {% if blocked or row.error or pending %}<a href="{{ link('runtime') }}">{{ t.auto_action_config }}</a><a href="{{ link('observability') }}">{{ t.auto_action_diagnose }}</a>{% else %}<a href="#automatic-source-list">{{ t.auto_check_outputs }}</a>{% endif %}
@@ -116,7 +116,13 @@ limitations under the License.
               {% if execution and execution.next_check_seconds is not none %}<dt>{{ t.auto_next_check }}</dt><dd>{{ execution.next_check_seconds|round|int }} {{ t.runtime_config_seconds }}</dd>{% endif %}
               {% if execution and execution.last_error_code %}<dt>{{ t.auto_previous_error }}</dt><dd>{{ t.get('processing_error_' ~ execution.last_error_code,t.auto_error_unknown) }}{% if execution.last_error_at %} · {{ execution.last_error_at|display_time }}{% endif %}</dd>{% endif %}
               {% if blocked and status.block.diagnostics and status.block.diagnostics.stage %}<dt>{{ t.auto_failure_stage }}</dt><dd>{{ t['auto_stage_' ~ status.block.diagnostics.stage.value] }}</dd>{% endif %}
-              {% if blocked %}<dt>{{ t.processing_topic_attempts }}</dt><dd>{{ status.block.attempts }}</dd>{% endif %}
+              {% if blocked and row.family == 'memory' and status.block.diagnostics %}
+              <dt>{{ t.auto_block_id }}</dt><dd>{{ status.block.block_id }}</dd>
+              <dt>{{ t.auto_estimated_input_tokens }}</dt><dd>{{ status.block.diagnostics.estimated_input_tokens }}</dd>
+              <dt>{{ t.auto_effective_budget }}</dt><dd>{{ status.block.diagnostics.effective_budget }}</dd>
+              <dt>{{ t.auto_token_estimator }}</dt><dd>{{ status.block.diagnostics.token_estimator_id }}</dd>
+              {% endif %}
+              {% if blocked and status.block.attempts is not none %}<dt>{{ t.processing_topic_attempts }}</dt><dd>{{ status.block.attempts }}</dd>{% endif %}
             </dl>
             <p class="text-secondary mb-0">{{ t.auto_evidence_limit }}</p>
           </details>

@@ -365,6 +365,7 @@ def processing_error_code(exception_type: type[BaseException] | str, error_code:
         "InferenceTimeoutError": "model_timeout",
         "InferenceUnavailableError": "model_unavailable",
         "InvalidInferenceOutputError": "invalid_model_output",
+        "AtomicMemoryInputBudgetError": "input_budget_exceeded",
         "AccessDeniedError": "access_denied",
         "AccessIdentityRequiredError": "access_identity_required",
         "AccessUnavailableError": "access_unavailable",

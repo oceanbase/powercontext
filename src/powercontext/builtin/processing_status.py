@@ -33,6 +33,7 @@ from powercontext.builtin.dream.models import DreamCandidateRef, DreamOperation,
 from powercontext.builtin.persistence.codec import load_model, stored_bytes
 from powercontext.builtin.persistence.cursors import SourceCursorRepository
 from powercontext.builtin.persistence.errors import InvalidStoredColumnError, InvalidStoredPayloadError
+from powercontext.builtin.persistence.memory_recovery import current_memory_block, memory_block_diagnostics
 from powercontext.builtin.persistence.processing_intents import ArtifactProcessingIntentRepository
 from powercontext.builtin.persistence.profile import ProfilePolicyRepository
 from powercontext.builtin.persistence.supervision import ArtifactProcessingLeaseRepository, database_utc_now
@@ -79,9 +80,9 @@ class ProcessingStatusBlock:
     error_code: str
     source_after: int
     target_source_through: int
-    attempts: int
-    requests: int
-    tokens: int
+    attempts: int | None
+    requests: int | None
+    tokens: int | None
     block_id: str | None = None
     blocked_at: datetime | None = None
     source_through: int | None = None
@@ -255,6 +256,21 @@ class ProcessingStatusInspector:
             if processing_family == "topic-memory" and progress is not None
             else None
         )
+        if processing_family == "memory" and progress is not None:
+            memory_block = await current_memory_block(connection, scope_id, binding)
+            if memory_block is not None:
+                block = ProcessingStatusBlock(
+                    error_code=memory_block.error_code,
+                    source_after=memory_block.source_after,
+                    source_through=memory_block.source_through,
+                    target_source_through=memory_block.source_through,
+                    attempts=None,
+                    requests=None,
+                    tokens=None,
+                    block_id=memory_block.block_id,
+                    blocked_at=memory_block.blocked_at,
+                    diagnostics=memory_block_diagnostics(memory_block),
+                )
         runs: tuple[DreamOperationStatus, ...] = ()
         pending: bool | None = None
         unavailable = None

@@ -3140,6 +3140,160 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 },
             }
         },
+        "/v1/atomic-memory/processing/status": {
+            "post": {
+                "tags": ["atomic-memory"],
+                "summary": "Inspect Atomic Memory processing and its input-budget block",
+                "description": "Return the current "
+                "Source cursor, head "
+                "and persisted "
+                "input-budget block. "
+                "This read never "
+                "prepares input, calls "
+                "a model, grants "
+                "recovery or changes "
+                "processing state.",
+                "operationId": "get_atomic_memory_processing_status",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {"$ref": "#/components/schemas/AtomicMemoryProcessingStatusRequest"}
+                        }
+                    },
+                    "required": True,
+                },
+                "responses": {
+                    "200": {
+                        "description": "Current durable processing state.",
+                        "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+                        "content": {
+                            "application/json": {
+                                "schema": {"$ref": "#/components/schemas/AtomicMemoryProcessingStatus"}
+                            }
+                        },
+                    },
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "403": {"$ref": "#/components/responses/Forbidden"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                    "500": {"$ref": "#/components/responses/InternalError"},
+                    "503": {"$ref": "#/components/responses/Unavailable"},
+                },
+                "x-powercontext-access": {
+                    "action": "scope.read",
+                    "resource": {"scope-id-from": "scope_id", "type": "scope"},
+                },
+                "x-powercontext-scope-mode": "current",
+            }
+        },
+        "/v1/atomic-memory/processing/blocks/get": {
+            "post": {
+                "tags": ["atomic-memory"],
+                "summary": "Get a retained Atomic Memory processing block",
+                "description": "Return the exact "
+                "retained budget "
+                "rejection and any "
+                "accepted recovery "
+                "receipt within the "
+                "selected Scope.",
+                "operationId": "get_atomic_memory_processing_block",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {"$ref": "#/components/schemas/GetAtomicMemoryProcessingBlockRequest"}
+                        }
+                    },
+                    "required": True,
+                },
+                "responses": {
+                    "200": {
+                        "description": "The exact retained block.",
+                        "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+                        "content": {
+                            "application/json": {"schema": {"$ref": "#/components/schemas/AtomicMemoryProcessingBlock"}}
+                        },
+                    },
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "403": {"$ref": "#/components/responses/Forbidden"},
+                    "404": {"$ref": "#/components/responses/NotFound"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                    "500": {"$ref": "#/components/responses/InternalError"},
+                    "503": {"$ref": "#/components/responses/Unavailable"},
+                },
+                "x-powercontext-access": {
+                    "action": "scope.read",
+                    "resource": {"scope-id-from": "scope_id", "type": "scope"},
+                },
+                "x-powercontext-scope-mode": "current",
+            }
+        },
+        "/v1/atomic-memory/processing/retry": {
+            "post": {
+                "tags": ["atomic-memory"],
+                "summary": "Conditionally recover one Atomic Memory input-budget block",
+                "description": "Require scope.admin and "
+                "the exact observed "
+                "block_id. Unaccepted "
+                "recovery also requires "
+                "Source-read and "
+                "Memory-create access "
+                "for preflight. Recheck "
+                "the complete extraction "
+                "input using the current "
+                "effective prompt, "
+                "renderer, estimator and "
+                "budget without calling "
+                "a model. If it fits, "
+                "atomically retain one "
+                "recovery receipt and "
+                "request processing. "
+                "Sources and the cursor "
+                "position remain "
+                "unchanged. Repeated "
+                "accepted IDs return the "
+                "original receipt, "
+                "including after restart "
+                "or disabling "
+                "generation. Stale "
+                "unretried IDs and "
+                "inputs that still "
+                "exceed the budget "
+                "return 409. A later "
+                "Worker always checks "
+                "its input again.",
+                "operationId": "retry_atomic_memory_processing",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {"$ref": "#/components/schemas/RetryAtomicMemoryProcessingRequest"}
+                        }
+                    },
+                    "required": True,
+                },
+                "responses": {
+                    "200": {
+                        "description": "Recovery was durably accepted, including duplicate acceptance.",
+                        "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+                        "content": {
+                            "application/json": {
+                                "schema": {"$ref": "#/components/schemas/RetryAtomicMemoryProcessingResponse"}
+                            }
+                        },
+                    },
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "403": {"$ref": "#/components/responses/Forbidden"},
+                    "404": {"$ref": "#/components/responses/NotFound"},
+                    "409": {"$ref": "#/components/responses/Conflict"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                    "500": {"$ref": "#/components/responses/InternalError"},
+                    "503": {"$ref": "#/components/responses/Unavailable"},
+                },
+                "x-powercontext-access": {
+                    "action": "scope.admin",
+                    "resource": {"scope-id-from": "scope_id", "type": "scope"},
+                },
+                "x-powercontext-scope-mode": "current",
+            }
+        },
         "/v1/topic-memory/processing/status": {
             "post": {
                 "tags": ["topic-memory"],
@@ -3392,7 +3546,10 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "capabilities and may produce no Memory. "
                 "Do not flush every turn or use it instead "
                 "of an explicit Memory save. Report the "
-                "actual processing result.",
+                "actual processing result. An oversized "
+                "single Source returns a persistent block "
+                "with HTTP 409; ordinary flushes cannot "
+                "clear it.",
                 "operationId": "flush_memory",
                 "requestBody": {
                     "content": {"application/json": {"schema": {"$ref": "#/components/schemas/FlushMemoryRequest"}}},
@@ -3408,6 +3565,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     },
                     "401": {"$ref": "#/components/responses/Unauthorized"},
                     "403": {"$ref": "#/components/responses/Forbidden"},
+                    "409": {"$ref": "#/components/responses/Conflict"},
                     "422": {"$ref": "#/components/responses/InvalidRequest"},
                     "503": {"$ref": "#/components/responses/Unavailable"},
                     "500": {"$ref": "#/components/responses/InternalError"},
@@ -12936,6 +13094,109 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "additionalProperties": False,
                 "type": "object",
                 "required": ["status", "previous_cursor", "current_cursor", "high_watermark", "processed_source_count"],
+            },
+            "AtomicMemoryProcessingStatusRequest": {
+                "properties": {"scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"}},
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["scope_id"],
+            },
+            "GetAtomicMemoryProcessingBlockRequest": {
+                "properties": {
+                    "scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
+                    "block_id": {"type": "string", "maxLength": 36, "minLength": 1},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["scope_id", "block_id"],
+            },
+            "RetryAtomicMemoryProcessingRequest": {
+                "properties": {
+                    "scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
+                    "block_id": {"type": "string", "maxLength": 36, "minLength": 1},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["scope_id", "block_id"],
+            },
+            "AtomicMemoryProcessingBlock": {
+                "properties": {
+                    "block_id": {"type": "string", "format": "uuid"},
+                    "scope_id": {"type": "string", "maxLength": 256, "minLength": 1},
+                    "binding_name": {"type": "string", "maxLength": 128},
+                    "source_after": {"type": "integer", "minimum": 0.0},
+                    "source_through": {"type": "integer", "minimum": 1.0},
+                    "input_fingerprint": {
+                        "type": "string",
+                        "pattern": "^[a-f0-9]{64}$",
+                        "description": "SHA-256 "
+                        "of "
+                        "the "
+                        "complete "
+                        "rendered "
+                        "extraction "
+                        "input "
+                        "and "
+                        "effective "
+                        "instructions "
+                        "at "
+                        "rejection; "
+                        "no "
+                        "input "
+                        "content "
+                        "is "
+                        "returned.",
+                    },
+                    "estimated_input_tokens": {"type": "integer", "minimum": 1.0},
+                    "effective_budget": {"type": "integer", "minimum": 1.0},
+                    "token_estimator_id": {"type": "string", "maxLength": 128},
+                    "failure_location": {"type": "string", "enum": ["atomic_memory.extract"]},
+                    "error_code": {"type": "string", "enum": ["input_budget_exceeded"]},
+                    "blocked_at": {"type": "string", "format": "date-time"},
+                    "retried_at": {"type": "string", "format": "date-time", "nullable": True},
+                    "retry_request_generation": {"type": "integer", "minimum": 1.0, "nullable": True},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": [
+                    "block_id",
+                    "scope_id",
+                    "binding_name",
+                    "source_after",
+                    "source_through",
+                    "input_fingerprint",
+                    "estimated_input_tokens",
+                    "effective_budget",
+                    "token_estimator_id",
+                    "failure_location",
+                    "error_code",
+                    "blocked_at",
+                    "retried_at",
+                    "retry_request_generation",
+                ],
+            },
+            "AtomicMemoryProcessingStatus": {
+                "properties": {
+                    "state": {"type": "string", "enum": ["idle", "pending", "blocked"]},
+                    "source_cursor": {"type": "integer", "minimum": 0.0},
+                    "source_head": {"type": "integer", "minimum": 0.0},
+                    "block": {
+                        "allOf": [{"$ref": "#/components/schemas/AtomicMemoryProcessingBlock"}],
+                        "nullable": True,
+                    },
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["state", "source_cursor", "source_head", "block"],
+            },
+            "RetryAtomicMemoryProcessingResponse": {
+                "properties": {
+                    "status": {"type": "string", "enum": ["accepted"]},
+                    "block": {"$ref": "#/components/schemas/AtomicMemoryProcessingBlock"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["status", "block"],
             },
             "TopicMemoryProcessingStatusRequest": {
                 "properties": {"scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"}},
