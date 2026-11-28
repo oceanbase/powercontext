@@ -244,6 +244,47 @@ def test_rejection_fingerprint_covers_rendered_input_and_allows_corrected_input_
     asyncio.run(scenario())
 
 
+def test_retry_preflights_the_same_scope_bound_input_as_processing(recovery_config):
+    from powercontext.builtin.artifacts.atomic_memory.extraction import AtomicMemoryExtractionInput
+
+    extractor = _Extractor()
+
+    def render(value):
+        # A Scope-aware renderer must see the same identity during retry and work.
+        if isinstance(value, AtomicMemoryExtractionInput) and value.scope_id is None:
+            return "unbound input"
+        return value.model_dump_json()
+
+    pipeline = replace(atomic_memory_pipeline(extractor), input_renderer=render)
+
+    async def scenario():
+        async with open_builtin_runtime(recovery_config(), candidate_pipeline=pipeline) as runtime:
+            assert runtime.atomic_memory is not None
+            scope = await _scope(runtime, "scope-bound-retry")
+            memory = runtime.atomic_memory.for_scope(scope)
+            await _oversized(runtime, scope)
+            with pytest.raises(ArtifactProcessingBlockedError):
+                await memory.flush(limit=1)
+            block = (await memory.processing_status()).block
+            assert block is not None
+            with pytest.raises(AtomicMemoryInputBudgetError):
+                await memory.retry(block.block_id)
+            assert (await memory.processing_status()).block == block
+            assert (await memory.cursor()).sequence == 0
+            assert not extractor.requests
+
+        async with open_builtin_runtime(recovery_config(budget=100000), candidate_pipeline=pipeline) as runtime:
+            assert runtime.atomic_memory is not None
+            memory = runtime.atomic_memory.for_scope(scope)
+            receipt = await memory.retry(block.block_id)
+            assert receipt.status == "accepted"
+            assert (await memory.flush(limit=1)).current_cursor == 1
+            assert len(extractor.requests) == 1
+            assert extractor.requests[0].scope_id == scope
+
+    asyncio.run(scenario())
+
+
 def test_recovery_rolls_back_intent_and_receipt_when_interrupted(recovery_config, monkeypatch):
     import powercontext.builtin.runtime.atomic_memory_processing as module
 

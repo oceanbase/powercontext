@@ -553,6 +553,18 @@ def create_mcp_server(
         headers={"X-PowerContext-Dream-Contract": "2"},
     )
     openapi_spec = deepcopy(server_app.openapi())
+    # Agents see the same effective Content Source bound the Server enforces, not only the
+    # contract ceiling. The schemas are deep-copied above so the HTTP document is untouched.
+    effective_content_limit = getattr(server_app.state, "source_content_max_chars", None)
+    if effective_content_limit is not None:
+        for schema_name in (
+            "CaptureContentSourceRequest",
+            "CaptureContentSourceItem",
+            "CaptureWorkingNoteRequest",
+        ):
+            content = openapi_spec["components"]["schemas"].get(schema_name, {}).get("properties", {}).get("content")
+            if isinstance(content, dict):
+                content["maxLength"] = effective_content_limit
     # MCP exposes Replace only for Atomic Memory. Specialize its input before
     # FastMCP builds the flattened parameter map: the HTTP union has no shared
     # top-level properties, so projecting it loses the request body entirely.

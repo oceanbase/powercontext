@@ -36,12 +36,14 @@ impl<'a> CallRecorder<'a> {
         cancellation: RequestCancellation,
         target: &str,
         mapping: Option<UsageMapping>,
+        internal: bool,
     ) -> Self {
         let call = CallEvidence {
             call_id: observation.call_id().to_owned(),
             request_id_fingerprint: observation.request_id().map(fingerprint),
             target_fingerprint: fingerprint(target),
             usage_mapping: mapping,
+            internal,
             ..Default::default()
         };
         Self {

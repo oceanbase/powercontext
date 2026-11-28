@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""A streamed OpenAI Responses API fake for hosts such as Codex."""
+"""An OpenAI Responses API fake for hosts such as Codex, and for the gateway in front of them."""
 
 from __future__ import annotations
 
@@ -29,7 +29,7 @@ from .script import FINAL_ANSWER, ScriptedTurns, ToolCall
 
 
 class ResponsesModelFixture:
-    """Serve `POST /v1/responses` as server-sent events from a `ScriptedTurns` script.
+    """Serve `POST /v1/responses` from a `ScriptedTurns` script, as server-sent events unless `stream` is false.
 
     Every request body is kept in `requests`. A script names a tool offered inside a namespace as
     `<namespace>__<tool>`, or by the tool's own name; Codex offers MCP tools in a `mcp__<server>` namespace.
@@ -80,7 +80,20 @@ class ResponsesModelFixture:
             if call.call_id not in self._addresses:
                 self._addresses[call.call_id] = offered[call.name]
             item = _function_call(call, self._addresses[call.call_id])
+        if body.get("stream") is False:
+            # The gateway always calls its upstream without streaming.
+            response = {"id": f"resp-{number}", "object": "response", "status": "completed", "model": body.get("model")}
+            return JSONResponse({**response, "output": [item], "usage": _USAGE})
         return StreamingResponse(_events(f"resp-{number}", item), media_type="text/event-stream")
+
+
+_USAGE = {
+    "input_tokens": 100,
+    "input_tokens_details": {"cached_tokens": 0},
+    "output_tokens": 20,
+    "output_tokens_details": {"reasoning_tokens": 0},
+    "total_tokens": 120,
+}
 
 
 def _offered_tools(tools: list[dict[str, Any]]) -> dict[str, dict[str, str]]:
@@ -117,11 +130,4 @@ def _events(response_id: str, item: dict[str, Any]) -> Iterator[str]:
         text = item["content"][0]["text"]
         yield event("response.output_text.delta", item_id=item["id"], output_index=0, content_index=0, delta=text)
     yield event("response.output_item.done", output_index=0, item=item)
-    usage = {
-        "input_tokens": 100,
-        "input_tokens_details": {"cached_tokens": 0},
-        "output_tokens": 20,
-        "output_tokens_details": {"reasoning_tokens": 0},
-        "total_tokens": 120,
-    }
-    yield event("response.completed", response={"id": response_id, "status": "completed", "usage": usage})
+    yield event("response.completed", response={"id": response_id, "status": "completed", "usage": _USAGE})

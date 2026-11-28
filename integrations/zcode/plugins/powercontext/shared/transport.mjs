@@ -25,7 +25,11 @@ export function serverOrigin(settings) {
   } catch {
     throw new Error('invalid_server_url')
   }
-  const loopback = ['127.0.0.1', '[::1]', 'localhost'].includes(endpoint.hostname)
+  // Match the shared transport policy: localhost, ::1, and the entire 127/8 range are loopback.
+  const host = endpoint.hostname.toLowerCase().replace(/^\[/, '').replace(/\]$/, '')
+  const octets = host.split('.')
+  const loopback = host === 'localhost' || host === '::1' ||
+    (octets.length === 4 && octets[0] === '127' && octets.every((octet) => /^\d{1,3}$/.test(octet) && Number(octet) <= 255))
   if (!(endpoint.protocol === 'https:' || endpoint.protocol === 'http:' && (loopback || settings.allowInsecureHttp)) ||
       endpoint.username || endpoint.password || endpoint.search || endpoint.hash || endpoint.pathname !== '/') {
     throw new Error('invalid_server_url')

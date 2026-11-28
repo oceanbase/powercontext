@@ -321,6 +321,47 @@ def test_reply_in_another_shape_is_rejected_instead_of_read_as_no_operation(tmp_
     _run(tmp_path, conversation, scenario)
 
 
+def test_step_two_must_return_an_operation_for_every_listed_entry(tmp_path: Path) -> None:
+    def process(path: Path, entries: dict[str, Any], operations: dict[str, Any]):
+        outcome: list[Any] = []
+
+        async def scenario(contexts, memory) -> None:
+            await contexts.records.capture_source(SCOPE, "content", "first", f"{BUDGET_100} {OWNER}", {})
+            try:
+                outcome.append((await contexts.process_memory(SCOPE, 1)).current_cursor)
+            except InvalidInferenceOutputError as error:
+                outcome.append(error)
+            outcome.append(await _texts(memory))
+
+        path.mkdir()
+        _run(path, _Conversation(entries, operations), scenario)
+        return outcome
+
+    # Two listed memories and no operation: dropping them silently would consume the window.
+    rejected, texts = process(tmp_path / "none", _facts("rollout budget", "rollout owner"), {"operations": []})
+    assert isinstance(rejected, InvalidInferenceOutputError) and rejected.operation == "atomic-memory-one-pass"
+    assert texts == set()
+
+    # One operation for two entries leaves one listed memory undecided.
+    one = {"operations": [_write("create", BUDGET_100)]}
+    rejected, texts = process(tmp_path / "fewer", _facts("rollout budget", "rollout owner"), one)
+    assert isinstance(rejected, InvalidInferenceOutputError) and rejected.operation == "atomic-memory-one-pass"
+    assert texts == set()
+
+    # Declining an entry with a noop without target still counts as its decision.
+    declined = {
+        "operations": [
+            _write("create", BUDGET_100),
+            {"action": "noop", "target_ids": [], "reason": "The owner is not worth keeping."},
+        ]
+    }
+    assert process(tmp_path / "declined", _facts("rollout budget", "rollout owner"), declined) == [1, {BUDGET_100}]
+
+    # Entries repeating a query are one entry, and a step 1 without entries needs no operation.
+    assert process(tmp_path / "repeated", _facts("rollout budget", "rollout budget"), one) == [1, {BUDGET_100}]
+    assert process(tmp_path / "empty", _facts(), {"operations": []}) == [1, set()]
+
+
 def _input_estimate(turn: ConversationTurn[Any]) -> int:
     return character_token_estimator().estimate("\n".join((turn.instructions, *map(str, turn.history), turn.message)))
 

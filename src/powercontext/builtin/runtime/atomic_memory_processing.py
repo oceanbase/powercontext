@@ -267,7 +267,7 @@ class AtomicMemorySourceWindowProcessor:
             if self.pipeline is None:
                 raise AtomicMemoryRecoveryUnavailableError
             async with self._bind_processing_prompts(scope_id):
-                value = await self._extraction_input(eligible)
+                value = await self._extraction_input(scope_id, eligible)
                 self._require_budget(self.pipeline, value, "atomic_memory.extract")
                 async with self.application.database.transaction() as connection:
                     await lock_memory_frontier(connection, scope_id)
@@ -322,12 +322,13 @@ class AtomicMemorySourceWindowProcessor:
             raise AtomicMemoryBlockSourceIneligibleError(block_id=block.block_id, source_ref=window[0].ref)
         return eligible
 
-    async def _extraction_input(self, eligible):
+    async def _extraction_input(self, scope_id, eligible):
         return AtomicMemoryExtractionInput(
             evidence=tuple([
                 await project_atomic_memory_evidence(item, self.sources, evidence_id=f"source:{item.journal_position}")
                 for item in eligible
-            ])
+            ]),
+            scope_id=scope_id,
         )
 
     @staticmethod
@@ -655,11 +656,8 @@ class AtomicMemorySourceWindowProcessor:
         compared_keys: set[str] = set()
         if pipeline is None:
             return workset, ()
-        evidence = tuple([
-            await project_atomic_memory_evidence(item, self.sources, evidence_id=f"source:{item.journal_position}")
-            for item in eligible
-        ])
-        extraction_input = AtomicMemoryExtractionInput(evidence=evidence)
+        extraction_input = await self._extraction_input(scope_id, eligible)
+        evidence = extraction_input.evidence
         self._require_budget(pipeline, extraction_input, "atomic_memory.extract")
         extraction_prompt = current_prompt("atomic_memory.extract")
         prompt_refs = (
@@ -929,7 +927,9 @@ class AtomicMemorySourceWindowProcessor:
         basis = tuple(workset.items[key] for key in shown.values())
         await self._authorize_comparison_basis(scope_id, context, basis)
         operations = await conversation.turn(
-            message, lambda reply: apply_one_pass_operations(workset, reply, shown, extraction_input), entries
+            message,
+            lambda reply: apply_one_pass_operations(workset, reply, shown, extraction_input, entries.output),
+            entries,
         )
         workset, created = operations.output
 

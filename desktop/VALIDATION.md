@@ -1,5 +1,49 @@
 # Desktop validation
 
+## Atomic Memory recovery merged source qualification
+
+`sqlite-atomic-merge-5c22cc13-v1` qualifies the thirteen generated Desktop operations against
+Server source snapshot `working-tree-sha256:5c22cc136f9be5c31ed723e539f1b77fe3786d7d8aa1454a92f29d04ad8319d1`.
+The snapshot combines PR source `6077fd6bbe9e13c1142ac6bd374d331b1e84f3a1` with master
+`901247c5ffc5876501f316e9a90fd3890fc53bd6` and keeps recovery preflight and processing bound to the same Scope input.
+It includes extraction-budget blocking and conditional recovery; reconcile budget recovery remains outside this snapshot.
+The snapshot identity is not a published commit or release.
+
+- Normalized OpenAPI SHA-256: `4685ca7d45245c360f8ca8ce128493dd1821175f24443a91ee5ada99ebf9623d`.
+- Wheel: `powercontext-1.6.0.dev0+pc2894.5c22cc13-py3-none-any.whl`.
+- Wheel SHA-256: `f38b413a52543ad60483111812a6b1b8ea3c0e7badefb88c4231fc346efb664d`.
+
+All 844 packaged runtime files across `powercontext`, `powercontext_service_bootstrap` and
+`powercontext_integration_lifecycle` match source byte for byte. The source identity hashes sorted
+`path sha256` lines, each ending in a newline, for those files at their `src/` paths plus `pyproject.toml`,
+`uv.lock` and `openapi/powercontext.yaml`.
+
+On 2026-11-28, Linux x86_64, Python 3.11.15 and Rust 1.95.0 passed all four modes through
+`desktop/tests/real_server.py` and the native `server_probe`: anonymous loopback, static Bearer,
+HTTPS with an explicit CA/base path, and enforced authentication Provider. The harness selected the bundled
+product record, verified the actual wheel hash, and started independent real SQLite Server processes.
+Save, search, exact revision reads, Scope selection/pagination, identity changes, same-identity revocation,
+scoped authorization without Server observation, committed writes with lost responses without replay,
+and Server survival after client exit passed.
+
+All 27 copied native files, excluding the isolated crate entry, match product source byte for byte.
+Native dependency versions, sources and checksums match the product Cargo lock. The host lacks DBus development
+headers, so the isolated crate uses vendored DBus and excludes the Tauri UI entry; OpenSSL development headers
+were extracted into temporary storage. No product dependency or lock change is required.
+These results qualify the recorded SQLite protocol operations. Installed GUI, system credential stores,
+Windows/macOS, OceanBase/seekDB and external model providers require separate acceptance.
+The three Atomic Memory recovery operations are outside the Desktop operation set and have independent HTTP behavior tests.
+
+```sh
+uv run --no-sync python desktop/tests/real_server.py \
+  --product-qualification sqlite-atomic-merge-5c22cc13-v1 \
+  --wheel desktop/.artifacts/atomic-memory-budget-pr2894-merge/powercontext-1.6.0.dev0+pc2894.5c22cc13-py3-none-any.whl
+```
+
+The wheel, source manifest, source/protocol equivalence records and four-mode aggregate report are retained
+under ignored `desktop/.artifacts/atomic-memory-budget-pr2894-merge/`. Per-mode process evidence remains under
+ignored `desktop/.artifacts/real-server-*/`. Historical qualifications retain their exact source, contract and artifact identities.
+
 ## Atomic Memory extraction budget recovery qualification
 
 `sqlite-atomic-extract-2b7dd519-v1` qualifies the thirteen generated Desktop operations against
@@ -4049,4 +4093,37 @@ uv pip install --python /tmp/pc-venv-meta3/bin/python \
   "/tmp/pc-wheel-meta3/powercontext-0.1.dev2+gc407025b0-py3-none-any.whl[server,cli]"
 POWERCONTEXT_SERVER_ACCESS_MODE=enforced POWERCONTEXT_SERVER_AUTH_TOKEN=qualification-token \
   /tmp/pc-venv-meta3/bin/powercontext server run --host 127.0.0.1 --port 8242 --no-env-file
+```
+
+## Server 7b58ce2 source content limit protocol qualification
+
+`sqlite-source-content-limit-7b58ce2-v1` covers all thirteen Desktop protocol operations against Server source
+`7b58ce2a601dc099966363667e0d040647fc3dff`. The contract makes the Content Source character limit a deployment
+setting, adds `GET /v1/source-limits`, applies the limit to every Content Source write path, and reports the effective
+value in the MCP capture schemas; the Desktop operations and their request or response shapes are unchanged.
+
+- Normalized OpenAPI SHA-256: `29f33308b74ff51bdd3d9825f85d7dd5a2308c80a476c6b1badf32a850e662f5`.
+- Wheel: `powercontext-0.1.dev2+g7b58ce2a6-py3-none-any.whl`.
+- Wheel SHA-256: `addb6322cc6f875a4a7cccc13f87146b901928b8e43dcfc0153ed8f5d3b997b3`.
+
+On 2026-11-27, Linux x86_64 (WSL2) with Python 3.14 and that wheel passed static Bearer mode with an enforced token:
+unauthenticated requests returned 401, and the bundled Python client exercised all thirteen operations. The Server ran
+with `POWERCONTEXT_SERVER_SOURCE_CONTENT_MAX_CHARS=64`: `GET /v1/source-limits` reported 64 and the 1,000,000-character
+ceiling; a 64-character capture was accepted and a 65-character capture returned `422 invalid_request` naming the
+limit; `POST /v1/scopes/{scope_id}/sources` accepted 64 string characters and a JSON value whose canonical text is 64
+characters, and rejected the corresponding 65-character writes with the same `422`.
+
+The native `server_probe` was not rebuilt for this record because the validation environment has no Rust toolchain. This
+record therefore establishes HTTP protocol compatibility between the new client contract and the exact wheel; it does not
+establish native-probe, installed-WebView, Windows/macOS or release acceptance.
+
+Reproduce against the recorded artifact:
+
+```sh
+uv build --wheel --out-dir /tmp/pc-wheel-limit8
+uv pip install --python /tmp/pc-venv-limit7/bin/python \
+  "/tmp/pc-wheel-limit8/powercontext-0.1.dev2+g7b58ce2a6-py3-none-any.whl[server,cli]"
+POWERCONTEXT_SERVER_ACCESS_MODE=enforced POWERCONTEXT_SERVER_AUTH_TOKEN=qualification-token \
+  POWERCONTEXT_SERVER_SOURCE_CONTENT_MAX_CHARS=64 \
+  /tmp/pc-venv-limit7/bin/powercontext server run --host 127.0.0.1 --port 8246 --no-env-file
 ```
