@@ -523,6 +523,24 @@ powercontext doctor dsh
 
 `doctor` 检查已安装的包和 Server。`doctor dsh` 检查 DeepSeek Harness CLI，以及 dump-config 是否包含插件 id `powercontext-dsh`。
 
+## 移除插件
+
+```bash
+powercontext setup dsh --remove
+powercontext setup dsh --remove --profile desktop
+```
+
+移除作用于已保存的 profile，或 `--profile` 指定的 profile。
+它用 `dsh plugin --profile <profile> remove` 注销 `powercontext-dsh`；如果注册了 `powercontext-dsh-pet`，也会一并注销。
+随后删除 package 链接，以及 setup 克隆的源码 checkout。该 profile 的 `cordis.patch.yml` 和 dsh-pet 记忆状态会保留。
+从 Desktop profile 移除插件前，请完全退出 DSH Desktop。
+
+只要还有其他 profile 注册了插件，共享的 Skill、已保存的凭据和连接就会保留，结果会列出这些 profile 和移除它们的命令。
+该 profile 的 DSH 命令不可用时，移除仍会删除 PowerContext 的文件和共享状态，并给出之后要运行的 `dsh plugin` 命令。
+对于 Desktop profile，请用 Desktop 安装的 dsh 运行这些命令，
+或带上 `--dsh-command /path/to/Desktop/resources/runtime/cli/bin/dsh`（Windows 上为 `dsh.cmd`）再次移除。
+移除会保留哪些内容见 [CLI](../develop/interfaces.md#cli)。
+
 ## 环境变量
 
 | 变量 | 默认值 | 含义 |

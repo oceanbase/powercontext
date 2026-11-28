@@ -33,7 +33,7 @@ from urllib.parse import urlsplit
 from powercontext.cli.guidance import SKILL_DIRECTORY, guidance_region, preserve_installed_guidance
 from powercontext.cli.installation import publish, write_json
 from powercontext.cli.system import Diagnostic, DiagnosticStatus, SetupError
-from powercontext.cli.transport import setup_transport_updates
+from powercontext.cli.transport import remove_connection, setup_transport_updates
 from powercontext.client.transport_policy import normalize_client_url
 from powercontext.transport import is_loopback_host
 
@@ -334,6 +334,30 @@ class KimiInstaller:
             }
         )
         return {"server_url": endpoint, "scope_id": scope, "profile": profile.value}
+
+    def remove(self) -> dict[str, Any]:
+        """Unregister the managed plugin, delete its owned copy, and forget the connection."""
+        home = kimi_home()
+        registry_path, destination = home / "plugins/installed.json", home / "plugins/managed/powercontext"
+        if registry_path.is_symlink() or destination.is_symlink():
+            raise SetupError("Kimi installation paths must not be symbolic links")  # noqa: TRY003
+        registry = _registry(registry_path)
+        kept = [
+            item
+            for item in registry["plugins"]
+            if item["id"] != "powercontext" or Path(item.get("root", "")).resolve() != destination.resolve()
+        ]
+        writes: dict[Path, bytes | None] = {}
+        removed: list[str] = []
+        if len(kept) != len(registry["plugins"]):
+            registry["plugins"] = kept
+            writes[registry_path] = (json.dumps(registry, ensure_ascii=False, indent=2) + "\n").encode()
+            removed.append(f"{registry_path} powercontext")
+        if (destination / OWNER_MARKER).is_file():
+            writes[destination] = None
+            removed.append(str(destination))
+        publish(writes=writes)
+        return {"removed": removed + remove_connection("kimi-code")}
 
     def verify(  # noqa: C901 - installed declarations plus opt-in runtime and transport probes.
         self, *, runtime: bool = False, cwd: Path | None = None, session_id: str | None = None, mcp: bool = False

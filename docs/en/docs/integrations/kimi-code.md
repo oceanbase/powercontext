@@ -106,13 +106,11 @@ In full mode, propose or generate an Experience/Skill only on request, inspect i
 
 Use the current Scope for all operations and the actual native tool names in Kimi's catalog; Kimi may shorten long qualified names. Missing, denied or failed MCP operations remain incomplete. Guidance never authorizes HTTP/shell domain writes as a substitute. Setup and profile selection do not bypass host approvals.
 
-## Diagnose and remove
+## Diagnose
 
 doctor is readonly: it checks registration/enablement, Node, MCP/Hook declarations, Server readiness and Scope access. It does not prove that a real MCP call or model injection succeeded. Missing/wrong tokens surface as authentication_failed; a disabled plugin/MCP stays disabled after setup. Incorrect endpoints or inaccessible Scopes require explicit correction and a new session.
 
 `--mcp` additionally initializes a bounded MCP transport session, discovers Server tools (including pagination), compares the selected profile, and closes the session. `mcp` reports installed declarations; `mcp_discovery` reports current Server discovery. Neither proves that the current Kimi window loaded those tools or that a domain operation succeeded. Discovery executes no domain tools and does not capture or flush.
-
-Use Kimi's /plugins remove powercontext to remove registration. Kimi keeps the managed copy on disk. Delete only the PowerContext-owned managed directory after verifying its .powercontext-owned marker and removal of its registration. No global Hook or project configuration is added.
 
 ## Inspect Hook observations
 
@@ -156,6 +154,14 @@ uv run pytest tests/test_cli_kimi_code.py
 Set KIMI_CLI_BIN to the installed real binary or built main.mjs, then run uv run pytest tests/e2e/test_kimi_code_host.py tests/e2e/test_kimi_code_workflows.py. This opt-in test uses disposable Kimi homes, workspaces, Server database and local inference; it needs no live model key and does not modify the user's Kimi profile. An unset variable skips host acceptance and is not a passing qualification.
 
 The [Kimi Code acceptance workflow](https://github.com/oceanbase/powercontext/actions/workflows/kimi-code-acceptance.yml) pins Kimi 2.1.1 and Node 24.21.0 and runs Hook tests plus real-host acceptance on Linux and Windows for pull requests and master updates. Both inference services are controlled; no live provider key is required. A skipped host test fails CI. Artifacts contain CLI provenance, JUnit results and acceptance summaries, excluding Kimi profiles and databases.
+
+## Remove the plugin
+
+```bash
+powercontext setup kimi-code --remove
+```
+
+This removes the `powercontext` record from `plugins/installed.json`, deletes the managed `plugins/managed/powercontext` directory, and deletes the saved Kimi Code connection. The managed directory holds your Scope, capture, and profile choices, so the next setup needs `--scope-id` or `--workspace-scope` again. Kimi Code stores no PowerContext credential and the integration adds no global Hook or project configuration; unset `POWERCONTEXT_KIMI_TOKEN` yourself if you no longer need it. See [CLI](../develop/interfaces.md#cli) for what removal keeps.
 
 ## Automatic input privacy
 

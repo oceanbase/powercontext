@@ -272,7 +272,17 @@ query、scope、prepared content、citation、response body 或 authorization va
 每个提示词期间应能看到 hook 的 `Syncing PowerContext` 状态消息。使用 `powercontext doctor` 验证整体
 安装。
 
-## 卸载
+## 移除接入
+
+```bash
+powercontext setup workbuddy --remove
+```
+
+该命令删除 `~/.workbuddy/settings.json` 和 `~/.workbuddy/mcp.json` 中的 PowerContext 条目，
+还会删除 setup 安装的 hook 文件、scope resolver 和 Skill，以及已保存的凭据和 WorkBuddy 连接。
+其他 hook、MCP server 和设置会保留。移除会保留哪些内容见 [CLI](../develop/interfaces.md#cli)。
+
+撤销手动安装：
 
 1. 从 `~/.workbuddy/settings.json` 删除 `UserPromptSubmit` 中的 PowerContext 条目。
 2. 从 `~/.workbuddy/mcp.json` 删除 `powercontext` 条目。

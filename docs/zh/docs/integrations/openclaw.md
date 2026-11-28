@@ -244,3 +244,8 @@ powercontext doctor openclaw
 
 `doctor openclaw` 会检查 OpenClaw CLI 是否存在，以及 `openclaw plugins list --enabled --json` 是否将
 `memory-powercontext` 报告为已加载并选中 memory slot。修改 PowerContext 配置后需要重启 OpenClaw gateway。
+
+## 移除插件
+
+`powercontext setup openclaw --remove` 不支持 OpenClaw：setup 通过 `openclaw config` 修改 memory slot、
+工具允许列表和插件配置，但没有记录被替换的原值。请使用 OpenClaw 自己的插件命令移除插件。

@@ -237,15 +237,17 @@ powercontext doctor claude-code
 如果 setup 在创建新的 Marketplace 或插件项后失败，它只删除本次 setup 创建的对象；setup 前已存在的 Marketplace
 或插件会保留。修正命令报告的 Claude CLI 或仓库错误后可重新执行 setup，该操作可以安全重复。
 
-移除插件与 Marketplace：
+## 移除插件
 
 ```bash
-claude plugin uninstall powercontext@powercontext --scope user
-claude plugin marketplace remove powercontext
+powercontext setup claude-code --remove
 ```
 
-从最后一个 scope 卸载插件时，Claude Code 也会删除 `${CLAUDE_PLUGIN_DATA}`；除非卸载时传入
-`--keep-data`。
+该命令卸载 user scope 的插件；没有其他已安装插件使用 `powercontext` Marketplace 时，也会将其移除。
+它还会移除 PowerContext 状态栏，并删除已保存的凭据和 Claude Code 连接；你自己配置的状态栏会保留。
+从最后一个 scope 卸载插件时，Claude Code 也会删除其 `${CLAUDE_PLUGIN_DATA}` 目录。
+`PATH` 中没有 Claude Code CLI 时，插件、Marketplace 和 `pluginConfigs` 中的插件选项都会保留，移除会给出卸载插件的命令。
+移除会保留哪些内容见 [CLI](../develop/interfaces.md#cli)。
 
 ## 环境变量
 

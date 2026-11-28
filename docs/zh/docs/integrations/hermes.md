@@ -244,3 +244,9 @@ powercontext capabilities
 ```
 
 能力输出必须显示 Memory extraction 已启用。显式执行 `hermes powercontext remember` 不需要模型。
+
+## 移除插件
+
+`powercontext setup hermes --remove` 不支持 Hermes：
+setup 通过 Hermes 自身把 PowerContext 设为 memory provider 并启用命令插件，但没有记录哪些设置来自 setup、哪些来自你。
+请使用 Hermes 自己的插件和 memory 命令移除插件。

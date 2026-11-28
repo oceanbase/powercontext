@@ -260,15 +260,18 @@ If setup fails after creating a new Marketplace or plugin entry, it removes only
 call. A Marketplace or plugin that existed before setup is preserved. Rerun setup after correcting the reported
 Claude CLI or repository error; the operation is safe to repeat.
 
-Remove the plugin and Marketplace:
+## Remove the plugin
 
 ```bash
-claude plugin uninstall powercontext@powercontext --scope user
-claude plugin marketplace remove powercontext
+powercontext setup claude-code --remove
 ```
 
-Uninstalling the plugin from its last scope also removes its `${CLAUDE_PLUGIN_DATA}` directory unless Claude Code is
-run with `--keep-data`.
+This uninstalls the user-scope plugin and, when no other installed plugin uses it, the `powercontext` Marketplace. It
+also removes the PowerContext status line, the stored credential, and the saved Claude Code connection; a status line
+that you configured yourself stays. Uninstalling the plugin from its last scope also deletes its `${CLAUDE_PLUGIN_DATA}`
+directory. If the Claude Code CLI is not on `PATH`, the plugin, its Marketplace, and its `pluginConfigs` options stay,
+and removal prints the command that uninstalls the plugin. See [CLI](../develop/interfaces.md#cli) for what removal
+keeps.
 
 ## Environment variables
 

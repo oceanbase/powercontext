@@ -106,13 +106,11 @@ full 模式下，按请求提出或生成 Experience/Skill，检查候选，并�
 
 所有操作使用当前 Scope，并以 Kimi 实际原生工具目录中的名称为准；Kimi 可能缩短较长的限定名称。工具缺失、被拒绝或失败时保持未完成，不使用 HTTP/shell 领域写入代替。setup 和 profile 选择不绕过宿主审批。
 
-## 诊断与移除
+## 诊断
 
 doctor 只读检查注册/启用状态、Node、MCP/Hook 声明、Server readiness 和 Scope 可访问性，不证明真实 MCP 调用或模型注入已成功。缺失/错误 token 显示 authentication_failed，已禁用的插件/MCP 不会被 setup 自动开启。错误 endpoint 或不可访问的 Scope 需显式修正后开启新会话。
 
 `--mcp` 额外建立有界 MCP transport session，发现 Server 工具（包含分页），核对所选 profile 后关闭 session。`mcp` 表示已安装声明，`mcp_discovery` 表示当前 Server 发现结果；两者均不证明当前 Kimi 窗口已加载工具，也不证明领域操作成功。发现检查不执行领域工具、不采集、不 flush。
-
-使用 Kimi 的 /plugins remove powercontext 移除注册。宿主保留受管理副本；确认注册已移除并检查 .powercontext-owned 标记后，才删除 PowerContext 管理目录。接入不添加全局 Hook 或项目配置。
 
 ## 查看 Hook 运行观测
 
@@ -156,6 +154,14 @@ uv run pytest tests/test_cli_kimi_code.py
 设置 KIMI_CLI_BIN 指向真实二进制或构建后的 main.mjs，再运行 uv run pytest tests/e2e/test_kimi_code_host.py tests/e2e/test_kimi_code_workflows.py。该 opt-in 验收使用隔离 Kimi home、workspace、Server 数据库与本地推理，不需要线上模型 key，也不修改用户宿主配置。未设置变量时跳过宿主验收，跳过不代表通过。
 
 [Kimi Code acceptance 工作流](https://github.com/oceanbase/powercontext/actions/workflows/kimi-code-acceptance.yml) 固定 Kimi 2.1.1 和 Node 24.21.0，在 PR 和 master 更新时于 Linux、Windows 执行 Hook 测试与真实宿主验收。两处推理服务均受控，不需要线上模型 Key；宿主测试被跳过时 CI 失败。产物仅保留 CLI 版本来源、JUnit 结果和验收摘要，不上传 Kimi profile 或数据库。
+
+## 移除插件
+
+```bash
+powercontext setup kimi-code --remove
+```
+
+该命令从 `plugins/installed.json` 删除 `powercontext` 记录，删除受管理目录 `plugins/managed/powercontext`，并删除已保存的 Kimi Code 连接。该目录保存了你选择的 Scope、采集和 profile 设置，所以再次 setup 时需要重新传入 `--scope-id` 或 `--workspace-scope`。Kimi Code 不保存 PowerContext 凭据，接入也不添加全局 Hook 或项目配置；不再需要时，请自行移除 `POWERCONTEXT_KIMI_TOKEN` 环境变量。移除会保留哪些内容见 [CLI](../develop/interfaces.md#cli)。
 
 ## 自动输入隐私
 

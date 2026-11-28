@@ -259,3 +259,9 @@ powercontext capabilities
 
 The capability output must report Memory extraction as enabled. Explicit `hermes powercontext remember` writes do not
 require a model.
+
+## Remove the plugins
+
+`powercontext setup hermes --remove` is not supported for Hermes: setup makes PowerContext the memory provider and
+enables its command plugin through Hermes itself, and records nothing that tells those settings apart from yours. Remove
+the plugins with Hermes' own plugin and memory commands.

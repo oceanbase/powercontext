@@ -408,11 +408,16 @@ Server URL、非环回明文 HTTP 同意和默认采集设置由 `setup zcode` �
 修改这些安装参数后重新运行 setup 并重启 ZCode。`POWERCONTEXT_ZCODE_SERVER_URL` 只在插件没有保存
 Server URL 时作为 Hook 的回退值，不能用于修改正常安装的 MCP 端点。
 
-## 卸载
+## 移除插件
 
-从 `~/.zcode/cli/config.json` 的 `plugins.dirs` 中只移除 PowerContext 路径；确认
-`~/.zcode/cli/plugins/powercontext` 中存在 `.powercontext-owned` 后，再删除该受管理目录。
-最后完全退出并重启 ZCode。卸载插件不会删除 Server 数据或 ZCode 模型配置。
+```bash
+powercontext setup zcode --remove
+```
+
+该命令从 `~/.zcode/cli/config.json` 的 `plugins.dirs` 中移除 PowerContext 路径，
+删除 setup 安装的插件目录（其中也保存了你选择的采集和边界处理设置），并删除已保存的 ZCode 连接。
+Server 数据和 ZCode 模型配置会保留。完成后请完全退出并重新打开 ZCode。
+移除会保留哪些内容见 [CLI](../develop/interfaces.md#cli)。
 
 ## 自动输入隐私
 

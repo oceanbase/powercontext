@@ -104,6 +104,16 @@ def source_checkout(source: str, ref: str) -> Path:
     return target
 
 
+def linked_checkout(path: Path) -> Path | None:
+    """Return the checkout that ``source_checkout`` created for a linked package path, if it made one."""
+    root = (powercontext_data_dir() / "checkouts").resolve()
+    try:
+        relative = path.resolve().relative_to(root)
+    except (OSError, RuntimeError, ValueError):
+        return None
+    return root / relative.parts[0] if relative.parts else None
+
+
 def resolve_plugin_source(source: str, ref: str, host: str) -> Path:
     """Locate a native package in a checkout, leaving installation to its host."""
     from powercontext.cli.guidance import HOST_GUIDANCE

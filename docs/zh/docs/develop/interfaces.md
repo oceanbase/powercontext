@@ -129,6 +129,7 @@ Pi transcript。召回、采集和边界 flush 都会正常降级；显式持久
 ```text
 powercontext setup [agents...]
 powercontext setup codex dsh
+powercontext setup codex --remove --json
 powercontext config agent codex dsh --server-url https://memory.example
 powercontext config init --output .env
 powercontext config show --env-file .env
@@ -163,6 +164,11 @@ powercontext external-skill import --scope-id "$POWERCONTEXT_SCOPE_ID" --fingerp
 Agent 可以是 `codex`、`claude-code`、`dsh`、`hermes`、`kimi-code`、`openclaw`、`opencode`、`pi`、`workbuddy` 或 `zcode`。
 `powercontext setup` 提供交互选择；显式 Agent 名称支持非交互和多 Agent 安装。
 Setup 会安装、配置、按宿主能力启用插件并运行 doctor。各 Agent 的失败互相隔离；诊断失败时仍会报告已完成的安装。
+
+`powercontext setup [agents...] --remove` 撤销所选 Agent 的 setup：移除其原生注册、PowerContext 安装的文件、已保存的凭据，以及 Client 设置中的 `hosts.<agent>` 条目。它保留 PowerContext 安装包、Server 及其服务、已存储的记忆、Scope 绑定，以及你自己添加的设置。连接启用认证的 Server 时，之后再次 setup 需要重新提供 token。
+非交互运行时必须指定 Agent 名称，各 Agent 独立成功或失败。只有 `--json` 和 DSH 选项 `--profile`、`--dsh-command` 可以与 `--remove` 一起使用，其他 setup 选项会以退出码 2 失败。使用 `--json` 时，每个 Agent 报告 `"removal": "removed"`，没有可移除的内容时为 `"not_set_up"`；`result.removed` 列出已删除的内容，`result.notes` 列出仍需你处理的事项。
+Codex、Claude Code、Pi 和 DSH 的注册由它们自己的 CLI 管理。该 CLI 或该 profile 的 DSH 命令不可用时，移除仍会删除 PowerContext 自己的文件、凭据和连接，报告 `"host_registration": "not_checked"`（而不是 `"checked"`），并在提示中给出需要运行的宿主命令。对于 DSH，`result.remaining_profiles` 列出仍注册了插件的其他 profile。
+Hermes、OpenClaw 和 MiniMax 不支持移除：它们的 setup 修改了无法归属到 PowerContext 的宿主状态，因此各自的指南说明了如何用宿主自己的命令移除。`powercontext service uninstall` 是另一回事，它只移除个人 Server 服务。
 
 `powercontext config agent [agents...]` 更新已安装连接，不会重新安装或启用插件。
 `powercontext doctor [agents...]` 检查选中的 Agent；未指定时检查已保存的连接。

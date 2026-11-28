@@ -613,6 +613,25 @@ powercontext doctor dsh
 
 `doctor` checks the package and Server. `doctor dsh` checks the DeepSeek Harness CLI, registration and installed Memory protocol declaration. A package without a declaration is unverified/degraded; update the plugin and restart the actual Web/Desktop profile. See [protocol upgrade recovery](../operate/atomic-memory-migration.md#client-and-agent-host-compatibility).
 
+## Remove the plugin
+
+```bash
+powercontext setup dsh --remove
+powercontext setup dsh --remove --profile desktop
+```
+
+Removal applies to the saved profile, or to the profile that `--profile` selects. It unregisters `powercontext-dsh`, and
+`powercontext-dsh-pet` when registered, with `dsh plugin --profile <profile> remove`, then deletes the package link and
+any source checkout that setup cloned. The profile's `cordis.patch.yml` and the dsh-pet memory state stay. Fully quit
+DSH Desktop before removing the plugin from its profile.
+
+While another profile still registers the plugin, the shared Skill, the stored credential, and the saved connection
+stay; the result names each such profile and the command that removes it. If the profile's DSH command is unavailable,
+removal still deletes PowerContext's files and shared state and prints the `dsh plugin` commands to run later. For the
+Desktop profile, run them with the Desktop-installed dsh, or rerun removal with
+`--dsh-command /path/to/Desktop/resources/runtime/cli/bin/dsh` (`dsh.cmd` on Windows). See
+[CLI](../develop/interfaces.md#cli) for what removal keeps.
+
 ## Environment variables
 
 | Variable | Default | Meaning |

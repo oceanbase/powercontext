@@ -553,6 +553,18 @@ the current user's environment, but an already running Desktop instance must sti
 doctor codex`, then check Hook capture and MCP separately. An MCP connected status does not prove Source capture.
 Complete the [Source, topic evolution, and cross-session recall check](../get-started/quickstart.md#4-verify-memory-in-your-selected-mode).
 
+## Remove the plugin
+
+```bash
+powercontext setup codex --remove
+```
+
+This removes the plugin with `codex plugin remove`, along with its marketplace when that marketplace offers only
+PowerContext and no other installed plugin uses it. It also deletes the stored credential and the saved Codex
+connection, and on Windows the `POWERCONTEXT_CODEX_AUTHORIZATION` value that setup wrote for Codex Desktop. If the Codex
+CLI is not on `PATH`, the plugin and its marketplace stay, and removal prints the command that removes the plugin. See
+[CLI](../develop/interfaces.md#cli) for what removal keeps.
+
 ## Environment variables
 
 | Variable | Default | Meaning |

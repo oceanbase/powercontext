@@ -22,11 +22,12 @@ import subprocess
 import tempfile
 from pathlib import Path
 from shutil import which
+from typing import Any
 
 from powercontext.cli.guidance import HOST_GUIDANCE, SKILL_FILE, preserve_installed_guidance
 from powercontext.cli.installation import SetupError, publish
 from powercontext.cli.system import Diagnostic, DiagnosticStatus
-from powercontext.cli.transport import configure_connection
+from powercontext.cli.transport import configure_connection, remove_connection
 from powercontext.paths import powercontext_data_dir
 
 PI_PACKAGE_NAME = "powercontext-pi"
@@ -89,6 +90,28 @@ def _run_pi(*arguments: str) -> str:
     return completed.stdout or ""
 
 
+def _pi_agent_dir() -> Path:
+    """Pi's user configuration directory, which its user-scope ``settings.json`` paths are relative to."""
+    return Path(os.environ.get("PI_CODING_AGENT_DIR", Path.home() / ".pi" / "agent")).expanduser()
+
+
+def _user_packages(output: str) -> list[tuple[str, Path]]:
+    """Pair each user-scope package source in ``pi list`` output with its resolved path."""
+    packages: list[tuple[str, Path | None]] = []
+    user_packages = False
+    for line in output.splitlines():
+        if line and not line.startswith(" "):
+            user_packages = line == "User packages:"
+        elif user_packages and line.startswith("    "):
+            if packages and packages[-1][1] is None:
+                packages[-1] = (packages[-1][0], Path(line.strip()))
+        elif user_packages and line.startswith("  "):
+            packages.append((line.strip(), None))
+    # Pi prints no resolved line for a local package whose directory is gone; it still resolves the settings entry
+    # against its agent directory, so do the same to recognize the registration.
+    return [(source, resolved or _pi_agent_dir() / source.removesuffix(" (filtered)")) for source, resolved in packages]
+
+
 __all__ = ["PI_PACKAGE_NAME", "pi_executable", "pi_package_installed", "require_pi_package"]
 
 
@@ -102,26 +125,13 @@ class PiInstaller:
             if destination.exists() and not (destination / marker).is_file():
                 raise SetupError(f"Pi package path {destination} is not owned by PowerContext")  # noqa: TRY003
             superseded = []
-            user_packages = False
-            registered_source = None
-            for line in _run_pi("list").splitlines():
-                if line and not line.startswith(" "):
-                    user_packages = line == "User packages:"
-                    registered_source = None
-                elif user_packages and line.startswith("    "):
-                    resolved = Path(line.strip())
-                    if (
-                        registered_source is not None
-                        and resolved.resolve() != destination.resolve()
-                        and HOST_GUIDANCE["pi"].recognizes(resolved)
-                    ):
-                        if registered_source.endswith(" (filtered)"):
-                            raise SetupError(  # noqa: TRY003
-                                f"Pi package {resolved} has resource filters. Migrate its package entry and filters to {destination} in Pi settings before retrying setup."
-                            )
-                        superseded.append(registered_source)
-                elif user_packages and line.startswith("  "):
-                    registered_source = line.strip()
+            for registered_source, resolved in _user_packages(_run_pi("list")):
+                if resolved.resolve() != destination.resolve() and HOST_GUIDANCE["pi"].recognizes(resolved):
+                    if registered_source.endswith(" (filtered)"):
+                        raise SetupError(  # noqa: TRY003
+                            f"Pi package {resolved} has resource filters. Migrate its package entry and filters to {destination} in Pi settings before retrying setup."
+                        )
+                    superseded.append(registered_source)
             destination.parent.mkdir(parents=True, exist_ok=True)
             with tempfile.TemporaryDirectory(prefix=".powercontext-", dir=destination.parent) as temporary:
                 candidate = Path(temporary) / "package"
@@ -136,6 +146,31 @@ class PiInstaller:
                 "package_path": str(destination),
                 "data_dir": str(powercontext_data_dir()),
             }
+
+    def remove(self) -> dict[str, Any]:
+        """Unregister and delete the owned package copy, then forget the connection."""
+        destination = powercontext_data_dir() / "plugins" / "pi"
+        removed: list[str] = []
+        try:
+            pi_executable()
+        except SetupError:
+            # Pi may already be uninstalled; PowerContext's own copy and connection must still be removable.
+            outcome: dict[str, Any] = {
+                "host_registration": "not_checked",
+                "notes": [
+                    "Pi CLI is not on PATH, so the Pi package registration was not checked; if Pi is still installed, "
+                    f'run `pi remove "{destination}"`.'
+                ],
+            }
+        else:
+            outcome = {}
+            if any(resolved.resolve() == destination.resolve() for _, resolved in _user_packages(_run_pi("list"))):
+                _run_pi("remove", str(destination))  # The source that setup passed to `pi install`.
+                removed.append(f"Pi package {destination}")
+        if (destination / ".powercontext-owned").is_file() and not destination.is_symlink():
+            publish(writes={destination: None})
+            removed.append(str(destination))
+        return {"removed": removed + remove_connection("pi"), **outcome}
 
     def configure(self, connection):
         if not (powercontext_data_dir() / "plugins/pi/.powercontext-owned").is_file():

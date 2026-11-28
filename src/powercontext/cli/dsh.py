@@ -24,13 +24,14 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from shutil import which
+from typing import Any
 
 from powercontext.cli.dsh_runtime import DshProfile, DshTarget, dsh_home
 from powercontext.cli.guidance import SKILL_DIRECTORY, refresh_skill
 from powercontext.cli.installation import publish
 from powercontext.cli.memory_protocol import installed_memory_protocol
 from powercontext.cli.system import Diagnostic, DiagnosticStatus, SetupError
-from powercontext.cli.transport import configure_connection
+from powercontext.cli.transport import configure_connection, remove_connection
 from powercontext.paths import powercontext_data_dir
 
 DSH_PLUGIN_NAME = "powercontext-dsh"
@@ -147,6 +148,53 @@ def capability_checks(target: DshTarget) -> dict[str, str]:
             "client_declaration": "invalid",
             "asset_export": "invalid",
         }
+
+
+def _profile_dependencies(directory: Path) -> dict[str, str]:
+    """Read the packages a profile registers; ``dsh plugin add`` records each one as a dependency."""
+    path = directory / "package.json"
+    if not path.exists():
+        return {}
+    try:
+        manifest = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as error:
+        raise SetupError(f"Cannot read DSH profile manifest at {path}") from error  # noqa: TRY003
+    dependencies = manifest.get("dependencies") if isinstance(manifest, dict) else None
+    if not isinstance(dependencies, dict):
+        return {}
+    return {name: value for name, value in dependencies.items() if isinstance(value, str)}
+
+
+def _removal_command(target: DshTarget) -> str | None:
+    """Return the command that can unregister plugins from ``target``, or None when DSH is no longer installed."""
+    from powercontext.cli.dsh_runtime import resolve_dsh_target
+
+    try:
+        return resolve_dsh_target(target.profile, Path(target.command) if target.command else None).command or (
+            dsh_executable()
+        )
+    except SetupError:
+        if target.command:  # A command named on this run must work; only a missing install is tolerated.
+            raise
+        return None
+
+
+def _unregister_note(profile: DshProfile, registered: list[str]) -> str:
+    """Tell how to unregister PowerContext from ``profile`` after removal could not run its DSH command."""
+    commands = " and ".join(f"`dsh plugin --profile {profile} remove {name}`" for name in registered)
+    if profile == DshProfile.DESKTOP:
+        # npm/pnpm dsh cannot manage the Desktop profile, so point at the command Desktop installs.
+        return (
+            "The Desktop-installed dsh command is unavailable, so the Desktop plugin registration was not removed; "
+            f"if DSH Desktop is still installed, run {commands} with that command, or rerun "
+            "`powercontext setup dsh --remove --profile desktop --dsh-command "
+            "/path/to/Desktop/resources/runtime/cli/bin/dsh` (dsh.cmd on Windows)."
+        )
+    return (
+        f"The DSH command for profile {profile} is unavailable, so its plugin registration was not removed; if DSH "
+        f"is still installed, run {commands}, or rerun `powercontext setup dsh --remove --profile {profile}` once "
+        "the command is available."
+    )
 
 
 def require_built_plugin(path: Path) -> None:
@@ -308,6 +356,62 @@ class DshInstaller:
                 connection, dsh_target=self.dsh_target or DshTarget(DshProfile.WEB)
             )
         }
+
+    def remove(self) -> dict[str, Any]:
+        """Unregister PowerContext from one profile; drop the shared Skill and connection once no profile uses it."""
+        from powercontext.cli.dsh_pet import ADAPTER
+        from powercontext.cli.git_source import linked_checkout
+        from powercontext.cli.guidance import guidance_region
+
+        target = self.dsh_target or DshTarget(DshProfile.WEB)
+        packages = (ADAPTER, DSH_PLUGIN_NAME)
+        dependencies = _profile_dependencies(target.directory)
+        removed: list[str] = []
+        notes: list[str] = []
+        registered = [name for name in packages if name in dependencies]
+        # Only a registered profile needs its native carrier; Desktop's must be the Desktop-installed command.
+        executable = _removal_command(target) if registered else None
+        if registered and executable is None:
+            notes.append(_unregister_note(target.profile, registered))
+        for name in registered if executable is not None else ():
+            _run_dsh("plugin", "--profile", target.profile, "remove", name, executable=executable)
+            removed.append(f"{target.directory} {name}")
+        writes: dict[Path, bytes | None] = {}
+        for name in packages:
+            link = target.directory / "node_modules" / name
+            if link.is_symlink():  # pnpm leaves the link of a removed linked package behind.
+                writes[link] = None
+        source = dependencies.get(DSH_PLUGIN_NAME, "")
+        checkout = (
+            linked_checkout(target.directory / source.removeprefix("link:")) if source.startswith("link:") else None
+        )
+        if checkout is not None and checkout.is_dir():
+            writes[checkout] = None
+        others = sorted(
+            path.parent.name
+            for path in (dsh_home() / "profiles").glob("*/package.json")
+            if path.parent.name != target.profile and DSH_PLUGIN_NAME in _profile_dependencies(path.parent)
+        )
+        skill = dsh_home() / SKILL_DIRECTORY
+        if not others and not skill.is_symlink() and (skill / "SKILL.md").is_file():
+            try:
+                managed = guidance_region((skill / "SKILL.md").read_text(encoding="utf-8")) is not None
+            except (OSError, UnicodeError, ValueError):
+                managed = False
+            if managed:
+                writes[skill] = None
+        publish(writes=writes)
+        removed.extend(str(path) for path in writes)
+        outcome: dict[str, Any] = {"host_registration": "not_checked"} if notes else {}
+        if not others:
+            return {"removed": removed + remove_connection("dsh"), "notes": notes, **outcome}
+        # The saved connection names only the latest profile, so say which ones still need their own removal.
+        notes.extend(
+            f"PowerContext is still registered in DSH profile {name}; the shared Skill, credential, and connection "
+            f"stay until it is removed with `powercontext setup dsh --remove --profile {name}`."
+            for name in others
+        )
+        return {"removed": removed, "remaining_profiles": others, "notes": notes, **outcome}
 
     def verify(self) -> dict[str, Diagnostic]:
         """Collect diagnostics for the optional DeepSeek Harness integration."""

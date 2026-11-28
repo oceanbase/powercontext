@@ -146,6 +146,7 @@ Set `POWERCONTEXT_SCOPE_ID` to an existing ID returned by `create_scope` before 
 ```text
 powercontext setup [agents...]
 powercontext setup codex dsh
+powercontext setup codex --remove --json
 powercontext config agent codex dsh --server-url https://memory.example
 powercontext config init --output .env
 powercontext config show --env-file .env
@@ -181,6 +182,11 @@ current directory; pass `--env-file` to select another file or `--no-env-file` t
 Use `codex`, `claude-code`, `dsh`, `hermes`, `kimi-code`, `openclaw`, `opencode`, `pi`, `workbuddy`, or `zcode` for agents.
 `powercontext setup` offers interactive selection; explicit agent names support non-interactive and multi-agent setup.
 Setup installs, configures, activates where supported, and runs doctor. Failures remain isolated per agent; completed installation is reported even when diagnostics fail.
+
+`powercontext setup [agents...] --remove` undoes setup for the selected agents: it removes their native registrations, the files that PowerContext installed, the stored credentials, and their `hosts.<agent>` entries in the Client settings. It keeps the PowerContext package, the Server and its service, stored memory, Scope bindings, and settings that you added. Against an authenticated Server, a later setup needs the token again.
+Non-interactive runs require agent names, and each agent succeeds or fails on its own. Only `--json` and the DSH options `--profile` and `--dsh-command` combine with `--remove`; any other setup option exits with code 2. With `--json`, each agent reports `"removal": "removed"`, or `"not_set_up"` when there was nothing to remove; `result.removed` lists what was deleted and `result.notes` what is left for you to do.
+Codex, Claude Code, Pi, and DSH keep their registrations in their own CLIs. When that CLI, or the DSH command for the profile, is unavailable, removal still deletes PowerContext's own files, credential, and connection, reports `"host_registration": "not_checked"` instead of `"checked"`, and adds a note with the host command to run. For DSH, `result.remaining_profiles` lists the other profiles that still register the plugin.
+Removal is not supported for Hermes, OpenClaw, and MiniMax: their setup changes host state that PowerContext cannot attribute to itself, so their guides describe removal with each host's own commands. `powercontext service uninstall` is separate and removes only the personal Server service.
 
 `powercontext config agent [agents...]` updates installed connections without reinstalling or enabling plugins.
 `powercontext doctor [agents...]` checks the selected agents, or saved connections when none are selected.

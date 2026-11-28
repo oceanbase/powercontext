@@ -206,6 +206,52 @@ def _dsh_pet_setup_bindings(
     return pet_bindings
 
 
+# Options that removal reads; every other setup option configures an installation and is rejected with --remove.
+_REMOVE_PARAMETERS = frozenset({"agents", "json_output", "profile", "dsh_command", "remove"})
+
+
+def _remove_agents(
+    context: typer.Context,
+    agents: list[str] | None,
+    *,
+    profile: str | None,
+    dsh_command: Path | None,
+    json_output: bool,
+) -> None:
+    from powercontext.cli.dsh_runtime import DshTarget
+    from powercontext.cli.hosts import report_agents, select_hosts
+    from powercontext.cli.installation import remove
+    from powercontext.client.transport_policy import load_client_settings
+
+    for parameter in context.command.params:
+        if parameter.name in _REMOVE_PARAMETERS or parameter.name is None:
+            continue
+        source = context.get_parameter_source(parameter.name)
+        if source is not None and source.name != "DEFAULT":  # Typer may carry its own Click enum.
+            # A paired boolean flag stores False when its "--no-" form was typed.
+            secondary = getattr(parameter, "secondary_opts", None)
+            typed = secondary if secondary and context.params.get(parameter.name) is False else parameter.opts
+            option = typed[0] if typed else parameter.name
+            raise typer.BadParameter(f"{option} cannot be combined with --remove")  # noqa: TRY003
+    selected = select_hosts(agents, json_output=json_output)
+    if (profile is not None or dsh_command is not None) and "dsh" not in selected:
+        raise typer.BadParameter("--profile and --dsh-command with --remove select a DSH profile; select dsh")  # noqa: TRY003
+    try:
+        dsh_profile = DshProfile(profile) if profile is not None else None
+    except ValueError as error:
+        choices = ", ".join(item.value for item in DshProfile)
+        raise typer.BadParameter(f"dsh profile must be one of: {choices}", param_hint="--profile") from error  # noqa: TRY003
+
+    def complete(host: str) -> dict[str, Any]:
+        if host != "dsh":
+            return remove(host)
+        saved = load_client_settings("dsh").get("profile", DshProfile.WEB)
+        target = DshTarget(dsh_profile or DshProfile(saved), str(dsh_command) if dsh_command is not None else None)
+        return remove(host, dsh_target=target)
+
+    report_agents(selected, complete, json_output=json_output)
+
+
 @setup_app.callback()
 def setup_agents(
     context: typer.Context,
@@ -243,6 +289,12 @@ def setup_agents(
     ] = None,
     minimax_command: Annotated[Path | None, typer.Option(help="MiniMax mcode launcher path.")] = None,
     env_file: Annotated[Path | None, typer.Option(help="Setup environment file; defaults to .env.")] = None,
+    remove: Annotated[
+        bool,
+        typer.Option(
+            "--remove", help="Undo setup for the selected agents; keeps the package, Server, data, and Scope bindings."
+        ),
+    ] = False,
 ) -> None:
     """Install, configure, activate and diagnose the selected agent integrations."""
     from powercontext.cli.hosts import (
@@ -255,6 +307,9 @@ def setup_agents(
     )
     from powercontext.cli.transport import setup_environment_file
 
+    if remove:
+        _remove_agents(context, agents, profile=profile, dsh_command=dsh_command, json_output=json_output)
+        return
     token = setup_environment_file.set(env_file)
     context.call_on_close(lambda: setup_environment_file.reset(token))
     selected = select_hosts(agents, json_output=json_output)
@@ -1376,6 +1431,18 @@ def _run_codex_json(*arguments: str) -> dict[str, Any]:
     return result
 
 
+def _codex_marketplace_offers_only_powercontext(marketplace: dict[str, Any]) -> bool:
+    """Recognize a marketplace that exists only to distribute PowerContext, as setup's own does."""
+    try:
+        manifest = json.loads(
+            (Path(marketplace["root"]) / ".agents" / "plugins" / "marketplace.json").read_text(encoding="utf-8")
+        )
+        names = {item["name"] for item in manifest["plugins"]}
+    except (OSError, KeyError, TypeError, ValueError):
+        return False
+    return names == {PLUGIN_NAME}
+
+
 def _installed_codex_plugin() -> dict[str, Any] | None:
     plugins = [
         item
@@ -1481,6 +1548,53 @@ class CodexInstaller:
         if value is not None:
             configure_codex_desktop_authorization(value)
         return {"authorization_state": state}
+
+    def remove(self) -> dict[str, Any]:
+        """Uninstall the plugin, drop a PowerContext-only marketplace, and forget the connection."""
+        from powercontext.cli.transport import remove_connection
+
+        if _codex_path_executable() is None:
+            # Codex may already be uninstalled; PowerContext's own state must still be removable.
+            removed = self._clear_desktop_authorization()
+            return {
+                "removed": removed + remove_connection("codex"),
+                "host_registration": "not_checked",
+                "notes": [
+                    "Codex CLI is not on PATH, so the Codex plugin registration was not checked; if Codex is still "
+                    f"installed, find the plugin with `codex plugin list` and run `codex plugin remove {PLUGIN_NAME}@<marketplace>`."
+                ],
+            }
+        removed: list[str] = []
+        names = {PLUGIN_NAME}
+        for item in _run_codex_json("plugin", "list")["installed"]:
+            if item["name"] == PLUGIN_NAME and item["installed"]:
+                names.add(item["marketplaceName"])
+                _run_codex_json("plugin", "remove", f"{PLUGIN_NAME}@{item['marketplaceName']}")
+                removed.append(f"Codex plugin {PLUGIN_NAME}@{item['marketplaceName']}")
+        used = {item.get("marketplaceName") for item in _run_codex_json("plugin", "list")["installed"]}
+        for marketplace in _run_codex_json("plugin", "marketplace", "list")["marketplaces"]:
+            name = marketplace.get("name")
+            if name in names and name not in used and _codex_marketplace_offers_only_powercontext(marketplace):
+                _run_codex_json("plugin", "marketplace", "remove", name)
+                removed.append(f"Codex marketplace {name}")
+        return {"removed": removed + self._clear_desktop_authorization() + remove_connection("codex")}
+
+    @staticmethod
+    def _clear_desktop_authorization() -> list[str]:
+        from powercontext.cli.authorization import (
+            clear_codex_desktop_authorization,
+            credential_path,
+            read_stored_authorization,
+        )
+        from powercontext.cli.transport import load_client_settings
+
+        server_url = load_client_settings("codex").get("server_url")
+        if not isinstance(server_url, str):
+            return []
+        stored = read_stored_authorization(credential_path("codex"), server_url=server_url).authorization
+        if stored is not None and clear_codex_desktop_authorization(stored):
+            return ["Windows user environment POWERCONTEXT_CODEX_AUTHORIZATION"]
+        return []
 
     def verify(self) -> dict[str, Diagnostic]:
         """Collect plugin and native MCP diagnostics for the optional Codex integration."""
@@ -1680,6 +1794,64 @@ class ClaudeInstaller:
             allow_insecure_http=connection.allow_insecure_http,
         )
         return {"authorization_state": configure_connection(connection, writes=updates)}
+
+    def remove(self) -> dict[str, Any]:
+        """Uninstall the user-scope plugin, its unused Marketplace and status line, and forget the connection."""
+        from powercontext.cli.installation import write_bytes
+        from powercontext.cli.transport import remove_connection
+
+        plugin_id = f"{PLUGIN_NAME}@{CLAUDE_MARKETPLACE_NAME}"
+        removed: list[str] = []
+        cli_available = which("claude") is not None
+        plugins: object = None
+        if cli_available:
+            if _claude_plugin(_run_claude_json("plugin", "list"), scope="user") is not None:
+                _run_claude("plugin", "uninstall", plugin_id, "--scope", "user")
+                removed.append(f"Claude Code plugin {plugin_id}")
+            plugins = _run_claude_json("plugin", "list")
+            marketplace_used = isinstance(plugins, list) and any(
+                isinstance(item, dict) and str(item.get("id", "")).endswith(f"@{CLAUDE_MARKETPLACE_NAME}")
+                for item in plugins
+            )
+            marketplaces = _run_claude_json("plugin", "marketplace", "list")
+            if not marketplace_used and _claude_marketplace(marketplaces, CLAUDE_MARKETPLACE_NAME) is not None:
+                _run_claude("plugin", "marketplace", "remove", CLAUDE_MARKETPLACE_NAME)
+                removed.append(f"Claude Code marketplace {CLAUDE_MARKETPLACE_NAME}")
+        settings_file = _claude_config_dir() / "settings.json"
+        try:
+            settings = json.loads(settings_file.read_text(encoding="utf-8")) if settings_file.exists() else {}
+        except (OSError, UnicodeError, json.JSONDecodeError) as error:
+            raise SetupError(f"Cannot read Claude Code settings at {settings_file}: {error}") from error  # noqa: TRY003
+        if not isinstance(settings, dict):
+            raise SetupError(f"Claude Code settings at {settings_file} must contain a JSON object.")  # noqa: TRY003
+        changed = []
+        if _is_powercontext_statusline(settings.get("statusLine")):
+            del settings["statusLine"]
+            changed.append("statusLine")
+        plugin_configs = settings.get("pluginConfigs")
+        # Claude Code drops these options on uninstall; an earlier manual uninstall may have left them. Without the
+        # CLI an installed plugin cannot be ruled out, so its options stay.
+        if (
+            cli_available
+            and _claude_plugin(plugins) is None
+            and isinstance(plugin_configs, dict)
+            and plugin_configs.pop(plugin_id, None) is not None
+        ):
+            changed.append(f"pluginConfigs.{plugin_id}")
+        if changed:
+            write_bytes(settings_file, (json.dumps(settings, indent=2) + "\n").encode())
+            removed.extend(f"{settings_file} {name}" for name in changed)
+        removed += remove_connection("claude-code")
+        if cli_available:
+            return {"removed": removed}
+        return {
+            "removed": removed,
+            "host_registration": "not_checked",
+            "notes": [
+                "Claude Code CLI is not on PATH, so the Claude Code plugin registration was not checked; if Claude Code "
+                f"is still installed, run `claude plugin uninstall {plugin_id} --scope user`."
+            ],
+        }
 
     def verify(self) -> dict[str, Diagnostic]:
         """Collect diagnostics for the optional Claude Code integration."""

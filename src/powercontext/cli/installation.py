@@ -205,3 +205,32 @@ def setup(
         for note in getattr(error, "__notes__", ()):
             failure.add_note(note)
         raise failure from error
+
+
+def remove(host: str, **options: Any) -> dict[str, Any]:
+    """Undo what setup wrote for one agent; keep the package, Server, data, and Scope bindings."""
+    installer_type = installers()[host]
+    if not hasattr(installer_type, "remove"):
+        # Hermes and OpenClaw activate PowerContext through their own CLIs, and MiniMax keeps enablement in its own
+        # state; setup records nothing that tells those settings apart from the user's.
+        message = (
+            f"Automatic removal is not available for {host}; remove the plugin with {host}'s own plugin management"
+        )
+        raise SetupError(message)
+    try:
+        result = installer_type(**options).remove()
+    except (OSError, ValueError) as error:
+        failure = SetupError(f"Could not remove {host}: {error}")
+        for note in getattr(error, "__notes__", ()):
+            failure.add_note(note)
+        raise failure from error
+    # An installer reports "not_checked" when the host CLI that owns the registration is unavailable; PowerContext's
+    # own state is removed regardless, so the row still succeeds and the notes say what to check by hand.
+    registration = result.pop("host_registration", "checked")
+    result.setdefault("notes", [])
+    return {
+        "status": "ok",
+        "removal": "removed" if result["removed"] else "not_set_up",
+        "host_registration": registration,
+        "result": result,
+    }

@@ -37,7 +37,7 @@ from powercontext.cli.guidance import (
 )
 from powercontext.cli.installation import publish, write_json
 from powercontext.cli.system import Diagnostic, DiagnosticStatus, SetupError
-from powercontext.cli.transport import configure_connection
+from powercontext.cli.transport import configure_connection, remove_connection
 from powercontext.paths import powercontext_data_dir
 
 WORKBUDDY_HOME_ENV = "WORKBUDDY_HOME"
@@ -240,6 +240,33 @@ def _upsert_powercontext_hook(matchers: list[Any], hooks_dir: Path, settings_fil
     matchers.append({"hooks": [entry]})
 
 
+def _drop_powercontext_hook(settings: dict[str, Any]) -> bool:
+    """Remove PowerContext command hooks, and the matcher groups setup added once they are empty."""
+    hooks = settings.get("hooks")
+    matchers = hooks.get("UserPromptSubmit") if isinstance(hooks, dict) else None
+    if not isinstance(matchers, list):
+        return False
+    changed = False
+    kept: list[Any] = []
+    for matcher in cast(list[Any], matchers):
+        group = matcher.get("hooks") if isinstance(matcher, dict) else None
+        if isinstance(group, list):
+            remaining = [
+                entry
+                for entry in cast(list[Any], group)
+                if not (isinstance(entry, dict) and _is_powercontext_hook(cast(dict[str, Any], entry)))
+            ]
+            if len(remaining) != len(group):
+                changed = True
+                if not remaining:
+                    continue
+                matcher["hooks"] = remaining
+        kept.append(matcher)
+    if changed:
+        cast(dict[str, Any], hooks)["UserPromptSubmit"] = kept
+    return changed
+
+
 def _workbuddy_hook_command(hooks_dir: Path) -> str:
     script = hooks_dir / WORKBUDDY_HOOK_DRIVER
     return f"{_shell_argument(_python_executable())} {_shell_argument(script.as_posix())}"
@@ -407,6 +434,45 @@ class WorkBuddyInstaller:
             _merge_workbuddy_mcp(candidate, server_url=connection.server_url)
             state = configure_connection(connection, writes={path: candidate.read_bytes()})
         return {"authorization_state": state}
+
+    def remove(self) -> dict[str, Any]:
+        """Remove the hook entry and files, MCP server, and owned Skill; keep other hooks and servers."""
+        from powercontext.client.transport_policy import load_client_settings
+
+        root = workbuddy_home()
+        hooks, skill = root / WORKBUDDY_HOOKS_DIRNAME, root / WORKBUDDY_SKILLS_DIRNAME / WORKBUDDY_SKILL_NAME
+        settings_file, mcp_file = root / "settings.json", root / "mcp.json"
+        writes: dict[Path, bytes | None] = {}
+        removed: list[str] = []
+        settings = _load_json_object(
+            settings_file,
+            invalid=lambda: SetupError(f"WorkBuddy settings at {settings_file} must contain a JSON object."),
+            io_error=lambda error: SetupError(f"Cannot read WorkBuddy settings at {settings_file}: {error}"),
+        )
+        if _drop_powercontext_hook(settings):
+            writes[settings_file] = (json.dumps(settings, ensure_ascii=False, indent=2) + "\n").encode()
+            removed.append(f"{settings_file} hooks.UserPromptSubmit PowerContext hook")
+        config = _load_json_object(
+            mcp_file,
+            invalid=lambda: SetupError(f"WorkBuddy MCP configuration at {mcp_file} must contain a JSON object."),
+            io_error=lambda error: SetupError(f"Cannot read WorkBuddy MCP configuration at {mcp_file}: {error}"),
+        )
+        servers = config.get("mcpServers")
+        if isinstance(servers, dict) and servers.pop(WORKBUDDY_PLUGIN_NAME, None) is not None:
+            writes[mcp_file] = (json.dumps(config, ensure_ascii=False, indent=2) + "\n").encode()
+            removed.append(f"{mcp_file} mcpServers.{WORKBUDDY_PLUGIN_NAME}")
+        if _owned_workbuddy_skill(skill) and not skill.is_symlink():
+            writes[skill] = None
+            removed.append(str(skill))
+        # The hooks directory is shared and its files carry no owner marker, so delete them by name only when the
+        # hook entry, MCP server, Skill, or saved connection shows that PowerContext set this WorkBuddy up.
+        if removed or load_client_settings("workbuddy"):
+            for name in (*WORKBUDDY_HOOK_MODULES, WORKBUDDY_SCOPE_RESOLVER):
+                if (hooks / name).is_file():
+                    writes[hooks / name] = None
+                    removed.append(str(hooks / name))
+        publish(writes=writes)
+        return {"removed": removed + remove_connection("workbuddy")}
 
     def verify(self) -> dict[str, Diagnostic]:
         """Collect diagnostics for the optional WorkBuddy integration."""

@@ -464,11 +464,16 @@ Setup saves the Server URL, non-loopback plaintext HTTP consent, and default cap
 Rerun setup and restart ZCode after changing them. `POWERCONTEXT_ZCODE_SERVER_URL` is only a Hook fallback when no
 Server URL was saved; it cannot change the MCP endpoint in a normal installation.
 
-## Uninstall
+## Remove the plugin
 
-Remove only the PowerContext path from `plugins.dirs` in `~/.zcode/cli/config.json`. Delete
-`~/.zcode/cli/plugins/powercontext` only after confirming it contains `.powercontext-owned`. Fully quit and reopen
-ZCode. Uninstalling the plugin does not remove Server data or ZCode model configuration.
+```bash
+powercontext setup zcode --remove
+```
+
+This removes the PowerContext path from `plugins.dirs` in `~/.zcode/cli/config.json`, deletes the plugin directory that
+setup installed, which also holds your capture and boundary choices, and deletes the saved ZCode connection. Server data
+and ZCode model configuration stay. Fully quit and reopen ZCode afterwards. See [CLI](../develop/interfaces.md#cli) for
+what removal keeps.
 
 ## Automatic input privacy
 
